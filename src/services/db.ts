@@ -25,7 +25,6 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_chases_user_id ON chases(user_id);
-  CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);
 
   CREATE TABLE IF NOT EXISTS sent_alerts (
     chase_id TEXT NOT NULL,
@@ -47,3 +46,5 @@ try {
 } catch {
   // Column already exists on upgraded databases.
 }
+
+db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
