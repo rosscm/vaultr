@@ -1,0 +1,15 @@
+[
+  {
+    "source": "EBAY",
+    "listingId": "mock-1",
+    "title": "Squirtle PSA 10 Base Set",
+    "price": 95,
+    "currency": "USD",
+    "url": "https://example.com/mock-1",
+    "seller": "mock_seller",
+    "sellerFeedbackPercent": 99.7,
+    "postedAt": "2026-05-13T00:00:00.000Z",
+    "region": "US",
+    "condition": "Near Mint"
+  }
+]

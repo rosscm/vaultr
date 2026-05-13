@@ -4,4 +4,6 @@ dist
 .DS_Store
 coverage
 
-data
+data/*
+!data/.gitkeep
+!data/mock-listings.example.json

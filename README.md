@@ -28,10 +28,21 @@ Discord-native collector chase assistant.
 
 ## Initial Commands
 
+- `/alerts-channel-set`
 - `/chase-add`
+- `/chase-edit`
 - `/chase-list`
 - `/chase-remove`
 - `/chase-test`
+
+## eBay Polling
+
+- Set `EBAY_APP_ID` in `.env` (from eBay Developer Program)
+- Optional: tune `POLL_INTERVAL_SECONDS` (default `180`)
+- Set `LISTING_SOURCE=EBAY` for live eBay polling
+- Set `LISTING_SOURCE=MOCK` to run with local mock listings
+- Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
+- Alerts are posted to configured server channel (`/alerts-channel-set`) or DM fallback
 
 ## Production Notes
 
