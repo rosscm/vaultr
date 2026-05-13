@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { addChase, countUserChases, getUserPlan } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 
@@ -39,7 +39,7 @@ export const chaseAdd = {
     if (currentCount >= maxChases) {
       await interaction.reply({
         content: `You have reached your ${plan.tier} plan limit (${maxChases} active chases). Remove one with /chase-remove or upgrade for more.`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }

@@ -31,10 +31,13 @@ Discord-native collector chase assistant.
 - `/alerts-channel-set`
 - `/chase-add`
 - `/chase-edit`
+- `/chase-edit-latest`
 - `/chase-list`
 - `/chase-remove`
+- `/chase-remove-latest`
 - `/chase-test`
 - `/plan`
+- `/plan-set` (admin/testing)
 
 ## User Plans (Initial Plumbing)
 
@@ -43,6 +46,23 @@ Discord-native collector chase assistant.
 - `PRO` limit: 50 active chases
 - `/chase-add` enforces active chase limits
 - `/plan` shows the user's current tier and limits
+- `/plan-set` lets server admins set a user's tier/status for testing
+
+## Run As A Service (Raspberry Pi)
+
+Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaultr/deploy/vaultr.service)
+
+1. Build once:
+   - `npm run build`
+2. Copy service:
+   - `sudo cp deploy/vaultr.service /etc/systemd/system/vaultr.service`
+3. Reload and enable:
+   - `sudo systemctl daemon-reload`
+   - `sudo systemctl enable vaultr`
+   - `sudo systemctl start vaultr`
+4. Check status/logs:
+   - `sudo systemctl status vaultr`
+   - `tail -f /home/pi/Documents/GitHub/vaultr/vaultr.log`
 
 ## eBay Polling
 

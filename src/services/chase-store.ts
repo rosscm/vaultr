@@ -211,3 +211,14 @@ export function getUserPlan(userId: string): UserPlan {
     updatedAt: row.updated_at
   };
 }
+
+export function setUserPlan(userId: string, tier: 'FREE' | 'PRO', status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED' = 'ACTIVE'): UserPlan {
+  const now = new Date().toISOString();
+  upsertUserPlanStmt.run(userId, tier, status, now);
+  return {
+    userId,
+    tier,
+    status,
+    updatedAt: now
+  };
+}

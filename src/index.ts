@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { Client, Events, GatewayIntentBits, MessageFlags } from 'discord.js';
 import { commands } from './commands/index.js';
 import { startPoller } from './services/poller.js';
 
@@ -28,9 +28,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (error) {
     console.error(error);
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content: 'Something went wrong.', ephemeral: true });
+      await interaction.followUp({ content: 'Something went wrong.', flags: MessageFlags.Ephemeral });
     } else {
-      await interaction.reply({ content: 'Something went wrong.', ephemeral: true });
+      await interaction.reply({ content: 'Something went wrong.', flags: MessageFlags.Ephemeral });
     }
   }
 });

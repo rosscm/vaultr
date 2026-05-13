@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { setGuildAlertChannel } from '../services/chase-store.js';
 
 export const alertsChannelSet = {
@@ -15,7 +15,7 @@ export const alertsChannelSet = {
     ),
   async execute(interaction: any) {
     if (!interaction.guildId) {
-      await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
+      await interaction.reply({ content: 'This command can only be used in a server.', flags: MessageFlags.Ephemeral });
       return;
     }
 

@@ -1,0 +1,18 @@
+[Unit]
+Description=Vaultr Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Documents/GitHub/vaultr
+EnvironmentFile=/home/pi/Documents/GitHub/vaultr/.env
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/pi/Documents/GitHub/vaultr/vaultr.log
+StandardError=append:/home/pi/Documents/GitHub/vaultr/vaultr.log
+
+[Install]
+WantedBy=multi-user.target
