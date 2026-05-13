@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
-import type { Chase } from '../types.js';
+import { normalizePlanTier } from './plans.js';
+import type { Chase, UserPlan } from '../types.js';
 
 type ChaseRow = {
   id: string;
@@ -80,6 +81,27 @@ const getGuildAlertChannelStmt = db.prepare(`
   WHERE guild_id = ?
 `);
 
+const countChasesByUserStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM chases
+  WHERE user_id = ?
+`);
+
+const getUserPlanStmt = db.prepare(`
+  SELECT user_id, tier, status, updated_at
+  FROM user_plans
+  WHERE user_id = ?
+`);
+
+const upsertUserPlanStmt = db.prepare(`
+  INSERT INTO user_plans (user_id, tier, status, updated_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(user_id) DO UPDATE SET
+    tier = excluded.tier,
+    status = excluded.status,
+    updated_at = excluded.updated_at
+`);
+
 export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
   const chase: Chase = {
     ...input,
@@ -105,6 +127,11 @@ export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
 export function listChases(userId: string): Chase[] {
   const rows = listChasesStmt.all(userId) as ChaseRow[];
   return rows.map(mapRow);
+}
+
+export function countUserChases(userId: string): number {
+  const row = countChasesByUserStmt.get(userId) as { count: number };
+  return Number(row.count);
 }
 
 export function listAllChases(): Chase[] {
@@ -159,4 +186,28 @@ export function setGuildAlertChannel(guildId: string, channelId: string): void {
 export function getGuildAlertChannel(guildId: string): string | null {
   const row = getGuildAlertChannelStmt.get(guildId) as { channel_id: string } | undefined;
   return row?.channel_id ?? null;
+}
+
+export function getUserPlan(userId: string): UserPlan {
+  const row = getUserPlanStmt.get(userId) as
+    | { user_id: string; tier: string; status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED'; updated_at: string }
+    | undefined;
+
+  if (!row) {
+    const now = new Date().toISOString();
+    upsertUserPlanStmt.run(userId, 'FREE', 'ACTIVE', now);
+    return {
+      userId,
+      tier: 'FREE',
+      status: 'ACTIVE',
+      updatedAt: now
+    };
+  }
+
+  return {
+    userId: row.user_id,
+    tier: normalizePlanTier(row.tier),
+    status: row.status,
+    updatedAt: row.updated_at
+  };
 }

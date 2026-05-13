@@ -39,6 +39,13 @@ db.exec(`
     channel_id TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS user_plans (
+    user_id TEXT PRIMARY KEY,
+    tier TEXT NOT NULL DEFAULT 'FREE',
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    updated_at TEXT NOT NULL
+  );
 `);
 
 try {

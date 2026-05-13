@@ -4,5 +4,6 @@ import { chaseEdit } from './chase-edit.js';
 import { chaseList } from './chase-list.js';
 import { chaseRemove } from './chase-remove.js';
 import { chaseTest } from './chase-test.js';
+import { plan } from './plan.js';
 
-export const commands = [alertsChannelSet, chaseAdd, chaseEdit, chaseList, chaseRemove, chaseTest];
+export const commands = [alertsChannelSet, chaseAdd, chaseEdit, chaseList, chaseRemove, chaseTest, plan];

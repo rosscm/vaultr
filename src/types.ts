@@ -29,3 +29,12 @@ export type MatchResult = {
   score: number;
   reasons: string[];
 };
+
+export type PlanTier = 'FREE' | 'PRO';
+
+export type UserPlan = {
+  userId: string;
+  tier: PlanTier;
+  status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
+  updatedAt: string;
+};

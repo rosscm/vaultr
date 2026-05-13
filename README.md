@@ -34,6 +34,15 @@ Discord-native collector chase assistant.
 - `/chase-list`
 - `/chase-remove`
 - `/chase-test`
+- `/plan`
+
+## User Plans (Initial Plumbing)
+
+- Default tier is `FREE`
+- `FREE` limit: 3 active chases
+- `PRO` limit: 50 active chases
+- `/chase-add` enforces active chase limits
+- `/plan` shows the user's current tier and limits
 
 ## eBay Polling
 

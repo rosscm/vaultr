@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { addChase } from '../services/chase-store.js';
+import { addChase, countUserChases, getUserPlan } from '../services/chase-store.js';
+import { PLAN_LIMITS } from '../services/plans.js';
 
 export const chaseAdd = {
   data: new SlashCommandBuilder()
@@ -31,6 +32,18 @@ export const chaseAdd = {
         )
     ),
   async execute(interaction: any) {
+    const plan = getUserPlan(interaction.user.id);
+    const currentCount = countUserChases(interaction.user.id);
+    const maxChases = PLAN_LIMITS[plan.tier].maxActiveChases;
+
+    if (currentCount >= maxChases) {
+      await interaction.reply({
+        content: `You have reached your ${plan.tier} plan limit (${maxChases} active chases). Remove one with /chase-remove or upgrade for more.`,
+        ephemeral: true
+      });
+      return;
+    }
+
     const cardName = interaction.options.getString('card', true);
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
     const grade = interaction.options.getString('grade') ?? undefined;
