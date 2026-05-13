@@ -4,8 +4,8 @@ import { listChases, updateChase } from '../services/chase-store.js';
 export const chaseEdit = {
   data: new SlashCommandBuilder()
     .setName('chase-edit')
-    .setDescription('Edit an active chase by short id')
-    .addStringOption((opt) => opt.setName('id').setDescription('Short id from /chase-list').setRequired(true))
+    .setDescription('Edit an active chase by list entry number')
+    .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase-list').setRequired(true))
     .addStringOption((opt) => opt.setName('card').setDescription('Updated card name'))
     .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price'))
     .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade preference (e.g. PSA 10)'))
@@ -32,12 +32,12 @@ export const chaseEdit = {
         )
     ),
   async execute(interaction: any) {
-    const idPrefix = interaction.options.getString('id', true).trim();
+    const entry = interaction.options.getInteger('entry', true);
     const chases = listChases(interaction.user.id);
-    const match = chases.find((c) => c.id.startsWith(idPrefix));
+    const match = chases[entry - 1];
 
     if (!match) {
-      await interaction.reply(`No chase found with id prefix \`${idPrefix}\`.`);
+      await interaction.reply(`No chase found at entry \`${entry}\`. Use /chase-list first.`);
       return;
     }
 
@@ -66,7 +66,7 @@ export const chaseEdit = {
     }
 
     await interaction.reply(
-      `Updated chase: **${updated.cardName}** (id: \`${updated.id.slice(0, 8)}\`) | max: ${updated.maxPrice ?? 'any'} | grade: ${updated.grade ?? 'any'} | condition: ${updated.condition ?? 'any'} | region: ${updated.region ?? 'ANY'}`
+      `Updated chase #${entry}: **${updated.cardName}** | max: ${updated.maxPrice ?? 'any'} | grade: ${updated.grade ?? 'any'} | condition: ${updated.condition ?? 'any'} | region: ${updated.region ?? 'ANY'}`
     );
   }
 };

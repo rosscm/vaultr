@@ -4,19 +4,19 @@ import { listChases, removeChase } from '../services/chase-store.js';
 export const chaseRemove = {
   data: new SlashCommandBuilder()
     .setName('chase-remove')
-    .setDescription('Remove an active chase by short id')
-    .addStringOption((opt) => opt.setName('id').setDescription('Short id from /chase-list').setRequired(true)),
+    .setDescription('Remove an active chase by list entry number')
+    .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase-list').setRequired(true)),
   async execute(interaction: any) {
-    const idPrefix = interaction.options.getString('id', true).trim();
+    const entry = interaction.options.getInteger('entry', true);
     const chases = listChases(interaction.user.id);
-    const match = chases.find((c) => c.id.startsWith(idPrefix));
+    const match = chases[entry - 1];
 
     if (!match) {
-      await interaction.reply(`No chase found with id prefix \`${idPrefix}\`.`);
+      await interaction.reply(`No chase found at entry \`${entry}\`. Use /chase-list first.`);
       return;
     }
 
     const removed = removeChase(interaction.user.id, match.id);
-    await interaction.reply(removed ? `Removed chase: **${match.cardName}**` : 'Unable to remove chase.');
+    await interaction.reply(removed ? `Removed chase #${entry}: **${match.cardName}**` : 'Unable to remove chase.');
   }
 };

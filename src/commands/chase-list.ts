@@ -10,7 +10,10 @@ export const chaseList = {
       return;
     }
 
-    const lines = chases.map((c) => `• ${c.cardName} | id: ${c.id.slice(0, 8)} | max: ${c.maxPrice ?? 'any'}`);
+    const lines = chases.map(
+      (c, i) =>
+        `${i + 1}. ${c.cardName} | max: ${c.maxPrice ?? 'any'} | grade: ${c.grade ?? 'any'} | condition: ${c.condition ?? 'any'} | region: ${c.region ?? 'ANY'}`
+    );
     await interaction.reply(`Your chases:\n${lines.join('\n')}`);
   }
 };
