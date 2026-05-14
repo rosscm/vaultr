@@ -1,6 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserPlan } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
+import { infoEmbed, keyValue } from '../ui/embeds.js';
 
 export const plan = {
   data: new SlashCommandBuilder().setName('plan').setDescription('Show your Vaultr plan and limits'),
@@ -9,11 +10,15 @@ export const plan = {
     const limits = PLAN_LIMITS[userPlan.tier];
 
     await interaction.reply({
-      content:
-        `Plan: **${userPlan.tier}** (${userPlan.status})\n` +
-        `Active chase limit: **${limits.maxActiveChases}**\n` +
-        `Polling target: every **${limits.pollIntervalSeconds}s**\n` +
-        `Updated: ${userPlan.updatedAt}`,
+      embeds: [
+        infoEmbed('Your Plan').addFields(
+          keyValue('Tier', userPlan.tier),
+          keyValue('Status', userPlan.status),
+          keyValue('Active Chase Limit', `${limits.maxActiveChases}`),
+          keyValue('Polling Target', `${limits.pollIntervalSeconds}s`),
+          keyValue('Updated', userPlan.updatedAt)
+        )
+      ],
       flags: MessageFlags.Ephemeral
     });
   }

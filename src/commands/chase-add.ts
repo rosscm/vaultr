@@ -1,6 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { addChase, countUserChases, getUserPlan } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
+import { keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
 
 export const chaseAdd = {
   data: new SlashCommandBuilder()
@@ -43,7 +44,12 @@ export const chaseAdd = {
 
     if (currentCount >= maxChases) {
       await interaction.reply({
-        content: `You have reached your ${plan.tier} plan limit (${maxChases} active chases). Remove one with /chase-remove or upgrade for more.`,
+        embeds: [
+          warningEmbed(
+            'Plan Limit Reached',
+            `You have reached your ${plan.tier} limit of ${maxChases} active chases. Remove one with /chase-remove or upgrade.`
+          )
+        ],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -72,7 +78,17 @@ export const chaseAdd = {
     });
 
     await interaction.reply({
-      content: `Added chase: **${chase.cardName}** | max: ${chase.maxPrice ?? 'any'} | grade: ${chase.grade ?? 'any'} | condition: ${chase.condition ?? 'any'} | region: ${chase.region ?? 'ANY'} | blocked: ${chase.negativeKeywords?.join(', ') ?? 'none'}`,
+      embeds: [
+        successEmbed('Chase Added')
+          .addFields(
+            keyValue('Card', chase.cardName),
+            keyValue('Max Price', `${chase.maxPrice ?? 'any'}`),
+            keyValue('Grade', chase.grade ?? 'any'),
+            keyValue('Condition', chase.condition ?? 'any'),
+            keyValue('Region', chase.region ?? 'ANY'),
+            keyValue('Blocked Terms', chase.negativeKeywords?.join(', ') ?? 'none')
+          )
+      ],
       flags: MessageFlags.Ephemeral
     });
   }

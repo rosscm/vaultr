@@ -1,5 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings, setUserAlertSettings } from '../services/chase-store.js';
+import { infoEmbed, keyValue, successEmbed } from '../ui/embeds.js';
 
 export const alertsSettings = {
   data: new SlashCommandBuilder()
@@ -56,12 +57,14 @@ export const alertsSettings = {
         : `${settings.quietHoursStart}:00-${settings.quietHoursEnd}:00`;
 
     await interaction.reply({
-      content:
-        `Alert settings:\n` +
-        `min_score: **${settings.minScore}**\n` +
-        `max_alerts_per_hour: **${settings.maxAlertsPerHour}**\n` +
-        `quiet_hours: **${quietHours}**\n` +
-        `updated: ${settings.updatedAt}`,
+      embeds: [
+        (noChanges ? infoEmbed('Alert Settings') : successEmbed('Alert Settings Updated')).addFields(
+          keyValue('Min Score', `${settings.minScore}`),
+          keyValue('Max Alerts/Hour', `${settings.maxAlertsPerHour}`),
+          keyValue('Quiet Hours', quietHours),
+          keyValue('Updated', settings.updatedAt)
+        )
+      ],
       flags: MessageFlags.Ephemeral
     });
   }

@@ -4,6 +4,7 @@ import { searchEbayListings } from './ebay.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { initializePollerState, markPollerError, markPollerMatchSent, markPollerRunStart } from './poller-state.js';
+import { keyValue, listingLinkButton, successEmbed } from '../ui/embeds.js';
 
 function formatReasons(reasons: string[]): string {
   return reasons.map((r) => r.replaceAll('_', ' ')).join(', ');
@@ -39,18 +40,19 @@ async function runPoll(client: Client): Promise<void> {
       const isNew = markAlertSentIfNew(chase.id, chase.userId, listing.listingId, listing.source);
       if (!isNew) continue;
 
-      const message =
-        `🚨 **Chase Match Found**\n` +
-        `${listing.title}\n` +
-        `${listing.price} ${listing.currency}\n` +
-        `Region: ${listing.region}\n` +
-        `Score: ${match.score}\n` +
-        `Why: ${formatReasons(match.reasons)}\n` +
-        `${listing.url}`;
+      const embed = successEmbed('Chase Match Found')
+        .setDescription(listing.title)
+        .addFields(
+          keyValue('Price', `${listing.price} ${listing.currency}`),
+          keyValue('Region', listing.region),
+          keyValue('Score', `${match.score}`),
+          keyValue('Why', formatReasons(match.reasons)),
+          keyValue('Seller', listing.seller ?? 'unknown')
+        );
 
       try {
         const user = await client.users.fetch(chase.userId);
-        await user.send(message);
+        await user.send({ embeds: [embed], components: [listingLinkButton(listing.url)] });
         markPollerMatchSent();
       } catch (error) {
         console.error(`Failed to send DM alert to user ${chase.userId}`, error);

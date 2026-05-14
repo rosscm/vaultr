@@ -1,5 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases, updateChase } from '../services/chase-store.js';
+import { errorEmbed, keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
 
 export const chaseEdit = {
   data: new SlashCommandBuilder()
@@ -42,7 +43,10 @@ export const chaseEdit = {
     const match = chases[entry - 1];
 
     if (!match) {
-      await interaction.reply({ content: `No chase found at entry \`${entry}\`. Use /chase-list first.`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        embeds: [errorEmbed('Entry Not Found', `No chase found at entry \`${entry}\`. Use /chase-list first.`)],
+        flags: MessageFlags.Ephemeral
+      });
       return;
     }
 
@@ -61,7 +65,10 @@ export const chaseEdit = {
             .filter(Boolean);
 
     if (!cardName && maxPrice === undefined && !grade && !condition && !region && negativeKeywords === undefined) {
-      await interaction.reply({ content: 'No changes provided. Set at least one field to update.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        embeds: [warningEmbed('No Changes Provided', 'Set at least one field to update.')],
+        flags: MessageFlags.Ephemeral
+      });
       return;
     }
 
@@ -75,12 +82,21 @@ export const chaseEdit = {
     });
 
     if (!updated) {
-      await interaction.reply({ content: 'Unable to update chase.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [errorEmbed('Update Failed', 'Unable to update chase.')], flags: MessageFlags.Ephemeral });
       return;
     }
 
     await interaction.reply({
-      content: `Updated chase #${entry}: **${updated.cardName}** | max: ${updated.maxPrice ?? 'any'} | grade: ${updated.grade ?? 'any'} | condition: ${updated.condition ?? 'any'} | region: ${updated.region ?? 'ANY'} | blocked: ${updated.negativeKeywords?.join(', ') ?? 'none'}`,
+      embeds: [
+        successEmbed(`Chase #${entry} Updated`).addFields(
+          keyValue('Card', updated.cardName),
+          keyValue('Max Price', `${updated.maxPrice ?? 'any'}`),
+          keyValue('Grade', updated.grade ?? 'any'),
+          keyValue('Condition', updated.condition ?? 'any'),
+          keyValue('Region', updated.region ?? 'ANY'),
+          keyValue('Blocked Terms', updated.negativeKeywords?.join(', ') ?? 'none')
+        )
+      ],
       flags: MessageFlags.Ephemeral
     });
   }

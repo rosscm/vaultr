@@ -1,5 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases, removeChase } from '../services/chase-store.js';
+import { errorEmbed, successEmbed } from '../ui/embeds.js';
 
 export const chaseRemove = {
   data: new SlashCommandBuilder()
@@ -12,13 +13,16 @@ export const chaseRemove = {
     const match = chases[entry - 1];
 
     if (!match) {
-      await interaction.reply({ content: `No chase found at entry \`${entry}\`. Use /chase-list first.`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        embeds: [errorEmbed('Entry Not Found', `No chase found at entry \`${entry}\`. Use /chase-list first.`)],
+        flags: MessageFlags.Ephemeral
+      });
       return;
     }
 
     const removed = removeChase(interaction.user.id, match.id);
     await interaction.reply({
-      content: removed ? `Removed chase #${entry}: **${match.cardName}**` : 'Unable to remove chase.',
+      embeds: [removed ? successEmbed('Chase Removed', `Removed chase #${entry}: **${match.cardName}**`) : errorEmbed('Remove Failed', 'Unable to remove chase.')],
       flags: MessageFlags.Ephemeral
     });
   }
