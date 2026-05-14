@@ -28,7 +28,6 @@ Discord-native collector chase assistant.
 
 ## Initial Commands
 
-- `/alerts-channel-set`
 - `/alerts-settings`
 - `/chase-add`
 - `/chase-edit`
@@ -37,6 +36,7 @@ Discord-native collector chase assistant.
 - `/chase-test`
 - `/plan`
 - `/plan-set` (admin/testing)
+- `/setup-channel-set` (admin setup)
 - `/status`
 
 ## User Plans (Initial Plumbing)
@@ -71,7 +71,7 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 - Set `LISTING_SOURCE=EBAY` for live eBay polling
 - Set `LISTING_SOURCE=MOCK` to run with local mock listings
 - Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
-- Alerts are posted to configured server channel (`/alerts-channel-set`) or DM fallback
+- Alerts are delivered by DM to each user
 
 ## Alert Controls
 
@@ -80,6 +80,12 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 - `max_alerts_per_hour`: reduce alert bursts
 - `quiet_start` / `quiet_end`: suppress alerts during quiet window (server local time)
 - Per-chase blocked terms via `negative_keywords` on `/chase-add` and `/chase-edit`
+
+## Command Channel Policy
+
+- Admin sets the dedicated bot channel with `/setup-channel-set`
+- All Vaultr commands (except setup itself) must be run in that channel
+- Command responses are user-specific (ephemeral), alerts are DM-only
 
 ## Production Notes
 

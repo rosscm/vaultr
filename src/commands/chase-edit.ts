@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases, updateChase } from '../services/chase-store.js';
 
 export const chaseEdit = {
@@ -42,7 +42,7 @@ export const chaseEdit = {
     const match = chases[entry - 1];
 
     if (!match) {
-      await interaction.reply(`No chase found at entry \`${entry}\`. Use /chase-list first.`);
+      await interaction.reply({ content: `No chase found at entry \`${entry}\`. Use /chase-list first.`, flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -61,7 +61,7 @@ export const chaseEdit = {
             .filter(Boolean);
 
     if (!cardName && maxPrice === undefined && !grade && !condition && !region && negativeKeywords === undefined) {
-      await interaction.reply('No changes provided. Set at least one field to update.');
+      await interaction.reply({ content: 'No changes provided. Set at least one field to update.', flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -75,12 +75,13 @@ export const chaseEdit = {
     });
 
     if (!updated) {
-      await interaction.reply('Unable to update chase.');
+      await interaction.reply({ content: 'Unable to update chase.', flags: MessageFlags.Ephemeral });
       return;
     }
 
-    await interaction.reply(
-      `Updated chase #${entry}: **${updated.cardName}** | max: ${updated.maxPrice ?? 'any'} | grade: ${updated.grade ?? 'any'} | condition: ${updated.condition ?? 'any'} | region: ${updated.region ?? 'ANY'} | blocked: ${updated.negativeKeywords?.join(', ') ?? 'none'}`
-    );
+    await interaction.reply({
+      content: `Updated chase #${entry}: **${updated.cardName}** | max: ${updated.maxPrice ?? 'any'} | grade: ${updated.grade ?? 'any'} | condition: ${updated.condition ?? 'any'} | region: ${updated.region ?? 'ANY'} | blocked: ${updated.negativeKeywords?.join(', ') ?? 'none'}`,
+      flags: MessageFlags.Ephemeral
+    });
   }
 };

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { Client, Events, GatewayIntentBits, MessageFlags } from 'discord.js';
 import { commands } from './commands/index.js';
+import { getGuildCommandChannel } from './services/chase-store.js';
 import { startPoller } from './services/poller.js';
 
 const token = process.env.DISCORD_TOKEN;
@@ -22,6 +23,34 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   const command = commandMap.get(interaction.commandName);
   if (!command) return;
+
+  if (!interaction.guildId) {
+    await interaction.reply({
+      content: 'Vaultr commands must be used in your server command channel.',
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
+
+  const setupCommandName = 'setup-channel-set';
+  if (interaction.commandName !== setupCommandName) {
+    const configuredChannelId = getGuildCommandChannel(interaction.guildId);
+    if (!configuredChannelId) {
+      await interaction.reply({
+        content: `An admin must run \`/${setupCommandName}\` first to set the Vaultr command channel.`,
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    if (interaction.channelId !== configuredChannelId) {
+      await interaction.reply({
+        content: `Please use Vaultr commands in <#${configuredChannelId}>.`,
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+  }
 
   try {
     await command.execute(interaction);

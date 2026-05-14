@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases, removeChase } from '../services/chase-store.js';
 
 export const chaseRemove = {
@@ -12,11 +12,14 @@ export const chaseRemove = {
     const match = chases[entry - 1];
 
     if (!match) {
-      await interaction.reply(`No chase found at entry \`${entry}\`. Use /chase-list first.`);
+      await interaction.reply({ content: `No chase found at entry \`${entry}\`. Use /chase-list first.`, flags: MessageFlags.Ephemeral });
       return;
     }
 
     const removed = removeChase(interaction.user.id, match.id);
-    await interaction.reply(removed ? `Removed chase #${entry}: **${match.cardName}**` : 'Unable to remove chase.');
+    await interaction.reply({
+      content: removed ? `Removed chase #${entry}: **${match.cardName}**` : 'Unable to remove chase.',
+      flags: MessageFlags.Ephemeral
+    });
   }
 };

@@ -222,6 +222,14 @@ export function getGuildAlertChannel(guildId: string): string | null {
   return row?.channel_id ?? null;
 }
 
+export function setGuildCommandChannel(guildId: string, channelId: string): void {
+  setGuildAlertChannel(guildId, channelId);
+}
+
+export function getGuildCommandChannel(guildId: string): string | null {
+  return getGuildAlertChannel(guildId);
+}
+
 export function getUserPlan(userId: string): UserPlan {
   const row = getUserPlanStmt.get(userId) as
     | { user_id: string; tier: string; status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED'; updated_at: string }

@@ -1,4 +1,3 @@
-import { alertsChannelSet } from './alerts-channel-set.js';
 import { alertsSettings } from './alerts-settings.js';
 import { chaseAdd } from './chase-add.js';
 import { chaseEdit } from './chase-edit.js';
@@ -7,10 +6,10 @@ import { chaseRemove } from './chase-remove.js';
 import { chaseTest } from './chase-test.js';
 import { plan } from './plan.js';
 import { planSet } from './plan-set.js';
+import { setupChannelSet } from './setup-channel-set.js';
 import { status } from './status.js';
 
 export const commands = [
-  alertsChannelSet,
   alertsSettings,
   chaseAdd,
   chaseEdit,
@@ -19,5 +18,6 @@ export const commands = [
   chaseTest,
   plan,
   planSet,
+  setupChannelSet,
   status
 ];

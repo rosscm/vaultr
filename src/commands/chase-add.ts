@@ -71,8 +71,9 @@ export const chaseAdd = {
       negativeKeywords
     });
 
-    await interaction.reply(
-      `Added chase: **${chase.cardName}** | max: ${chase.maxPrice ?? 'any'} | grade: ${chase.grade ?? 'any'} | condition: ${chase.condition ?? 'any'} | region: ${chase.region ?? 'ANY'} | blocked: ${chase.negativeKeywords?.join(', ') ?? 'none'}`
-    );
+    await interaction.reply({
+      content: `Added chase: **${chase.cardName}** | max: ${chase.maxPrice ?? 'any'} | grade: ${chase.grade ?? 'any'} | condition: ${chase.condition ?? 'any'} | region: ${chase.region ?? 'ANY'} | blocked: ${chase.negativeKeywords?.join(', ') ?? 'none'}`,
+      flags: MessageFlags.Ephemeral
+    });
   }
 };

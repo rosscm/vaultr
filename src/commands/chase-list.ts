@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases } from '../services/chase-store.js';
 
 export const chaseList = {
@@ -6,7 +6,7 @@ export const chaseList = {
   async execute(interaction: any) {
     const chases = listChases(interaction.user.id);
     if (chases.length === 0) {
-      await interaction.reply('No active chases yet. Use `/chase-add` to start one.');
+      await interaction.reply({ content: 'No active chases yet. Use `/chase-add` to start one.', flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -14,6 +14,6 @@ export const chaseList = {
       (c, i) =>
         `${i + 1}. ${c.cardName} | max: ${c.maxPrice ?? 'any'} | grade: ${c.grade ?? 'any'} | condition: ${c.condition ?? 'any'} | region: ${c.region ?? 'ANY'} | blocked: ${c.negativeKeywords?.join(', ') ?? 'none'}`
     );
-    await interaction.reply(`Your chases:\n${lines.join('\n')}`);
+    await interaction.reply({ content: `Your chases:\n${lines.join('\n')}`, flags: MessageFlags.Ephemeral });
   }
 };

@@ -1,5 +1,5 @@
 import { Client } from 'discord.js';
-import { countUserAlertsInLastHour, getGuildAlertChannel, getUserAlertSettings, listAllChases, markAlertSentIfNew } from './chase-store.js';
+import { countUserAlertsInLastHour, getUserAlertSettings, listAllChases, markAlertSentIfNew } from './chase-store.js';
 import { searchEbayListings } from './ebay.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
@@ -49,16 +49,6 @@ async function runPoll(client: Client): Promise<void> {
         `${listing.url}`;
 
       try {
-        const configuredChannelId = chase.guildId ? getGuildAlertChannel(chase.guildId) : null;
-        if (configuredChannelId) {
-          const channel = await client.channels.fetch(configuredChannelId);
-          if (channel && 'send' in channel) {
-            await channel.send(`<@${chase.userId}> ${message}`);
-            markPollerMatchSent();
-            continue;
-          }
-        }
-
         const user = await client.users.fetch(chase.userId);
         await user.send(message);
         markPollerMatchSent();

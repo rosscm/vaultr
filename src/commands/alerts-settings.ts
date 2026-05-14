@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings, setUserAlertSettings } from '../services/chase-store.js';
 
 export const alertsSettings = {
@@ -55,12 +55,14 @@ export const alertsSettings = {
         ? 'off'
         : `${settings.quietHoursStart}:00-${settings.quietHoursEnd}:00`;
 
-    await interaction.reply(
-      `Alert settings:\n` +
+    await interaction.reply({
+      content:
+        `Alert settings:\n` +
         `min_score: **${settings.minScore}**\n` +
         `max_alerts_per_hour: **${settings.maxAlertsPerHour}**\n` +
         `quiet_hours: **${quietHours}**\n` +
-        `updated: ${settings.updatedAt}`
-    );
+        `updated: ${settings.updatedAt}`,
+      flags: MessageFlags.Ephemeral
+    });
   }
 };
