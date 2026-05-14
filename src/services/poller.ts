@@ -7,7 +7,15 @@ import { initializePollerState, markPollerError, markPollerMatchSent, markPoller
 import { keyValue, listingLinkButton, successEmbed } from '../ui/embeds.js';
 
 function formatReasons(reasons: string[]): string {
-  return reasons.map((r) => r.replaceAll('_', ' ')).join(', ');
+  return reasons
+    .map((r) => {
+      if (r.startsWith('suspicious_terms:')) {
+        const terms = r.split(':')[1] ?? '';
+        return `suspicious terms (${terms})`;
+      }
+      return r.replaceAll('_', ' ');
+    })
+    .join(', ');
 }
 
 function isInQuietHours(start: number | undefined, end: number | undefined): boolean {

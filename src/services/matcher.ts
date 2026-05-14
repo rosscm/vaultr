@@ -23,6 +23,10 @@ function conditionMatches(chaseCondition: string | undefined, listingCondition: 
   return keys.some((k) => l.includes(k));
 }
 
+function clampScore(score: number): number {
+  return Math.max(0, Math.min(100, score));
+}
+
 export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult {
   const reasons: string[] = [];
   let score = 0;
@@ -82,5 +86,20 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     }
   }
 
-  return { isMatch: true, score, reasons };
+  // Seller quality boost for trusted accounts.
+  if ((listing.sellerFeedbackPercent ?? 0) >= 99) {
+    score += 5;
+    reasons.push('seller_quality_boost');
+  }
+
+  // Suspicious keywords reduce confidence but do not hard-fail.
+  const suspiciousTerms = ['proxy', 'custom', 'reprint', 'fan art', 'fanart', 'replica', 'orica', 'lot'];
+  const suspiciousHits = suspiciousTerms.filter((term) => title.includes(term));
+  if (suspiciousHits.length > 0) {
+    score -= 10;
+    reasons.push('suspicious_title_penalty');
+    reasons.push(`suspicious_terms:${suspiciousHits.slice(0, 3).join(',')}`);
+  }
+
+  return { isMatch: true, score: clampScore(score), reasons };
 }
