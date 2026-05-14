@@ -30,6 +30,11 @@ export const chaseEdit = {
           { name: 'Canada', value: 'CA' },
           { name: 'United States', value: 'US' }
         )
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('negative_keywords')
+        .setDescription('Comma-separated blocked terms (e.g. proxy,custom,reprint)')
     ),
   async execute(interaction: any) {
     const entry = interaction.options.getInteger('entry', true);
@@ -46,8 +51,16 @@ export const chaseEdit = {
     const grade = interaction.options.getString('grade') ?? undefined;
     const condition = interaction.options.getString('condition') ?? undefined;
     const region = (interaction.options.getString('region') as 'CA' | 'US' | 'ANY' | null) ?? undefined;
+    const negativeKeywordsRaw = interaction.options.getString('negative_keywords');
+    const negativeKeywords =
+      negativeKeywordsRaw === null
+        ? undefined
+        : negativeKeywordsRaw
+            .split(',')
+            .map((k) => k.trim())
+            .filter(Boolean);
 
-    if (!cardName && maxPrice === undefined && !grade && !condition && !region) {
+    if (!cardName && maxPrice === undefined && !grade && !condition && !region && negativeKeywords === undefined) {
       await interaction.reply('No changes provided. Set at least one field to update.');
       return;
     }
@@ -57,7 +70,8 @@ export const chaseEdit = {
       maxPrice,
       grade,
       condition,
-      region
+      region,
+      negativeKeywords
     });
 
     if (!updated) {
@@ -66,7 +80,7 @@ export const chaseEdit = {
     }
 
     await interaction.reply(
-      `Updated chase #${entry}: **${updated.cardName}** | max: ${updated.maxPrice ?? 'any'} | grade: ${updated.grade ?? 'any'} | condition: ${updated.condition ?? 'any'} | region: ${updated.region ?? 'ANY'}`
+      `Updated chase #${entry}: **${updated.cardName}** | max: ${updated.maxPrice ?? 'any'} | grade: ${updated.grade ?? 'any'} | condition: ${updated.condition ?? 'any'} | region: ${updated.region ?? 'ANY'} | blocked: ${updated.negativeKeywords?.join(', ') ?? 'none'}`
     );
   }
 };

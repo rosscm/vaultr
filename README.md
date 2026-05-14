@@ -29,6 +29,7 @@ Discord-native collector chase assistant.
 ## Initial Commands
 
 - `/alerts-channel-set`
+- `/alerts-settings`
 - `/chase-add`
 - `/chase-edit`
 - `/chase-list`
@@ -36,6 +37,7 @@ Discord-native collector chase assistant.
 - `/chase-test`
 - `/plan`
 - `/plan-set` (admin/testing)
+- `/status`
 
 ## User Plans (Initial Plumbing)
 
@@ -70,6 +72,14 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 - Set `LISTING_SOURCE=MOCK` to run with local mock listings
 - Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
 - Alerts are posted to configured server channel (`/alerts-channel-set`) or DM fallback
+
+## Alert Controls
+
+- Per-user controls via `/alerts-settings`
+- `min_score`: drop low-confidence matches
+- `max_alerts_per_hour`: reduce alert bursts
+- `quiet_start` / `quiet_end`: suppress alerts during quiet window (server local time)
+- Per-chase blocked terms via `negative_keywords` on `/chase-add` and `/chase-edit`
 
 ## Production Notes
 

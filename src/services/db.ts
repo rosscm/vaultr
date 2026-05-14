@@ -21,6 +21,7 @@ db.exec(`
     grade TEXT,
     condition TEXT,
     region TEXT NOT NULL DEFAULT 'ANY',
+    negative_keywords TEXT,
     created_at TEXT NOT NULL
   );
 
@@ -46,6 +47,15 @@ db.exec(`
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS user_alert_settings (
+    user_id TEXT PRIMARY KEY,
+    min_score INTEGER NOT NULL DEFAULT 50,
+    max_alerts_per_hour INTEGER NOT NULL DEFAULT 20,
+    quiet_hours_start INTEGER,
+    quiet_hours_end INTEGER,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 try {
@@ -53,5 +63,17 @@ try {
 } catch {
   // Column already exists on upgraded databases.
 }
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN negative_keywords TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN user_id TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_user_time ON sent_alerts(user_id, sent_at);`);

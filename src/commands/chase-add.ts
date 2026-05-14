@@ -30,6 +30,11 @@ export const chaseAdd = {
           { name: 'Canada', value: 'CA' },
           { name: 'United States', value: 'US' }
         )
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('negative_keywords')
+        .setDescription('Comma-separated blocked terms (e.g. proxy,custom,reprint)')
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
@@ -49,6 +54,11 @@ export const chaseAdd = {
     const grade = interaction.options.getString('grade') ?? undefined;
     const condition = interaction.options.getString('condition') ?? undefined;
     const region = (interaction.options.getString('region') as 'CA' | 'US' | 'ANY' | null) ?? 'ANY';
+    const negativeKeywords = interaction.options
+      .getString('negative_keywords')
+      ?.split(',')
+      .map((k) => k.trim())
+      .filter(Boolean);
 
     const chase = addChase({
       userId: interaction.user.id,
@@ -57,11 +67,12 @@ export const chaseAdd = {
       maxPrice,
       grade,
       condition,
-      region
+      region,
+      negativeKeywords
     });
 
     await interaction.reply(
-      `Added chase: **${chase.cardName}** (id: \`${chase.id.slice(0, 8)}\`) | max: ${chase.maxPrice ?? 'any'} | grade: ${chase.grade ?? 'any'} | condition: ${chase.condition ?? 'any'} | region: ${chase.region ?? 'ANY'}`
+      `Added chase: **${chase.cardName}** | max: ${chase.maxPrice ?? 'any'} | grade: ${chase.grade ?? 'any'} | condition: ${chase.condition ?? 'any'} | region: ${chase.region ?? 'ANY'} | blocked: ${chase.negativeKeywords?.join(', ') ?? 'none'}`
     );
   }
 };

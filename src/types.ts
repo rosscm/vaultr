@@ -7,6 +7,7 @@ export type Chase = {
   grade?: string;
   condition?: string;
   region?: 'CA' | 'US' | 'ANY';
+  negativeKeywords?: string[];
   createdAt: string;
 };
 
@@ -36,5 +37,14 @@ export type UserPlan = {
   userId: string;
   tier: PlanTier;
   status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
+  updatedAt: string;
+};
+
+export type UserAlertSettings = {
+  userId: string;
+  minScore: number;
+  maxAlertsPerHour: number;
+  quietHoursStart?: number;
+  quietHoursEnd?: number;
   updatedAt: string;
 };

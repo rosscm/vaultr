@@ -30,6 +30,14 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
   const title = normalize(listing.title);
   const card = normalize(chase.cardName);
 
+  const blocked = (chase.negativeKeywords ?? [])
+    .map((k) => normalize(k))
+    .filter(Boolean)
+    .find((k) => title.includes(k));
+  if (blocked) {
+    return { isMatch: false, score: 0, reasons: ['negative_keyword_block'] };
+  }
+
   if (!title.includes(card)) {
     return { isMatch: false, score: 0, reasons: ['card_name_miss'] };
   }

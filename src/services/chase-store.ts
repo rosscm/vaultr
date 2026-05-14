@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { normalizePlanTier } from './plans.js';
-import type { Chase, UserPlan } from '../types.js';
+import type { Chase, UserAlertSettings, UserPlan } from '../types.js';
 
 type ChaseRow = {
   id: string;
@@ -12,6 +12,7 @@ type ChaseRow = {
   grade: string | null;
   condition: string | null;
   region: 'CA' | 'US' | 'ANY';
+  negative_keywords: string | null;
   created_at: string;
 };
 
@@ -25,24 +26,30 @@ function mapRow(row: ChaseRow): Chase {
     grade: row.grade ?? undefined,
     condition: row.condition ?? undefined,
     region: row.region,
+    negativeKeywords: row.negative_keywords
+      ? row.negative_keywords
+          .split(',')
+          .map((k) => k.trim())
+          .filter(Boolean)
+      : undefined,
     createdAt: row.created_at
   };
 }
 
 const insertChaseStmt = db.prepare(`
-  INSERT INTO chases (id, user_id, guild_id, card_name, max_price, grade, condition, region, created_at)
-  VALUES (@id, @user_id, @guild_id, @card_name, @max_price, @grade, @condition, @region, @created_at)
+  INSERT INTO chases (id, user_id, guild_id, card_name, max_price, grade, condition, region, negative_keywords, created_at)
+  VALUES (@id, @user_id, @guild_id, @card_name, @max_price, @grade, @condition, @region, @negative_keywords, @created_at)
 `);
 
 const listChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, max_price, grade, condition, region, created_at
+  SELECT id, user_id, guild_id, card_name, max_price, grade, condition, region, negative_keywords, created_at
   FROM chases
   WHERE user_id = ?
   ORDER BY created_at DESC
 `);
 
 const listAllChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, max_price, grade, condition, region, created_at
+  SELECT id, user_id, guild_id, card_name, max_price, grade, condition, region, negative_keywords, created_at
   FROM chases
   ORDER BY created_at DESC
 `);
@@ -58,13 +65,14 @@ const updateChaseStmt = db.prepare(`
       max_price = @max_price,
       grade = @grade,
       condition = @condition,
-      region = @region
+      region = @region,
+      negative_keywords = @negative_keywords
   WHERE user_id = @user_id AND id = @id
 `);
 
 const insertSentAlertStmt = db.prepare(`
-  INSERT INTO sent_alerts (chase_id, listing_id, source, sent_at)
-  VALUES (?, ?, ?, ?)
+  INSERT INTO sent_alerts (chase_id, listing_id, source, sent_at, user_id)
+  VALUES (?, ?, ?, ?, ?)
 `);
 
 const upsertGuildAlertChannelStmt = db.prepare(`
@@ -102,6 +110,29 @@ const upsertUserPlanStmt = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
+const getUserAlertSettingsStmt = db.prepare(`
+  SELECT user_id, min_score, max_alerts_per_hour, quiet_hours_start, quiet_hours_end, updated_at
+  FROM user_alert_settings
+  WHERE user_id = ?
+`);
+
+const upsertUserAlertSettingsStmt = db.prepare(`
+  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, quiet_hours_start, quiet_hours_end, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(user_id) DO UPDATE SET
+    min_score = excluded.min_score,
+    max_alerts_per_hour = excluded.max_alerts_per_hour,
+    quiet_hours_start = excluded.quiet_hours_start,
+    quiet_hours_end = excluded.quiet_hours_end,
+    updated_at = excluded.updated_at
+`);
+
+const countRecentAlertsByUserStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM sent_alerts
+  WHERE user_id = ? AND sent_at >= ?
+`);
+
 export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
   const chase: Chase = {
     ...input,
@@ -118,6 +149,7 @@ export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
     grade: chase.grade ?? null,
     condition: chase.condition ?? null,
     region: chase.region ?? 'ANY',
+    negative_keywords: chase.negativeKeywords?.join(',') ?? null,
     created_at: chase.createdAt
   });
 
@@ -154,7 +186,8 @@ export function updateChase(userId: string, chaseId: string, patch: Partial<Omit
     maxPrice: patch.maxPrice ?? current.maxPrice,
     grade: patch.grade ?? current.grade,
     condition: patch.condition ?? current.condition,
-    region: patch.region ?? current.region
+    region: patch.region ?? current.region,
+    negativeKeywords: patch.negativeKeywords ?? current.negativeKeywords
   };
 
   const result = updateChaseStmt.run({
@@ -164,15 +197,16 @@ export function updateChase(userId: string, chaseId: string, patch: Partial<Omit
     max_price: next.maxPrice ?? null,
     grade: next.grade ?? null,
     condition: next.condition ?? null,
-    region: next.region ?? 'ANY'
+    region: next.region ?? 'ANY',
+    negative_keywords: next.negativeKeywords?.join(',') ?? null
   });
 
   return result.changes > 0 ? next : null;
 }
 
-export function markAlertSentIfNew(chaseId: string, listingId: string, source: 'EBAY'): boolean {
+export function markAlertSentIfNew(chaseId: string, userId: string, listingId: string, source: 'EBAY'): boolean {
   try {
-    insertSentAlertStmt.run(chaseId, listingId, source, new Date().toISOString());
+    insertSentAlertStmt.run(chaseId, listingId, source, new Date().toISOString(), userId);
     return true;
   } catch {
     return false;
@@ -221,4 +255,69 @@ export function setUserPlan(userId: string, tier: 'FREE' | 'PRO', status: 'ACTIV
     status,
     updatedAt: now
   };
+}
+
+export function getUserAlertSettings(userId: string): UserAlertSettings {
+  const row = getUserAlertSettingsStmt.get(userId) as
+    | {
+        user_id: string;
+        min_score: number;
+        max_alerts_per_hour: number;
+        quiet_hours_start: number | null;
+        quiet_hours_end: number | null;
+        updated_at: string;
+      }
+    | undefined;
+
+  if (!row) {
+    const now = new Date().toISOString();
+    upsertUserAlertSettingsStmt.run(userId, 50, 20, null, null, now);
+    return {
+      userId,
+      minScore: 50,
+      maxAlertsPerHour: 20,
+      updatedAt: now
+    };
+  }
+
+  return {
+    userId: row.user_id,
+    minScore: row.min_score,
+    maxAlertsPerHour: row.max_alerts_per_hour,
+    quietHoursStart: row.quiet_hours_start ?? undefined,
+    quietHoursEnd: row.quiet_hours_end ?? undefined,
+    updatedAt: row.updated_at
+  };
+}
+
+export function setUserAlertSettings(
+  userId: string,
+  patch: Partial<Pick<UserAlertSettings, 'minScore' | 'maxAlertsPerHour' | 'quietHoursStart' | 'quietHoursEnd'>>
+): UserAlertSettings {
+  const current = getUserAlertSettings(userId);
+  const next: UserAlertSettings = {
+    userId,
+    minScore: patch.minScore ?? current.minScore,
+    maxAlertsPerHour: patch.maxAlertsPerHour ?? current.maxAlertsPerHour,
+    quietHoursStart: patch.quietHoursStart ?? current.quietHoursStart,
+    quietHoursEnd: patch.quietHoursEnd ?? current.quietHoursEnd,
+    updatedAt: new Date().toISOString()
+  };
+
+  upsertUserAlertSettingsStmt.run(
+    userId,
+    next.minScore,
+    next.maxAlertsPerHour,
+    next.quietHoursStart ?? null,
+    next.quietHoursEnd ?? null,
+    next.updatedAt
+  );
+
+  return next;
+}
+
+export function countUserAlertsInLastHour(userId: string): number {
+  const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const row = countRecentAlertsByUserStmt.get(userId, cutoff) as { count: number };
+  return Number(row.count);
 }
