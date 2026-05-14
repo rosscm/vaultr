@@ -6,13 +6,16 @@ export const chaseTest = {
   async execute(interaction: any) {
     await interaction.reply({
       embeds: [
-        successEmbed('Chase Match Found')
-          .setDescription('Umbreon VMAX Alt Art PSA 10')
+        successEmbed('🚨 Chase Match Found')
+          .setDescription('**Umbreon VMAX Alt Art PSA 10**')
           .addFields(
-            keyValue('Price', '$1140 CAD'),
-            keyValue('Seller Rating', 'High'),
-            keyValue('Posted', '2m ago')
+            keyValue('💵 Price', '**$1140 CAD**'),
+            keyValue('🌎 Region', '**CA**'),
+            keyValue('🎯 Score', '**88**'),
+            keyValue('🛒 Seller', '**High Reputation Seller**'),
+            keyValue('🧠 Match Reasons', 'card name match, grade match, price within max')
           )
+          .setFooter({ text: 'Vaultr • Collector Alert' })
       ],
       flags: MessageFlags.Ephemeral
     });

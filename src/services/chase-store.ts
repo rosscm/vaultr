@@ -75,6 +75,13 @@ const insertSentAlertStmt = db.prepare(`
   VALUES (?, ?, ?, ?, ?)
 `);
 
+const hasSentAlertStmt = db.prepare(`
+  SELECT 1
+  FROM sent_alerts
+  WHERE chase_id = ? AND listing_id = ? AND source = ?
+  LIMIT 1
+`);
+
 const upsertGuildAlertChannelStmt = db.prepare(`
   INSERT INTO guild_alert_channels (guild_id, channel_id, updated_at)
   VALUES (?, ?, ?)
@@ -204,7 +211,12 @@ export function updateChase(userId: string, chaseId: string, patch: Partial<Omit
   return result.changes > 0 ? next : null;
 }
 
-export function markAlertSentIfNew(chaseId: string, userId: string, listingId: string, source: 'EBAY'): boolean {
+export function hasAlertBeenSent(chaseId: string, listingId: string, source: 'EBAY'): boolean {
+  const row = hasSentAlertStmt.get(chaseId, listingId, source) as { 1: number } | undefined;
+  return !!row;
+}
+
+export function markAlertSent(chaseId: string, userId: string, listingId: string, source: 'EBAY'): boolean {
   try {
     insertSentAlertStmt.run(chaseId, listingId, source, new Date().toISOString(), userId);
     return true;

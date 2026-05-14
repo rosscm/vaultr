@@ -7,20 +7,29 @@ const COLORS = {
   danger: 0xef4444
 } as const;
 
+function baseEmbed(color: number, title: string, description?: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(color)
+    .setTitle(title)
+    .setDescription(description ?? null)
+    .setFooter({ text: 'Vaultr' })
+    .setTimestamp();
+}
+
 export function successEmbed(title: string, description?: string): EmbedBuilder {
-  return new EmbedBuilder().setColor(COLORS.success).setTitle(title).setDescription(description ?? null).setTimestamp();
+  return baseEmbed(COLORS.success, `✅ ${title}`, description);
 }
 
 export function infoEmbed(title: string, description?: string): EmbedBuilder {
-  return new EmbedBuilder().setColor(COLORS.info).setTitle(title).setDescription(description ?? null).setTimestamp();
+  return baseEmbed(COLORS.info, `📘 ${title}`, description);
 }
 
 export function warningEmbed(title: string, description?: string): EmbedBuilder {
-  return new EmbedBuilder().setColor(COLORS.warning).setTitle(title).setDescription(description ?? null).setTimestamp();
+  return baseEmbed(COLORS.warning, `⚠️ ${title}`, description);
 }
 
 export function errorEmbed(title: string, description?: string): EmbedBuilder {
-  return new EmbedBuilder().setColor(COLORS.danger).setTitle(title).setDescription(description ?? null).setTimestamp();
+  return baseEmbed(COLORS.danger, `⛔ ${title}`, description);
 }
 
 export function keyValue(name: string, value: string): { name: string; value: string; inline: true } {

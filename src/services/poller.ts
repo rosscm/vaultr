@@ -1,5 +1,5 @@
 import { Client } from 'discord.js';
-import { countUserAlertsInLastHour, getUserAlertSettings, listAllChases, markAlertSentIfNew } from './chase-store.js';
+import { countUserAlertsInLastHour, getUserAlertSettings, hasAlertBeenSent, listAllChases, markAlertSent } from './chase-store.js';
 import { searchEbayListings } from './ebay.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
@@ -37,22 +37,23 @@ async function runPoll(client: Client): Promise<void> {
 
       if (countUserAlertsInLastHour(chase.userId) >= settings.maxAlertsPerHour) continue;
 
-      const isNew = markAlertSentIfNew(chase.id, chase.userId, listing.listingId, listing.source);
-      if (!isNew) continue;
+      if (hasAlertBeenSent(chase.id, listing.listingId, listing.source)) continue;
 
-      const embed = successEmbed('Chase Match Found')
-        .setDescription(listing.title)
+      const embed = successEmbed('🚨 Chase Match Found')
+        .setDescription(`**${listing.title}**`)
         .addFields(
-          keyValue('Price', `${listing.price} ${listing.currency}`),
-          keyValue('Region', listing.region),
-          keyValue('Score', `${match.score}`),
-          keyValue('Why', formatReasons(match.reasons)),
-          keyValue('Seller', listing.seller ?? 'unknown')
-        );
+          keyValue('💵 Price', `**${listing.price} ${listing.currency}**`),
+          keyValue('🌎 Region', `**${listing.region}**`),
+          keyValue('🎯 Score', `**${match.score}**`),
+          keyValue('🛒 Seller', `**${listing.seller ?? 'unknown'}**`),
+          keyValue('🧠 Match Reasons', formatReasons(match.reasons))
+        )
+        .setFooter({ text: 'Vaultr • Collector Alert' });
 
       try {
         const user = await client.users.fetch(chase.userId);
         await user.send({ embeds: [embed], components: [listingLinkButton(listing.url)] });
+        markAlertSent(chase.id, chase.userId, listing.listingId, listing.source);
         markPollerMatchSent();
       } catch (error) {
         console.error(`Failed to send DM alert to user ${chase.userId}`, error);
