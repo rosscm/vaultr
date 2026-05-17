@@ -29,6 +29,7 @@ Discord-native collector chase assistant.
 ## Initial Commands
 
 - `/alerts-settings`
+- `/alerts-recent`
 - `/chase-add`
 - `/chase-edit`
 - `/chase-list`
@@ -38,6 +39,7 @@ Discord-native collector chase assistant.
 - `/plan-set` (admin/testing)
 - `/setup-channel-set` (admin setup)
 - `/status`
+- `/upgrade`
 
 ## User Plans (Initial Plumbing)
 
@@ -80,6 +82,13 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 - `max_alerts_per_hour`: reduce alert bursts
 - `quiet_start` / `quiet_end`: suppress alerts during quiet window (server local time)
 - Per-chase blocked terms via `negative_keywords` on `/chase-add` and `/chase-edit`
+
+## Reliability
+
+- Poller prevents overlapping runs
+- Source fetch uses timeout + retry
+- DM send uses timeout
+- Poller status exposes failures, duration, and skipped overlaps via `/status`
 
 ## Command Channel Policy
 

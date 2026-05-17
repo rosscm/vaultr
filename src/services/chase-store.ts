@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { normalizePlanTier } from './plans.js';
-import type { Chase, UserAlertSettings, UserPlan } from '../types.js';
+import type { Chase, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
 
 type ChaseRow = {
   id: string;
@@ -71,8 +71,8 @@ const updateChaseStmt = db.prepare(`
 `);
 
 const insertSentAlertStmt = db.prepare(`
-  INSERT INTO sent_alerts (chase_id, listing_id, source, sent_at, user_id)
-  VALUES (?, ?, ?, ?, ?)
+  INSERT INTO sent_alerts (chase_id, listing_id, source, sent_at, user_id, listing_title, listing_price, listing_currency, listing_url, match_score)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const hasSentAlertStmt = db.prepare(`
@@ -138,6 +138,14 @@ const countRecentAlertsByUserStmt = db.prepare(`
   SELECT COUNT(*) AS count
   FROM sent_alerts
   WHERE user_id = ? AND sent_at >= ?
+`);
+
+const listRecentAlertsByUserStmt = db.prepare(`
+  SELECT chase_id, user_id, listing_id, source, sent_at, listing_title, listing_price, listing_currency, listing_url, match_score
+  FROM sent_alerts
+  WHERE user_id = ?
+  ORDER BY sent_at DESC
+  LIMIT ?
 `);
 
 export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
@@ -217,8 +225,35 @@ export function hasAlertBeenSent(chaseId: string, listingId: string, source: 'EB
 }
 
 export function markAlertSent(chaseId: string, userId: string, listingId: string, source: 'EBAY'): boolean {
+  return markAlertSentWithDetails(chaseId, userId, listingId, source, {});
+}
+
+export function markAlertSentWithDetails(
+  chaseId: string,
+  userId: string,
+  listingId: string,
+  source: 'EBAY',
+  details: {
+    listingTitle?: string;
+    listingPrice?: number;
+    listingCurrency?: string;
+    listingUrl?: string;
+    matchScore?: number;
+  }
+): boolean {
   try {
-    insertSentAlertStmt.run(chaseId, listingId, source, new Date().toISOString(), userId);
+    insertSentAlertStmt.run(
+      chaseId,
+      listingId,
+      source,
+      new Date().toISOString(),
+      userId,
+      details.listingTitle ?? null,
+      details.listingPrice ?? null,
+      details.listingCurrency ?? null,
+      details.listingUrl ?? null,
+      details.matchScore ?? null
+    );
     return true;
   } catch {
     return false;
@@ -340,4 +375,32 @@ export function countUserAlertsInLastHour(userId: string): number {
   const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const row = countRecentAlertsByUserStmt.get(userId, cutoff) as { count: number };
   return Number(row.count);
+}
+
+export function listRecentAlerts(userId: string, limit = 20): SentAlert[] {
+  const rows = listRecentAlertsByUserStmt.all(userId, limit) as Array<{
+    chase_id: string;
+    user_id: string;
+    listing_id: string;
+    source: 'EBAY';
+    sent_at: string;
+    listing_title: string | null;
+    listing_price: number | null;
+    listing_currency: string | null;
+    listing_url: string | null;
+    match_score: number | null;
+  }>;
+
+  return rows.map((row) => ({
+    chaseId: row.chase_id,
+    userId: row.user_id,
+    listingId: row.listing_id,
+    source: row.source,
+    sentAt: row.sent_at,
+    listingTitle: row.listing_title ?? undefined,
+    listingPrice: row.listing_price ?? undefined,
+    listingCurrency: row.listing_currency ?? undefined,
+    listingUrl: row.listing_url ?? undefined,
+    matchScore: row.match_score ?? undefined
+  }));
 }

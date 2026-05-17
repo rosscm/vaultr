@@ -48,3 +48,16 @@ export type UserAlertSettings = {
   quietHoursEnd?: number;
   updatedAt: string;
 };
+
+export type SentAlert = {
+  chaseId: string;
+  userId: string;
+  listingId: string;
+  source: 'EBAY';
+  sentAt: string;
+  listingTitle?: string;
+  listingPrice?: number;
+  listingCurrency?: string;
+  listingUrl?: string;
+  matchScore?: number;
+};

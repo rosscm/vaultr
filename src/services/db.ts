@@ -32,6 +32,11 @@ db.exec(`
     listing_id TEXT NOT NULL,
     source TEXT NOT NULL,
     sent_at TEXT NOT NULL,
+    listing_title TEXT,
+    listing_price REAL,
+    listing_currency TEXT,
+    listing_url TEXT,
+    match_score INTEGER,
     PRIMARY KEY (chase_id, listing_id, source)
   );
 
@@ -71,6 +76,31 @@ try {
 
 try {
   db.exec(`ALTER TABLE sent_alerts ADD COLUMN user_id TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN listing_title TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN listing_price REAL;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN listing_currency TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN listing_url TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN match_score INTEGER;`);
 } catch {
   // Column already exists on upgraded databases.
 }

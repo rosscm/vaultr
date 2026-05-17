@@ -47,7 +47,7 @@ export const chaseAdd = {
         embeds: [
           warningEmbed(
             'Plan Limit Reached',
-            `You have reached your ${plan.tier} limit of ${maxChases} active chases. Remove one with /chase-remove or upgrade.`
+            `You have reached your ${plan.tier} limit of ${maxChases} active chases. Remove one with /chase-remove or run /upgrade.`
           )
         ],
         flags: MessageFlags.Ephemeral
