@@ -77,6 +77,15 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     }
   }
 
+  if (chase.listingType && chase.listingType !== 'ANY') {
+    if (listing.listingType === chase.listingType) {
+      score += 10;
+      reasons.push('listing_type_match');
+    } else {
+      return { isMatch: false, score: 0, reasons: ['listing_type_miss'] };
+    }
+  }
+
   if (chase.maxPrice !== undefined) {
     if (listing.price <= chase.maxPrice) {
       score += 15;

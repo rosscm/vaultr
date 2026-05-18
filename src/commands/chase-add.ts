@@ -36,6 +36,16 @@ export const chaseAdd = {
     )
     .addStringOption((opt) =>
       opt
+        .setName('listing_type')
+        .setDescription('Listing type')
+        .addChoices(
+          { name: 'Any', value: 'ANY' },
+          { name: 'Auction', value: 'AUCTION' },
+          { name: 'Buy It Now', value: 'BUY_IT_NOW' }
+        )
+    )
+    .addStringOption((opt) =>
+      opt
         .setName('negative_keywords')
         .setDescription('Comma-separated blocked terms (e.g. proxy,custom,reprint)')
     ),
@@ -62,6 +72,7 @@ export const chaseAdd = {
     const grade = interaction.options.getString('grade') ?? undefined;
     const condition = interaction.options.getString('condition') ?? undefined;
     const region = (interaction.options.getString('region') as 'CA' | 'US' | 'ANY' | null) ?? 'ANY';
+    const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? 'ANY';
     const negativeKeywords = interaction.options
       .getString('negative_keywords')
       ?.split(',')
@@ -76,6 +87,7 @@ export const chaseAdd = {
       grade,
       condition,
       region,
+      listingType,
       negativeKeywords: negativeKeywords && negativeKeywords.length > 0 ? negativeKeywords : DEFAULT_NEGATIVE_KEYWORDS
     });
 
@@ -88,6 +100,7 @@ export const chaseAdd = {
             keyValue('Grade', chase.grade ?? 'any'),
             keyValue('Condition', chase.condition ?? 'any'),
             keyValue('Region', chase.region ?? 'ANY'),
+            keyValue('Listing Type', chase.listingType ?? 'ANY'),
             keyValue('Blocked Terms', chase.negativeKeywords?.join(', ') ?? 'none')
           )
       ],

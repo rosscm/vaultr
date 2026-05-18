@@ -21,6 +21,7 @@ export const chaseList = {
         `**Grade:** ${c.grade ?? 'any'}`,
         `**Condition:** ${c.condition ?? 'any'}`,
         `**Region:** ${c.region ?? 'ANY'}`,
+        `**Listing:** ${c.listingType ?? 'ANY'}`,
         `**Blocked:** ${c.negativeKeywords?.join(', ') ?? 'none'}`
       ].join(' | ');
       return `${header}\n${details}`;

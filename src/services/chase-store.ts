@@ -12,6 +12,7 @@ type ChaseRow = {
   grade: string | null;
   condition: string | null;
   region: 'CA' | 'US' | 'ANY';
+  listing_type: 'ANY' | 'AUCTION' | 'BUY_IT_NOW';
   negative_keywords: string | null;
   created_at: string;
 };
@@ -26,6 +27,7 @@ function mapRow(row: ChaseRow): Chase {
     grade: row.grade ?? undefined,
     condition: row.condition ?? undefined,
     region: row.region,
+    listingType: row.listing_type ?? 'ANY',
     negativeKeywords: row.negative_keywords
       ? row.negative_keywords
           .split(',')
@@ -37,19 +39,19 @@ function mapRow(row: ChaseRow): Chase {
 }
 
 const insertChaseStmt = db.prepare(`
-  INSERT INTO chases (id, user_id, guild_id, card_name, max_price, grade, condition, region, negative_keywords, created_at)
-  VALUES (@id, @user_id, @guild_id, @card_name, @max_price, @grade, @condition, @region, @negative_keywords, @created_at)
+  INSERT INTO chases (id, user_id, guild_id, card_name, max_price, grade, condition, region, listing_type, negative_keywords, created_at)
+  VALUES (@id, @user_id, @guild_id, @card_name, @max_price, @grade, @condition, @region, @listing_type, @negative_keywords, @created_at)
 `);
 
 const listChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, max_price, grade, condition, region, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, max_price, grade, condition, region, listing_type, negative_keywords, created_at
   FROM chases
   WHERE user_id = ?
   ORDER BY created_at DESC
 `);
 
 const listAllChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, max_price, grade, condition, region, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, max_price, grade, condition, region, listing_type, negative_keywords, created_at
   FROM chases
   ORDER BY created_at DESC
 `);
@@ -66,6 +68,7 @@ const updateChaseStmt = db.prepare(`
       grade = @grade,
       condition = @condition,
       region = @region,
+      listing_type = @listing_type,
       negative_keywords = @negative_keywords
   WHERE user_id = @user_id AND id = @id
 `);
@@ -178,6 +181,7 @@ export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
     grade: chase.grade ?? null,
     condition: chase.condition ?? null,
     region: chase.region ?? 'ANY',
+    listing_type: chase.listingType ?? 'ANY',
     negative_keywords: chase.negativeKeywords?.join(',') ?? null,
     created_at: chase.createdAt
   });
@@ -216,6 +220,7 @@ export function updateChase(userId: string, chaseId: string, patch: Partial<Omit
     grade: patch.grade ?? current.grade,
     condition: patch.condition ?? current.condition,
     region: patch.region ?? current.region,
+    listingType: patch.listingType ?? current.listingType ?? 'ANY',
     negativeKeywords: patch.negativeKeywords ?? current.negativeKeywords
   };
 
@@ -227,6 +232,7 @@ export function updateChase(userId: string, chaseId: string, patch: Partial<Omit
     grade: next.grade ?? null,
     condition: next.condition ?? null,
     region: next.region ?? 'ANY',
+    listing_type: next.listingType ?? 'ANY',
     negative_keywords: next.negativeKeywords?.join(',') ?? null
   });
 

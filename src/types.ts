@@ -7,6 +7,7 @@ export type Chase = {
   grade?: string;
   condition?: string;
   region?: 'CA' | 'US' | 'ANY';
+  listingType?: 'ANY' | 'AUCTION' | 'BUY_IT_NOW';
   negativeKeywords?: string[];
   createdAt: string;
 };
@@ -23,6 +24,7 @@ export type Listing = {
   postedAt?: string;
   region: 'CA' | 'US' | 'OTHER';
   condition?: string;
+  listingType?: 'AUCTION' | 'BUY_IT_NOW' | 'OTHER';
 };
 
 export type MatchResult = {

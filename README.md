@@ -88,6 +88,7 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 - Use `/alerts-settings-reset` to restore recommended defaults
 - Per-chase blocked terms via `negative_keywords` on `/chase-add` and `/chase-edit`
 - Default blocked terms on new chases: `proxy, custom, reprint, lot, orica, replica`
+- Per-chase `listing_type` filter: `ANY`, `AUCTION`, or `BUY_IT_NOW`
 
 ## Reliability
 

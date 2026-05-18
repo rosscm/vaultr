@@ -34,6 +34,16 @@ export const chaseEdit = {
     )
     .addStringOption((opt) =>
       opt
+        .setName('listing_type')
+        .setDescription('Updated listing type')
+        .addChoices(
+          { name: 'Any', value: 'ANY' },
+          { name: 'Auction', value: 'AUCTION' },
+          { name: 'Buy It Now', value: 'BUY_IT_NOW' }
+        )
+    )
+    .addStringOption((opt) =>
+      opt
         .setName('negative_keywords')
         .setDescription('Comma-separated blocked terms (e.g. proxy,custom,reprint)')
     ),
@@ -55,6 +65,7 @@ export const chaseEdit = {
     const grade = interaction.options.getString('grade') ?? undefined;
     const condition = interaction.options.getString('condition') ?? undefined;
     const region = (interaction.options.getString('region') as 'CA' | 'US' | 'ANY' | null) ?? undefined;
+    const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? undefined;
     const negativeKeywordsRaw = interaction.options.getString('negative_keywords');
     const negativeKeywords =
       negativeKeywordsRaw === null
@@ -64,7 +75,7 @@ export const chaseEdit = {
             .map((k) => k.trim())
             .filter(Boolean);
 
-    if (!cardName && maxPrice === undefined && !grade && !condition && !region && negativeKeywords === undefined) {
+    if (!cardName && maxPrice === undefined && !grade && !condition && !region && !listingType && negativeKeywords === undefined) {
       await interaction.reply({
         embeds: [warningEmbed('No Changes Provided', 'Set at least one field to update.')],
         flags: MessageFlags.Ephemeral
@@ -78,6 +89,7 @@ export const chaseEdit = {
       grade,
       condition,
       region,
+      listingType,
       negativeKeywords
     });
 
@@ -94,6 +106,7 @@ export const chaseEdit = {
           keyValue('Grade', updated.grade ?? 'any'),
           keyValue('Condition', updated.condition ?? 'any'),
           keyValue('Region', updated.region ?? 'ANY'),
+          keyValue('Listing Type', updated.listingType ?? 'ANY'),
           keyValue('Blocked Terms', updated.negativeKeywords?.join(', ') ?? 'none')
         )
       ],

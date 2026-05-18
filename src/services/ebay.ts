@@ -15,6 +15,13 @@ function mapCountryToRegion(countryCode?: string): 'CA' | 'US' | 'OTHER' {
   return 'OTHER';
 }
 
+function mapListingType(raw?: string): 'AUCTION' | 'BUY_IT_NOW' | 'OTHER' {
+  const t = (raw ?? '').toLowerCase();
+  if (t === 'auction') return 'AUCTION';
+  if (t === 'fixedprice' || t === 'storeinventory') return 'BUY_IT_NOW';
+  return 'OTHER';
+}
+
 export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
   const appId = process.env.EBAY_APP_ID;
   if (!appId) return [];
@@ -50,6 +57,7 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
       const seller = item?.sellerInfo?.[0]?.sellerUserName?.[0];
       const sellerFeedbackPercent = Number(item?.sellerInfo?.[0]?.positiveFeedbackPercent?.[0]);
       const postedAt = item?.listingInfo?.[0]?.startTime?.[0];
+      const rawListingType = item?.listingInfo?.[0]?.listingType?.[0];
       const condition = item?.condition?.[0]?.conditionDisplayName?.[0];
       const countryCode = item?.country?.[0];
       const price = Number(rawPrice);
@@ -67,7 +75,8 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
         sellerFeedbackPercent: Number.isNaN(sellerFeedbackPercent) ? undefined : sellerFeedbackPercent,
         postedAt,
         region: mapCountryToRegion(countryCode),
-        condition
+        condition,
+        listingType: mapListingType(rawListingType)
       };
 
       return listing;

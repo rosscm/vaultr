@@ -21,6 +21,7 @@ db.exec(`
     grade TEXT,
     condition TEXT,
     region TEXT NOT NULL DEFAULT 'ANY',
+    listing_type TEXT NOT NULL DEFAULT 'ANY',
     negative_keywords TEXT,
     created_at TEXT NOT NULL
   );
@@ -76,6 +77,11 @@ try {
 }
 try {
   db.exec(`ALTER TABLE chases ADD COLUMN negative_keywords TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN listing_type TEXT NOT NULL DEFAULT 'ANY';`);
 } catch {
   // Column already exists on upgraded databases.
 }
