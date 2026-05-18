@@ -23,7 +23,9 @@ Discord-native collector chase assistant.
    - `npm install`
 4. Register slash commands:
    - `npm run register:commands`
-5. Run in dev mode:
+5. Run smoke checks:
+   - `npm run smoke`
+6. Run in dev mode:
    - `npm run dev`
 
 ## Initial Commands
@@ -37,6 +39,7 @@ Discord-native collector chase assistant.
 - `/chase-list`
 - `/chase-remove`
 - `/chase-test`
+- `/help`
 - `/plan`
 - `/plan-set` (admin/testing)
 - `/setup-channel-set` (admin setup)
@@ -68,11 +71,30 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
    - `sudo systemctl status vaultr`
    - `tail -f /home/pi/Documents/GitHub/vaultr/vaultr.log`
 
+### Pi Deploy Checklist
+
+- Repo is up to date:
+  - `git pull`
+- Dependencies are installed:
+  - `npm install`
+- Env is configured:
+  - `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`
+  - `EBAY_APP_ID` (if `LISTING_SOURCE=EBAY`)
+  - `LISTING_SOURCE`, `POLL_INTERVAL_SECONDS`
+- Runtime checks pass:
+  - `npm run smoke`
+- Commands are registered:
+  - `npm run register:commands`
+- Service is restarted:
+  - `sudo systemctl restart vaultr`
+
 ## eBay Polling
 
 - Set `EBAY_APP_ID` in `.env` (from eBay Developer Program)
 - Set `EBAY_ENV=SANDBOX` for sandbox testing, or `EBAY_ENV=PRODUCTION` for live eBay
 - Optional: tune `POLL_INTERVAL_SECONDS` (default `180`)
+- Optional: tune `EBAY_MAX_REQUESTS_PER_MINUTE` (default `20`)
+- Optional: tune `EBAY_BACKOFF_BASE_SECONDS` (default `30`)
 - Set `LISTING_SOURCE=EBAY` for live eBay polling
 - Set `LISTING_SOURCE=MOCK` to run with local mock listings
 - Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
@@ -94,6 +116,7 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 
 - Poller prevents overlapping runs
 - Source fetch uses timeout + retry
+- Global source request budget and automatic backoff protect API usage
 - DM send uses timeout
 - Poller status exposes failures, duration, and skipped overlaps via `/status`
 

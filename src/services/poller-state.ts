@@ -8,6 +8,10 @@ type PollerState = {
   totalMatchesSent: number;
   consecutiveFailures: number;
   skippedOverlappingRuns: number;
+  sourceCallsLastMinute: number;
+  rateLimitSkips: number;
+  backoffUntil?: string;
+  lastSourceSuccessAt?: string;
   isRunning: boolean;
   lastError?: string;
 };
@@ -19,6 +23,8 @@ const state: PollerState = {
   totalMatchesSent: 0,
   consecutiveFailures: 0,
   skippedOverlappingRuns: 0,
+  sourceCallsLastMinute: 0,
+  rateLimitSkips: 0,
   isRunning: false
 };
 
@@ -54,6 +60,22 @@ export function markPollerError(error: unknown): void {
 
 export function markPollerOverlapSkip(): void {
   state.skippedOverlappingRuns += 1;
+}
+
+export function setSourceCallsLastMinute(value: number): void {
+  state.sourceCallsLastMinute = value;
+}
+
+export function markRateLimitSkip(): void {
+  state.rateLimitSkips += 1;
+}
+
+export function setBackoffUntil(date: Date | null): void {
+  state.backoffUntil = date ? date.toISOString() : undefined;
+}
+
+export function markSourceSuccessNow(): void {
+  state.lastSourceSuccessAt = new Date().toISOString();
 }
 
 export function getPollerState(): PollerState {

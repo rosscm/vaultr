@@ -30,7 +30,7 @@ export const chaseList = {
     const summary = `**Total Active Chases:** ${chases.length}`;
     await interaction.reply({
       embeds: [
-        infoEmbed('Your Chases', `${summary}\n\n${lines.join('\n\n---\n\n')}`).addFields(
+        infoEmbed('Your Chases', `${summary}\n\n${lines.join('\n\n---\n\n')}\n\n---`).addFields(
           keyValue('Tip', 'Use `/chase-edit entry:<n>` or `/chase-remove entry:<n>`')
         )
       ],

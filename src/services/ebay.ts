@@ -41,7 +41,9 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
   });
 
   const response = await fetch(`${endpoint}?${params.toString()}`);
-  if (!response.ok) return [];
+  if (!response.ok) {
+    throw new Error(`eBay request failed: ${response.status}`);
+  }
 
   const json: any = await response.json();
   const items = json?.findItemsByKeywordsResponse?.[0]?.searchResult?.[0]?.item ?? [];

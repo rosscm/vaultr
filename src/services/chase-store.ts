@@ -47,7 +47,7 @@ const listChasesStmt = db.prepare(`
   SELECT id, user_id, guild_id, card_name, max_price, grade, condition, region, listing_type, negative_keywords, created_at
   FROM chases
   WHERE user_id = ?
-  ORDER BY created_at DESC
+  ORDER BY created_at ASC
 `);
 
 const listAllChasesStmt = db.prepare(`

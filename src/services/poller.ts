@@ -3,8 +3,20 @@ import { countUserAlertsInLastHour, getUserAlertSettings, hasAlertBeenSent, list
 import { searchEbayListings } from './ebay.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
-import { getPollerState, initializePollerState, markPollerError, markPollerMatchSent, markPollerOverlapSkip, markPollerRunStart, markPollerRunSuccess } from './poller-state.js';
-import { keyValue, listingLinkButton } from '../ui/embeds.js';
+import {
+  getPollerState,
+  initializePollerState,
+  markSourceSuccessNow,
+  markPollerError,
+  markPollerMatchSent,
+  markPollerOverlapSkip,
+  markPollerRunStart,
+  markPollerRunSuccess,
+  markRateLimitSkip,
+  setBackoffUntil,
+  setSourceCallsLastMinute
+} from './poller-state.js';
+import { keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
 
 function formatReasons(reasons: string[]): string {
   return reasons
@@ -29,6 +41,38 @@ function splitReasons(reasons: string[]): { positive: string; risk: string } {
   };
 }
 
+function formatListingType(listingType: string | undefined): string {
+  if (!listingType) return 'unknown';
+  if (listingType === 'AUCTION') return 'Auction';
+  if (listingType === 'BUY_IT_NOW') return 'Buy It Now';
+  return 'Other';
+}
+
+function formatPostedAge(postedAt: string | undefined): string {
+  if (!postedAt) return 'unknown';
+  const then = new Date(postedAt).getTime();
+  if (Number.isNaN(then)) return 'unknown';
+  const deltaSeconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  const minutes = Math.floor(deltaSeconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+function formatPriceVsMax(listingPrice: number, chaseMax: number | undefined): string {
+  if (chaseMax === undefined) return 'No max set';
+  const diff = chaseMax - listingPrice;
+  if (diff >= 0) return `${Math.abs(diff).toFixed(2)} under max`;
+  return `${Math.abs(diff).toFixed(2)} over max`;
+}
+
+function formatSellerFeedbackPercent(value: number | undefined): string {
+  if (value === undefined || Number.isNaN(value)) return 'unknown';
+  return `${value.toFixed(1)}%`;
+}
+
 function isInQuietHours(start: number | undefined, end: number | undefined): boolean {
   if (start === undefined || end === undefined) return false;
   const hour = new Date().getHours();
@@ -39,6 +83,28 @@ function isInQuietHours(start: number | undefined, end: number | undefined): boo
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const sourceCallTimestamps: number[] = [];
+const throttleNoticeTimestampsByUser = new Map<string, number>();
+let backoffUntilMs = 0;
+
+function pruneSourceCallWindow(nowMs: number): void {
+  const oneMinuteAgo = nowMs - 60_000;
+  while (sourceCallTimestamps.length > 0 && sourceCallTimestamps[0] < oneMinuteAgo) {
+    sourceCallTimestamps.shift();
+  }
+  setSourceCallsLastMinute(sourceCallTimestamps.length);
+}
+
+function canCallSource(nowMs: number, maxRequestsPerMinute: number): boolean {
+  pruneSourceCallWindow(nowMs);
+  return sourceCallTimestamps.length < maxRequestsPerMinute;
+}
+
+function markSourceCall(nowMs: number): void {
+  sourceCallTimestamps.push(nowMs);
+  pruneSourceCallWindow(nowMs);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
@@ -55,17 +121,62 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMes
 }
 
 async function fetchListingsWithRetry(chase: any, sourceMode: string): Promise<any[]> {
+  const maxRequestsPerMinute = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '20');
+  const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '30');
   const attempts = 2;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       if (sourceMode === 'MOCK') return searchMockListings(chase);
-      return await withTimeout(searchEbayListings(chase), 10000, 'Listing source timeout');
+      const nowMs = Date.now();
+      if (nowMs < backoffUntilMs) {
+        return [];
+      }
+      if (!canCallSource(nowMs, maxRequestsPerMinute)) {
+        markRateLimitSkip();
+        return [];
+      }
+      markSourceCall(nowMs);
+      const listings = await withTimeout(searchEbayListings(chase), 10000, 'Listing source timeout');
+      markSourceSuccessNow();
+      return listings;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('429')) {
+        const backoffMs = backoffBaseSeconds * 1000 * attempt;
+        backoffUntilMs = Date.now() + backoffMs;
+        setBackoffUntil(new Date(backoffUntilMs));
+      }
       if (attempt === attempts) throw error;
       await sleep(300 * attempt);
     }
   }
   return [];
+}
+
+async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAlertsPerHour: number): Promise<void> {
+  const nowMs = Date.now();
+  const lastNotifiedAt = throttleNoticeTimestampsByUser.get(userId) ?? 0;
+  const throttleNoticeCooldownMs = 60 * 60 * 1000;
+  if (nowMs - lastNotifiedAt < throttleNoticeCooldownMs) return;
+
+  try {
+    const user = await client.users.fetch(userId);
+    await withTimeout(
+      user.send({
+        embeds: [
+          warningEmbed(
+            'Alerts Temporarily Throttled',
+            `You reached your current limit of ${maxAlertsPerHour} alerts/hour. Increase it with \`/alerts-settings\` if needed.`
+          )
+        ]
+      }),
+      10000,
+      'Throttle DM send timeout'
+    );
+    throttleNoticeTimestampsByUser.set(userId, nowMs);
+  } catch (error) {
+    console.error(`Failed to send throttle notice to user ${userId}`, error);
+  }
 }
 
 async function runPoll(client: Client): Promise<void> {
@@ -89,7 +200,10 @@ async function runPoll(client: Client): Promise<void> {
       if (!match.isMatch) continue;
       if (match.score < settings.minScore) continue;
 
-      if (countUserAlertsInLastHour(chase.userId) >= settings.maxAlertsPerHour) continue;
+      if (countUserAlertsInLastHour(chase.userId) >= settings.maxAlertsPerHour) {
+        await sendThrottleNoticeIfNeeded(client, chase.userId, settings.maxAlertsPerHour);
+        continue;
+      }
 
       if (hasAlertBeenSent(chase.id, listing.listingId, listing.source)) continue;
 
@@ -99,9 +213,13 @@ async function runPoll(client: Client): Promise<void> {
         .setDescription(`**${listing.title}**`)
         .addFields(
           keyValue('💵 Price', `**${listing.price} ${listing.currency}**`),
+          keyValue('🛍️ Listing Type', `**${formatListingType(listing.listingType)}**`),
+          keyValue('🕒 Posted', `**${formatPostedAge(listing.postedAt)}**`),
+          keyValue('📉 Price vs Max', `**${formatPriceVsMax(listing.price, chase.maxPrice)}**`),
           keyValue('🌍 Region', `**${listing.region}**`),
           keyValue('🎯 Score', `**${match.score}**`),
           keyValue('🏷️ Seller', `**${listing.seller ?? 'unknown'}**`),
+          keyValue('⭐ Seller Feedback', `**${formatSellerFeedbackPercent(listing.sellerFeedbackPercent)}**`),
           keyValue('✅ Positive Signals', splitReasons(match.reasons).positive),
           keyValue('⚠️ Risk Signals', splitReasons(match.reasons).risk)
         )
@@ -137,6 +255,7 @@ export function startPoller(client: Client): void {
   const intervalMs = Math.max(30, pollIntervalSeconds) * 1000;
   const sourceMode = (process.env.LISTING_SOURCE ?? 'EBAY').toUpperCase();
   initializePollerState(sourceMode, intervalMs / 1000);
+  setBackoffUntil(null);
 
   const runWithGuard = async () => {
     if (getPollerState().isRunning) {

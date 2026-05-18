@@ -7,6 +7,7 @@ import { chaseEdit } from './chase-edit.js';
 import { chaseList } from './chase-list.js';
 import { chaseRemove } from './chase-remove.js';
 import { chaseTest } from './chase-test.js';
+import { help } from './help.js';
 import { plan } from './plan.js';
 import { planSet } from './plan-set.js';
 import { setupChannelSet } from './setup-channel-set.js';
@@ -23,6 +24,7 @@ export const commands = [
   chaseList,
   chaseRemove,
   chaseTest,
+  help,
   plan,
   planSet,
   setupChannelSet,
