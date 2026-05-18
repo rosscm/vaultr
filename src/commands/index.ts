@@ -1,4 +1,5 @@
 import { alertsSettings } from './alerts-settings.js';
+import { alertsSettingsReset } from './alerts-settings-reset.js';
 import { alertsRecent } from './alerts-recent.js';
 import { chaseAdd } from './chase-add.js';
 import { chaseEdit } from './chase-edit.js';
@@ -14,6 +15,7 @@ import { upgrade } from './upgrade.js';
 export const commands = [
   alertsRecent,
   alertsSettings,
+  alertsSettingsReset,
   chaseAdd,
   chaseEdit,
   chaseList,

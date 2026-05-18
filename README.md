@@ -29,6 +29,7 @@ Discord-native collector chase assistant.
 ## Initial Commands
 
 - `/alerts-settings`
+- `/alerts-settings-reset`
 - `/alerts-recent`
 - `/chase-add`
 - `/chase-edit`
@@ -82,7 +83,10 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 - `min_score`: drop low-confidence matches
 - `max_alerts_per_hour`: reduce alert bursts
 - `quiet_start` / `quiet_end`: suppress alerts during quiet window (server local time)
+- Recommended defaults: `min_score=60`, `max_alerts_per_hour=10`, quiet hours off
+- Use `/alerts-settings-reset` to restore recommended defaults
 - Per-chase blocked terms via `negative_keywords` on `/chase-add` and `/chase-edit`
+- Default blocked terms on new chases: `proxy, custom, reprint, lot, orica, replica`
 
 ## Reliability
 

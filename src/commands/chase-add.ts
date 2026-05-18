@@ -3,6 +3,8 @@ import { addChase, countUserChases, getUserPlan } from '../services/chase-store.
 import { PLAN_LIMITS } from '../services/plans.js';
 import { keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
 
+const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
+
 export const chaseAdd = {
   data: new SlashCommandBuilder()
     .setName('chase-add')
@@ -74,7 +76,7 @@ export const chaseAdd = {
       grade,
       condition,
       region,
-      negativeKeywords
+      negativeKeywords: negativeKeywords && negativeKeywords.length > 0 ? negativeKeywords : DEFAULT_NEGATIVE_KEYWORDS
     });
 
     await interaction.reply({

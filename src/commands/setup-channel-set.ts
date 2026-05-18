@@ -23,7 +23,12 @@ export const setupChannelSet = {
     setGuildCommandChannel(interaction.guildId, channel.id);
 
     await interaction.reply({
-      content: `Vaultr command channel set to <#${channel.id}>. Users must run Vaultr commands there.`,
+      content:
+        `Vaultr command channel set to <#${channel.id}>.\n\n` +
+        `Quickstart:\n` +
+        `1. Use /alerts-settings-reset for recommended defaults\n` +
+        `2. Add a chase with /chase-add\n` +
+        `3. Check health with /status`,
       flags: MessageFlags.Ephemeral
     });
   }

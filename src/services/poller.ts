@@ -1,10 +1,10 @@
-import { Client } from 'discord.js';
+import { Client, EmbedBuilder } from 'discord.js';
 import { countUserAlertsInLastHour, getUserAlertSettings, hasAlertBeenSent, listAllChases, markAlertSentWithDetails } from './chase-store.js';
 import { searchEbayListings } from './ebay.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { getPollerState, initializePollerState, markPollerError, markPollerMatchSent, markPollerOverlapSkip, markPollerRunStart, markPollerRunSuccess } from './poller-state.js';
-import { keyValue, listingLinkButton, successEmbed } from '../ui/embeds.js';
+import { keyValue, listingLinkButton } from '../ui/embeds.js';
 
 function formatReasons(reasons: string[]): string {
   return reasons
@@ -16,6 +16,17 @@ function formatReasons(reasons: string[]): string {
       return r.replaceAll('_', ' ');
     })
     .join(', ');
+}
+
+function splitReasons(reasons: string[]): { positive: string; risk: string } {
+  const riskSignals = reasons.filter(
+    (r) => r.includes('penalty') || r.startsWith('suspicious_terms:') || r.includes('miss') || r.includes('block')
+  );
+  const positiveSignals = reasons.filter((r) => !riskSignals.includes(r));
+  return {
+    positive: positiveSignals.length > 0 ? formatReasons(positiveSignals) : 'none',
+    risk: riskSignals.length > 0 ? formatReasons(riskSignals) : 'none'
+  };
 }
 
 function isInQuietHours(start: number | undefined, end: number | undefined): boolean {
@@ -82,15 +93,19 @@ async function runPoll(client: Client): Promise<void> {
 
       if (hasAlertBeenSent(chase.id, listing.listingId, listing.source)) continue;
 
-      const embed = successEmbed('🚨 Chase Match Found')
+      const embed = new EmbedBuilder()
+        .setColor(0xf97316)
+        .setTitle('🚨 Chase Match Found')
         .setDescription(`**${listing.title}**`)
         .addFields(
-          keyValue('Price', `**${listing.price} ${listing.currency}**`),
-          keyValue('Region', `**${listing.region}**`),
-          keyValue('Score', `**${match.score}**`),
-          keyValue('Seller', `**${listing.seller ?? 'unknown'}**`),
-          keyValue('Reasons', formatReasons(match.reasons))
+          keyValue('💵 Price', `**${listing.price} ${listing.currency}**`),
+          keyValue('🌍 Region', `**${listing.region}**`),
+          keyValue('🎯 Score', `**${match.score}**`),
+          keyValue('🏷️ Seller', `**${listing.seller ?? 'unknown'}**`),
+          keyValue('✅ Positive Signals', splitReasons(match.reasons).positive),
+          keyValue('⚠️ Risk Signals', splitReasons(match.reasons).risk)
         )
+        .setTimestamp()
         .setFooter({ text: 'Vaultr • Collector Alert' });
 
       try {

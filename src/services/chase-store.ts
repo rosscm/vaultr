@@ -326,11 +326,11 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
 
   if (!row) {
     const now = new Date().toISOString();
-    upsertUserAlertSettingsStmt.run(userId, 50, 20, null, null, now);
+    upsertUserAlertSettingsStmt.run(userId, 60, 10, null, null, now);
     return {
       userId,
-      minScore: 50,
-      maxAlertsPerHour: 20,
+      minScore: 60,
+      maxAlertsPerHour: 10,
       updatedAt: now
     };
   }
@@ -403,4 +403,15 @@ export function listRecentAlerts(userId: string, limit = 20): SentAlert[] {
     listingUrl: row.listing_url ?? undefined,
     matchScore: row.match_score ?? undefined
   }));
+}
+
+export function resetUserAlertSettings(userId: string): UserAlertSettings {
+  const now = new Date().toISOString();
+  upsertUserAlertSettingsStmt.run(userId, 60, 10, null, null, now);
+  return {
+    userId,
+    minScore: 60,
+    maxAlertsPerHour: 10,
+    updatedAt: now
+  };
 }
