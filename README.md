@@ -69,6 +69,7 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 ## eBay Polling
 
 - Set `EBAY_APP_ID` in `.env` (from eBay Developer Program)
+- Set `EBAY_ENV=SANDBOX` for sandbox testing, or `EBAY_ENV=PRODUCTION` for live eBay
 - Optional: tune `POLL_INTERVAL_SECONDS` (default `180`)
 - Set `LISTING_SOURCE=EBAY` for live eBay polling
 - Set `LISTING_SOURCE=MOCK` to run with local mock listings

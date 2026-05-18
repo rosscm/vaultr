@@ -1,6 +1,12 @@
 import type { Chase, Listing } from '../types.js';
 
-const EBAY_FINDING_ENDPOINT = 'https://svcs.ebay.com/services/search/FindingService/v1';
+const EBAY_FINDING_ENDPOINT_PROD = 'https://svcs.ebay.com/services/search/FindingService/v1';
+const EBAY_FINDING_ENDPOINT_SANDBOX = 'https://svcs.sandbox.ebay.com/services/search/FindingService/v1';
+
+function getEbayFindingEndpoint(): string {
+  const env = (process.env.EBAY_ENV ?? 'PRODUCTION').toUpperCase();
+  return env === 'SANDBOX' ? EBAY_FINDING_ENDPOINT_SANDBOX : EBAY_FINDING_ENDPOINT_PROD;
+}
 
 function mapCountryToRegion(countryCode?: string): 'CA' | 'US' | 'OTHER' {
   if (!countryCode) return 'OTHER';
@@ -12,6 +18,7 @@ function mapCountryToRegion(countryCode?: string): 'CA' | 'US' | 'OTHER' {
 export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
   const appId = process.env.EBAY_APP_ID;
   if (!appId) return [];
+  const endpoint = getEbayFindingEndpoint();
 
   const keywords = chase.grade ? `${chase.cardName} ${chase.grade}` : chase.cardName;
 
@@ -26,7 +33,7 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
     'sortOrder': 'StartTimeNewest'
   });
 
-  const response = await fetch(`${EBAY_FINDING_ENDPOINT}?${params.toString()}`);
+  const response = await fetch(`${endpoint}?${params.toString()}`);
   if (!response.ok) return [];
 
   const json: any = await response.json();
