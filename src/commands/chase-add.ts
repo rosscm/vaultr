@@ -1,5 +1,5 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
-import { addChase, countUserChases, getUserPlan } from '../services/chase-store.js';
+import { addChase, countUserChases, getUserPlan, getGuildCommandChannel, isGuildCommunityFeedEnabled } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
 
@@ -93,5 +93,14 @@ export const chaseAdd = {
       ],
       flags: MessageFlags.Ephemeral
     });
+
+    // Optional community heartbeat message (anonymized) to keep channel active without leaking chase details.
+    if (interaction.guildId && isGuildCommunityFeedEnabled(interaction.guildId)) {
+      const channelId = getGuildCommandChannel(interaction.guildId);
+      const channel = channelId ? await interaction.client.channels.fetch(channelId).catch(() => null) : null;
+      if (channel && 'send' in channel) {
+        await channel.send('🔎 A collector started a new chase.');
+      }
+    }
   }
 };

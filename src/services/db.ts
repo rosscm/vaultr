@@ -61,6 +61,12 @@ db.exec(`
     quiet_hours_end INTEGER,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS guild_community_feed (
+    guild_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 try {

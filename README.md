@@ -31,6 +31,7 @@ Discord-native collector chase assistant.
 - `/alerts-settings`
 - `/alerts-settings-reset`
 - `/alerts-recent`
+- `/community-feed` (admin toggle)
 - `/chase-add`
 - `/chase-edit`
 - `/chase-list`
@@ -100,6 +101,7 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 - Admin sets the dedicated bot channel with `/setup-channel-set`
 - All Vaultr commands (except setup itself) must be run in that channel
 - Command responses are user-specific (ephemeral), alerts are DM-only
+- Optional community activity heartbeat can be enabled by admins via `/community-feed`
 
 ## Production Notes
 

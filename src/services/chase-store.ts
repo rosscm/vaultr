@@ -96,6 +96,20 @@ const getGuildAlertChannelStmt = db.prepare(`
   WHERE guild_id = ?
 `);
 
+const upsertGuildCommunityFeedStmt = db.prepare(`
+  INSERT INTO guild_community_feed (guild_id, enabled, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(guild_id) DO UPDATE SET
+    enabled = excluded.enabled,
+    updated_at = excluded.updated_at
+`);
+
+const getGuildCommunityFeedStmt = db.prepare(`
+  SELECT enabled
+  FROM guild_community_feed
+  WHERE guild_id = ?
+`);
+
 const countChasesByUserStmt = db.prepare(`
   SELECT COUNT(*) AS count
   FROM chases
@@ -275,6 +289,15 @@ export function setGuildCommandChannel(guildId: string, channelId: string): void
 
 export function getGuildCommandChannel(guildId: string): string | null {
   return getGuildAlertChannel(guildId);
+}
+
+export function setGuildCommunityFeedEnabled(guildId: string, enabled: boolean): void {
+  upsertGuildCommunityFeedStmt.run(guildId, enabled ? 1 : 0, new Date().toISOString());
+}
+
+export function isGuildCommunityFeedEnabled(guildId: string): boolean {
+  const row = getGuildCommunityFeedStmt.get(guildId) as { enabled: number } | undefined;
+  return (row?.enabled ?? 0) === 1;
 }
 
 export function getUserPlan(userId: string): UserPlan {

@@ -1,6 +1,7 @@
 import { alertsSettings } from './alerts-settings.js';
 import { alertsSettingsReset } from './alerts-settings-reset.js';
 import { alertsRecent } from './alerts-recent.js';
+import { communityFeed } from './community-feed.js';
 import { chaseAdd } from './chase-add.js';
 import { chaseEdit } from './chase-edit.js';
 import { chaseList } from './chase-list.js';
@@ -16,6 +17,7 @@ export const commands = [
   alertsRecent,
   alertsSettings,
   alertsSettingsReset,
+  communityFeed,
   chaseAdd,
   chaseEdit,
   chaseList,
