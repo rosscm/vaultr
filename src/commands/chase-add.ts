@@ -84,7 +84,7 @@ export const chaseAdd = {
     const negativeKeywords = interaction.options
       .getString('negative_keywords')
       ?.split(',')
-      .map((k) => k.trim())
+      .map((k: string) => k.trim())
       .filter(Boolean);
 
     if (negativeKeywords && negativeKeywords.length > 15) {

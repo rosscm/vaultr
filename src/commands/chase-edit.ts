@@ -75,7 +75,7 @@ export const chaseEdit = {
         ? undefined
         : negativeKeywordsRaw
             .split(',')
-            .map((k) => k.trim())
+            .map((k: string) => k.trim())
             .filter(Boolean);
 
     if (negativeKeywords && negativeKeywords.length > 15) {
