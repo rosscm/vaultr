@@ -10,6 +10,11 @@ export const help = {
           'Vaultr Help',
           'Start with `/chase-add`, then tune noise with `/alerts-settings`. Alerts are sent by DM when a listing matches.'
         ).addFields(
+          keyValue(
+            'Input Requirements',
+            '`card` 3-100 chars | `max_price` > 0 | `grade` up to 24 chars | `negative_keywords` comma-separated (max 15 terms)'
+          ),
+          keyValue('Card Name Tip', 'Casing does not matter. For best matches, include card number and grade when relevant.'),
           keyValue('Chases', '`/chase-add` · `/chase-list` · `/chase-edit` · `/chase-remove`'),
           keyValue('Alerts', '`/alerts-settings` · `/alerts-settings-reset` · `/alerts-recent`'),
           keyValue('Plan', '`/plan` · `/upgrade`'),

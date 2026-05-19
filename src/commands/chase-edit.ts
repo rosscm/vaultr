@@ -7,9 +7,11 @@ export const chaseEdit = {
     .setName('chase-edit')
     .setDescription('Edit an active chase by list entry number')
     .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase-list').setRequired(true))
-    .addStringOption((opt) => opt.setName('card').setDescription('Updated card name'))
-    .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price'))
-    .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade preference (e.g. PSA 10)'))
+    .addStringOption((opt) =>
+      opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored)').setMinLength(3).setMaxLength(100)
+    )
+    .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0)').setMinValue(0.01))
+    .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade, e.g. PSA 10').setMaxLength(24))
     .addStringOption((opt) =>
       opt
         .setName('condition')
@@ -45,7 +47,8 @@ export const chaseEdit = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Comma-separated blocked terms (e.g. proxy,custom,reprint)')
+        .setDescription('Blocked terms CSV (max 15), e.g. proxy,custom,reprint')
+        .setMaxLength(240)
     ),
   async execute(interaction: any) {
     const entry = interaction.options.getInteger('entry', true);
@@ -74,6 +77,14 @@ export const chaseEdit = {
             .split(',')
             .map((k) => k.trim())
             .filter(Boolean);
+
+    if (negativeKeywords && negativeKeywords.length > 15) {
+      await interaction.reply({
+        embeds: [warningEmbed('Too Many Blocked Terms', 'Use at most 15 comma-separated blocked terms.')],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
 
     if (!cardName && maxPrice === undefined && !grade && !condition && !region && !listingType && negativeKeywords === undefined) {
       await interaction.reply({

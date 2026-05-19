@@ -100,6 +100,80 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 - Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
 - Alerts are delivered by DM to each user
 
+## eBay Deletion Webhook (Compliance)
+
+- Vaultr includes a webhook listener for eBay Marketplace Account Deletion notifications
+- Run locally:
+  - `npm run dev:webhook`
+- Or from build:
+  - `npm run build`
+  - `npm run start:webhook`
+- Required env vars:
+  - `EBAY_NOTIFICATION_ENDPOINT_URL` (must exactly match your eBay endpoint URL)
+  - `EBAY_NOTIFICATION_VERIFICATION_TOKEN` (32-80 chars, `A-Za-z0-9_-`)
+- Optional env vars:
+  - `EBAY_WEBHOOK_PORT` (default `8787`)
+  - `EBAY_DELETION_AUDIT_PATH` (default `./data/ebay-deletions.log`)
+- Current behavior:
+  - Receives and validates challenge requests (`GET /ebay/notifications`)
+  - Accepts notification payloads (`POST /ebay/notifications`)
+  - Records deletion-event audit lines for compliance
+  - No-op deletion action, since Vaultr currently stores no personal eBay account data
+
+### Cloudflare Tunnel Setup (Pi)
+
+Use this when your webhook runs on a Raspberry Pi and needs a public HTTPS endpoint.
+
+1. Create a Cloudflare tunnel and DNS route (example hostname):
+   - `cloudflared tunnel create vaultr-ebay-webhook`
+   - `cloudflared tunnel route dns vaultr-ebay-webhook ebay-webhook.tweeticcini.com`
+2. Create a dedicated tunnel config (example path):
+   - `/home/pi/.cloudflared/vaultr-webhook.yml`
+3. Example config:
+   ```yaml
+   tunnel: <TUNNEL_ID>
+   credentials-file: /home/pi/.cloudflared/<TUNNEL_ID>.json
+
+   ingress:
+     - hostname: ebay-webhook.tweeticcini.com
+       service: http://localhost:8787
+     - service: http_status:404
+   ```
+4. Run tunnel as a separate service (recommended) so other apps are not disrupted:
+   - Use your own `cloudflared-vaultr.service` with:
+     - `ExecStart=/usr/bin/cloudflared tunnel --config /home/pi/.cloudflared/vaultr-webhook.yml run`
+5. Verify endpoint:
+   - `curl "https://ebay-webhook.tweeticcini.com/ebay/notifications?challenge_code=test123"`
+   - Expected: JSON containing `challengeResponse`
+
+### eBay Portal Verification Steps
+
+1. Open your Production keyset in eBay Developers Program
+2. Go to Notifications -> Marketplace Account Deletion
+3. Set:
+   - Endpoint URL: `https://ebay-webhook.tweeticcini.com/ebay/notifications`
+   - Verification token: must match `EBAY_NOTIFICATION_VERIFICATION_TOKEN`
+4. Click Save (this triggers eBay challenge validation)
+5. Click Send Test Notification
+6. Watch logs:
+   - `sudo journalctl -u vaultr-ebay-webhook -f`
+
+### Persistence on Pi
+
+For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/rossc10/projects/vaultr/deploy/vaultr-ebay-webhook.service):
+
+1. Build webhook:
+   - `npm run build`
+2. Install unit:
+   - `sudo cp deploy/vaultr-ebay-webhook.service /etc/systemd/system/vaultr-ebay-webhook.service`
+3. Reload and start:
+   - `sudo systemctl daemon-reload`
+   - `sudo systemctl enable vaultr-ebay-webhook`
+   - `sudo systemctl start vaultr-ebay-webhook`
+4. Check status/logs:
+   - `sudo systemctl status vaultr-ebay-webhook`
+   - `sudo journalctl -u vaultr-ebay-webhook -f`
+
 ## Alert Controls
 
 - Per-user controls via `/alerts-settings`

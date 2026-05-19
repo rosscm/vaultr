@@ -9,9 +9,16 @@ export const chaseAdd = {
   data: new SlashCommandBuilder()
     .setName('chase-add')
     .setDescription('Add a new chase card')
-    .addStringOption((opt) => opt.setName('card').setDescription('Card name').setRequired(true))
-    .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price'))
-    .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference (e.g. PSA 10)'))
+    .addStringOption((opt) =>
+      opt
+        .setName('card')
+        .setDescription('Card name (3-100 chars, casing ignored)')
+        .setRequired(true)
+        .setMinLength(3)
+        .setMaxLength(100)
+    )
+    .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
+    .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference, e.g. PSA 10').setMaxLength(24))
     .addStringOption((opt) =>
       opt
         .setName('condition')
@@ -47,7 +54,8 @@ export const chaseAdd = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Comma-separated blocked terms (e.g. proxy,custom,reprint)')
+        .setDescription('Blocked terms CSV (max 15), e.g. proxy,custom,reprint')
+        .setMaxLength(240)
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
@@ -78,6 +86,14 @@ export const chaseAdd = {
       ?.split(',')
       .map((k) => k.trim())
       .filter(Boolean);
+
+    if (negativeKeywords && negativeKeywords.length > 15) {
+      await interaction.reply({
+        embeds: [warningEmbed('Too Many Blocked Terms', 'Use at most 15 comma-separated blocked terms.')],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
 
     const chase = addChase({
       userId: interaction.user.id,
