@@ -20,6 +20,11 @@ type DeletionNotification = {
   };
 };
 
+function maskValue(value: string): string {
+  if (value.length <= 4) return '****';
+  return `${value.slice(0, 2)}***${value.slice(-2)}`;
+}
+
 function appendAuditLine(filePath: string, line: string): void {
   mkdirSync(dirname(filePath), { recursive: true });
   appendFileSync(filePath, `${line}\n`, { encoding: 'utf-8' });
@@ -32,8 +37,8 @@ export function processEbayAccountDeletionNotification(payload: unknown): void {
 
   const notificationId = data?.notification?.notificationId ?? 'unknown';
   const eventDate = data?.notification?.eventDate ?? new Date().toISOString();
-  const username = data?.notification?.data?.username ?? 'unknown';
   const userId = data?.notification?.data?.userId ?? 'unknown';
+  const maskedUserId = maskValue(userId);
 
   // Vaultr currently stores no personal eBay account data. We still keep an
   // audit record proving deletion events were received and processed.
@@ -43,13 +48,10 @@ export function processEbayAccountDeletionNotification(payload: unknown): void {
     topic,
     notificationId,
     eventDate,
-    username,
-    userId,
+    maskedUserId,
     action: 'NO_PERSONAL_EBAY_DATA_STORED'
   });
   appendAuditLine(deletionAuditPath, auditRecord);
 
-  console.log(
-    `[eBay deletion] processed notificationId=${notificationId} username=${username} userId=${userId} action=NO_PERSONAL_EBAY_DATA_STORED`
-  );
+  console.log(`[eBay deletion] processed notificationId=${notificationId} userId=${maskedUserId}`);
 }
