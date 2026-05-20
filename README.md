@@ -179,12 +179,15 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 - Per-user controls via `/alerts-settings`
 - `min_score`: drop low-confidence matches
 - `max_alerts_per_hour`: reduce alert bursts
+- `chase_cooldown_minutes`: minimum minutes between alerts for the same chase
 - `quiet_start` / `quiet_end`: suppress alerts during quiet window (server local time)
 - Recommended defaults: `min_score=60`, `max_alerts_per_hour=10`, quiet hours off
 - Use `/alerts-settings-reset` to restore recommended defaults
 - Per-chase blocked terms via `negative_keywords` on `/chase-add` and `/chase-edit`
 - Default blocked terms on new chases: `proxy, custom, reprint, lot, orica, replica`
 - Per-chase `listing_type` filter: `ANY`, `AUCTION`, or `BUY_IT_NOW`
+- Per-chase `priority`: `NORMAL`, `HIGH`, `GRAIL` (grails are shown first in `/chase-list`)
+- Per-chase `target_note`: short personal context shown in grail/match alerts
 
 ## Reliability
 

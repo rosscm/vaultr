@@ -1,7 +1,28 @@
 import type { Chase, Listing, MatchResult } from '../types.js';
 
 function normalize(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s/.-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toTokens(text: string): string[] {
+  return normalize(text)
+    .split(' ')
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+}
+
+function tokenOverlapRatio(needle: string[], haystack: string[]): number {
+  if (needle.length === 0) return 0;
+  const haystackSet = new Set(haystack);
+  let hits = 0;
+  for (const token of needle) {
+    if (haystackSet.has(token)) hits += 1;
+  }
+  return hits / needle.length;
 }
 
 function conditionMatches(chaseCondition: string | undefined, listingCondition: string | undefined): boolean {
@@ -33,6 +54,8 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
 
   const title = normalize(listing.title);
   const card = normalize(chase.cardName);
+  const cardTokens = toTokens(chase.cardName);
+  const titleTokens = toTokens(listing.title);
 
   const blocked = (chase.negativeKeywords ?? [])
     .map((k) => normalize(k))
@@ -42,12 +65,18 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     return { isMatch: false, score: 0, reasons: ['negative_keyword_block'] };
   }
 
-  if (!title.includes(card)) {
-    return { isMatch: false, score: 0, reasons: ['card_name_miss'] };
+  if (title.includes(card)) {
+    score += 50;
+    reasons.push('card_name_match_exact');
+  } else {
+    const overlap = tokenOverlapRatio(cardTokens, titleTokens);
+    if (overlap < 0.7) {
+      return { isMatch: false, score: 0, reasons: ['card_name_miss'] };
+    }
+    score += overlap >= 0.9 ? 45 : 35;
+    reasons.push('card_name_match_tokens');
+    reasons.push(`token_overlap:${Math.round(overlap * 100)}`);
   }
-
-  score += 50;
-  reasons.push('card_name_match');
 
   if (chase.grade) {
     const grade = normalize(chase.grade);
@@ -92,6 +121,14 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
       reasons.push('price_within_max');
     } else {
       return { isMatch: false, score: 0, reasons: ['price_over_max'] };
+    }
+  }
+
+  if (cardTokens.length >= 3) {
+    const overlap = tokenOverlapRatio(cardTokens, titleTokens);
+    if (overlap < 0.85) {
+      score -= 8;
+      reasons.push('low_token_overlap_penalty');
     }
   }
 

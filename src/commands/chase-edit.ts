@@ -49,6 +49,19 @@ export const chaseEdit = {
         .setName('negative_keywords')
         .setDescription('Blocked terms CSV (max 15), e.g. proxy,custom,reprint')
         .setMaxLength(240)
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('priority')
+        .setDescription('Updated priority')
+        .addChoices(
+          { name: 'Normal', value: 'NORMAL' },
+          { name: 'High', value: 'HIGH' },
+          { name: 'Grail', value: 'GRAIL' }
+        )
+    )
+    .addStringOption((opt) =>
+      opt.setName('target_note').setDescription('Updated personal note (up to 120 chars)').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const entry = interaction.options.getInteger('entry', true);
@@ -69,6 +82,9 @@ export const chaseEdit = {
     const condition = interaction.options.getString('condition') ?? undefined;
     const region = (interaction.options.getString('region') as 'CA' | 'US' | 'ANY' | null) ?? undefined;
     const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? undefined;
+    const priority = (interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null) ?? undefined;
+    const targetNoteRaw = interaction.options.getString('target_note');
+    const targetNote = targetNoteRaw === null ? undefined : targetNoteRaw;
     const negativeKeywordsRaw = interaction.options.getString('negative_keywords');
     const negativeKeywords =
       negativeKeywordsRaw === null
@@ -86,7 +102,17 @@ export const chaseEdit = {
       return;
     }
 
-    if (!cardName && maxPrice === undefined && !grade && !condition && !region && !listingType && negativeKeywords === undefined) {
+    if (
+      !cardName &&
+      maxPrice === undefined &&
+      !grade &&
+      !condition &&
+      !region &&
+      !listingType &&
+      !priority &&
+      targetNote === undefined &&
+      negativeKeywords === undefined
+    ) {
       await interaction.reply({
         embeds: [warningEmbed('No Changes Provided', 'Set at least one field to update.')],
         flags: MessageFlags.Ephemeral
@@ -96,6 +122,8 @@ export const chaseEdit = {
 
     const updated = updateChase(interaction.user.id, match.id, {
       cardName,
+      priority,
+      targetNote,
       maxPrice,
       grade,
       condition,
@@ -113,12 +141,14 @@ export const chaseEdit = {
       embeds: [
         successEmbed(`Chase #${entry} Updated`).addFields(
           keyValue('Card', updated.cardName),
+          keyValue('Priority', updated.priority ?? 'NORMAL'),
           keyValue('Max Price', `${updated.maxPrice ?? 'any'}`),
           keyValue('Grade', updated.grade ?? 'any'),
           keyValue('Condition', updated.condition ?? 'any'),
           keyValue('Region', updated.region ?? 'ANY'),
           keyValue('Listing Type', updated.listingType ?? 'ANY'),
-          keyValue('Blocked Terms', updated.negativeKeywords?.join(', ') ?? 'none')
+          keyValue('Blocked Terms', updated.negativeKeywords?.join(', ') ?? 'none'),
+          keyValue('Note', updated.targetNote ?? 'none')
         )
       ],
       flags: MessageFlags.Ephemeral

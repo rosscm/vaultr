@@ -56,6 +56,19 @@ export const chaseAdd = {
         .setName('negative_keywords')
         .setDescription('Blocked terms CSV (max 15), e.g. proxy,custom,reprint')
         .setMaxLength(240)
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('priority')
+        .setDescription('Priority for this chase')
+        .addChoices(
+          { name: 'Normal', value: 'NORMAL' },
+          { name: 'High', value: 'HIGH' },
+          { name: 'Grail', value: 'GRAIL' }
+        )
+    )
+    .addStringOption((opt) =>
+      opt.setName('target_note').setDescription('Personal note (why this matters to you)').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
@@ -81,6 +94,8 @@ export const chaseAdd = {
     const condition = interaction.options.getString('condition') ?? undefined;
     const region = (interaction.options.getString('region') as 'CA' | 'US' | 'ANY' | null) ?? 'ANY';
     const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? 'ANY';
+    const priority = (interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null) ?? 'NORMAL';
+    const targetNote = interaction.options.getString('target_note') ?? undefined;
     const negativeKeywords = interaction.options
       .getString('negative_keywords')
       ?.split(',')
@@ -99,6 +114,8 @@ export const chaseAdd = {
       userId: interaction.user.id,
       guildId: interaction.guildId ?? undefined,
       cardName,
+      priority,
+      targetNote,
       maxPrice,
       grade,
       condition,
@@ -112,12 +129,14 @@ export const chaseAdd = {
         successEmbed('Chase Added')
           .addFields(
             keyValue('Card', chase.cardName),
+            keyValue('Priority', chase.priority ?? 'NORMAL'),
             keyValue('Max Price', `${chase.maxPrice ?? 'any'}`),
             keyValue('Grade', chase.grade ?? 'any'),
             keyValue('Condition', chase.condition ?? 'any'),
             keyValue('Region', chase.region ?? 'ANY'),
             keyValue('Listing Type', chase.listingType ?? 'ANY'),
-            keyValue('Blocked Terms', chase.negativeKeywords?.join(', ') ?? 'none')
+            keyValue('Blocked Terms', chase.negativeKeywords?.join(', ') ?? 'none'),
+            keyValue('Note', chase.targetNote ?? 'none')
           )
       ],
       flags: MessageFlags.Ephemeral

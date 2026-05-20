@@ -3,6 +3,8 @@ export type Chase = {
   userId: string;
   guildId?: string;
   cardName: string;
+  priority?: 'GRAIL' | 'HIGH' | 'NORMAL';
+  targetNote?: string;
   maxPrice?: number;
   grade?: string;
   condition?: string;
@@ -46,6 +48,7 @@ export type UserAlertSettings = {
   userId: string;
   minScore: number;
   maxAlertsPerHour: number;
+  chaseCooldownMinutes: number;
   quietHoursStart?: number;
   quietHoursEnd?: number;
   updatedAt: string;

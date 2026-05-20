@@ -10,6 +10,9 @@ type PollerState = {
   skippedOverlappingRuns: number;
   sourceCallsLastMinute: number;
   rateLimitSkips: number;
+  suppressedByMinScore: number;
+  suppressedByChaseCooldown: number;
+  suppressedByFingerprint: number;
   backoffUntil?: string;
   lastSourceSuccessAt?: string;
   isRunning: boolean;
@@ -25,6 +28,9 @@ const state: PollerState = {
   skippedOverlappingRuns: 0,
   sourceCallsLastMinute: 0,
   rateLimitSkips: 0,
+  suppressedByMinScore: 0,
+  suppressedByChaseCooldown: 0,
+  suppressedByFingerprint: 0,
   isRunning: false
 };
 
@@ -68,6 +74,18 @@ export function setSourceCallsLastMinute(value: number): void {
 
 export function markRateLimitSkip(): void {
   state.rateLimitSkips += 1;
+}
+
+export function markMinScoreSuppression(): void {
+  state.suppressedByMinScore += 1;
+}
+
+export function markChaseCooldownSuppression(): void {
+  state.suppressedByChaseCooldown += 1;
+}
+
+export function markFingerprintSuppression(): void {
+  state.suppressedByFingerprint += 1;
 }
 
 export function setBackoffUntil(date: Date | null): void {

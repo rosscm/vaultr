@@ -17,6 +17,8 @@ db.exec(`
     user_id TEXT NOT NULL,
     guild_id TEXT,
     card_name TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT 'NORMAL',
+    target_note TEXT,
     max_price REAL,
     grade TEXT,
     condition TEXT,
@@ -58,6 +60,7 @@ db.exec(`
     user_id TEXT PRIMARY KEY,
     min_score INTEGER NOT NULL DEFAULT 50,
     max_alerts_per_hour INTEGER NOT NULL DEFAULT 20,
+    chase_cooldown_minutes INTEGER NOT NULL DEFAULT 30,
     quiet_hours_start INTEGER,
     quiet_hours_end INTEGER,
     updated_at TEXT NOT NULL
@@ -67,6 +70,14 @@ db.exec(`
     guild_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS ignored_listing_fingerprints (
+    user_id TEXT NOT NULL,
+    chase_id TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, chase_id, fingerprint)
   );
 `);
 
@@ -82,6 +93,16 @@ try {
 }
 try {
   db.exec(`ALTER TABLE chases ADD COLUMN listing_type TEXT NOT NULL DEFAULT 'ANY';`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN priority TEXT NOT NULL DEFAULT 'NORMAL';`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN target_note TEXT;`);
 } catch {
   // Column already exists on upgraded databases.
 }
@@ -116,6 +137,12 @@ try {
 } catch {
   // Column already exists on upgraded databases.
 }
+try {
+  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN chase_cooldown_minutes INTEGER NOT NULL DEFAULT 30;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_user_time ON sent_alerts(user_id, sent_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_ignored_listing_fingerprints_user_chase ON ignored_listing_fingerprints(user_id, chase_id);`);

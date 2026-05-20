@@ -45,3 +45,12 @@ export function listingLinkButton(url: string): ActionRowBuilder<ButtonBuilder> 
     new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open Listing').setURL(url)
   );
 }
+
+export function markNotRelevantButton(chaseId: string, listingId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel('Mark Not Relevant')
+      .setCustomId(`not_rel|${chaseId}|${listingId}`)
+  );
+}

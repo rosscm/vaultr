@@ -33,7 +33,7 @@ describe('matchChaseToListing', () => {
     const result = matchChaseToListing(chase, listing);
 
     expect(result.isMatch).toBe(true);
-    expect(result.reasons).toContain('card_name_match');
+    expect(result.reasons.some((r) => r.startsWith('card_name_match'))).toBe(true);
     expect(result.reasons).toContain('grade_match');
     expect(result.reasons).toContain('price_within_max');
     expect(result.reasons).toContain('region_match');
@@ -73,5 +73,14 @@ describe('matchChaseToListing', () => {
 
     expect(result.isMatch).toBe(false);
     expect(result.reasons).toEqual(['condition_miss']);
+  });
+
+  it('fails when token overlap is too low for non-exact title', () => {
+    const chase = baseChase({ cardName: 'Umbreon VMAX 215/203 Evolving Skies' });
+    const listing = baseListing({ title: 'Umbreon GX Hidden Fates PSA 10' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(false);
+    expect(result.reasons).toEqual(['card_name_miss']);
   });
 });

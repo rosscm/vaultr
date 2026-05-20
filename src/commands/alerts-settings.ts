@@ -22,6 +22,13 @@ export const alertsSettings = {
     )
     .addIntegerOption((opt) =>
       opt
+        .setName('chase_cooldown_minutes')
+        .setDescription('Minimum minutes between alerts for the same chase')
+        .setMinValue(0)
+        .setMaxValue(1440)
+    )
+    .addIntegerOption((opt) =>
+      opt
         .setName('quiet_start')
         .setDescription('Quiet hours start (0-23, local server time)')
         .setMinValue(0)
@@ -37,16 +44,19 @@ export const alertsSettings = {
   async execute(interaction: any) {
     const minScore = interaction.options.getInteger('min_score');
     const maxAlertsPerHour = interaction.options.getInteger('max_alerts_per_hour');
+    const chaseCooldownMinutes = interaction.options.getInteger('chase_cooldown_minutes');
     const quietStart = interaction.options.getInteger('quiet_start');
     const quietEnd = interaction.options.getInteger('quiet_end');
 
-    const noChanges = minScore === null && maxAlertsPerHour === null && quietStart === null && quietEnd === null;
+    const noChanges =
+      minScore === null && maxAlertsPerHour === null && chaseCooldownMinutes === null && quietStart === null && quietEnd === null;
 
     const settings = noChanges
       ? getUserAlertSettings(interaction.user.id)
       : setUserAlertSettings(interaction.user.id, {
           minScore: minScore ?? undefined,
           maxAlertsPerHour: maxAlertsPerHour ?? undefined,
+          chaseCooldownMinutes: chaseCooldownMinutes ?? undefined,
           quietHoursStart: quietStart ?? undefined,
           quietHoursEnd: quietEnd ?? undefined
         });
@@ -61,7 +71,9 @@ export const alertsSettings = {
         (noChanges ? infoEmbed('Alert Settings') : successEmbed('Alert Settings Updated')).addFields(
           keyValue('Min Score', `${settings.minScore}`),
           keyValue('Max Alerts/Hour', `${settings.maxAlertsPerHour}`),
+          keyValue('Chase Cooldown', `${settings.chaseCooldownMinutes}m`),
           keyValue('Quiet Hours', quietHours),
+          keyValue('Recommended Start', 'min_score 65 | cooldown 30m'),
           keyValue('Updated', settings.updatedAt)
         )
       ],

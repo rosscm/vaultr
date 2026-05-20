@@ -13,6 +13,7 @@ export const alertsSettingsReset = {
         successEmbed('Alert Settings Reset').addFields(
           keyValue('Min Score', `${settings.minScore}`),
           keyValue('Max Alerts/Hour', `${settings.maxAlertsPerHour}`),
+          keyValue('Chase Cooldown', `${settings.chaseCooldownMinutes}m`),
           keyValue('Quiet Hours', 'off')
         )
       ],
