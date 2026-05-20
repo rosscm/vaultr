@@ -2,6 +2,12 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases, updateChase } from '../services/chase-store.js';
 import { errorEmbed, keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
+const ALLOWED_CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP', 'DMG']);
+
+function displayAny(value: string | undefined): string {
+  if (!value || value === 'ANY') return OUTPUT_STYLE.any;
+  return value;
+}
 
 export const chaseEdit = {
   data: new SlashCommandBuilder()
@@ -16,24 +22,8 @@ export const chaseEdit = {
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Updated condition preference')
-        .addChoices(
-          { name: 'Near Mint', value: 'NM' },
-          { name: 'Lightly Played', value: 'LP' },
-          { name: 'Moderately Played', value: 'MP' },
-          { name: 'Heavily Played', value: 'HP' },
-          { name: 'Damaged', value: 'DMG' }
-        )
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('region')
-        .setDescription('Updated seller region')
-        .addChoices(
-          { name: 'Any', value: 'ANY' },
-          { name: 'Canada', value: 'CA' },
-          { name: 'United States', value: 'US' }
-        )
+        .setDescription('Updated condition(s): NM,LP,MP,HP,DMG (comma-separated)')
+        .setMaxLength(40)
     )
     .addStringOption((opt) =>
       opt
@@ -80,8 +70,19 @@ export const chaseEdit = {
     const cardName = interaction.options.getString('card') ?? undefined;
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
     const grade = interaction.options.getString('grade') ?? undefined;
-    const condition = interaction.options.getString('condition') ?? undefined;
-    const region = (interaction.options.getString('region') as 'CA' | 'US' | 'ANY' | null) ?? undefined;
+    const conditionRaw = interaction.options.getString('condition');
+    const conditionTokens = conditionRaw
+      ?.split(',')
+      .map((v: string) => v.trim().toUpperCase())
+      .filter(Boolean);
+    if (conditionTokens && !conditionTokens.every((v: string) => ALLOWED_CONDITIONS.has(v))) {
+      await interaction.reply({
+        embeds: [warningEmbed('Invalid Condition', 'Use only: NM, LP, MP, HP, DMG (comma-separated allowed).')],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+    const condition = conditionTokens && conditionTokens.length > 0 ? conditionTokens.join(',') : undefined;
     const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? undefined;
     const priority = (interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null) ?? undefined;
     const targetNoteRaw = interaction.options.getString('target_note');
@@ -108,7 +109,6 @@ export const chaseEdit = {
       maxPrice === undefined &&
       !grade &&
       !condition &&
-      !region &&
       !listingType &&
       !priority &&
       targetNote === undefined &&
@@ -128,7 +128,6 @@ export const chaseEdit = {
       maxPrice,
       grade,
       condition,
-      region,
       listingType,
       negativeKeywords
     });
@@ -141,15 +140,14 @@ export const chaseEdit = {
     await interaction.reply({
       embeds: [
         successEmbed(`Chase #${entry} Updated`).addFields(
-          keyValue('Card', updated.cardName),
-          keyValue('Priority', updated.priority ?? 'NORMAL'),
-          keyValue('Max Price', `${updated.maxPrice ?? OUTPUT_STYLE.any}`),
-          keyValue('Grade', orAny(updated.grade)),
-          keyValue('Condition', orAny(updated.condition)),
-          keyValue('Region', updated.region ?? OUTPUT_STYLE.any),
-          keyValue('Listing Type', updated.listingType ?? OUTPUT_STYLE.any),
-          keyValue('Blocked Terms', updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none),
-          keyValue('Note', orNone(updated.targetNote))
+          keyValue('Card:', `**${updated.cardName}**`),
+          keyValue('Priority:', `**${updated.priority ?? 'NORMAL'}**`),
+          keyValue('Note:', `**${orNone(updated.targetNote)}**`),
+          keyValue('Max Price:', `**${updated.maxPrice ?? OUTPUT_STYLE.any}**`),
+          keyValue('Grade:', `**${orAny(updated.grade)}**`),
+          keyValue('Condition:', `**${orAny(updated.condition)}**`),
+          keyValue('Listing Type:', `**${displayAny(updated.listingType)}**`),
+          keyValue('Blocked Terms:', `**${updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}**`)
         )
       ],
       flags: MessageFlags.Ephemeral

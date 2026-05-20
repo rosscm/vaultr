@@ -23,7 +23,6 @@ export const chaseList = {
         `Max: ${c.maxPrice ?? OUTPUT_STYLE.any}`,
         `Grade: ${orAny(c.grade)}`,
         `Condition: ${orAny(c.condition)}`,
-        `Region: ${c.region ?? OUTPUT_STYLE.any}`,
         `Listing: ${c.listingType ?? OUTPUT_STYLE.any}`,
         `Blocked: ${c.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
         `Note: ${orNone(c.targetNote)}`

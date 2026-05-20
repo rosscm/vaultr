@@ -15,6 +15,7 @@ export const alertsSettingsReset = {
           keyValue('Min Score', `${settings.minScore}`),
           keyValue('Max Alerts/Hour', `${settings.maxAlertsPerHour}`),
           keyValue('Chase Cooldown', `${settings.chaseCooldownMinutes}m`),
+          keyValue('Alert Currency', settings.alertCurrency),
           keyValue('Quiet Hours', OUTPUT_STYLE.off)
         )
       ],

@@ -45,6 +45,7 @@ export const status = {
           {
             name: 'Suppression',
             value: [
+              `Alert Currency: ${settings.alertCurrency}`,
               `Min Score: ${state.suppressedByMinScore}`,
               `Cooldown: ${state.suppressedByChaseCooldown}`,
               `Dupes: ${state.suppressedByFingerprint}`

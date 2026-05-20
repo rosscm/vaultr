@@ -16,7 +16,7 @@ export const help = {
           ),
           keyValue('Card Name Tip', 'Casing does not matter. For best matches, include card number and grade when relevant.'),
           keyValue('Chases', '`/chase-add` · `/chase-list` · `/chase-edit` · `/chase-remove`'),
-          keyValue('Alerts', '`/alerts-settings` · `/alerts-settings-reset` · `/alerts-recent`'),
+          keyValue('Alerts', '`/alerts-settings` (includes `alert_currency`) · `/alerts-settings-reset` · `/alerts-recent`'),
           keyValue('Plan', '`/plan` · `/upgrade`'),
           keyValue('Setup (Admin)', '`/setup-channel-set` · `/community-feed` · `/plan-set`'),
           keyValue('Diagnostics', '`/status` · `/chase-test`')

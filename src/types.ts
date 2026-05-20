@@ -8,7 +8,6 @@ export type Chase = {
   maxPrice?: number;
   grade?: string;
   condition?: string;
-  region?: 'CA' | 'US' | 'ANY';
   listingType?: 'ANY' | 'AUCTION' | 'BUY_IT_NOW';
   negativeKeywords?: string[];
   createdAt: string;
@@ -52,6 +51,7 @@ export type UserAlertSettings = {
   minScore: number;
   maxAlertsPerHour: number;
   chaseCooldownMinutes: number;
+  alertCurrency: 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY';
   quietHoursStart?: number;
   quietHoursEnd?: number;
   updatedAt: string;

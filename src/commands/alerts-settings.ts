@@ -42,6 +42,18 @@ export const alertsSettings = {
         .setDescription('Quiet hours end (0-23, local server time)')
         .setMinValue(0)
         .setMaxValue(23)
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('alert_currency')
+        .setDescription('Currency for alert pricing')
+        .addChoices(
+          { name: 'USD', value: 'USD' },
+          { name: 'CAD', value: 'CAD' },
+          { name: 'EUR', value: 'EUR' },
+          { name: 'GBP', value: 'GBP' },
+          { name: 'JPY', value: 'JPY' }
+        )
     ),
   async execute(interaction: any) {
     const minScore = interaction.options.getInteger('min_score');
@@ -49,9 +61,15 @@ export const alertsSettings = {
     const chaseCooldownMinutes = interaction.options.getInteger('chase_cooldown_minutes');
     const quietStart = interaction.options.getInteger('quiet_start');
     const quietEnd = interaction.options.getInteger('quiet_end');
+    const alertCurrency = interaction.options.getString('alert_currency');
 
     const noChanges =
-      minScore === null && maxAlertsPerHour === null && chaseCooldownMinutes === null && quietStart === null && quietEnd === null;
+      minScore === null &&
+      maxAlertsPerHour === null &&
+      chaseCooldownMinutes === null &&
+      quietStart === null &&
+      quietEnd === null &&
+      alertCurrency === null;
 
     const settings = noChanges
       ? getUserAlertSettings(interaction.user.id)
@@ -59,6 +77,7 @@ export const alertsSettings = {
           minScore: minScore ?? undefined,
           maxAlertsPerHour: maxAlertsPerHour ?? undefined,
           chaseCooldownMinutes: chaseCooldownMinutes ?? undefined,
+          alertCurrency: (alertCurrency as 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY' | null) ?? undefined,
           quietHoursStart: quietStart ?? undefined,
           quietHoursEnd: quietEnd ?? undefined
         });
@@ -74,6 +93,7 @@ export const alertsSettings = {
           keyValue('Min Score', `${settings.minScore}`),
           keyValue('Max Alerts/Hour', `${settings.maxAlertsPerHour}`),
           keyValue('Chase Cooldown', `${settings.chaseCooldownMinutes}m`),
+          keyValue('Alert Currency', settings.alertCurrency),
           keyValue('Quiet Hours', quietHours),
           keyValue('Recommended Start', '`Min Score: 65` | `Cooldown: 30m`'),
           keyValue('Updated', formatLocalDateTime(settings.updatedAt))

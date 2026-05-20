@@ -13,7 +13,6 @@ type ChaseRow = {
   max_price: number | null;
   grade: string | null;
   condition: string | null;
-  region: 'CA' | 'US' | 'ANY';
   listing_type: 'ANY' | 'AUCTION' | 'BUY_IT_NOW';
   negative_keywords: string | null;
   created_at: string;
@@ -30,7 +29,6 @@ function mapRow(row: ChaseRow): Chase {
     maxPrice: row.max_price ?? undefined,
     grade: row.grade ?? undefined,
     condition: row.condition ?? undefined,
-    region: row.region,
     listingType: row.listing_type ?? 'ANY',
     negativeKeywords: row.negative_keywords
       ? row.negative_keywords
@@ -43,12 +41,12 @@ function mapRow(row: ChaseRow): Chase {
 }
 
 const insertChaseStmt = db.prepare(`
-  INSERT INTO chases (id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, region, listing_type, negative_keywords, created_at)
-  VALUES (@id, @user_id, @guild_id, @card_name, @priority, @target_note, @max_price, @grade, @condition, @region, @listing_type, @negative_keywords, @created_at)
+  INSERT INTO chases (id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at)
+  VALUES (@id, @user_id, @guild_id, @card_name, @priority, @target_note, @max_price, @grade, @condition, @listing_type, @negative_keywords, @created_at)
 `);
 
 const listChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, region, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   WHERE user_id = ?
   ORDER BY
@@ -61,7 +59,7 @@ const listChasesStmt = db.prepare(`
 `);
 
 const listAllChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, region, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   ORDER BY created_at DESC
 `);
@@ -79,7 +77,6 @@ const updateChaseStmt = db.prepare(`
       max_price = @max_price,
       grade = @grade,
       condition = @condition,
-      region = @region,
       listing_type = @listing_type,
       negative_keywords = @negative_keywords
   WHERE user_id = @user_id AND id = @id
@@ -147,18 +144,19 @@ const upsertUserPlanStmt = db.prepare(`
 `);
 
 const getUserAlertSettingsStmt = db.prepare(`
-  SELECT user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, quiet_hours_start, quiet_hours_end, updated_at
+  SELECT user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, quiet_hours_start, quiet_hours_end, updated_at
   FROM user_alert_settings
   WHERE user_id = ?
 `);
 
 const upsertUserAlertSettingsStmt = db.prepare(`
-  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, quiet_hours_start, quiet_hours_end, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, quiet_hours_start, quiet_hours_end, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(user_id) DO UPDATE SET
     min_score = excluded.min_score,
     max_alerts_per_hour = excluded.max_alerts_per_hour,
     chase_cooldown_minutes = excluded.chase_cooldown_minutes,
+    alert_currency = excluded.alert_currency,
     quiet_hours_start = excluded.quiet_hours_start,
     quiet_hours_end = excluded.quiet_hours_end,
     updated_at = excluded.updated_at
@@ -220,7 +218,6 @@ export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
     max_price: chase.maxPrice ?? null,
     grade: chase.grade ?? null,
     condition: chase.condition ?? null,
-    region: chase.region ?? 'ANY',
     listing_type: chase.listingType ?? 'ANY',
     negative_keywords: chase.negativeKeywords?.join(',') ?? null,
     created_at: chase.createdAt
@@ -261,7 +258,6 @@ export function updateChase(userId: string, chaseId: string, patch: Partial<Omit
     maxPrice: patch.maxPrice ?? current.maxPrice,
     grade: patch.grade ?? current.grade,
     condition: patch.condition ?? current.condition,
-    region: patch.region ?? current.region,
     listingType: patch.listingType ?? current.listingType ?? 'ANY',
     negativeKeywords: patch.negativeKeywords ?? current.negativeKeywords
   };
@@ -275,7 +271,6 @@ export function updateChase(userId: string, chaseId: string, patch: Partial<Omit
     max_price: next.maxPrice ?? null,
     grade: next.grade ?? null,
     condition: next.condition ?? null,
-    region: next.region ?? 'ANY',
     listing_type: next.listingType ?? 'ANY',
     negative_keywords: next.negativeKeywords?.join(',') ?? null
   });
@@ -392,6 +387,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
         min_score: number;
         max_alerts_per_hour: number;
         chase_cooldown_minutes: number;
+        alert_currency: 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY';
         quiet_hours_start: number | null;
         quiet_hours_end: number | null;
         updated_at: string;
@@ -400,12 +396,13 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
 
   if (!row) {
     const now = new Date().toISOString();
-    upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, null, null, now);
+    upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, now);
     return {
       userId,
       minScore: 60,
       maxAlertsPerHour: 10,
       chaseCooldownMinutes: 30,
+      alertCurrency: 'USD',
       updatedAt: now
     };
   }
@@ -415,6 +412,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
     minScore: row.min_score,
     maxAlertsPerHour: row.max_alerts_per_hour,
     chaseCooldownMinutes: row.chase_cooldown_minutes,
+    alertCurrency: row.alert_currency ?? 'USD',
     quietHoursStart: row.quiet_hours_start ?? undefined,
     quietHoursEnd: row.quiet_hours_end ?? undefined,
     updatedAt: row.updated_at
@@ -423,7 +421,9 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
 
 export function setUserAlertSettings(
   userId: string,
-  patch: Partial<Pick<UserAlertSettings, 'minScore' | 'maxAlertsPerHour' | 'chaseCooldownMinutes' | 'quietHoursStart' | 'quietHoursEnd'>>
+  patch: Partial<
+    Pick<UserAlertSettings, 'minScore' | 'maxAlertsPerHour' | 'chaseCooldownMinutes' | 'alertCurrency' | 'quietHoursStart' | 'quietHoursEnd'>
+  >
 ): UserAlertSettings {
   const current = getUserAlertSettings(userId);
   const next: UserAlertSettings = {
@@ -431,6 +431,7 @@ export function setUserAlertSettings(
     minScore: patch.minScore ?? current.minScore,
     maxAlertsPerHour: patch.maxAlertsPerHour ?? current.maxAlertsPerHour,
     chaseCooldownMinutes: patch.chaseCooldownMinutes ?? current.chaseCooldownMinutes,
+    alertCurrency: patch.alertCurrency ?? current.alertCurrency,
     quietHoursStart: patch.quietHoursStart ?? current.quietHoursStart,
     quietHoursEnd: patch.quietHoursEnd ?? current.quietHoursEnd,
     updatedAt: new Date().toISOString()
@@ -441,6 +442,7 @@ export function setUserAlertSettings(
     next.minScore,
     next.maxAlertsPerHour,
     next.chaseCooldownMinutes,
+    next.alertCurrency,
     next.quietHoursStart ?? null,
     next.quietHoursEnd ?? null,
     next.updatedAt
@@ -535,12 +537,13 @@ export function isListingFingerprintIgnored(userId: string, chaseId: string, fin
 
 export function resetUserAlertSettings(userId: string): UserAlertSettings {
   const now = new Date().toISOString();
-  upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, null, null, now);
+  upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, now);
   return {
     userId,
     minScore: 60,
     maxAlertsPerHour: 10,
     chaseCooldownMinutes: 30,
+    alertCurrency: 'USD',
     updatedAt: now
   };
 }

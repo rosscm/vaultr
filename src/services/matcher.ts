@@ -29,7 +29,10 @@ function conditionMatches(chaseCondition: string | undefined, listingCondition: 
   if (!chaseCondition) return true;
   if (!listingCondition) return true;
 
-  const c = normalize(chaseCondition);
+  const chaseConditions = chaseCondition
+    .split(',')
+    .map((v) => normalize(v))
+    .filter(Boolean);
   const l = normalize(listingCondition);
 
   const map: Record<string, string[]> = {
@@ -40,8 +43,10 @@ function conditionMatches(chaseCondition: string | undefined, listingCondition: 
     dmg: ['damaged', 'dmg']
   };
 
-  const keys = map[c] ?? [c];
-  return keys.some((k) => l.includes(k));
+  return chaseConditions.some((c) => {
+    const keys = map[c] ?? [c];
+    return keys.some((k) => l.includes(k));
+  });
 }
 
 function clampScore(score: number): number {
@@ -94,15 +99,6 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
       reasons.push('condition_match');
     } else {
       return { isMatch: false, score: 0, reasons: ['condition_miss'] };
-    }
-  }
-
-  if (chase.region && chase.region !== 'ANY') {
-    if (chase.region === listing.region) {
-      score += 10;
-      reasons.push('region_match');
-    } else {
-      return { isMatch: false, score: 0, reasons: ['region_miss'] };
     }
   }
 

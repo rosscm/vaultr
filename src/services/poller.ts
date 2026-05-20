@@ -10,6 +10,7 @@ import {
 import { searchEbayListings } from './ebay.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
+import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
 import {
   getPollerState,
   initializePollerState,
@@ -81,11 +82,11 @@ function formatPostedAge(postedAt: string | undefined): string {
   return `${days}d ago`;
 }
 
-function formatPriceVsMax(listingPrice: number, chaseMax: number | undefined): string {
+function formatPriceVsMax(listingPrice: number, chaseMax: number | undefined, currency: string): string {
   if (chaseMax === undefined) return 'No max set';
   const diff = chaseMax - listingPrice;
-  if (diff >= 0) return `${Math.abs(diff).toFixed(2)} under max`;
-  return `${Math.abs(diff).toFixed(2)} over max`;
+  if (diff >= 0) return `${Math.abs(diff).toFixed(2)} ${currency} under max`;
+  return `${Math.abs(diff).toFixed(2)} ${currency} over max`;
 }
 
 function formatSellerFeedbackPercent(value: number | undefined): string {
@@ -128,14 +129,14 @@ function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number |
   return 'Low';
 }
 
-function summarizeWhyMatched(score: number, listingPrice: number, chaseMax: number | undefined, postedAt?: string): string {
+function summarizeWhyMatched(score: number, listingPrice: number, chaseMax: number | undefined, currency = 'USD', postedAt?: string): string {
   const dealQuality = formatDealQuality(score);
   const pricePart =
     chaseMax === undefined
       ? 'No max set'
       : listingPrice <= chaseMax
-        ? `Under max by ${(chaseMax - listingPrice).toFixed(2)}`
-        : `Over max by ${(listingPrice - chaseMax).toFixed(2)}`;
+        ? `Under max by ${(chaseMax - listingPrice).toFixed(2)} ${currency}`
+        : `Over max by ${(listingPrice - chaseMax).toFixed(2)} ${currency}`;
   const postedPart = `Posted ${formatPostedAge(postedAt)}`;
   return `${dealQuality} match • ${pricePart} • ${postedPart}`;
 }
@@ -279,7 +280,19 @@ async function runPoll(client: Client): Promise<void> {
     const listings = await fetchListingsWithRetry(chase, sourceMode);
 
     for (const listing of listings) {
-      const match = matchChaseToListing(chase, listing);
+      const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
+      const normalizedListing = {
+        ...listing,
+        price: convertCurrencyAmount(listing.price, listing.currency, targetCurrency),
+        currency: targetCurrency,
+        shippingCost:
+          listing.shippingCost === undefined
+            ? undefined
+            : convertCurrencyAmount(listing.shippingCost, listing.shippingCurrency ?? listing.currency, targetCurrency),
+        shippingCurrency: targetCurrency
+      };
+
+      const match = matchChaseToListing(chase, normalizedListing);
       if (!match.isMatch) continue;
       if (match.score < settings.minScore) {
         markMinScoreSuppression();
@@ -309,7 +322,9 @@ async function runPoll(client: Client): Promise<void> {
       const embed = new EmbedBuilder()
         .setColor(0xf97316)
         .setTitle(chase.priority === 'GRAIL' ? '🏆 Grail Match Found' : '🚨 Chase Match Found')
-        .setDescription(`**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(match.score, listing.price, chase.maxPrice, listing.postedAt)}`)
+        .setDescription(
+          `**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(match.score, normalizedListing.price, chase.maxPrice, targetCurrency, listing.postedAt)}`
+        )
         .addFields(
           {
             name: '🎯 Chase Context',
@@ -323,15 +338,15 @@ async function runPoll(client: Client): Promise<void> {
           {
             name: '💰 Pricing',
             value: [
-              `**Price:** ${listing.price} ${listing.currency}`,
-              `**Shipping:** ${formatShippingCost(listing.shippingCost, listing.shippingCurrency)}`,
+              `**Price:** ${normalizedListing.price} ${targetCurrency}`,
+              `**Shipping:** ${formatShippingCost(normalizedListing.shippingCost, targetCurrency)}`,
               `**Total:** ${
-                formatTotalCost(listing.price, listing.shippingCost) !== undefined
-                  ? `${formatTotalCost(listing.price, listing.shippingCost)} ${listing.currency}`
+                formatTotalCost(normalizedListing.price, normalizedListing.shippingCost) !== undefined
+                  ? `${formatTotalCost(normalizedListing.price, normalizedListing.shippingCost)} ${targetCurrency}`
                   : 'unknown'
               }`,
-              `**Price vs Max:** ${formatPriceVsMax(listing.price, chase.maxPrice)}`,
-              `**Listing Type:** ${formatListingType(listing.listingType)}`
+              `**Price vs Max:** ${formatPriceVsMax(normalizedListing.price, chase.maxPrice, targetCurrency)}`,
+              `**Listing Type:** ${formatListingType(normalizedListing.listingType)}`
             ].join('\n'),
             inline: false
           },
@@ -372,8 +387,8 @@ async function runPoll(client: Client): Promise<void> {
         );
         markAlertSentWithDetails(chase.id, chase.userId, listing.listingId, listing.source, {
           listingTitle: listing.title,
-          listingPrice: listing.price,
-          listingCurrency: listing.currency,
+          listingPrice: normalizedListing.price,
+          listingCurrency: targetCurrency,
           listingUrl: listing.url,
           matchScore: match.score
         });

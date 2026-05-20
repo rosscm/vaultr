@@ -5,6 +5,12 @@ import { keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
+const ALLOWED_CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP', 'DMG']);
+
+function displayAny(value: string | undefined): string {
+  if (!value || value === 'ANY') return OUTPUT_STYLE.any;
+  return value;
+}
 
 export const chaseAdd = {
   data: new SlashCommandBuilder()
@@ -23,24 +29,8 @@ export const chaseAdd = {
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Condition preference')
-        .addChoices(
-          { name: 'Near Mint', value: 'NM' },
-          { name: 'Lightly Played', value: 'LP' },
-          { name: 'Moderately Played', value: 'MP' },
-          { name: 'Heavily Played', value: 'HP' },
-          { name: 'Damaged', value: 'DMG' }
-        )
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('region')
-        .setDescription('Seller region')
-        .addChoices(
-          { name: 'Any', value: 'ANY' },
-          { name: 'Canada', value: 'CA' },
-          { name: 'United States', value: 'US' }
-        )
+        .setDescription('Condition(s): NM,LP,MP,HP,DMG (comma-separated allowed)')
+        .setMaxLength(40)
     )
     .addStringOption((opt) =>
       opt
@@ -92,8 +82,19 @@ export const chaseAdd = {
     const cardName = interaction.options.getString('card', true);
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
     const grade = interaction.options.getString('grade') ?? undefined;
-    const condition = interaction.options.getString('condition') ?? undefined;
-    const region = (interaction.options.getString('region') as 'CA' | 'US' | 'ANY' | null) ?? 'ANY';
+    const conditionRaw = interaction.options.getString('condition');
+    const conditionTokens = conditionRaw
+      ?.split(',')
+      .map((v: string) => v.trim().toUpperCase())
+      .filter(Boolean);
+    if (conditionTokens && !conditionTokens.every((v: string) => ALLOWED_CONDITIONS.has(v))) {
+      await interaction.reply({
+        embeds: [warningEmbed('Invalid Condition', 'Use only: NM, LP, MP, HP, DMG (comma-separated allowed).')],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+    const condition = conditionTokens && conditionTokens.length > 0 ? conditionTokens.join(',') : undefined;
     const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? 'ANY';
     const priority = (interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null) ?? 'NORMAL';
     const targetNote = interaction.options.getString('target_note') ?? undefined;
@@ -120,25 +121,22 @@ export const chaseAdd = {
       maxPrice,
       grade,
       condition,
-      region,
       listingType,
       negativeKeywords: negativeKeywords && negativeKeywords.length > 0 ? negativeKeywords : DEFAULT_NEGATIVE_KEYWORDS
     });
 
     await interaction.reply({
       embeds: [
-        successEmbed('Chase Added')
-          .addFields(
-            keyValue('Card', chase.cardName),
-            keyValue('Priority', chase.priority ?? 'NORMAL'),
-            keyValue('Max Price', `${chase.maxPrice ?? OUTPUT_STYLE.any}`),
-            keyValue('Grade', orAny(chase.grade)),
-            keyValue('Condition', orAny(chase.condition)),
-            keyValue('Region', chase.region ?? OUTPUT_STYLE.any),
-            keyValue('Listing Type', chase.listingType ?? OUTPUT_STYLE.any),
-            keyValue('Blocked Terms', chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none),
-            keyValue('Note', orNone(chase.targetNote))
-          )
+        successEmbed('Chase Added').addFields(
+          keyValue('Card:', `**${chase.cardName}**`),
+          keyValue('Priority:', `**${chase.priority ?? 'NORMAL'}**`),
+          keyValue('Note:', `**${orNone(chase.targetNote)}**`),
+          keyValue('Max Price:', `**${chase.maxPrice ?? OUTPUT_STYLE.any}**`),
+          keyValue('Grade:', `**${orAny(chase.grade)}**`),
+          keyValue('Condition:', `**${orAny(chase.condition)}**`),
+          keyValue('Listing Type:', `**${displayAny(chase.listingType)}**`),
+          keyValue('Blocked Terms:', `**${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}**`)
+        )
       ],
       flags: MessageFlags.Ephemeral
     });

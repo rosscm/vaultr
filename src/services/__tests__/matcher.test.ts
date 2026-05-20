@@ -28,7 +28,7 @@ function baseListing(overrides: Partial<Listing> = {}): Listing {
 
 describe('matchChaseToListing', () => {
   it('matches when card name and constraints pass', () => {
-    const chase = baseChase({ maxPrice: 120, grade: 'PSA 10', region: 'US' });
+    const chase = baseChase({ maxPrice: 120, grade: 'PSA 10' });
     const listing = baseListing();
     const result = matchChaseToListing(chase, listing);
 
@@ -36,7 +36,6 @@ describe('matchChaseToListing', () => {
     expect(result.reasons.some((r) => r.startsWith('card_name_match'))).toBe(true);
     expect(result.reasons).toContain('grade_match');
     expect(result.reasons).toContain('price_within_max');
-    expect(result.reasons).toContain('region_match');
   });
 
   it('fails when listing is above max price', () => {
@@ -55,15 +54,6 @@ describe('matchChaseToListing', () => {
 
     expect(result.isMatch).toBe(false);
     expect(result.reasons).toEqual(['grade_miss']);
-  });
-
-  it('fails when region does not match', () => {
-    const chase = baseChase({ region: 'CA' });
-    const listing = baseListing({ region: 'US' });
-    const result = matchChaseToListing(chase, listing);
-
-    expect(result.isMatch).toBe(false);
-    expect(result.reasons).toEqual(['region_miss']);
   });
 
   it('fails when condition does not match', () => {
