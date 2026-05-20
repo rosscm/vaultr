@@ -8,11 +8,12 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/Documents/GitHub/vaultr
 EnvironmentFile=/home/pi/Documents/GitHub/vaultr/.env
+ExecStartPre=/usr/bin/mkdir -p /home/pi/Documents/GitHub/vaultr/data/logs
 ExecStart=/usr/bin/npm run start
 Restart=always
 RestartSec=5
-StandardOutput=append:/home/pi/Documents/GitHub/vaultr/vaultr.log
-StandardError=append:/home/pi/Documents/GitHub/vaultr/vaultr.log
+StandardOutput=append:/home/pi/Documents/GitHub/vaultr/data/logs/vaultr.log
+StandardError=append:/home/pi/Documents/GitHub/vaultr/data/logs/vaultr.log
 
 [Install]
 WantedBy=multi-user.target

@@ -69,7 +69,7 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
    - `sudo systemctl start vaultr`
 4. Check status/logs:
    - `sudo systemctl status vaultr`
-   - `tail -f /home/pi/Documents/GitHub/vaultr/vaultr.log`
+   - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/vaultr.log`
 
 ### Pi Deploy Checklist
 

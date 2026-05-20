@@ -7,9 +7,12 @@ Wants=network-online.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/Documents/GitHub/vaultr
+ExecStartPre=/usr/bin/mkdir -p /home/pi/Documents/GitHub/vaultr/data/logs
 ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr/dist/ebay-webhook.js
 Restart=always
 RestartSec=3
+StandardOutput=append:/home/pi/Documents/GitHub/vaultr/data/logs/ebay-webhook.log
+StandardError=append:/home/pi/Documents/GitHub/vaultr/data/logs/ebay-webhook.log
 
 [Install]
 WantedBy=multi-user.target
