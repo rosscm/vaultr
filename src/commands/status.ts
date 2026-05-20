@@ -23,43 +23,43 @@ export const status = {
           {
             name: 'Runtime',
             value: [
-              `Source: ${state.sourceMode}`,
-              `Poll Interval: ${state.pollIntervalSeconds}s`,
-              `Running: ${state.isRunning ? OUTPUT_STYLE.yes : OUTPUT_STYLE.no}`,
-              `Last Run: ${formatTimeWithAge(state.lastRunAt)}`,
-              `Last Completion: ${formatTimeWithAge(state.lastRunCompletedAt)}`,
-              `Last Duration: ${state.lastRunDurationMs !== undefined ? `${state.lastRunDurationMs}ms` : 'n/a'}`
+              `**Source:** ${state.sourceMode}`,
+              `**Poll Interval:** ${state.pollIntervalSeconds}s`,
+              `**Running:** ${state.isRunning ? OUTPUT_STYLE.yes : OUTPUT_STYLE.no}`,
+              `**Last Run:** ${formatTimeWithAge(state.lastRunAt)}`,
+              `**Last Completion:** ${formatTimeWithAge(state.lastRunCompletedAt)}`,
+              `**Last Duration:** ${state.lastRunDurationMs !== undefined ? `${state.lastRunDurationMs}ms` : 'n/a'}`
             ].join('\n'),
             inline: false
           },
           {
             name: 'Throughput',
             value: [
-              `Matches (Last Run): ${state.lastRunMatchesSent}`,
-              `Matches (Total): ${state.totalMatchesSent}`,
-              `Source Calls (60s): ${state.sourceCallsLastMinute}`,
-              `Rate Limit Skips: ${state.rateLimitSkips}`
+              `**Matches (Last Run):** ${state.lastRunMatchesSent}`,
+              `**Matches (Total):** ${state.totalMatchesSent}`,
+              `**Source Calls (60s):** ${state.sourceCallsLastMinute}`,
+              `**Rate Limit Skips:** ${state.rateLimitSkips}`
             ].join('\n'),
             inline: false
           },
           {
             name: 'Suppression',
             value: [
-              `Alert Currency: ${settings.alertCurrency}`,
-              `Min Score: ${state.suppressedByMinScore}`,
-              `Cooldown: ${state.suppressedByChaseCooldown}`,
-              `Dupes: ${state.suppressedByFingerprint}`
+              `**Alert Currency:** ${settings.alertCurrency}`,
+              `**Min Score:** ${state.suppressedByMinScore}`,
+              `**Cooldown:** ${state.suppressedByChaseCooldown}`,
+              `**Dupes:** ${state.suppressedByFingerprint}`
             ].join('\n'),
             inline: false
           },
           {
             name: 'Health',
             value: [
-              `Consecutive Failures: ${state.consecutiveFailures}`,
-              `Skipped Overlaps: ${state.skippedOverlappingRuns}`,
-              `Backoff Until: ${state.backoffUntil ? formatTimeWithAge(state.backoffUntil) : OUTPUT_STYLE.none}`,
-              `Last Source Success: ${formatTimeWithAge(state.lastSourceSuccessAt)}`,
-              `Last Error: ${state.lastError ?? OUTPUT_STYLE.none}`
+              `**Consecutive Failures:** ${state.consecutiveFailures}`,
+              `**Skipped Overlaps:** ${state.skippedOverlappingRuns}`,
+              `**Backoff Until:** ${state.backoffUntil ? formatTimeWithAge(state.backoffUntil) : OUTPUT_STYLE.none}`,
+              `**Last Source Success:** ${formatTimeWithAge(state.lastSourceSuccessAt)}`,
+              `**Last Error:** ${state.lastError ?? OUTPUT_STYLE.none}`
             ].join('\n'),
             inline: false
           },

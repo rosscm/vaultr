@@ -1,6 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { resetUserAlertSettings } from '../services/chase-store.js';
-import { successEmbed, keyValue } from '../ui/embeds.js';
+import { successEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE } from '../ui/style.js';
 
 export const alertsSettingsReset = {
@@ -9,16 +9,15 @@ export const alertsSettingsReset = {
     .setDescription('Reset alert settings to recommended defaults'),
   async execute(interaction: any) {
     const settings = resetUserAlertSettings(interaction.user.id);
+    const lines = [
+      `**Min Score:** ${settings.minScore}`,
+      `**Max Alerts/Hour:** ${settings.maxAlertsPerHour}`,
+      `**Chase Cooldown:** ${settings.chaseCooldownMinutes}m`,
+      `**Alert Currency:** ${settings.alertCurrency}`,
+      `**Quiet Hours:** ${OUTPUT_STYLE.off}`
+    ];
     await interaction.reply({
-      embeds: [
-        successEmbed('Alert Settings Reset').addFields(
-          keyValue('Min Score', `${settings.minScore}`),
-          keyValue('Max Alerts/Hour', `${settings.maxAlertsPerHour}`),
-          keyValue('Chase Cooldown', `${settings.chaseCooldownMinutes}m`),
-          keyValue('Alert Currency', settings.alertCurrency),
-          keyValue('Quiet Hours', OUTPUT_STYLE.off)
-        )
-      ],
+      embeds: [successEmbed('Alert Settings Reset', lines.join('\n')).setTitle('✅ Alert Settings Reset')],
       flags: MessageFlags.Ephemeral
     });
   }

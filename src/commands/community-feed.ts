@@ -27,14 +27,15 @@ export const communityFeed = {
     const mode = interaction.options.getString('mode', true);
     const enabled = mode === 'ON';
     setGuildCommunityFeedEnabled(interaction.guildId, enabled);
+    const currentState = isGuildCommunityFeedEnabled(interaction.guildId) ? OUTPUT_STYLE.on : OUTPUT_STYLE.off;
+    const lines = [
+      `**Mode:** ${enabled ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
+      `**Current State:** ${currentState}`
+    ];
 
     await interaction.reply({
       embeds: [
-        successEmbed('Community Feed Updated', enabled ? 'Community activity posts are now on.' : 'Community activity posts are now off.').addFields({
-          name: 'Current State',
-          value: isGuildCommunityFeedEnabled(interaction.guildId) ? OUTPUT_STYLE.on : OUTPUT_STYLE.off,
-          inline: true
-        })
+        successEmbed('Community Feed Updated', lines.join('\n')).setTitle('✅ Community Feed Updated')
       ],
       flags: MessageFlags.Ephemeral
     });

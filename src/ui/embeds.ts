@@ -21,7 +21,7 @@ export function successEmbed(title: string, description?: string): EmbedBuilder 
 }
 
 export function infoEmbed(title: string, description?: string): EmbedBuilder {
-  return baseEmbed(COLORS.info, `🧭 ${title}`, description);
+  return baseEmbed(COLORS.info, `📘 ${title}`, description);
 }
 
 export function warningEmbed(title: string, description?: string): EmbedBuilder {

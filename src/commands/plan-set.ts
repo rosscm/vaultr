@@ -1,7 +1,7 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { setUserPlan } from '../services/chase-store.js';
 import { normalizePlanTier } from '../services/plans.js';
-import { keyValue, successEmbed } from '../ui/embeds.js';
+import { successEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 
 export const planSet = {
@@ -36,16 +36,15 @@ export const planSet = {
     const status = (interaction.options.getString('status') as 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | null) ?? 'ACTIVE';
 
     const updated = setUserPlan(user.id, tier, status);
+    const lines = [
+      `**User:** <@${user.id}>`,
+      `**Tier:** ${updated.tier}`,
+      `**Status:** ${updated.status}`,
+      `**Updated:** ${formatLocalDateTime(updated.updatedAt)}`
+    ];
 
     await interaction.reply({
-      embeds: [
-        successEmbed('Plan Updated').addFields(
-          keyValue('User', `<@${user.id}>`),
-          keyValue('Tier', updated.tier),
-          keyValue('Status', updated.status),
-          keyValue('Updated', formatLocalDateTime(updated.updatedAt))
-        )
-      ],
+      embeds: [successEmbed('Plan Updated', lines.join('\n')).setTitle('✅ Plan Updated')],
       flags: MessageFlags.Ephemeral
     });
   }

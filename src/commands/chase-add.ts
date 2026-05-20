@@ -1,7 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { addChase, countUserChases, getUserPlan, getGuildCommandChannel, isGuildCommunityFeedEnabled } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
-import { keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
+import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
@@ -125,19 +125,19 @@ export const chaseAdd = {
       negativeKeywords: negativeKeywords && negativeKeywords.length > 0 ? negativeKeywords : DEFAULT_NEGATIVE_KEYWORDS
     });
 
+    const lines = [
+      `**Card:** ${chase.cardName}`,
+      `**Priority:** ${chase.priority ?? 'NORMAL'}`,
+      `**Note:** ${orNone(chase.targetNote)}`,
+      `**Max Price:** ${chase.maxPrice ?? OUTPUT_STYLE.any}`,
+      `**Grade:** ${orAny(chase.grade)}`,
+      `**Condition:** ${orAny(chase.condition)}`,
+      `**Listing Type:** ${displayAny(chase.listingType)}`,
+      `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`
+    ];
+
     await interaction.reply({
-      embeds: [
-        successEmbed('Chase Added').addFields(
-          keyValue('Card:', `**${chase.cardName}**`),
-          keyValue('Priority:', `**${chase.priority ?? 'NORMAL'}**`),
-          keyValue('Note:', `**${orNone(chase.targetNote)}**`),
-          keyValue('Max Price:', `**${chase.maxPrice ?? OUTPUT_STYLE.any}**`),
-          keyValue('Grade:', `**${orAny(chase.grade)}**`),
-          keyValue('Condition:', `**${orAny(chase.condition)}**`),
-          keyValue('Listing Type:', `**${displayAny(chase.listingType)}**`),
-          keyValue('Blocked Terms:', `**${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}**`)
-        )
-      ],
+      embeds: [successEmbed('Chase Added', lines.join('\n')).setTitle('✅ Chase Added')],
       flags: MessageFlags.Ephemeral
     });
 

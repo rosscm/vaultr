@@ -88,13 +88,13 @@ export const alertsSettings = {
         : `${settings.quietHoursStart}:00-${settings.quietHoursEnd}:00`;
 
     const lines = [
-      `Min Score: ${settings.minScore}`,
-      `Max Alerts/Hour: ${settings.maxAlertsPerHour}`,
-      `Chase Cooldown: ${settings.chaseCooldownMinutes}m`,
-      `Alert Currency: ${settings.alertCurrency}`,
-      `Quiet Hours: ${quietHours}`,
-      'Recommended Start: Min Score 65 | Cooldown 30m',
-      `Updated: ${formatLocalDateTime(settings.updatedAt)}`
+      `**Min Score:** ${settings.minScore}`,
+      `**Max Alerts/Hour:** ${settings.maxAlertsPerHour}`,
+      `**Chase Cooldown:** ${settings.chaseCooldownMinutes}m`,
+      `**Alert Currency:** ${settings.alertCurrency}`,
+      `**Quiet Hours:** ${quietHours}`,
+      '**Recommended Start:** Min Score 65 | Cooldown 30m',
+      `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`
     ];
 
     const embed = noChanges

@@ -1,7 +1,12 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases } from '../services/chase-store.js';
-import { infoEmbed, keyValue } from '../ui/embeds.js';
+import { infoEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
+
+function displayAny(value: string | undefined): string {
+  if (!value || value === 'ANY') return OUTPUT_STYLE.any;
+  return value;
+}
 
 export const chaseList = {
   data: new SlashCommandBuilder().setName('chase-list').setDescription('List your active chases'),
@@ -19,22 +24,23 @@ export const chaseList = {
       const priorityBadge = c.priority === 'GRAIL' ? '🏆 GRAIL' : c.priority === 'HIGH' ? '🔥 HIGH' : '• NORMAL';
       const header = `**#${i + 1} — ${c.cardName}**`;
       const details = [
-        `Priority: ${priorityBadge}`,
-        `Max: ${c.maxPrice ?? OUTPUT_STYLE.any}`,
-        `Grade: ${orAny(c.grade)}`,
-        `Condition: ${orAny(c.condition)}`,
-        `Listing: ${c.listingType ?? OUTPUT_STYLE.any}`,
-        `Blocked: ${c.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
-        `Note: ${orNone(c.targetNote)}`
+        `**Priority:** ${priorityBadge}`,
+        `**Max:** ${c.maxPrice ?? OUTPUT_STYLE.any}`,
+        `**Grade:** ${orAny(c.grade)}`,
+        `**Condition:** ${orAny(c.condition)}`,
+        `**Listing:** ${displayAny(c.listingType)}`,
+        `**Blocked:** ${c.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
+        `**Note:** ${orNone(c.targetNote)}`
       ].join('\n');
       return `${header}\n${details}`;
     });
 
-    const summary = `**Total Active Chases:** ${chases.length}`;
+    const summary = `Total Active Chases: ${chases.length}`;
     await interaction.reply({
       embeds: [
-        infoEmbed('Your Chases', `${summary}\n\n${lines.join('\n\n---\n\n')}\n\n---`).addFields(
-          keyValue('Quick Actions', '`/chase-edit entry:<n>` or `/chase-remove entry:<n>`')
+        infoEmbed(
+          'Your Chases',
+          `**${summary}**\n\n${lines.join('\n\n---\n\n')}\n\n---\n**Quick Actions:** /chase-edit entry:<n> or /chase-remove entry:<n>`
         )
       ],
       flags: MessageFlags.Ephemeral

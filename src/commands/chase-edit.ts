@@ -1,6 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases, updateChase } from '../services/chase-store.js';
-import { errorEmbed, keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
+import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
 const ALLOWED_CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP', 'DMG']);
 
@@ -137,19 +137,19 @@ export const chaseEdit = {
       return;
     }
 
+    const lines = [
+      `**Card:** ${updated.cardName}`,
+      `**Priority:** ${updated.priority ?? 'NORMAL'}`,
+      `**Note:** ${orNone(updated.targetNote)}`,
+      `**Max Price:** ${updated.maxPrice ?? OUTPUT_STYLE.any}`,
+      `**Grade:** ${orAny(updated.grade)}`,
+      `**Condition:** ${orAny(updated.condition)}`,
+      `**Listing Type:** ${displayAny(updated.listingType)}`,
+      `**Blocked Terms:** ${updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`
+    ];
+
     await interaction.reply({
-      embeds: [
-        successEmbed(`Chase #${entry} Updated`).addFields(
-          keyValue('Card:', `**${updated.cardName}**`),
-          keyValue('Priority:', `**${updated.priority ?? 'NORMAL'}**`),
-          keyValue('Note:', `**${orNone(updated.targetNote)}**`),
-          keyValue('Max Price:', `**${updated.maxPrice ?? OUTPUT_STYLE.any}**`),
-          keyValue('Grade:', `**${orAny(updated.grade)}**`),
-          keyValue('Condition:', `**${orAny(updated.condition)}**`),
-          keyValue('Listing Type:', `**${displayAny(updated.listingType)}**`),
-          keyValue('Blocked Terms:', `**${updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}**`)
-        )
-      ],
+      embeds: [successEmbed(`Chase #${entry} Updated`, lines.join('\n')).setTitle(`✅ Chase #${entry} Updated`)],
       flags: MessageFlags.Ephemeral
     });
   }
