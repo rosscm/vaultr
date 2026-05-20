@@ -40,13 +40,13 @@ function formatReasons(reasons: string[]): string {
       if (r.startsWith('token_overlap:')) {
         return `token overlap ${r.split(':')[1]}%`;
       }
-      if (r === 'card_name_match_exact') return 'exact card name match';
-      if (r === 'card_name_match_tokens') return 'card name token match';
-      if (r === 'card_number_match') return 'card number match';
-      if (r === 'price_within_max') return 'within your max';
-      if (r === 'seller_quality_boost') return 'high seller feedback';
-      if (r === 'low_token_overlap_penalty') return 'low token overlap';
-      if (r === 'suspicious_title_penalty') return 'suspicious title terms';
+      if (r === 'card_name_match_exact') return 'Exact card name match';
+      if (r === 'card_name_match_tokens') return 'Card name token match';
+      if (r === 'card_number_match') return 'Card number match';
+      if (r === 'price_within_max') return 'Within your max';
+      if (r === 'seller_quality_boost') return 'High seller feedback';
+      if (r === 'low_token_overlap_penalty') return 'Low token overlap';
+      if (r === 'suspicious_title_penalty') return 'Suspicious title terms';
       return r.replaceAll('_', ' ');
     })
     .join(', ');
@@ -61,6 +61,13 @@ function splitReasons(reasons: string[]): { positive: string; risk: string } {
     positive: positiveSignals.length > 0 ? formatReasons(positiveSignals) : 'None',
     risk: riskSignals.length > 0 ? formatReasons(riskSignals) : 'None'
   };
+}
+
+function countSignals(reasons: string[]): { positive: number; risk: number } {
+  const risk = reasons.filter(
+    (r) => r.includes('penalty') || r.startsWith('suspicious_terms:') || r.includes('miss') || r.includes('block')
+  ).length;
+  return { positive: Math.max(0, reasons.length - risk), risk };
 }
 
 function formatListingType(listingType: string | undefined): string {
@@ -337,7 +344,7 @@ async function runPoll(client: Client): Promise<void> {
             inline: false
           },
           {
-            name: '💰 Pricing',
+            name: '💰 Pricing Breakdown',
             value: [
               `**Price:** ${normalizedListing.price} ${targetCurrency}`,
               `**Shipping:** ${formatShippingCost(normalizedListing.shippingCost, targetCurrency)}`,
@@ -352,7 +359,7 @@ async function runPoll(client: Client): Promise<void> {
             inline: false
           },
           {
-            name: '🛍️ Listing Snapshot',
+            name: '📸 Listing Snapshot',
             value: [
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Region:** ${listing.region}`,
@@ -370,8 +377,9 @@ async function runPoll(client: Client): Promise<void> {
               `**Confidence Note:** ${explainDealQuality(match.score)}`,
               `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Score:** ${match.score}`,
-              `**Why It Matched:** ${splitReasons(match.reasons).positive}`,
-              `**Risk Signals:** ${splitReasons(match.reasons).risk}`
+              `**Match Signals:** ${splitReasons(match.reasons).positive}`,
+              `**Risk Factors:** ${splitReasons(match.reasons).risk}`,
+              `**Signal Count:** ${countSignals(match.reasons).positive} positive / ${countSignals(match.reasons).risk} risk`
             ].join('\n'),
             inline: false
           }
