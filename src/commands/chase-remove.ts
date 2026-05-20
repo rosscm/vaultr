@@ -6,17 +6,19 @@ export const chaseRemove = {
   data: new SlashCommandBuilder()
     .setName('chase-remove')
     .setDescription('Remove one, many, or all active chases')
-    .addIntegerOption((opt) => opt.setName('entry').setDescription('Single entry number from /chase-list'))
+    .addIntegerOption((opt) =>
+      opt.setName('entry').setDescription('Single entry number from /chase-list (optional; default: none)')
+    )
     .addStringOption((opt) =>
       opt
         .setName('entries')
-        .setDescription('Multiple entry numbers CSV, e.g. 1,3,5')
+        .setDescription('Multiple entry numbers (comma-separated), e.g. 1,3,5 (optional; default: none)')
         .setMaxLength(120)
     )
     .addStringOption((opt) =>
       opt
         .setName('all')
-        .setDescription('Remove all active chases (requires Yes)')
+        .setDescription('Remove all active chases (optional; default: No)')
         .addChoices(
           { name: 'No', value: 'NO' },
           { name: 'Yes, remove all', value: 'YES' }
