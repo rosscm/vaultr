@@ -24,7 +24,7 @@ export const setupChannelSet = {
     setGuildCommandChannel(interaction.guildId, channel.id);
     const lines = [
       `**Channel:** <#${channel.id}>`,
-      '**Quickstart:** 1) /alerts-settings-reset  2) /chase-add  3) /status'
+      '**Quickstart:** 1) /alerts-settings-reset  2) /chase-add  3) /help'
     ];
 
     await interaction.reply({

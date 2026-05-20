@@ -42,6 +42,7 @@ function formatReasons(reasons: string[]): string {
       }
       if (r === 'card_name_match_exact') return 'exact card name match';
       if (r === 'card_name_match_tokens') return 'card name token match';
+      if (r === 'card_number_match') return 'card number match';
       if (r === 'price_within_max') return 'within your max';
       if (r === 'seller_quality_boost') return 'high seller feedback';
       if (r === 'low_token_overlap_penalty') return 'low token overlap';
@@ -57,22 +58,22 @@ function splitReasons(reasons: string[]): { positive: string; risk: string } {
   );
   const positiveSignals = reasons.filter((r) => !riskSignals.includes(r));
   return {
-    positive: positiveSignals.length > 0 ? formatReasons(positiveSignals) : 'none',
-    risk: riskSignals.length > 0 ? formatReasons(riskSignals) : 'none'
+    positive: positiveSignals.length > 0 ? formatReasons(positiveSignals) : 'None',
+    risk: riskSignals.length > 0 ? formatReasons(riskSignals) : 'None'
   };
 }
 
 function formatListingType(listingType: string | undefined): string {
-  if (!listingType) return 'unknown';
+  if (!listingType) return 'Unknown';
   if (listingType === 'AUCTION') return 'Auction';
   if (listingType === 'BUY_IT_NOW') return 'Buy It Now';
   return 'Other';
 }
 
 function formatPostedAge(postedAt: string | undefined): string {
-  if (!postedAt) return 'unknown';
+  if (!postedAt) return 'Unknown';
   const then = new Date(postedAt).getTime();
-  if (Number.isNaN(then)) return 'unknown';
+  if (Number.isNaN(then)) return 'Unknown';
   const deltaSeconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
   const minutes = Math.floor(deltaSeconds / 60);
   const hours = Math.floor(minutes / 60);
@@ -90,12 +91,12 @@ function formatPriceVsMax(listingPrice: number, chaseMax: number | undefined, cu
 }
 
 function formatSellerFeedbackPercent(value: number | undefined): string {
-  if (value === undefined || Number.isNaN(value)) return 'unknown';
+  if (value === undefined || Number.isNaN(value)) return 'Unknown';
   return `${value.toFixed(1)}%`;
 }
 
 function formatShippingCost(cost: number | undefined, currency: string | undefined): string {
-  if (cost === undefined || Number.isNaN(cost)) return 'unknown';
+  if (cost === undefined || Number.isNaN(cost)) return 'Unknown';
   return `${cost} ${currency ?? ''}`.trim();
 }
 
@@ -343,7 +344,7 @@ async function runPoll(client: Client): Promise<void> {
               `**Total:** ${
                 formatTotalCost(normalizedListing.price, normalizedListing.shippingCost) !== undefined
                   ? `${formatTotalCost(normalizedListing.price, normalizedListing.shippingCost)} ${targetCurrency}`
-                  : 'unknown'
+                  : 'Unknown'
               }`,
               `**Price vs Max:** ${formatPriceVsMax(normalizedListing.price, chase.maxPrice, targetCurrency)}`,
               `**Listing Type:** ${formatListingType(normalizedListing.listingType)}`
@@ -355,7 +356,7 @@ async function runPoll(client: Client): Promise<void> {
             value: [
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Region:** ${listing.region}`,
-              `**Seller:** ${listing.seller ?? 'unavailable from source'}`,
+              `**Seller:** ${listing.seller ?? 'Unavailable from source'}`,
               `**Seller Feedback:** ${formatSellerFeedbackPercent(listing.sellerFeedbackPercent)}${
                 listing.sellerFeedbackScore !== undefined ? ` (${listing.sellerFeedbackScore})` : ''
               }`

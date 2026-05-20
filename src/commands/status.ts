@@ -10,13 +10,6 @@ export const status = {
   async execute(interaction: any) {
     const state = getPollerState();
     const settings = getUserAlertSettings(interaction.user.id);
-    let hint = 'No immediate issues detected.';
-    if (state.lastRunMatchesSent === 0) {
-      hint = `No matches last run. If you expect alerts, try lowering min_score (current ${settings.minScore}) or broadening chase filters.`;
-    }
-    if (state.consecutiveFailures > 0) {
-      hint = `Source reliability issue detected (${state.consecutiveFailures} consecutive failures).`;
-    }
     await interaction.reply({
       embeds: [
         infoEmbed('🛠️ Vaultr Runtime Status').addFields(
@@ -61,11 +54,6 @@ export const status = {
               `**Last Source Success:** ${formatTimeWithAge(state.lastSourceSuccessAt)}`,
               `**Last Error:** ${state.lastError ?? OUTPUT_STYLE.none}`
             ].join('\n'),
-            inline: false
-          },
-          {
-            name: 'Hint',
-            value: hint,
             inline: false
           }
         )

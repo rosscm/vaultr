@@ -93,7 +93,6 @@ export const alertsSettings = {
       `**Chase Cooldown:** ${settings.chaseCooldownMinutes}m`,
       `**Alert Currency:** ${settings.alertCurrency}`,
       `**Quiet Hours:** ${quietHours}`,
-      '**Recommended Start:** Min Score 65 | Cooldown 30m',
       `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`
     ];
 

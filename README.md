@@ -43,7 +43,6 @@ Discord-native collector chase assistant.
 - `/plan`
 - `/plan-set` (admin/testing)
 - `/setup-channel-set` (admin setup)
-- `/status`
 - `/upgrade`
 
 ## User Plans (Initial Plumbing)
@@ -197,7 +196,7 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 - Source fetch uses timeout + retry
 - Global source request budget and automatic backoff protect API usage
 - DM send uses timeout
-- Poller status exposes failures, duration, and skipped overlaps via `/status`
+- Poller reliability details are available in service logs
 
 ## Command Channel Policy
 

@@ -69,6 +69,11 @@ const removeChaseStmt = db.prepare(`
   WHERE user_id = ? AND id = ?
 `);
 
+const removeAllChasesByUserStmt = db.prepare(`
+  DELETE FROM chases
+  WHERE user_id = ?
+`);
+
 const updateChaseStmt = db.prepare(`
   UPDATE chases
   SET card_name = @card_name,
@@ -258,6 +263,11 @@ export function listAllChases(): Chase[] {
 export function removeChase(userId: string, chaseId: string): boolean {
   const result = removeChaseStmt.run(userId, chaseId);
   return result.changes > 0;
+}
+
+export function removeAllChases(userId: string): number {
+  const result = removeAllChasesByUserStmt.run(userId);
+  return result.changes;
 }
 
 export function updateChase(userId: string, chaseId: string, patch: Partial<Omit<Chase, 'id' | 'userId' | 'createdAt'>>): Chase | null {

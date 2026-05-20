@@ -73,4 +73,22 @@ describe('matchChaseToListing', () => {
     expect(result.isMatch).toBe(false);
     expect(result.reasons).toEqual(['card_name_miss']);
   });
+
+  it('fails when chase has a card number and listing has a conflicting card number', () => {
+    const chase = baseChase({ cardName: 'Umbreon VMAX 215/203 Evolving Skies' });
+    const listing = baseListing({ title: 'Umbreon VMAX 214/203 Evolving Skies Alt Art' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(false);
+    expect(result.reasons).toEqual(['card_number_miss']);
+  });
+
+  it('boosts when card number matches', () => {
+    const chase = baseChase({ cardName: 'Bulbasaur #55' });
+    const listing = baseListing({ title: 'Bulbasaur #55 Reverse Holo PSA 10' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).toContain('card_number_match');
+  });
 });

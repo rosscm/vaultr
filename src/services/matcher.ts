@@ -25,6 +25,26 @@ function tokenOverlapRatio(needle: string[], haystack: string[]): number {
   return hits / needle.length;
 }
 
+function extractCardNumbers(text: string): string[] {
+  const normalized = normalize(text);
+  const out = new Set<string>();
+
+  // Patterns like 215/203, 55/102
+  const slashMatches = normalized.match(/\b\d{1,4}\s*\/\s*\d{1,4}\b/g) ?? [];
+  for (const m of slashMatches) {
+    out.add(m.replace(/\s+/g, ''));
+  }
+
+  // Patterns like #55, no.55, no 55
+  const hashMatches = normalized.match(/(?:#|no\.?\s*)\d{1,4}\b/g) ?? [];
+  for (const m of hashMatches) {
+    const digits = m.match(/\d{1,4}/)?.[0];
+    if (digits) out.add(`#${digits}`);
+  }
+
+  return [...out];
+}
+
 function conditionMatches(chaseCondition: string | undefined, listingCondition: string | undefined): boolean {
   if (!chaseCondition) return true;
   if (!listingCondition) return true;
@@ -61,6 +81,8 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
   const card = normalize(chase.cardName);
   const cardTokens = toTokens(chase.cardName);
   const titleTokens = toTokens(listing.title);
+  const chaseCardNumbers = extractCardNumbers(chase.cardName);
+  const listingCardNumbers = extractCardNumbers(listing.title);
 
   const blocked = (chase.negativeKeywords ?? [])
     .map((k) => normalize(k))
@@ -81,6 +103,17 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     score += overlap >= 0.9 ? 45 : 35;
     reasons.push('card_name_match_tokens');
     reasons.push(`token_overlap:${Math.round(overlap * 100)}`);
+  }
+
+  if (chaseCardNumbers.length > 0) {
+    const listingNumberSet = new Set(listingCardNumbers);
+    const hasMatch = chaseCardNumbers.some((n) => listingNumberSet.has(n));
+    if (hasMatch) {
+      score += 12;
+      reasons.push('card_number_match');
+    } else if (listingCardNumbers.length > 0) {
+      return { isMatch: false, score: 0, reasons: ['card_number_miss'] };
+    }
   }
 
   if (chase.grade) {

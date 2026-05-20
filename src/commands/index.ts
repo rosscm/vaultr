@@ -11,7 +11,6 @@ import { help } from './help.js';
 import { plan } from './plan.js';
 import { planSet } from './plan-set.js';
 import { setupChannelSet } from './setup-channel-set.js';
-import { status } from './status.js';
 import { upgrade } from './upgrade.js';
 
 export const commands = [
@@ -28,6 +27,5 @@ export const commands = [
   plan,
   planSet,
   setupChannelSet,
-  status,
   upgrade
 ];
