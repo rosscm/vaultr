@@ -13,7 +13,7 @@ export const help = {
       '- `grade`: up to 24 chars (optional; default: Any)',
       '- `priority`: NORMAL / HIGH / GRAIL (optional; default: NORMAL)',
       '- `listing_type`: ANY / AUCTION / BUY_IT_NOW (optional; default: ANY)',
-      '- `negative_keywords`: CSV, max 15 (optional)',
+      '- `negative_keywords`: comma-separated terms, max 15 (optional)',
       '  default: proxy, custom, reprint, lot, orica, replica',
       '',
       '**Card Name Tip**',

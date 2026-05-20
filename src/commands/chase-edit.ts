@@ -38,7 +38,7 @@ export const chaseEdit = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Blocked terms CSV (max 15) (default: keep current)')
+        .setDescription('Blocked terms (comma-separated, max 15) (default: keep current)')
         .setMaxLength(240)
     )
     .addStringOption((opt) =>

@@ -52,7 +52,7 @@ export const chaseAdd = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Blocked terms CSV (max 15) (default: proxy,custom,reprint,lot,orica,replica)')
+        .setDescription('Blocked terms (comma-separated, max 15) (default: proxy,custom,reprint,lot,orica,replica)')
         .setMaxLength(240)
     )
     .addStringOption((opt) =>

@@ -12,19 +12,19 @@ export const upgrade = {
       const lines = [
         `**Plan:** ${plan.tier} (${plan.status})`,
         `**Active Chases:** ${PLAN_LIMITS.PRO.maxActiveChases}`,
-        `**Polling Target:** ${PLAN_LIMITS.PRO.pollIntervalSeconds}s`
+        `**Checks for New Listings:** Every ${PLAN_LIMITS.PRO.pollIntervalSeconds} seconds`
       ];
       await interaction.reply({
-        embeds: [successEmbed('You Are Pro', lines.join('\n')).setTitle('✅ You Are Pro')],
+        embeds: [successEmbed('You Are Pro', lines.join('\n')).setTitle('👑 You Are Pro')],
         flags: MessageFlags.Ephemeral
       });
       return;
     }
 
     const lines = [
-      `**Free:** ${PLAN_LIMITS.FREE.maxActiveChases} chases | ${PLAN_LIMITS.FREE.pollIntervalSeconds}s target`,
-      `**Pro:** ${PLAN_LIMITS.PRO.maxActiveChases} chases | ${PLAN_LIMITS.PRO.pollIntervalSeconds}s target`,
-      '**How to Upgrade:** Billing flow coming soon. Use /plan-set for beta testing.'
+      `**Free:** ${PLAN_LIMITS.FREE.maxActiveChases} active chases | Checks for new listings every ${PLAN_LIMITS.FREE.pollIntervalSeconds} seconds`,
+      `**Pro:** ${PLAN_LIMITS.PRO.maxActiveChases} active chases | Checks for new listings every ${PLAN_LIMITS.PRO.pollIntervalSeconds} seconds`,
+      '**How to Upgrade:** Billing flow coming soon.'
     ];
 
     await interaction.reply({

@@ -28,8 +28,8 @@ export const alertsRecent = {
 
     const lines = recent.map((a, i) => {
       const title = a.listingTitle ?? a.listingId;
-      const price = a.listingPrice !== undefined ? `${a.listingPrice} ${a.listingCurrency ?? ''}`.trim() : 'n/a';
-      const score = a.matchScore ?? 'n/a';
+      const price = a.listingPrice !== undefined ? `${a.listingPrice} ${a.listingCurrency ?? ''}`.trim() : 'None';
+      const score = a.matchScore ?? 'None';
       return `**${i + 1}. ${title}**\n**Price:** ${price} | **Score:** ${score}\n**Sent:** ${formatTimeWithAge(a.sentAt)}`;
     });
 
