@@ -2,6 +2,7 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserPlan } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, keyValue } from '../ui/embeds.js';
+import { formatLocalDateTime } from '../ui/time.js';
 
 export const plan = {
   data: new SlashCommandBuilder().setName('plan').setDescription('Show your Vaultr plan and limits'),
@@ -16,7 +17,7 @@ export const plan = {
           keyValue('Status', userPlan.status),
           keyValue('Active Chase Limit', `${limits.maxActiveChases}`),
           keyValue('Polling Target', `${limits.pollIntervalSeconds}s`),
-          keyValue('Updated', userPlan.updatedAt)
+          keyValue('Updated', formatLocalDateTime(userPlan.updatedAt))
         )
       ],
       flags: MessageFlags.Ephemeral

@@ -1,6 +1,8 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { setUserPlan } from '../services/chase-store.js';
 import { normalizePlanTier } from '../services/plans.js';
+import { keyValue, successEmbed } from '../ui/embeds.js';
+import { formatLocalDateTime } from '../ui/time.js';
 
 export const planSet = {
   data: new SlashCommandBuilder()
@@ -36,7 +38,14 @@ export const planSet = {
     const updated = setUserPlan(user.id, tier, status);
 
     await interaction.reply({
-      content: `Updated <@${user.id}> to **${updated.tier}** (${updated.status}).`,
+      embeds: [
+        successEmbed('Plan Updated').addFields(
+          keyValue('User', `<@${user.id}>`),
+          keyValue('Tier', updated.tier),
+          keyValue('Status', updated.status),
+          keyValue('Updated', formatLocalDateTime(updated.updatedAt))
+        )
+      ],
       flags: MessageFlags.Ephemeral
     });
   }

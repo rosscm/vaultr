@@ -147,7 +147,9 @@ export const chaseAdd = {
       const channelId = getGuildCommandChannel(interaction.guildId);
       const channel = channelId ? await interaction.client.channels.fetch(channelId).catch(() => null) : null;
       if (channel && 'send' in channel) {
-        await channel.send('🔎 A collector started a new chase.');
+        const priorityLabel = chase.priority === 'GRAIL' ? 'grail' : chase.priority === 'HIGH' ? 'high-priority' : 'new';
+        const displayName = interaction.member?.nickname ?? interaction.user.globalName ?? interaction.user.username;
+        await channel.send(`🔎 **${displayName}** started a ${priorityLabel} chase: **${chase.cardName}**`);
       }
     }
   }

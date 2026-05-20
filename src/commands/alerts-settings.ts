@@ -1,6 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings, setUserAlertSettings } from '../services/chase-store.js';
 import { infoEmbed, keyValue, successEmbed } from '../ui/embeds.js';
+import { formatLocalDateTime } from '../ui/time.js';
 
 export const alertsSettings = {
   data: new SlashCommandBuilder()
@@ -74,7 +75,7 @@ export const alertsSettings = {
           keyValue('Chase Cooldown', `${settings.chaseCooldownMinutes}m`),
           keyValue('Quiet Hours', quietHours),
           keyValue('Recommended Start', 'min_score 65 | cooldown 30m'),
-          keyValue('Updated', settings.updatedAt)
+          keyValue('Updated', formatLocalDateTime(settings.updatedAt))
         )
       ],
       flags: MessageFlags.Ephemeral

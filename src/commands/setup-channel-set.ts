@@ -1,5 +1,6 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { setGuildCommandChannel } from '../services/chase-store.js';
+import { keyValue, successEmbed } from '../ui/embeds.js';
 
 export const setupChannelSet = {
   data: new SlashCommandBuilder()
@@ -23,12 +24,11 @@ export const setupChannelSet = {
     setGuildCommandChannel(interaction.guildId, channel.id);
 
     await interaction.reply({
-      content:
-        `Vaultr command channel set to <#${channel.id}>.\n\n` +
-        `Quickstart:\n` +
-        `1. Use /alerts-settings-reset for recommended defaults\n` +
-        `2. Add a chase with /chase-add\n` +
-        `3. Check health with /status`,
+      embeds: [
+        successEmbed('Command Channel Updated', `Vaultr commands are now pinned to <#${channel.id}>.`).addFields(
+          keyValue('Quickstart', '1) `/alerts-settings-reset`  2) `/chase-add`  3) `/status`')
+        )
+      ],
       flags: MessageFlags.Ephemeral
     });
   }

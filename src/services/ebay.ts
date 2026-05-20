@@ -2,10 +2,17 @@ import type { Chase, Listing } from '../types.js';
 
 const EBAY_FINDING_ENDPOINT_PROD = 'https://svcs.ebay.com/services/search/FindingService/v1';
 const EBAY_FINDING_ENDPOINT_SANDBOX = 'https://svcs.sandbox.ebay.com/services/search/FindingService/v1';
+const EBAY_SHOPPING_ENDPOINT_PROD = 'https://open.api.ebay.com/shopping';
+const EBAY_SHOPPING_ENDPOINT_SANDBOX = 'https://open.api.sandbox.ebay.com/shopping';
 
 function getEbayFindingEndpoint(): string {
   const env = (process.env.EBAY_ENV ?? 'PRODUCTION').toUpperCase();
   return env === 'SANDBOX' ? EBAY_FINDING_ENDPOINT_SANDBOX : EBAY_FINDING_ENDPOINT_PROD;
+}
+
+function getEbayShoppingEndpoint(): string {
+  const env = (process.env.EBAY_ENV ?? 'PRODUCTION').toUpperCase();
+  return env === 'SANDBOX' ? EBAY_SHOPPING_ENDPOINT_SANDBOX : EBAY_SHOPPING_ENDPOINT_PROD;
 }
 
 function mapCountryToRegion(countryCode?: string): 'CA' | 'US' | 'OTHER' {
@@ -20,6 +27,48 @@ function mapListingType(raw?: string): 'AUCTION' | 'BUY_IT_NOW' | 'OTHER' {
   if (t === 'auction') return 'AUCTION';
   if (t === 'fixedprice' || t === 'storeinventory') return 'BUY_IT_NOW';
   return 'OTHER';
+}
+
+async function enrichListingFromShoppingApi(listing: Listing, appId: string): Promise<Listing> {
+  const endpoint = getEbayShoppingEndpoint();
+  const params = new URLSearchParams({
+    callname: 'GetSingleItem',
+    responseencoding: 'JSON',
+    appid: appId,
+    version: '967',
+    siteid: '0',
+    ItemID: listing.listingId,
+    IncludeSelector: 'Details,ShippingCosts'
+  });
+
+  try {
+    const response = await fetch(`${endpoint}?${params.toString()}`);
+    if (!response.ok) return listing;
+    const json: any = await response.json();
+    const item = json?.Item;
+    if (!item) return listing;
+
+    const fallbackSeller = item?.Seller?.UserID;
+    const fallbackSellerFeedbackPercent = Number(item?.Seller?.PositiveFeedbackPercent);
+    const fallbackSellerFeedbackScore = Number(item?.Seller?.FeedbackScore);
+    const fallbackShippingCost = Number(item?.ShippingCostSummary?.ShippingServiceCost?.Value);
+    const fallbackShippingCurrency = item?.ShippingCostSummary?.ShippingServiceCost?.CurrencyID ?? listing.currency;
+
+    return {
+      ...listing,
+      seller: listing.seller ?? fallbackSeller ?? listing.seller,
+      sellerFeedbackPercent:
+        listing.sellerFeedbackPercent ??
+        (Number.isNaN(fallbackSellerFeedbackPercent) ? undefined : fallbackSellerFeedbackPercent),
+      sellerFeedbackScore:
+        listing.sellerFeedbackScore ?? (Number.isNaN(fallbackSellerFeedbackScore) ? undefined : fallbackSellerFeedbackScore),
+      shippingCost: listing.shippingCost ?? (Number.isNaN(fallbackShippingCost) ? undefined : fallbackShippingCost),
+      shippingCurrency:
+        listing.shippingCurrency ?? (Number.isNaN(fallbackShippingCost) ? undefined : fallbackShippingCurrency)
+    };
+  } catch {
+    return listing;
+  }
 }
 
 export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
@@ -50,7 +99,7 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
   const json: any = await response.json();
   const items = json?.findItemsByKeywordsResponse?.[0]?.searchResult?.[0]?.item ?? [];
 
-  return items
+  const listings = items
     .map((item: any) => {
       const listingId = item?.itemId?.[0];
       const title = item?.title?.[0];
@@ -94,4 +143,22 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
       return listing;
     })
     .filter((listing: Listing | null): listing is Listing => listing !== null);
+
+  const needsEnrichment = listings.filter(
+    (listing) =>
+      !listing.seller ||
+      listing.sellerFeedbackPercent === undefined ||
+      listing.sellerFeedbackScore === undefined ||
+      listing.shippingCost === undefined
+  );
+
+  if (needsEnrichment.length === 0) return listings;
+
+  const enrichedById = new Map<string, Listing>();
+  for (const listing of needsEnrichment) {
+    const enriched = await enrichListingFromShoppingApi(listing, appId);
+    enrichedById.set(listing.listingId, enriched);
+  }
+
+  return listings.map((listing) => enrichedById.get(listing.listingId) ?? listing);
 }

@@ -4,7 +4,6 @@ import {
   countUserAlertsInLastHour,
   getUserAlertSettings,
   hasAlertBeenSent,
-  isListingFingerprintIgnored,
   listAllChases,
   markAlertSentWithDetails
 } from './chase-store.js';
@@ -27,7 +26,7 @@ import {
   setBackoffUntil,
   setSourceCallsLastMinute
 } from './poller-state.js';
-import { keyValue, listingLinkButton, markNotRelevantButton, warningEmbed } from '../ui/embeds.js';
+import { keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
 
 function formatReasons(reasons: string[]): string {
@@ -105,11 +104,15 @@ function formatTotalCost(price: number, shippingCost: number | undefined): numbe
 }
 
 function formatDealQuality(score: number): string {
-  if (score >= 90) return 'Elite';
-  if (score >= 80) return 'Strong';
-  if (score >= 70) return 'Good';
-  if (score >= 60) return 'Watch';
-  return 'Speculative';
+  if (score >= 85) return 'High Confidence';
+  if (score >= 70) return 'Medium Confidence';
+  return 'Low Confidence';
+}
+
+function explainDealQuality(score: number): string {
+  if (score >= 85) return 'Strong alignment with your chase filters.';
+  if (score >= 70) return 'Partial alignment. Worth checking quickly.';
+  return 'Loose alignment. Review details before acting.';
 }
 
 function truncateTitle(title: string, maxLen = 110): string {
@@ -298,7 +301,6 @@ async function runPoll(client: Client): Promise<void> {
       if (hasAlertBeenSent(chase.id, listing.listingId, listing.source)) continue;
       const nowMs = Date.now();
       const listingFingerprint = makeListingFingerprint(listing.title);
-      if (listingFingerprint && isListingFingerprintIgnored(chase.userId, chase.id, listingFingerprint)) continue;
       if (listingFingerprint && wasFingerprintSeenRecently(chase.id, listingFingerprint, nowMs)) {
         markFingerprintSuppression();
         continue;
@@ -349,6 +351,7 @@ async function runPoll(client: Client): Promise<void> {
             name: '🧠 Match Insight',
             value: [
               `**Deal Quality:** ${formatDealQuality(match.score)}`,
+              `**Confidence Note:** ${explainDealQuality(match.score)}`,
               `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Score:** ${match.score}`,
               `**Why It Matched:** ${splitReasons(match.reasons).positive}`,
@@ -363,7 +366,7 @@ async function runPoll(client: Client): Promise<void> {
       try {
         const user = await client.users.fetch(chase.userId);
         await withTimeout(
-          user.send({ embeds: [embed], components: [listingLinkButton(listing.url), markNotRelevantButton(chase.id, listing.listingId)] }),
+          user.send({ embeds: [embed], components: [listingLinkButton(listing.url)] }),
           10000,
           'DM send timeout'
         );

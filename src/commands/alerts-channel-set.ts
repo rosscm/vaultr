@@ -1,5 +1,6 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { setGuildAlertChannel } from '../services/chase-store.js';
+import { successEmbed } from '../ui/embeds.js';
 
 export const alertsChannelSet = {
   data: new SlashCommandBuilder()
@@ -22,6 +23,9 @@ export const alertsChannelSet = {
     const channel = interaction.options.getChannel('channel', true);
     setGuildAlertChannel(interaction.guildId, channel.id);
 
-    await interaction.reply(`Alerts channel set to <#${channel.id}> for this server.`);
+    await interaction.reply({
+      embeds: [successEmbed('Alerts Channel Updated', `Vaultr alerts will post in <#${channel.id}>.`)],
+      flags: MessageFlags.Ephemeral
+    });
   }
 };

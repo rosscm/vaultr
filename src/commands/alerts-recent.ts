@@ -1,6 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listRecentAlerts } from '../services/chase-store.js';
 import { infoEmbed } from '../ui/embeds.js';
+import { formatTimeWithAge } from '../ui/time.js';
 
 export const alertsRecent = {
   data: new SlashCommandBuilder()
@@ -29,7 +30,7 @@ export const alertsRecent = {
       const title = a.listingTitle ?? a.listingId;
       const price = a.listingPrice !== undefined ? `${a.listingPrice} ${a.listingCurrency ?? ''}`.trim() : 'n/a';
       const score = a.matchScore ?? 'n/a';
-      return `**${i + 1}. ${title}**\n**Price:** ${price} | **Score:** ${score}\n**Sent:** ${a.sentAt}`;
+      return `**${i + 1}. ${title}**\n**Price:** ${price} | **Score:** ${score}\n**Sent:** ${formatTimeWithAge(a.sentAt)}`;
     });
 
     await interaction.reply({

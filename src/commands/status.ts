@@ -1,19 +1,8 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings } from '../services/chase-store.js';
 import { getPollerState } from '../services/poller-state.js';
-import { infoEmbed, keyValue } from '../ui/embeds.js';
-
-function formatAgeSince(iso: string | undefined): string {
-  if (!iso) return 'n/a';
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return 'n/a';
-  const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
+import { infoEmbed } from '../ui/embeds.js';
+import { formatTimeWithAge } from '../ui/time.js';
 
 export const status = {
   data: new SlashCommandBuilder().setName('status').setDescription('Show Vaultr runtime status'),
@@ -30,25 +19,53 @@ export const status = {
     await interaction.reply({
       embeds: [
         infoEmbed('Vaultr Runtime Status').addFields(
-          keyValue('Source', state.sourceMode),
-          keyValue('Poll Interval', `${state.pollIntervalSeconds}s`),
-          keyValue('Last Run', state.lastRunAt ?? 'not yet'),
-          keyValue('Last Completion', state.lastRunCompletedAt ?? 'not yet'),
-          keyValue('Last Duration', state.lastRunDurationMs !== undefined ? `${state.lastRunDurationMs}ms` : 'n/a'),
-          keyValue('Running', state.isRunning ? 'yes' : 'no'),
-          keyValue('Matches (Last Run)', `${state.lastRunMatchesSent}`),
-          keyValue('Matches (Total)', `${state.totalMatchesSent}`),
-          keyValue('Consecutive Failures', `${state.consecutiveFailures}`),
-          keyValue('Skipped Overlaps', `${state.skippedOverlappingRuns}`),
-          keyValue('Source Calls (60s)', `${state.sourceCallsLastMinute}`),
-          keyValue('Rate Limit Skips', `${state.rateLimitSkips}`),
-          keyValue('Suppressed (Min Score)', `${state.suppressedByMinScore}`),
-          keyValue('Suppressed (Cooldown)', `${state.suppressedByChaseCooldown}`),
-          keyValue('Suppressed (Dupes)', `${state.suppressedByFingerprint}`),
-          keyValue('Backoff Until', state.backoffUntil ?? 'none'),
-          keyValue('Last Source Success', formatAgeSince(state.lastSourceSuccessAt)),
-          keyValue('Last Error', state.lastError ?? 'none'),
-          keyValue('Hint', hint)
+          {
+            name: 'Runtime',
+            value: [
+              `Source: ${state.sourceMode}`,
+              `Poll Interval: ${state.pollIntervalSeconds}s`,
+              `Running: ${state.isRunning ? 'Yes' : 'No'}`,
+              `Last Run: ${formatTimeWithAge(state.lastRunAt)}`,
+              `Last Completion: ${formatTimeWithAge(state.lastRunCompletedAt)}`,
+              `Last Duration: ${state.lastRunDurationMs !== undefined ? `${state.lastRunDurationMs}ms` : 'n/a'}`
+            ].join('\n'),
+            inline: false
+          },
+          {
+            name: 'Throughput',
+            value: [
+              `Matches (Last Run): ${state.lastRunMatchesSent}`,
+              `Matches (Total): ${state.totalMatchesSent}`,
+              `Source Calls (60s): ${state.sourceCallsLastMinute}`,
+              `Rate Limit Skips: ${state.rateLimitSkips}`
+            ].join('\n'),
+            inline: false
+          },
+          {
+            name: 'Suppression',
+            value: [
+              `Min Score: ${state.suppressedByMinScore}`,
+              `Cooldown: ${state.suppressedByChaseCooldown}`,
+              `Dupes: ${state.suppressedByFingerprint}`
+            ].join('\n'),
+            inline: false
+          },
+          {
+            name: 'Health',
+            value: [
+              `Consecutive Failures: ${state.consecutiveFailures}`,
+              `Skipped Overlaps: ${state.skippedOverlappingRuns}`,
+              `Backoff Until: ${state.backoffUntil ? formatTimeWithAge(state.backoffUntil) : 'none'}`,
+              `Last Source Success: ${formatTimeWithAge(state.lastSourceSuccessAt)}`,
+              `Last Error: ${state.lastError ?? 'none'}`
+            ].join('\n'),
+            inline: false
+          },
+          {
+            name: 'Hint',
+            value: hint,
+            inline: false
+          }
         )
       ],
       flags: MessageFlags.Ephemeral

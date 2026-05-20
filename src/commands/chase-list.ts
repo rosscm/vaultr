@@ -18,15 +18,15 @@ export const chaseList = {
       const priorityBadge = c.priority === 'GRAIL' ? '🏆 GRAIL' : c.priority === 'HIGH' ? '🔥 HIGH' : '• NORMAL';
       const header = `**#${i + 1} — ${c.cardName}**`;
       const details = [
-        `**Priority:** ${priorityBadge}`,
-        `**Max:** ${c.maxPrice ?? 'any'}`,
-        `**Grade:** ${c.grade ?? 'any'}`,
-        `**Condition:** ${c.condition ?? 'any'}`,
-        `**Region:** ${c.region ?? 'ANY'}`,
-        `**Listing:** ${c.listingType ?? 'ANY'}`,
-        `**Blocked:** ${c.negativeKeywords?.join(', ') ?? 'none'}`,
-        `**Note:** ${c.targetNote ?? 'none'}`
-      ].join(' | ');
+        `Priority: ${priorityBadge}`,
+        `Max: ${c.maxPrice ?? 'any'}`,
+        `Grade: ${c.grade ?? 'any'}`,
+        `Condition: ${c.condition ?? 'any'}`,
+        `Region: ${c.region ?? 'ANY'}`,
+        `Listing: ${c.listingType ?? 'ANY'}`,
+        `Blocked: ${c.negativeKeywords?.join(', ') ?? 'none'}`,
+        `Note: ${c.targetNote ?? 'none'}`
+      ].join('\n');
       return `${header}\n${details}`;
     });
 

@@ -31,7 +31,7 @@ export const communityFeed = {
       embeds: [
         successEmbed('Community Feed Updated', enabled ? 'Community activity posts are now on.' : 'Community activity posts are now off.').addFields({
           name: 'Current State',
-          value: isGuildCommunityFeedEnabled(interaction.guildId) ? 'on' : 'off',
+          value: isGuildCommunityFeedEnabled(interaction.guildId) ? 'On' : 'Off',
           inline: true
         })
       ],
