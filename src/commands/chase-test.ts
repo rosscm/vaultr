@@ -18,7 +18,7 @@ export const chaseTest = {
 
     await interaction.reply({
       embeds: [
-        infoEmbed('Chase Alert Preview', lines.join('\n')).setFooter({ text: 'Vaultr • Collector Alert' })
+        infoEmbed('🧪 Chase Alert Preview', lines.join('\n')).setFooter({ text: 'Vaultr • Collector Alert' })
       ],
       flags: MessageFlags.Ephemeral
     });

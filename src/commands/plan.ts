@@ -18,7 +18,7 @@ export const plan = {
     ];
 
     await interaction.reply({
-      embeds: [infoEmbed('Your Plan', lines.join('\n'))],
+      embeds: [infoEmbed('🧾 Your Plan', lines.join('\n'))],
       flags: MessageFlags.Ephemeral
     });
   }

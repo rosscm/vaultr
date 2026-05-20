@@ -15,20 +15,20 @@ export const chaseEdit = {
     .setDescription('Edit an active chase by list entry number')
     .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase-list').setRequired(true))
     .addStringOption((opt) =>
-      opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored)').setMinLength(3).setMaxLength(100)
+      opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored; default: keep current)').setMinLength(3).setMaxLength(100)
     )
-    .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0)').setMinValue(0.01))
-    .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade, e.g. PSA 10').setMaxLength(24))
+    .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0) (default: keep current)').setMinValue(0.01))
+    .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade, e.g. PSA 10 (default: keep current)').setMaxLength(24))
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Updated condition(s): NM,LP,MP,HP,DMG (comma-separated)')
+        .setDescription('Updated condition(s): NM,LP,MP,HP,DMG (default: keep current)')
         .setMaxLength(40)
     )
     .addStringOption((opt) =>
       opt
         .setName('listing_type')
-        .setDescription('Updated listing type')
+        .setDescription('Updated listing type (default: keep current)')
         .addChoices(
           { name: 'Any', value: 'ANY' },
           { name: 'Auction', value: 'AUCTION' },
@@ -38,13 +38,13 @@ export const chaseEdit = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Blocked terms CSV (max 15), e.g. proxy,custom,reprint')
+        .setDescription('Blocked terms CSV (max 15) (default: keep current)')
         .setMaxLength(240)
     )
     .addStringOption((opt) =>
       opt
         .setName('priority')
-        .setDescription('Updated priority')
+        .setDescription('Updated priority (default: keep current)')
         .addChoices(
           { name: 'Normal', value: 'NORMAL' },
           { name: 'High', value: 'HIGH' },
@@ -52,7 +52,7 @@ export const chaseEdit = {
         )
     )
     .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Updated personal note (up to 120 chars)').setMaxLength(120)
+      opt.setName('target_note').setDescription('Updated personal note (up to 120 chars) (default: keep current)').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const entry = interaction.options.getInteger('entry', true);

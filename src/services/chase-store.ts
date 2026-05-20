@@ -109,15 +109,16 @@ const getGuildAlertChannelStmt = db.prepare(`
 `);
 
 const upsertGuildCommunityFeedStmt = db.prepare(`
-  INSERT INTO guild_community_feed (guild_id, enabled, updated_at)
-  VALUES (?, ?, ?)
+  INSERT INTO guild_community_feed (guild_id, enabled, mode, updated_at)
+  VALUES (?, ?, ?, ?)
   ON CONFLICT(guild_id) DO UPDATE SET
     enabled = excluded.enabled,
+    mode = excluded.mode,
     updated_at = excluded.updated_at
 `);
 
 const getGuildCommunityFeedStmt = db.prepare(`
-  SELECT enabled
+  SELECT enabled, mode
   FROM guild_community_feed
   WHERE guild_id = ?
 `);
@@ -126,6 +127,12 @@ const countChasesByUserStmt = db.prepare(`
   SELECT COUNT(*) AS count
   FROM chases
   WHERE user_id = ?
+`);
+
+const countNewHuntersByGuildTodayStmt = db.prepare(`
+  SELECT COUNT(DISTINCT user_id) AS count
+  FROM chases
+  WHERE guild_id = ? AND created_at >= ?
 `);
 
 const getUserPlanStmt = db.prepare(`
@@ -236,6 +243,13 @@ export function countUserChases(userId: string): number {
   return Number(row.count);
 }
 
+export function countGuildNewHuntersToday(guildId: string): number {
+  const now = new Date();
+  const utcDayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+  const row = countNewHuntersByGuildTodayStmt.get(guildId, utcDayStart) as { count: number };
+  return Number(row.count);
+}
+
 export function listAllChases(): Chase[] {
   const rows = listAllChasesStmt.all() as ChaseRow[];
   return rows.map(mapRow);
@@ -336,13 +350,23 @@ export function getGuildCommandChannel(guildId: string): string | null {
   return getGuildAlertChannel(guildId);
 }
 
-export function setGuildCommunityFeedEnabled(guildId: string, enabled: boolean): void {
-  upsertGuildCommunityFeedStmt.run(guildId, enabled ? 1 : 0, new Date().toISOString());
+export type CommunityFeedMode = 'OFF' | 'PULSE' | 'MILESTONES';
+
+export function setGuildCommunityFeedMode(guildId: string, mode: CommunityFeedMode): void {
+  const normalized = mode === 'OFF' ? 'OFF' : mode;
+  upsertGuildCommunityFeedStmt.run(guildId, normalized === 'OFF' ? 0 : 1, normalized, new Date().toISOString());
 }
 
 export function isGuildCommunityFeedEnabled(guildId: string): boolean {
-  const row = getGuildCommunityFeedStmt.get(guildId) as { enabled: number } | undefined;
+  const row = getGuildCommunityFeedStmt.get(guildId) as { enabled: number; mode: CommunityFeedMode | null } | undefined;
   return (row?.enabled ?? 0) === 1;
+}
+
+export function getGuildCommunityFeedMode(guildId: string): CommunityFeedMode {
+  const row = getGuildCommunityFeedStmt.get(guildId) as { enabled: number; mode: CommunityFeedMode | null } | undefined;
+  if (!row || row.enabled === 0) return 'OFF';
+  if (row.mode === 'MILESTONES' || row.mode === 'PULSE') return row.mode;
+  return 'PULSE';
 }
 
 export function getUserPlan(userId: string): UserPlan {

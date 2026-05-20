@@ -28,7 +28,7 @@ export const upgrade = {
     ];
 
     await interaction.reply({
-      embeds: [infoEmbed('Upgrade to Vaultr Pro', `Pro removes hunt friction and improves alert speed.\n\n${lines.join('\n')}`)],
+      embeds: [infoEmbed('💎 Upgrade to Vaultr Pro', `Pro removes hunt friction and improves alert speed.\n\n${lines.join('\n')}`)],
       flags: MessageFlags.Ephemeral
     });
   }

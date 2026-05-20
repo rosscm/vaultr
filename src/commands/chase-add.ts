@@ -1,5 +1,12 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
-import { addChase, countUserChases, getUserPlan, getGuildCommandChannel, isGuildCommunityFeedEnabled } from '../services/chase-store.js';
+import {
+  addChase,
+  countGuildNewHuntersToday,
+  countUserChases,
+  getGuildCommunityFeedMode,
+  getUserPlan,
+  getGuildCommandChannel,
+} from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
@@ -25,17 +32,17 @@ export const chaseAdd = {
         .setMaxLength(100)
     )
     .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
-    .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference, e.g. PSA 10').setMaxLength(24))
+    .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference, e.g. PSA 10 (default: Any)').setMaxLength(24))
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Condition(s): NM,LP,MP,HP,DMG (comma-separated allowed)')
+        .setDescription('Condition(s): NM,LP,MP,HP,DMG (default: Any)')
         .setMaxLength(40)
     )
     .addStringOption((opt) =>
       opt
         .setName('listing_type')
-        .setDescription('Listing type')
+        .setDescription('Listing type (default: Any)')
         .addChoices(
           { name: 'Any', value: 'ANY' },
           { name: 'Auction', value: 'AUCTION' },
@@ -45,13 +52,13 @@ export const chaseAdd = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Blocked terms CSV (max 15), e.g. proxy,custom,reprint')
+        .setDescription('Blocked terms CSV (max 15) (default: proxy,custom,reprint,lot,orica,replica)')
         .setMaxLength(240)
     )
     .addStringOption((opt) =>
       opt
         .setName('priority')
-        .setDescription('Priority for this chase')
+        .setDescription('Priority for this chase (default: Normal)')
         .addChoices(
           { name: 'Normal', value: 'NORMAL' },
           { name: 'High', value: 'HIGH' },
@@ -141,14 +148,17 @@ export const chaseAdd = {
       flags: MessageFlags.Ephemeral
     });
 
-    // Optional community heartbeat message (anonymized) to keep channel active without leaking chase details.
-    if (interaction.guildId && isGuildCommunityFeedEnabled(interaction.guildId)) {
+    // Optional community message: only on first chase to avoid noisy per-chase spam.
+    if (interaction.guildId && getGuildCommunityFeedMode(interaction.guildId) !== 'OFF' && currentCount === 0) {
       const channelId = getGuildCommandChannel(interaction.guildId);
       const channel = channelId ? await interaction.client.channels.fetch(channelId).catch(() => null) : null;
       if (channel && 'send' in channel) {
-        const priorityLabel = chase.priority === 'GRAIL' ? 'grail' : chase.priority === 'HIGH' ? 'high-priority' : 'new';
         const displayName = interaction.member?.nickname ?? interaction.user.globalName ?? interaction.user.username;
-        await channel.send(`🔎 **${displayName}** started a ${priorityLabel} chase: **${chase.cardName}**`);
+        const newHuntersToday = countGuildNewHuntersToday(interaction.guildId);
+        await channel.send(
+          `🗄️ **${displayName}** opened their **Vault** and started chase hunting.\n` +
+            `📈 **New Vault Hunters Today:** ${newHuntersToday}`
+        );
       }
     }
   }

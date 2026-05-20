@@ -1,20 +1,20 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { isGuildCommunityFeedEnabled, setGuildCommunityFeedEnabled } from '../services/chase-store.js';
+import { getGuildCommunityFeedMode, setGuildCommunityFeedMode } from '../services/chase-store.js';
 import { successEmbed } from '../ui/embeds.js';
-import { OUTPUT_STYLE } from '../ui/style.js';
 
 export const communityFeed = {
   data: new SlashCommandBuilder()
     .setName('community-feed')
-    .setDescription('Admin: enable or disable lightweight community activity posts')
+    .setDescription('Admin: set community feed mode for visible channel activity')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((opt) =>
       opt
         .setName('mode')
-        .setDescription('Enable or disable')
+        .setDescription('Feed mode (default: PULSE)')
         .setRequired(true)
         .addChoices(
-          { name: 'On', value: 'ON' },
+          { name: 'Pulse (recommended)', value: 'PULSE' },
+          { name: 'Milestones', value: 'MILESTONES' },
           { name: 'Off', value: 'OFF' }
         )
     ),
@@ -25,12 +25,12 @@ export const communityFeed = {
     }
 
     const mode = interaction.options.getString('mode', true);
-    const enabled = mode === 'ON';
-    setGuildCommunityFeedEnabled(interaction.guildId, enabled);
-    const currentState = isGuildCommunityFeedEnabled(interaction.guildId) ? OUTPUT_STYLE.on : OUTPUT_STYLE.off;
+    const nextMode = (mode === 'MILESTONES' || mode === 'OFF' ? mode : 'PULSE') as 'OFF' | 'PULSE' | 'MILESTONES';
+    setGuildCommunityFeedMode(interaction.guildId, nextMode);
+    const currentMode = getGuildCommunityFeedMode(interaction.guildId);
     const lines = [
-      `**Mode:** ${enabled ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
-      `**Current State:** ${currentState}`
+      `**Mode:** ${currentMode}`,
+      '**Behavior:** first-hunter milestone posts only (no per-chase spam)'
     ];
 
     await interaction.reply({

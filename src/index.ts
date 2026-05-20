@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { Client, Events, GatewayIntentBits, MessageFlags } from 'discord.js';
 import { commands } from './commands/index.js';
+import { handleChaseListPagination } from './commands/chase-list.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
 import { startPoller } from './services/poller.js';
 
@@ -19,6 +20,7 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (await handleChaseListPagination(interaction)) return;
   if (!interaction.isChatInputCommand()) return;
 
   const command = commandMap.get(interaction.commandName);

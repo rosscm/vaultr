@@ -70,6 +70,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS guild_community_feed (
     guild_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 0,
+    mode TEXT NOT NULL DEFAULT 'PULSE',
     updated_at TEXT NOT NULL
   );
 
@@ -145,6 +146,11 @@ try {
 }
 try {
   db.exec(`ALTER TABLE user_alert_settings ADD COLUMN alert_currency TEXT NOT NULL DEFAULT 'USD';`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE guild_community_feed ADD COLUMN mode TEXT NOT NULL DEFAULT 'PULSE';`);
 } catch {
   // Column already exists on upgraded databases.
 }

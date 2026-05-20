@@ -11,42 +11,42 @@ export const alertsSettings = {
     .addIntegerOption((opt) =>
       opt
         .setName('min_score')
-        .setDescription('Minimum match score to alert (0-100)')
+        .setDescription('Minimum match score to alert (0-100) (default: 60)')
         .setMinValue(0)
         .setMaxValue(100)
     )
     .addIntegerOption((opt) =>
       opt
         .setName('max_alerts_per_hour')
-        .setDescription('Maximum alerts per hour')
+        .setDescription('Maximum alerts per hour (default: 10)')
         .setMinValue(1)
         .setMaxValue(200)
     )
     .addIntegerOption((opt) =>
       opt
         .setName('chase_cooldown_minutes')
-        .setDescription('Minimum minutes between alerts for the same chase')
+        .setDescription('Minimum minutes between alerts for the same chase (default: 30)')
         .setMinValue(0)
         .setMaxValue(1440)
     )
     .addIntegerOption((opt) =>
       opt
         .setName('quiet_start')
-        .setDescription('Quiet hours start (0-23, local server time)')
+        .setDescription('Quiet hours start (0-23, local server time) (default: Off)')
         .setMinValue(0)
         .setMaxValue(23)
     )
     .addIntegerOption((opt) =>
       opt
         .setName('quiet_end')
-        .setDescription('Quiet hours end (0-23, local server time)')
+        .setDescription('Quiet hours end (0-23, local server time) (default: Off)')
         .setMinValue(0)
         .setMaxValue(23)
     )
     .addStringOption((opt) =>
       opt
         .setName('alert_currency')
-        .setDescription('Currency for alert pricing')
+        .setDescription('Currency for alert pricing (default: USD)')
         .addChoices(
           { name: 'USD', value: 'USD' },
           { name: 'CAD', value: 'CAD' },
@@ -98,7 +98,7 @@ export const alertsSettings = {
     ];
 
     const embed = noChanges
-      ? infoEmbed('Alert Settings', lines.join('\n'))
+      ? infoEmbed('🔔 Alert Settings', lines.join('\n'))
       : successEmbed('Alert Settings Updated', lines.join('\n')).setTitle('✅ Alert Settings Updated');
 
     await interaction.reply({

@@ -20,7 +20,7 @@ export const alertsRecent = {
 
     if (recent.length === 0) {
       await interaction.reply({
-        embeds: [infoEmbed('Recent Alerts', 'No delivered alerts yet.')],
+        embeds: [infoEmbed('📨 Recent Alerts', 'No delivered alerts yet.')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -34,7 +34,7 @@ export const alertsRecent = {
     });
 
     await interaction.reply({
-      embeds: [infoEmbed('Recent Alerts', lines.join('\n\n---\n\n'))],
+      embeds: [infoEmbed('📨 Recent Alerts', lines.join('\n\n---\n\n'))],
       flags: MessageFlags.Ephemeral
     });
   }

@@ -19,7 +19,7 @@ export const status = {
     }
     await interaction.reply({
       embeds: [
-        infoEmbed('Vaultr Runtime Status').addFields(
+        infoEmbed('🛠️ Vaultr Runtime Status').addFields(
           {
             name: 'Runtime',
             value: [
