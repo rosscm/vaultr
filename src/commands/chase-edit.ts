@@ -1,6 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases, updateChase } from '../services/chase-store.js';
 import { errorEmbed, keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
+import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
 
 export const chaseEdit = {
   data: new SlashCommandBuilder()
@@ -142,13 +143,13 @@ export const chaseEdit = {
         successEmbed(`Chase #${entry} Updated`).addFields(
           keyValue('Card', updated.cardName),
           keyValue('Priority', updated.priority ?? 'NORMAL'),
-          keyValue('Max Price', `${updated.maxPrice ?? 'any'}`),
-          keyValue('Grade', updated.grade ?? 'any'),
-          keyValue('Condition', updated.condition ?? 'any'),
-          keyValue('Region', updated.region ?? 'ANY'),
-          keyValue('Listing Type', updated.listingType ?? 'ANY'),
-          keyValue('Blocked Terms', updated.negativeKeywords?.join(', ') ?? 'none'),
-          keyValue('Note', updated.targetNote ?? 'none')
+          keyValue('Max Price', `${updated.maxPrice ?? OUTPUT_STYLE.any}`),
+          keyValue('Grade', orAny(updated.grade)),
+          keyValue('Condition', orAny(updated.condition)),
+          keyValue('Region', updated.region ?? OUTPUT_STYLE.any),
+          keyValue('Listing Type', updated.listingType ?? OUTPUT_STYLE.any),
+          keyValue('Blocked Terms', updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none),
+          keyValue('Note', orNone(updated.targetNote))
         )
       ],
       flags: MessageFlags.Ephemeral

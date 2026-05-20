@@ -316,7 +316,7 @@ async function runPoll(client: Client): Promise<void> {
             value: [
               `**Chase:** ${truncateTitle(chase.cardName, 60)}`,
               `**Priority:** ${chase.priority ?? 'NORMAL'}`,
-              `**Note:** ${chase.targetNote ? truncateTitle(chase.targetNote, 80) : 'none'}`
+              `**Note:** ${chase.targetNote ? truncateTitle(chase.targetNote, 80) : 'None'}`
             ].join('\n'),
             inline: false
           },

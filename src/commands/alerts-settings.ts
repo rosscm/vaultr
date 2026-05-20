@@ -2,6 +2,7 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings, setUserAlertSettings } from '../services/chase-store.js';
 import { infoEmbed, keyValue, successEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
+import { OUTPUT_STYLE } from '../ui/style.js';
 
 export const alertsSettings = {
   data: new SlashCommandBuilder()
@@ -64,7 +65,7 @@ export const alertsSettings = {
 
     const quietHours =
       settings.quietHoursStart === undefined || settings.quietHoursEnd === undefined
-        ? 'off'
+        ? OUTPUT_STYLE.off
         : `${settings.quietHoursStart}:00-${settings.quietHoursEnd}:00`;
 
     await interaction.reply({
@@ -74,7 +75,7 @@ export const alertsSettings = {
           keyValue('Max Alerts/Hour', `${settings.maxAlertsPerHour}`),
           keyValue('Chase Cooldown', `${settings.chaseCooldownMinutes}m`),
           keyValue('Quiet Hours', quietHours),
-          keyValue('Recommended Start', 'min_score 65 | cooldown 30m'),
+          keyValue('Recommended Start', '`Min Score: 65` | `Cooldown: 30m`'),
           keyValue('Updated', formatLocalDateTime(settings.updatedAt))
         )
       ],

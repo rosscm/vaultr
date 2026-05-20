@@ -3,6 +3,7 @@ import { getUserAlertSettings } from '../services/chase-store.js';
 import { getPollerState } from '../services/poller-state.js';
 import { infoEmbed } from '../ui/embeds.js';
 import { formatTimeWithAge } from '../ui/time.js';
+import { OUTPUT_STYLE } from '../ui/style.js';
 
 export const status = {
   data: new SlashCommandBuilder().setName('status').setDescription('Show Vaultr runtime status'),
@@ -24,7 +25,7 @@ export const status = {
             value: [
               `Source: ${state.sourceMode}`,
               `Poll Interval: ${state.pollIntervalSeconds}s`,
-              `Running: ${state.isRunning ? 'Yes' : 'No'}`,
+              `Running: ${state.isRunning ? OUTPUT_STYLE.yes : OUTPUT_STYLE.no}`,
               `Last Run: ${formatTimeWithAge(state.lastRunAt)}`,
               `Last Completion: ${formatTimeWithAge(state.lastRunCompletedAt)}`,
               `Last Duration: ${state.lastRunDurationMs !== undefined ? `${state.lastRunDurationMs}ms` : 'n/a'}`
@@ -55,9 +56,9 @@ export const status = {
             value: [
               `Consecutive Failures: ${state.consecutiveFailures}`,
               `Skipped Overlaps: ${state.skippedOverlappingRuns}`,
-              `Backoff Until: ${state.backoffUntil ? formatTimeWithAge(state.backoffUntil) : 'none'}`,
+              `Backoff Until: ${state.backoffUntil ? formatTimeWithAge(state.backoffUntil) : OUTPUT_STYLE.none}`,
               `Last Source Success: ${formatTimeWithAge(state.lastSourceSuccessAt)}`,
-              `Last Error: ${state.lastError ?? 'none'}`
+              `Last Error: ${state.lastError ?? OUTPUT_STYLE.none}`
             ].join('\n'),
             inline: false
           },

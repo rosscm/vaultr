@@ -2,6 +2,7 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { addChase, countUserChases, getUserPlan, getGuildCommandChannel, isGuildCommunityFeedEnabled } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { keyValue, successEmbed, warningEmbed } from '../ui/embeds.js';
+import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
 
@@ -130,13 +131,13 @@ export const chaseAdd = {
           .addFields(
             keyValue('Card', chase.cardName),
             keyValue('Priority', chase.priority ?? 'NORMAL'),
-            keyValue('Max Price', `${chase.maxPrice ?? 'any'}`),
-            keyValue('Grade', chase.grade ?? 'any'),
-            keyValue('Condition', chase.condition ?? 'any'),
-            keyValue('Region', chase.region ?? 'ANY'),
-            keyValue('Listing Type', chase.listingType ?? 'ANY'),
-            keyValue('Blocked Terms', chase.negativeKeywords?.join(', ') ?? 'none'),
-            keyValue('Note', chase.targetNote ?? 'none')
+            keyValue('Max Price', `${chase.maxPrice ?? OUTPUT_STYLE.any}`),
+            keyValue('Grade', orAny(chase.grade)),
+            keyValue('Condition', orAny(chase.condition)),
+            keyValue('Region', chase.region ?? OUTPUT_STYLE.any),
+            keyValue('Listing Type', chase.listingType ?? OUTPUT_STYLE.any),
+            keyValue('Blocked Terms', chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none),
+            keyValue('Note', orNone(chase.targetNote))
           )
       ],
       flags: MessageFlags.Ephemeral

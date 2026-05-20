@@ -17,11 +17,11 @@ function baseEmbed(color: number, title: string, description?: string): EmbedBui
 }
 
 export function successEmbed(title: string, description?: string): EmbedBuilder {
-  return baseEmbed(COLORS.success, `✅ ${title}`, description);
+  return baseEmbed(COLORS.success, `✨ ${title}`, description);
 }
 
 export function infoEmbed(title: string, description?: string): EmbedBuilder {
-  return baseEmbed(COLORS.info, `📘 ${title}`, description);
+  return baseEmbed(COLORS.info, `🧭 ${title}`, description);
 }
 
 export function warningEmbed(title: string, description?: string): EmbedBuilder {
@@ -32,11 +32,11 @@ export function errorEmbed(title: string, description?: string): EmbedBuilder {
   return baseEmbed(COLORS.danger, `⛔ ${title}`, description);
 }
 
-export function keyValue(name: string, value: string): { name: string; value: string; inline: true } {
+export function keyValue(name: string, value: string): { name: string; value: string; inline: false } {
   return {
     name,
     value,
-    inline: true
+    inline: false
   };
 }
 
