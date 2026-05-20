@@ -145,7 +145,7 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
     .filter((listing: Listing | null): listing is Listing => listing !== null);
 
   const needsEnrichment = listings.filter(
-    (listing) =>
+    (listing: Listing) =>
       !listing.seller ||
       listing.sellerFeedbackPercent === undefined ||
       listing.sellerFeedbackScore === undefined ||
@@ -160,5 +160,5 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
     enrichedById.set(listing.listingId, enriched);
   }
 
-  return listings.map((listing) => enrichedById.get(listing.listingId) ?? listing);
+  return listings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
 }
