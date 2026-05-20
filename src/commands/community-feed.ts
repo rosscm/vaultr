@@ -1,6 +1,6 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { getGuildCommunityFeedMode, setGuildCommunityFeedMode } from '../services/chase-store.js';
-import { successEmbed } from '../ui/embeds.js';
+import { errorEmbed, successEmbed } from '../ui/embeds.js';
 
 export const communityFeed = {
   data: new SlashCommandBuilder()
@@ -20,7 +20,7 @@ export const communityFeed = {
     ),
   async execute(interaction: any) {
     if (!interaction.guildId) {
-      await interaction.reply({ content: 'This command can only be used in a server.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [errorEmbed('Server Only', 'This command can only be used in a server.')], flags: MessageFlags.Ephemeral });
       return;
     }
 

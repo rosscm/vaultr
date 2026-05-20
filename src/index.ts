@@ -4,6 +4,7 @@ import { commands } from './commands/index.js';
 import { handleChaseListPagination } from './commands/chase-list.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
 import { startPoller } from './services/poller.js';
+import { errorEmbed, warningEmbed } from './ui/embeds.js';
 
 const token = process.env.DISCORD_TOKEN;
 
@@ -28,7 +29,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   if (!interaction.guildId) {
     await interaction.reply({
-      content: 'Vaultr commands must be used in your server command channel.',
+      embeds: [warningEmbed('Server Command Channel Required', 'Vaultr commands must be used in your server command channel.')],
       flags: MessageFlags.Ephemeral
     });
     return;
@@ -39,7 +40,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const configuredChannelId = getGuildCommandChannel(interaction.guildId);
     if (!configuredChannelId) {
       await interaction.reply({
-        content: `An admin must run \`/${setupCommandName}\` first to set the Vaultr command channel.`,
+        embeds: [warningEmbed('Setup Required', `An admin must run \`/${setupCommandName}\` first to set the Vaultr command channel.`)],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -47,7 +48,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.channelId !== configuredChannelId) {
       await interaction.reply({
-        content: `Please use Vaultr commands in <#${configuredChannelId}>.`,
+        embeds: [warningEmbed('Wrong Channel', `Please use Vaultr commands in <#${configuredChannelId}>.`)],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -59,9 +60,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (error) {
     console.error(error);
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content: 'Something went wrong.', flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ embeds: [errorEmbed('Request Failed', 'Something went wrong.')], flags: MessageFlags.Ephemeral });
     } else {
-      await interaction.reply({ content: 'Something went wrong.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [errorEmbed('Request Failed', 'Something went wrong.')], flags: MessageFlags.Ephemeral });
     }
   }
 });
