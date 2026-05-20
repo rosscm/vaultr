@@ -99,6 +99,11 @@ function formatShippingCost(cost: number | undefined, currency: string | undefin
   return `${cost} ${currency ?? ''}`.trim();
 }
 
+function formatTotalCost(price: number, shippingCost: number | undefined): number | undefined {
+  if (shippingCost === undefined || Number.isNaN(shippingCost)) return undefined;
+  return price + shippingCost;
+}
+
 function formatDealQuality(score: number): string {
   if (score >= 90) return 'Elite';
   if (score >= 80) return 'Strong';
@@ -304,27 +309,53 @@ async function runPoll(client: Client): Promise<void> {
         .setTitle(chase.priority === 'GRAIL' ? '🏆 Grail Match Found' : '🚨 Chase Match Found')
         .setDescription(`**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(match.score, listing.price, chase.maxPrice, listing.postedAt)}`)
         .addFields(
-          keyValue('Chase', `**${truncateTitle(chase.cardName, 60)}**`),
-          keyValue('Priority', `**${chase.priority ?? 'NORMAL'}**`),
-          keyValue('Note', chase.targetNote ? `**${truncateTitle(chase.targetNote, 80)}**` : '**none**'),
-          keyValue('Deal Quality', `**${formatDealQuality(match.score)}**`),
-          keyValue('Risk Level', `**${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}**`),
-          keyValue('Price', `**${listing.price} ${listing.currency}**`),
-          keyValue('Shipping', `**${formatShippingCost(listing.shippingCost, listing.shippingCurrency)}**`),
-          keyValue('Price vs Max', `**${formatPriceVsMax(listing.price, chase.maxPrice)}**`),
-          keyValue('Score', `**${match.score}**`),
-          keyValue('Listing Type', `**${formatListingType(listing.listingType)}**`),
-          keyValue('Posted', `**${formatPostedAge(listing.postedAt)}**`),
-          keyValue('Seller', `**${listing.seller ?? 'unknown'}**`),
-          keyValue(
-            'Seller Feedback',
-            `**${formatSellerFeedbackPercent(listing.sellerFeedbackPercent)}${
-              listing.sellerFeedbackScore !== undefined ? ` (${listing.sellerFeedbackScore})` : ''
-            }**`
-          ),
-          keyValue('Region', `**${listing.region}**`),
-          keyValue('Why It Matched', splitReasons(match.reasons).positive),
-          keyValue('Risk Signals', splitReasons(match.reasons).risk)
+          {
+            name: '🎯 Chase Context',
+            value: [
+              `**Chase:** ${truncateTitle(chase.cardName, 60)}`,
+              `**Priority:** ${chase.priority ?? 'NORMAL'}`,
+              `**Note:** ${chase.targetNote ? truncateTitle(chase.targetNote, 80) : 'none'}`
+            ].join('\n'),
+            inline: false
+          },
+          {
+            name: '💰 Pricing',
+            value: [
+              `**Price:** ${listing.price} ${listing.currency}`,
+              `**Shipping:** ${formatShippingCost(listing.shippingCost, listing.shippingCurrency)}`,
+              `**Total:** ${
+                formatTotalCost(listing.price, listing.shippingCost) !== undefined
+                  ? `${formatTotalCost(listing.price, listing.shippingCost)} ${listing.currency}`
+                  : 'unknown'
+              }`,
+              `**Price vs Max:** ${formatPriceVsMax(listing.price, chase.maxPrice)}`,
+              `**Listing Type:** ${formatListingType(listing.listingType)}`
+            ].join('\n'),
+            inline: false
+          },
+          {
+            name: '🛍️ Listing Snapshot',
+            value: [
+              `**Posted:** ${formatPostedAge(listing.postedAt)}`,
+              `**Region:** ${listing.region}`,
+              `**Seller:** ${listing.seller ?? 'unavailable from source'}`,
+              `**Seller Feedback:** ${formatSellerFeedbackPercent(listing.sellerFeedbackPercent)}${
+                listing.sellerFeedbackScore !== undefined ? ` (${listing.sellerFeedbackScore})` : ''
+              }`
+            ].join('\n'),
+            inline: false
+          },
+          {
+            name: '🧠 Match Insight',
+            value: [
+              `**Deal Quality:** ${formatDealQuality(match.score)}`,
+              `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
+              `**Score:** ${match.score}`,
+              `**Why It Matched:** ${splitReasons(match.reasons).positive}`,
+              `**Risk Signals:** ${splitReasons(match.reasons).risk}`
+            ].join('\n'),
+            inline: false
+          }
         )
         .setTimestamp()
         .setFooter({ text: 'Vaultr • Collector Alert' });
