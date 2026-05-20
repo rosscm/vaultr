@@ -20,12 +20,12 @@ function makePaginationRow(userId: string, page: number, totalPages: number): Ac
   const nextPage = Math.min(totalPages - 1, page + 1);
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`${PAGE_ID_PREFIX}:${userId}:${prevPage}`)
+      .setCustomId(`${PAGE_ID_PREFIX}:${userId}:prev:${prevPage}`)
       .setLabel('Previous')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(page <= 0),
     new ButtonBuilder()
-      .setCustomId(`${PAGE_ID_PREFIX}:${userId}:${nextPage}`)
+      .setCustomId(`${PAGE_ID_PREFIX}:${userId}:next:${nextPage}`)
       .setLabel('Next')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(page >= totalPages - 1)
@@ -96,8 +96,8 @@ export async function handleChaseListPagination(interaction: any): Promise<boole
   if (!interaction.isButton()) return false;
   if (!interaction.customId.startsWith(`${PAGE_ID_PREFIX}:`)) return false;
 
-  const [, ownerUserId, pageRaw] = interaction.customId.split(':');
-  if (!ownerUserId || pageRaw === undefined) return false;
+  const [, ownerUserId, direction, pageRaw] = interaction.customId.split(':');
+  if (!ownerUserId || !direction || pageRaw === undefined) return false;
 
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({
