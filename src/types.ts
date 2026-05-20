@@ -20,9 +20,12 @@ export type Listing = {
   title: string;
   price: number;
   currency: string;
+  shippingCost?: number;
+  shippingCurrency?: string;
   url: string;
   seller?: string;
   sellerFeedbackPercent?: number;
+  sellerFeedbackScore?: number;
   postedAt?: string;
   region: 'CA' | 'US' | 'OTHER';
   condition?: string;

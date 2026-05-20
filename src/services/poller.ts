@@ -94,6 +94,11 @@ function formatSellerFeedbackPercent(value: number | undefined): string {
   return `${value.toFixed(1)}%`;
 }
 
+function formatShippingCost(cost: number | undefined, currency: string | undefined): string {
+  if (cost === undefined || Number.isNaN(cost)) return 'unknown';
+  return `${cost} ${currency ?? ''}`.trim();
+}
+
 function formatDealQuality(score: number): string {
   if (score >= 90) return 'Elite';
   if (score >= 80) return 'Strong';
@@ -299,21 +304,27 @@ async function runPoll(client: Client): Promise<void> {
         .setTitle(chase.priority === 'GRAIL' ? '🏆 Grail Match Found' : '🚨 Chase Match Found')
         .setDescription(`**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(match.score, listing.price, chase.maxPrice, listing.postedAt)}`)
         .addFields(
-          keyValue('🎯 Chase', `**${truncateTitle(chase.cardName, 60)}**`),
-          keyValue('🏁 Priority', `**${chase.priority ?? 'NORMAL'}**`),
-          keyValue('📝 Note', chase.targetNote ? `**${truncateTitle(chase.targetNote, 80)}**` : '**none**'),
-          keyValue('📊 Deal Quality', `**${formatDealQuality(match.score)}**`),
-          keyValue('🧭 Risk Level', `**${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}**`),
-          keyValue('💵 Price', `**${listing.price} ${listing.currency}**`),
-          keyValue('📉 Price vs Max', `**${formatPriceVsMax(listing.price, chase.maxPrice)}**`),
-          keyValue('🎯 Score', `**${match.score}**`),
-          keyValue('🛍️ Listing Type', `**${formatListingType(listing.listingType)}**`),
-          keyValue('🕒 Posted', `**${formatPostedAge(listing.postedAt)}**`),
-          keyValue('🏷️ Seller', `**${listing.seller ?? 'unknown'}**`),
-          keyValue('⭐ Seller Feedback', `**${formatSellerFeedbackPercent(listing.sellerFeedbackPercent)}**`),
-          keyValue('🌍 Region', `**${listing.region}**`),
-          keyValue('✅ Why It Matched', splitReasons(match.reasons).positive),
-          keyValue('⚠️ Risk Signals', splitReasons(match.reasons).risk)
+          keyValue('Chase', `**${truncateTitle(chase.cardName, 60)}**`),
+          keyValue('Priority', `**${chase.priority ?? 'NORMAL'}**`),
+          keyValue('Note', chase.targetNote ? `**${truncateTitle(chase.targetNote, 80)}**` : '**none**'),
+          keyValue('Deal Quality', `**${formatDealQuality(match.score)}**`),
+          keyValue('Risk Level', `**${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}**`),
+          keyValue('Price', `**${listing.price} ${listing.currency}**`),
+          keyValue('Shipping', `**${formatShippingCost(listing.shippingCost, listing.shippingCurrency)}**`),
+          keyValue('Price vs Max', `**${formatPriceVsMax(listing.price, chase.maxPrice)}**`),
+          keyValue('Score', `**${match.score}**`),
+          keyValue('Listing Type', `**${formatListingType(listing.listingType)}**`),
+          keyValue('Posted', `**${formatPostedAge(listing.postedAt)}**`),
+          keyValue('Seller', `**${listing.seller ?? 'unknown'}**`),
+          keyValue(
+            'Seller Feedback',
+            `**${formatSellerFeedbackPercent(listing.sellerFeedbackPercent)}${
+              listing.sellerFeedbackScore !== undefined ? ` (${listing.sellerFeedbackScore})` : ''
+            }**`
+          ),
+          keyValue('Region', `**${listing.region}**`),
+          keyValue('Why It Matched', splitReasons(match.reasons).positive),
+          keyValue('Risk Signals', splitReasons(match.reasons).risk)
         )
         .setTimestamp()
         .setFooter({ text: 'Vaultr • Collector Alert' });

@@ -39,6 +39,8 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
     'paginationInput.entriesPerPage': '10',
     'sortOrder': 'StartTimeNewest'
   });
+  params.append('outputSelector', 'SellerInfo');
+  params.append('outputSelector', 'StoreInfo');
 
   const response = await fetch(`${endpoint}?${params.toString()}`);
   if (!response.ok) {
@@ -56,8 +58,13 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
       const currentPrice = item?.sellingStatus?.[0]?.currentPrice?.[0];
       const rawPrice = currentPrice?.__value__;
       const currency = currentPrice?.['@currencyId'] ?? 'USD';
-      const seller = item?.sellerInfo?.[0]?.sellerUserName?.[0];
+      const seller = item?.sellerInfo?.[0]?.sellerUserName?.[0] ?? item?.sellerInfo?.[0]?.sellerUserName;
       const sellerFeedbackPercent = Number(item?.sellerInfo?.[0]?.positiveFeedbackPercent?.[0]);
+      const sellerFeedbackScore = Number(item?.sellerInfo?.[0]?.feedbackScore?.[0]);
+      const shippingServiceCost = item?.shippingInfo?.[0]?.shippingServiceCost?.[0];
+      const rawShippingCost = shippingServiceCost?.__value__;
+      const shippingCurrency = shippingServiceCost?.['@currencyId'] ?? currency;
+      const shippingCost = Number(rawShippingCost);
       const postedAt = item?.listingInfo?.[0]?.startTime?.[0];
       const rawListingType = item?.listingInfo?.[0]?.listingType?.[0];
       const condition = item?.condition?.[0]?.conditionDisplayName?.[0];
@@ -72,9 +79,12 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
         title,
         price,
         currency,
+        shippingCost: Number.isNaN(shippingCost) ? undefined : shippingCost,
+        shippingCurrency: Number.isNaN(shippingCost) ? undefined : shippingCurrency,
         url: viewItemURL,
         seller,
         sellerFeedbackPercent: Number.isNaN(sellerFeedbackPercent) ? undefined : sellerFeedbackPercent,
+        sellerFeedbackScore: Number.isNaN(sellerFeedbackScore) ? undefined : sellerFeedbackScore,
         postedAt,
         region: mapCountryToRegion(countryCode),
         condition,

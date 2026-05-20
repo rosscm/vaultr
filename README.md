@@ -188,6 +188,7 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 - Per-chase `listing_type` filter: `ANY`, `AUCTION`, or `BUY_IT_NOW`
 - Per-chase `priority`: `NORMAL`, `HIGH`, `GRAIL` (grails are shown first in `/chase-list`)
 - Per-chase `target_note`: short personal context shown in grail/match alerts
+- Alert DMs include seller identity/feedback and shipping cost when available from source data
 
 ## Reliability
 
