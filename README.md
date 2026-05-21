@@ -204,7 +204,10 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 - Admin sets the dedicated bot channel with `/setup-channel-set`
 - All Vaultr commands (except setup itself) must be run in that channel
 - Command responses are user-specific (ephemeral), alerts are DM-only
-- Optional community activity heartbeat can be enabled by admins via `/community-feed`
+- Optional community activity feed can be enabled by admins via `/community-feed`
+- When enabled, Vaultr posts:
+  - One-time first-chase unlock message per user
+  - Daily `Vaultr Stats` digest in the setup channel
 
 ## Production Notes
 

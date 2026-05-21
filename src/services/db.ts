@@ -35,9 +35,11 @@ db.exec(`
     listing_id TEXT NOT NULL,
     source TEXT NOT NULL,
     sent_at TEXT NOT NULL,
+    guild_id TEXT,
     listing_title TEXT,
     listing_price REAL,
     listing_currency TEXT,
+    price_delta REAL,
     listing_url TEXT,
     match_score INTEGER,
     PRIMARY KEY (chase_id, listing_id, source)
@@ -89,6 +91,13 @@ db.exec(`
     user_id TEXT NOT NULL,
     started_at TEXT NOT NULL,
     PRIMARY KEY (guild_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS guild_daily_stats_posts (
+    guild_id TEXT NOT NULL,
+    day_key TEXT NOT NULL,
+    posted_at TEXT NOT NULL,
+    PRIMARY KEY (guild_id, day_key)
   );
 `);
 
@@ -149,6 +158,16 @@ try {
   // Column already exists on upgraded databases.
 }
 try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN guild_id TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN price_delta REAL;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
   db.exec(`ALTER TABLE user_alert_settings ADD COLUMN chase_cooldown_minutes INTEGER NOT NULL DEFAULT 30;`);
 } catch {
   // Column already exists on upgraded databases.
@@ -176,5 +195,6 @@ try {
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_user_time ON sent_alerts(user_id, sent_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_guild_time ON sent_alerts(guild_id, sent_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_ignored_listing_fingerprints_user_chase ON ignored_listing_fingerprints(user_id, chase_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_guild_started_users_guild_time ON guild_started_users(guild_id, started_at);`);

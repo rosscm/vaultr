@@ -88,8 +88,8 @@ const updateChaseStmt = db.prepare(`
 `);
 
 const insertSentAlertStmt = db.prepare(`
-  INSERT INTO sent_alerts (chase_id, listing_id, source, sent_at, user_id, listing_title, listing_price, listing_currency, listing_url, match_score)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO sent_alerts (chase_id, listing_id, source, sent_at, user_id, guild_id, listing_title, listing_price, listing_currency, price_delta, listing_url, match_score)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const hasSentAlertStmt = db.prepare(`
@@ -214,6 +214,43 @@ const getSentAlertByKeyStmt = db.prepare(`
   LIMIT 1
 `);
 
+const listGuildCommandChannelsStmt = db.prepare(`
+  SELECT guild_id, channel_id
+  FROM guild_alert_channels
+`);
+
+const countGuildAlertsTodayStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM sent_alerts
+  WHERE guild_id = ? AND sent_at >= ?
+`);
+
+const countGuildUsersAlertedTodayStmt = db.prepare(`
+  SELECT COUNT(DISTINCT user_id) AS count
+  FROM sent_alerts
+  WHERE guild_id = ? AND sent_at >= ?
+`);
+
+const bestGuildPriceDeltaTodayStmt = db.prepare(`
+  SELECT price_delta, listing_currency
+  FROM sent_alerts
+  WHERE guild_id = ? AND sent_at >= ? AND price_delta IS NOT NULL AND price_delta > 0
+  ORDER BY price_delta DESC
+  LIMIT 1
+`);
+
+const hasGuildDailyStatsPostedStmt = db.prepare(`
+  SELECT 1
+  FROM guild_daily_stats_posts
+  WHERE guild_id = ? AND day_key = ?
+  LIMIT 1
+`);
+
+const insertGuildDailyStatsPostedStmt = db.prepare(`
+  INSERT OR IGNORE INTO guild_daily_stats_posts (guild_id, day_key, posted_at)
+  VALUES (?, ?, ?)
+`);
+
 const insertIgnoredFingerprintStmt = db.prepare(`
   INSERT OR IGNORE INTO ignored_listing_fingerprints (user_id, chase_id, fingerprint, created_at)
   VALUES (?, ?, ?, ?)
@@ -263,8 +300,8 @@ export function countUserChases(userId: string): number {
 
 export function countGuildNewHuntersToday(guildId: string): number {
   const now = new Date();
-  const utcDayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
-  const row = countNewHuntersByGuildTodayStmt.get(guildId, utcDayStart) as { count: number };
+  const localDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const row = countNewHuntersByGuildTodayStmt.get(guildId, localDayStart) as { count: number };
   return Number(row.count);
 }
 
@@ -275,9 +312,48 @@ export function markGuildUserStarted(guildId: string, userId: string): boolean {
 
 export function countGuildStartedUsersToday(guildId: string): number {
   const now = new Date();
-  const utcDayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
-  const row = countStartedUsersByGuildTodayStmt.get(guildId, utcDayStart) as { count: number };
+  const localDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const row = countStartedUsersByGuildTodayStmt.get(guildId, localDayStart) as { count: number };
   return Number(row.count);
+}
+
+export function getGuildCommunityStatsToday(guildId: string): {
+  newVaultrs: number;
+  usersAlerted: number;
+  matches: number;
+  bestPriceDelta?: { amount: number; currency: string };
+} {
+  const now = new Date();
+  const localDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const newVaultrs = countGuildStartedUsersToday(guildId);
+  const usersRow = countGuildUsersAlertedTodayStmt.get(guildId, localDayStart) as { count: number };
+  const matchesRow = countGuildAlertsTodayStmt.get(guildId, localDayStart) as { count: number };
+  const bestRow = bestGuildPriceDeltaTodayStmt.get(guildId, localDayStart) as
+    | { price_delta: number; listing_currency: string | null }
+    | undefined;
+
+  return {
+    newVaultrs,
+    usersAlerted: Number(usersRow?.count ?? 0),
+    matches: Number(matchesRow?.count ?? 0),
+    bestPriceDelta:
+      bestRow && Number.isFinite(bestRow.price_delta)
+        ? {
+            amount: Number(bestRow.price_delta),
+            currency: bestRow.listing_currency ?? 'USD'
+          }
+        : undefined
+  };
+}
+
+export function hasPostedGuildDailyStats(guildId: string, dayKey: string): boolean {
+  const row = hasGuildDailyStatsPostedStmt.get(guildId, dayKey) as { 1: number } | undefined;
+  return !!row;
+}
+
+export function markPostedGuildDailyStats(guildId: string, dayKey: string): boolean {
+  const result = insertGuildDailyStatsPostedStmt.run(guildId, dayKey, new Date().toISOString());
+  return result.changes > 0;
 }
 
 export function listAllChases(): Chase[] {
@@ -342,9 +418,11 @@ export function markAlertSentWithDetails(
   listingId: string,
   source: 'EBAY',
   details: {
+    guildId?: string;
     listingTitle?: string;
     listingPrice?: number;
     listingCurrency?: string;
+    priceDelta?: number;
     listingUrl?: string;
     matchScore?: number;
   }
@@ -356,9 +434,11 @@ export function markAlertSentWithDetails(
       source,
       new Date().toISOString(),
       userId,
+      details.guildId ?? null,
       details.listingTitle ?? null,
       details.listingPrice ?? null,
       details.listingCurrency ?? null,
+      details.priceDelta ?? null,
       details.listingUrl ?? null,
       details.matchScore ?? null
     );
@@ -383,6 +463,11 @@ export function setGuildCommandChannel(guildId: string, channelId: string): void
 
 export function getGuildCommandChannel(guildId: string): string | null {
   return getGuildAlertChannel(guildId);
+}
+
+export function listGuildCommandChannels(): Array<{ guildId: string; channelId: string }> {
+  const rows = listGuildCommandChannelsStmt.all() as Array<{ guild_id: string; channel_id: string }>;
+  return rows.map((row) => ({ guildId: row.guild_id, channelId: row.channel_id }));
 }
 
 export type CommunityFeedMode = 'OFF' | 'PULSE' | 'MILESTONES';

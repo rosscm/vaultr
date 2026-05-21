@@ -5,6 +5,7 @@ import {
   getGuildCommunityFeedMode,
   getUserPlan,
   getGuildCommandChannel,
+  markGuildUserStarted
 } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
@@ -149,16 +150,18 @@ export const chaseAdd = {
       flags: MessageFlags.Ephemeral
     });
 
-    // Optional community message: only on first chase to avoid noisy per-chase spam.
+    // Optional community message: only once per user per guild.
     if (interaction.guildId && getGuildCommunityFeedMode(interaction.guildId) !== 'OFF' && currentCount === 0) {
-      const channelId = getGuildCommandChannel(interaction.guildId);
-      const channel = channelId ? await interaction.client.channels.fetch(channelId).catch(() => null) : null;
-      if (channel && 'send' in channel) {
-        const displayName = interaction.member?.nickname ?? interaction.user.globalName ?? interaction.user.username;
-        await channel.send(
-          `🗝️ **${displayName}** added their first chase to the **Vault**\n` +
-            `Wishing you a quick match`
-        );
+      const isFirstGuildAnnouncement = markGuildUserStarted(interaction.guildId, interaction.user.id);
+      if (isFirstGuildAnnouncement) {
+        const channelId = getGuildCommandChannel(interaction.guildId);
+        const channel = channelId ? await interaction.client.channels.fetch(channelId).catch(() => null) : null;
+        if (channel && 'send' in channel) {
+          const displayName = interaction.member?.nickname ?? interaction.user.globalName ?? interaction.user.username;
+          await channel.send(
+            `🗝️✨ **${displayName}** just unlocked their **Vault** with their first chase`
+          );
+        }
       }
     }
   }

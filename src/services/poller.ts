@@ -1,10 +1,15 @@
 import { Client, EmbedBuilder } from 'discord.js';
 import {
+  getGuildCommunityStatsToday,
   countChaseAlertsWithinMinutes,
   countUserAlertsInLastHour,
   getUserAlertSettings,
+  getGuildCommunityFeedMode,
   hasAlertBeenSent,
+  hasPostedGuildDailyStats,
+  listGuildCommandChannels,
   listAllChases,
+  markPostedGuildDailyStats,
   markAlertSentWithDetails
 } from './chase-store.js';
 import { searchEbayListings } from './ebay.js';
@@ -454,9 +459,14 @@ async function runPoll(client: Client): Promise<void> {
           'DM send timeout'
         );
         markAlertSentWithDetails(chase.id, chase.userId, listing.listingId, listing.source, {
+          guildId: chase.guildId,
           listingTitle: listing.title,
           listingPrice: normalizedListing.price,
           listingCurrency: targetCurrency,
+          priceDelta:
+            chase.maxPrice !== undefined && normalizedListing.price <= chase.maxPrice
+              ? Number((chase.maxPrice - normalizedListing.price).toFixed(2))
+              : undefined,
           listingUrl: listing.url,
           matchScore: match.score
         });
@@ -469,6 +479,53 @@ async function runPoll(client: Client): Promise<void> {
   }
 
   markPollerRunSuccess(Date.now() - startedAt);
+}
+
+function currentDayKeyLocal(now = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+async function maybePostDailyCommunityStats(client: Client): Promise<void> {
+  const enabled = (process.env.COMMUNITY_STATS_DAILY_ENABLED ?? 'true').toLowerCase() !== 'false';
+  if (!enabled) return;
+
+  const hour = Number(process.env.COMMUNITY_STATS_DAILY_HOUR_LOCAL ?? '20');
+  const minute = Number(process.env.COMMUNITY_STATS_DAILY_MINUTE_LOCAL ?? '0');
+  const now = new Date();
+
+  if (now.getHours() !== hour || now.getMinutes() !== minute) return;
+
+  const dayKey = currentDayKeyLocal(now);
+  const guildChannels = listGuildCommandChannels();
+
+  for (const { guildId, channelId } of guildChannels) {
+    if (getGuildCommunityFeedMode(guildId) === 'OFF') continue;
+    if (hasPostedGuildDailyStats(guildId, dayKey)) continue;
+
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel || !('send' in channel)) continue;
+
+    const stats = getGuildCommunityStatsToday(guildId);
+    const bestDelta = stats.bestPriceDelta
+      ? `${stats.bestPriceDelta.amount.toFixed(2)} ${stats.bestPriceDelta.currency}`
+      : 'none';
+
+    await channel.send(
+      [
+        '📊 **Vaultr Stats**',
+        '**Today**',
+        `• **New Vaultrs:** ${stats.newVaultrs}`,
+        `• **Users Alerted:** ${stats.usersAlerted}`,
+        `• **Matches:** ${stats.matches}`,
+        `• **Best Price Delta:** ${bestDelta}`
+      ].join('\n')
+    );
+
+    markPostedGuildDailyStats(guildId, dayKey);
+  }
 }
 
 export function startPoller(client: Client): void {
@@ -494,6 +551,10 @@ export function startPoller(client: Client): void {
   setInterval(() => {
     void runWithGuard();
   }, intervalMs);
+
+  setInterval(() => {
+    void maybePostDailyCommunityStats(client);
+  }, 60 * 1000);
 
   void runWithGuard();
 

@@ -10,11 +10,11 @@ export const communityFeed = {
     .addStringOption((opt) =>
       opt
         .setName('toggle')
-        .setDescription('Turn community feed on or off (default: On)')
+        .setDescription('Posts brief status messages and daily stats to the setup channel (default: On)')
         .setRequired(true)
         .addChoices(
-          { name: 'On — posts brief status messages to the setup channel', value: 'ON' },
-          { name: 'Off — no visible community posts', value: 'OFF' }
+          { name: 'On', value: 'ON' },
+          { name: 'Off', value: 'OFF' }
         )
     ),
   async execute(interaction: any) {
@@ -29,7 +29,7 @@ export const communityFeed = {
     const currentMode = getGuildCommunityFeedMode(interaction.guildId);
     const lines = [
       `**Community Feed:** ${currentMode === 'OFF' ? 'Off' : 'On'}`,
-      '**Behavior:** posts brief status messages to the setup channel'
+      '**Behavior:** posts brief status messages and daily stats to the setup channel'
     ];
 
     await interaction.reply({
