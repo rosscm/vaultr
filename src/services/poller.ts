@@ -126,7 +126,7 @@ function formatDealQuality(score: number): string {
 function explainDealQuality(score: number): string {
   if (score >= 85) return 'strong alignment with your chase filters';
   if (score >= 60) return 'good alignment with your chase filters';
-  return 'partial alignment review details before acting';
+  return 'partial alignment; review details before acting';
 }
 
 function formatScoreWithQuality(score: number): string {
