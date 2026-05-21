@@ -9,13 +9,12 @@ export const communityFeed = {
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((opt) =>
       opt
-        .setName('mode')
-        .setDescription('Feed mode (default: PULSE)')
+        .setName('toggle')
+        .setDescription('Turn community feed on or off')
         .setRequired(true)
         .addChoices(
-          { name: 'Pulse (recommended)', value: 'PULSE' },
-          { name: 'Milestones', value: 'MILESTONES' },
-          { name: 'Off', value: 'OFF' }
+          { name: 'On — posts brief status messages to the setup channel', value: 'ON' },
+          { name: 'Off — no visible community posts', value: 'OFF' }
         )
     ),
   async execute(interaction: any) {
@@ -24,13 +23,13 @@ export const communityFeed = {
       return;
     }
 
-    const mode = interaction.options.getString('mode', true);
-    const nextMode = (mode === 'MILESTONES' || mode === 'OFF' ? mode : 'PULSE') as 'OFF' | 'PULSE' | 'MILESTONES';
+    const toggle = interaction.options.getString('toggle', true);
+    const nextMode = (toggle === 'OFF' ? 'OFF' : 'PULSE') as 'OFF' | 'PULSE';
     setGuildCommunityFeedMode(interaction.guildId, nextMode);
     const currentMode = getGuildCommunityFeedMode(interaction.guildId);
     const lines = [
-      `**Mode:** ${currentMode}`,
-      '**Behavior:** first-hunter milestone posts only (no per-chase spam)'
+      `**Community Feed:** ${currentMode === 'OFF' ? 'Off' : 'On'}`,
+      '**Behavior:** posts brief status messages to the setup channel'
     ];
 
     await interaction.reply({

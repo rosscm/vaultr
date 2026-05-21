@@ -40,13 +40,13 @@ function formatReasons(reasons: string[]): string {
       if (r.startsWith('token_overlap:')) {
         return `token overlap ${r.split(':')[1]}%`;
       }
-      if (r === 'card_name_match_exact') return 'Exact card name match';
-      if (r === 'card_name_match_tokens') return 'Card name token match';
-      if (r === 'card_number_match') return 'Card number match';
-      if (r === 'price_within_max') return 'Within your max';
-      if (r === 'seller_quality_boost') return 'High seller feedback';
-      if (r === 'low_token_overlap_penalty') return 'Low token overlap';
-      if (r === 'suspicious_title_penalty') return 'Suspicious title terms';
+      if (r === 'card_name_match_exact') return 'exact card name match';
+      if (r === 'card_name_match_tokens') return 'card name token match';
+      if (r === 'card_number_match') return 'card number match';
+      if (r === 'price_within_max') return 'within your max';
+      if (r === 'seller_quality_boost') return 'high seller feedback';
+      if (r === 'low_token_overlap_penalty') return 'low token overlap';
+      if (r === 'suspicious_title_penalty') return 'suspicious title terms';
       return r.replaceAll('_', ' ');
     })
     .join(', ');
@@ -56,7 +56,7 @@ function splitReasons(reasons: string[]): { positive: string; risk: string } {
   const riskSignals = reasons.filter(
     (r) => r.includes('penalty') || r.startsWith('suspicious_terms:') || r.includes('miss') || r.includes('block')
   );
-  const positiveSignals = reasons.filter((r) => !riskSignals.includes(r));
+  const positiveSignals = reasons.filter((r) => !riskSignals.includes(r) && r !== 'price_within_max');
   return {
     positive: positiveSignals.length > 0 ? formatReasons(positiveSignals) : 'None',
     risk: riskSignals.length > 0 ? formatReasons(riskSignals) : 'None'
@@ -104,7 +104,7 @@ function formatSellerFeedbackPercent(value: number | undefined): string {
 
 function formatShippingCost(cost: number | undefined, currency: string | undefined): string {
   if (cost === undefined || Number.isNaN(cost)) return 'Unknown';
-  return `${cost} ${currency ?? ''}`.trim();
+  return `${cost.toFixed(2)} ${currency ?? ''}`.trim();
 }
 
 function formatTotalCost(price: number, shippingCost: number | undefined): number | undefined {
@@ -112,16 +112,25 @@ function formatTotalCost(price: number, shippingCost: number | undefined): numbe
   return price + shippingCost;
 }
 
+function formatMoney(amount: number | undefined, currency: string): string {
+  if (amount === undefined || Number.isNaN(amount)) return 'Unknown';
+  return `${amount.toFixed(2)} ${currency}`;
+}
+
 function formatDealQuality(score: number): string {
-  if (score >= 85) return 'High Confidence';
-  if (score >= 70) return 'Medium Confidence';
-  return 'Watch Match';
+  if (score >= 85) return 'Strong Match';
+  if (score >= 60) return 'Good Match';
+  return 'Speculative Match';
 }
 
 function explainDealQuality(score: number): string {
-  if (score >= 85) return 'Strong alignment with your chase filters';
-  if (score >= 70) return 'Partial alignment worth a quick look';
-  return 'Loose alignment review details before acting';
+  if (score >= 85) return 'strong alignment with your chase filters';
+  if (score >= 60) return 'clear alignment check details before buying';
+  return 'partial alignment review details before acting';
+}
+
+function formatScoreWithQuality(score: number): string {
+  return `${score} (${formatDealQuality(score)})`;
 }
 
 function truncateTitle(title: string, maxLen = 110): string {
@@ -129,12 +138,12 @@ function truncateTitle(title: string, maxLen = 110): string {
   return `${title.slice(0, maxLen - 1)}…`;
 }
 
-function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number | undefined): 'Low' | 'Medium' | 'High' {
+function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number | undefined): 'low' | 'medium' | 'high' {
   const hasSuspiciousTerms = matchReasons.some((r) => r.startsWith('suspicious_terms:') || r.includes('penalty'));
   const sellerWeak = sellerFeedbackPercent !== undefined && sellerFeedbackPercent < 95;
-  if (hasSuspiciousTerms && sellerWeak) return 'High';
-  if (hasSuspiciousTerms || sellerWeak) return 'Medium';
-  return 'Low';
+  if (hasSuspiciousTerms && sellerWeak) return 'high';
+  if (hasSuspiciousTerms || sellerWeak) return 'medium';
+  return 'low';
 }
 
 function colorForListingAge(postedAt?: string): number {
@@ -147,10 +156,10 @@ function colorForListingAge(postedAt?: string): number {
 
 function formatFreshness(postedAt?: string): string {
   const age = postedAgeSeconds(postedAt);
-  if (age === null) return 'Unknown';
-  if (age <= 60 * 60) return 'New';
-  if (age <= 24 * 60 * 60) return 'Recent';
-  return 'Older';
+  if (age === null) return 'unknown';
+  if (age <= 60 * 60) return 'new';
+  if (age <= 24 * 60 * 60) return 'recent';
+  return 'older';
 }
 
 function summarizeWhyMatched(score: number, listingPrice: number, chaseMax: number | undefined, currency = 'USD', postedAt?: string): string {
@@ -162,7 +171,7 @@ function summarizeWhyMatched(score: number, listingPrice: number, chaseMax: numb
         ? `Under max by ${(chaseMax - listingPrice).toFixed(2)} ${currency}`
         : `Over max by ${(listingPrice - chaseMax).toFixed(2)} ${currency}`;
   const postedPart = `Posted ${formatPostedAge(postedAt)}`;
-  return `${dealQuality} match • ${pricePart} • ${postedPart}`;
+  return `${dealQuality} • ${pricePart} • ${postedPart}`;
 }
 
 function isInQuietHours(start: number | undefined, end: number | undefined): boolean {
@@ -357,19 +366,19 @@ async function runPoll(client: Client): Promise<void> {
             name: '📌 Summary',
             value: [
               `**Chase:** ${truncateTitle(chase.cardName, 60)}`,
-              `**Price:** ${normalizedListing.price} ${targetCurrency}`,
+              `**Price:** ${formatMoney(normalizedListing.price, targetCurrency)}`,
               `**Total:** ${
                 formatTotalCost(normalizedListing.price, normalizedListing.shippingCost) !== undefined
-                  ? `${formatTotalCost(normalizedListing.price, normalizedListing.shippingCost)} ${targetCurrency}`
+                  ? formatMoney(formatTotalCost(normalizedListing.price, normalizedListing.shippingCost), targetCurrency)
                   : 'Unknown'
               }`,
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Source:** ${sourceLabel}`,
               `**Freshness:** ${formatFreshness(listing.postedAt)}`,
-              `**Score:** ${match.score}`,
+              `**Score:** ${formatScoreWithQuality(match.score)}`,
               `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Match Signals:** ${splitReasons(match.reasons).positive}`,
-              `**Confidence Note:** ${explainDealQuality(match.score)}`
+              `**Confidence Summary:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }
@@ -388,11 +397,11 @@ async function runPoll(client: Client): Promise<void> {
           {
             name: '💰 Pricing Breakdown',
             value: [
-              `**Price:** ${normalizedListing.price} ${targetCurrency}`,
+              `**Price:** ${formatMoney(normalizedListing.price, targetCurrency)}`,
               `**Shipping:** ${formatShippingCost(normalizedListing.shippingCost, targetCurrency)}`,
               `**Total:** ${
                 formatTotalCost(normalizedListing.price, normalizedListing.shippingCost) !== undefined
-                  ? `${formatTotalCost(normalizedListing.price, normalizedListing.shippingCost)} ${targetCurrency}`
+                  ? formatMoney(formatTotalCost(normalizedListing.price, normalizedListing.shippingCost), targetCurrency)
                   : 'Unknown'
               }`,
               `**Price vs Max:** ${formatPriceVsMax(normalizedListing.price, chase.maxPrice, targetCurrency)}`,
@@ -417,11 +426,10 @@ async function runPoll(client: Client): Promise<void> {
           {
             name: '🧠 Match Insight',
             value: [
-              `**Deal Quality:** ${formatDealQuality(match.score)}`,
-              `**Score:** ${match.score}`,
+              `**Score:** ${formatScoreWithQuality(match.score)}`,
               `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Match Signals:** ${splitReasons(match.reasons).positive}`,
-              `**Confidence Note:** ${explainDealQuality(match.score)}`
+              `**Confidence Summary:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }

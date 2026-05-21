@@ -1,7 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import {
   addChase,
-  countGuildNewHuntersToday,
   countUserChases,
   getGuildCommunityFeedMode,
   getUserPlan,
@@ -140,7 +139,9 @@ export const chaseAdd = {
       `**Grade:** ${orAny(chase.grade)}`,
       `**Condition:** ${orAny(chase.condition)}`,
       `**Listing Type:** ${displayAny(chase.listingType)}`,
-      `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`
+      `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
+      '',
+      '**Next:** Use `/chase-list` to review your vault entries'
     ];
 
     await interaction.reply({
@@ -154,10 +155,9 @@ export const chaseAdd = {
       const channel = channelId ? await interaction.client.channels.fetch(channelId).catch(() => null) : null;
       if (channel && 'send' in channel) {
         const displayName = interaction.member?.nickname ?? interaction.user.globalName ?? interaction.user.username;
-        const newHuntersToday = countGuildNewHuntersToday(interaction.guildId);
         await channel.send(
-          `🗄️ **${displayName}** opened their **Vault** and started chase hunting.\n` +
-            `📈 **New Vault Hunters Today:** ${newHuntersToday}`
+          `🗝️ **${displayName}** added their first chase to the **Vault**\n` +
+            `Wishing you a quick match`
         );
       }
     }

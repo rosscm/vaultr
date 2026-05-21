@@ -10,7 +10,9 @@ import { chaseTest } from './chase-test.js';
 import { help } from './help.js';
 import { plan } from './plan.js';
 import { planSet } from './plan-set.js';
+import { previewAlert } from './preview-alert.js';
 import { setupChannelSet } from './setup-channel-set.js';
+import { start } from './start.js';
 import { upgrade } from './upgrade.js';
 
 export const commands = [
@@ -26,6 +28,8 @@ export const commands = [
   help,
   plan,
   planSet,
+  previewAlert,
   setupChannelSet,
+  start,
   upgrade
 ];

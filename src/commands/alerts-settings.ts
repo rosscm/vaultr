@@ -119,7 +119,10 @@ export const alertsSettings = {
       `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Compact Mode:** ${settings.compactMode ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Quiet Hours:** ${quietHours}`,
-      `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`
+      `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`,
+      '',
+      '**Note:** Duplicate listing alerts are auto-suppressed',
+      '**Next:** Use `/chase-test` to preview your DM format'
     ];
 
     const embed = noChanges

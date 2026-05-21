@@ -16,7 +16,9 @@ export const alertsSettingsReset = {
       `**Alert Currency:** ${settings.alertCurrency}`,
       `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Compact Mode:** ${settings.compactMode ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
-      `**Quiet Hours:** ${OUTPUT_STYLE.off}`
+      `**Quiet Hours:** ${OUTPUT_STYLE.off}`,
+      '',
+      '**Next:** Use `/alerts-settings` to customize from this baseline'
     ];
     await interaction.reply({
       embeds: [successEmbed('Alert Settings Reset', lines.join('\n')).setTitle('✅ Alert Settings Reset')],

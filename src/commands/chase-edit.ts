@@ -145,7 +145,9 @@ export const chaseEdit = {
       `**Grade:** ${orAny(updated.grade)}`,
       `**Condition:** ${orAny(updated.condition)}`,
       `**Listing Type:** ${displayAny(updated.listingType)}`,
-      `**Blocked Terms:** ${updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`
+      `**Blocked Terms:** ${updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
+      '',
+      '**Next:** Use `/chase-list` to confirm ordering and details'
     ];
 
     await interaction.reply({

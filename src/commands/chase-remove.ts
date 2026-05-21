@@ -41,7 +41,12 @@ export const chaseRemove = {
     if (all === 'YES') {
       const removedCount = removeAllChases(interaction.user.id);
       await interaction.reply({
-        embeds: [successEmbed('All Chases Removed', `Removed ${removedCount} active chase(s).`).setTitle('✅ All Chases Removed')],
+        embeds: [
+          successEmbed(
+            'All Chases Removed',
+            `Removed ${removedCount} active chase(s)\n\n**Next:** Use \`/chase-add\` to start a fresh vault`
+          ).setTitle('✅ All Chases Removed')
+        ],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -107,7 +112,7 @@ export const chaseRemove = {
       embeds: [
         successEmbed(
           'Chases Removed',
-          `Removed ${removedCount} chase(s):\n${removedLabels.map((label) => `- ${label}`).join('\n')}`
+          `Removed ${removedCount} chase(s):\n${removedLabels.map((label) => `- ${label}`).join('\n')}\n\n**Next:** Use \`/chase-list\` to review remaining entries`
         ).setTitle('✅ Chases Removed')
       ],
       flags: MessageFlags.Ephemeral

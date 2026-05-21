@@ -140,6 +140,17 @@ const countNewHuntersByGuildTodayStmt = db.prepare(`
   WHERE guild_id = ? AND created_at >= ?
 `);
 
+const insertGuildStartedUserStmt = db.prepare(`
+  INSERT OR IGNORE INTO guild_started_users (guild_id, user_id, started_at)
+  VALUES (?, ?, ?)
+`);
+
+const countStartedUsersByGuildTodayStmt = db.prepare(`
+  SELECT COUNT(DISTINCT user_id) AS count
+  FROM guild_started_users
+  WHERE guild_id = ? AND started_at >= ?
+`);
+
 const getUserPlanStmt = db.prepare(`
   SELECT user_id, tier, status, updated_at
   FROM user_plans
@@ -254,6 +265,18 @@ export function countGuildNewHuntersToday(guildId: string): number {
   const now = new Date();
   const utcDayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
   const row = countNewHuntersByGuildTodayStmt.get(guildId, utcDayStart) as { count: number };
+  return Number(row.count);
+}
+
+export function markGuildUserStarted(guildId: string, userId: string): boolean {
+  const result = insertGuildStartedUserStmt.run(guildId, userId, new Date().toISOString());
+  return result.changes > 0;
+}
+
+export function countGuildStartedUsersToday(guildId: string): number {
+  const now = new Date();
+  const utcDayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+  const row = countStartedUsersByGuildTodayStmt.get(guildId, utcDayStart) as { count: number };
   return Number(row.count);
 }
 

@@ -22,17 +22,25 @@ export const help = {
       '- For best matches, include card number when relevant',
       '',
       '**Commands**',
+      '- Start: `/start`',
       '- Chases: `/chase-add` · `/chase-list` · `/chase-edit` · `/chase-remove`',
       '- Alerts: `/alerts-settings` · `/alerts-settings-reset` · `/alerts-recent`',
       '  defaults in `/alerts-settings`: `min_score=60`, `max_alerts_per_hour=10`, `chase_cooldown_minutes=30`, `alert_currency=USD`, `show_images=ON`, `compact_mode=OFF`',
+      '  score meaning: higher score means stronger match confidence based on title and filter alignment',
       '- Plan: `/plan` · `/upgrade`',
       '- Setup (Admin): `/setup-channel-set` · `/community-feed` · `/plan-set`',
       '  default for `/community-feed mode`: `PULSE`',
-      '- Diagnostics: `/chase-test`',
+      '- Diagnostics: `/preview-alert` · `/chase-test`',
       '',
       '**Troubleshooting**',
       '- If you are not seeing matches, lower `min_score` in `/alerts-settings` and broaden your chase filters',
-      '- If you are seeing too many matches, add more chase detail (for example card set or card number) and tighten filters like `grade`, `condition`, or `listing_type`'
+      '- If you are seeing too many matches, add more chase detail (for example card set or card number) and tighten filters like `grade`, `condition`, or `listing_type`',
+      '- Duplicate listing alerts are auto-suppressed',
+      '',
+      '**Glossary**',
+      '- `score`: match confidence based on title and filter alignment',
+      '- `risk level`: caution signal from suspicious terms and seller quality',
+      '- `chase cooldown`: minimum minutes between alerts for the same chase'
     ];
 
     await interaction.reply({

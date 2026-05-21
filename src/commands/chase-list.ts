@@ -1,5 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, SlashCommandBuilder } from 'discord.js';
-import { listChases } from '../services/chase-store.js';
+import { getUserAlertSettings, listChases } from '../services/chase-store.js';
 import { infoEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
 
@@ -34,6 +34,8 @@ function makePaginationRow(userId: string, page: number, totalPages: number): Ac
 
 function buildChaseListEmbed(userId: string, page: number) {
   const chases = listChases(userId);
+  const settings = getUserAlertSettings(userId);
+  const currency = settings.alertCurrency;
   const total = chases.length;
   if (total === 0) {
     return {
@@ -55,7 +57,7 @@ function buildChaseListEmbed(userId: string, page: number) {
       const absoluteIndex = entryById.get(c.id) ?? 0;
       const summary = [
         `**#${absoluteIndex} — ${c.cardName}**`,
-        `Max: ${c.maxPrice ?? OUTPUT_STYLE.any}`,
+        `Max: ${c.maxPrice !== undefined ? `${c.maxPrice} ${currency}` : OUTPUT_STYLE.any}`,
         `Grade: ${orAny(c.grade)}`,
         `Condition: ${orAny(c.condition)}`,
         `Listing: ${displayAny(c.listingType)}`

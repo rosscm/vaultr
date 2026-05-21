@@ -20,7 +20,7 @@ export const alertsRecent = {
 
     if (recent.length === 0) {
       await interaction.reply({
-        embeds: [infoEmbed('📨 Recent Alerts', 'No delivered alerts yet.')],
+        embeds: [infoEmbed('📨 Recent Alerts', 'No delivered alerts yet\n\n**Next:** Keep your chases active and Vaultr will DM you when matches appear')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -28,7 +28,7 @@ export const alertsRecent = {
 
     const lines = recent.map((a, i) => {
       const title = a.listingTitle ?? a.listingId;
-      const price = a.listingPrice !== undefined ? `${a.listingPrice} ${a.listingCurrency ?? ''}`.trim() : 'None';
+      const price = a.listingPrice !== undefined ? `${a.listingPrice.toFixed(2)} ${a.listingCurrency ?? ''}`.trim() : 'None';
       const score = a.matchScore ?? 'None';
       return `**${i + 1}. ${title}**\n**Price:** ${price} | **Score:** ${score}\n**Sent:** ${formatTimeWithAge(a.sentAt)}`;
     });
