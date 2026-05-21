@@ -151,13 +151,7 @@ function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number |
   return 'low';
 }
 
-function colorForListingAge(postedAt?: string): number {
-  const age = postedAgeSeconds(postedAt);
-  if (age === null) return 0x3b82f6; // blue (unknown age)
-  if (age <= 60 * 60) return 0x22c55e; // green (<1h)
-  if (age <= 24 * 60 * 60) return 0xf59e0b; // amber (<24h)
-  return 0x3b82f6; // blue (older)
-}
+const VAULTR_ALERT_COLOR = 0xf59e0b;
 
 function formatFreshness(postedAt?: string): string {
   const age = postedAgeSeconds(postedAt);
@@ -359,7 +353,7 @@ async function runPoll(client: Client): Promise<void> {
 
       const sourceLabel = listing.source === 'EBAY' ? 'eBay' : listing.source;
       const embed = new EmbedBuilder()
-        .setColor(colorForListingAge(listing.postedAt))
+        .setColor(VAULTR_ALERT_COLOR)
         .setTitle(`${chase.priority === 'GRAIL' ? '🏆 Grail Match Found' : '🚨 Chase Match Found'} · ${sourceLabel}`)
         .setDescription(
           `**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(match.score, normalizedListing.price, chase.maxPrice, targetCurrency, listing.postedAt)}`
@@ -379,7 +373,6 @@ async function runPoll(client: Client): Promise<void> {
               }`,
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Source:** ${sourceLabel}`,
-              `**Freshness:** ${formatFreshness(listing.postedAt)}`,
               `**Score:** ${formatScoreWithQuality(match.score)}`,
               `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Match Signals:** ${splitReasons(match.reasons).positive}`,
@@ -419,7 +412,6 @@ async function runPoll(client: Client): Promise<void> {
             value: [
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Source:** ${sourceLabel}`,
-              `**Freshness:** ${formatFreshness(listing.postedAt)}`,
               `**Region:** ${listing.region}`,
               `**Seller:** ${listing.seller ?? 'Unavailable from source'}`,
               `**Seller Feedback:** ${formatSellerFeedbackPercent(listing.sellerFeedbackPercent)}${

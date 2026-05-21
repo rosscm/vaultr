@@ -15,7 +15,7 @@ export const previewAlert = {
       `Good Match • under max by 60.00 ${currency} • posted 2m ago`;
 
     const embed = new EmbedBuilder()
-      .setColor(0x22c55e)
+      .setColor(0xf59e0b)
       .setTitle(title)
       .setDescription(description);
 
@@ -28,7 +28,6 @@ export const previewAlert = {
           `**Total:** 1155.00 ${currency}`,
           '**Posted:** 2m ago',
           '**Source:** eBay',
-          '**Freshness:** new',
           '**Score:** 72 (Good Match)',
           '**Risk Level:** low',
           '**Match Signals:** exact card name match, grade match',
@@ -59,7 +58,6 @@ export const previewAlert = {
           value: [
             '**Posted:** 2m ago',
             '**Source:** eBay',
-            '**Freshness:** new',
             '**Region:** US',
             '**Seller:** testuser_myukselen',
             '**Seller Feedback:** 99.8% (4231)'
