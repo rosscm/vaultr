@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { Client, Events, GatewayIntentBits, MessageFlags } from 'discord.js';
 import { commands } from './commands/index.js';
 import { handleChaseListPagination } from './commands/chase-list.js';
+import { initializeCurrencyRates } from './services/currency.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
 import { startPoller } from './services/poller.js';
 import { errorEmbed, warningEmbed } from './ui/embeds.js';
@@ -14,6 +15,8 @@ if (!token) {
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const commandMap = new Map(commands.map((c) => [c.data.name, c]));
+
+await initializeCurrencyRates();
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}`);

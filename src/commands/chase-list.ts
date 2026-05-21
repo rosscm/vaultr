@@ -47,27 +47,47 @@ function buildChaseListEmbed(userId: string, page: number) {
   const currentPage = clampPage(page, totalPages);
   const start = currentPage * PAGE_SIZE;
   const pageItems = chases.slice(start, start + PAGE_SIZE);
+  const entryById = new Map<string, number>(chases.map((c, idx) => [c.id, idx + 1]));
 
-  const lines = pageItems.map((c, i) => {
-    const priorityBadge = c.priority === 'GRAIL' ? '🏆 GRAIL' : c.priority === 'HIGH' ? '🔥 HIGH' : '🟢 NORMAL';
-    const header = `**#${start + i + 1} — ${c.cardName}**`;
-    const details = [
-      `**Priority:** ${priorityBadge}`,
-      `**Max:** ${c.maxPrice ?? OUTPUT_STYLE.any}`,
-      `**Grade:** ${orAny(c.grade)}`,
-      `**Condition:** ${orAny(c.condition)}`,
-      `**Listing:** ${displayAny(c.listingType)}`,
-      `**Blocked:** ${c.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
-      `**Note:** ${orNone(c.targetNote)}`
-    ].join('\n');
-    return `${header}\n${details}`;
-  });
+  const renderGroup = (title: string, items: Array<(typeof pageItems)[number]>): string => {
+    if (items.length === 0) return '';
+    const rows = items.map((c) => {
+      const absoluteIndex = entryById.get(c.id) ?? 0;
+      const summary = [
+        `**#${absoluteIndex} — ${c.cardName}**`,
+        `Max: ${c.maxPrice ?? OUTPUT_STYLE.any}`,
+        `Grade: ${orAny(c.grade)}`,
+        `Condition: ${orAny(c.condition)}`,
+        `Listing: ${displayAny(c.listingType)}`
+      ].join(' | ');
+
+      const extras: string[] = [];
+      if (c.targetNote) extras.push(`Note: ${orNone(c.targetNote)}`);
+      if (c.negativeKeywords && c.negativeKeywords.length > 0) {
+        extras.push(`Blocked: ${c.negativeKeywords.join(', ')}`);
+      }
+
+      return extras.length > 0 ? `${summary}\n${extras.join(' | ')}` : summary;
+    });
+
+    return `**${title}**\n${rows.join('\n')}`;
+  };
+
+  const grail = pageItems.filter((c) => (c.priority ?? 'NORMAL') === 'GRAIL');
+  const high = pageItems.filter((c) => (c.priority ?? 'NORMAL') === 'HIGH');
+  const normal = pageItems.filter((c) => (c.priority ?? 'NORMAL') === 'NORMAL');
+
+  const groupedSections = [
+    renderGroup('🏆 Grail', grail),
+    renderGroup('🔥 High Priority', high),
+    renderGroup('🟢 Normal', normal)
+  ].filter(Boolean);
 
   const description = [
     `**Total Active Chases:** ${total}`,
     `**Page:** ${currentPage + 1}/${totalPages}`,
     '',
-    lines.join('\n\n---\n\n'),
+    groupedSections.join('\n\n'),
     '',
     '---',
     '**Quick Actions:** `/chase-edit entry:<n>` or `/chase-remove entry:<n>`'

@@ -30,7 +30,8 @@ export const help = {
       '- Diagnostics: `/chase-test`',
       '',
       '**Troubleshooting**',
-      '- If you are not seeing matches, lower `min_score` in `/alerts-settings` and broaden your chase filters.'
+      '- If you are not seeing matches, lower `min_score` in `/alerts-settings` and broaden your chase filters.',
+      '- If you are seeing too many matches, add more chase detail (for example card set or card number) and tighten filters like `grade`, `condition`, or `listing_type`.'
     ];
 
     await interaction.reply({
