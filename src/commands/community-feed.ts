@@ -27,10 +27,7 @@ export const communityFeed = {
     const nextMode = (toggle === 'OFF' ? 'OFF' : 'PULSE') as 'OFF' | 'PULSE';
     setGuildCommunityFeedMode(interaction.guildId, nextMode);
     const currentMode = getGuildCommunityFeedMode(interaction.guildId);
-    const lines = [
-      `**Community Feed:** ${currentMode === 'OFF' ? 'Off' : 'On'}`,
-      '**Behavior:** posts brief status messages and daily stats to the setup channel'
-    ];
+    const lines = [`**Community Feed:** ${currentMode === 'OFF' ? 'Off' : 'On'}`];
 
     await interaction.reply({
       embeds: [

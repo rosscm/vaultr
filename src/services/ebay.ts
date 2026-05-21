@@ -29,6 +29,13 @@ function mapListingType(raw?: string): 'AUCTION' | 'BUY_IT_NOW' | 'OTHER' {
   return 'OTHER';
 }
 
+function firstNonEmptyString(values: unknown[]): string | undefined {
+  for (const v of values) {
+    if (typeof v === 'string' && v.trim().length > 0) return v;
+  }
+  return undefined;
+}
+
 async function enrichListingFromShoppingApi(listing: Listing, appId: string): Promise<Listing> {
   const endpoint = getEbayShoppingEndpoint();
   const params = new URLSearchParams({
@@ -53,12 +60,14 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string): Pr
     const fallbackSellerFeedbackScore = Number(item?.Seller?.FeedbackScore);
     const fallbackShippingCost = Number(item?.ShippingCostSummary?.ShippingServiceCost?.Value);
     const fallbackShippingCurrency = item?.ShippingCostSummary?.ShippingServiceCost?.CurrencyID ?? listing.currency;
-    const fallbackImageUrl =
-      item?.PictureURL?.[0] ??
-      item?.PictureURL ??
-      item?.GalleryURL ??
-      item?.GalleryPlusPictureURL?.[0] ??
-      item?.GalleryPlusPictureURL;
+    const fallbackImageUrl = firstNonEmptyString([
+      item?.PictureURLSuperSize,
+      item?.PictureURL?.[0],
+      item?.PictureURL,
+      item?.GalleryPlusPictureURL?.[0],
+      item?.GalleryPlusPictureURL,
+      item?.GalleryURL
+    ]);
 
     return {
       ...listing,
@@ -112,7 +121,7 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
       const listingId = item?.itemId?.[0];
       const title = item?.title?.[0];
       const viewItemURL = item?.viewItemURL?.[0];
-      const galleryURL = item?.galleryURL?.[0];
+      const galleryURL = firstNonEmptyString([item?.galleryURL?.[0], item?.galleryPlusPictureURL?.[0]]);
       const currentPrice = item?.sellingStatus?.[0]?.currentPrice?.[0];
       const rawPrice = currentPrice?.__value__;
       const currency = currentPrice?.['@currencyId'] ?? 'USD';
@@ -160,7 +169,8 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
       !listing.seller ||
       listing.sellerFeedbackPercent === undefined ||
       listing.sellerFeedbackScore === undefined ||
-      listing.shippingCost === undefined
+      listing.shippingCost === undefined ||
+      !listing.imageUrl
   );
 
   if (needsEnrichment.length === 0) return listings;
