@@ -14,6 +14,8 @@ export const alertsSettingsReset = {
       `**Max Alerts/Hour:** ${settings.maxAlertsPerHour}`,
       `**Chase Cooldown:** ${settings.chaseCooldownMinutes}m`,
       `**Alert Currency:** ${settings.alertCurrency}`,
+      `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
+      `**Compact Mode:** ${settings.compactMode ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Quiet Hours:** ${OUTPUT_STYLE.off}`
     ];
     await interaction.reply({

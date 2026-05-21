@@ -62,6 +62,8 @@ db.exec(`
     max_alerts_per_hour INTEGER NOT NULL DEFAULT 20,
     chase_cooldown_minutes INTEGER NOT NULL DEFAULT 30,
     alert_currency TEXT NOT NULL DEFAULT 'USD',
+    show_images INTEGER NOT NULL DEFAULT 1,
+    compact_mode INTEGER NOT NULL DEFAULT 0,
     quiet_hours_start INTEGER,
     quiet_hours_end INTEGER,
     updated_at TEXT NOT NULL
@@ -146,6 +148,16 @@ try {
 }
 try {
   db.exec(`ALTER TABLE user_alert_settings ADD COLUMN alert_currency TEXT NOT NULL DEFAULT 'USD';`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN show_images INTEGER NOT NULL DEFAULT 1;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN compact_mode INTEGER NOT NULL DEFAULT 0;`);
 } catch {
   // Column already exists on upgraded databases.
 }

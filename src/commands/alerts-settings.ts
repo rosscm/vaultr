@@ -54,6 +54,24 @@ export const alertsSettings = {
           { name: 'GBP', value: 'GBP' },
           { name: 'JPY', value: 'JPY' }
         )
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('show_images')
+        .setDescription('Show listing images in DM alerts (default: On)')
+        .addChoices(
+          { name: 'On', value: 'ON' },
+          { name: 'Off', value: 'OFF' }
+        )
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('compact_mode')
+        .setDescription('Use compact DM layout (default: Off)')
+        .addChoices(
+          { name: 'On', value: 'ON' },
+          { name: 'Off', value: 'OFF' }
+        )
     ),
   async execute(interaction: any) {
     const minScore = interaction.options.getInteger('min_score');
@@ -62,6 +80,8 @@ export const alertsSettings = {
     const quietStart = interaction.options.getInteger('quiet_start');
     const quietEnd = interaction.options.getInteger('quiet_end');
     const alertCurrency = interaction.options.getString('alert_currency');
+    const showImages = interaction.options.getString('show_images');
+    const compactMode = interaction.options.getString('compact_mode');
 
     const noChanges =
       minScore === null &&
@@ -69,7 +89,9 @@ export const alertsSettings = {
       chaseCooldownMinutes === null &&
       quietStart === null &&
       quietEnd === null &&
-      alertCurrency === null;
+      alertCurrency === null &&
+      showImages === null &&
+      compactMode === null;
 
     const settings = noChanges
       ? getUserAlertSettings(interaction.user.id)
@@ -78,6 +100,8 @@ export const alertsSettings = {
           maxAlertsPerHour: maxAlertsPerHour ?? undefined,
           chaseCooldownMinutes: chaseCooldownMinutes ?? undefined,
           alertCurrency: (alertCurrency as 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY' | null) ?? undefined,
+          showImages: showImages === null ? undefined : showImages === 'ON',
+          compactMode: compactMode === null ? undefined : compactMode === 'ON',
           quietHoursStart: quietStart ?? undefined,
           quietHoursEnd: quietEnd ?? undefined
         });
@@ -92,6 +116,8 @@ export const alertsSettings = {
       `**Max Alerts/Hour:** ${settings.maxAlertsPerHour}`,
       `**Chase Cooldown:** ${settings.chaseCooldownMinutes}m`,
       `**Alert Currency:** ${settings.alertCurrency}`,
+      `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
+      `**Compact Mode:** ${settings.compactMode ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Quiet Hours:** ${quietHours}`,
       `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`
     ];

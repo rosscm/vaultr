@@ -53,6 +53,12 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string): Pr
     const fallbackSellerFeedbackScore = Number(item?.Seller?.FeedbackScore);
     const fallbackShippingCost = Number(item?.ShippingCostSummary?.ShippingServiceCost?.Value);
     const fallbackShippingCurrency = item?.ShippingCostSummary?.ShippingServiceCost?.CurrencyID ?? listing.currency;
+    const fallbackImageUrl =
+      item?.PictureURL?.[0] ??
+      item?.PictureURL ??
+      item?.GalleryURL ??
+      item?.GalleryPlusPictureURL?.[0] ??
+      item?.GalleryPlusPictureURL;
 
     return {
       ...listing,
@@ -64,7 +70,9 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string): Pr
         listing.sellerFeedbackScore ?? (Number.isNaN(fallbackSellerFeedbackScore) ? undefined : fallbackSellerFeedbackScore),
       shippingCost: listing.shippingCost ?? (Number.isNaN(fallbackShippingCost) ? undefined : fallbackShippingCost),
       shippingCurrency:
-        listing.shippingCurrency ?? (Number.isNaN(fallbackShippingCost) ? undefined : fallbackShippingCurrency)
+        listing.shippingCurrency ?? (Number.isNaN(fallbackShippingCost) ? undefined : fallbackShippingCurrency),
+      imageUrl: listing.imageUrl ?? fallbackImageUrl ?? undefined,
+      thumbnailUrl: listing.thumbnailUrl ?? listing.imageUrl ?? fallbackImageUrl ?? undefined
     };
   } catch {
     return listing;
@@ -104,6 +112,7 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
       const listingId = item?.itemId?.[0];
       const title = item?.title?.[0];
       const viewItemURL = item?.viewItemURL?.[0];
+      const galleryURL = item?.galleryURL?.[0];
       const currentPrice = item?.sellingStatus?.[0]?.currentPrice?.[0];
       const rawPrice = currentPrice?.__value__;
       const currency = currentPrice?.['@currencyId'] ?? 'USD';
@@ -131,6 +140,8 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
         shippingCost: Number.isNaN(shippingCost) ? undefined : shippingCost,
         shippingCurrency: Number.isNaN(shippingCost) ? undefined : shippingCurrency,
         url: viewItemURL,
+        imageUrl: galleryURL || undefined,
+        thumbnailUrl: galleryURL || undefined,
         seller,
         sellerFeedbackPercent: Number.isNaN(sellerFeedbackPercent) ? undefined : sellerFeedbackPercent,
         sellerFeedbackScore: Number.isNaN(sellerFeedbackScore) ? undefined : sellerFeedbackScore,

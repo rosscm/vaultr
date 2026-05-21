@@ -156,19 +156,21 @@ const upsertUserPlanStmt = db.prepare(`
 `);
 
 const getUserAlertSettingsStmt = db.prepare(`
-  SELECT user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, quiet_hours_start, quiet_hours_end, updated_at
+  SELECT user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, show_images, compact_mode, quiet_hours_start, quiet_hours_end, updated_at
   FROM user_alert_settings
   WHERE user_id = ?
 `);
 
 const upsertUserAlertSettingsStmt = db.prepare(`
-  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, quiet_hours_start, quiet_hours_end, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, show_images, compact_mode, quiet_hours_start, quiet_hours_end, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(user_id) DO UPDATE SET
     min_score = excluded.min_score,
     max_alerts_per_hour = excluded.max_alerts_per_hour,
     chase_cooldown_minutes = excluded.chase_cooldown_minutes,
     alert_currency = excluded.alert_currency,
+    show_images = excluded.show_images,
+    compact_mode = excluded.compact_mode,
     quiet_hours_start = excluded.quiet_hours_start,
     quiet_hours_end = excluded.quiet_hours_end,
     updated_at = excluded.updated_at
@@ -422,6 +424,8 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
         max_alerts_per_hour: number;
         chase_cooldown_minutes: number;
         alert_currency: 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY';
+        show_images: number;
+        compact_mode: number;
         quiet_hours_start: number | null;
         quiet_hours_end: number | null;
         updated_at: string;
@@ -430,13 +434,15 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
 
   if (!row) {
     const now = new Date().toISOString();
-    upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, now);
+    upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', 1, 0, null, null, now);
     return {
       userId,
       minScore: 60,
       maxAlertsPerHour: 10,
       chaseCooldownMinutes: 30,
       alertCurrency: 'USD',
+      showImages: true,
+      compactMode: false,
       updatedAt: now
     };
   }
@@ -447,6 +453,8 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
     maxAlertsPerHour: row.max_alerts_per_hour,
     chaseCooldownMinutes: row.chase_cooldown_minutes,
     alertCurrency: row.alert_currency ?? 'USD',
+    showImages: (row.show_images ?? 1) === 1,
+    compactMode: (row.compact_mode ?? 0) === 1,
     quietHoursStart: row.quiet_hours_start ?? undefined,
     quietHoursEnd: row.quiet_hours_end ?? undefined,
     updatedAt: row.updated_at
@@ -456,7 +464,10 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
 export function setUserAlertSettings(
   userId: string,
   patch: Partial<
-    Pick<UserAlertSettings, 'minScore' | 'maxAlertsPerHour' | 'chaseCooldownMinutes' | 'alertCurrency' | 'quietHoursStart' | 'quietHoursEnd'>
+    Pick<
+      UserAlertSettings,
+      'minScore' | 'maxAlertsPerHour' | 'chaseCooldownMinutes' | 'alertCurrency' | 'showImages' | 'compactMode' | 'quietHoursStart' | 'quietHoursEnd'
+    >
   >
 ): UserAlertSettings {
   const current = getUserAlertSettings(userId);
@@ -466,6 +477,8 @@ export function setUserAlertSettings(
     maxAlertsPerHour: patch.maxAlertsPerHour ?? current.maxAlertsPerHour,
     chaseCooldownMinutes: patch.chaseCooldownMinutes ?? current.chaseCooldownMinutes,
     alertCurrency: patch.alertCurrency ?? current.alertCurrency,
+    showImages: patch.showImages ?? current.showImages,
+    compactMode: patch.compactMode ?? current.compactMode,
     quietHoursStart: patch.quietHoursStart ?? current.quietHoursStart,
     quietHoursEnd: patch.quietHoursEnd ?? current.quietHoursEnd,
     updatedAt: new Date().toISOString()
@@ -477,6 +490,8 @@ export function setUserAlertSettings(
     next.maxAlertsPerHour,
     next.chaseCooldownMinutes,
     next.alertCurrency,
+    next.showImages ? 1 : 0,
+    next.compactMode ? 1 : 0,
     next.quietHoursStart ?? null,
     next.quietHoursEnd ?? null,
     next.updatedAt
@@ -571,13 +586,15 @@ export function isListingFingerprintIgnored(userId: string, chaseId: string, fin
 
 export function resetUserAlertSettings(userId: string): UserAlertSettings {
   const now = new Date().toISOString();
-  upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, now);
+  upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', 1, 0, null, null, now);
   return {
     userId,
     minScore: 60,
     maxAlertsPerHour: 10,
     chaseCooldownMinutes: 30,
     alertCurrency: 'USD',
+    showImages: true,
+    compactMode: false,
     updatedAt: now
   };
 }

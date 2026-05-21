@@ -63,13 +63,6 @@ function splitReasons(reasons: string[]): { positive: string; risk: string } {
   };
 }
 
-function countSignals(reasons: string[]): { positive: number; risk: number } {
-  const risk = reasons.filter(
-    (r) => r.includes('penalty') || r.startsWith('suspicious_terms:') || r.includes('miss') || r.includes('block')
-  ).length;
-  return { positive: Math.max(0, reasons.length - risk), risk };
-}
-
 function formatListingType(listingType: string | undefined): string {
   if (!listingType) return 'Unknown';
   if (listingType === 'AUCTION') return 'Auction';
@@ -88,6 +81,13 @@ function formatPostedAge(postedAt: string | undefined): string {
   if (minutes < 60) return `${minutes}m ago`;
   if (hours < 24) return `${hours}h ago`;
   return `${days}d ago`;
+}
+
+function postedAgeSeconds(postedAt: string | undefined): number | null {
+  if (!postedAt) return null;
+  const then = new Date(postedAt).getTime();
+  if (Number.isNaN(then)) return null;
+  return Math.max(0, Math.floor((Date.now() - then) / 1000));
 }
 
 function formatPriceVsMax(listingPrice: number, chaseMax: number | undefined, currency: string): string {
@@ -135,6 +135,14 @@ function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number |
   if (hasSuspiciousTerms && sellerWeak) return 'High';
   if (hasSuspiciousTerms || sellerWeak) return 'Medium';
   return 'Low';
+}
+
+function colorForListingAge(postedAt?: string): number {
+  const age = postedAgeSeconds(postedAt);
+  if (age === null) return 0x3b82f6; // blue (unknown age)
+  if (age <= 60 * 60) return 0x22c55e; // green (<1h)
+  if (age <= 24 * 60 * 60) return 0xf59e0b; // amber (<24h)
+  return 0x3b82f6; // blue (older)
 }
 
 function summarizeWhyMatched(score: number, listingPrice: number, chaseMax: number | undefined, currency = 'USD', postedAt?: string): string {
@@ -327,13 +335,31 @@ async function runPoll(client: Client): Promise<void> {
         continue;
       }
 
+      const sourceLabel = listing.source === 'EBAY' ? 'eBay' : listing.source;
       const embed = new EmbedBuilder()
-        .setColor(0xf97316)
-        .setTitle(chase.priority === 'GRAIL' ? '🏆 Grail Match Found' : '🚨 Chase Match Found')
+        .setColor(colorForListingAge(listing.postedAt))
+        .setTitle(`${chase.priority === 'GRAIL' ? '🏆 Grail Match Found' : '🚨 Chase Match Found'} · ${sourceLabel}`)
         .setDescription(
           `**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(match.score, normalizedListing.price, chase.maxPrice, targetCurrency, listing.postedAt)}`
-        )
-        .addFields(
+        );
+
+      if (settings.compactMode) {
+        embed.addFields(
+          {
+            name: '📌 Summary',
+            value: [
+              `**Chase:** ${truncateTitle(chase.cardName, 60)}`,
+              `**Price:** ${normalizedListing.price} ${targetCurrency}`,
+              `**Posted:** ${formatPostedAge(listing.postedAt)}`,
+              `**Score:** ${match.score}`,
+              `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
+              `**Match Signals:** ${splitReasons(match.reasons).positive}`
+            ].join('\n'),
+            inline: false
+          }
+        );
+      } else {
+        embed.addFields(
           {
             name: '🎯 Chase Context',
             value: [
@@ -374,18 +400,25 @@ async function runPoll(client: Client): Promise<void> {
             name: '🧠 Match Insight',
             value: [
               `**Deal Quality:** ${formatDealQuality(match.score)}`,
-              `**Confidence Note:** ${explainDealQuality(match.score)}`,
-              `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Score:** ${match.score}`,
               `**Match Signals:** ${splitReasons(match.reasons).positive}`,
-              `**Risk Factors:** ${splitReasons(match.reasons).risk}`,
-              `**Signal Count:** ${countSignals(match.reasons).positive} positive / ${countSignals(match.reasons).risk} risk`
+              `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
+              `**Confidence Note:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }
-        )
-        .setTimestamp()
-        .setFooter({ text: 'Vaultr • Collector Alert' });
+        );
+      }
+
+      embed.setTimestamp().setFooter({ text: 'Vaultr • Collector Alert' });
+
+      if (settings.showImages) {
+        if (listing.imageUrl && /^https?:\/\//i.test(listing.imageUrl)) {
+          embed.setImage(listing.imageUrl);
+        } else if (listing.thumbnailUrl && /^https?:\/\//i.test(listing.thumbnailUrl)) {
+          embed.setThumbnail(listing.thumbnailUrl);
+        }
+      }
 
       try {
         const user = await client.users.fetch(chase.userId);

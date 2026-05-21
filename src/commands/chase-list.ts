@@ -70,7 +70,7 @@ function buildChaseListEmbed(userId: string, page: number) {
     lines.join('\n\n---\n\n'),
     '',
     '---',
-    '**Quick Actions:** /chase-edit entry:<n> or /chase-remove entry:<n>'
+    '**Quick Actions:** `/chase-edit entry:<n>` or `/chase-remove entry:<n>`'
   ].join('\n');
 
   return {

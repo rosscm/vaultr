@@ -22,6 +22,8 @@ export type Listing = {
   shippingCost?: number;
   shippingCurrency?: string;
   url: string;
+  imageUrl?: string;
+  thumbnailUrl?: string;
   seller?: string;
   sellerFeedbackPercent?: number;
   sellerFeedbackScore?: number;
@@ -52,6 +54,8 @@ export type UserAlertSettings = {
   maxAlertsPerHour: number;
   chaseCooldownMinutes: number;
   alertCurrency: 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY';
+  showImages: boolean;
+  compactMode: boolean;
   quietHoursStart?: number;
   quietHoursEnd?: number;
   updatedAt: string;
