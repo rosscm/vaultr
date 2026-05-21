@@ -13,7 +13,7 @@ export const plan = {
       `**Tier:** ${userPlan.tier}`,
       `**Status:** ${userPlan.status}`,
       `**Active Chase Limit:** ${limits.maxActiveChases}`,
-      `**Polling Target:** ${limits.pollIntervalSeconds}s`,
+      `**Checks for New Listings:** Every ${limits.pollIntervalSeconds}s`,
       `**Updated:** ${formatLocalDateTime(userPlan.updatedAt)}`
     ];
 

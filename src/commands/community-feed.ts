@@ -20,7 +20,7 @@ export const communityFeed = {
     ),
   async execute(interaction: any) {
     if (!interaction.guildId) {
-      await interaction.reply({ embeds: [errorEmbed('Server Only', 'This command can only be used in a server.')], flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [errorEmbed('Server Only', 'This command can only be used in a server')], flags: MessageFlags.Ephemeral });
       return;
     }
 

@@ -115,13 +115,13 @@ function formatTotalCost(price: number, shippingCost: number | undefined): numbe
 function formatDealQuality(score: number): string {
   if (score >= 85) return 'High Confidence';
   if (score >= 70) return 'Medium Confidence';
-  return 'Low Confidence';
+  return 'Watch Match';
 }
 
 function explainDealQuality(score: number): string {
-  if (score >= 85) return 'Strong alignment with your chase filters.';
-  if (score >= 70) return 'Partial alignment. Worth checking quickly.';
-  return 'Loose alignment. Review details before acting.';
+  if (score >= 85) return 'Strong alignment with your chase filters';
+  if (score >= 70) return 'Partial alignment worth a quick look';
+  return 'Loose alignment review details before acting';
 }
 
 function truncateTitle(title: string, maxLen = 110): string {
@@ -143,6 +143,14 @@ function colorForListingAge(postedAt?: string): number {
   if (age <= 60 * 60) return 0x22c55e; // green (<1h)
   if (age <= 24 * 60 * 60) return 0xf59e0b; // amber (<24h)
   return 0x3b82f6; // blue (older)
+}
+
+function formatFreshness(postedAt?: string): string {
+  const age = postedAgeSeconds(postedAt);
+  if (age === null) return 'Unknown';
+  if (age <= 60 * 60) return 'New';
+  if (age <= 24 * 60 * 60) return 'Recent';
+  return 'Older';
 }
 
 function summarizeWhyMatched(score: number, listingPrice: number, chaseMax: number | undefined, currency = 'USD', postedAt?: string): string {
@@ -350,10 +358,18 @@ async function runPoll(client: Client): Promise<void> {
             value: [
               `**Chase:** ${truncateTitle(chase.cardName, 60)}`,
               `**Price:** ${normalizedListing.price} ${targetCurrency}`,
+              `**Total:** ${
+                formatTotalCost(normalizedListing.price, normalizedListing.shippingCost) !== undefined
+                  ? `${formatTotalCost(normalizedListing.price, normalizedListing.shippingCost)} ${targetCurrency}`
+                  : 'Unknown'
+              }`,
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
+              `**Source:** ${sourceLabel}`,
+              `**Freshness:** ${formatFreshness(listing.postedAt)}`,
               `**Score:** ${match.score}`,
               `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
-              `**Match Signals:** ${splitReasons(match.reasons).positive}`
+              `**Match Signals:** ${splitReasons(match.reasons).positive}`,
+              `**Confidence Note:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }
@@ -388,6 +404,8 @@ async function runPoll(client: Client): Promise<void> {
             name: '📸 Listing Snapshot',
             value: [
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
+              `**Source:** ${sourceLabel}`,
+              `**Freshness:** ${formatFreshness(listing.postedAt)}`,
               `**Region:** ${listing.region}`,
               `**Seller:** ${listing.seller ?? 'Unavailable from source'}`,
               `**Seller Feedback:** ${formatSellerFeedbackPercent(listing.sellerFeedbackPercent)}${
@@ -401,8 +419,8 @@ async function runPoll(client: Client): Promise<void> {
             value: [
               `**Deal Quality:** ${formatDealQuality(match.score)}`,
               `**Score:** ${match.score}`,
-              `**Match Signals:** ${splitReasons(match.reasons).positive}`,
               `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
+              `**Match Signals:** ${splitReasons(match.reasons).positive}`,
               `**Confidence Note:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false

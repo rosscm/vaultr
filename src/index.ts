@@ -31,10 +31,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (!command) return;
 
   if (!interaction.guildId) {
-    await interaction.reply({
-      embeds: [warningEmbed('Server Command Channel Required', 'Vaultr commands must be used in your server command channel.')],
-      flags: MessageFlags.Ephemeral
-    });
+      await interaction.reply({
+        embeds: [warningEmbed('Server Command Channel Required', 'Vaultr commands must be used in your server command channel')],
+        flags: MessageFlags.Ephemeral
+      });
     return;
   }
 
@@ -42,18 +42,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.commandName !== setupCommandName) {
     const configuredChannelId = getGuildCommandChannel(interaction.guildId);
     if (!configuredChannelId) {
-      await interaction.reply({
-        embeds: [warningEmbed('Setup Required', `An admin must run \`/${setupCommandName}\` first to set the Vaultr command channel.`)],
-        flags: MessageFlags.Ephemeral
-      });
+        await interaction.reply({
+          embeds: [warningEmbed('Setup Required', `An admin must run \`/${setupCommandName}\` first to set the Vaultr command channel`)],
+          flags: MessageFlags.Ephemeral
+        });
       return;
     }
 
     if (interaction.channelId !== configuredChannelId) {
-      await interaction.reply({
-        embeds: [warningEmbed('Wrong Channel', `Please use Vaultr commands in <#${configuredChannelId}>.`)],
-        flags: MessageFlags.Ephemeral
-      });
+        await interaction.reply({
+          embeds: [warningEmbed('Wrong Channel', `Please use Vaultr commands in <#${configuredChannelId}>`)],
+          flags: MessageFlags.Ephemeral
+        });
       return;
     }
   }
@@ -63,9 +63,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (error) {
     console.error(error);
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ embeds: [errorEmbed('Request Failed', 'Something went wrong.')], flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ embeds: [errorEmbed('Request Failed', 'Something went wrong')], flags: MessageFlags.Ephemeral });
     } else {
-      await interaction.reply({ embeds: [errorEmbed('Request Failed', 'Something went wrong.')], flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [errorEmbed('Request Failed', 'Something went wrong')], flags: MessageFlags.Ephemeral });
     }
   }
 });

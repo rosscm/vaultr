@@ -38,7 +38,7 @@ function buildChaseListEmbed(userId: string, page: number) {
   if (total === 0) {
     return {
       empty: true as const,
-      embeds: [infoEmbed('📭 No Active Chases', 'Use `/chase-add` to start one.')],
+      embeds: [infoEmbed('📭 No Active Chases', 'Use `/chase-add` to start one')],
       components: []
     };
   }
@@ -121,7 +121,7 @@ export async function handleChaseListPagination(interaction: any): Promise<boole
 
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({
-      content: 'Only the original requester can change this page.',
+      content: 'Only the original requester can change this page',
       flags: MessageFlags.Ephemeral
     });
     return true;
