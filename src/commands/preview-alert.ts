@@ -16,7 +16,7 @@ export const previewAlert = {
       '**Score:** 72 (Good Match)',
       '**Risk Level:** low',
       '**Match Signals:** exact card name match, grade match',
-      '**Confidence Summary:** clear alignment check details before buying',
+      '**Confidence Summary:** good alignment with your chase filters',
       '',
       `**Alert Currency:** ${settings.alertCurrency}`,
       `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
@@ -31,4 +31,3 @@ export const previewAlert = {
     });
   }
 };
-

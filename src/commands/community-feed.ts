@@ -10,7 +10,7 @@ export const communityFeed = {
     .addStringOption((opt) =>
       opt
         .setName('toggle')
-        .setDescription('Turn community feed on or off')
+        .setDescription('Turn community feed on or off (default: On)')
         .setRequired(true)
         .addChoices(
           { name: 'On — posts brief status messages to the setup channel', value: 'ON' },

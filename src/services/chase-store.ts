@@ -399,7 +399,8 @@ export function isGuildCommunityFeedEnabled(guildId: string): boolean {
 
 export function getGuildCommunityFeedMode(guildId: string): CommunityFeedMode {
   const row = getGuildCommunityFeedStmt.get(guildId) as { enabled: number; mode: CommunityFeedMode | null } | undefined;
-  if (!row || row.enabled === 0) return 'OFF';
+  if (!row) return 'PULSE';
+  if (row.enabled === 0) return 'OFF';
   if (row.mode === 'MILESTONES' || row.mode === 'PULSE') return row.mode;
   return 'PULSE';
 }

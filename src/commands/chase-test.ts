@@ -13,7 +13,7 @@ export const chaseTest = {
       '**Shipping:** 15 CAD',
       '**Seller:** High Reputation Seller',
       '**Seller Feedback:** 99.8% (4231)',
-      '**Why It Matched:** exact card name match, grade match, within your max'
+      '**Why It Matched:** exact card name match, grade match'
     ];
 
     await interaction.reply({

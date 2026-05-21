@@ -5,14 +5,11 @@ import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 export const chaseRemove = {
   data: new SlashCommandBuilder()
     .setName('chase-remove')
-    .setDescription('Remove one, many, or all active chases')
-    .addIntegerOption((opt) =>
-      opt.setName('entry').setDescription('Single entry number from /chase-list (optional; default: none)')
-    )
+    .setDescription('Remove one or more active chases, or remove all')
     .addStringOption((opt) =>
       opt
         .setName('entries')
-        .setDescription('Multiple entry numbers (comma-separated), e.g. 1,3,5 (optional; default: none)')
+        .setDescription('Entry numbers from /chase-list (comma-separated), e.g. 1 or 1,3,5')
         .setMaxLength(120)
     )
     .addStringOption((opt) =>
@@ -26,7 +23,6 @@ export const chaseRemove = {
     ),
   async execute(interaction: any) {
     const all = interaction.options.getString('all');
-    const singleEntry = interaction.options.getInteger('entry');
     const entriesCsv = interaction.options.getString('entries');
     const chases = listChases(interaction.user.id);
 
@@ -52,16 +48,15 @@ export const chaseRemove = {
       return;
     }
 
-    if (all === 'NO' && singleEntry === null && entriesCsv === null) {
+    if (all !== 'YES' && entriesCsv === null) {
       await interaction.reply({
-        embeds: [warningEmbed('No Targets Provided', 'Set `entry`, `entries`, or choose `all: Yes, remove all`.')],
+        embeds: [warningEmbed('No Targets Provided', 'Set `entries` or choose `all: Yes, remove all`')],
         flags: MessageFlags.Ephemeral
       });
       return;
     }
 
     const requestedEntries = new Set<number>();
-    if (singleEntry !== null) requestedEntries.add(singleEntry);
     if (entriesCsv) {
       for (const token of entriesCsv.split(',')) {
         const n = Number(token.trim());
@@ -71,7 +66,7 @@ export const chaseRemove = {
 
     if (requestedEntries.size === 0) {
       await interaction.reply({
-        embeds: [warningEmbed('Invalid Entries', 'Use valid entry numbers, e.g. `entry: 2` or `entries: 1,3,5`.')],
+        embeds: [warningEmbed('Invalid Entries', 'Use valid entry numbers, e.g. `entries: 2` or `entries: 1,3,5`')],
         flags: MessageFlags.Ephemeral
       });
       return;
