@@ -40,7 +40,7 @@ function buildChaseListEmbed(userId: string, page: number) {
   if (total === 0) {
     return {
       empty: true as const,
-      embeds: [infoEmbed('📭 No Active Chases', 'Use `/chase-add` to start one')],
+      embeds: [infoEmbed('📭 No Active Chases', 'Use `/chase add` to start one')],
       components: []
     };
   }
@@ -92,7 +92,7 @@ function buildChaseListEmbed(userId: string, page: number) {
     groupedSections.join('\n\n'),
     '',
     '---',
-    '**Quick Actions:** `/chase-edit entry:<n>` or `/chase-remove entries:<n>`'
+    '**Quick Actions:** `/chase edit entry:<n>` or `/chase remove entries:<n>`'
   ].join('\n');
 
   return {

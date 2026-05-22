@@ -9,7 +9,7 @@ export const chaseRemove = {
     .addStringOption((opt) =>
       opt
         .setName('entries')
-        .setDescription('Entry numbers from /chase-list (comma-separated), e.g. 1 or 1,3,5')
+        .setDescription('Entry numbers from /chase list (comma-separated), e.g. 1 or 1,3,5')
         .setMaxLength(120)
     )
     .addStringOption((opt) =>
@@ -40,7 +40,7 @@ export const chaseRemove = {
         embeds: [
           successEmbed(
             'All Chases Removed',
-            `Removed ${removedCount} active chase(s)\n\n**Next:** Use \`/chase-add\` to start a fresh vault`
+            `Removed ${removedCount} active chase(s)\n\n**Next:** Use \`/chase add\` to start a fresh vault`
           ).setTitle('✅ All Chases Removed')
         ],
         flags: MessageFlags.Ephemeral
@@ -75,7 +75,7 @@ export const chaseRemove = {
     const validEntries = [...requestedEntries].filter((entry) => entry >= 1 && entry <= chases.length);
     if (validEntries.length === 0) {
       await interaction.reply({
-        embeds: [errorEmbed('Entry Not Found', 'No matching entries found. Use /chase-list first.')],
+        embeds: [errorEmbed('Entry Not Found', 'No matching entries found. Use /chase list first.')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -107,7 +107,7 @@ export const chaseRemove = {
       embeds: [
         successEmbed(
           'Chases Removed',
-          `Removed ${removedCount} chase(s):\n${removedLabels.map((label) => `- ${label}`).join('\n')}\n\n**Next:** Use \`/chase-list\` to review remaining entries`
+          `Removed ${removedCount} chase(s):\n${removedLabels.map((label) => `- ${label}`).join('\n')}\n\n**Next:** Use \`/chase list\` to review remaining entries`
         ).setTitle('✅ Chases Removed')
       ],
       flags: MessageFlags.Ephemeral

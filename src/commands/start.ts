@@ -19,8 +19,8 @@ export const start = {
     const limits = PLAN_LIMITS[plan.tier];
 
     const lines = [
-      '**Step 1:** Add your first chase with `/chase-add`',
-      '**Step 2:** Tune alert controls with `/alerts-settings`',
+      '**Step 1:** Add your first chase with `/chase add`',
+      '**Step 2:** Tune alert controls with `/alerts settings`',
       '**Step 3:** Watch your DMs for matches',
       '',
       `**Plan:** ${plan.tier} (${plan.status})`,

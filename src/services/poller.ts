@@ -282,7 +282,7 @@ async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAle
         embeds: [
           warningEmbed(
             'Alerts Temporarily Throttled',
-            `You reached your current limit of ${maxAlertsPerHour} alerts/hour. Increase it with \`/alerts-settings\` if needed.`
+            `You reached your current limit of ${maxAlertsPerHour} alerts/hour. Increase it with \`/alerts settings\` if needed.`
           )
         ]
       }),

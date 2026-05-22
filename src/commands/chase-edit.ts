@@ -13,7 +13,7 @@ export const chaseEdit = {
   data: new SlashCommandBuilder()
     .setName('chase-edit')
     .setDescription('Edit an active chase by list entry number')
-    .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase-list').setRequired(true))
+    .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase list').setRequired(true))
     .addStringOption((opt) =>
       opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored; default: keep current)').setMinLength(3).setMaxLength(100)
     )
@@ -61,7 +61,7 @@ export const chaseEdit = {
 
     if (!match) {
       await interaction.reply({
-        embeds: [errorEmbed('Entry Not Found', `No chase found at entry \`${entry}\`. Use /chase-list first.`)],
+        embeds: [errorEmbed('Entry Not Found', `No chase found at entry \`${entry}\`. Use /chase list first.`)],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -147,7 +147,7 @@ export const chaseEdit = {
       `**Listing Type:** ${displayAny(updated.listingType)}`,
       `**Blocked Terms:** ${updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
       '',
-      '**Next:** Use `/chase-list` to confirm ordering and details'
+      '**Next:** Use `/chase list` to confirm ordering and details'
     ];
 
     await interaction.reply({

@@ -78,7 +78,7 @@ export const chaseAdd = {
         embeds: [
           warningEmbed(
             'Plan Limit Reached',
-            `You have reached your ${plan.tier} limit of ${maxChases} active chases. Remove one with /chase-remove or run /upgrade.`
+            `You have reached your ${plan.tier} limit of ${maxChases} active chases. Remove one with /chase remove or run /upgrade.`
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -142,7 +142,7 @@ export const chaseAdd = {
       `**Listing Type:** ${displayAny(chase.listingType)}`,
       `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
       '',
-      '**Next:** Use `/chase-list` to review your vault entries'
+      '**Next:** Use `/chase list` to review your vault entries'
     ];
 
     await interaction.reply({

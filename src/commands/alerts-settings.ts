@@ -144,7 +144,7 @@ export const alertsSettings = {
       `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`,
       '',
       '**Note:** Duplicate listing alerts are auto-suppressed',
-      '**Next:** Use `/chase-test` to preview your DM format'
+      '**Next:** Use `/alerts preview` to preview your DM format'
     ];
 
     const embed = noChanges
