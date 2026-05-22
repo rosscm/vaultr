@@ -2,6 +2,7 @@ import { alerts } from './alerts.js';
 import { communityFeed } from './community-feed.js';
 import { chase } from './chase.js';
 import { discover } from './discover.js';
+import { health } from './health.js';
 import { help } from './help.js';
 import { plan } from './plan.js';
 import { planSet } from './plan-set.js';
@@ -14,6 +15,7 @@ export const commands = [
   communityFeed,
   chase,
   discover,
+  health,
   help,
   plan,
   planSet,

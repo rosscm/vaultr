@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { alertsRecent } from './alerts-recent.js';
 import { alertsSettings } from './alerts-settings.js';
-import { previewAlert } from './preview-alert.js';
+import { previewAlert } from './alerts-preview.js';
 
 export const alerts = {
   data: new SlashCommandBuilder()
@@ -101,4 +101,3 @@ export const alerts = {
     if (subcommand === 'preview') return previewAlert.execute(interaction);
   }
 };
-

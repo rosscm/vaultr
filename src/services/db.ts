@@ -106,6 +106,15 @@ db.exec(`
     posted_at TEXT NOT NULL,
     PRIMARY KEY (user_id, week_key)
   );
+
+  CREATE TABLE IF NOT EXISTS alert_feedback (
+    user_id TEXT NOT NULL,
+    chase_id TEXT NOT NULL,
+    listing_id TEXT NOT NULL,
+    feedback TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, chase_id, listing_id)
+  );
 `);
 
 try {
@@ -206,3 +215,4 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_guild_time ON sent_alerts(gu
 db.exec(`CREATE INDEX IF NOT EXISTS idx_ignored_listing_fingerprints_user_chase ON ignored_listing_fingerprints(user_id, chase_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_guild_started_users_guild_time ON guild_started_users(guild_id, started_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_weekly_reflection_posts_user_week ON user_weekly_reflection_posts(user_id, week_key);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_feedback_user_time ON alert_feedback(user_id, created_at);`);

@@ -4,7 +4,7 @@ import { OUTPUT_STYLE } from '../ui/style.js';
 
 export const previewAlert = {
   data: new SlashCommandBuilder()
-    .setName('preview-alert')
+    .setName('alerts-preview')
     .setDescription('Preview your current DM alert format'),
   async execute(interaction: any) {
     const settings = getUserAlertSettings(interaction.user.id);
@@ -12,7 +12,7 @@ export const previewAlert = {
     const title = `🏆 Grail Match Found · eBay`;
     const description =
       `**Umbreon VMAX Alt Art PSA 10**\n` +
-      `Good Match • under max by 60.00 ${currency} • posted 2m ago`;
+      `Good match • under max by 60.00 ${currency} • posted 2m ago`;
 
     const embed = new EmbedBuilder()
       .setColor(0xf59e0b)
@@ -28,7 +28,7 @@ export const previewAlert = {
           `**Total:** 1155.00 ${currency}`,
           '**Posted:** 2m ago',
           '**Source:** eBay',
-          '**Score:** 72 (Good Match)',
+          '**Match Strength:** good (72)',
           '**Risk Level:** low',
           '**Match Signals:** exact card name match, grade match',
           '**Confidence Summary:** good alignment with your chase filters'
@@ -67,7 +67,7 @@ export const previewAlert = {
         {
           name: '🧠 Match Insight',
           value: [
-            '**Score:** 72 (Good Match)',
+            '**Match Strength:** good (72)',
             '**Risk Level:** low',
             '**Match Signals:** exact card name match, grade match',
             '**Confidence Summary:** good alignment with your chase filters'

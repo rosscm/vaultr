@@ -31,7 +31,7 @@ export const help = {
       '- Plan: `/plan` · `/upgrade`',
       '- Setup (Admin): `/setup-channel-set` · `/community-feed` · `/plan-set`',
       '  default for `/community-feed`: `On`',
-      '- Discovery: `/discover` (coming soon)',
+      '- Discovery: `/discover`',
       '',
       '**Troubleshooting**',
       '- If you are not seeing matches, lower `min_score` in `/alerts settings` and broaden your chase filters',

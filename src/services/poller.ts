@@ -36,8 +36,9 @@ import {
   setBackoffUntil,
   setSourceCallsLastMinute
 } from './poller-state.js';
-import { keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
+import { alertFeedbackButtons, keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
+import type { Chase, Listing } from '../types.js';
 
 function formatReasons(reasons: string[]): string {
   return reasons
@@ -127,9 +128,9 @@ function formatMoney(amount: number | undefined, currency: string): string {
 }
 
 function formatDealQuality(score: number): string {
-  if (score >= 85) return 'Strong Match';
-  if (score >= 60) return 'Good Match';
-  return 'Speculative Match';
+  if (score >= 85) return 'strong';
+  if (score >= 60) return 'good';
+  return 'speculative';
 }
 
 function explainDealQuality(score: number): string {
@@ -139,7 +140,7 @@ function explainDealQuality(score: number): string {
 }
 
 function formatScoreWithQuality(score: number): string {
-  return `${score} (${formatDealQuality(score)})`;
+  return `${formatDealQuality(score)} (${score})`;
 }
 
 function truncateTitle(title: string, maxLen = 110): string {
@@ -157,16 +158,9 @@ function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number |
 
 const VAULTR_ALERT_COLOR = 0xf59e0b;
 
-function formatFreshness(postedAt?: string): string {
-  const age = postedAgeSeconds(postedAt);
-  if (age === null) return 'unknown';
-  if (age <= 60 * 60) return 'new';
-  if (age <= 24 * 60 * 60) return 'recent';
-  return 'older';
-}
-
 function summarizeWhyMatched(score: number, listingPrice: number, chaseMax: number | undefined, currency = 'USD', postedAt?: string): string {
   const dealQuality = formatDealQuality(score);
+  const matchLabel = `${dealQuality.charAt(0).toUpperCase()}${dealQuality.slice(1)} match`;
   const pricePart =
     chaseMax === undefined
       ? 'No max set'
@@ -174,7 +168,7 @@ function summarizeWhyMatched(score: number, listingPrice: number, chaseMax: numb
         ? `Under max by ${(chaseMax - listingPrice).toFixed(2)} ${currency}`
         : `Over max by ${(listingPrice - chaseMax).toFixed(2)} ${currency}`;
   const postedPart = `Posted ${formatPostedAge(postedAt)}`;
-  return `${dealQuality} • ${pricePart} • ${postedPart}`;
+  return `${matchLabel} • ${pricePart} • ${postedPart}`;
 }
 
 function isInQuietHours(start: number | undefined, end: number | undefined): boolean {
@@ -240,7 +234,11 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMes
   }
 }
 
-async function fetchListingsWithRetry(chase: any, sourceMode: string): Promise<any[]> {
+function sourceQueryKey(chase: Chase): string {
+  return [chase.cardName.trim().toLowerCase(), chase.grade?.trim().toLowerCase() ?? ''].join('|');
+}
+
+async function fetchListingsWithRetry(chase: Chase, sourceMode: string): Promise<Listing[]> {
   const maxRequestsPerMinute = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '20');
   const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '30');
   const attempts = 2;
@@ -309,13 +307,23 @@ async function runPoll(client: Client): Promise<void> {
     return;
   }
 
+  const activeGroups = new Map<string, Array<{ chase: Chase; settings: ReturnType<typeof getUserAlertSettings> }>>();
   for (const chase of chases) {
     const settings = getUserAlertSettings(chase.userId);
     if (isInQuietHours(settings.quietHoursStart, settings.quietHoursEnd)) continue;
+    const key = sourceQueryKey(chase);
+    const group = activeGroups.get(key) ?? [];
+    group.push({ chase, settings });
+    activeGroups.set(key, group);
+  }
 
-    const listings = await fetchListingsWithRetry(chase, sourceMode);
+  for (const group of activeGroups.values()) {
+    const representative = group[0]?.chase;
+    if (!representative) continue;
+    const listings = await fetchListingsWithRetry(representative, sourceMode);
 
-    for (const listing of listings) {
+    for (const { chase, settings } of group) {
+      for (const listing of listings) {
       const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
       const normalizedListing = {
         ...listing,
@@ -377,7 +385,7 @@ async function runPoll(client: Client): Promise<void> {
               }`,
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Source:** ${sourceLabel}`,
-              `**Score:** ${formatScoreWithQuality(match.score)}`,
+              `**Match Strength:** ${formatScoreWithQuality(match.score)}`,
               `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Match Signals:** ${splitReasons(match.reasons).positive}`,
               `**Confidence Summary:** ${explainDealQuality(match.score)}`
@@ -427,7 +435,7 @@ async function runPoll(client: Client): Promise<void> {
           {
             name: '🧠 Match Insight',
             value: [
-              `**Score:** ${formatScoreWithQuality(match.score)}`,
+              `**Match Strength:** ${formatScoreWithQuality(match.score)}`,
               `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Match Signals:** ${splitReasons(match.reasons).positive}`,
               `**Confidence Summary:** ${explainDealQuality(match.score)}`
@@ -450,7 +458,10 @@ async function runPoll(client: Client): Promise<void> {
       try {
         const user = await client.users.fetch(chase.userId);
         await withTimeout(
-          user.send({ embeds: [embed], components: [listingLinkButton(listing.url)] }),
+          user.send({
+            embeds: [embed],
+            components: [listingLinkButton(listing.url), alertFeedbackButtons(chase.id, listing.listingId)]
+          }),
           10000,
           'DM send timeout'
         );
@@ -471,6 +482,7 @@ async function runPoll(client: Client): Promise<void> {
       } catch (error) {
         console.error(`Failed to send DM alert to user ${chase.userId}`, error);
       }
+    }
     }
   }
 
@@ -525,7 +537,7 @@ function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectio
   if (summary.alertsReceived === 0) {
     return 'Your Vault stayed quiet this week, but your chases kept their place on the shelf.';
   }
-  return `Your Vault surfaced ${pluralize(summary.alertsReceived, 'match', 'matches')} this week. The strongest thread was ${summary.topTasteTheme}.`;
+  return `Your Vault surfaced ${pluralize(summary.alertsReceived, 'match', 'matches')} this week. Your clearest thread was ${summary.topTasteTheme}.`;
 }
 
 function weeklyReflectionNote(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
@@ -604,7 +616,7 @@ async function maybeSendWeeklyReflections(client: Client): Promise<void> {
         .setTitle('🗝️ Weekly Vault Reflection')
         .setDescription(weeklyReflectionIntro(summary))
         .addFields(
-          keyValue('Collector Thread', summary.topTasteTheme),
+          keyValue('Collector Thread', `${summary.topTasteTheme} • ${summary.topTasteFamily}`),
           keyValue('Notable Discovery', truncateForEmbed(summary.recentDiscovery)),
           keyValue('Vault Notes', weeklyReflectionNote(summary))
         );

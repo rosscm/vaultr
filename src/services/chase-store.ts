@@ -231,14 +231,6 @@ const countGuildUsersAlertedTodayStmt = db.prepare(`
   WHERE guild_id = ? AND sent_at >= ?
 `);
 
-const bestGuildPriceDeltaTodayStmt = db.prepare(`
-  SELECT price_delta, listing_currency
-  FROM sent_alerts
-  WHERE guild_id = ? AND sent_at >= ? AND price_delta IS NOT NULL AND price_delta > 0
-  ORDER BY price_delta DESC
-  LIMIT 1
-`);
-
 const hasGuildDailyStatsPostedStmt = db.prepare(`
   SELECT 1
   FROM guild_daily_stats_posts
@@ -312,6 +304,14 @@ const listUserRecentAlertsSinceStmt = db.prepare(`
   WHERE user_id = ? AND sent_at >= ? AND listing_title IS NOT NULL
   ORDER BY sent_at DESC
   LIMIT 25
+`);
+
+const upsertAlertFeedbackStmt = db.prepare(`
+  INSERT INTO alert_feedback (user_id, chase_id, listing_id, feedback, created_at)
+  VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(user_id, chase_id, listing_id) DO UPDATE SET
+    feedback = excluded.feedback,
+    created_at = excluded.created_at
 `);
 
 const insertIgnoredFingerprintStmt = db.prepare(`
@@ -444,6 +444,7 @@ export function getUserWeeklyReflectionSummary(
   alertsReceived: number;
   grailsSurfaced: number;
   newChasesAdded: number;
+  topTasteFamily: string;
   topTasteTheme: string;
   recentDiscovery: string;
 } {
@@ -459,6 +460,7 @@ export function getUserWeeklyReflectionSummary(
     alertsReceived: Number(alertsRow?.count ?? 0),
     grailsSurfaced: Number(grailsRow?.count ?? 0),
     newChasesAdded: Number(chasesRow?.count ?? 0),
+    topTasteFamily: inferFamilyFromText([...titles, ...chases]) ?? 'Mixed collection',
     topTasteTheme: inferThemeFromText([...titles, ...chases]) ?? 'Varied styles',
     recentDiscovery: titles[0] ?? 'No new discoveries this week'
   };
@@ -554,6 +556,15 @@ export function markAlertSentWithDetails(
   } catch {
     return false;
   }
+}
+
+export function recordAlertFeedback(
+  userId: string,
+  chaseId: string,
+  listingId: string,
+  feedback: 'GOOD_MATCH' | 'NOT_FOR_ME'
+): void {
+  upsertAlertFeedbackStmt.run(userId, chaseId, listingId, feedback, new Date().toISOString());
 }
 
 export function setGuildAlertChannel(guildId: string, channelId: string): void {
@@ -818,7 +829,22 @@ export function resetUserAlertSettings(userId: string): UserAlertSettings {
 
 function inferFamilyFromText(values: string[]): string | null {
   const text = values.join(' ').toLowerCase();
-  const families = ['umbreon', 'pikachu', 'charizard', 'rayquaza', 'gengar', 'mew', 'lugia', 'eevee'];
+  const families = [
+    'umbreon',
+    'espeon',
+    'pikachu',
+    'charizard',
+    'rayquaza',
+    'gengar',
+    'mewtwo',
+    'mew',
+    'lugia',
+    'darkrai',
+    'eevee',
+    'squirtle',
+    'bulbasaur',
+    'charmander'
+  ];
   let best: { name: string; count: number } | null = null;
   for (const name of families) {
     const count = text.split(name).length - 1;
@@ -833,9 +859,11 @@ function inferThemeFromText(values: string[]): string | null {
   const text = values.join(' ').toLowerCase();
   const themes: Array<{ label: string; keywords: string[] }> = [
     { label: 'dark atmospheric artwork', keywords: ['dark', 'night', 'moon', 'shadow'] },
-    { label: 'vintage-era cards', keywords: ['vintage', '1st edition', 'wotc', 'neo', 'ex'] },
-    { label: 'japanese exclusives', keywords: ['japanese', 'jp', 'promo', 'poncho'] },
-    { label: 'full-art chase', keywords: ['alt art', 'full art', 'illustration', 'special art'] }
+    { label: 'vintage-era cards', keywords: ['vintage', '1st edition', 'wotc', 'neo', 'ex', 'base set', 'fossil'] },
+    { label: 'Japanese exclusives', keywords: ['japanese', 'jp', 'promo', 'poncho', 'vending', 'web series'] },
+    { label: 'full-art chase cards', keywords: ['alt art', 'full art', 'illustration', 'special art', 'sar', 'sir'] },
+    { label: 'graded slab targets', keywords: ['psa', 'bgs', 'cgc', 'gem mint', 'mint 10'] },
+    { label: 'starter-era nostalgia', keywords: ['squirtle', 'bulbasaur', 'charmander', 'pikachu', 'base set'] }
   ];
   let best: { label: string; count: number } | null = null;
   for (const theme of themes) {

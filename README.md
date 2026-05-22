@@ -13,7 +13,7 @@ Discord-native collector chase assistant.
 
 - Node.js + TypeScript
 - discord.js
-- PostgreSQL (recommended in production)
+- SQLite via `better-sqlite3`
 
 ## Quick Start
 
@@ -30,16 +30,18 @@ Discord-native collector chase assistant.
 
 ## Initial Commands
 
-- `/alerts-settings`
-- `/alerts-settings-reset`
-- `/alerts-recent`
+- `/start`
+- `/chase add`
+- `/chase list`
+- `/chase edit`
+- `/chase remove`
+- `/alerts settings`
+- `/alerts recent`
+- `/alerts preview`
 - `/community-feed` (admin toggle)
-- `/chase-add`
-- `/chase-edit`
-- `/chase-list`
-- `/chase-remove`
-- `/chase-test`
+- `/discover`
 - `/help`
+- `/health` (owner only)
 - `/plan`
 - `/plan-set` (admin/testing)
 - `/setup-channel-set` (admin setup)
@@ -50,7 +52,7 @@ Discord-native collector chase assistant.
 - Default tier is `FREE`
 - `FREE` limit: 3 active chases
 - `PRO` limit: 50 active chases
-- `/chase-add` enforces active chase limits
+- `/chase add` enforces active chase limits
 - `/plan` shows the user's current tier and limits
 - `/plan-set` lets server admins set a user's tier/status for testing
 
@@ -80,6 +82,7 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
   - `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`
   - `EBAY_APP_ID` (if `LISTING_SOURCE=EBAY`)
   - `LISTING_SOURCE`, `POLL_INTERVAL_SECONDS`
+  - `OWNER_USER_ID` (optional, enables owner-only `/health`)
 - Runtime checks pass:
   - `npm run smoke`
 - Commands are registered:
@@ -98,6 +101,7 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 - Set `LISTING_SOURCE=MOCK` to run with local mock listings
 - Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
 - Alerts are delivered by DM to each user
+- Similar active chases share source queries so eBay requests do not scale one-to-one with users
 
 ## eBay Deletion Webhook (Compliance)
 
@@ -175,7 +179,7 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 
 ## Alert Controls
 
-- Per-user controls via `/alerts-settings`
+- Per-user controls via `/alerts settings`
 - `min_score`: drop low-confidence matches
 - `max_alerts_per_hour`: reduce alert bursts
 - `chase_cooldown_minutes`: minimum minutes between alerts for the same chase
@@ -183,13 +187,13 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 - FX conversion uses live USD-based rates with background refresh and fallback to env overrides
 - `quiet_start` / `quiet_end`: suppress alerts during quiet window (server local time)
 - Recommended defaults: `min_score=60`, `max_alerts_per_hour=10`, quiet hours off
-- Use `/alerts-settings-reset` to restore recommended defaults
-- Per-chase blocked terms via `negative_keywords` on `/chase-add` and `/chase-edit`
+- Per-chase blocked terms via `negative_keywords` on `/chase add` and `/chase edit`
 - Default blocked terms on new chases: `proxy, custom, reprint, lot, orica, replica`
 - Per-chase `listing_type` filter: `ANY`, `AUCTION`, or `BUY_IT_NOW`
-- Per-chase `priority`: `NORMAL`, `HIGH`, `GRAIL` (grails are shown first in `/chase-list`)
+- Per-chase `priority`: `NORMAL`, `HIGH`, `GRAIL` (grails are shown first in `/chase list`)
 - Per-chase `target_note`: short personal context shown in grail/match alerts
 - Alert DMs include seller identity/feedback and shipping cost when available from source data
+- Alert DMs include lightweight feedback buttons so users can mark whether a match fit their taste
 
 ## Reliability
 
@@ -202,7 +206,7 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 ## Command Channel Policy
 
 - Admin sets the dedicated bot channel with `/setup-channel-set`
-- All Vaultr commands (except setup itself) must be run in that channel
+- All Vaultr commands (except setup and owner health) must be run in that channel
 - Command responses are user-specific (ephemeral), alerts are DM-only
 - Optional community activity feed can be enabled by admins via `/community-feed`
 - When enabled, Vaultr posts:
@@ -222,6 +226,6 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 
 ## Production Notes
 
-- Replace in-memory storage with Postgres
+- Consider Postgres once Vaultr outgrows a single Pi/host deployment
 - Add queue + worker for source polling and alert fanout
 - Add observability (structured logs, metrics, alerts)

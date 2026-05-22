@@ -45,3 +45,16 @@ export function listingLinkButton(url: string): ActionRowBuilder<ButtonBuilder> 
     new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open Listing').setURL(url)
   );
 }
+
+export function alertFeedbackButtons(chaseId: string, listingId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`alert-feedback:GOOD_MATCH:${chaseId}:${listingId}`)
+      .setLabel('Good Match')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`alert-feedback:NOT_FOR_ME:${chaseId}:${listingId}`)
+      .setLabel('Not For Me')
+      .setStyle(ButtonStyle.Secondary)
+  );
+}

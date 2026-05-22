@@ -91,4 +91,32 @@ describe('matchChaseToListing', () => {
     expect(result.isMatch).toBe(true);
     expect(result.reasons).toContain('card_number_match');
   });
+
+  it('matches when one of several requested conditions matches', () => {
+    const chase = baseChase({ condition: 'LP,NM' });
+    const listing = baseListing({ condition: 'Near Mint' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).toContain('condition_match');
+  });
+
+  it('fails when listing type does not match', () => {
+    const chase = baseChase({ listingType: 'AUCTION' });
+    const listing = baseListing({ listingType: 'BUY_IT_NOW' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(false);
+    expect(result.reasons).toEqual(['listing_type_miss']);
+  });
+
+  it('keeps suspicious terms as risk signals instead of hard failing when not blocked', () => {
+    const chase = baseChase({ negativeKeywords: [] });
+    const listing = baseListing({ title: 'Squirtle PSA 10 custom art card' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).toContain('suspicious_title_penalty');
+    expect(result.reasons.some((reason) => reason.startsWith('suspicious_terms:'))).toBe(true);
+  });
 });
