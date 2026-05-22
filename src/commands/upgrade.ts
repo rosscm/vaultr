@@ -24,6 +24,7 @@ export const upgrade = {
     const lines = [
       `**Free:** ${PLAN_LIMITS.FREE.maxActiveChases} active chases | Checks for new listings every ${PLAN_LIMITS.FREE.pollIntervalSeconds} seconds`,
       `**Pro:** ${PLAN_LIMITS.PRO.maxActiveChases} active chases | Checks for new listings every ${PLAN_LIMITS.PRO.pollIntervalSeconds} seconds`,
+      '**Pro Adds:** advanced alert controls, richer discovery cadence, advanced filtering',
       '**How to Upgrade:** Billing flow coming soon.'
     ];
 

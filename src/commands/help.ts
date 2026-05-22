@@ -26,6 +26,7 @@ export const help = {
       '- Chases: `/chase-add` · `/chase-list` · `/chase-edit` · `/chase-remove` (`entries` accepts one or many values)',
       '- Alerts: `/alerts-settings` · `/alerts-settings-reset` · `/alerts-recent`',
       '  defaults in `/alerts-settings`: `min_score=60`, `max_alerts_per_hour=10`, `chase_cooldown_minutes=30`, `alert_currency=USD`, `show_images=ON`, `compact_mode=OFF`',
+      '  Pro controls: `show_images`, `compact_mode`, `quiet_start`, `quiet_end`',
       '  score meaning: higher score means stronger match confidence based on title and filter alignment',
       '- Plan: `/plan` · `/upgrade`',
       '- Setup (Admin): `/setup-channel-set` · `/community-feed` · `/plan-set`',

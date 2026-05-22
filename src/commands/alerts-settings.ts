@@ -1,6 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
-import { getUserAlertSettings, setUserAlertSettings } from '../services/chase-store.js';
-import { infoEmbed, successEmbed } from '../ui/embeds.js';
+import { getUserAlertSettings, getUserPlan, setUserAlertSettings } from '../services/chase-store.js';
+import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
+import { getEntitlementsForTier } from '../services/entitlements.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { OUTPUT_STYLE } from '../ui/style.js';
 
@@ -74,6 +75,8 @@ export const alertsSettings = {
         )
     ),
   async execute(interaction: any) {
+    const plan = getUserPlan(interaction.user.id);
+    const entitlements = getEntitlementsForTier(plan.tier);
     const minScore = interaction.options.getInteger('min_score');
     const maxAlertsPerHour = interaction.options.getInteger('max_alerts_per_hour');
     const chaseCooldownMinutes = interaction.options.getInteger('chase_cooldown_minutes');
@@ -92,6 +95,25 @@ export const alertsSettings = {
       alertCurrency === null &&
       showImages === null &&
       compactMode === null;
+
+    const isAdvancedAlertControlChange =
+      showImages !== null ||
+      compactMode !== null ||
+      quietStart !== null ||
+      quietEnd !== null;
+
+    if (!noChanges && isAdvancedAlertControlChange && !entitlements.advancedAlertControls) {
+      await interaction.reply({
+        embeds: [
+          warningEmbed(
+            'Pro Feature',
+            'Advanced alert controls are available on Pro\n\n**Includes:** images toggle, compact mode, quiet hours\n**Next:** use `/upgrade` to unlock'
+          )
+        ],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
 
     const settings = noChanges
       ? getUserAlertSettings(interaction.user.id)

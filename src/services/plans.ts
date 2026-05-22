@@ -1,13 +1,14 @@
 import type { PlanTier } from '../types.js';
+import { getEntitlementsForTier } from './entitlements.js';
 
 export const PLAN_LIMITS: Record<PlanTier, { maxActiveChases: number; pollIntervalSeconds: number }> = {
   FREE: {
-    maxActiveChases: 3,
-    pollIntervalSeconds: 180
+    maxActiveChases: getEntitlementsForTier('FREE').maxActiveChases,
+    pollIntervalSeconds: getEntitlementsForTier('FREE').pollIntervalSeconds
   },
   PRO: {
-    maxActiveChases: 50,
-    pollIntervalSeconds: 30
+    maxActiveChases: getEntitlementsForTier('PRO').maxActiveChases,
+    pollIntervalSeconds: getEntitlementsForTier('PRO').pollIntervalSeconds
   }
 };
 
