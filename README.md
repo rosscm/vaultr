@@ -207,7 +207,18 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 - Optional community activity feed can be enabled by admins via `/community-feed`
 - When enabled, Vaultr posts:
   - One-time first-chase unlock message per user
-  - Daily `Vaultr Stats` digest in the setup channel
+  - Daily `Vault Pulse` collector bulletin in the setup channel
+  - Weekly personal `Vault Reflection` journal DM to active users
+
+### Digest Schedule Config
+
+- `COMMUNITY_STATS_DAILY_ENABLED` (default `true`)
+- `COMMUNITY_STATS_DAILY_HOUR_LOCAL` (default `20`)
+- `COMMUNITY_STATS_DAILY_MINUTE_LOCAL` (default `0`)
+- `WEEKLY_REFLECTION_ENABLED` (default `true`)
+- `WEEKLY_REFLECTION_DAY_LOCAL` (default `0`, Sunday)
+- `WEEKLY_REFLECTION_HOUR_LOCAL` (default `11`)
+- `WEEKLY_REFLECTION_MINUTE_LOCAL` (default `0`)
 
 ## Production Notes
 

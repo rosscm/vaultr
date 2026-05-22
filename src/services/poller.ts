@@ -1,15 +1,19 @@
 import { Client, EmbedBuilder } from 'discord.js';
 import {
   getGuildCommunityStatsToday,
+  getUserWeeklyReflectionSummary,
   countChaseAlertsWithinMinutes,
   countUserAlertsInLastHour,
   getUserAlertSettings,
   getGuildCommunityFeedMode,
   hasAlertBeenSent,
   hasPostedGuildDailyStats,
+  hasPostedUserWeeklyReflection,
   listGuildCommandChannels,
+  listUsersWithChases,
   listAllChases,
   markPostedGuildDailyStats,
+  markPostedUserWeeklyReflection,
   markAlertSentWithDetails
 } from './chase-store.js';
 import { searchEbayListings } from './ebay.js';
@@ -480,6 +484,58 @@ function currentDayKeyLocal(now = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+function currentWeekKeyLocal(now = new Date()): string {
+  const local = new Date(now);
+  const day = local.getDay();
+  const shiftToMonday = day === 0 ? -6 : 1 - day;
+  local.setDate(local.getDate() + shiftToMonday);
+  const y = local.getFullYear();
+  const m = String(local.getMonth() + 1).padStart(2, '0');
+  const d = String(local.getDate()).padStart(2, '0');
+  return `${y}-W-${m}-${d}`;
+}
+
+function localStartOfWeekIso(now = new Date()): string {
+  const local = new Date(now);
+  const day = local.getDay();
+  const shiftToMonday = day === 0 ? -6 : 1 - day;
+  local.setDate(local.getDate() + shiftToMonday);
+  local.setHours(0, 0, 0, 0);
+  return local.toISOString();
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function truncateForEmbed(value: string, maxLength = 200): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+}
+
+function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
+  const parts: string[] = [];
+  if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'collector')} opened a Vault`);
+  if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received a match`);
+  if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
+  if (parts.length === 0) return 'A quiet day in the Vault. Chases are still watching in the background.';
+  return parts.join(' • ');
+}
+
+function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
+  if (summary.alertsReceived === 0) {
+    return 'Your Vault stayed quiet this week, but your chases kept their place on the shelf.';
+  }
+  return `Your Vault surfaced ${pluralize(summary.alertsReceived, 'match', 'matches')} this week. The strongest thread was ${summary.topTasteTheme}.`;
+}
+
+function weeklyReflectionNote(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
+  const notes: string[] = [];
+  if (summary.newChasesAdded > 0) notes.push(`You added ${pluralize(summary.newChasesAdded, 'new chase')}`);
+  if (summary.grailsSurfaced > 0) notes.push(`${pluralize(summary.grailsSurfaced, 'grail')} surfaced`);
+  if (notes.length === 0) return 'No major shifts this week. Your existing chases kept watch.';
+  return notes.join(' • ');
+}
+
 async function maybePostDailyCommunityStats(client: Client): Promise<void> {
   const enabled = (process.env.COMMUNITY_STATS_DAILY_ENABLED ?? 'true').toLowerCase() !== 'false';
   if (!enabled) return;
@@ -501,22 +557,63 @@ async function maybePostDailyCommunityStats(client: Client): Promise<void> {
     if (!channel || !('send' in channel)) continue;
 
     const stats = getGuildCommunityStatsToday(guildId);
-    const bestDelta = stats.bestPriceDelta
-      ? `${stats.bestPriceDelta.amount.toFixed(2)} ${stats.bestPriceDelta.currency}`
-      : 'none';
-
     await channel.send(
       [
-        '📊 **Vaultr Stats**',
-        '**Today**',
-        `• **New Vaultrs:** ${stats.newVaultrs}`,
-        `• **Users Alerted:** ${stats.usersAlerted}`,
-        `• **Matches:** ${stats.matches}`,
-        `• **Best Price Delta:** ${bestDelta}`
+        '🗝️ **Vault Pulse — Today**',
+        dailyPulseLine(stats),
+        '',
+        '**Collector Current**',
+        `• Theme: ${stats.topTrackedTheme}`,
+        `• Family: ${stats.topTrackedFamily}`,
+        '',
+        '**Shelf Note**',
+        `• ${stats.hiddenDiscovery}`
       ].join('\n')
     );
 
     markPostedGuildDailyStats(guildId, dayKey);
+  }
+}
+
+async function maybeSendWeeklyReflections(client: Client): Promise<void> {
+  const enabled = (process.env.WEEKLY_REFLECTION_ENABLED ?? 'true').toLowerCase() !== 'false';
+  if (!enabled) return;
+
+  const targetDay = Number(process.env.WEEKLY_REFLECTION_DAY_LOCAL ?? '0');
+  const hour = Number(process.env.WEEKLY_REFLECTION_HOUR_LOCAL ?? '11');
+  const minute = Number(process.env.WEEKLY_REFLECTION_MINUTE_LOCAL ?? '0');
+  const now = new Date();
+  if (now.getDay() !== targetDay || now.getHours() !== hour || now.getMinutes() !== minute) return;
+
+  const weekKey = currentWeekKeyLocal(now);
+  const sinceIso = localStartOfWeekIso(now);
+  const userIds = listUsersWithChases();
+
+  for (const userId of userIds) {
+    if (hasPostedUserWeeklyReflection(userId, weekKey)) continue;
+    const summary = getUserWeeklyReflectionSummary(userId, sinceIso);
+    if (summary.alertsReceived === 0 && summary.newChasesAdded === 0) {
+      markPostedUserWeeklyReflection(userId, weekKey);
+      continue;
+    }
+
+    try {
+      const user = await client.users.fetch(userId);
+      const embed = new EmbedBuilder()
+        .setColor(0xf59e0b)
+        .setTitle('🗝️ Weekly Vault Reflection')
+        .setDescription(weeklyReflectionIntro(summary))
+        .addFields(
+          keyValue('Collector Thread', summary.topTasteTheme),
+          keyValue('Notable Discovery', truncateForEmbed(summary.recentDiscovery)),
+          keyValue('Vault Notes', weeklyReflectionNote(summary))
+        );
+
+      await user.send({ embeds: [embed] });
+      markPostedUserWeeklyReflection(userId, weekKey);
+    } catch (error) {
+      console.error(`Failed to send weekly reflection to user ${userId}`, error);
+    }
   }
 }
 
@@ -546,6 +643,10 @@ export function startPoller(client: Client): void {
 
   setInterval(() => {
     void maybePostDailyCommunityStats(client);
+  }, 60 * 1000);
+
+  setInterval(() => {
+    void maybeSendWeeklyReflections(client);
   }, 60 * 1000);
 
   void runWithGuard();

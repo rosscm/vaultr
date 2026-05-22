@@ -251,6 +251,69 @@ const insertGuildDailyStatsPostedStmt = db.prepare(`
   VALUES (?, ?, ?)
 `);
 
+const hasUserWeeklyReflectionPostedStmt = db.prepare(`
+  SELECT 1
+  FROM user_weekly_reflection_posts
+  WHERE user_id = ? AND week_key = ?
+  LIMIT 1
+`);
+
+const insertUserWeeklyReflectionPostedStmt = db.prepare(`
+  INSERT OR IGNORE INTO user_weekly_reflection_posts (user_id, week_key, posted_at)
+  VALUES (?, ?, ?)
+`);
+
+const listGuildChaseNamesStmt = db.prepare(`
+  SELECT card_name
+  FROM chases
+  WHERE guild_id = ?
+`);
+
+const listGuildRecentAlertTitlesStmt = db.prepare(`
+  SELECT listing_title
+  FROM sent_alerts
+  WHERE guild_id = ? AND sent_at >= ? AND listing_title IS NOT NULL
+`);
+
+const countGuildGrailAlertsTodayStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM sent_alerts s
+  INNER JOIN chases c ON c.id = s.chase_id
+  WHERE s.guild_id = ? AND s.sent_at >= ? AND c.priority = 'GRAIL'
+`);
+
+const listUsersWithChasesStmt = db.prepare(`
+  SELECT DISTINCT user_id
+  FROM chases
+`);
+
+const countUserAlertsSinceStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM sent_alerts
+  WHERE user_id = ? AND sent_at >= ?
+`);
+
+const countUserGrailAlertsSinceStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM sent_alerts s
+  INNER JOIN chases c ON c.id = s.chase_id
+  WHERE s.user_id = ? AND s.sent_at >= ? AND c.priority = 'GRAIL'
+`);
+
+const countUserNewChasesSinceStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM chases
+  WHERE user_id = ? AND created_at >= ?
+`);
+
+const listUserRecentAlertsSinceStmt = db.prepare(`
+  SELECT listing_title
+  FROM sent_alerts
+  WHERE user_id = ? AND sent_at >= ? AND listing_title IS NOT NULL
+  ORDER BY sent_at DESC
+  LIMIT 25
+`);
+
 const insertIgnoredFingerprintStmt = db.prepare(`
   INSERT OR IGNORE INTO ignored_listing_fingerprints (user_id, chase_id, fingerprint, created_at)
   VALUES (?, ?, ?, ?)
@@ -321,28 +384,31 @@ export function getGuildCommunityStatsToday(guildId: string): {
   newVaultrs: number;
   usersAlerted: number;
   matches: number;
-  bestPriceDelta?: { amount: number; currency: string };
+  grailsSurfaced: number;
+  topTrackedFamily: string;
+  topTrackedTheme: string;
+  hiddenDiscovery: string;
 } {
   const now = new Date();
   const localDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
   const newVaultrs = countGuildStartedUsersToday(guildId);
   const usersRow = countGuildUsersAlertedTodayStmt.get(guildId, localDayStart) as { count: number };
   const matchesRow = countGuildAlertsTodayStmt.get(guildId, localDayStart) as { count: number };
-  const bestRow = bestGuildPriceDeltaTodayStmt.get(guildId, localDayStart) as
-    | { price_delta: number; listing_currency: string | null }
-    | undefined;
+  const grailsRow = countGuildGrailAlertsTodayStmt.get(guildId, localDayStart) as { count: number };
+  const chaseNames = (listGuildChaseNamesStmt.all(guildId) as Array<{ card_name: string }>).map((row) => row.card_name);
+  const alertTitles = (
+    listGuildRecentAlertTitlesStmt.all(guildId, localDayStart) as Array<{ listing_title: string }>
+  ).map((row) => row.listing_title);
+  const collectorText = [...chaseNames, ...alertTitles];
 
   return {
     newVaultrs,
     usersAlerted: Number(usersRow?.count ?? 0),
     matches: Number(matchesRow?.count ?? 0),
-    bestPriceDelta:
-      bestRow && Number.isFinite(bestRow.price_delta)
-        ? {
-            amount: Number(bestRow.price_delta),
-            currency: bestRow.listing_currency ?? 'USD'
-          }
-        : undefined
+    grailsSurfaced: Number(grailsRow?.count ?? 0),
+    topTrackedFamily: inferFamilyFromText(collectorText) ?? 'Mixed collections',
+    topTrackedTheme: inferThemeFromText(collectorText) ?? 'Varied styles',
+    hiddenDiscovery: alertTitles[0] ?? 'No fresh spotlight yet'
   };
 }
 
@@ -354,6 +420,48 @@ export function hasPostedGuildDailyStats(guildId: string, dayKey: string): boole
 export function markPostedGuildDailyStats(guildId: string, dayKey: string): boolean {
   const result = insertGuildDailyStatsPostedStmt.run(guildId, dayKey, new Date().toISOString());
   return result.changes > 0;
+}
+
+export function hasPostedUserWeeklyReflection(userId: string, weekKey: string): boolean {
+  const row = hasUserWeeklyReflectionPostedStmt.get(userId, weekKey) as { 1: number } | undefined;
+  return !!row;
+}
+
+export function markPostedUserWeeklyReflection(userId: string, weekKey: string): boolean {
+  const result = insertUserWeeklyReflectionPostedStmt.run(userId, weekKey, new Date().toISOString());
+  return result.changes > 0;
+}
+
+export function listUsersWithChases(): string[] {
+  const rows = listUsersWithChasesStmt.all() as Array<{ user_id: string }>;
+  return rows.map((row) => row.user_id);
+}
+
+export function getUserWeeklyReflectionSummary(
+  userId: string,
+  sinceIso: string
+): {
+  alertsReceived: number;
+  grailsSurfaced: number;
+  newChasesAdded: number;
+  topTasteTheme: string;
+  recentDiscovery: string;
+} {
+  const alertsRow = countUserAlertsSinceStmt.get(userId, sinceIso) as { count: number };
+  const grailsRow = countUserGrailAlertsSinceStmt.get(userId, sinceIso) as { count: number };
+  const chasesRow = countUserNewChasesSinceStmt.get(userId, sinceIso) as { count: number };
+  const titles = (listUserRecentAlertsSinceStmt.all(userId, sinceIso) as Array<{ listing_title: string }>).map(
+    (row) => row.listing_title
+  );
+  const chases = listChases(userId).map((chase) => chase.cardName);
+
+  return {
+    alertsReceived: Number(alertsRow?.count ?? 0),
+    grailsSurfaced: Number(grailsRow?.count ?? 0),
+    newChasesAdded: Number(chasesRow?.count ?? 0),
+    topTasteTheme: inferThemeFromText([...titles, ...chases]) ?? 'Varied styles',
+    recentDiscovery: titles[0] ?? 'No new discoveries this week'
+  };
 }
 
 export function listAllChases(): Chase[] {
@@ -706,4 +814,34 @@ export function resetUserAlertSettings(userId: string): UserAlertSettings {
     compactMode: false,
     updatedAt: now
   };
+}
+
+function inferFamilyFromText(values: string[]): string | null {
+  const text = values.join(' ').toLowerCase();
+  const families = ['umbreon', 'pikachu', 'charizard', 'rayquaza', 'gengar', 'mew', 'lugia', 'eevee'];
+  let best: { name: string; count: number } | null = null;
+  for (const name of families) {
+    const count = text.split(name).length - 1;
+    if (count <= 0) continue;
+    if (!best || count > best.count) best = { name, count };
+  }
+  if (!best) return null;
+  return `${best.name.charAt(0).toUpperCase()}${best.name.slice(1)} line`;
+}
+
+function inferThemeFromText(values: string[]): string | null {
+  const text = values.join(' ').toLowerCase();
+  const themes: Array<{ label: string; keywords: string[] }> = [
+    { label: 'dark atmospheric artwork', keywords: ['dark', 'night', 'moon', 'shadow'] },
+    { label: 'vintage-era cards', keywords: ['vintage', '1st edition', 'wotc', 'neo', 'ex'] },
+    { label: 'japanese exclusives', keywords: ['japanese', 'jp', 'promo', 'poncho'] },
+    { label: 'full-art chase', keywords: ['alt art', 'full art', 'illustration', 'special art'] }
+  ];
+  let best: { label: string; count: number } | null = null;
+  for (const theme of themes) {
+    const count = theme.keywords.reduce((sum, keyword) => sum + (text.split(keyword).length - 1), 0);
+    if (count <= 0) continue;
+    if (!best || count > best.count) best = { label: theme.label, count };
+  }
+  return best?.label ?? null;
 }
