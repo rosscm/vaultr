@@ -26,6 +26,7 @@ function tokenOverlapRatio(needle: string[], haystack: string[]): number {
 }
 
 function extractCardNumbers(text: string): string[] {
+  const raw = text.toLowerCase();
   const normalized = normalize(text);
   const out = new Set<string>();
 
@@ -36,7 +37,7 @@ function extractCardNumbers(text: string): string[] {
   }
 
   // Patterns like #55, no.55, no 55
-  const hashMatches = normalized.match(/(?:#|no\.?\s*)\d{1,4}\b/g) ?? [];
+  const hashMatches = raw.match(/(?:#|no\.?\s*)\d{1,4}\b/g) ?? [];
   for (const m of hashMatches) {
     const digits = m.match(/\d{1,4}/)?.[0];
     if (digits) out.add(`#${digits}`);
