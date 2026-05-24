@@ -72,6 +72,17 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
    - `sudo systemctl status vaultr`
    - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/vaultr.log`
 
+### Log Rotation
+
+Vaultr services write append-only logs under `data/logs`. Install the included logrotate config on the Pi to prevent stale logs from growing forever:
+
+```sh
+sudo cp deploy/vaultr.logrotate /etc/logrotate.d/vaultr
+sudo logrotate -d /etc/logrotate.d/vaultr
+```
+
+The default keeps 8 weekly compressed rotations and uses `copytruncate` so the running services do not need to restart during rotation.
+
 ### Pi Deploy Checklist
 
 - Repo is up to date:

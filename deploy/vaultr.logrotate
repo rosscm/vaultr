@@ -1,0 +1,10 @@
+/home/pi/Documents/GitHub/vaultr/data/logs/*.log {
+  weekly
+  rotate 8
+  compress
+  delaycompress
+  missingok
+  notifempty
+  copytruncate
+  create 0644 pi pi
+}
