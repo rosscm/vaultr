@@ -12,7 +12,7 @@ export const previewAlert = {
     const title = `🏆 Grail Match Found · eBay`;
     const description =
       `**Umbreon VMAX Alt Art PSA 10**\n` +
-      `Good match • under max by 60.00 ${currency} • posted 2m ago`;
+      `Good match • under max by 45.00 ${currency} • posted 2m ago`;
 
     const embed = new EmbedBuilder()
       .setColor(0xf59e0b)
@@ -48,7 +48,7 @@ export const previewAlert = {
             `**Price:** 1140.00 ${currency}`,
             `**Shipping:** 15.00 ${currency}`,
             `**Total:** 1155.00 ${currency}`,
-            `**Price vs Max:** 60.00 ${currency} under max`,
+            `**Total vs Max:** 45.00 ${currency} under max`,
             '**Listing Type:** Buy It Now'
           ].join('\n'),
           inline: false

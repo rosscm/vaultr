@@ -47,6 +47,24 @@ describe('matchChaseToListing', () => {
     expect(result.reasons).toEqual(['price_over_max']);
   });
 
+  it('uses price plus shipping for max price when shipping is known', () => {
+    const chase = baseChase({ maxPrice: 105 });
+    const listing = baseListing({ price: 100, shippingCost: 10 });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(false);
+    expect(result.reasons).toEqual(['price_over_max']);
+  });
+
+  it('falls back to item price for max price when shipping is unknown', () => {
+    const chase = baseChase({ maxPrice: 105 });
+    const listing = baseListing({ price: 100, shippingCost: undefined });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).toContain('price_within_max');
+  });
+
   it('fails when grade does not match', () => {
     const chase = baseChase({ grade: 'PSA 9' });
     const listing = baseListing({ title: 'Squirtle PSA 10 Base Set' });

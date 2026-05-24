@@ -74,6 +74,10 @@ function clampScore(score: number): number {
   return Math.max(0, Math.min(100, score));
 }
 
+function comparablePrice(listing: Listing): number {
+  return listing.shippingCost === undefined ? listing.price : listing.price + listing.shippingCost;
+}
+
 export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult {
   const reasons: string[] = [];
   let score = 0;
@@ -146,7 +150,7 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
   }
 
   if (chase.maxPrice !== undefined) {
-    if (listing.price <= chase.maxPrice) {
+    if (comparablePrice(listing) <= chase.maxPrice) {
       score += 15;
       reasons.push('price_within_max');
     } else {

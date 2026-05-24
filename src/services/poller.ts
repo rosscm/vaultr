@@ -100,9 +100,13 @@ function postedAgeSeconds(postedAt: string | undefined): number | null {
   return Math.max(0, Math.floor((Date.now() - then) / 1000));
 }
 
-function formatPriceVsMax(listingPrice: number, chaseMax: number | undefined, currency: string): string {
+function comparablePrice(price: number, shippingCost: number | undefined): number {
+  return shippingCost === undefined || Number.isNaN(shippingCost) ? price : price + shippingCost;
+}
+
+function formatPriceVsMax(listingPrice: number, shippingCost: number | undefined, chaseMax: number | undefined, currency: string): string {
   if (chaseMax === undefined) return 'No max set';
-  const diff = chaseMax - listingPrice;
+  const diff = chaseMax - comparablePrice(listingPrice, shippingCost);
   if (diff >= 0) return `${Math.abs(diff).toFixed(2)} ${currency} under max`;
   return `${Math.abs(diff).toFixed(2)} ${currency} over max`;
 }
@@ -158,15 +162,23 @@ function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number |
 
 const VAULTR_ALERT_COLOR = 0xf59e0b;
 
-function summarizeWhyMatched(score: number, listingPrice: number, chaseMax: number | undefined, currency = 'USD', postedAt?: string): string {
+function summarizeWhyMatched(
+  score: number,
+  listingPrice: number,
+  shippingCost: number | undefined,
+  chaseMax: number | undefined,
+  currency = 'USD',
+  postedAt?: string
+): string {
   const dealQuality = formatDealQuality(score);
   const matchLabel = `${dealQuality.charAt(0).toUpperCase()}${dealQuality.slice(1)} match`;
+  const total = comparablePrice(listingPrice, shippingCost);
   const pricePart =
     chaseMax === undefined
       ? 'No max set'
-      : listingPrice <= chaseMax
-        ? `Under max by ${(chaseMax - listingPrice).toFixed(2)} ${currency}`
-        : `Over max by ${(listingPrice - chaseMax).toFixed(2)} ${currency}`;
+      : total <= chaseMax
+        ? `Under max by ${(chaseMax - total).toFixed(2)} ${currency}`
+        : `Over max by ${(total - chaseMax).toFixed(2)} ${currency}`;
   const postedPart = `Posted ${formatPostedAge(postedAt)}`;
   return `${matchLabel} • ${pricePart} • ${postedPart}`;
 }
@@ -368,7 +380,14 @@ async function runPoll(client: Client): Promise<void> {
         .setColor(VAULTR_ALERT_COLOR)
         .setTitle(`${chase.priority === 'GRAIL' ? '🏆 Grail Match Found' : '🚨 Chase Match Found'} · ${sourceLabel}`)
         .setDescription(
-          `**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(match.score, normalizedListing.price, chase.maxPrice, targetCurrency, listing.postedAt)}`
+          `**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(
+            match.score,
+            normalizedListing.price,
+            normalizedListing.shippingCost,
+            chase.maxPrice,
+            targetCurrency,
+            listing.postedAt
+          )}`
         );
 
       if (settings.compactMode) {
@@ -414,7 +433,12 @@ async function runPoll(client: Client): Promise<void> {
                   ? formatMoney(formatTotalCost(normalizedListing.price, normalizedListing.shippingCost), targetCurrency)
                   : 'Unknown'
               }`,
-              `**Price vs Max:** ${formatPriceVsMax(normalizedListing.price, chase.maxPrice, targetCurrency)}`,
+              `**Total vs Max:** ${formatPriceVsMax(
+                normalizedListing.price,
+                normalizedListing.shippingCost,
+                chase.maxPrice,
+                targetCurrency
+              )}`,
               `**Listing Type:** ${formatListingType(normalizedListing.listingType)}`
             ].join('\n'),
             inline: false
@@ -471,8 +495,9 @@ async function runPoll(client: Client): Promise<void> {
           listingPrice: normalizedListing.price,
           listingCurrency: targetCurrency,
           priceDelta:
-            chase.maxPrice !== undefined && normalizedListing.price <= chase.maxPrice
-              ? Number((chase.maxPrice - normalizedListing.price).toFixed(2))
+            chase.maxPrice !== undefined &&
+            comparablePrice(normalizedListing.price, normalizedListing.shippingCost) <= chase.maxPrice
+              ? Number((chase.maxPrice - comparablePrice(normalizedListing.price, normalizedListing.shippingCost)).toFixed(2))
               : undefined,
           listingUrl: listing.url,
           matchScore: match.score

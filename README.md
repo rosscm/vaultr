@@ -184,6 +184,7 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 - `max_alerts_per_hour`: reduce alert bursts
 - `chase_cooldown_minutes`: minimum minutes between alerts for the same chase
 - `alert_currency`: currency used in alert pricing and max-price comparisons (`USD`, `CAD`, `EUR`, `GBP`, `JPY`)
+- `max_price` compares against total cost when shipping is known, and item price when shipping is unavailable
 - FX conversion uses live USD-based rates with background refresh and fallback to env overrides
 - `quiet_start` / `quiet_end`: suppress alerts during quiet window (server local time)
 - Recommended defaults: `min_score=60`, `max_alerts_per_hour=10`, quiet hours off
