@@ -55,6 +55,9 @@ function formatReasons(reasons: string[]): string {
       if (r === 'card_number_match') return 'card number match';
       if (r === 'price_within_max') return 'within your max';
       if (r === 'seller_quality_boost') return 'high seller feedback';
+      if (r === 'new_seller_penalty') return 'new or unrated seller';
+      if (r === 'low_seller_feedback_count_penalty') return 'limited seller history';
+      if (r === 'low_seller_feedback_percent_penalty') return 'lower seller feedback';
       if (r === 'low_token_overlap_penalty') return 'low token overlap';
       if (r === 'suspicious_title_penalty') return 'suspicious title terms';
       return r.replaceAll('_', ' ');
@@ -102,6 +105,11 @@ function postedAgeSeconds(postedAt: string | undefined): number | null {
 
 function comparablePrice(price: number, shippingCost: number | undefined): number {
   return shippingCost === undefined || Number.isNaN(shippingCost) ? price : price + shippingCost;
+}
+
+function maxAlertsPerChasePerPoll(): number {
+  const value = Number(process.env.MAX_ALERTS_PER_CHASE_PER_POLL ?? '3');
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 3;
 }
 
 function formatPriceVsMax(listingPrice: number, shippingCost: number | undefined, chaseMax: number | undefined, currency: string): string {
@@ -153,10 +161,13 @@ function truncateTitle(title: string, maxLen = 110): string {
 }
 
 function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number | undefined): 'low' | 'medium' | 'high' {
-  const hasSuspiciousTerms = matchReasons.some((r) => r.startsWith('suspicious_terms:') || r.includes('penalty'));
+  const hasListingRisk = matchReasons.some(
+    (r) => r.startsWith('suspicious_terms:') || r === 'suspicious_title_penalty' || r === 'low_token_overlap_penalty'
+  );
+  const hasSellerRisk = matchReasons.some((r) => r.includes('seller') && r.includes('penalty'));
   const sellerWeak = sellerFeedbackPercent !== undefined && sellerFeedbackPercent < 95;
-  if (hasSuspiciousTerms && sellerWeak) return 'high';
-  if (hasSuspiciousTerms || sellerWeak) return 'medium';
+  if (hasListingRisk && (sellerWeak || hasSellerRisk)) return 'high';
+  if (hasListingRisk || sellerWeak || hasSellerRisk) return 'medium';
   return 'low';
 }
 
@@ -335,6 +346,17 @@ async function runPoll(client: Client): Promise<void> {
     const listings = await fetchListingsWithRetry(representative, sourceMode);
 
     for (const { chase, settings } of group) {
+      if (settings.chaseCooldownMinutes > 0) {
+        const recentForChase = countChaseAlertsWithinMinutes(chase.userId, chase.id, settings.chaseCooldownMinutes);
+        if (recentForChase > 0) {
+          markChaseCooldownSuppression();
+          continue;
+        }
+      }
+
+      let sentForChaseThisPoll = 0;
+      const maxForChaseThisPoll = maxAlertsPerChasePerPoll();
+
       for (const listing of listings) {
       const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
       const normalizedListing = {
@@ -354,12 +376,9 @@ async function runPoll(client: Client): Promise<void> {
         markMinScoreSuppression();
         continue;
       }
-      if (settings.chaseCooldownMinutes > 0) {
-        const recentForChase = countChaseAlertsWithinMinutes(chase.userId, chase.id, settings.chaseCooldownMinutes);
-        if (recentForChase > 0) {
-          markChaseCooldownSuppression();
-          continue;
-        }
+      if (sentForChaseThisPoll >= maxForChaseThisPoll) {
+        markChaseCooldownSuppression();
+        continue;
       }
 
       if (countUserAlertsInLastHour(chase.userId) >= settings.maxAlertsPerHour) {
@@ -503,6 +522,7 @@ async function runPoll(client: Client): Promise<void> {
           matchScore: match.score
         });
         if (listingFingerprint) markFingerprintSeen(chase.id, listingFingerprint, nowMs);
+        sentForChaseThisPoll += 1;
         markPollerMatchSent();
       } catch (error) {
         console.error(`Failed to send DM alert to user ${chase.userId}`, error);

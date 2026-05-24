@@ -137,4 +137,27 @@ describe('matchChaseToListing', () => {
     expect(result.reasons).toContain('suspicious_title_penalty');
     expect(result.reasons.some((reason) => reason.startsWith('suspicious_terms:'))).toBe(true);
   });
+
+  it('penalizes unrated sellers without blocking the match', () => {
+    const chase = baseChase();
+    const trustedListing = baseListing({ sellerFeedbackPercent: 100, sellerFeedbackScore: 250 });
+    const unratedListing = baseListing({ sellerFeedbackPercent: 0, sellerFeedbackScore: 0 });
+
+    const trustedResult = matchChaseToListing(chase, trustedListing);
+    const unratedResult = matchChaseToListing(chase, unratedListing);
+
+    expect(unratedResult.isMatch).toBe(true);
+    expect(unratedResult.reasons).toContain('new_seller_penalty');
+    expect(unratedResult.score).toBeLessThan(trustedResult.score);
+  });
+
+  it('does not boost high percentage sellers with too little history', () => {
+    const chase = baseChase();
+    const listing = baseListing({ sellerFeedbackPercent: 100, sellerFeedbackScore: 8 });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).toContain('low_seller_feedback_count_penalty');
+    expect(result.reasons).not.toContain('seller_quality_boost');
+  });
 });

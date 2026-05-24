@@ -119,6 +119,7 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 - Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
 - Alerts are delivered by DM to each user
 - Similar active chases share source queries so eBay requests do not scale one-to-one with users
+- `MAX_ALERTS_PER_CHASE_PER_POLL` caps how many distinct matches one chase can send from a single listing check (default `3`)
 
 ### eBay Rate Limit Notes
 

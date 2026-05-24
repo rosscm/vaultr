@@ -166,8 +166,26 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     }
   }
 
-  // Seller quality boost for trusted accounts.
-  if ((listing.sellerFeedbackPercent ?? 0) >= 99) {
+  const sellerFeedbackPercent = listing.sellerFeedbackPercent;
+  const sellerFeedbackScore = listing.sellerFeedbackScore;
+  if (sellerFeedbackScore !== undefined && sellerFeedbackScore <= 0) {
+    score -= 15;
+    reasons.push('new_seller_penalty');
+  } else if (sellerFeedbackScore !== undefined && sellerFeedbackScore < 10) {
+    score -= 10;
+    reasons.push('low_seller_feedback_count_penalty');
+  } else if (sellerFeedbackPercent !== undefined && sellerFeedbackPercent < 95) {
+    score -= 8;
+    reasons.push('low_seller_feedback_percent_penalty');
+  }
+
+  // Seller quality boost for established trusted accounts.
+  if (
+    sellerFeedbackPercent !== undefined &&
+    sellerFeedbackPercent >= 99 &&
+    sellerFeedbackScore !== undefined &&
+    sellerFeedbackScore >= 50
+  ) {
     score += 5;
     reasons.push('seller_quality_boost');
   }
