@@ -94,7 +94,7 @@ function isFindingRateLimitError(json: any): boolean {
 function isBrowseRateLimitError(response: Response, json: any): boolean {
   if (response.status === 429) return true;
   const errors = Array.isArray(json?.errors) ? json.errors : [];
-  return errors.some((error) => /rate|limit|quota/i.test(`${error?.errorId ?? ''} ${error?.category ?? ''} ${error?.message ?? ''}`));
+  return errors.some((error: any) => /rate|limit|quota/i.test(`${error?.errorId ?? ''} ${error?.category ?? ''} ${error?.message ?? ''}`));
 }
 
 async function parseJsonResponse(response: Response): Promise<any> {
