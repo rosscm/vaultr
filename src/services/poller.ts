@@ -271,7 +271,7 @@ async function fetchListingsWithRetry(chase: Chase, sourceMode: string): Promise
       return listings;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('429')) {
+      if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
         const backoffMs = backoffBaseSeconds * 1000 * attempt;
         backoffUntilMs = Date.now() + backoffMs;
         setBackoffUntil(new Date(backoffUntilMs));

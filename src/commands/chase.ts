@@ -55,7 +55,7 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Personal note (why this matters to you)').setMaxLength(120)
+          opt.setName('target_note').setDescription('Optional chase note').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>
@@ -104,7 +104,7 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Updated personal note (up to 120 chars) (default: keep current)').setMaxLength(120)
+          opt.setName('target_note').setDescription('Updated chase note (default: keep current)').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>
@@ -135,4 +135,3 @@ export const chase = {
     if (subcommand === 'remove') return chaseRemove.execute(interaction);
   }
 };
-

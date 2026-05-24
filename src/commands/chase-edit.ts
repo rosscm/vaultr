@@ -52,7 +52,7 @@ export const chaseEdit = {
         )
     )
     .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Updated personal note (up to 120 chars) (default: keep current)').setMaxLength(120)
+      opt.setName('target_note').setDescription('Updated chase note (default: keep current)').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const entry = interaction.options.getInteger('entry', true);

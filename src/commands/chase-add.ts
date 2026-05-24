@@ -66,7 +66,7 @@ export const chaseAdd = {
         )
     )
     .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Personal note (why this matters to you)').setMaxLength(120)
+      opt.setName('target_note').setDescription('Optional chase note').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);

@@ -36,6 +36,34 @@ function firstNonEmptyString(values: unknown[]): string | undefined {
   return undefined;
 }
 
+function collectFindingErrors(json: any): any[] {
+  const messages = json?.errorMessage;
+  if (!Array.isArray(messages)) return [];
+  return messages.flatMap((message) => (Array.isArray(message?.error) ? message.error : []));
+}
+
+function isFindingRateLimitError(json: any): boolean {
+  return collectFindingErrors(json).some((error) => {
+    const ids = Array.isArray(error?.errorId) ? error.errorId : [];
+    const domain = Array.isArray(error?.domain) ? error.domain.join(' ') : '';
+    const subdomain = Array.isArray(error?.subdomain) ? error.subdomain.join(' ') : '';
+    const message = Array.isArray(error?.message) ? error.message.join(' ') : '';
+    return (
+      ids.includes('10001') ||
+      /ratelimiter/i.test(`${domain} ${subdomain}`) ||
+      /exceeded the number of times/i.test(message)
+    );
+  });
+}
+
+async function parseJsonResponse(response: Response): Promise<any> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 async function enrichListingFromShoppingApi(listing: Listing, appId: string): Promise<Listing> {
   const endpoint = getEbayShoppingEndpoint();
   const params = new URLSearchParams({
@@ -109,11 +137,14 @@ export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
   params.append('outputSelector', 'StoreInfo');
 
   const response = await fetch(`${endpoint}?${params.toString()}`);
+  const json: any = await parseJsonResponse(response);
+  if (isFindingRateLimitError(json)) {
+    throw new Error(`eBay rate limit exceeded: ${response.status}`);
+  }
   if (!response.ok) {
     throw new Error(`eBay request failed: ${response.status}`);
   }
 
-  const json: any = await response.json();
   const items = json?.findItemsByKeywordsResponse?.[0]?.searchResult?.[0]?.item ?? [];
 
   const listings = items
