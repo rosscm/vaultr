@@ -20,17 +20,23 @@ export const health = {
 
     const state = getPollerState();
     const duration = state.lastRunDurationMs === undefined ? 'n/a' : `${state.lastRunDurationMs}ms`;
+    const nowMs = Date.now();
+    const backoffUntilMs = state.backoffUntil ? new Date(state.backoffUntil).getTime() : undefined;
+    const isBackoffActive = backoffUntilMs !== undefined && Number.isFinite(backoffUntilMs) && backoffUntilMs > nowMs;
     const lines = [
       `**Source:** ${state.sourceMode}`,
       `**Listing Check Cadence:** every ${state.pollIntervalSeconds}s`,
       `**Running:** ${state.isRunning ? 'Yes' : 'No'}`,
+      `**Rate Limited / Backing Off:** ${isBackoffActive ? 'Yes' : 'No'}`,
       `**Active Chases:** ${listAllChases().length}`,
       `**Last Run:** ${formatTimeWithAge(state.lastRunAt)}`,
       `**Last Completion:** ${formatTimeWithAge(state.lastRunCompletedAt)}`,
       `**Last Duration:** ${duration}`,
       `**Source Calls (60s):** ${state.sourceCallsLastMinute}`,
+      `**Rate Limit Skips:** ${state.rateLimitSkips}`,
       `**Consecutive Failures:** ${state.consecutiveFailures}`,
       `**Backoff Until:** ${state.backoffUntil ? formatTimeWithAge(state.backoffUntil) : 'None'}`,
+      `**Last Source Success:** ${state.lastSourceSuccessAt ? formatTimeWithAge(state.lastSourceSuccessAt) : 'None'}`,
       `**Last Error:** ${state.lastError ?? 'None'}`
     ];
 

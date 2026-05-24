@@ -94,14 +94,21 @@ Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaul
 
 - Set `EBAY_APP_ID` in `.env` (from eBay Developer Program)
 - Set `EBAY_ENV=SANDBOX` for sandbox testing, or `EBAY_ENV=PRODUCTION` for live eBay
-- Optional: tune `POLL_INTERVAL_SECONDS` (default `180`)
-- Optional: tune `EBAY_MAX_REQUESTS_PER_MINUTE` (default `20`)
-- Optional: tune `EBAY_BACKOFF_BASE_SECONDS` (default `30`)
+- Recommended production soak: `POLL_INTERVAL_SECONDS=900`
+- Recommended production soak: `EBAY_MAX_REQUESTS_PER_MINUTE=1`
+- Recommended production soak: `EBAY_BACKOFF_BASE_SECONDS=900`
 - Set `LISTING_SOURCE=EBAY` for live eBay polling
 - Set `LISTING_SOURCE=MOCK` to run with local mock listings
 - Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
 - Alerts are delivered by DM to each user
 - Similar active chases share source queries so eBay requests do not scale one-to-one with users
+
+### eBay Rate Limit Notes
+
+- eBay may return error `10001` / `RateLimiter` from Finding API when calls are too frequent
+- If that happens, avoid manual `curl` tests for 30-60 minutes because they count against the same limit
+- Use `/health` to check `Rate Limited / Backing Off`, `Backoff Until`, and `Last Source Success`
+- Keep production testing slow until `/health` stays clean for a day
 
 ## eBay Deletion Webhook (Compliance)
 
