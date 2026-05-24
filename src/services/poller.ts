@@ -53,6 +53,7 @@ function formatReasons(reasons: string[]): string {
       if (r === 'card_name_match_exact') return 'exact card name match';
       if (r === 'card_name_match_tokens') return 'card name token match';
       if (r === 'card_number_match') return 'card number match';
+      if (r === 'ungraded_match') return 'ungraded/raw match';
       if (r === 'price_within_max') return 'within your max';
       if (r === 'seller_quality_boost') return 'high seller feedback';
       if (r === 'new_seller_penalty') return 'new or unrated seller';

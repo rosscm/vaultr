@@ -9,7 +9,7 @@ import {
 } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
-import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
+import { OUTPUT_STYLE, displayGrade, normalizeGradePreference, orAny, orNone } from '../ui/style.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
 const ALLOWED_CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP', 'DMG']);
@@ -32,7 +32,7 @@ export const chaseAdd = {
         .setMaxLength(100)
     )
     .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
-    .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference, e.g. PSA 10 (default: Any)').setMaxLength(24))
+    .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference, e.g. PSA 10 or ungraded/raw (default: Any)').setMaxLength(24))
     .addStringOption((opt) =>
       opt
         .setName('condition')
@@ -88,7 +88,7 @@ export const chaseAdd = {
 
     const cardName = interaction.options.getString('card', true);
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
-    const grade = interaction.options.getString('grade') ?? undefined;
+    const grade = normalizeGradePreference(interaction.options.getString('grade'));
     const conditionRaw = interaction.options.getString('condition');
     const conditionTokens = conditionRaw
       ?.split(',')
@@ -137,7 +137,7 @@ export const chaseAdd = {
       `**Priority:** ${chase.priority ?? 'NORMAL'}`,
       `**Note:** ${orNone(chase.targetNote)}`,
       `**Max Price:** ${chase.maxPrice ?? OUTPUT_STYLE.any}`,
-      `**Grade:** ${orAny(chase.grade)}`,
+      `**Grade:** ${displayGrade(chase.grade)}`,
       `**Condition:** ${orAny(chase.condition)}`,
       `**Listing Type:** ${displayAny(chase.listingType)}`,
       `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,

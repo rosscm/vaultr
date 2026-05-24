@@ -1,7 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings, listChases } from '../services/chase-store.js';
 import { infoEmbed } from '../ui/embeds.js';
-import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
+import { OUTPUT_STYLE, displayGrade, orAny, orNone } from '../ui/style.js';
 
 const PAGE_SIZE = 5;
 const PAGE_ID_PREFIX = 'chase-list';
@@ -58,7 +58,7 @@ function buildChaseListEmbed(userId: string, page: number) {
       const summary = [
         `**#${absoluteIndex} — ${c.cardName}**`,
         `Max: ${c.maxPrice !== undefined ? `${c.maxPrice} ${currency}` : OUTPUT_STYLE.any}`,
-        `Grade: ${orAny(c.grade)}`,
+        `Grade: ${displayGrade(c.grade)}`,
         `Condition: ${orAny(c.condition)}`,
         `Listing: ${displayAny(c.listingType)}`
       ].join(' | ');

@@ -1,7 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { listChases, updateChase } from '../services/chase-store.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
-import { OUTPUT_STYLE, orAny, orNone } from '../ui/style.js';
+import { OUTPUT_STYLE, displayGrade, normalizeGradePreference, orAny, orNone } from '../ui/style.js';
 const ALLOWED_CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP', 'DMG']);
 
 function displayAny(value: string | undefined): string {
@@ -18,7 +18,7 @@ export const chaseEdit = {
       opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored; default: keep current)').setMinLength(3).setMaxLength(100)
     )
     .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0) (default: keep current)').setMinValue(0.01))
-    .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade, e.g. PSA 10 (default: keep current)').setMaxLength(24))
+    .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade, e.g. PSA 10 or ungraded/raw (default: keep current)').setMaxLength(24))
     .addStringOption((opt) =>
       opt
         .setName('condition')
@@ -69,7 +69,7 @@ export const chaseEdit = {
 
     const cardName = interaction.options.getString('card') ?? undefined;
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
-    const grade = interaction.options.getString('grade') ?? undefined;
+    const grade = normalizeGradePreference(interaction.options.getString('grade'));
     const conditionRaw = interaction.options.getString('condition');
     const conditionTokens = conditionRaw
       ?.split(',')
@@ -142,7 +142,7 @@ export const chaseEdit = {
       `**Priority:** ${updated.priority ?? 'NORMAL'}`,
       `**Note:** ${orNone(updated.targetNote)}`,
       `**Max Price:** ${updated.maxPrice ?? OUTPUT_STYLE.any}`,
-      `**Grade:** ${orAny(updated.grade)}`,
+      `**Grade:** ${displayGrade(updated.grade)}`,
       `**Condition:** ${orAny(updated.condition)}`,
       `**Listing Type:** ${displayAny(updated.listingType)}`,
       `**Blocked Terms:** ${updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,

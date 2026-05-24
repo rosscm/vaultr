@@ -21,7 +21,7 @@ export const chase = {
             .setMaxLength(100)
         )
         .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
-        .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference, e.g. PSA 10 (default: Any)').setMaxLength(24))
+        .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference, e.g. PSA 10 or ungraded/raw (default: Any)').setMaxLength(24))
         .addStringOption((opt) =>
           opt
             .setName('condition')
@@ -70,7 +70,7 @@ export const chase = {
           opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored; default: keep current)').setMinLength(3).setMaxLength(100)
         )
         .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0) (default: keep current)').setMinValue(0.01))
-        .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade, e.g. PSA 10 (default: keep current)').setMaxLength(24))
+        .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade, e.g. PSA 10 or ungraded/raw (default: keep current)').setMaxLength(24))
         .addStringOption((opt) =>
           opt
             .setName('condition')

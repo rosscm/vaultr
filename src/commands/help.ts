@@ -11,7 +11,7 @@ export const help = {
       '**Input Requirements**',
       '- `card`: 3-100 chars (required)',
       '- `max_price`: > 0 (optional; default: no max)',
-      '- `grade`: up to 24 chars (optional; default: Any)',
+      '- `grade`: up to 24 chars; use `ungraded` or `raw` for ungraded cards (optional; default: Any)',
       '- `priority`: NORMAL / HIGH / GRAIL (optional; default: NORMAL)',
       '- `listing_type`: ANY / AUCTION / BUY_IT_NOW (optional; default: ANY)',
       '- `negative_keywords`: comma-separated terms, max 15 (optional)',

@@ -70,6 +70,19 @@ function conditionMatches(chaseCondition: string | undefined, listingCondition: 
   });
 }
 
+function isUngradedPreference(grade: string | undefined): boolean {
+  const g = normalize(grade ?? '');
+  return g === 'ungraded' || g === 'raw';
+}
+
+function listingLooksUngraded(title: string, condition: string | undefined): boolean {
+  const normalizedTitle = normalize(title);
+  const normalizedCondition = normalize(condition ?? '');
+  const gradedTerms = /\b(psa|bgs|cgc|sgc|beckett|graded|slabbed|slab|gem mint|mint 10)\b/;
+  if (gradedTerms.test(normalizedTitle)) return false;
+  return /\b(ungraded|raw)\b/.test(normalizedTitle) || /\b(ungraded|raw)\b/.test(normalizedCondition);
+}
+
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, score));
 }
@@ -121,7 +134,14 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     }
   }
 
-  if (chase.grade) {
+  if (isUngradedPreference(chase.grade)) {
+    if (listingLooksUngraded(listing.title, listing.condition)) {
+      score += 15;
+      reasons.push('ungraded_match');
+    } else {
+      return { isMatch: false, score: 0, reasons: ['ungraded_miss'] };
+    }
+  } else if (chase.grade) {
     const grade = normalize(chase.grade);
     if (title.includes(grade)) {
       score += 15;

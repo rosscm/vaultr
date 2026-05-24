@@ -71,6 +71,12 @@ function parseNumber(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function gradeSearchTerm(grade: string | undefined): string | undefined {
+  const normalized = (grade ?? '').trim().toLowerCase();
+  if (normalized === 'ungraded' || normalized === 'raw') return undefined;
+  return grade;
+}
+
 function collectFindingErrors(json: any): any[] {
   const messages = json?.errorMessage;
   if (!Array.isArray(messages)) return [];
@@ -183,7 +189,8 @@ function mapBrowseItemToListing(item: any): Listing | null {
 
 async function searchEbayBrowseListings(chase: Chase): Promise<Listing[]> {
   const token = await getBrowseAccessToken();
-  const keywords = chase.grade ? `${chase.cardName} ${chase.grade}` : chase.cardName;
+  const gradeTerm = gradeSearchTerm(chase.grade);
+  const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
   const params = new URLSearchParams({
     q: keywords,
     limit: process.env.EBAY_SEARCH_LIMIT ?? '10',
@@ -267,7 +274,8 @@ async function searchEbayFindingListings(chase: Chase): Promise<Listing[]> {
   if (!appId) return [];
   const endpoint = getEbayFindingEndpoint();
 
-  const keywords = chase.grade ? `${chase.cardName} ${chase.grade}` : chase.cardName;
+  const gradeTerm = gradeSearchTerm(chase.grade);
+  const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
 
   const params = new URLSearchParams({
     'OPERATION-NAME': 'findItemsByKeywords',

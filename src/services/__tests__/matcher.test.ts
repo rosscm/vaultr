@@ -74,6 +74,24 @@ describe('matchChaseToListing', () => {
     expect(result.reasons).toEqual(['grade_miss']);
   });
 
+  it('matches ungraded preference against ungraded listings', () => {
+    const chase = baseChase({ grade: 'UNGRADED' });
+    const listing = baseListing({ title: 'Squirtle Base Set Raw Pokemon Card', condition: 'Ungraded' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).toContain('ungraded_match');
+  });
+
+  it('rejects slabbed listings for ungraded preference', () => {
+    const chase = baseChase({ grade: 'raw' });
+    const listing = baseListing({ title: 'Squirtle Base Set PSA 10 Pokemon Card', condition: 'Graded' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(false);
+    expect(result.reasons).toEqual(['ungraded_miss']);
+  });
+
   it('fails when condition does not match', () => {
     const chase = baseChase({ condition: 'LP' });
     const listing = baseListing({ condition: 'Near Mint' });
