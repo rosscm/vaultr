@@ -144,6 +144,7 @@ export const alertsSettings = {
       `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`,
       '',
       '**Note:** Duplicate listing alerts are auto-suppressed',
+      '**Noise Tip:** If alerts feel too broad, tighten chase details and filters first',
       '**Next:** Use `/alerts preview` to preview your DM format'
     ];
 

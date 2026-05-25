@@ -260,7 +260,33 @@ async function sleep(ms: number): Promise<void> {
 const sourceCallTimestamps: number[] = [];
 const throttleNoticeTimestampsByUser = new Map<string, number>();
 const recentFingerprintTimestamps = new Map<string, number>();
+const lastSourceFetchAtMsByQueryKey = new Map<string, number>();
 let backoffUntilMs = 0;
+
+type ActiveGroup = {
+  members: Array<{ chase: Chase; settings: ReturnType<typeof getUserAlertSettings> }>;
+  oldestCreatedAt: string;
+};
+
+export function orderGroupsForRun(
+  groups: ReadonlyArray<{ queryKey: string; group: ActiveGroup; lastSourceFetchAtMs?: number }>
+): Array<{ queryKey: string; group: ActiveGroup; lastSourceFetchAtMs?: number }> {
+  return [...groups].sort((left, right) => {
+    if (left.lastSourceFetchAtMs === undefined && right.lastSourceFetchAtMs !== undefined) return -1;
+    if (left.lastSourceFetchAtMs !== undefined && right.lastSourceFetchAtMs === undefined) return 1;
+    if (left.lastSourceFetchAtMs !== undefined && right.lastSourceFetchAtMs !== undefined) {
+      if (left.lastSourceFetchAtMs !== right.lastSourceFetchAtMs) {
+        return left.lastSourceFetchAtMs - right.lastSourceFetchAtMs;
+      }
+    }
+
+    if (left.group.oldestCreatedAt !== right.group.oldestCreatedAt) {
+      return left.group.oldestCreatedAt.localeCompare(right.group.oldestCreatedAt);
+    }
+
+    return left.queryKey.localeCompare(right.queryKey);
+  });
+}
 
 function pruneSourceCallWindow(nowMs: number): void {
   const oneMinuteAgo = nowMs - 60_000;
@@ -358,7 +384,7 @@ async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAle
         embeds: [
           warningEmbed(
             'Alerts Temporarily Throttled',
-            `You reached your current limit of ${maxAlertsPerHour} alerts/hour. Increase it with \`/alerts settings\` if needed.`
+            `You reached your current limit of ${maxAlertsPerHour} alerts/hour. Before raising that cap, tighten your chase filters first: add card details, use \`grade\` or \`listing_type\`, raise \`min_score\`, or expand \`negative_keywords\`.`
           )
         ]
       }),
@@ -381,22 +407,37 @@ async function runPoll(client: Client): Promise<void> {
     return;
   }
 
-  const activeGroups = new Map<string, Array<{ chase: Chase; settings: ReturnType<typeof getUserAlertSettings> }>>();
+  const activeGroups = new Map<string, ActiveGroup>();
   for (const chase of chases) {
     const settings = getUserAlertSettings(chase.userId);
     if (isInQuietHours(settings.quietHoursStart, settings.quietHoursEnd)) continue;
     const key = sourceQueryKey(chase);
-    const group = activeGroups.get(key) ?? [];
-    group.push({ chase, settings });
+    const group = activeGroups.get(key) ?? { members: [], oldestCreatedAt: chase.createdAt };
+    group.members.push({ chase, settings });
+    if (chase.createdAt.localeCompare(group.oldestCreatedAt) < 0) {
+      group.oldestCreatedAt = chase.createdAt;
+    }
     activeGroups.set(key, group);
   }
 
-  for (const group of activeGroups.values()) {
-    const representative = group[0]?.chase;
-    if (!representative) continue;
-    const listings = await fetchListingsWithRetry(representative, sourceMode);
+  const orderedGroups = orderGroupsForRun(
+    [...activeGroups.entries()].map(([queryKey, group]) => ({
+      queryKey,
+      group,
+      lastSourceFetchAtMs: lastSourceFetchAtMsByQueryKey.get(queryKey)
+    }))
+  );
 
-    for (const { chase, settings } of group) {
+  for (const { queryKey, group } of orderedGroups) {
+    const representative = group.members[0]?.chase;
+    if (!representative) continue;
+    const sourceCallsBefore = sourceCallTimestamps.length;
+    const listings = await fetchListingsWithRetry(representative, sourceMode);
+    if (sourceCallTimestamps.length > sourceCallsBefore) {
+      lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
+    }
+
+    for (const { chase, settings } of group.members) {
       if (settings.chaseCooldownMinutes > 0) {
         const recentForChase = countChaseAlertsWithinMinutes(chase.userId, chase.id, settings.chaseCooldownMinutes);
         if (recentForChase > 0) {

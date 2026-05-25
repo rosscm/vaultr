@@ -36,6 +36,7 @@ export const help = {
       '**Troubleshooting**',
       '- If you are not seeing matches, lower `min_score` in `/alerts settings` and broaden your chase filters',
       '- If you are seeing too many matches, add more chase detail (for example card set or card number) and tighten filters like `grade`, `condition`, or `listing_type`',
+      '- If you are getting too many alerts, tighten chase filters or adjust `/alerts settings`',
       '- Duplicate listing alerts are auto-suppressed',
       '',
       '**Glossary**',
