@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { orderGroupsForRun } from '../poller.js';
+import { isDueForCadence, orderGroupsForRun } from '../poller.js';
 
 describe('orderGroupsForRun', () => {
   it('prioritizes groups that have never consumed a source fetch', () => {
@@ -48,5 +48,19 @@ describe('orderGroupsForRun', () => {
     ]);
 
     expect(ordered.map((entry) => entry.queryKey)).toEqual(['squirtle', 'luffy']);
+  });
+});
+
+describe('isDueForCadence', () => {
+  it('treats uninitialized chases as due immediately', () => {
+    expect(isDueForCadence(undefined, 900, 1_000)).toBe(true);
+  });
+
+  it('blocks checks until the cadence window has elapsed', () => {
+    expect(isDueForCadence(1_000, 1800, 1_000 + 1_799_000)).toBe(false);
+  });
+
+  it('allows checks once the cadence window has elapsed', () => {
+    expect(isDueForCadence(1_000, 900, 1_000 + 900_000)).toBe(true);
   });
 });

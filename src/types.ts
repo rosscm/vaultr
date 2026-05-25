@@ -21,6 +21,10 @@ export type Listing = {
   currency: string;
   shippingCost?: number;
   shippingCurrency?: string;
+  shippingDestinationCountry?: string;
+  shippingDestinationPostalCode?: string;
+  shippingEligibility?: 'AVAILABLE' | 'MAY_NOT_SHIP' | 'UNKNOWN';
+  shippingEligibilityMessage?: string;
   url: string;
   imageUrl?: string;
   thumbnailUrl?: string;
@@ -54,6 +58,8 @@ export type UserAlertSettings = {
   maxAlertsPerHour: number;
   chaseCooldownMinutes: number;
   alertCurrency: 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY';
+  shippingCountry?: string;
+  shippingPostalCode?: string;
   showImages: boolean;
   compactMode: boolean;
   quietHoursStart?: number;

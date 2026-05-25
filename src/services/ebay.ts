@@ -1,5 +1,10 @@
 import type { Chase, Listing } from '../types.js';
 
+export type ShippingDestination = {
+  country?: string;
+  postalCode?: string;
+};
+
 const EBAY_FINDING_ENDPOINT_PROD = 'https://svcs.ebay.com/services/search/FindingService/v1';
 const EBAY_FINDING_ENDPOINT_SANDBOX = 'https://svcs.sandbox.ebay.com/services/search/FindingService/v1';
 const EBAY_SHOPPING_ENDPOINT_PROD = 'https://open.api.ebay.com/shopping';
@@ -69,6 +74,89 @@ function firstNonEmptyString(values: unknown[]): string | undefined {
 function parseNumber(value: unknown): number | undefined {
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function normalizeCountryCode(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toUpperCase();
+  return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
+}
+
+function getDeliveryCountry(destination: ShippingDestination | undefined): string | undefined {
+  return normalizeCountryCode(destination?.country);
+}
+
+function getDeliveryPostalCode(destination: ShippingDestination | undefined): string | undefined {
+  const normalized = destination?.postalCode?.trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+function getBrowseEndUserContext(destination: ShippingDestination | undefined): string | undefined {
+  const country = getDeliveryCountry(destination);
+  if (!country) return undefined;
+
+  const postalCode = getDeliveryPostalCode(destination);
+  return postalCode ? `contextualLocation=country=${country},zip=${postalCode}` : `contextualLocation=country=${country}`;
+}
+
+function destinationLabel(country: string, postalCode: string | undefined): string {
+  return postalCode ? `${country} ${postalCode}` : country;
+}
+
+function shipToLocationMatchesDestination(location: unknown, destinationCountry: string): boolean {
+  const normalized = String(location ?? '').trim().toUpperCase();
+  return normalized === destinationCountry || normalized === 'WORLDWIDE';
+}
+
+function deriveShippingEligibilityFromOptions(
+  shippingOptions: unknown,
+  destinationCountry: string | undefined,
+  destinationPostalCode: string | undefined
+): Pick<Listing, 'shippingDestinationCountry' | 'shippingDestinationPostalCode' | 'shippingEligibility' | 'shippingEligibilityMessage'> {
+  if (!destinationCountry) return {};
+
+  const destination = destinationLabel(destinationCountry, destinationPostalCode);
+  if (!Array.isArray(shippingOptions) || shippingOptions.length === 0) {
+    return {
+      shippingDestinationCountry: destinationCountry,
+      shippingDestinationPostalCode: destinationPostalCode,
+      shippingEligibility: 'MAY_NOT_SHIP',
+      shippingEligibilityMessage: `May not ship to ${destination}`
+    };
+  }
+
+  return {
+    shippingDestinationCountry: destinationCountry,
+    shippingDestinationPostalCode: destinationPostalCode,
+    shippingEligibility: 'AVAILABLE',
+    shippingEligibilityMessage: `Shipping shown for ${destination}`
+  };
+}
+
+function deriveShippingEligibilityFromShipToLocations(
+  shipToLocations: unknown,
+  destinationCountry: string | undefined,
+  destinationPostalCode: string | undefined
+): Pick<Listing, 'shippingDestinationCountry' | 'shippingDestinationPostalCode' | 'shippingEligibility' | 'shippingEligibilityMessage'> {
+  if (!destinationCountry) return {};
+
+  const destination = destinationLabel(destinationCountry, destinationPostalCode);
+  const locations = Array.isArray(shipToLocations) ? shipToLocations : [];
+  if (locations.length === 0) {
+    return {
+      shippingDestinationCountry: destinationCountry,
+      shippingDestinationPostalCode: destinationPostalCode,
+      shippingEligibility: 'UNKNOWN',
+      shippingEligibilityMessage: `Shipping availability to ${destination} is unknown`
+    };
+  }
+
+  const shipsToDestination = locations.some((location) => shipToLocationMatchesDestination(location, destinationCountry));
+  return {
+    shippingDestinationCountry: destinationCountry,
+    shippingDestinationPostalCode: destinationPostalCode,
+    shippingEligibility: shipsToDestination ? 'AVAILABLE' : 'MAY_NOT_SHIP',
+    shippingEligibilityMessage: shipsToDestination ? `Ships to ${destination}` : `May not ship to ${destination}`
+  };
 }
 
 function gradeSearchTerm(grade: string | undefined): string | undefined {
@@ -150,7 +238,7 @@ async function getBrowseAccessToken(): Promise<string> {
   return cachedBrowseToken.token;
 }
 
-function mapBrowseItemToListing(item: any): Listing | null {
+function mapBrowseItemToListing(item: any, destination?: ShippingDestination): Listing | null {
   const listingId = item?.itemId;
   const title = item?.title;
   const url = item?.itemWebUrl;
@@ -160,6 +248,13 @@ function mapBrowseItemToListing(item: any): Listing | null {
 
   const shipping = Array.isArray(item?.shippingOptions) ? item.shippingOptions[0] : undefined;
   const shippingCost = parseNumber(shipping?.shippingCost?.value);
+  const deliveryCountry = getDeliveryCountry(destination);
+  const deliveryPostalCode = getDeliveryPostalCode(destination);
+  const shippingEligibility = deriveShippingEligibilityFromOptions(
+    item?.shippingOptions,
+    deliveryCountry,
+    deliveryPostalCode
+  );
   const imageUrl = firstNonEmptyString([
     item?.image?.imageUrl,
     item?.thumbnailImages?.[0]?.imageUrl,
@@ -174,6 +269,7 @@ function mapBrowseItemToListing(item: any): Listing | null {
     currency,
     shippingCost,
     shippingCurrency: shippingCost === undefined ? undefined : shipping?.shippingCost?.currency ?? currency,
+    ...shippingEligibility,
     url,
     imageUrl,
     thumbnailUrl: firstNonEmptyString([item?.thumbnailImages?.[0]?.imageUrl, imageUrl]),
@@ -187,7 +283,7 @@ function mapBrowseItemToListing(item: any): Listing | null {
   };
 }
 
-async function searchEbayBrowseListings(chase: Chase): Promise<Listing[]> {
+async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDestination): Promise<Listing[]> {
   const token = await getBrowseAccessToken();
   const gradeTerm = gradeSearchTerm(chase.grade);
   const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
@@ -197,10 +293,12 @@ async function searchEbayBrowseListings(chase: Chase): Promise<Listing[]> {
     sort: process.env.EBAY_BROWSE_SORT ?? 'newlyListed'
   });
 
+  const endUserContext = getBrowseEndUserContext(destination);
   const response = await fetch(`${getEbayBrowseEndpoint()}?${params.toString()}`, {
     headers: {
       Authorization: `Bearer ${token}`,
-      'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US'
+      'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US',
+      ...(endUserContext ? { 'X-EBAY-C-ENDUSERCTX': endUserContext } : {})
     }
   });
   const json: any = await parseJsonResponse(response);
@@ -213,7 +311,7 @@ async function searchEbayBrowseListings(chase: Chase): Promise<Listing[]> {
 
   const items = Array.isArray(json?.itemSummaries) ? json.itemSummaries : [];
   return items
-    .map(mapBrowseItemToListing)
+    .map((item: any) => mapBrowseItemToListing(item, destination))
     .filter((listing: Listing | null): listing is Listing => listing !== null);
 }
 
@@ -269,7 +367,7 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string): Pr
   }
 }
 
-async function searchEbayFindingListings(chase: Chase): Promise<Listing[]> {
+async function searchEbayFindingListings(chase: Chase, destination?: ShippingDestination): Promise<Listing[]> {
   const appId = process.env.EBAY_APP_ID;
   if (!appId) return [];
   const endpoint = getEbayFindingEndpoint();
@@ -289,6 +387,8 @@ async function searchEbayFindingListings(chase: Chase): Promise<Listing[]> {
   });
   params.append('outputSelector', 'SellerInfo');
   params.append('outputSelector', 'StoreInfo');
+  const deliveryPostalCode = getDeliveryPostalCode(destination);
+  if (deliveryPostalCode) params.append('buyerPostalCode', deliveryPostalCode);
 
   const response = await fetch(`${endpoint}?${params.toString()}`);
   const json: any = await parseJsonResponse(response);
@@ -314,6 +414,7 @@ async function searchEbayFindingListings(chase: Chase): Promise<Listing[]> {
       const sellerFeedbackPercent = Number(item?.sellerInfo?.[0]?.positiveFeedbackPercent?.[0]);
       const sellerFeedbackScore = Number(item?.sellerInfo?.[0]?.feedbackScore?.[0]);
       const shippingServiceCost = item?.shippingInfo?.[0]?.shippingServiceCost?.[0];
+      const shipToLocations = item?.shippingInfo?.[0]?.shipToLocations;
       const rawShippingCost = shippingServiceCost?.__value__;
       const shippingCurrency = shippingServiceCost?.['@currencyId'] ?? currency;
       const shippingCost = Number(rawShippingCost);
@@ -321,6 +422,12 @@ async function searchEbayFindingListings(chase: Chase): Promise<Listing[]> {
       const rawListingType = item?.listingInfo?.[0]?.listingType?.[0];
       const condition = item?.condition?.[0]?.conditionDisplayName?.[0];
       const countryCode = item?.country?.[0];
+      const deliveryCountry = getDeliveryCountry(destination);
+      const shippingEligibility = deriveShippingEligibilityFromShipToLocations(
+        shipToLocations,
+        deliveryCountry,
+        deliveryPostalCode
+      );
       const price = Number(rawPrice);
 
       if (!listingId || !title || !viewItemURL || Number.isNaN(price)) return null;
@@ -333,6 +440,7 @@ async function searchEbayFindingListings(chase: Chase): Promise<Listing[]> {
         currency,
         shippingCost: Number.isNaN(shippingCost) ? undefined : shippingCost,
         shippingCurrency: Number.isNaN(shippingCost) ? undefined : shippingCurrency,
+        ...shippingEligibility,
         url: viewItemURL,
         imageUrl: galleryURL || undefined,
         thumbnailUrl: galleryURL || undefined,
@@ -369,6 +477,8 @@ async function searchEbayFindingListings(chase: Chase): Promise<Listing[]> {
   return listings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
 }
 
-export async function searchEbayListings(chase: Chase): Promise<Listing[]> {
-  return getEbaySearchApi() === 'BROWSE' ? searchEbayBrowseListings(chase) : searchEbayFindingListings(chase);
+export async function searchEbayListings(chase: Chase, destination?: ShippingDestination): Promise<Listing[]> {
+  return getEbaySearchApi() === 'BROWSE'
+    ? searchEbayBrowseListings(chase, destination)
+    : searchEbayFindingListings(chase, destination);
 }

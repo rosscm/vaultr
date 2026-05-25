@@ -92,12 +92,12 @@ function buildChaseListEmbed(userId: string, page: number) {
     groupedSections.join('\n\n'),
     '',
     '---',
-    '**Quick Actions:** `/chase edit entry:<n>` or `/chase remove entries:<n>`'
+    '**Quick Actions:** refine with `/chase edit entry:<n>` or clear with `/chase remove entries:<n>`'
   ].join('\n');
 
   return {
     empty: false as const,
-    embeds: [infoEmbed('🎯 Your Chases', description)],
+    embeds: [infoEmbed('🗝️ Your Vault Chases', description)],
     components: [makePaginationRow(userId, currentPage, totalPages)]
   };
 }

@@ -4,7 +4,7 @@ import { errorEmbed, successEmbed } from '../ui/embeds.js';
 
 export const communityFeed = {
   data: new SlashCommandBuilder()
-    .setName('community-feed')
+    .setName('feed')
     .setDescription('Admin: set community feed mode for visible channel activity')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((opt) =>

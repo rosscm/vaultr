@@ -11,7 +11,7 @@ import { OUTPUT_STYLE } from '../ui/style.js';
 export const start = {
   data: new SlashCommandBuilder()
     .setName('start')
-    .setDescription('Quick onboarding for your vault setup'),
+    .setDescription('Open your Vault and begin your first chase'),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
     const settings = getUserAlertSettings(interaction.user.id);
@@ -19,9 +19,11 @@ export const start = {
     const limits = PLAN_LIMITS[plan.tier];
 
     const lines = [
-      '**Step 1:** Add your first chase with `/chase add`',
-      '**Step 2:** Tune alert controls with `/alerts settings`',
-      '**Step 3:** Watch your DMs for matches',
+      '**Build your Vault. Chase your grails. Discover what you love next.**',
+      '',
+      '**Step 1:** Add a card you are chasing with `/chase add`',
+      '**Step 2:** Shape your signal with `/alerts settings`',
+      '**Step 3:** Watch your DMs for grail moments and discoveries',
       '',
       `**Plan:** ${plan.tier} (${plan.status})`,
       `**Active Chases:** ${activeChases}/${limits.maxActiveChases}`,
@@ -31,11 +33,11 @@ export const start = {
       `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Compact Mode:** ${settings.compactMode ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       '',
-      '**Tip:** Add card number in the `card` field when relevant for cleaner matches'
+      '**Tip:** Add the card number when it matters; it helps Vaultr understand the exact piece you mean'
     ];
 
     await interaction.reply({
-      embeds: [infoEmbed('🚀 Start Your Vault', lines.join('\n'))],
+      embeds: [infoEmbed('🗝️ Start Your Vault', lines.join('\n'))],
       flags: MessageFlags.Ephemeral
     });
   }

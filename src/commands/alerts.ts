@@ -6,29 +6,29 @@ import { previewAlert } from './alerts-preview.js';
 export const alerts = {
   data: new SlashCommandBuilder()
     .setName('alerts')
-    .setDescription('Manage your alert experience')
+    .setDescription('Manage your Vault signal experience')
     .addSubcommand((sub) =>
       sub
         .setName('settings')
-        .setDescription('View or update your alert controls')
+        .setDescription('View or update your Vault signal controls')
         .addIntegerOption((opt) =>
           opt
             .setName('min_score')
-            .setDescription('Minimum match score to alert (0-100) (default: 60)')
+            .setDescription('Minimum fit score for a DM sighting (0-100) (default: 60)')
             .setMinValue(0)
             .setMaxValue(100)
         )
         .addIntegerOption((opt) =>
           opt
             .setName('max_alerts_per_hour')
-            .setDescription('Maximum alerts per hour (default: 10)')
+            .setDescription('Maximum DM sightings per hour (default: 10)')
             .setMinValue(1)
             .setMaxValue(200)
         )
         .addIntegerOption((opt) =>
           opt
             .setName('chase_cooldown_minutes')
-            .setDescription('Minimum minutes between alerts for the same chase (default: 30)')
+            .setDescription('Minimum minutes between DMs for the same chase (default: 30)')
             .setMinValue(0)
             .setMaxValue(1440)
         )
@@ -49,7 +49,7 @@ export const alerts = {
         .addStringOption((opt) =>
           opt
             .setName('alert_currency')
-            .setDescription('Currency for alert pricing (default: USD)')
+            .setDescription('Currency for sighting prices (default: USD)')
             .addChoices(
               { name: 'USD', value: 'USD' },
               { name: 'CAD', value: 'CAD' },
@@ -60,8 +60,20 @@ export const alerts = {
         )
         .addStringOption((opt) =>
           opt
+            .setName('shipping_country')
+            .setDescription('Country used to check if listings ship to you, e.g. CA or OFF')
+            .setMaxLength(3)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('shipping_postal_code')
+            .setDescription('Optional postal/ZIP prefix for shipping checks, e.g. M5V or OFF')
+            .setMaxLength(16)
+        )
+        .addStringOption((opt) =>
+          opt
             .setName('show_images')
-            .setDescription('Show listing images in DM alerts (default: On)')
+            .setDescription('Show listing images in DM sightings (default: On)')
             .addChoices(
               { name: 'On', value: 'ON' },
               { name: 'Off', value: 'OFF' }
@@ -80,11 +92,11 @@ export const alerts = {
     .addSubcommand((sub) =>
       sub
         .setName('recent')
-        .setDescription('Show your recent delivered alerts')
+        .setDescription('Show recent Vaultr sightings sent to your DMs')
         .addIntegerOption((opt) =>
           opt
             .setName('limit')
-            .setDescription('How many alerts to show (max 20)')
+            .setDescription('How many sightings to show (max 20)')
             .setMinValue(1)
             .setMaxValue(20)
         )
@@ -92,7 +104,7 @@ export const alerts = {
     .addSubcommand((sub) =>
       sub
         .setName('preview')
-        .setDescription('Preview your current DM alert format')
+        .setDescription('Preview how a grail sighting appears in DM')
     ),
   async execute(interaction: any) {
     const subcommand = interaction.options.getSubcommand();

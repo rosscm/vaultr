@@ -53,7 +53,7 @@ function pickSeed(text: string): DiscoverySeed {
 export const discover = {
   data: new SlashCommandBuilder()
     .setName('discover')
-    .setDescription('Get collector-focused discovery suggestions')
+    .setDescription('Surface cards that may resonate with your Vault')
     .addStringOption((opt) =>
       opt
         .setName('query')
@@ -65,7 +65,7 @@ export const discover = {
     const chases = listChases(interaction.user.id);
     const sourceText = query ?? chases.map((chase) => chase.cardName).join(' ');
     const seed = pickSeed(sourceText);
-    const title = query ? `🔎 Discover · ${query}` : '🔎 Discover';
+    const title = query ? `🔎 Discovery Thread · ${query}` : '🔎 Discovery Thread';
     const basis = query
       ? `based on \`${query}\``
       : chases.length > 0
@@ -75,10 +75,10 @@ export const discover = {
       `**Collector Thread:** ${seed.theme}`,
       `**Basis:** ${basis}`,
       '',
-      '**Cards To Explore**',
+      '**You May Also Love**',
       ...seed.suggestions.map((suggestion) => `- ${suggestion}`),
       '',
-      '**Note:** Discovery is intentionally lightweight right now. Your active chases will shape this over time.'
+      '**Note:** Your chases quietly shape future discoveries.'
     ];
 
     await interaction.reply({

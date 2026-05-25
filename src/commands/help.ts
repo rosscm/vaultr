@@ -2,24 +2,22 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { infoEmbed } from '../ui/embeds.js';
 
 export const help = {
-  data: new SlashCommandBuilder().setName('help').setDescription('Show quick-start help and command guide'),
+  data: new SlashCommandBuilder().setName('help').setDescription('Show the Vaultr command guide'),
   async execute(interaction: any) {
     const lines = [
-      'Start with `/chase add`, then tune noise with `/alerts settings`',
-      'Alerts are sent by DM when a listing matches',
+      'Build your Vault with cards you care about, then let Vaultr watch quietly for fitting moments.',
+      'Your chases shape both grail alerts and future discovery.',
       '',
-      '**Input Requirements**',
+      '**Chase Basics**',
       '- `card`: 3-100 chars (required)',
       '- `max_price`: > 0 (optional; default: no max)',
       '- `grade`: up to 24 chars; use `ungraded` or `raw` for ungraded cards (optional; default: Any)',
-      '- `priority`: NORMAL / HIGH / GRAIL (optional; default: NORMAL)',
-      '- `listing_type`: ANY / AUCTION / BUY_IT_NOW (optional; default: ANY)',
-      '- `negative_keywords`: comma-separated terms, max 15 (optional)',
-      '  default: proxy, custom, reprint, lot, orica, replica',
+      '- Pro precision controls: `condition`, `listing_type`, `negative_keywords`, `priority`, `target_note`',
+      '  default blocked terms still apply automatically: proxy, custom, reprint, lot, orica, replica',
       '',
-      '**Card Name Tip**',
+      '**Collector Tip**',
       '- Casing does not matter',
-      '- For best matches, include card number when relevant',
+      '- For cleaner signals, include card number when relevant',
       '',
       '**Commands**',
       '- Start: `/start`',
@@ -27,26 +25,25 @@ export const help = {
       '- Alerts: `/alerts settings` · `/alerts recent` · `/alerts preview`',
       '  defaults in `/alerts settings`: `min_score=60`, `max_alerts_per_hour=10`, `chase_cooldown_minutes=30`, `alert_currency=USD`, `show_images=ON`, `compact_mode=OFF`',
       '  Pro controls: `show_images`, `compact_mode`, `quiet_start`, `quiet_end`',
-      '  score meaning: higher score means stronger match confidence based on title and filter alignment',
-      '- Plan: `/plan` · `/upgrade`',
-      '- Setup (Admin): `/setup-channel-set` · `/community-feed` · `/plan-set`',
-      '  default for `/community-feed`: `On`',
+      '  score meaning: higher score means stronger fit with your chase',
+      '- Plan: `/plan view` · `/plan set` · `/upgrade`',
+      '- Setup (Admin): `/setup channel` · `/feed`',
+      '  default for `/feed`: `On`',
       '- Discovery: `/discover`',
       '',
       '**Troubleshooting**',
-      '- If you are not seeing matches, lower `min_score` in `/alerts settings` and broaden your chase filters',
-      '- If you are seeing too many matches, add more chase detail (for example card set or card number) and tighten filters like `grade`, `condition`, or `listing_type`',
-      '- If you are getting too many alerts, tighten chase filters or adjust `/alerts settings`',
-      '- Duplicate listing alerts are auto-suppressed',
+      '- If your Vault feels quiet, lower `min_score` or broaden the chase',
+      '- If too much is surfacing, add set/card detail or raise `min_score`',
+      '- Duplicate sightings are quietly suppressed',
       '',
       '**Glossary**',
-      '- `score`: match confidence based on title and filter alignment',
-      '- `risk level`: caution signal from suspicious terms and seller quality',
-      '- `chase cooldown`: minimum minutes between alerts for the same chase'
+      '- `score`: how strongly a listing fits your chase',
+      '- `caution`: signals from suspicious terms or seller quality',
+      '- `chase cooldown`: minimum minutes between DMs for the same chase'
     ];
 
     await interaction.reply({
-      embeds: [infoEmbed('🆘 Vaultr Help', lines.join('\n'))],
+      embeds: [infoEmbed('🗝️ Vaultr Guide', lines.join('\n'))],
       flags: MessageFlags.Ephemeral
     });
   }

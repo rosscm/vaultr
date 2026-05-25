@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Chase, Listing } from '../types.js';
+import type { ShippingDestination } from './ebay.js';
 
 function normalize(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -16,6 +17,9 @@ function defaultListings(): Listing[] {
       currency: 'USD',
       shippingCost: 4,
       shippingCurrency: 'USD',
+      shippingDestinationCountry: 'CA',
+      shippingEligibility: 'MAY_NOT_SHIP',
+      shippingEligibilityMessage: 'May not ship to CA',
       url: 'https://example.com/mock-1',
       imageUrl: 'https://i.ebayimg.com/images/g/mock-1/s-l1600.jpg',
       thumbnailUrl: 'https://i.ebayimg.com/images/g/mock-1/s-l500.jpg',
@@ -34,6 +38,9 @@ function defaultListings(): Listing[] {
       currency: 'CAD',
       shippingCost: 15,
       shippingCurrency: 'CAD',
+      shippingDestinationCountry: 'CA',
+      shippingEligibility: 'AVAILABLE',
+      shippingEligibilityMessage: 'Ships to CA',
       url: 'https://example.com/mock-2',
       imageUrl: 'https://i.ebayimg.com/images/g/mock-2/s-l1600.jpg',
       thumbnailUrl: 'https://i.ebayimg.com/images/g/mock-2/s-l500.jpg',
@@ -60,7 +67,13 @@ export function loadMockListings(): Listing[] {
   }
 }
 
-export function searchMockListings(chase: Chase): Listing[] {
+export function searchMockListings(chase: Chase, destination?: ShippingDestination): Listing[] {
   const card = normalize(chase.cardName);
-  return loadMockListings().filter((listing) => normalize(listing.title).includes(card));
+  return loadMockListings()
+    .filter((listing) => normalize(listing.title).includes(card))
+    .map((listing) => ({
+      ...listing,
+      shippingDestinationCountry: destination?.country ?? listing.shippingDestinationCountry,
+      shippingDestinationPostalCode: destination?.postalCode ?? listing.shippingDestinationPostalCode
+    }));
 }

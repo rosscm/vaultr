@@ -1,13 +1,17 @@
 # Vaultr
 
-Discord-native collector chase assistant.
+Build your Vault. Chase your grails. Discover what you love next.
 
-## MVP Focus
+Vaultr is a Discord-native collector companion for card chases, grail sightings, and ambient discovery. It keeps the command surface small, sends meaningful moments by DM, and lets a collector's active chases shape what Vaultr surfaces over time.
 
-- Discord slash commands for chase management
-- Persistent chase criteria per user
+## Product Focus
+
+- Discord slash commands for building a personal Vault
+- Persistent chase criteria and collector context per user
 - Source adapters (start with eBay)
-- Alert pipeline with dedupe and relevance filtering
+- DM-first grail sightings with dedupe and fit scoring
+- Lightweight discovery shaped by the user's active chases
+- Optional community heartbeat for shared collector activity
 
 ## Tech Stack
 
@@ -38,13 +42,13 @@ Discord-native collector chase assistant.
 - `/alerts settings`
 - `/alerts recent`
 - `/alerts preview`
-- `/community-feed` (admin toggle)
+- `/feed` (admin toggle)
 - `/discover`
 - `/help`
 - `/health` (owner only)
-- `/plan`
-- `/plan-set` (admin/testing)
-- `/setup-channel-set` (admin setup)
+- `/plan view`
+- `/plan set` (admin/testing)
+- `/setup channel` (admin setup)
 - `/upgrade`
 
 ## User Plans (Initial Plumbing)
@@ -53,8 +57,8 @@ Discord-native collector chase assistant.
 - `FREE` limit: 3 active chases
 - `PRO` limit: 50 active chases
 - `/chase add` enforces active chase limits
-- `/plan` shows the user's current tier and limits
-- `/plan-set` lets server admins set a user's tier/status for testing
+- `/plan view` shows the user's current tier and limits
+- `/plan set` lets server admins set a user's tier/status for testing
 
 ## Run As A Service (Raspberry Pi)
 
@@ -117,10 +121,10 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 - Set `LISTING_SOURCE=EBAY` for live eBay polling
 - Set `LISTING_SOURCE=MOCK` to run with local mock listings
 - Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
-- Alerts are delivered by DM to each user
+- Sighting moments are delivered by DM to each user
 - Similar active chases share source queries so eBay requests do not scale one-to-one with users
-- `MAX_ALERTS_PER_CHASE_PER_POLL` caps how many distinct matches one chase can send from a single listing check (default `3`)
-- `SUPPRESS_UNRATED_SELLERS=true` suppresses 0-feedback seller alerts by default
+- `MAX_ALERTS_PER_CHASE_PER_POLL` caps how many distinct sightings one chase can send from a single source check (default `3`)
+- `SUPPRESS_UNRATED_SELLERS=true` suppresses 0-feedback seller sightings by default
 
 ### eBay Rate Limit Notes
 
@@ -203,25 +207,26 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
    - `sudo systemctl status vaultr-ebay-webhook`
    - `sudo journalctl -u vaultr-ebay-webhook -f`
 
-## Alert Controls
+## Vault Signal Controls
 
 - Per-user controls via `/alerts settings`
-- `min_score`: drop low-confidence matches
-- `max_alerts_per_hour`: reduce alert bursts
-- `chase_cooldown_minutes`: minimum minutes between alerts for the same chase
-- `alert_currency`: currency used in alert pricing and max-price comparisons (`USD`, `CAD`, `EUR`, `GBP`, `JPY`)
+- `min_score`: minimum fit score before Vaultr sends a DM sighting
+- `max_alerts_per_hour`: cap how many sightings can surface per hour
+- `chase_cooldown_minutes`: minimum minutes between DMs for the same chase
+- `alert_currency`: currency used in sighting prices and max-price comparisons (`USD`, `CAD`, `EUR`, `GBP`, `JPY`)
+- `shipping_country` / `shipping_postal_code`: optional per-user ship-to location used to warn when a listing may not ship to you, e.g. `/alerts settings shipping_country:CA shipping_postal_code:M5V`
 - `max_price` compares against total cost when shipping is known, and item price when shipping is unavailable
 - FX conversion uses live USD-based rates with background refresh and fallback to env overrides
-- `quiet_start` / `quiet_end`: suppress alerts during quiet window (server local time)
+- `quiet_start` / `quiet_end`: pause DM sightings during a quiet window (server local time)
 - Recommended defaults: `min_score=60`, `max_alerts_per_hour=10`, quiet hours off
 - Per-chase blocked terms via `negative_keywords` on `/chase add` and `/chase edit`
 - Default blocked terms on new chases: `proxy, custom, reprint, lot, orica, replica`
 - Per-chase `grade` can be a specific grade (`PSA 10`, `BGS 9.5`) or `ungraded` / `raw` for ungraded listings only
 - Per-chase `listing_type` filter: `ANY`, `AUCTION`, or `BUY_IT_NOW`
 - Per-chase `priority`: `NORMAL`, `HIGH`, `GRAIL` (grails are shown first in `/chase list`)
-- Per-chase `target_note`: short personal context shown in grail/match alerts
-- Alert DMs include seller identity/feedback and shipping cost when available from source data
-- Alert DMs include lightweight feedback buttons so users can mark whether a match fit their taste
+- Per-chase `target_note`: short personal context shown in grail sightings
+- Sighting DMs include seller identity/feedback and shipping cost when available from source data
+- Sighting DMs include lightweight feedback buttons so users can mark whether a card fit their taste
 
 ## Reliability
 
@@ -233,10 +238,10 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 
 ## Command Channel Policy
 
-- Admin sets the dedicated bot channel with `/setup-channel-set`
+- Admin sets the dedicated bot channel with `/setup channel`
 - All Vaultr commands (except setup and owner health) must be run in that channel
-- Command responses are user-specific (ephemeral), alerts are DM-only
-- Optional community activity feed can be enabled by admins via `/community-feed`
+- Command responses are user-specific (ephemeral), sightings are DM-only
+- Optional community activity feed can be enabled by admins via `/feed`
 - When enabled, Vaultr posts:
   - One-time first-chase unlock message per user
   - Daily `Vault Pulse` collector bulletin in the setup channel
@@ -255,5 +260,5 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 ## Production Notes
 
 - Consider Postgres once Vaultr outgrows a single Pi/host deployment
-- Add queue + worker for source polling and alert fanout
+- Add queue + worker for source polling and sighting fanout
 - Add observability (structured logs, metrics, alerts)

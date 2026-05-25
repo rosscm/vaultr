@@ -5,7 +5,6 @@ import { discover } from './discover.js';
 import { health } from './health.js';
 import { help } from './help.js';
 import { plan } from './plan.js';
-import { planSet } from './plan-set.js';
 import { setupChannelSet } from './setup-channel-set.js';
 import { start } from './start.js';
 import { upgrade } from './upgrade.js';
@@ -18,7 +17,6 @@ export const commands = [
   health,
   help,
   plan,
-  planSet,
   setupChannelSet,
   start,
   upgrade

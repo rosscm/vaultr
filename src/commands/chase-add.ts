@@ -7,6 +7,7 @@ import {
   getGuildCommandChannel,
   markGuildUserStarted
 } from '../services/chase-store.js';
+import { getEntitlementsForTier } from '../services/entitlements.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayGrade, normalizeGradePreference, orAny, orNone } from '../ui/style.js';
@@ -36,13 +37,13 @@ export const chaseAdd = {
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Condition(s): NM,LP,MP,HP,DMG (default: Any)')
+        .setDescription('Pro: condition(s): NM,LP,MP,HP,DMG (default: Any)')
         .setMaxLength(40)
     )
     .addStringOption((opt) =>
       opt
         .setName('listing_type')
-        .setDescription('Listing type (default: Any)')
+        .setDescription('Pro: listing type (default: Any)')
         .addChoices(
           { name: 'Any', value: 'ANY' },
           { name: 'Auction', value: 'AUCTION' },
@@ -52,13 +53,13 @@ export const chaseAdd = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Blocked terms (comma-separated, max 15) (default: proxy,custom,reprint,lot,orica,replica)')
+        .setDescription('Pro: custom blocked terms (comma-separated, max 15)')
         .setMaxLength(240)
     )
     .addStringOption((opt) =>
       opt
         .setName('priority')
-        .setDescription('Priority for this chase (default: Normal)')
+        .setDescription('Pro: priority for this chase (default: Normal)')
         .addChoices(
           { name: 'Normal', value: 'NORMAL' },
           { name: 'High', value: 'HIGH' },
@@ -66,10 +67,11 @@ export const chaseAdd = {
         )
     )
     .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Optional chase note').setMaxLength(120)
+      opt.setName('target_note').setDescription('Pro: optional chase note').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
+    const entitlements = getEntitlementsForTier(plan.tier);
     const currentCount = countUserChases(interaction.user.id);
     const maxChases = PLAN_LIMITS[plan.tier].maxActiveChases;
 
@@ -90,6 +92,36 @@ export const chaseAdd = {
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
     const grade = normalizeGradePreference(interaction.options.getString('grade'));
     const conditionRaw = interaction.options.getString('condition');
+    const listingTypeRaw = interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null;
+    const priorityRaw = interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null;
+    const targetNote = interaction.options.getString('target_note') ?? undefined;
+    const negativeKeywordsRaw = interaction.options.getString('negative_keywords');
+    const hasCustomNegativeKeywords =
+      negativeKeywordsRaw !== null &&
+      negativeKeywordsRaw
+        .split(',')
+        .map((k: string) => k.trim())
+        .filter(Boolean).length > 0;
+    const usesPrecisionControls =
+      conditionRaw !== null ||
+      (listingTypeRaw !== null && listingTypeRaw !== 'ANY') ||
+      (priorityRaw !== null && priorityRaw !== 'NORMAL') ||
+      targetNote !== undefined ||
+      hasCustomNegativeKeywords;
+
+    if (usesPrecisionControls && !entitlements.advancedFiltering) {
+      await interaction.reply({
+        embeds: [
+          warningEmbed(
+            'Pro Feature',
+            'Precision chase controls are available on Pro\n\n**Includes:** condition, listing type, custom blocked terms, priority, and chase notes\n**Next:** use `/upgrade` to unlock'
+          )
+        ],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
     const conditionTokens = conditionRaw
       ?.split(',')
       .map((v: string) => v.trim().toUpperCase())
@@ -102,11 +134,9 @@ export const chaseAdd = {
       return;
     }
     const condition = conditionTokens && conditionTokens.length > 0 ? conditionTokens.join(',') : undefined;
-    const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? 'ANY';
-    const priority = (interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null) ?? 'NORMAL';
-    const targetNote = interaction.options.getString('target_note') ?? undefined;
-    const negativeKeywords = interaction.options
-      .getString('negative_keywords')
+    const listingType = listingTypeRaw ?? 'ANY';
+    const priority = priorityRaw ?? 'NORMAL';
+    const negativeKeywords = negativeKeywordsRaw
       ?.split(',')
       .map((k: string) => k.trim())
       .filter(Boolean);

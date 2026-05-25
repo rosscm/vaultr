@@ -5,11 +5,11 @@ import { OUTPUT_STYLE } from '../ui/style.js';
 export const previewAlert = {
   data: new SlashCommandBuilder()
     .setName('alerts-preview')
-    .setDescription('Preview your current DM alert format'),
+    .setDescription('Preview how a grail sighting appears in DM'),
   async execute(interaction: any) {
     const settings = getUserAlertSettings(interaction.user.id);
     const currency = settings.alertCurrency;
-    const title = `🏆 Grail Match Found · eBay`;
+    const title = `🏆 Grail Sighting · eBay`;
     const description =
       `**Umbreon VMAX Alt Art PSA 10**\n` +
       `Good match • under max by 45.00 ${currency} • posted 2m ago`;
@@ -28,25 +28,27 @@ export const previewAlert = {
           `**Total:** 1155.00 ${currency}`,
           '**Posted:** 2m ago',
           '**Source:** eBay',
+          '**Ships to You:** Shipping shown for CA',
           '**Match Strength:** good (72)',
-          '**Risk Level:** low',
-          '**Match Signals:** exact card name match, grade match',
-          '**Confidence Summary:** good alignment with your chase filters'
+          '**Caution:** low',
+          '**Fit Signals:** exact card name match, grade match',
+          '**Why It Surfaced:** good alignment with your chase'
         ].join('\n'),
         inline: false
       });
     } else {
       embed.addFields(
         {
-          name: '🎯 Chase Context',
+            name: '🎯 Vault Context',
           value: ['**Chase:** Umbreon VMAX', '**Priority:** GRAIL', '**Note:** none'].join('\n'),
           inline: false
         },
         {
-          name: '💰 Pricing Breakdown',
+            name: '💰 Market Window',
           value: [
             `**Price:** 1140.00 ${currency}`,
             `**Shipping:** 15.00 ${currency}`,
+            '**Ships to You:** Shipping shown for CA',
             `**Total:** 1155.00 ${currency}`,
             `**Total vs Max:** 45.00 ${currency} under max`,
             '**Listing Type:** Buy It Now'
@@ -65,12 +67,12 @@ export const previewAlert = {
           inline: false
         },
         {
-          name: '🧠 Match Insight',
+            name: '🧠 Why It Fits',
           value: [
             '**Match Strength:** good (72)',
-            '**Risk Level:** low',
-            '**Match Signals:** exact card name match, grade match',
-            '**Confidence Summary:** good alignment with your chase filters'
+              '**Caution:** low',
+              '**Fit Signals:** exact card name match, grade match',
+              '**Why It Surfaced:** good alignment with your chase'
           ].join('\n'),
           inline: false
         }
@@ -78,7 +80,7 @@ export const previewAlert = {
     }
 
     embed
-      .setFooter({ text: 'Vaultr • Collector Alert' })
+      .setFooter({ text: 'Vaultr • Grail Sighting' })
       .setTimestamp();
 
     await interaction.reply({

@@ -11,14 +11,14 @@ export type PlanEntitlements = {
 export const ENTITLEMENTS_BY_TIER: Record<PlanTier, PlanEntitlements> = {
   FREE: {
     maxActiveChases: 3,
-    pollIntervalSeconds: 180,
+    pollIntervalSeconds: 1800,
     advancedAlertControls: false,
     advancedFiltering: false,
     discoverCadence: 'limited'
   },
   PRO: {
     maxActiveChases: 50,
-    pollIntervalSeconds: 30,
+    pollIntervalSeconds: 900,
     advancedAlertControls: true,
     advancedFiltering: true,
     discoverCadence: 'full'

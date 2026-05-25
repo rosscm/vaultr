@@ -64,6 +64,8 @@ db.exec(`
     max_alerts_per_hour INTEGER NOT NULL DEFAULT 20,
     chase_cooldown_minutes INTEGER NOT NULL DEFAULT 30,
     alert_currency TEXT NOT NULL DEFAULT 'USD',
+    shipping_country TEXT,
+    shipping_postal_code TEXT,
     show_images INTEGER NOT NULL DEFAULT 1,
     compact_mode INTEGER NOT NULL DEFAULT 0,
     quiet_hours_start INTEGER,
@@ -114,6 +116,11 @@ db.exec(`
     feedback TEXT NOT NULL,
     created_at TEXT NOT NULL,
     PRIMARY KEY (user_id, chase_id, listing_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS chase_poll_state (
+    chase_id TEXT PRIMARY KEY,
+    last_checked_at TEXT NOT NULL
   );
 `);
 
@@ -194,6 +201,16 @@ try {
   // Column already exists on upgraded databases.
 }
 try {
+  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN shipping_country TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN shipping_postal_code TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
   db.exec(`ALTER TABLE user_alert_settings ADD COLUMN show_images INTEGER NOT NULL DEFAULT 1;`);
 } catch {
   // Column already exists on upgraded databases.
@@ -216,3 +233,4 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_ignored_listing_fingerprints_user_chase 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_guild_started_users_guild_time ON guild_started_users(guild_id, started_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_weekly_reflection_posts_user_week ON user_weekly_reflection_posts(user_id, week_key);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_feedback_user_time ON alert_feedback(user_id, created_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_chase_poll_state_last_checked ON chase_poll_state(last_checked_at);`);

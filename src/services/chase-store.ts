@@ -167,19 +167,21 @@ const upsertUserPlanStmt = db.prepare(`
 `);
 
 const getUserAlertSettingsStmt = db.prepare(`
-  SELECT user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, show_images, compact_mode, quiet_hours_start, quiet_hours_end, updated_at
+  SELECT user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, shipping_country, shipping_postal_code, show_images, compact_mode, quiet_hours_start, quiet_hours_end, updated_at
   FROM user_alert_settings
   WHERE user_id = ?
 `);
 
 const upsertUserAlertSettingsStmt = db.prepare(`
-  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, show_images, compact_mode, quiet_hours_start, quiet_hours_end, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, shipping_country, shipping_postal_code, show_images, compact_mode, quiet_hours_start, quiet_hours_end, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(user_id) DO UPDATE SET
     min_score = excluded.min_score,
     max_alerts_per_hour = excluded.max_alerts_per_hour,
     chase_cooldown_minutes = excluded.chase_cooldown_minutes,
     alert_currency = excluded.alert_currency,
+    shipping_country = excluded.shipping_country,
+    shipping_postal_code = excluded.shipping_postal_code,
     show_images = excluded.show_images,
     compact_mode = excluded.compact_mode,
     quiet_hours_start = excluded.quiet_hours_start,
@@ -312,6 +314,31 @@ const upsertAlertFeedbackStmt = db.prepare(`
   ON CONFLICT(user_id, chase_id, listing_id) DO UPDATE SET
     feedback = excluded.feedback,
     created_at = excluded.created_at
+`);
+
+const getChasePollStateStmt = db.prepare(`
+  SELECT last_checked_at
+  FROM chase_poll_state
+  WHERE chase_id = ?
+`);
+
+const upsertChasePollStateStmt = db.prepare(`
+  INSERT INTO chase_poll_state (chase_id, last_checked_at)
+  VALUES (?, ?)
+  ON CONFLICT(chase_id) DO UPDATE SET
+    last_checked_at = excluded.last_checked_at
+`);
+
+const deleteChasePollStateStmt = db.prepare(`
+  DELETE FROM chase_poll_state
+  WHERE chase_id = ?
+`);
+
+const deleteChasePollStateByUserStmt = db.prepare(`
+  DELETE FROM chase_poll_state
+  WHERE chase_id IN (
+    SELECT id FROM chases WHERE user_id = ?
+  )
 `);
 
 const insertIgnoredFingerprintStmt = db.prepare(`
@@ -472,13 +499,36 @@ export function listAllChases(): Chase[] {
 }
 
 export function removeChase(userId: string, chaseId: string): boolean {
-  const result = removeChaseStmt.run(userId, chaseId);
+  const result = db.transaction(() => {
+    const removed = removeChaseStmt.run(userId, chaseId);
+    if (removed.changes > 0) deleteChasePollStateStmt.run(chaseId);
+    return removed;
+  })();
   return result.changes > 0;
 }
 
 export function removeAllChases(userId: string): number {
-  const result = removeAllChasesByUserStmt.run(userId);
+  const result = db.transaction(() => {
+    deleteChasePollStateByUserStmt.run(userId);
+    return removeAllChasesByUserStmt.run(userId);
+  })();
   return result.changes;
+}
+
+export function getChaseLastCadenceCheckAt(chaseId: string): string | undefined {
+  const row = getChasePollStateStmt.get(chaseId) as { last_checked_at: string } | undefined;
+  return row?.last_checked_at;
+}
+
+export function markChasesCadenceChecked(chaseIds: string[], checkedAtIso = new Date().toISOString()): void {
+  if (chaseIds.length === 0) return;
+  const uniqueChaseIds = [...new Set(chaseIds)];
+  const persist = db.transaction((ids: string[], timestamp: string) => {
+    for (const chaseId of ids) {
+      upsertChasePollStateStmt.run(chaseId, timestamp);
+    }
+  });
+  persist(uniqueChaseIds, checkedAtIso);
 }
 
 export function updateChase(userId: string, chaseId: string, patch: Partial<Omit<Chase, 'id' | 'userId' | 'createdAt'>>): Chase | null {
@@ -652,6 +702,8 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
         max_alerts_per_hour: number;
         chase_cooldown_minutes: number;
         alert_currency: 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY';
+        shipping_country: string | null;
+        shipping_postal_code: string | null;
         show_images: number;
         compact_mode: number;
         quiet_hours_start: number | null;
@@ -662,7 +714,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
 
   if (!row) {
     const now = new Date().toISOString();
-    upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', 1, 0, null, null, now);
+    upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, 1, 0, null, null, now);
     return {
       userId,
       minScore: 60,
@@ -681,6 +733,8 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
     maxAlertsPerHour: row.max_alerts_per_hour,
     chaseCooldownMinutes: row.chase_cooldown_minutes,
     alertCurrency: row.alert_currency ?? 'USD',
+    shippingCountry: row.shipping_country ?? undefined,
+    shippingPostalCode: row.shipping_postal_code ?? undefined,
     showImages: (row.show_images ?? 1) === 1,
     compactMode: (row.compact_mode ?? 0) === 1,
     quietHoursStart: row.quiet_hours_start ?? undefined,
@@ -696,7 +750,7 @@ export function setUserAlertSettings(
       UserAlertSettings,
       'minScore' | 'maxAlertsPerHour' | 'chaseCooldownMinutes' | 'alertCurrency' | 'showImages' | 'compactMode' | 'quietHoursStart' | 'quietHoursEnd'
     >
-  >
+  > & { shippingCountry?: string | null; shippingPostalCode?: string | null }
 ): UserAlertSettings {
   const current = getUserAlertSettings(userId);
   const next: UserAlertSettings = {
@@ -705,6 +759,8 @@ export function setUserAlertSettings(
     maxAlertsPerHour: patch.maxAlertsPerHour ?? current.maxAlertsPerHour,
     chaseCooldownMinutes: patch.chaseCooldownMinutes ?? current.chaseCooldownMinutes,
     alertCurrency: patch.alertCurrency ?? current.alertCurrency,
+    shippingCountry: patch.shippingCountry === null ? undefined : patch.shippingCountry ?? current.shippingCountry,
+    shippingPostalCode: patch.shippingPostalCode === null ? undefined : patch.shippingPostalCode ?? current.shippingPostalCode,
     showImages: patch.showImages ?? current.showImages,
     compactMode: patch.compactMode ?? current.compactMode,
     quietHoursStart: patch.quietHoursStart ?? current.quietHoursStart,
@@ -718,6 +774,8 @@ export function setUserAlertSettings(
     next.maxAlertsPerHour,
     next.chaseCooldownMinutes,
     next.alertCurrency,
+    next.shippingCountry ?? null,
+    next.shippingPostalCode ?? null,
     next.showImages ? 1 : 0,
     next.compactMode ? 1 : 0,
     next.quietHoursStart ?? null,
@@ -814,7 +872,7 @@ export function isListingFingerprintIgnored(userId: string, chaseId: string, fin
 
 export function resetUserAlertSettings(userId: string): UserAlertSettings {
   const now = new Date().toISOString();
-  upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', 1, 0, null, null, now);
+  upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, 1, 0, null, null, now);
   return {
     userId,
     minScore: 60,

@@ -4,6 +4,8 @@ import {
   getUserWeeklyReflectionSummary,
   countChaseAlertsWithinMinutes,
   countUserAlertsInLastHour,
+  getChaseLastCadenceCheckAt,
+  getUserPlan,
   getUserAlertSettings,
   getGuildCommunityFeedMode,
   hasAlertBeenSent,
@@ -14,12 +16,14 @@ import {
   listAllChases,
   markPostedGuildDailyStats,
   markPostedUserWeeklyReflection,
+  markChasesCadenceChecked,
   markAlertSentWithDetails
 } from './chase-store.js';
-import { searchEbayListings } from './ebay.js';
+import { searchEbayListings, type ShippingDestination } from './ebay.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
+import { PLAN_LIMITS } from './plans.js';
 import {
   getPollerState,
   initializePollerState,
@@ -134,6 +138,14 @@ function formatShippingCost(cost: number | undefined, currency: string | undefin
   return `${cost.toFixed(2)} ${currency ?? ''}`.trim();
 }
 
+function formatShippingEligibility(listing: Listing): string {
+  if (!listing.shippingEligibility) return 'Unknown';
+  if (listing.shippingEligibilityMessage) return listing.shippingEligibilityMessage;
+  if (listing.shippingEligibility === 'AVAILABLE') return 'Shipping shown for your location';
+  if (listing.shippingEligibility === 'MAY_NOT_SHIP') return 'May not ship to your location';
+  return 'Shipping availability is unknown';
+}
+
 function formatTotalCost(price: number, shippingCost: number | undefined): number | undefined {
   if (shippingCost === undefined || Number.isNaN(shippingCost)) return undefined;
   return price + shippingCost;
@@ -151,8 +163,8 @@ function formatDealQuality(score: number): string {
 }
 
 function explainDealQuality(score: number): string {
-  if (score >= 85) return 'strong alignment with your chase filters';
-  if (score >= 60) return 'good alignment with your chase filters';
+  if (score >= 85) return 'strong alignment with your chase';
+  if (score >= 60) return 'good alignment with your chase';
   return 'partial alignment; review details before acting';
 }
 
@@ -232,8 +244,8 @@ function summarizeWhyMatched(
   currency = 'USD',
   postedAt?: string
 ): string {
-  const dealQuality = formatDealQuality(score);
-  const matchLabel = `${dealQuality.charAt(0).toUpperCase()}${dealQuality.slice(1)} match`;
+  const fitQuality = formatDealQuality(score);
+  const matchLabel = `${fitQuality.charAt(0).toUpperCase()}${fitQuality.slice(1)} fit`;
   const total = comparablePrice(listingPrice, shippingCost);
   const pricePart =
     chaseMax === undefined
@@ -288,6 +300,15 @@ export function orderGroupsForRun(
   });
 }
 
+export function isDueForCadence(
+  lastCheckedAtMs: number | undefined,
+  cadenceSeconds: number,
+  nowMs: number
+): boolean {
+  if (lastCheckedAtMs === undefined) return true;
+  return nowMs - lastCheckedAtMs >= cadenceSeconds * 1000;
+}
+
 function pruneSourceCallWindow(nowMs: number): void {
   const oneMinuteAgo = nowMs - 60_000;
   while (sourceCallTimestamps.length > 0 && sourceCallTimestamps[0] < oneMinuteAgo) {
@@ -334,17 +355,31 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMes
   }
 }
 
-function sourceQueryKey(chase: Chase): string {
-  return [chase.cardName.trim().toLowerCase(), chase.grade?.trim().toLowerCase() ?? ''].join('|');
+function shippingDestinationFromSettings(settings: ReturnType<typeof getUserAlertSettings>): ShippingDestination | undefined {
+  if (!settings.shippingCountry) return undefined;
+  return {
+    country: settings.shippingCountry,
+    postalCode: settings.shippingPostalCode
+  };
 }
 
-async function fetchListingsWithRetry(chase: Chase, sourceMode: string): Promise<Listing[]> {
+function sourceQueryKey(chase: Chase, settings: ReturnType<typeof getUserAlertSettings>): string {
+  const destination = shippingDestinationFromSettings(settings);
+  return [
+    chase.cardName.trim().toLowerCase(),
+    chase.grade?.trim().toLowerCase() ?? '',
+    destination?.country?.trim().toUpperCase() ?? '',
+    destination?.postalCode?.trim().toUpperCase() ?? ''
+  ].join('|');
+}
+
+async function fetchListingsWithRetry(chase: Chase, sourceMode: string, destination?: ShippingDestination): Promise<Listing[]> {
   const maxRequestsPerMinute = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '20');
   const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '30');
   const attempts = 2;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      if (sourceMode === 'MOCK') return searchMockListings(chase);
+      if (sourceMode === 'MOCK') return searchMockListings(chase, destination);
       const nowMs = Date.now();
       if (nowMs < backoffUntilMs) {
         return [];
@@ -354,7 +389,7 @@ async function fetchListingsWithRetry(chase: Chase, sourceMode: string): Promise
         return [];
       }
       markSourceCall(nowMs);
-      const listings = await withTimeout(searchEbayListings(chase), 10000, 'Listing source timeout');
+      const listings = await withTimeout(searchEbayListings(chase, destination), 10000, 'Listing source timeout');
       markSourceSuccessNow();
       return listings;
     } catch (error) {
@@ -384,7 +419,7 @@ async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAle
         embeds: [
           warningEmbed(
             'Alerts Temporarily Throttled',
-            `You reached your current limit of ${maxAlertsPerHour} alerts/hour. Before raising that cap, tighten your chase filters first: add card details, use \`grade\` or \`listing_type\`, raise \`min_score\`, or expand \`negative_keywords\`.`
+            `Your Vault surfaced ${maxAlertsPerHour} sightings in the last hour. To quiet the signal, add card details, raise \`min_score\`, or tighten available chase filters.`
           )
         ]
       }),
@@ -399,6 +434,7 @@ async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAle
 
 async function runPoll(client: Client): Promise<void> {
   const startedAt = Date.now();
+  const nowMs = Date.now();
   markPollerRunStart();
   const sourceMode = (process.env.LISTING_SOURCE ?? 'EBAY').toUpperCase();
   const chases = listAllChases();
@@ -409,9 +445,15 @@ async function runPoll(client: Client): Promise<void> {
 
   const activeGroups = new Map<string, ActiveGroup>();
   for (const chase of chases) {
+    const userPlan = getUserPlan(chase.userId);
+    const cadenceSeconds = PLAN_LIMITS[userPlan.tier].pollIntervalSeconds;
+    const lastCheckedAtIso = getChaseLastCadenceCheckAt(chase.id);
+    const lastCheckedAtMs = lastCheckedAtIso ? new Date(lastCheckedAtIso).getTime() : undefined;
+    if (!isDueForCadence(Number.isFinite(lastCheckedAtMs) ? lastCheckedAtMs : undefined, cadenceSeconds, nowMs)) continue;
+
     const settings = getUserAlertSettings(chase.userId);
     if (isInQuietHours(settings.quietHoursStart, settings.quietHoursEnd)) continue;
-    const key = sourceQueryKey(chase);
+    const key = sourceQueryKey(chase, settings);
     const group = activeGroups.get(key) ?? { members: [], oldestCreatedAt: chase.createdAt };
     group.members.push({ chase, settings });
     if (chase.createdAt.localeCompare(group.oldestCreatedAt) < 0) {
@@ -430,11 +472,19 @@ async function runPoll(client: Client): Promise<void> {
 
   for (const { queryKey, group } of orderedGroups) {
     const representative = group.members[0]?.chase;
-    if (!representative) continue;
+    const representativeSettings = group.members[0]?.settings;
+    if (!representative || !representativeSettings) continue;
     const sourceCallsBefore = sourceCallTimestamps.length;
-    const listings = await fetchListingsWithRetry(representative, sourceMode);
-    if (sourceCallTimestamps.length > sourceCallsBefore) {
+    const listings = await fetchListingsWithRetry(
+      representative,
+      sourceMode,
+      shippingDestinationFromSettings(representativeSettings)
+    );
+    const didFetchListings = sourceMode === 'MOCK' || sourceCallTimestamps.length > sourceCallsBefore;
+    if (didFetchListings) {
+      const checkedAtIso = new Date().toISOString();
       lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
+      markChasesCadenceChecked(group.members.map(({ chase }) => chase.id), checkedAtIso);
     }
 
     for (const { chase, settings } of group.members) {
@@ -518,7 +568,7 @@ async function runPoll(client: Client): Promise<void> {
       const sourceLabel = listing.source === 'EBAY' ? 'eBay' : listing.source;
       const embed = new EmbedBuilder()
         .setColor(VAULTR_ALERT_COLOR)
-        .setTitle(`${chase.priority === 'GRAIL' ? '🏆 Grail Match Found' : '🚨 Chase Match Found'} · ${sourceLabel}`)
+        .setTitle(`${chase.priority === 'GRAIL' ? '🏆 Grail Sighting' : '🔎 Chase Sighting'} · ${sourceLabel}`)
         .setDescription(
           `**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(
             match.score,
@@ -544,10 +594,11 @@ async function runPoll(client: Client): Promise<void> {
               }`,
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Source:** ${sourceLabel}`,
+              `**Ships to You:** ${formatShippingEligibility(listing)}`,
               `**Match Strength:** ${formatScoreWithQuality(match.score)}`,
-              `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
-              `**Match Signals:** ${splitReasons(match.reasons).positive}`,
-              `**Confidence Summary:** ${explainDealQuality(match.score)}`
+              `**Caution:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
+              `**Fit Signals:** ${splitReasons(match.reasons).positive}`,
+              `**Why It Surfaced:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }
@@ -555,7 +606,7 @@ async function runPoll(client: Client): Promise<void> {
       } else {
         embed.addFields(
           {
-            name: '🎯 Chase Context',
+            name: '🎯 Vault Context',
             value: [
               `**Chase:** ${truncateTitle(chase.cardName, 60)}`,
               `**Priority:** ${chase.priority ?? 'NORMAL'}`,
@@ -564,10 +615,11 @@ async function runPoll(client: Client): Promise<void> {
             inline: false
           },
           {
-            name: '💰 Pricing Breakdown',
+            name: '💰 Market Window',
             value: [
               `**Price:** ${formatMoney(normalizedListing.price, targetCurrency)}`,
               `**Shipping:** ${formatShippingCost(normalizedListing.shippingCost, targetCurrency)}`,
+              `**Ships to You:** ${formatShippingEligibility(listing)}`,
               `**Total:** ${
                 formatTotalCost(normalizedListing.price, normalizedListing.shippingCost) !== undefined
                   ? formatMoney(formatTotalCost(normalizedListing.price, normalizedListing.shippingCost), targetCurrency)
@@ -597,19 +649,19 @@ async function runPoll(client: Client): Promise<void> {
             inline: false
           },
           {
-            name: '🧠 Match Insight',
+            name: '🧠 Why It Fits',
             value: [
               `**Match Strength:** ${formatScoreWithQuality(match.score)}`,
-              `**Risk Level:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
-              `**Match Signals:** ${splitReasons(match.reasons).positive}`,
-              `**Confidence Summary:** ${explainDealQuality(match.score)}`
+              `**Caution:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
+              `**Fit Signals:** ${splitReasons(match.reasons).positive}`,
+              `**Why It Surfaced:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }
         );
       }
 
-      embed.setTimestamp().setFooter({ text: 'Vaultr • Collector Alert' });
+      embed.setTimestamp().setFooter({ text: 'Vaultr • Grail Sighting' });
 
       if (settings.showImages) {
         if (listing.imageUrl && /^https?:\/\//i.test(listing.imageUrl)) {

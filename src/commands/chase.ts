@@ -25,13 +25,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Condition(s): NM,LP,MP,HP,DMG (default: Any)')
+            .setDescription('Pro: condition(s): NM,LP,MP,HP,DMG (default: Any)')
             .setMaxLength(40)
         )
         .addStringOption((opt) =>
           opt
             .setName('listing_type')
-            .setDescription('Listing type (default: Any)')
+            .setDescription('Pro: listing type (default: Any)')
             .addChoices(
               { name: 'Any', value: 'ANY' },
               { name: 'Auction', value: 'AUCTION' },
@@ -41,13 +41,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('negative_keywords')
-            .setDescription('Blocked terms (comma-separated, max 15) (default: proxy,custom,reprint,lot,orica,replica)')
+            .setDescription('Pro: custom blocked terms (comma-separated, max 15)')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
           opt
             .setName('priority')
-            .setDescription('Priority for this chase (default: Normal)')
+            .setDescription('Pro: priority for this chase (default: Normal)')
             .addChoices(
               { name: 'Normal', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
@@ -55,7 +55,7 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Optional chase note').setMaxLength(120)
+          opt.setName('target_note').setDescription('Pro: optional chase note').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>
@@ -74,13 +74,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Updated condition(s): NM,LP,MP,HP,DMG (default: keep current)')
+            .setDescription('Pro: updated condition(s): NM,LP,MP,HP,DMG')
             .setMaxLength(40)
         )
         .addStringOption((opt) =>
           opt
             .setName('listing_type')
-            .setDescription('Updated listing type (default: keep current)')
+            .setDescription('Pro: updated listing type')
             .addChoices(
               { name: 'Any', value: 'ANY' },
               { name: 'Auction', value: 'AUCTION' },
@@ -90,13 +90,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('negative_keywords')
-            .setDescription('Blocked terms (comma-separated, max 15) (default: keep current)')
+            .setDescription('Pro: custom blocked terms (comma-separated, max 15)')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
           opt
             .setName('priority')
-            .setDescription('Updated priority (default: keep current)')
+            .setDescription('Pro: updated priority')
             .addChoices(
               { name: 'Normal', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
@@ -104,7 +104,7 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Updated chase note (default: keep current)').setMaxLength(120)
+          opt.setName('target_note').setDescription('Pro: updated chase note').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>

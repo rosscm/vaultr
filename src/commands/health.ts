@@ -101,7 +101,12 @@ function normalizeListingCurrency(listing: Listing, targetCurrency: ReturnType<t
 
 async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<string[]> {
   const settings = getUserAlertSettings(chase.userId);
-  const listings = await searchEbayListings(chase);
+  const listings = await searchEbayListings(
+    chase,
+    settings.shippingCountry
+      ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode }
+      : undefined
+  );
   const sourceIndex = listings.findIndex((listing) => listingMatchesItemId(listing, itemId));
   const listing = sourceIndex >= 0 ? listings[sourceIndex] : undefined;
 

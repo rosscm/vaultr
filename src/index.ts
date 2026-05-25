@@ -40,13 +40,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  const setupCommandName = 'setup-channel-set';
+  const setupCommandName = 'setup';
   const channelExemptCommands = new Set([setupCommandName, 'health']);
   if (!channelExemptCommands.has(interaction.commandName)) {
     const configuredChannelId = getGuildCommandChannel(interaction.guildId);
     if (!configuredChannelId) {
         await interaction.reply({
-          embeds: [warningEmbed('Setup Required', `An admin must run \`/${setupCommandName}\` first to set the Vaultr command channel`)],
+          embeds: [warningEmbed('Setup Required', `An admin must run \`/${setupCommandName} channel\` first to set the Vaultr command channel`)],
           flags: MessageFlags.Ephemeral
         });
       return;

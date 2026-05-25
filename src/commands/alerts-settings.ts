@@ -5,6 +5,20 @@ import { getEntitlementsForTier } from '../services/entitlements.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { OUTPUT_STYLE } from '../ui/style.js';
 
+function normalizeShippingCountry(value: string | null): string | null | undefined {
+  if (value === null) return undefined;
+  const normalized = value.trim().toUpperCase();
+  if (normalized === 'OFF' || normalized === 'NONE' || normalized === 'CLEAR') return null;
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
+}
+
+function normalizeShippingPostalCode(value: string | null): string | null | undefined {
+  if (value === null) return undefined;
+  const normalized = value.trim().toUpperCase();
+  if (normalized === 'OFF' || normalized === 'NONE' || normalized === 'CLEAR') return null;
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export const alertsSettings = {
   data: new SlashCommandBuilder()
     .setName('alerts-settings')
@@ -58,6 +72,18 @@ export const alertsSettings = {
     )
     .addStringOption((opt) =>
       opt
+        .setName('shipping_country')
+        .setDescription('Country used to check if listings ship to you, e.g. CA or OFF')
+        .setMaxLength(3)
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('shipping_postal_code')
+        .setDescription('Optional postal/ZIP prefix for shipping checks, e.g. M5V or OFF')
+        .setMaxLength(16)
+    )
+    .addStringOption((opt) =>
+      opt
         .setName('show_images')
         .setDescription('Show listing images in DM alerts (default: On)')
         .addChoices(
@@ -83,8 +109,12 @@ export const alertsSettings = {
     const quietStart = interaction.options.getInteger('quiet_start');
     const quietEnd = interaction.options.getInteger('quiet_end');
     const alertCurrency = interaction.options.getString('alert_currency');
+    const shippingCountryInput = interaction.options.getString('shipping_country');
+    const shippingPostalCodeInput = interaction.options.getString('shipping_postal_code');
     const showImages = interaction.options.getString('show_images');
     const compactMode = interaction.options.getString('compact_mode');
+    const shippingCountry = normalizeShippingCountry(shippingCountryInput);
+    const shippingPostalCode = normalizeShippingPostalCode(shippingPostalCodeInput);
 
     const noChanges =
       minScore === null &&
@@ -93,8 +123,26 @@ export const alertsSettings = {
       quietStart === null &&
       quietEnd === null &&
       alertCurrency === null &&
+      shippingCountryInput === null &&
+      shippingPostalCodeInput === null &&
       showImages === null &&
       compactMode === null;
+
+    if (shippingCountryInput !== null && shippingCountry === undefined) {
+      await interaction.reply({
+        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or `OFF` to clear your ship-to location.')],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    if (shippingPostalCodeInput !== null && shippingPostalCode === undefined) {
+      await interaction.reply({
+        embeds: [warningEmbed('Invalid Postal Code', 'Use a short postal/ZIP prefix like `M5V`, or `OFF` to clear it.')],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
 
     const isAdvancedAlertControlChange =
       showImages !== null ||
@@ -122,6 +170,8 @@ export const alertsSettings = {
           maxAlertsPerHour: maxAlertsPerHour ?? undefined,
           chaseCooldownMinutes: chaseCooldownMinutes ?? undefined,
           alertCurrency: (alertCurrency as 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY' | null) ?? undefined,
+          shippingCountry,
+          shippingPostalCode: shippingCountry === null ? null : shippingPostalCode,
           showImages: showImages === null ? undefined : showImages === 'ON',
           compactMode: compactMode === null ? undefined : compactMode === 'ON',
           quietHoursStart: quietStart ?? undefined,
@@ -132,25 +182,25 @@ export const alertsSettings = {
       settings.quietHoursStart === undefined || settings.quietHoursEnd === undefined
         ? OUTPUT_STYLE.off
         : `${settings.quietHoursStart}:00-${settings.quietHoursEnd}:00`;
+    const shipToLocation = settings.shippingCountry
+      ? `${settings.shippingCountry}${settings.shippingPostalCode ? ` ${settings.shippingPostalCode}` : ''}`
+      : OUTPUT_STYLE.off;
 
     const lines = [
-      `**Min Score:** ${settings.minScore}`,
-      `**Max Alerts/Hour:** ${settings.maxAlertsPerHour}`,
+      `**Minimum Fit Score:** ${settings.minScore}`,
+      `**Max Sightings/Hour:** ${settings.maxAlertsPerHour}`,
       `**Chase Cooldown:** ${settings.chaseCooldownMinutes}m`,
       `**Alert Currency:** ${settings.alertCurrency}`,
+      `**Ship-To Location:** ${shipToLocation}`,
       `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Compact Mode:** ${settings.compactMode ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Quiet Hours:** ${quietHours}`,
-      `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`,
-      '',
-      '**Note:** Duplicate listing alerts are auto-suppressed',
-      '**Noise Tip:** If alerts feel too broad, tighten chase details and filters first',
-      '**Next:** Use `/alerts preview` to preview your DM format'
+      `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`
     ];
 
     const embed = noChanges
-      ? infoEmbed('🔔 Alert Settings', lines.join('\n'))
-      : successEmbed('Alert Settings Updated', lines.join('\n')).setTitle('✅ Alert Settings Updated');
+      ? infoEmbed('🔔 Vault Signal Settings', lines.join('\n'))
+      : successEmbed('Vault Signal Settings Updated', lines.join('\n')).setTitle('✅ Vault Signal Settings Updated');
 
     await interaction.reply({
       embeds: [embed],
