@@ -515,12 +515,12 @@ export function removeAllChases(userId: string): number {
   return result.changes;
 }
 
-export function getChaseLastCadenceCheckAt(chaseId: string): string | undefined {
+export function getChaseLastPollCheckAt(chaseId: string): string | undefined {
   const row = getChasePollStateStmt.get(chaseId) as { last_checked_at: string } | undefined;
   return row?.last_checked_at;
 }
 
-export function markChasesCadenceChecked(chaseIds: string[], checkedAtIso = new Date().toISOString()): void {
+export function markChasesPollChecked(chaseIds: string[], checkedAtIso = new Date().toISOString()): void {
   if (chaseIds.length === 0) return;
   const uniqueChaseIds = [...new Set(chaseIds)];
   const persist = db.transaction((ids: string[], timestamp: string) => {

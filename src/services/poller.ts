@@ -4,7 +4,7 @@ import {
   getUserWeeklyReflectionSummary,
   countChaseAlertsWithinMinutes,
   countUserAlertsInLastHour,
-  getChaseLastCadenceCheckAt,
+  getChaseLastPollCheckAt,
   getUserPlan,
   getUserAlertSettings,
   getGuildCommunityFeedMode,
@@ -16,7 +16,7 @@ import {
   listAllChases,
   markPostedGuildDailyStats,
   markPostedUserWeeklyReflection,
-  markChasesCadenceChecked,
+  markChasesPollChecked,
   markAlertSentWithDetails
 } from './chase-store.js';
 import { searchEbayListings, type ShippingDestination } from './ebay.js';
@@ -300,13 +300,13 @@ export function orderGroupsForRun(
   });
 }
 
-export function isDueForCadence(
+export function isDueForPollInterval(
   lastCheckedAtMs: number | undefined,
-  cadenceSeconds: number,
+  intervalSeconds: number,
   nowMs: number
 ): boolean {
   if (lastCheckedAtMs === undefined) return true;
-  return nowMs - lastCheckedAtMs >= cadenceSeconds * 1000;
+  return nowMs - lastCheckedAtMs >= intervalSeconds * 1000;
 }
 
 function pruneSourceCallWindow(nowMs: number): void {
@@ -446,10 +446,10 @@ async function runPoll(client: Client): Promise<void> {
   const activeGroups = new Map<string, ActiveGroup>();
   for (const chase of chases) {
     const userPlan = getUserPlan(chase.userId);
-    const cadenceSeconds = PLAN_LIMITS[userPlan.tier].pollIntervalSeconds;
-    const lastCheckedAtIso = getChaseLastCadenceCheckAt(chase.id);
+    const intervalSeconds = PLAN_LIMITS[userPlan.tier].pollIntervalSeconds;
+    const lastCheckedAtIso = getChaseLastPollCheckAt(chase.id);
     const lastCheckedAtMs = lastCheckedAtIso ? new Date(lastCheckedAtIso).getTime() : undefined;
-    if (!isDueForCadence(Number.isFinite(lastCheckedAtMs) ? lastCheckedAtMs : undefined, cadenceSeconds, nowMs)) continue;
+    if (!isDueForPollInterval(Number.isFinite(lastCheckedAtMs) ? lastCheckedAtMs : undefined, intervalSeconds, nowMs)) continue;
 
     const settings = getUserAlertSettings(chase.userId);
     if (isInQuietHours(settings.quietHoursStart, settings.quietHoursEnd)) continue;
@@ -484,7 +484,7 @@ async function runPoll(client: Client): Promise<void> {
     if (didFetchListings) {
       const checkedAtIso = new Date().toISOString();
       lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
-      markChasesCadenceChecked(group.members.map(({ chase }) => chase.id), checkedAtIso);
+      markChasesPollChecked(group.members.map(({ chase }) => chase.id), checkedAtIso);
     }
 
     for (const { chase, settings } of group.members) {

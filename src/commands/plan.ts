@@ -1,6 +1,6 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { getUserPlan } from '../services/chase-store.js';
-import { formatPollCadence, PLAN_LIMITS } from '../services/plans.js';
+import { formatPollInterval, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { executePlanSet } from './plan-set.js';
@@ -57,7 +57,7 @@ export const plan = {
       `**Tier:** ${userPlan.tier}`,
       `**Status:** ${userPlan.status}`,
       `**Active Chase Limit:** ${limits.maxActiveChases}`,
-      `**Sighting Cadence:** Every ${formatPollCadence(limits.pollIntervalSeconds)}`,
+      `**Checks for New Listings:** Every ${formatPollInterval(limits.pollIntervalSeconds)}`,
       `**Updated:** ${formatLocalDateTime(userPlan.updatedAt)}`
     ];
 

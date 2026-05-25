@@ -1,6 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserPlan } from '../services/chase-store.js';
-import { formatPollCadence, PLAN_LIMITS } from '../services/plans.js';
+import { formatPollInterval, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, successEmbed } from '../ui/embeds.js';
 
 export const upgrade = {
@@ -12,7 +12,7 @@ export const upgrade = {
       const lines = [
         `**Plan:** ${plan.tier} (${plan.status})`,
         `**Active Chases:** ${PLAN_LIMITS.PRO.maxActiveChases}`,
-        `**Sighting Cadence:** Every ${formatPollCadence(PLAN_LIMITS.PRO.pollIntervalSeconds)}`
+        `**Checks for New Listings:** Every ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`
       ];
       await interaction.reply({
         embeds: [successEmbed('You Are Pro', lines.join('\n')).setTitle('👑 You Are Pro')],
@@ -22,11 +22,12 @@ export const upgrade = {
     }
 
     const lines = [
-      '**Pro Upgrades**',
+      'Pro gives your Vault more room, quicker sightings, and finer control over each chase.',
+      '',
       `**Active Chases:** ${PLAN_LIMITS.FREE.maxActiveChases} → ${PLAN_LIMITS.PRO.maxActiveChases}`,
-      `**Sighting Cadence:** ${formatPollCadence(PLAN_LIMITS.FREE.pollIntervalSeconds)} → ${formatPollCadence(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
+      `**Checks for New Listings:** ${formatPollInterval(PLAN_LIMITS.FREE.pollIntervalSeconds)} → ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
       '**Signal Controls:** add quiet hours, compact DMs, and image display controls',
-      '**Discovery:** richer recommendation cadence as your Vault grows',
+      '**Discovery:** richer recommendations as your Vault grows',
       '**Precision Filters:** condition, listing type, custom blocked terms, priority, and chase notes',
       '**How to Upgrade:** Upgrade path coming soon.'
     ];

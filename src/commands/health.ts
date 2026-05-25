@@ -246,7 +246,7 @@ export const health = {
     const isBackoffActive = backoffUntilMs !== undefined && Number.isFinite(backoffUntilMs) && backoffUntilMs > nowMs;
     const lines = [
       `**Source:** ${state.sourceMode}`,
-      `**Listing Check Cadence:** every ${state.pollIntervalSeconds}s`,
+      `**Listing Checks:** every ${state.pollIntervalSeconds}s`,
       `**Running:** ${state.isRunning ? 'Yes' : 'No'}`,
       `**Rate Limited / Backing Off:** ${isBackoffActive ? 'Yes' : 'No'}`,
       `**Active Chases:** ${listAllChases().length}`,

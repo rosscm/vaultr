@@ -5,7 +5,7 @@ export type PlanEntitlements = {
   pollIntervalSeconds: number;
   advancedAlertControls: boolean;
   advancedFiltering: boolean;
-  discoverCadence: 'limited' | 'full';
+  discoveryDepth: 'limited' | 'full';
 };
 
 export const ENTITLEMENTS_BY_TIER: Record<PlanTier, PlanEntitlements> = {
@@ -14,14 +14,14 @@ export const ENTITLEMENTS_BY_TIER: Record<PlanTier, PlanEntitlements> = {
     pollIntervalSeconds: 1800,
     advancedAlertControls: false,
     advancedFiltering: false,
-    discoverCadence: 'limited'
+    discoveryDepth: 'limited'
   },
   PRO: {
     maxActiveChases: 50,
     pollIntervalSeconds: 900,
     advancedAlertControls: true,
     advancedFiltering: true,
-    discoverCadence: 'full'
+    discoveryDepth: 'full'
   }
 };
 

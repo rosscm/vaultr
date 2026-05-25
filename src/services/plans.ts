@@ -22,7 +22,7 @@ export function getRuntimePollIntervalSeconds(): number {
   return Number.isFinite(value) ? Math.max(30, Math.floor(value)) : 180;
 }
 
-export function formatPollCadence(seconds: number): string {
+export function formatPollInterval(seconds: number): string {
   if (seconds % 3600 === 0) {
     const hours = seconds / 3600;
     return `${hours} hour${hours === 1 ? '' : 's'}`;
