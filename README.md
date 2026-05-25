@@ -110,7 +110,7 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 - Keep `EBAY_APP_ID` only if you want the legacy Finding API fallback with `EBAY_SEARCH_API=FINDING`
 - Set `EBAY_ENV=SANDBOX` for sandbox testing, or `EBAY_ENV=PRODUCTION` for live eBay
 - Set `EBAY_MARKETPLACE_ID=EBAY_US` unless you intentionally want another eBay marketplace
-- Optional: tune `EBAY_SEARCH_LIMIT` (default `10`) and `EBAY_BROWSE_SORT` (default `newlyListed`)
+- Optional: tune `EBAY_SEARCH_LIMIT` (default `50`) and `EBAY_BROWSE_SORT` (default `newlyListed`)
 - Recommended production soak: `POLL_INTERVAL_SECONDS=900`
 - Recommended production soak: `EBAY_MAX_REQUESTS_PER_MINUTE=1`
 - Recommended production soak: `EBAY_BACKOFF_BASE_SECONDS=900`
@@ -120,6 +120,7 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 - Alerts are delivered by DM to each user
 - Similar active chases share source queries so eBay requests do not scale one-to-one with users
 - `MAX_ALERTS_PER_CHASE_PER_POLL` caps how many distinct matches one chase can send from a single listing check (default `3`)
+- `SUPPRESS_UNRATED_SELLERS=true` suppresses 0-feedback seller alerts by default
 
 ### eBay Rate Limit Notes
 

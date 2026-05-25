@@ -193,7 +193,7 @@ async function searchEbayBrowseListings(chase: Chase): Promise<Listing[]> {
   const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
   const params = new URLSearchParams({
     q: keywords,
-    limit: process.env.EBAY_SEARCH_LIMIT ?? '10',
+    limit: process.env.EBAY_SEARCH_LIMIT ?? '50',
     sort: process.env.EBAY_BROWSE_SORT ?? 'newlyListed'
   });
 
@@ -284,7 +284,7 @@ async function searchEbayFindingListings(chase: Chase): Promise<Listing[]> {
     'RESPONSE-DATA-FORMAT': 'JSON',
     'REST-PAYLOAD': '',
     keywords,
-    'paginationInput.entriesPerPage': process.env.EBAY_SEARCH_LIMIT ?? '10',
+    'paginationInput.entriesPerPage': process.env.EBAY_SEARCH_LIMIT ?? '50',
     sortOrder: 'StartTimeNewest'
   });
   params.append('outputSelector', 'SellerInfo');

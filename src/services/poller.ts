@@ -113,6 +113,10 @@ function maxAlertsPerChasePerPoll(): number {
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 3;
 }
 
+function suppressUnratedSellers(): boolean {
+  return (process.env.SUPPRESS_UNRATED_SELLERS ?? 'true').toLowerCase() !== 'false';
+}
+
 function formatPriceVsMax(listingPrice: number, shippingCost: number | undefined, chaseMax: number | undefined, currency: string): string {
   if (chaseMax === undefined) return 'No max set';
   const diff = chaseMax - comparablePrice(listingPrice, shippingCost);
@@ -373,6 +377,10 @@ async function runPoll(client: Client): Promise<void> {
 
       const match = matchChaseToListing(chase, normalizedListing);
       if (!match.isMatch) continue;
+      if (suppressUnratedSellers() && match.reasons.includes('new_seller_penalty')) {
+        markMinScoreSuppression();
+        continue;
+      }
       if (match.score < settings.minScore) {
         markMinScoreSuppression();
         continue;

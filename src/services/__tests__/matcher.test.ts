@@ -167,6 +167,7 @@ describe('matchChaseToListing', () => {
     expect(unratedResult.isMatch).toBe(true);
     expect(unratedResult.reasons).toContain('new_seller_penalty');
     expect(unratedResult.score).toBeLessThan(trustedResult.score);
+    expect(unratedResult.score).toBeLessThan(60);
   });
 
   it('does not boost high percentage sellers with too little history', () => {

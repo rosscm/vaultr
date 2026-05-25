@@ -189,13 +189,13 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
   const sellerFeedbackPercent = listing.sellerFeedbackPercent;
   const sellerFeedbackScore = listing.sellerFeedbackScore;
   if (sellerFeedbackScore !== undefined && sellerFeedbackScore <= 0) {
-    score -= 15;
+    score -= 35;
     reasons.push('new_seller_penalty');
   } else if (sellerFeedbackScore !== undefined && sellerFeedbackScore < 10) {
-    score -= 10;
+    score -= 20;
     reasons.push('low_seller_feedback_count_penalty');
   } else if (sellerFeedbackPercent !== undefined && sellerFeedbackPercent < 95) {
-    score -= 8;
+    score -= 12;
     reasons.push('low_seller_feedback_percent_penalty');
   }
 
