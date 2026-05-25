@@ -178,6 +178,52 @@ function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number |
 
 const VAULTR_ALERT_COLOR = 0xf59e0b;
 
+type AlertCandidate = {
+  listing: Listing;
+  normalizedListing: Listing;
+  match: ReturnType<typeof matchChaseToListing>;
+  targetCurrency: ReturnType<typeof normalizeSupportedCurrency>;
+  listingFingerprint: string;
+  rankScore: number;
+};
+
+function sellerTrustScore(listing: Listing): number {
+  const feedbackScore = listing.sellerFeedbackScore;
+  const feedbackPercent = listing.sellerFeedbackPercent;
+  if (feedbackScore !== undefined && feedbackScore <= 0) return -1000;
+  if (feedbackScore !== undefined && feedbackScore < 10) return -250;
+  if (feedbackPercent !== undefined && feedbackPercent < 95) return -150;
+  if (feedbackPercent !== undefined && feedbackPercent >= 99 && feedbackScore !== undefined && feedbackScore >= 50) return 250;
+  if (feedbackScore !== undefined && feedbackScore >= 10) return 100;
+  return 0;
+}
+
+function priceFitScore(listingPrice: number, shippingCost: number | undefined, chaseMax: number | undefined): number {
+  if (chaseMax === undefined || chaseMax <= 0) return 0;
+  const total = comparablePrice(listingPrice, shippingCost);
+  if (total > chaseMax) return -1000;
+  return Math.min(250, Math.round(((chaseMax - total) / chaseMax) * 250));
+}
+
+function freshnessScore(postedAt: string | undefined): number {
+  const ageSeconds = postedAgeSeconds(postedAt);
+  if (ageSeconds === null) return 0;
+  const ageHours = ageSeconds / 3600;
+  if (ageHours <= 1) return 50;
+  if (ageHours <= 24) return 30;
+  if (ageHours <= 72) return 15;
+  return 0;
+}
+
+function rankAlertCandidate(candidate: Omit<AlertCandidate, 'rankScore'>, chase: Chase): number {
+  return (
+    candidate.match.score * 1000 +
+    sellerTrustScore(candidate.listing) +
+    priceFitScore(candidate.normalizedListing.price, candidate.normalizedListing.shippingCost, chase.maxPrice) +
+    freshnessScore(candidate.listing.postedAt)
+  );
+}
+
 function summarizeWhyMatched(
   score: number,
   listingPrice: number,
@@ -361,6 +407,7 @@ async function runPoll(client: Client): Promise<void> {
 
       let sentForChaseThisPoll = 0;
       const maxForChaseThisPoll = maxAlertsPerChasePerPoll();
+      const candidates: AlertCandidate[] = [];
 
       for (const listing of listings) {
       const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
@@ -385,19 +432,43 @@ async function runPoll(client: Client): Promise<void> {
         markMinScoreSuppression();
         continue;
       }
-      if (sentForChaseThisPoll >= maxForChaseThisPoll) {
-        markChaseCooldownSuppression();
-        continue;
-      }
-
-      if (countUserAlertsInLastHour(chase.userId) >= settings.maxAlertsPerHour) {
-        await sendThrottleNoticeIfNeeded(client, chase.userId, settings.maxAlertsPerHour);
-        continue;
-      }
 
       if (hasAlertBeenSent(chase.id, listing.listingId, listing.source)) continue;
       const nowMs = Date.now();
       const listingFingerprint = makeListingFingerprint(listing.title);
+      if (listingFingerprint && wasFingerprintSeenRecently(chase.id, listingFingerprint, nowMs)) {
+        markFingerprintSuppression();
+        continue;
+      }
+
+      const candidateBase = {
+        listing,
+        normalizedListing,
+        match,
+        targetCurrency,
+        listingFingerprint
+      };
+      candidates.push({
+        ...candidateBase,
+        rankScore: rankAlertCandidate(candidateBase, chase)
+      });
+      }
+
+      candidates.sort((a, b) => b.rankScore - a.rankScore);
+
+      for (const candidate of candidates) {
+      if (sentForChaseThisPoll >= maxForChaseThisPoll) {
+        markChaseCooldownSuppression();
+        break;
+      }
+
+      if (countUserAlertsInLastHour(chase.userId) >= settings.maxAlertsPerHour) {
+        await sendThrottleNoticeIfNeeded(client, chase.userId, settings.maxAlertsPerHour);
+        break;
+      }
+
+      const { listing, normalizedListing, match, targetCurrency, listingFingerprint } = candidate;
+      const nowMs = Date.now();
       if (listingFingerprint && wasFingerprintSeenRecently(chase.id, listingFingerprint, nowMs)) {
         markFingerprintSuppression();
         continue;
