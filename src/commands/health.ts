@@ -18,6 +18,11 @@ function comparablePrice(listing: Listing): number {
   return listing.shippingCost === undefined ? listing.price : listing.price + listing.shippingCost;
 }
 
+function maxAlertsPerChasePerPoll(): number {
+  const value = Number(process.env.MAX_ALERTS_PER_CHASE_PER_POLL ?? '3');
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 3;
+}
+
 function listingMatchesItemId(listing: Listing, itemId: string): boolean {
   const needle = itemId.trim();
   if (!needle) return false;
@@ -43,6 +48,57 @@ function formatListingDebug(listing: Listing | undefined, rank: number | null): 
   ];
 }
 
+function sellerTrustScore(listing: Listing): number {
+  const feedbackScore = listing.sellerFeedbackScore;
+  const feedbackPercent = listing.sellerFeedbackPercent;
+  if (feedbackScore !== undefined && feedbackScore <= 0) return -1000;
+  if (feedbackScore !== undefined && feedbackScore < 10) return -250;
+  if (feedbackPercent !== undefined && feedbackPercent < 95) return -150;
+  if (feedbackPercent !== undefined && feedbackPercent >= 99 && feedbackScore !== undefined && feedbackScore >= 50) return 250;
+  if (feedbackScore !== undefined && feedbackScore >= 10) return 100;
+  return 0;
+}
+
+function priceFitScore(listingPrice: number, shippingCost: number | undefined, chaseMax: number | undefined): number {
+  if (chaseMax === undefined || chaseMax <= 0) return 0;
+  const total = comparablePrice({ price: listingPrice, shippingCost } as Listing);
+  if (total > chaseMax) return -1000;
+  return Math.min(250, Math.round(((chaseMax - total) / chaseMax) * 250));
+}
+
+function freshnessScore(postedAt: string | undefined): number {
+  if (!postedAt) return 0;
+  const then = new Date(postedAt).getTime();
+  if (Number.isNaN(then)) return 0;
+  const ageHours = Math.max(0, Date.now() - then) / 3_600_000;
+  if (ageHours <= 1) return 50;
+  if (ageHours <= 24) return 30;
+  if (ageHours <= 72) return 15;
+  return 0;
+}
+
+function candidateRankScore(listing: Listing, normalizedListing: Listing, matchScore: number, chase: Chase): number {
+  return (
+    matchScore * 1000 +
+    sellerTrustScore(listing) +
+    priceFitScore(normalizedListing.price, normalizedListing.shippingCost, chase.maxPrice) +
+    freshnessScore(listing.postedAt)
+  );
+}
+
+function normalizeListingCurrency(listing: Listing, targetCurrency: ReturnType<typeof normalizeSupportedCurrency>): Listing {
+  return {
+    ...listing,
+    price: convertCurrencyAmount(listing.price, listing.currency, targetCurrency),
+    currency: targetCurrency,
+    shippingCost:
+      listing.shippingCost === undefined
+        ? undefined
+        : convertCurrencyAmount(listing.shippingCost, listing.shippingCurrency ?? listing.currency, targetCurrency),
+    shippingCurrency: targetCurrency
+  };
+}
+
 async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<string[]> {
   const settings = getUserAlertSettings(chase.userId);
   const listings = await searchEbayListings(chase);
@@ -65,16 +121,7 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
   }
 
   const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
-  const normalizedListing = {
-    ...listing,
-    price: convertCurrencyAmount(listing.price, listing.currency, targetCurrency),
-    currency: targetCurrency,
-    shippingCost:
-      listing.shippingCost === undefined
-        ? undefined
-        : convertCurrencyAmount(listing.shippingCost, listing.shippingCurrency ?? listing.currency, targetCurrency),
-    shippingCurrency: targetCurrency
-  };
+  const normalizedListing = normalizeListingCurrency(listing, targetCurrency);
   const match = matchChaseToListing(chase, normalizedListing);
   const recentForChase =
     settings.chaseCooldownMinutes > 0
@@ -87,8 +134,33 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
   const minScoreSuppressed = match.isMatch && match.score < settings.minScore;
   const cooldownSuppressed = recentForChase > 0;
   const hourlySuppressed = recentForUser >= settings.maxAlertsPerHour;
+  const rankedCandidates = listings
+    .map((sourceListing) => {
+      const normalized = normalizeListingCurrency(sourceListing, targetCurrency);
+      const candidateMatch = matchChaseToListing(chase, normalized);
+      const candidateDuplicate = hasAlertBeenSent(chase.id, sourceListing.listingId, sourceListing.source);
+      const candidateUnratedSuppressed = suppressUnrated && candidateMatch.reasons.includes('new_seller_penalty');
+      if (!candidateMatch.isMatch || candidateDuplicate || candidateUnratedSuppressed || candidateMatch.score < settings.minScore) {
+        return null;
+      }
+
+      return {
+        listingId: sourceListing.listingId,
+        rankScore: candidateRankScore(sourceListing, normalized, candidateMatch.score, chase)
+      };
+    })
+    .filter((candidate): candidate is { listingId: string; rankScore: number } => candidate !== null)
+    .sort((a, b) => b.rankScore - a.rankScore);
+  const candidateRank = rankedCandidates.findIndex((candidate) => candidate.listingId === listing.listingId) + 1;
+  const selectedByPerPollCap = candidateRank > 0 && candidateRank <= maxAlertsPerChasePerPoll();
   const wouldAlert =
-    match.isMatch && !unratedSuppressed && !minScoreSuppressed && !cooldownSuppressed && !hourlySuppressed && !duplicate;
+    match.isMatch &&
+    !unratedSuppressed &&
+    !minScoreSuppressed &&
+    !cooldownSuppressed &&
+    !hourlySuppressed &&
+    !duplicate &&
+    selectedByPerPollCap;
 
   lines.push(
     `**Converted Price:** ${formatMoney(normalizedListing.price, targetCurrency)}`,
@@ -101,6 +173,9 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
     `**Duplicate Sent:** ${duplicate ? 'Yes' : 'No'}`,
     `**Recent Chase Alerts:** ${recentForChase}`,
     `**Recent User Alerts/hour:** ${recentForUser}`,
+    `**Alert Candidate Rank:** ${candidateRank || 'Not ranked'}`,
+    `**Per-Poll Cap:** ${maxAlertsPerChasePerPoll()}`,
+    `**Selected By Per-Poll Cap:** ${selectedByPerPollCap ? 'Yes' : 'No'}`,
     `**Unrated Seller Suppressed:** ${unratedSuppressed ? 'Yes' : 'No'}`,
     `**Min Score Suppressed:** ${minScoreSuppressed ? 'Yes' : 'No'}`,
     `**Cooldown Suppressed:** ${cooldownSuppressed ? 'Yes' : 'No'}`,
