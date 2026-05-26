@@ -801,7 +801,7 @@ async function maybePostDailyCommunityStats(client: Client): Promise<void> {
         `• Theme: ${stats.topTrackedTheme}`,
         `• Family: ${stats.topTrackedFamily}`,
         '',
-        '**Shelf Note**',
+        '**Today\'s Spotlight**',
         `• ${stats.hiddenDiscovery}`
       ].join('\n')
     );

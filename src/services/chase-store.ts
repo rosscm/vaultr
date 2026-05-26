@@ -436,7 +436,7 @@ export function getGuildCommunityStatsToday(guildId: string): {
     grailsSurfaced: Number(grailsRow?.count ?? 0),
     topTrackedFamily: inferFamilyFromText(collectorText) ?? 'Mixed collections',
     topTrackedTheme: inferThemeFromText(collectorText) ?? 'Varied styles',
-    hiddenDiscovery: alertTitles[0] ?? 'No fresh spotlight yet'
+    hiddenDiscovery: alertTitles[0] ?? 'A quiet spotlight. Chases are still watching.'
   };
 }
 
