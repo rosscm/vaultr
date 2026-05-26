@@ -588,10 +588,10 @@ async function runPoll(client: Client): Promise<void> {
               }`,
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Source:** ${sourceLabel}`,
-              `**Ships to You:** ${formatShippingEligibility(listing)}`,
+              `**Shipping Destination:** ${listing.shippingDestinationPostalCode ?? 'Unknown'}`,
               `**Confidence:** ${formatScoreWithQuality(match.score)}`,
               `**Signals:** ${splitReasons(match.reasons).positive}`,
-              `**Context:** ${explainDealQuality(match.score)}`
+              `**Takeaway:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }
@@ -599,7 +599,7 @@ async function runPoll(client: Client): Promise<void> {
       } else {
         embed.addFields(
           {
-            name: '🎯 Vault Context',
+            name: '🎯 Chase Details',
             value: [
               `**Chase:** ${truncateTitle(chase.cardName, 60)}`,
               `**Priority:** ${chase.priority ?? 'NORMAL'}`,
@@ -646,7 +646,7 @@ async function runPoll(client: Client): Promise<void> {
             value: [
               `**Confidence:** ${formatScoreWithQuality(match.score)}`,
               `**Signals:** ${splitReasons(match.reasons).positive}`,
-              `**Context:** ${explainDealQuality(match.score)}`
+              `**Takeaway:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }

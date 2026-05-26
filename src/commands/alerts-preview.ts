@@ -31,14 +31,14 @@ export const previewAlert = {
            '**Shipping Destination:** CA',
           '**Confidence:** good (72)',
           '**Signals:** exact card name, requested grade',
-          '**Context:** meets the core chase criteria'
+          '**Takeaway:** meets the core chase criteria'
         ].join('\n'),
         inline: false
       });
     } else {
       embed.addFields(
         {
-            name: '🎯 Vault Context',
+            name: '🎯 Chase Details',
           value: ['**Chase:** Umbreon VMAX', '**Priority:** GRAIL', '**Note:** none'].join('\n'),
           inline: false
         },
@@ -70,7 +70,7 @@ export const previewAlert = {
           value: [
             '**Confidence:** good (72)',
             '**Signals:** exact card name, requested grade',
-            '**Context:** meets the core chase criteria'
+            '**Takeaway:** meets the core chase criteria'
           ].join('\n'),
           inline: false
         }
