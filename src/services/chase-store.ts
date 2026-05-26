@@ -317,6 +317,27 @@ const upsertAlertFeedbackStmt = db.prepare(`
     created_at = excluded.created_at
 `);
 
+const listAlertFeedbackSummarySinceStmt = db.prepare(`
+  SELECT feedback, feedback_reason, COUNT(*) AS count
+  FROM alert_feedback
+  WHERE user_id = ? AND created_at >= ?
+  GROUP BY feedback, feedback_reason
+  ORDER BY count DESC
+`);
+
+const listTopFeedbackChasesSinceStmt = db.prepare(`
+  SELECT af.chase_id, ch.card_name, af.feedback_reason, COUNT(*) AS count
+  FROM alert_feedback af
+  LEFT JOIN chases ch ON ch.id = af.chase_id AND ch.user_id = af.user_id
+  WHERE af.user_id = ?
+    AND af.created_at >= ?
+    AND af.feedback = 'TUNE_OUT'
+    AND af.feedback_reason IS NOT NULL
+  GROUP BY af.chase_id, ch.card_name, af.feedback_reason
+  ORDER BY count DESC
+  LIMIT ?
+`);
+
 const getChasePollStateStmt = db.prepare(`
   SELECT last_checked_at
   FROM chase_poll_state
@@ -624,6 +645,62 @@ export function recordAlertFeedback(
   reason?: string
 ): void {
   upsertAlertFeedbackStmt.run(userId, chaseId, listingId, feedback, reason ?? null, new Date().toISOString());
+}
+
+export type AlertFeedbackReason =
+  | 'WRONG_CARD'
+  | 'WRONG_GRADE_TYPE'
+  | 'CONDITION_ISSUE'
+  | 'PRICE_SHIPPING'
+  | 'SELLER_CONCERN'
+  | 'ALREADY_SEEN_BOUGHT'
+  | 'JUST_NOT_INTERESTED';
+
+export type AlertFeedbackInsights = {
+  sinceIso: string;
+  goodAlerts: number;
+  tuneOuts: number;
+  reasons: Array<{ reason: AlertFeedbackReason; count: number }>;
+  topChases: Array<{
+    chaseId: string;
+    chaseName: string;
+    reason: AlertFeedbackReason;
+    count: number;
+  }>;
+};
+
+export function getAlertFeedbackInsights(userId: string, days = 30): AlertFeedbackInsights {
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const summaryRows = listAlertFeedbackSummarySinceStmt.all(userId, sinceIso) as Array<{
+    feedback: 'GOOD_ALERT' | 'TUNE_OUT';
+    feedback_reason: AlertFeedbackReason | null;
+    count: number;
+  }>;
+  const topChaseRows = listTopFeedbackChasesSinceStmt.all(userId, sinceIso, 3) as Array<{
+    chase_id: string;
+    card_name: string | null;
+    feedback_reason: AlertFeedbackReason;
+    count: number;
+  }>;
+
+  return {
+    sinceIso,
+    goodAlerts: summaryRows
+      .filter((row) => row.feedback === 'GOOD_ALERT')
+      .reduce((total, row) => total + Number(row.count), 0),
+    tuneOuts: summaryRows
+      .filter((row) => row.feedback === 'TUNE_OUT')
+      .reduce((total, row) => total + Number(row.count), 0),
+    reasons: summaryRows
+      .filter((row) => row.feedback === 'TUNE_OUT' && row.feedback_reason)
+      .map((row) => ({ reason: row.feedback_reason as AlertFeedbackReason, count: Number(row.count) })),
+    topChases: topChaseRows.map((row) => ({
+      chaseId: row.chase_id,
+      chaseName: row.card_name ?? row.chase_id,
+      reason: row.feedback_reason,
+      count: Number(row.count)
+    }))
+  };
 }
 
 export function setGuildAlertChannel(guildId: string, channelId: string): void {
