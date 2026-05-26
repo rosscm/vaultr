@@ -11,7 +11,7 @@ export const help = {
       '**Chase Basics**',
       '- `card`: 3-100 chars (required)',
       '- `max_price`: > 0 (optional; default: no max)',
-      '- `grading_company` and `grade_value`: choose graded, raw, or any grade preference',
+      '- `grading_type` and `grade_value`: choose graded, raw, or any grade preference',
       '- Pro precision controls: condition thresholds, `listing_type`, `negative_keywords`, `priority`, `target_note`',
       '  default blocked terms still apply automatically: proxy, custom, reprint, lot, orica, replica',
       '',

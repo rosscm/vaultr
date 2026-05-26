@@ -11,7 +11,7 @@ import { getEntitlementsForTier } from '../services/entitlements.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
-import { buildGradePreference, CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_COMPANY_CHOICES, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
+import { buildGradePreference, CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
 
@@ -35,9 +35,9 @@ export const chaseAdd = {
     .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
     .addStringOption((opt) =>
       opt
-        .setName('grading_company')
-        .setDescription('Grading company preference (default: Any)')
-        .addChoices(...GRADING_COMPANY_CHOICES)
+        .setName('grading_type')
+        .setDescription('Grading type preference (default: Any)')
+        .addChoices(...GRADING_TYPE_CHOICES)
     )
     .addStringOption((opt) =>
       opt
@@ -101,9 +101,9 @@ export const chaseAdd = {
 
     const cardName = interaction.options.getString('card', true);
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
-    const gradingCompany = interaction.options.getString('grading_company') as Parameters<typeof buildGradePreference>[0];
+    const gradingType = interaction.options.getString('grading_type') as Parameters<typeof buildGradePreference>[0];
     const gradeValue = interaction.options.getString('grade_value') as Parameters<typeof buildGradePreference>[1];
-    const gradeWarning = gradeSelectionWarning(gradingCompany, gradeValue);
+    const gradeWarning = gradeSelectionWarning(gradingType, gradeValue);
     if (gradeWarning) {
       await interaction.reply({
         embeds: [warningEmbed('Invalid Grade Preference', gradeWarning)],
@@ -111,7 +111,7 @@ export const chaseAdd = {
       });
       return;
     }
-    const grade = buildGradePreference(gradingCompany, gradeValue) ?? undefined;
+    const grade = buildGradePreference(gradingType, gradeValue) ?? undefined;
     const conditionRaw = interaction.options.getString('condition') as Parameters<typeof normalizeConditionChoice>[0];
     const condition = normalizeConditionChoice(conditionRaw) ?? undefined;
     const listingTypeRaw = interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null;

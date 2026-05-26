@@ -14,6 +14,7 @@ import {
   listGuildCommandChannels,
   listUsersWithChases,
   listAllChases,
+  isListingFingerprintIgnored,
   markPostedGuildDailyStats,
   markPostedUserWeeklyReflection,
   markChasesPollChecked,
@@ -527,6 +528,10 @@ async function runPoll(client: Client): Promise<void> {
       if (hasAlertBeenSent(chase.id, listing.listingId, listing.source)) continue;
       const nowMs = Date.now();
       const listingFingerprint = makeListingFingerprint(listing.title);
+      if (listingFingerprint && isListingFingerprintIgnored(chase.userId, chase.id, listingFingerprint)) {
+        markFingerprintSuppression();
+        continue;
+      }
       if (listingFingerprint && wasFingerprintSeenRecently(chase.id, listingFingerprint, nowMs)) {
         markFingerprintSuppression();
         continue;

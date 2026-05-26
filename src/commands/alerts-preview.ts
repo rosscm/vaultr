@@ -12,7 +12,7 @@ export const previewAlert = {
     const title = `🏆 Grail Sighting · eBay`;
     const description =
       `**Umbreon VMAX Alt Art PSA 10**\n` +
-      `Good match • under max by 45.00 ${currency} • posted 2m ago`;
+      `Good alert • under max by 45.00 ${currency} • posted 2m ago`;
 
     const embed = new EmbedBuilder()
       .setColor(0xf59e0b)

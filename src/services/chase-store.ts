@@ -309,10 +309,11 @@ const listUserRecentAlertsSinceStmt = db.prepare(`
 `);
 
 const upsertAlertFeedbackStmt = db.prepare(`
-  INSERT INTO alert_feedback (user_id, chase_id, listing_id, feedback, created_at)
-  VALUES (?, ?, ?, ?, ?)
+  INSERT INTO alert_feedback (user_id, chase_id, listing_id, feedback, feedback_reason, created_at)
+  VALUES (?, ?, ?, ?, ?, ?)
   ON CONFLICT(user_id, chase_id, listing_id) DO UPDATE SET
     feedback = excluded.feedback,
+    feedback_reason = excluded.feedback_reason,
     created_at = excluded.created_at
 `);
 
@@ -619,9 +620,10 @@ export function recordAlertFeedback(
   userId: string,
   chaseId: string,
   listingId: string,
-  feedback: 'GOOD_MATCH' | 'NOT_FOR_ME'
+  feedback: 'GOOD_ALERT' | 'TUNE_OUT',
+  reason?: string
 ): void {
-  upsertAlertFeedbackStmt.run(userId, chaseId, listingId, feedback, new Date().toISOString());
+  upsertAlertFeedbackStmt.run(userId, chaseId, listingId, feedback, reason ?? null, new Date().toISOString());
 }
 
 export function setGuildAlertChannel(guildId: string, channelId: string): void {

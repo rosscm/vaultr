@@ -3,7 +3,7 @@ import { chaseAdd } from './chase-add.js';
 import { chaseEdit } from './chase-edit.js';
 import { chaseList } from './chase-list.js';
 import { chaseRemove } from './chase-remove.js';
-import { CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_COMPANY_CHOICES } from './chase-options.js';
+import { CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES } from './chase-options.js';
 
 export const chase = {
   data: new SlashCommandBuilder()
@@ -24,9 +24,9 @@ export const chase = {
         .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
         .addStringOption((opt) =>
           opt
-            .setName('grading_company')
-            .setDescription('Grading company preference (default: Any)')
-            .addChoices(...GRADING_COMPANY_CHOICES)
+            .setName('grading_type')
+            .setDescription('Grading type preference (default: Any)')
+            .addChoices(...GRADING_TYPE_CHOICES)
         )
         .addStringOption((opt) =>
           opt
@@ -84,9 +84,9 @@ export const chase = {
         .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0) (default: keep current)').setMinValue(0.01))
         .addStringOption((opt) =>
           opt
-            .setName('grading_company')
-            .setDescription('Updated grading company (default: keep current)')
-            .addChoices(...GRADING_COMPANY_CHOICES)
+            .setName('grading_type')
+            .setDescription('Updated grading type (default: keep current)')
+            .addChoices(...GRADING_TYPE_CHOICES)
         )
         .addStringOption((opt) =>
           opt

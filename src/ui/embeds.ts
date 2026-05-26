@@ -49,12 +49,12 @@ export function listingLinkButton(url: string): ActionRowBuilder<ButtonBuilder> 
 export function alertFeedbackButtons(chaseId: string, listingId: string): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`alert-feedback:GOOD_MATCH:${chaseId}:${listingId}`)
-      .setLabel('Good Match')
+      .setCustomId(`alert-feedback:GOOD_ALERT:${chaseId}:${listingId}`)
+      .setLabel('Good Alert')
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId(`alert-feedback:NOT_FOR_ME:${chaseId}:${listingId}`)
-      .setLabel('Not For Me')
+      .setCustomId(`alert-feedback:TUNE_OUT:${chaseId}:${listingId}`)
+      .setLabel('Tune Out')
       .setStyle(ButtonStyle.Secondary)
   );
 }

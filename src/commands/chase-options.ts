@@ -1,4 +1,4 @@
-export const GRADING_COMPANY_CHOICES = [
+export const GRADING_TYPE_CHOICES = [
   { name: 'Any', value: 'ANY' },
   { name: 'Raw / Ungraded', value: 'RAW' },
   { name: 'PSA', value: 'PSA' },
@@ -36,39 +36,39 @@ export const CONDITION_CHOICES = [
   { name: 'Damaged only', value: 'DMG' }
 ] as const;
 
-type GradingCompany = (typeof GRADING_COMPANY_CHOICES)[number]['value'];
+type GradingType = (typeof GRADING_TYPE_CHOICES)[number]['value'];
 type GradeValue = (typeof GRADE_VALUE_CHOICES)[number]['value'];
 type ConditionChoice = (typeof CONDITION_CHOICES)[number]['value'];
 
-export function buildGradePreference(company: GradingCompany | null, value: GradeValue | null): string | null | undefined {
-  if (company === null && value === null) return undefined;
-  if (company === 'ANY') return null;
-  if (company === 'RAW') return 'UNGRADED';
-  if (company === null) return undefined;
-  if (value === 'ANY' || value === null) return company;
-  return `${company} ${value}`;
+export function buildGradePreference(gradingType: GradingType | null, value: GradeValue | null): string | null | undefined {
+  if (gradingType === null && value === null) return undefined;
+  if (gradingType === 'ANY') return null;
+  if (gradingType === 'RAW') return 'UNGRADED';
+  if (gradingType === null) return undefined;
+  if (value === 'ANY' || value === null) return gradingType;
+  return `${gradingType} ${value}`;
 }
 
-export function gradeSelectionWarning(company: GradingCompany | null, value: GradeValue | null): string | undefined {
-  if (value !== null && value !== 'ANY' && company === null) {
-    return 'Choose a grading company before choosing a grade value.';
+export function gradeSelectionWarning(gradingType: GradingType | null, value: GradeValue | null): string | undefined {
+  if (value !== null && value !== 'ANY' && gradingType === null) {
+    return 'Choose a grading type before choosing a grade value.';
   }
-  if (value !== null && value !== 'ANY' && company === 'ANY') {
-    return 'Choose a grading company before choosing a grade value.';
+  if (value !== null && value !== 'ANY' && gradingType === 'ANY') {
+    return 'Choose a grading type before choosing a grade value.';
   }
-  if (value !== null && value !== 'ANY' && company === 'RAW') {
+  if (value !== null && value !== 'ANY' && gradingType === 'RAW') {
     return 'Raw / Ungraded cannot be combined with a numeric grade value.';
   }
   return undefined;
 }
 
-export function inferGradingCompanyFromGrade(grade: string | undefined): GradingCompany | undefined {
+export function inferGradingTypeFromGrade(grade: string | undefined): GradingType | undefined {
   const normalized = grade?.trim().toUpperCase();
   if (!normalized) return undefined;
   if (normalized === 'UNGRADED' || normalized === 'RAW') return 'RAW';
-  const company = normalized.split(/\s+/)[0];
-  return GRADING_COMPANY_CHOICES.some((choice) => choice.value === company && company !== 'ANY' && company !== 'RAW')
-    ? (company as GradingCompany)
+  const gradingType = normalized.split(/\s+/)[0];
+  return GRADING_TYPE_CHOICES.some((choice) => choice.value === gradingType && gradingType !== 'ANY' && gradingType !== 'RAW')
+    ? (gradingType as GradingType)
     : undefined;
 }
 

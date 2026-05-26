@@ -114,6 +114,7 @@ db.exec(`
     chase_id TEXT NOT NULL,
     listing_id TEXT NOT NULL,
     feedback TEXT NOT NULL,
+    feedback_reason TEXT,
     created_at TEXT NOT NULL,
     PRIMARY KEY (user_id, chase_id, listing_id)
   );
@@ -222,6 +223,11 @@ try {
 }
 try {
   db.exec(`ALTER TABLE guild_community_feed ADD COLUMN mode TEXT NOT NULL DEFAULT 'PULSE';`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE alert_feedback ADD COLUMN feedback_reason TEXT;`);
 } catch {
   // Column already exists on upgraded databases.
 }

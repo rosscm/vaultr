@@ -221,7 +221,7 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 - Recommended defaults: `min_score=60`, `max_alerts_per_hour=10`, quiet hours off
 - Per-chase blocked terms via `negative_keywords` on `/chase add` and `/chase edit`
 - Default blocked terms on new chases: `proxy, custom, reprint, lot, orica, replica`
-- Per-chase grading uses `grading_company` plus `grade_value`, or `Raw / Ungraded` for raw cards only
+- Per-chase grading uses `grading_type` plus `grade_value`, or `Raw / Ungraded` for raw cards only
 - Per-chase `condition` uses thresholds like `LP or better` and `MP or better`
 - Per-chase `listing_type` filter: `ANY`, `AUCTION`, or `BUY_IT_NOW`
 - Per-chase `priority`: `NORMAL`, `HIGH`, `GRAIL` (grails are shown first in `/chase list`)
