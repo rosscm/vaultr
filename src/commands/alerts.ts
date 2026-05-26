@@ -104,7 +104,7 @@ export const alerts = {
     .addSubcommand((sub) =>
       sub
         .setName('preview')
-        .setDescription('Preview how a grail sighting appears in DM')
+        .setDescription('Preview how a chase sighting appears in DM')
     ),
   async execute(interaction: any) {
     const subcommand = interaction.options.getSubcommand();
