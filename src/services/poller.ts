@@ -610,7 +610,6 @@ async function runPoll(client: Client): Promise<void> {
             value: [
               `**Price:** ${formatMoney(normalizedListing.price, targetCurrency)}`,
               `**Shipping:** ${formatShippingCost(normalizedListing.shippingCost, targetCurrency)}`,
-              `**Ships to You:** ${formatShippingEligibility(listing)}`,
               `**Total:** ${
                 formatTotalCost(normalizedListing.price, normalizedListing.shippingCost) !== undefined
                   ? formatMoney(formatTotalCost(normalizedListing.price, normalizedListing.shippingCost), targetCurrency)
@@ -622,6 +621,7 @@ async function runPoll(client: Client): Promise<void> {
                 chase.maxPrice,
                 targetCurrency
               )}`,
+               `**Shipping Destination:** ${listing.shippingDestinationPostalCode ?? 'Unknown'}`,
               `**Listing Type:** ${formatListingType(normalizedListing.listingType)}`
             ].join('\n'),
             inline: false

@@ -28,7 +28,7 @@ export const previewAlert = {
           `**Total:** 1155.00 ${currency}`,
           '**Posted:** 2m ago',
           '**Source:** eBay',
-          '**Ships to You:** Shipping shown for CA',
+           '**Shipping Destination:** CA',
           '**Match Strength:** good (72)',
           '**Fit Signals:** exact card name match, grade match',
           '**Why It Surfaced:** good alignment with your chase'
@@ -47,9 +47,9 @@ export const previewAlert = {
           value: [
             `**Price:** 1140.00 ${currency}`,
             `**Shipping:** 15.00 ${currency}`,
-            '**Ships to You:** Shipping shown for CA',
             `**Total:** 1155.00 ${currency}`,
             `**Total vs Max:** 45.00 ${currency} under max`,
+             '**Shipping Destination:** CA',
             '**Listing Type:** Buy It Now'
           ].join('\n'),
           inline: false
