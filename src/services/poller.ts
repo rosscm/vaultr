@@ -52,8 +52,8 @@ function formatReasons(reasons: string[]): string {
         const terms = r.split(':')[1] ?? '';
         return `suspicious terms (${terms})`;
       }
-      if (r.startsWith('token_overlap:')) {
-        return `token overlap ${r.split(':')[1]}%`;
+      if (r.startsWith('title_match:')) {
+        return `title match ${r.split(':')[1]}%`;
       }
       if (r === 'card_name_match_exact') return 'exact card name match';
       if (r === 'card_name_match_tokens') return 'card name token match';
@@ -64,7 +64,7 @@ function formatReasons(reasons: string[]): string {
       if (r === 'new_seller_penalty') return 'new or unrated seller';
       if (r === 'low_seller_feedback_count_penalty') return 'limited seller history';
       if (r === 'low_seller_feedback_percent_penalty') return 'lower seller feedback';
-      if (r === 'low_token_overlap_penalty') return 'low token overlap';
+      if (r === 'weak_title_match_penalty') return 'weak title match';
       if (r === 'suspicious_title_penalty') return 'suspicious title terms';
       return r.replaceAll('_', ' ');
     })
