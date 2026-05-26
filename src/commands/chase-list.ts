@@ -103,7 +103,7 @@ function buildChaseListEmbed(userId: string, page: number) {
 }
 
 export const chaseList = {
-  data: new SlashCommandBuilder().setName('chase-list').setDescription('List your active chases'),
+  data: new SlashCommandBuilder().setName('chase-list').setDescription('Show the cards your Vault is watching'),
   async execute(interaction: any) {
     const payload = buildChaseListEmbed(interaction.user.id, 0);
     await interaction.reply({

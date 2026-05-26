@@ -5,12 +5,12 @@ import { errorEmbed, successEmbed } from '../ui/embeds.js';
 export const communityFeed = {
   data: new SlashCommandBuilder()
     .setName('feed')
-    .setDescription('Admin: set community feed mode for visible channel activity')
+    .setDescription('Admin: set the public Vault Pulse mode')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((opt) =>
       opt
         .setName('toggle')
-        .setDescription('Posts brief status messages and daily stats to the setup channel (default: On)')
+        .setDescription('Control low-noise community pulse posts')
         .setRequired(true)
         .addChoices(
           { name: 'On', value: 'ON' },

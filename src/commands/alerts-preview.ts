@@ -5,7 +5,7 @@ import { OUTPUT_STYLE } from '../ui/style.js';
 export const previewAlert = {
   data: new SlashCommandBuilder()
     .setName('alerts-preview')
-    .setDescription('Preview how a chase sighting appears in DM'),
+    .setDescription('Preview the DM layout for a chase sighting'),
   async execute(interaction: any) {
     const settings = getUserAlertSettings(interaction.user.id);
     const currency = settings.alertCurrency;

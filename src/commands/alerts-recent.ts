@@ -59,7 +59,7 @@ function formatConfidence(score: number | undefined): string {
 export const alertsRecent = {
   data: new SlashCommandBuilder()
     .setName('alerts-recent')
-    .setDescription('Show recent Vaultr sightings sent to your DMs')
+    .setDescription('Review recent sightings and what Vaultr is learning')
     .addIntegerOption((opt) =>
       opt
         .setName('limit')

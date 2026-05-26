@@ -5,17 +5,17 @@ import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 export const chaseRemove = {
   data: new SlashCommandBuilder()
     .setName('chase-remove')
-    .setDescription('Remove one or more active chases, or remove all')
+    .setDescription('Stop watching one or more chases')
     .addStringOption((opt) =>
       opt
         .setName('entries')
-        .setDescription('Entry numbers from /chase list (comma-separated), e.g. 1 or 1,3,5')
+        .setDescription('Entry numbers from /chase list, e.g. 1 or 1,3,5')
         .setMaxLength(120)
     )
     .addStringOption((opt) =>
       opt
         .setName('all')
-        .setDescription('Remove all active chases (optional; default: No)')
+        .setDescription('Stop watching every active chase')
         .addChoices(
           { name: 'No', value: 'NO' },
           { name: 'Yes, remove all', value: 'YES' }

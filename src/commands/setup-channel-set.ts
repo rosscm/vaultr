@@ -5,16 +5,16 @@ import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 export const setupChannelSet = {
   data: new SlashCommandBuilder()
     .setName('setup')
-    .setDescription('Admin: manage Vaultr server setup')
+    .setDescription('Admin: choose where Vaultr lives in this server')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub
         .setName('channel')
-        .setDescription('Set the dedicated channel where Vaultr commands can be used')
+        .setDescription('Set the channel where Vaultr commands belong')
         .addChannelOption((opt) =>
           opt
             .setName('channel')
-            .setDescription('Dedicated Vaultr commands channel')
+            .setDescription('Channel for Vaultr commands and community pulse')
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(true)
         )

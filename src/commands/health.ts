@@ -194,12 +194,12 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
 export const health = {
   data: new SlashCommandBuilder()
     .setName('health')
-    .setDescription('Owner: show Vaultr runtime health')
+    .setDescription('Owner: inspect Vaultr runtime health')
     .addStringOption((opt) =>
-      opt.setName('chase_id').setDescription('Owner debug: chase id to inspect').setMaxLength(80)
+      opt.setName('chase_id').setDescription('Owner debug: chase ID to inspect').setMaxLength(80)
     )
     .addStringOption((opt) =>
-      opt.setName('item_id').setDescription('Owner debug: eBay item id or listing id to inspect').setMaxLength(120)
+      opt.setName('item_id').setDescription('Owner debug: eBay item/listing ID to inspect').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const ownerId = process.env.OWNER_USER_ID;

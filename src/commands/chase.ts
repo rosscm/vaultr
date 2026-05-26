@@ -8,42 +8,42 @@ import { CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES } from './
 export const chase = {
   data: new SlashCommandBuilder()
     .setName('chase')
-    .setDescription('Manage your vault chases')
+    .setDescription('Manage the cards your Vault is watching')
     .addSubcommand((sub) =>
       sub
         .setName('add')
-        .setDescription('Add a new chase card')
+        .setDescription('Add a card for Vaultr to watch')
         .addStringOption((opt) =>
           opt
             .setName('card')
-            .setDescription('Card name (3-100 chars, casing ignored)')
+            .setDescription('Card to chase, e.g. Umbreon VMAX 215/203')
             .setRequired(true)
             .setMinLength(3)
             .setMaxLength(100)
         )
-        .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
+        .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price you want surfaced').setMinValue(0.01))
         .addStringOption((opt) =>
           opt
             .setName('grading_type')
-            .setDescription('Grading type preference (default: Any)')
+            .setDescription('Slab/raw preference (default: Any)')
             .addChoices(...GRADING_TYPE_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('grade_value')
-            .setDescription('Grade value preference (default: Any)')
+            .setDescription('Numeric grade preference (default: Any)')
             .addChoices(...GRADE_VALUE_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Pro: condition threshold (default: Any)')
+            .setDescription('Pro: minimum raw condition to surface')
             .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('listing_type')
-            .setDescription('Pro: listing type (default: Any)')
+            .setDescription('Pro: auction or Buy It Now preference')
             .addChoices(
               { name: 'Any', value: 'ANY' },
               { name: 'Auction', value: 'AUCTION' },
@@ -53,13 +53,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('negative_keywords')
-            .setDescription('Pro: custom blocked terms (comma-separated, max 15)')
+            .setDescription('Pro: terms to keep out of this chase')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
           opt
             .setName('priority')
-            .setDescription('Pro: priority for this chase (default: Normal)')
+            .setDescription('Pro: how important this chase is')
             .addChoices(
               { name: 'Normal', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
@@ -67,43 +67,43 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Pro: optional chase note').setMaxLength(120)
+          opt.setName('target_note').setDescription('Pro: short note about what makes this one special').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>
-      sub.setName('list').setDescription('List your active chases')
+      sub.setName('list').setDescription('Show the cards your Vault is watching')
     )
     .addSubcommand((sub) =>
       sub
         .setName('edit')
-        .setDescription('Edit an active chase by list entry number')
+        .setDescription('Tune an active chase by list entry number')
         .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase list').setRequired(true))
         .addStringOption((opt) =>
-          opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored; default: keep current)').setMinLength(3).setMaxLength(100)
+          opt.setName('card').setDescription('Updated card name or set number').setMinLength(3).setMaxLength(100)
         )
-        .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0) (default: keep current)').setMinValue(0.01))
+        .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated highest total price to surface').setMinValue(0.01))
         .addStringOption((opt) =>
           opt
             .setName('grading_type')
-            .setDescription('Updated grading type (default: keep current)')
+            .setDescription('Updated slab/raw preference')
             .addChoices(...GRADING_TYPE_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('grade_value')
-            .setDescription('Updated grade value (default: keep current)')
+            .setDescription('Updated numeric grade preference')
             .addChoices(...GRADE_VALUE_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Pro: updated condition threshold')
+            .setDescription('Pro: updated minimum raw condition')
             .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('listing_type')
-            .setDescription('Pro: updated listing type')
+            .setDescription('Pro: updated auction or Buy It Now preference')
             .addChoices(
               { name: 'Any', value: 'ANY' },
               { name: 'Auction', value: 'AUCTION' },
@@ -113,13 +113,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('negative_keywords')
-            .setDescription('Pro: custom blocked terms (comma-separated, max 15)')
+            .setDescription('Pro: updated terms to keep out')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
           opt
             .setName('priority')
-            .setDescription('Pro: updated priority')
+            .setDescription('Pro: updated chase importance')
             .addChoices(
               { name: 'Normal', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
@@ -127,23 +127,23 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Pro: updated chase note').setMaxLength(120)
+          opt.setName('target_note').setDescription('Pro: updated note about this chase').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>
       sub
         .setName('remove')
-        .setDescription('Remove one or more active chases, or remove all')
+        .setDescription('Stop watching one or more chases')
         .addStringOption((opt) =>
           opt
             .setName('entries')
-            .setDescription('Entry numbers from /chase list (comma-separated), e.g. 1 or 1,3,5')
+            .setDescription('Entry numbers from /chase list, e.g. 1 or 1,3,5')
             .setMaxLength(120)
         )
         .addStringOption((opt) =>
           opt
             .setName('all')
-            .setDescription('Remove all active chases (optional; default: No)')
+            .setDescription('Stop watching every active chase')
             .addChoices(
               { name: 'No', value: 'NO' },
               { name: 'Yes, remove all', value: 'YES' }

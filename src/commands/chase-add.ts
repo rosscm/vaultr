@@ -23,38 +23,38 @@ function displayAny(value: string | undefined): string {
 export const chaseAdd = {
   data: new SlashCommandBuilder()
     .setName('chase-add')
-    .setDescription('Add a new chase card')
+    .setDescription('Add a card for Vaultr to watch')
     .addStringOption((opt) =>
       opt
         .setName('card')
-        .setDescription('Card name (3-100 chars, casing ignored)')
+        .setDescription('Card to chase, e.g. Umbreon VMAX 215/203')
         .setRequired(true)
         .setMinLength(3)
         .setMaxLength(100)
     )
-    .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
+    .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price you want surfaced').setMinValue(0.01))
     .addStringOption((opt) =>
       opt
         .setName('grading_type')
-        .setDescription('Grading type preference (default: Any)')
+        .setDescription('Slab/raw preference (default: Any)')
         .addChoices(...GRADING_TYPE_CHOICES)
     )
     .addStringOption((opt) =>
       opt
         .setName('grade_value')
-        .setDescription('Grade value preference (default: Any)')
+        .setDescription('Numeric grade preference (default: Any)')
         .addChoices(...GRADE_VALUE_CHOICES)
     )
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Pro: condition threshold (default: Any)')
+        .setDescription('Pro: minimum raw condition to surface')
         .addChoices(...CONDITION_CHOICES)
     )
     .addStringOption((opt) =>
       opt
         .setName('listing_type')
-        .setDescription('Pro: listing type (default: Any)')
+        .setDescription('Pro: auction or Buy It Now preference')
         .addChoices(
           { name: 'Any', value: 'ANY' },
           { name: 'Auction', value: 'AUCTION' },
@@ -64,13 +64,13 @@ export const chaseAdd = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Pro: custom blocked terms (comma-separated, max 15)')
+        .setDescription('Pro: terms to keep out of this chase')
         .setMaxLength(240)
     )
     .addStringOption((opt) =>
       opt
         .setName('priority')
-        .setDescription('Pro: priority for this chase (default: Normal)')
+        .setDescription('Pro: how important this chase is')
         .addChoices(
           { name: 'Normal', value: 'NORMAL' },
           { name: 'High', value: 'HIGH' },
@@ -78,7 +78,7 @@ export const chaseAdd = {
         )
     )
     .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Pro: optional chase note').setMaxLength(120)
+      opt.setName('target_note').setDescription('Pro: short note about what makes this one special').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);

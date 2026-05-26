@@ -228,8 +228,8 @@ function tasteSignalsFromChases(chases: Chase[], seed: DiscoverySeed): string[] 
   return signals.slice(0, 4);
 }
 
-function profileBasis(query: string | null, chases: Chase[], hasLearnedProfile: boolean): string {
-  if (query) return `focused on \`${query}\``;
+function profileBasis(focus: string | null, chases: Chase[], hasLearnedProfile: boolean): string {
+  if (focus) return `focused on \`${focus}\``;
   if (hasLearnedProfile) return `learned from your ${chases.length} active chases`;
   if (chases.length > 0) return `warming up from your ${chases.length} active chase${chases.length === 1 ? '' : 's'}`;
   return 'based on a starter collector profile';
@@ -426,24 +426,24 @@ function discoveryEmbed(candidate: DiscoveryCandidate, index: number, currencyHi
 export const discover = {
   data: new SlashCommandBuilder()
     .setName('discover')
-    .setDescription('Surface cards that may resonate with your Vault')
+    .setDescription('Open a discovery thread from your developing taste profile')
     .addStringOption((opt) =>
       opt
-        .setName('query')
-        .setDescription('Optional focus, e.g. umbreon or artist:kanda')
+        .setName('focus')
+        .setDescription('Steer this discovery thread, e.g. umbreon, gengar, or japanese vending')
         .setMaxLength(80)
     ),
   async execute(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const query = interaction.options.getString('query');
+    const focus = interaction.options.getString('focus');
     const chases = listChases(interaction.user.id);
     const settings = getUserAlertSettings(interaction.user.id);
     const plan = getUserPlan(interaction.user.id);
     const entitlements = getEntitlementsForTier(plan.tier);
     const hasFullDiscovery = plan.status === 'ACTIVE' && entitlements.discoveryDepth === 'full';
     const hasLearnedProfile = hasFullDiscovery && chases.length >= MIN_LEARNED_PROFILE_CHASES;
-    const sourceText = query ?? chases.map((chase) => chase.cardName).join(' ');
+    const sourceText = focus ?? chases.map((chase) => chase.cardName).join(' ');
     const seed = pickSeed(sourceText);
     const priceRange = hasLearnedProfile ? priceRangeFromChases(chases) : undefined;
     const tasteSignals = hasLearnedProfile ? tasteSignalsFromChases(chases, seed) : developingTasteSignals(seed);
@@ -458,7 +458,7 @@ export const discover = {
         )
       : seed.suggestions.map((suggestion) => ({ suggestion }));
     const visibleCandidates = candidates.slice(0, 3);
-    const title = query ? `🔎 Discovery Thread · ${query}` : '🔎 Discovery Thread';
+    const title = focus ? `🔎 Discovery Thread · ${focus}` : '🔎 Discovery Thread';
     const priceNeighborhood = hasLearnedProfile
       ? priceRange
         ? `${priceRange.label} ${settings.alertCurrency}, inferred from chase max prices`
@@ -473,7 +473,7 @@ export const discover = {
       `**Collector Thread:** ${seed.theme}`,
       `**Profile Status:** ${profileStatus(chases.length, hasFullDiscovery, hasLearnedProfile)}`,
       `**Taste Profile:** ${tasteSignals.join(', ')}`,
-      `**Basis:** ${profileBasis(query, chases, hasLearnedProfile)}`,
+      `**Basis:** ${profileBasis(focus, chases, hasLearnedProfile)}`,
       `**Price Neighborhood:** ${priceNeighborhood}`,
       '',
       `**Note:** ${note}`

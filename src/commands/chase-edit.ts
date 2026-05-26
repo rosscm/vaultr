@@ -13,34 +13,34 @@ function displayAny(value: string | undefined): string {
 export const chaseEdit = {
   data: new SlashCommandBuilder()
     .setName('chase-edit')
-    .setDescription('Edit an active chase by list entry number')
+    .setDescription('Tune an active chase by list entry number')
     .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase list').setRequired(true))
     .addStringOption((opt) =>
-      opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored; default: keep current)').setMinLength(3).setMaxLength(100)
+      opt.setName('card').setDescription('Updated card name or set number').setMinLength(3).setMaxLength(100)
     )
-    .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0) (default: keep current)').setMinValue(0.01))
+    .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated highest total price to surface').setMinValue(0.01))
     .addStringOption((opt) =>
       opt
         .setName('grading_type')
-        .setDescription('Updated grading type (default: keep current)')
+        .setDescription('Updated slab/raw preference')
         .addChoices(...GRADING_TYPE_CHOICES)
     )
     .addStringOption((opt) =>
       opt
         .setName('grade_value')
-        .setDescription('Updated grade value (default: keep current)')
+        .setDescription('Updated numeric grade preference')
         .addChoices(...GRADE_VALUE_CHOICES)
     )
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Pro: updated condition threshold')
+        .setDescription('Pro: updated minimum raw condition')
         .addChoices(...CONDITION_CHOICES)
     )
     .addStringOption((opt) =>
       opt
         .setName('listing_type')
-        .setDescription('Pro: updated listing type')
+        .setDescription('Pro: updated auction or Buy It Now preference')
         .addChoices(
           { name: 'Any', value: 'ANY' },
           { name: 'Auction', value: 'AUCTION' },
@@ -50,13 +50,13 @@ export const chaseEdit = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Pro: custom blocked terms (comma-separated, max 15)')
+        .setDescription('Pro: updated terms to keep out')
         .setMaxLength(240)
     )
     .addStringOption((opt) =>
       opt
         .setName('priority')
-        .setDescription('Pro: updated priority')
+        .setDescription('Pro: updated chase importance')
         .addChoices(
           { name: 'Normal', value: 'NORMAL' },
           { name: 'High', value: 'HIGH' },
@@ -64,7 +64,7 @@ export const chaseEdit = {
         )
     )
     .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Pro: updated chase note').setMaxLength(120)
+      opt.setName('target_note').setDescription('Pro: updated note about this chase').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const entry = interaction.options.getInteger('entry', true);

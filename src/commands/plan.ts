@@ -8,17 +8,17 @@ import { executePlanSet } from './plan-set.js';
 export const plan = {
   data: new SlashCommandBuilder()
     .setName('plan')
-    .setDescription('View your Vaultr plan or manage plan testing')
-    .addSubcommand((sub) => sub.setName('view').setDescription('Show your Vaultr plan and limits'))
+    .setDescription('View your Vaultr plan and Vault capacity')
+    .addSubcommand((sub) => sub.setName('view').setDescription('Show your plan, limits, and Pro depth'))
     .addSubcommand((sub) =>
       sub
         .setName('set')
         .setDescription('Admin: set a user plan tier for testing')
-        .addUserOption((opt) => opt.setName('user').setDescription('Target user').setRequired(true))
+        .addUserOption((opt) => opt.setName('user').setDescription('User to update').setRequired(true))
         .addStringOption((opt) =>
           opt
             .setName('tier')
-            .setDescription('Plan tier')
+            .setDescription('Plan tier to assign')
             .setRequired(true)
             .addChoices(
               { name: 'FREE', value: 'FREE' },
@@ -28,7 +28,7 @@ export const plan = {
         .addStringOption((opt) =>
           opt
             .setName('status')
-            .setDescription('Billing status')
+            .setDescription('Plan status to assign')
             .addChoices(
               { name: 'ACTIVE', value: 'ACTIVE' },
               { name: 'PAST_DUE', value: 'PAST_DUE' },

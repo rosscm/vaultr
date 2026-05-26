@@ -22,46 +22,46 @@ function normalizeShippingPostalCode(value: string | null): string | null | unde
 export const alertsSettings = {
   data: new SlashCommandBuilder()
     .setName('alerts-settings')
-    .setDescription('View or update your alert controls')
+    .setDescription('View or update your sighting controls')
     .addIntegerOption((opt) =>
       opt
         .setName('min_score')
-        .setDescription('Minimum match score to alert (0-100) (default: 60)')
+        .setDescription('Minimum confidence for a DM sighting (0-100; default 60)')
         .setMinValue(0)
         .setMaxValue(100)
     )
     .addIntegerOption((opt) =>
       opt
         .setName('max_alerts_per_hour')
-        .setDescription('Maximum alerts per hour (default: 10)')
+        .setDescription('Most DM sightings Vaultr can send per hour (default: 10)')
         .setMinValue(1)
         .setMaxValue(200)
     )
     .addIntegerOption((opt) =>
       opt
         .setName('chase_cooldown_minutes')
-        .setDescription('Minimum minutes between alerts for the same chase (default: 30)')
+        .setDescription('Minutes before the same chase can surface again (default: 30)')
         .setMinValue(0)
         .setMaxValue(1440)
     )
     .addIntegerOption((opt) =>
       opt
         .setName('quiet_start')
-        .setDescription('Quiet hours start (0-23, local server time) (default: Off)')
+        .setDescription('Hour to pause sighting DMs (0-23, server time; default Off)')
         .setMinValue(0)
         .setMaxValue(23)
     )
     .addIntegerOption((opt) =>
       opt
         .setName('quiet_end')
-        .setDescription('Quiet hours end (0-23, local server time) (default: Off)')
+        .setDescription('Hour to resume sighting DMs (0-23, server time; default Off)')
         .setMinValue(0)
         .setMaxValue(23)
     )
     .addStringOption((opt) =>
       opt
         .setName('alert_currency')
-        .setDescription('Currency for alert pricing (default: USD)')
+        .setDescription('Currency for sighting prices (default: USD)')
         .addChoices(
           { name: 'USD', value: 'USD' },
           { name: 'CAD', value: 'CAD' },
@@ -73,19 +73,19 @@ export const alertsSettings = {
     .addStringOption((opt) =>
       opt
         .setName('shipping_country')
-        .setDescription('Country used to check if listings ship to you, e.g. CA or OFF')
+        .setDescription('Country for shipping checks, e.g. CA or OFF')
         .setMaxLength(3)
     )
     .addStringOption((opt) =>
       opt
         .setName('shipping_postal_code')
-        .setDescription('Optional postal/ZIP prefix for shipping checks, e.g. M5V or OFF')
+        .setDescription('Postal/ZIP prefix for shipping checks, e.g. M5V or OFF')
         .setMaxLength(16)
     )
     .addStringOption((opt) =>
       opt
         .setName('show_images')
-        .setDescription('Show listing images in DM alerts (default: On)')
+        .setDescription('Show listing images in DM sightings (default: On)')
         .addChoices(
           { name: 'On', value: 'ON' },
           { name: 'Off', value: 'OFF' }
@@ -94,7 +94,7 @@ export const alertsSettings = {
     .addStringOption((opt) =>
       opt
         .setName('compact_mode')
-        .setDescription('Use compact DM layout (default: Off)')
+        .setDescription('Use the shorter sighting DM layout (default: Off)')
         .addChoices(
           { name: 'On', value: 'ON' },
           { name: 'Off', value: 'OFF' }
@@ -130,7 +130,7 @@ export const alertsSettings = {
 
     if (shippingCountryInput !== null && shippingCountry === undefined) {
       await interaction.reply({
-        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or `OFF` to clear your ship-to location.')],
+        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or `OFF` to clear your shipping destination.')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -155,7 +155,7 @@ export const alertsSettings = {
         embeds: [
           warningEmbed(
             'Pro Feature',
-            'Advanced alert controls are available on Pro\n\n**Includes:** images toggle, compact mode, quiet hours\n**Next:** use `/upgrade` to unlock'
+            'Advanced sighting controls are available on Pro\n\n**Includes:** images toggle, compact mode, quiet hours\n**Next:** use `/upgrade` to unlock'
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -187,11 +187,11 @@ export const alertsSettings = {
       : OUTPUT_STYLE.off;
 
     const lines = [
-      `**Minimum Fit Score:** ${settings.minScore}`,
+      `**Minimum Confidence:** ${settings.minScore}`,
       `**Max Sightings/Hour:** ${settings.maxAlertsPerHour}`,
       `**Chase Cooldown:** ${settings.chaseCooldownMinutes}m`,
-      `**Alert Currency:** ${settings.alertCurrency}`,
-      `**Ship-To Location:** ${shipToLocation}`,
+      `**Sighting Currency:** ${settings.alertCurrency}`,
+      `**Shipping Destination:** ${shipToLocation}`,
       `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Compact Mode:** ${settings.compactMode ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Quiet Hours:** ${quietHours}`,
