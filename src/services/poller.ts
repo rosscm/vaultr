@@ -178,16 +178,7 @@ function truncateTitle(title: string, maxLen = 110): string {
   return `${title.slice(0, maxLen - 1)}…`;
 }
 
-function deriveRiskLevel(matchReasons: string[], sellerFeedbackPercent: number | undefined): 'low' | 'medium' | 'high' {
-  const hasListingRisk = matchReasons.some(
-    (r) => r.startsWith('suspicious_terms:') || r === 'suspicious_title_penalty' || r === 'low_token_overlap_penalty'
-  );
-  const hasSellerRisk = matchReasons.some((r) => r.includes('seller') && r.includes('penalty'));
-  const sellerWeak = sellerFeedbackPercent !== undefined && sellerFeedbackPercent < 95;
-  if (hasListingRisk && (sellerWeak || hasSellerRisk)) return 'high';
-  if (hasListingRisk || sellerWeak || hasSellerRisk) return 'medium';
-  return 'low';
-}
+
 
 const VAULTR_ALERT_COLOR = 0xf59e0b;
 
@@ -601,7 +592,6 @@ async function runPoll(client: Client): Promise<void> {
               `**Source:** ${sourceLabel}`,
               `**Ships to You:** ${formatShippingEligibility(listing)}`,
               `**Match Strength:** ${formatScoreWithQuality(match.score)}`,
-              `**Caution:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Fit Signals:** ${splitReasons(match.reasons).positive}`,
               `**Why It Surfaced:** ${explainDealQuality(match.score)}`
             ].join('\n'),
@@ -657,7 +647,6 @@ async function runPoll(client: Client): Promise<void> {
             name: '🧠 Why It Fits',
             value: [
               `**Match Strength:** ${formatScoreWithQuality(match.score)}`,
-              `**Caution:** ${deriveRiskLevel(match.reasons, listing.sellerFeedbackPercent)}`,
               `**Fit Signals:** ${splitReasons(match.reasons).positive}`,
               `**Why It Surfaced:** ${explainDealQuality(match.score)}`
             ].join('\n'),

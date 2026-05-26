@@ -30,7 +30,6 @@ export const previewAlert = {
           '**Source:** eBay',
           '**Ships to You:** Shipping shown for CA',
           '**Match Strength:** good (72)',
-          '**Caution:** low',
           '**Fit Signals:** exact card name match, grade match',
           '**Why It Surfaced:** good alignment with your chase'
         ].join('\n'),
@@ -70,9 +69,8 @@ export const previewAlert = {
             name: '🧠 Why It Fits',
           value: [
             '**Match Strength:** good (72)',
-              '**Caution:** low',
-              '**Fit Signals:** exact card name match, grade match',
-              '**Why It Surfaced:** good alignment with your chase'
+            '**Fit Signals:** exact card name match, grade match',
+            '**Why It Surfaced:** good alignment with your chase'
           ].join('\n'),
           inline: false
         }
