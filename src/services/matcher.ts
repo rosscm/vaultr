@@ -78,7 +78,7 @@ function isUngradedPreference(grade: string | undefined): boolean {
 function listingLooksUngraded(title: string, condition: string | undefined): boolean {
   const normalizedTitle = normalize(title);
   const normalizedCondition = normalize(condition ?? '');
-  const gradedTerms = /\b(psa|bgs|cgc|sgc|beckett|graded|slabbed|slab|gem mint|mint 10)\b/;
+  const gradedTerms = /\b(psa|bgs|cgc|sgc|tag|ace|beckett|graded|slabbed|slab|gem mint|mint 10)\b/;
   if (gradedTerms.test(normalizedTitle)) return false;
   return /\b(ungraded|raw)\b/.test(normalizedTitle) || /\b(ungraded|raw)\b/.test(normalizedCondition);
 }

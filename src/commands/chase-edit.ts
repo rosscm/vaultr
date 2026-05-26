@@ -2,8 +2,8 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserPlan, listChases, updateChase } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
-import { OUTPUT_STYLE, displayGrade, normalizeGradePreference, orAny, orNone } from '../ui/style.js';
-const ALLOWED_CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP', 'DMG']);
+import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
+import { buildGradePreference, CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_COMPANY_CHOICES, gradeSelectionWarning, inferGradingCompanyFromGrade, normalizeConditionChoice } from './chase-options.js';
 
 function displayAny(value: string | undefined): string {
   if (!value || value === 'ANY') return OUTPUT_STYLE.any;
@@ -19,12 +19,23 @@ export const chaseEdit = {
       opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored; default: keep current)').setMinLength(3).setMaxLength(100)
     )
     .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0) (default: keep current)').setMinValue(0.01))
-    .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade, e.g. PSA 10 or ungraded/raw (default: keep current)').setMaxLength(24))
+    .addStringOption((opt) =>
+      opt
+        .setName('grading_company')
+        .setDescription('Updated grading company (default: keep current)')
+        .addChoices(...GRADING_COMPANY_CHOICES)
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('grade_value')
+        .setDescription('Updated grade value (default: keep current)')
+        .addChoices(...GRADE_VALUE_CHOICES)
+    )
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Pro: updated condition(s): NM,LP,MP,HP,DMG')
-        .setMaxLength(40)
+        .setDescription('Pro: updated condition threshold')
+        .addChoices(...CONDITION_CHOICES)
     )
     .addStringOption((opt) =>
       opt
@@ -70,8 +81,20 @@ export const chaseEdit = {
 
     const cardName = interaction.options.getString('card') ?? undefined;
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
-    const grade = normalizeGradePreference(interaction.options.getString('grade'));
-    const conditionRaw = interaction.options.getString('condition');
+    const gradingCompany = interaction.options.getString('grading_company') as Parameters<typeof buildGradePreference>[0];
+    const gradeValue = interaction.options.getString('grade_value') as Parameters<typeof buildGradePreference>[1];
+    const effectiveGradingCompany = gradingCompany ?? (gradeValue !== null ? inferGradingCompanyFromGrade(match.grade) ?? null : null);
+    const gradeWarning = gradeSelectionWarning(effectiveGradingCompany, gradeValue);
+    if (gradeWarning) {
+      await interaction.reply({
+        embeds: [warningEmbed('Invalid Grade Preference', gradeWarning)],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+    const grade = buildGradePreference(effectiveGradingCompany, gradeValue);
+    const conditionRaw = interaction.options.getString('condition') as Parameters<typeof normalizeConditionChoice>[0];
+    const condition = normalizeConditionChoice(conditionRaw);
     const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? undefined;
     const priority = (interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null) ?? undefined;
     const targetNoteRaw = interaction.options.getString('target_note');
@@ -80,7 +103,7 @@ export const chaseEdit = {
     const plan = getUserPlan(interaction.user.id);
     const entitlements = getEntitlementsForTier(plan.tier);
     const usesPrecisionControls =
-      conditionRaw !== null ||
+      (conditionRaw !== null && conditionRaw !== 'ANY') ||
       (listingType !== undefined && listingType !== 'ANY') ||
       (priority !== undefined && priority !== 'NORMAL') ||
       targetNoteRaw !== null ||
@@ -99,18 +122,6 @@ export const chaseEdit = {
       return;
     }
 
-    const conditionTokens = conditionRaw
-      ?.split(',')
-      .map((v: string) => v.trim().toUpperCase())
-      .filter(Boolean);
-    if (conditionTokens && !conditionTokens.every((v: string) => ALLOWED_CONDITIONS.has(v))) {
-      await interaction.reply({
-        embeds: [warningEmbed('Invalid Condition', 'Use only: NM, LP, MP, HP, DMG (comma-separated allowed).')],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-    const condition = conditionTokens && conditionTokens.length > 0 ? conditionTokens.join(',') : undefined;
     const negativeKeywords =
       negativeKeywordsRaw === null
         ? undefined
@@ -130,8 +141,8 @@ export const chaseEdit = {
     if (
       !cardName &&
       maxPrice === undefined &&
-      !grade &&
-      !condition &&
+      grade === undefined &&
+      condition === undefined &&
       !listingType &&
       !priority &&
       targetNote === undefined &&
@@ -166,7 +177,7 @@ export const chaseEdit = {
       `**Note:** ${orNone(updated.targetNote)}`,
       `**Max Price:** ${updated.maxPrice ?? OUTPUT_STYLE.any}`,
       `**Grade:** ${displayGrade(updated.grade)}`,
-      `**Condition:** ${orAny(updated.condition)}`,
+      `**Condition:** ${displayCondition(updated.condition)}`,
       `**Listing Type:** ${displayAny(updated.listingType)}`,
       `**Blocked Terms:** ${updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
       '',

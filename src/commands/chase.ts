@@ -3,6 +3,7 @@ import { chaseAdd } from './chase-add.js';
 import { chaseEdit } from './chase-edit.js';
 import { chaseList } from './chase-list.js';
 import { chaseRemove } from './chase-remove.js';
+import { CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_COMPANY_CHOICES } from './chase-options.js';
 
 export const chase = {
   data: new SlashCommandBuilder()
@@ -21,12 +22,23 @@ export const chase = {
             .setMaxLength(100)
         )
         .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
-        .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference, e.g. PSA 10 or ungraded/raw (default: Any)').setMaxLength(24))
+        .addStringOption((opt) =>
+          opt
+            .setName('grading_company')
+            .setDescription('Grading company preference (default: Any)')
+            .addChoices(...GRADING_COMPANY_CHOICES)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('grade_value')
+            .setDescription('Grade value preference (default: Any)')
+            .addChoices(...GRADE_VALUE_CHOICES)
+        )
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Pro: condition(s): NM,LP,MP,HP,DMG (default: Any)')
-            .setMaxLength(40)
+            .setDescription('Pro: condition threshold (default: Any)')
+            .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
           opt
@@ -70,12 +82,23 @@ export const chase = {
           opt.setName('card').setDescription('Updated card name (3-100 chars, casing ignored; default: keep current)').setMinLength(3).setMaxLength(100)
         )
         .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated max price (> 0) (default: keep current)').setMinValue(0.01))
-        .addStringOption((opt) => opt.setName('grade').setDescription('Updated grade, e.g. PSA 10 or ungraded/raw (default: keep current)').setMaxLength(24))
+        .addStringOption((opt) =>
+          opt
+            .setName('grading_company')
+            .setDescription('Updated grading company (default: keep current)')
+            .addChoices(...GRADING_COMPANY_CHOICES)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('grade_value')
+            .setDescription('Updated grade value (default: keep current)')
+            .addChoices(...GRADE_VALUE_CHOICES)
+        )
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Pro: updated condition(s): NM,LP,MP,HP,DMG')
-            .setMaxLength(40)
+            .setDescription('Pro: updated condition threshold')
+            .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
           opt

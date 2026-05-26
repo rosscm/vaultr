@@ -10,10 +10,10 @@ import {
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
-import { OUTPUT_STYLE, displayGrade, normalizeGradePreference, orAny, orNone } from '../ui/style.js';
+import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
+import { buildGradePreference, CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_COMPANY_CHOICES, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
-const ALLOWED_CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP', 'DMG']);
 
 function displayAny(value: string | undefined): string {
   if (!value || value === 'ANY') return OUTPUT_STYLE.any;
@@ -33,12 +33,23 @@ export const chaseAdd = {
         .setMaxLength(100)
     )
     .addNumberOption((opt) => opt.setName('max_price').setDescription('Max price (must be > 0)').setMinValue(0.01))
-    .addStringOption((opt) => opt.setName('grade').setDescription('Grade preference, e.g. PSA 10 or ungraded/raw (default: Any)').setMaxLength(24))
+    .addStringOption((opt) =>
+      opt
+        .setName('grading_company')
+        .setDescription('Grading company preference (default: Any)')
+        .addChoices(...GRADING_COMPANY_CHOICES)
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('grade_value')
+        .setDescription('Grade value preference (default: Any)')
+        .addChoices(...GRADE_VALUE_CHOICES)
+    )
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Pro: condition(s): NM,LP,MP,HP,DMG (default: Any)')
-        .setMaxLength(40)
+        .setDescription('Pro: condition threshold (default: Any)')
+        .addChoices(...CONDITION_CHOICES)
     )
     .addStringOption((opt) =>
       opt
@@ -90,8 +101,19 @@ export const chaseAdd = {
 
     const cardName = interaction.options.getString('card', true);
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
-    const grade = normalizeGradePreference(interaction.options.getString('grade'));
-    const conditionRaw = interaction.options.getString('condition');
+    const gradingCompany = interaction.options.getString('grading_company') as Parameters<typeof buildGradePreference>[0];
+    const gradeValue = interaction.options.getString('grade_value') as Parameters<typeof buildGradePreference>[1];
+    const gradeWarning = gradeSelectionWarning(gradingCompany, gradeValue);
+    if (gradeWarning) {
+      await interaction.reply({
+        embeds: [warningEmbed('Invalid Grade Preference', gradeWarning)],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+    const grade = buildGradePreference(gradingCompany, gradeValue) ?? undefined;
+    const conditionRaw = interaction.options.getString('condition') as Parameters<typeof normalizeConditionChoice>[0];
+    const condition = normalizeConditionChoice(conditionRaw) ?? undefined;
     const listingTypeRaw = interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null;
     const priorityRaw = interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null;
     const targetNote = interaction.options.getString('target_note') ?? undefined;
@@ -103,7 +125,7 @@ export const chaseAdd = {
         .map((k: string) => k.trim())
         .filter(Boolean).length > 0;
     const usesPrecisionControls =
-      conditionRaw !== null ||
+      (conditionRaw !== null && conditionRaw !== 'ANY') ||
       (listingTypeRaw !== null && listingTypeRaw !== 'ANY') ||
       (priorityRaw !== null && priorityRaw !== 'NORMAL') ||
       targetNote !== undefined ||
@@ -122,18 +144,6 @@ export const chaseAdd = {
       return;
     }
 
-    const conditionTokens = conditionRaw
-      ?.split(',')
-      .map((v: string) => v.trim().toUpperCase())
-      .filter(Boolean);
-    if (conditionTokens && !conditionTokens.every((v: string) => ALLOWED_CONDITIONS.has(v))) {
-      await interaction.reply({
-        embeds: [warningEmbed('Invalid Condition', 'Use only: NM, LP, MP, HP, DMG (comma-separated allowed).')],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-    const condition = conditionTokens && conditionTokens.length > 0 ? conditionTokens.join(',') : undefined;
     const listingType = listingTypeRaw ?? 'ANY';
     const priority = priorityRaw ?? 'NORMAL';
     const negativeKeywords = negativeKeywordsRaw
@@ -168,7 +178,7 @@ export const chaseAdd = {
       `**Note:** ${orNone(chase.targetNote)}`,
       `**Max Price:** ${chase.maxPrice ?? OUTPUT_STYLE.any}`,
       `**Grade:** ${displayGrade(chase.grade)}`,
-      `**Condition:** ${orAny(chase.condition)}`,
+      `**Condition:** ${displayCondition(chase.condition)}`,
       `**Listing Type:** ${displayAny(chase.listingType)}`,
       `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
       '',

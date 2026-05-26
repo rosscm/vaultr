@@ -531,7 +531,14 @@ export function markChasesPollChecked(chaseIds: string[], checkedAtIso = new Dat
   persist(uniqueChaseIds, checkedAtIso);
 }
 
-export function updateChase(userId: string, chaseId: string, patch: Partial<Omit<Chase, 'id' | 'userId' | 'createdAt'>>): Chase | null {
+export function updateChase(
+  userId: string,
+  chaseId: string,
+  patch: Partial<Omit<Chase, 'id' | 'userId' | 'createdAt' | 'grade' | 'condition'>> & {
+    grade?: string | null;
+    condition?: string | null;
+  }
+): Chase | null {
   const current = listChases(userId).find((c) => c.id === chaseId);
   if (!current) return null;
 
@@ -541,8 +548,8 @@ export function updateChase(userId: string, chaseId: string, patch: Partial<Omit
     priority: patch.priority ?? current.priority ?? 'NORMAL',
     targetNote: patch.targetNote ?? current.targetNote,
     maxPrice: patch.maxPrice ?? current.maxPrice,
-    grade: patch.grade ?? current.grade,
-    condition: patch.condition ?? current.condition,
+    grade: patch.grade === null ? undefined : patch.grade ?? current.grade,
+    condition: patch.condition === null ? undefined : patch.condition ?? current.condition,
     listingType: patch.listingType ?? current.listingType ?? 'ANY',
     negativeKeywords: patch.negativeKeywords ?? current.negativeKeywords
   };
