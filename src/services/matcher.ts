@@ -120,7 +120,6 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     }
     score += overlap >= 0.9 ? 45 : 35;
     reasons.push('card_name_match_tokens');
-    reasons.push(`title_match:${Math.round(overlap * 100)}`);
   }
 
   if (chaseCardNumbers.length > 0) {
@@ -182,7 +181,6 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     const overlap = tokenOverlapRatio(cardTokens, titleTokens);
     if (overlap < 0.85) {
       score -= 8;
-      reasons.push('weak_title_match_penalty');
     }
   }
 
