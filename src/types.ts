@@ -69,6 +69,7 @@ export type UserAlertSettings = {
 
 export type SentAlert = {
   chaseId: string;
+  chaseName?: string;
   userId: string;
   listingId: string;
   source: 'EBAY';

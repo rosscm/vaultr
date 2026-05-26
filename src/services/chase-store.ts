@@ -202,10 +202,12 @@ const countRecentAlertsByChaseStmt = db.prepare(`
 `);
 
 const listRecentAlertsByUserStmt = db.prepare(`
-  SELECT chase_id, user_id, listing_id, source, sent_at, listing_title, listing_price, listing_currency, listing_url, match_score
-  FROM sent_alerts
-  WHERE user_id = ?
-  ORDER BY sent_at DESC
+  SELECT sa.chase_id, ch.card_name, sa.user_id, sa.listing_id, sa.source, sa.sent_at,
+         sa.listing_title, sa.listing_price, sa.listing_currency, sa.listing_url, sa.match_score
+  FROM sent_alerts sa
+  LEFT JOIN chases ch ON ch.id = sa.chase_id AND ch.user_id = sa.user_id
+  WHERE sa.user_id = ?
+  ORDER BY sa.sent_at DESC
   LIMIT ?
 `);
 
@@ -887,6 +889,7 @@ export function countChaseAlertsWithinMinutes(userId: string, chaseId: string, m
 export function listRecentAlerts(userId: string, limit = 20): SentAlert[] {
   const rows = listRecentAlertsByUserStmt.all(userId, limit) as Array<{
     chase_id: string;
+    card_name: string | null;
     user_id: string;
     listing_id: string;
     source: 'EBAY';
@@ -900,6 +903,7 @@ export function listRecentAlerts(userId: string, limit = 20): SentAlert[] {
 
   return rows.map((row) => ({
     chaseId: row.chase_id,
+    chaseName: row.card_name ?? undefined,
     userId: row.user_id,
     listingId: row.listing_id,
     source: row.source,

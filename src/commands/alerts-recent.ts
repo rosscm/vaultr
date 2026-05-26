@@ -3,6 +3,9 @@ import { getAlertFeedbackInsights, listRecentAlerts, type AlertFeedbackReason } 
 import { infoEmbed } from '../ui/embeds.js';
 import { formatTimeWithAge } from '../ui/time.js';
 
+const MAX_FIELD_TITLE_LENGTH = 84;
+const MAX_LISTING_TITLE_LENGTH = 180;
+
 const reasonLabels: Record<AlertFeedbackReason, string> = {
   WRONG_CARD: 'wrong card',
   WRONG_GRADE_TYPE: 'wrong grade/type',
@@ -36,6 +39,23 @@ function formatLearningNote(userId: string): string | undefined {
   ].join(' ');
 }
 
+function truncate(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1)}…`;
+}
+
+function formatPrice(amount: number | undefined, currency: string | undefined): string {
+  if (amount === undefined) return 'Unknown';
+  return `${amount.toFixed(2)} ${currency ?? ''}`.trim();
+}
+
+function formatConfidence(score: number | undefined): string {
+  if (score === undefined) return 'Unknown';
+  if (score >= 85) return `strong (${score})`;
+  if (score >= 60) return `good (${score})`;
+  return `speculative (${score})`;
+}
+
 export const alertsRecent = {
   data: new SlashCommandBuilder()
     .setName('alerts-recent')
@@ -43,7 +63,7 @@ export const alertsRecent = {
     .addIntegerOption((opt) =>
       opt
         .setName('limit')
-        .setDescription('How many alerts to show (max 20)')
+        .setDescription('How many sightings to show (max 20)')
         .setMinValue(1)
         .setMaxValue(20)
     ),
@@ -53,26 +73,47 @@ export const alertsRecent = {
 
     if (recent.length === 0) {
       await interaction.reply({
-        embeds: [infoEmbed('📨 Recent Sightings', 'No sightings yet\n\n**Next:** Keep your chases active; Vaultr will DM you when something fitting surfaces')],
+        embeds: [
+          infoEmbed(
+            '📨 Recent Sightings',
+            'No sightings yet. Keep your chases active; Vaultr will DM you when something fitting surfaces.'
+          )
+        ],
         flags: MessageFlags.Ephemeral
       });
       return;
     }
 
-    const lines = recent.map((a, i) => {
-      const title = a.listingTitle ?? a.listingId;
-      const price = a.listingPrice !== undefined ? `${a.listingPrice.toFixed(2)} ${a.listingCurrency ?? ''}`.trim() : 'None';
-      const score = a.matchScore ?? 'None';
-      return `**${i + 1}. ${title}**\n**Price:** ${price} | **Fit Score:** ${score}\n**Sent:** ${formatTimeWithAge(a.sentAt)}`;
-    });
+    const embed = infoEmbed('📨 Recent Sightings', `Latest ${recent.length} chase sighting${recent.length === 1 ? '' : 's'} from your DMs.`);
+
+    embed.addFields(
+      recent.map((alert, index) => {
+        const title = truncate(alert.listingTitle ?? alert.listingId, MAX_LISTING_TITLE_LENGTH);
+        const listingLink = alert.listingUrl ? `\n[Open Listing](${alert.listingUrl})` : '';
+        return {
+          name: `${index + 1}. ${truncate(alert.chaseName ?? 'Chase sighting', MAX_FIELD_TITLE_LENGTH)}`,
+          value: [
+            `**Listing:** ${title}`,
+            `**Price:** ${formatPrice(alert.listingPrice, alert.listingCurrency)}`,
+            `**Confidence:** ${formatConfidence(alert.matchScore)}`,
+            `**Sent:** ${formatTimeWithAge(alert.sentAt)}${listingLink}`
+          ].join('\n'),
+          inline: false
+        };
+      })
+    );
+
+    const learningNote = formatLearningNote(interaction.user.id);
+    if (learningNote) {
+      embed.addFields({
+        name: '🧠 Vaultr Noticed',
+        value: learningNote.replace('**Vaultr noticed:** ', ''),
+        inline: false
+      });
+    }
 
     await interaction.reply({
-      embeds: [
-        infoEmbed(
-          '📨 Recent Sightings',
-          [lines.join('\n\n---\n\n'), formatLearningNote(interaction.user.id)].filter(Boolean).join('\n\n')
-        )
-      ],
+      embeds: [embed],
       flags: MessageFlags.Ephemeral
     });
   }
