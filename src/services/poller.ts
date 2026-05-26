@@ -737,25 +737,54 @@ function truncateForEmbed(value: string, maxLength = 200): string {
 function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   const parts: string[] = [];
   if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'collector')} opened a Vault`);
-  if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received a match`);
+  if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received a sighting`);
   if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  if (parts.length === 0) return 'A quiet day in the Vault. Chases are still watching in the background.';
+  if (parts.length === 0) return 'A quiet day in the Vault. Chases kept watching in the background.';
   return parts.join(' • ');
+}
+
+export function buildDailyPulseMessage(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
+  return [
+    '🗝️ **Vault Pulse**',
+    dailyPulseLine(stats),
+    '',
+    '**Collector Current**',
+    `• Thread: ${stats.topTrackedTheme}`,
+    `• Family: ${stats.topTrackedFamily}`,
+    '',
+    '**Today\'s Spotlight**',
+    `• ${truncateForEmbed(stats.hiddenDiscovery, 180)}`
+  ].join('\n');
 }
 
 function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
   if (summary.alertsReceived === 0) {
-    return 'Your Vault stayed quiet this week, but your chases kept their place on the shelf.';
+    return 'Your Vault stayed quiet this week, but every chase still helped shape what Vaultr understands about your taste.';
   }
-  return `Your Vault surfaced ${pluralize(summary.alertsReceived, 'match', 'matches')} this week. Your clearest thread was ${summary.topTasteTheme}.`;
+  return `Vaultr surfaced ${pluralize(summary.alertsReceived, 'sighting')} this week and kept tuning your collector profile around ${summary.topTasteTheme}.`;
 }
 
 function weeklyReflectionNote(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
   const notes: string[] = [];
-  if (summary.newChasesAdded > 0) notes.push(`You added ${pluralize(summary.newChasesAdded, 'new chase')}`);
+  if (summary.newChasesAdded > 0) notes.push(`${pluralize(summary.newChasesAdded, 'new chase')} added new signal`);
   if (summary.grailsSurfaced > 0) notes.push(`${pluralize(summary.grailsSurfaced, 'grail')} surfaced`);
-  if (notes.length === 0) return 'No major shifts this week. Your existing chases kept watch.';
+  if (notes.length === 0) return 'No major shifts this week. Your existing chases kept teaching Vaultr in the background.';
   return notes.join(' • ');
+}
+
+export function buildWeeklyReflectionEmbed(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0xf59e0b)
+    .setTitle('🗝️ Vaultr Weekly')
+    .setDescription(weeklyReflectionIntro(summary))
+    .addFields(
+      keyValue('Collector Thread', `${summary.topTasteTheme} • ${summary.topTasteFamily}`),
+      keyValue('Taste Signals', weeklyReflectionNote(summary)),
+      keyValue('Discovery Thread', truncateForEmbed(summary.recentDiscovery)),
+      keyValue('Next Week', 'Keep your chases active. Every sighting and Tune Out helps Vaultr sharpen your collector profile.')
+    )
+    .setFooter({ text: 'Vaultr • Weekly collector profile' })
+    .setTimestamp();
 }
 
 async function maybePostDailyCommunityStats(client: Client): Promise<void> {
@@ -779,19 +808,7 @@ async function maybePostDailyCommunityStats(client: Client): Promise<void> {
     if (!channel || !('send' in channel)) continue;
 
     const stats = getGuildCommunityStatsToday(guildId);
-    await channel.send(
-      [
-        '🗝️ **Vault Pulse — Today**',
-        dailyPulseLine(stats),
-        '',
-        '**Collector Current**',
-        `• Theme: ${stats.topTrackedTheme}`,
-        `• Family: ${stats.topTrackedFamily}`,
-        '',
-        '**Today\'s Spotlight**',
-        `• ${stats.hiddenDiscovery}`
-      ].join('\n')
-    );
+    await channel.send(buildDailyPulseMessage(stats));
 
     markPostedGuildDailyStats(guildId, dayKey);
   }
@@ -821,17 +838,7 @@ async function maybeSendWeeklyReflections(client: Client): Promise<void> {
 
     try {
       const user = await client.users.fetch(userId);
-      const embed = new EmbedBuilder()
-        .setColor(0xf59e0b)
-        .setTitle('🗝️ Weekly Vault Reflection')
-        .setDescription(weeklyReflectionIntro(summary))
-        .addFields(
-          keyValue('Collector Thread', `${summary.topTasteTheme} • ${summary.topTasteFamily}`),
-          keyValue('Notable Discovery', truncateForEmbed(summary.recentDiscovery)),
-          keyValue('Vault Notes', weeklyReflectionNote(summary))
-        );
-
-      await user.send({ embeds: [embed] });
+      await user.send({ embeds: [buildWeeklyReflectionEmbed(summary)] });
       markPostedUserWeeklyReflection(userId, weekKey);
     } catch (error) {
       console.error(`Failed to send weekly reflection to user ${userId}`, error);

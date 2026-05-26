@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isDueForPollInterval, orderGroupsForRun } from '../poller.js';
+import { buildDailyPulseMessage, buildWeeklyReflectionEmbed, isDueForPollInterval, orderGroupsForRun } from '../poller.js';
 
 describe('orderGroupsForRun', () => {
   it('prioritizes groups that have never consumed a source fetch', () => {
@@ -62,5 +62,75 @@ describe('isDueForPollInterval', () => {
 
   it('allows checks once the interval window has elapsed', () => {
     expect(isDueForPollInterval(1_000, 900, 1_000 + 900_000)).toBe(true);
+  });
+});
+
+describe('buildWeeklyReflectionEmbed', () => {
+  it('frames the weekly DM as a learned collector profile update', () => {
+    const embed = buildWeeklyReflectionEmbed({
+      alertsReceived: 4,
+      grailsSurfaced: 1,
+      newChasesAdded: 2,
+      topTasteFamily: 'Eeveelution cards',
+      topTasteTheme: 'moonlit alt art',
+      recentDiscovery: 'Umbreon VMAX Alt Art PSA 10'
+    });
+    const data = embed.toJSON();
+
+    expect(data.title).toBe('🗝️ Vaultr Weekly');
+    expect(data.description).toContain('4 sightings');
+    expect(data.description).toContain('collector profile');
+    expect(data.fields?.map((field) => field.name)).toEqual([
+      'Collector Thread',
+      'Taste Signals',
+      'Discovery Thread',
+      'Next Week'
+    ]);
+    expect(data.fields?.[0].value).toBe('moonlit alt art • Eeveelution cards');
+    expect(data.fields?.[1].value).toContain('2 new chases added new signal');
+    expect(data.fields?.[1].value).toContain('1 grail surfaced');
+    expect(data.fields?.[3].value).toContain('Tune Out');
+    expect(data.footer?.text).toBe('Vaultr • Weekly collector profile');
+  });
+});
+
+describe('buildDailyPulseMessage', () => {
+  it('formats an active community day as a collector heartbeat', () => {
+    const message = buildDailyPulseMessage({
+      newVaultrs: 2,
+      usersAlerted: 3,
+      matches: 5,
+      grailsSurfaced: 1,
+      topTrackedFamily: 'Eeveelution cards',
+      topTrackedTheme: 'moonlit alt art',
+      hiddenDiscovery: 'Umbreon VMAX Alt Art PSA 10'
+    });
+
+    expect(message).toContain('🗝️ **Vault Pulse**');
+    expect(message).toContain('2 collectors opened a Vault');
+    expect(message).toContain('3 collectors received a sighting');
+    expect(message).toContain('1 grail surfaced');
+    expect(message).toContain('**Collector Current**');
+    expect(message).toContain('• Thread: moonlit alt art');
+    expect(message).toContain('• Family: Eeveelution cards');
+    expect(message).toContain("**Today's Spotlight**");
+    expect(message).toContain('Umbreon VMAX Alt Art PSA 10');
+    expect(message).not.toContain('received a match');
+  });
+
+  it('keeps quiet days calm and collector-first', () => {
+    const message = buildDailyPulseMessage({
+      newVaultrs: 0,
+      usersAlerted: 0,
+      matches: 0,
+      grailsSurfaced: 0,
+      topTrackedFamily: 'Mixed collections',
+      topTrackedTheme: 'Varied styles',
+      hiddenDiscovery: 'A quiet spotlight. Chases are still watching.'
+    });
+
+    expect(message).toContain('A quiet day in the Vault. Chases kept watching in the background.');
+    expect(message).toContain('• Thread: Varied styles');
+    expect(message).toContain('• Family: Mixed collections');
   });
 });
