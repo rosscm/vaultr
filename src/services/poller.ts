@@ -52,10 +52,12 @@ function formatReasons(reasons: string[]): string {
         const terms = r.split(':')[1] ?? '';
         return `suspicious terms (${terms})`;
       }
-      if (r === 'card_name_match_exact') return 'exact card name match';
-      if (r === 'card_name_match_tokens') return 'card name token match';
-      if (r === 'card_number_match') return 'card number match';
-      if (r === 'ungraded_match') return 'ungraded/raw match';
+      if (r === 'card_name_match_exact') return 'exact card name';
+      if (r === 'card_name_match_tokens') return 'card name aligned';
+      if (r === 'card_number_match') return 'card number';
+      if (r === 'ungraded_match') return 'raw/ungraded';
+      if (r === 'grade_match') return 'requested grade';
+      if (r === 'listing_type_match') return 'listing type';
       if (r === 'price_within_max') return 'within your max';
       if (r === 'seller_quality_boost') return 'high seller feedback';
       if (r === 'new_seller_penalty') return 'new or unrated seller';
@@ -160,9 +162,9 @@ function formatDealQuality(score: number): string {
 }
 
 function explainDealQuality(score: number): string {
-  if (score >= 85) return 'strong alignment with your chase';
-  if (score >= 60) return 'good alignment with your chase';
-  return 'partial alignment; review details before acting';
+  if (score >= 85) return 'closely matches your chase criteria';
+  if (score >= 60) return 'meets the core chase criteria';
+  return 'some criteria line up; review details before acting';
 }
 
 function formatScoreWithQuality(score: number): string {
@@ -587,9 +589,9 @@ async function runPoll(client: Client): Promise<void> {
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Source:** ${sourceLabel}`,
               `**Ships to You:** ${formatShippingEligibility(listing)}`,
-              `**Match Strength:** ${formatScoreWithQuality(match.score)}`,
-              `**Fit Signals:** ${splitReasons(match.reasons).positive}`,
-              `**Why It Surfaced:** ${explainDealQuality(match.score)}`
+              `**Confidence:** ${formatScoreWithQuality(match.score)}`,
+              `**Signals:** ${splitReasons(match.reasons).positive}`,
+              `**Context:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }
@@ -642,9 +644,9 @@ async function runPoll(client: Client): Promise<void> {
           {
             name: '🧠 Match Insight',
             value: [
-              `**Match Strength:** ${formatScoreWithQuality(match.score)}`,
-              `**Fit Signals:** ${splitReasons(match.reasons).positive}`,
-              `**Why It Surfaced:** ${explainDealQuality(match.score)}`
+              `**Confidence:** ${formatScoreWithQuality(match.score)}`,
+              `**Signals:** ${splitReasons(match.reasons).positive}`,
+              `**Context:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
           }

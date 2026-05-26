@@ -29,9 +29,9 @@ export const previewAlert = {
           '**Posted:** 2m ago',
           '**Source:** eBay',
            '**Shipping Destination:** CA',
-          '**Match Strength:** good (72)',
-          '**Fit Signals:** exact card name match, grade match',
-          '**Why It Surfaced:** good alignment with your chase'
+          '**Confidence:** good (72)',
+          '**Signals:** exact card name, requested grade',
+          '**Context:** meets the core chase criteria'
         ].join('\n'),
         inline: false
       });
@@ -68,9 +68,9 @@ export const previewAlert = {
         {
             name: '🧠 Match Insight',
           value: [
-            '**Match Strength:** good (72)',
-            '**Fit Signals:** exact card name match, grade match',
-            '**Why It Surfaced:** good alignment with your chase'
+            '**Confidence:** good (72)',
+            '**Signals:** exact card name, requested grade',
+            '**Context:** meets the core chase criteria'
           ].join('\n'),
           inline: false
         }
