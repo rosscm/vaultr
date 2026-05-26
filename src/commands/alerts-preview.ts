@@ -5,7 +5,7 @@ import { OUTPUT_STYLE } from '../ui/style.js';
 export const previewAlert = {
   data: new SlashCommandBuilder()
     .setName('alerts-preview')
-    .setDescription('Preview how a grail sighting appears in DM'),
+    .setDescription('Preview how a chase sighting appears in DM'),
   async execute(interaction: any) {
     const settings = getUserAlertSettings(interaction.user.id);
     const currency = settings.alertCurrency;
@@ -43,7 +43,7 @@ export const previewAlert = {
           inline: false
         },
         {
-            name: '💰 Market Window',
+            name: '💰 Pricing Breakdown',
           value: [
             `**Price:** 1140.00 ${currency}`,
             `**Shipping:** 15.00 ${currency}`,
@@ -66,7 +66,7 @@ export const previewAlert = {
           inline: false
         },
         {
-            name: '🧠 Why It Fits',
+            name: '🧠 Match Insight',
           value: [
             '**Match Strength:** good (72)',
             '**Fit Signals:** exact card name match, grade match',

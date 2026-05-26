@@ -606,7 +606,7 @@ async function runPoll(client: Client): Promise<void> {
             inline: false
           },
           {
-            name: '💰 Market Window',
+            name: '💰 Pricing Breakdown',
             value: [
               `**Price:** ${formatMoney(normalizedListing.price, targetCurrency)}`,
               `**Shipping:** ${formatShippingCost(normalizedListing.shippingCost, targetCurrency)}`,
@@ -640,7 +640,7 @@ async function runPoll(client: Client): Promise<void> {
             inline: false
           },
           {
-            name: '🧠 Why It Fits',
+            name: '🧠 Match Insight',
             value: [
               `**Match Strength:** ${formatScoreWithQuality(match.score)}`,
               `**Fit Signals:** ${splitReasons(match.reasons).positive}`,
