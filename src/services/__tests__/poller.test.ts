@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { buildDailyPulseMessage, buildWeeklyReflectionEmbed, isDueForPollInterval, orderGroupsForRun } from '../poller.js';
+import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
+import { getRuntimePollIntervalSeconds, PLAN_LIMITS } from '../plans.js';
 
 describe('orderGroupsForRun', () => {
   it('prioritizes groups that have never consumed a source fetch', () => {
     const ordered = orderGroupsForRun([
       {
         queryKey: 'luffy',
-        group: { members: [], oldestCreatedAt: '2026-05-24T23:25:23.575Z' },
+        group: { members: [], oldestCreatedAt: '2026-05-24T23:25:23.575Z', oldestDueAtMs: 0 },
         lastSourceFetchAtMs: 100
       },
       {
         queryKey: 'squirtle',
-        group: { members: [], oldestCreatedAt: '2026-05-24T20:59:39.622Z' }
+        group: { members: [], oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 0 }
       }
     ]);
 
@@ -22,12 +24,12 @@ describe('orderGroupsForRun', () => {
     const ordered = orderGroupsForRun([
       {
         queryKey: 'luffy',
-        group: { members: [], oldestCreatedAt: '2026-05-24T23:25:23.575Z' },
+        group: { members: [], oldestCreatedAt: '2026-05-24T23:25:23.575Z', oldestDueAtMs: 0 },
         lastSourceFetchAtMs: 200
       },
       {
         queryKey: 'squirtle',
-        group: { members: [], oldestCreatedAt: '2026-05-24T20:59:39.622Z' },
+        group: { members: [], oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 0 },
         lastSourceFetchAtMs: 100
       }
     ]);
@@ -39,11 +41,11 @@ describe('orderGroupsForRun', () => {
     const ordered = orderGroupsForRun([
       {
         queryKey: 'luffy',
-        group: { members: [], oldestCreatedAt: '2026-05-24T23:25:23.575Z' }
+        group: { members: [], oldestCreatedAt: '2026-05-24T23:25:23.575Z', oldestDueAtMs: 0 }
       },
       {
         queryKey: 'squirtle',
-        group: { members: [], oldestCreatedAt: '2026-05-24T20:59:39.622Z' }
+        group: { members: [], oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 0 }
       }
     ]);
 
@@ -52,6 +54,12 @@ describe('orderGroupsForRun', () => {
 });
 
 describe('isDueForPollInterval', () => {
+  it('keeps runtime wake cadence separate from plan eligibility windows', () => {
+    expect(getRuntimePollIntervalSeconds()).toBe(300);
+    expect(PLAN_LIMITS.PRO.pollIntervalSeconds).toBe(900);
+    expect(PLAN_LIMITS.FREE.pollIntervalSeconds).toBe(1800);
+  });
+
   it('treats uninitialized chases as due immediately', () => {
     expect(isDueForPollInterval(undefined, 900, 1_000)).toBe(true);
   });
@@ -62,6 +70,54 @@ describe('isDueForPollInterval', () => {
 
   it('allows checks once the interval window has elapsed', () => {
     expect(isDueForPollInterval(1_000, 900, 1_000 + 900_000)).toBe(true);
+  });
+});
+
+describe('poller coverage state', () => {
+  it('stores a defensive copy of the last source coverage snapshot', () => {
+    const snapshot = {
+      dueGroups: 3,
+      dueChases: 5,
+      checkedGroups: 2,
+      checkedChases: 4,
+      deferredGroups: 1,
+      deferredChases: 1,
+      rateLimitedGroups: 1,
+      backoffGroups: 0,
+      oldestDue: { queryKey: 'moltres zapdos articuno', chaseCount: 1, overdueSeconds: 1860 },
+      oldestDeferred: { queryKey: 'moltres zapdos articuno', chaseCount: 1, overdueSeconds: 1860, reason: 'Rate limit' }
+    };
+
+    setPollerCoverageSnapshot(snapshot);
+    snapshot.oldestDeferred.reason = 'Changed';
+
+    expect(getPollerState().lastRunCoverage).toMatchObject({
+      dueGroups: 3,
+      checkedGroups: 2,
+      deferredGroups: 1,
+      oldestDeferred: { reason: 'Rate limit' }
+    });
+  });
+
+  it('clears last run coverage when a new run starts', () => {
+    setPollerCoverageSnapshot({
+      dueGroups: 1,
+      dueChases: 1,
+      checkedGroups: 0,
+      checkedChases: 0,
+      deferredGroups: 1,
+      deferredChases: 1,
+      rateLimitedGroups: 1,
+      backoffGroups: 0
+    });
+
+    markPollerRunStart();
+
+    expect(getPollerState().lastRunCoverage).toMatchObject({
+      dueGroups: 0,
+      checkedGroups: 0,
+      deferredGroups: 0
+    });
   });
 });
 

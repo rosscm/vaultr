@@ -39,6 +39,7 @@ import {
   markChaseCooldownSuppression,
   markFingerprintSuppression,
   setBackoffUntil,
+  setPollerCoverageSnapshot,
   setSourceCallsLastMinute
 } from './poller-state.js';
 import { alertFeedbackButtons, keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
@@ -276,6 +277,20 @@ let backoffUntilMs = 0;
 type ActiveGroup = {
   members: Array<{ chase: Chase; settings: ReturnType<typeof getUserAlertSettings> }>;
   oldestCreatedAt: string;
+  oldestDueAtMs: number;
+};
+
+type CoverageAccumulator = {
+  dueGroups: number;
+  dueChases: number;
+  checkedGroups: number;
+  checkedChases: number;
+  deferredGroups: number;
+  deferredChases: number;
+  rateLimitedGroups: number;
+  backoffGroups: number;
+  oldestDue?: { queryKey: string; chaseCount: number; overdueSeconds: number };
+  oldestDeferred?: { queryKey: string; chaseCount: number; overdueSeconds: number; reason?: string };
 };
 
 export function orderGroupsForRun(
@@ -305,6 +320,47 @@ export function isDueForPollInterval(
 ): boolean {
   if (lastCheckedAtMs === undefined) return true;
   return nowMs - lastCheckedAtMs >= intervalSeconds * 1000;
+}
+
+function groupDisplayName(queryKey: string): string {
+  return queryKey.split('|')[0] || queryKey;
+}
+
+function overdueSeconds(dueAtMs: number, nowMs: number): number {
+  return Math.max(0, Math.floor((nowMs - dueAtMs) / 1000));
+}
+
+function maybeReplaceOldestCoverageGroup<T extends { overdueSeconds: number }>(current: T | undefined, next: T): T {
+  if (!current || next.overdueSeconds > current.overdueSeconds) return next;
+  return current;
+}
+
+function markCoverageChecked(coverage: CoverageAccumulator, group: ActiveGroup): void {
+  coverage.checkedGroups += 1;
+  coverage.checkedChases += group.members.length;
+}
+
+function markCoverageDeferred(
+  coverage: CoverageAccumulator,
+  queryKey: string,
+  group: ActiveGroup,
+  nowMs: number,
+  reason: string
+): void {
+  coverage.deferredGroups += 1;
+  coverage.deferredChases += group.members.length;
+  if (reason === 'Rate limit') coverage.rateLimitedGroups += 1;
+  if (reason === 'Backoff') coverage.backoffGroups += 1;
+  coverage.oldestDeferred = maybeReplaceOldestCoverageGroup(coverage.oldestDeferred, {
+    queryKey: groupDisplayName(queryKey),
+    chaseCount: group.members.length,
+    overdueSeconds: overdueSeconds(group.oldestDueAtMs, nowMs),
+    reason
+  });
+}
+
+function finishCoverageSnapshot(coverage: CoverageAccumulator): void {
+  setPollerCoverageSnapshot(coverage);
 }
 
 function pruneSourceCallWindow(nowMs: number): void {
@@ -437,6 +493,16 @@ async function runPoll(client: Client): Promise<void> {
   const sourceMode = (process.env.LISTING_SOURCE ?? 'EBAY').toUpperCase();
   const chases = listAllChases();
   if (chases.length === 0) {
+    finishCoverageSnapshot({
+      dueGroups: 0,
+      dueChases: 0,
+      checkedGroups: 0,
+      checkedChases: 0,
+      deferredGroups: 0,
+      deferredChases: 0,
+      rateLimitedGroups: 0,
+      backoffGroups: 0
+    });
     markPollerRunSuccess(Date.now() - startedAt);
     return;
   }
@@ -448,14 +514,23 @@ async function runPoll(client: Client): Promise<void> {
     const lastCheckedAtIso = getChaseLastPollCheckAt(chase.id);
     const lastCheckedAtMs = lastCheckedAtIso ? new Date(lastCheckedAtIso).getTime() : undefined;
     if (!isDueForPollInterval(Number.isFinite(lastCheckedAtMs) ? lastCheckedAtMs : undefined, intervalSeconds, nowMs)) continue;
+    const createdAtMs = new Date(chase.createdAt).getTime();
+    const dueAtMs = Number.isFinite(lastCheckedAtMs)
+      ? (lastCheckedAtMs as number) + intervalSeconds * 1000
+      : Number.isFinite(createdAtMs)
+        ? createdAtMs
+        : nowMs;
 
     const settings = getUserAlertSettings(chase.userId);
     if (isInQuietHours(settings.quietHoursStart, settings.quietHoursEnd)) continue;
     const key = sourceQueryKey(chase, settings);
-    const group = activeGroups.get(key) ?? { members: [], oldestCreatedAt: chase.createdAt };
+    const group = activeGroups.get(key) ?? { members: [], oldestCreatedAt: chase.createdAt, oldestDueAtMs: dueAtMs };
     group.members.push({ chase, settings });
     if (chase.createdAt.localeCompare(group.oldestCreatedAt) < 0) {
       group.oldestCreatedAt = chase.createdAt;
+    }
+    if (dueAtMs < group.oldestDueAtMs) {
+      group.oldestDueAtMs = dueAtMs;
     }
     activeGroups.set(key, group);
   }
@@ -467,6 +542,23 @@ async function runPoll(client: Client): Promise<void> {
       lastSourceFetchAtMs: lastSourceFetchAtMsByQueryKey.get(queryKey)
     }))
   );
+  const coverage: CoverageAccumulator = {
+    dueGroups: orderedGroups.length,
+    dueChases: orderedGroups.reduce((total, entry) => total + entry.group.members.length, 0),
+    checkedGroups: 0,
+    checkedChases: 0,
+    deferredGroups: 0,
+    deferredChases: 0,
+    rateLimitedGroups: 0,
+    backoffGroups: 0
+  };
+  for (const { queryKey, group } of orderedGroups) {
+    coverage.oldestDue = maybeReplaceOldestCoverageGroup(coverage.oldestDue, {
+      queryKey: groupDisplayName(queryKey),
+      chaseCount: group.members.length,
+      overdueSeconds: overdueSeconds(group.oldestDueAtMs, nowMs)
+    });
+  }
 
   for (const { queryKey, group } of orderedGroups) {
     const representative = group.members[0]?.chase;
@@ -483,8 +575,14 @@ async function runPoll(client: Client): Promise<void> {
       const checkedAtIso = new Date().toISOString();
       lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
       markChasesPollChecked(group.members.map(({ chase }) => chase.id), checkedAtIso);
+      markCoverageChecked(coverage, group);
+    } else {
+      const reason = sourceMode !== 'MOCK' && Date.now() < backoffUntilMs ? 'Backoff' : 'Rate limit';
+      markCoverageDeferred(coverage, queryKey, group, nowMs, reason);
     }
 
+
+  finishCoverageSnapshot(coverage);
     for (const { chase, settings } of group.members) {
       if (settings.chaseCooldownMinutes > 0) {
         const recentForChase = countChaseAlertsWithinMinutes(chase.userId, chase.id, settings.chaseCooldownMinutes);

@@ -2,13 +2,16 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import {
   countChaseAlertsWithinMinutes,
   countUserAlertsInLastHour,
+  getChaseLastPollCheckAt,
   getUserAlertSettings,
+  getUserPlan,
   hasAlertBeenSent,
   listAllChases
 } from '../services/chase-store.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from '../services/currency.js';
 import { searchEbayListings } from '../services/ebay.js';
 import { matchChaseToListing } from '../services/matcher.js';
+import { PLAN_LIMITS } from '../services/plans.js';
 import { getPollerState } from '../services/poller-state.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatTimeWithAge } from '../ui/time.js';
@@ -45,6 +48,73 @@ function formatListingDebug(listing: Listing | undefined, rank: number | null): 
     `**Seller Feedback:** ${listing.sellerFeedbackPercent ?? 'Unknown'}% (${listing.sellerFeedbackScore ?? 'Unknown'})`,
     `**Condition:** ${listing.condition ?? 'Unknown'}`,
     `**Listing Type:** ${listing.listingType ?? 'Unknown'}`
+  ];
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function formatCoverageGroup(group: { queryKey: string; chaseCount: number; overdueSeconds: number; reason?: string } | undefined): string {
+  if (!group) return 'None';
+  const reason = group.reason ? `, ${group.reason.toLowerCase()}` : '';
+  return `${group.queryKey} (${group.chaseCount} chase${group.chaseCount === 1 ? '' : 's'}, ${formatDuration(group.overdueSeconds)} overdue${reason})`;
+}
+
+function formatRelativeDue(seconds: number): string {
+  if (seconds <= 0) return `${formatDuration(Math.abs(seconds))} overdue`;
+  return `in ${formatDuration(seconds)}`;
+}
+
+function truncateValue(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
+}
+
+function buildEligibilityLines(chases: Chase[], nowMs: number): string[] {
+  let dueNow = 0;
+  let notYetDue = 0;
+  let neverChecked = 0;
+  let nextDue: { chase: Chase; tier: string; secondsUntilDue: number } | undefined;
+  let oldestEligible: { chase: Chase; tier: string; secondsUntilDue: number } | undefined;
+
+  for (const chase of chases) {
+    const plan = getUserPlan(chase.userId);
+    const intervalSeconds = PLAN_LIMITS[plan.tier].pollIntervalSeconds;
+    const lastCheckedAt = getChaseLastPollCheckAt(chase.id);
+    const lastCheckedAtMs = lastCheckedAt ? new Date(lastCheckedAt).getTime() : undefined;
+    const secondsUntilDue = lastCheckedAtMs !== undefined && Number.isFinite(lastCheckedAtMs)
+      ? Math.ceil((lastCheckedAtMs + intervalSeconds * 1000 - nowMs) / 1000)
+      : 0;
+
+    if (!lastCheckedAt) neverChecked += 1;
+
+    const summary = { chase, tier: plan.tier, secondsUntilDue };
+    if (secondsUntilDue <= 0) {
+      dueNow += 1;
+      if (!oldestEligible || secondsUntilDue < oldestEligible.secondsUntilDue) oldestEligible = summary;
+    } else {
+      notYetDue += 1;
+      if (!nextDue || secondsUntilDue < nextDue.secondsUntilDue) nextDue = summary;
+    }
+  }
+
+  const formatChaseDue = (summary: { chase: Chase; tier: string; secondsUntilDue: number } | undefined): string => {
+    if (!summary) return 'None';
+    return `${truncateValue(summary.chase.cardName, 54)} (${summary.tier}, ${formatRelativeDue(summary.secondsUntilDue)})`;
+  };
+
+  return [
+    '**Current Eligibility:**',
+    `**Eligible Now:** ${dueNow}`,
+    `**Not Yet Due:** ${notYetDue}`,
+    `**Never Checked:** ${neverChecked}`,
+    `**Next Eligible:** ${formatChaseDue(nextDue)}`,
+    `**Oldest Eligible:** ${formatChaseDue(oldestEligible)}`
   ];
 }
 
@@ -243,8 +313,10 @@ export const health = {
     }
 
     const state = getPollerState();
+    const coverage = state.lastRunCoverage;
     const duration = state.lastRunDurationMs === undefined ? 'n/a' : `${state.lastRunDurationMs}ms`;
     const nowMs = Date.now();
+    const chases = listAllChases();
     const backoffUntilMs = state.backoffUntil ? new Date(state.backoffUntil).getTime() : undefined;
     const isBackoffActive = backoffUntilMs !== undefined && Number.isFinite(backoffUntilMs) && backoffUntilMs > nowMs;
     const lines = [
@@ -252,7 +324,7 @@ export const health = {
       `**Poller Wake:** every ${state.pollIntervalSeconds}s`,
       `**Running:** ${state.isRunning ? 'Yes' : 'No'}`,
       `**Rate Limited / Backing Off:** ${isBackoffActive ? 'Yes' : 'No'}`,
-      `**Active Chases:** ${listAllChases().length}`,
+      `**Active Chases:** ${chases.length}`,
       `**Last Run:** ${formatTimeWithAge(state.lastRunAt)}`,
       `**Last Completion:** ${formatTimeWithAge(state.lastRunCompletedAt)}`,
       `**Last Duration:** ${duration}`,
@@ -263,6 +335,19 @@ export const health = {
       `**Last Source Success:** ${state.lastSourceSuccessAt ? formatTimeWithAge(state.lastSourceSuccessAt) : 'None'}`,
       `**Last Error:** ${state.lastError ?? 'None'}`
     ];
+
+    lines.push(
+      '',
+      '**Source Coverage:**',
+      `**Due Groups:** ${coverage.dueGroups} (${coverage.dueChases} chase${coverage.dueChases === 1 ? '' : 's'})`,
+      `**Checked Groups:** ${coverage.checkedGroups} (${coverage.checkedChases} chase${coverage.checkedChases === 1 ? '' : 's'})`,
+      `**Deferred Groups:** ${coverage.deferredGroups} (${coverage.deferredChases} chase${coverage.deferredChases === 1 ? '' : 's'})`,
+      `**Deferred Reasons:** ${coverage.rateLimitedGroups} rate limit, ${coverage.backoffGroups} backoff`,
+      `**Oldest Due:** ${formatCoverageGroup(coverage.oldestDue)}`,
+      `**Oldest Deferred:** ${formatCoverageGroup(coverage.oldestDeferred)}`
+    );
+
+    lines.push('', ...buildEligibilityLines(chases, nowMs));
 
     await interaction.reply({
       embeds: [infoEmbed('🩺 Vaultr Health', lines.join('\n'))],
