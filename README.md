@@ -115,8 +115,9 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 - Set `EBAY_ENV=SANDBOX` for sandbox testing, or `EBAY_ENV=PRODUCTION` for live eBay
 - Set `EBAY_MARKETPLACE_ID=EBAY_US` unless you intentionally want another eBay marketplace
 - Optional: tune `EBAY_SEARCH_LIMIT` (default `50`) and `EBAY_BROWSE_SORT` (default `newlyListed`)
-- Recommended production soak: `POLL_INTERVAL_SECONDS=900`
-- Recommended production soak: `EBAY_MAX_REQUESTS_PER_MINUTE=1`
+- Recommended production runtime tick: `POLL_INTERVAL_SECONDS=300`
+- Plan intervals still control chase eligibility: Free every 30 minutes, Pro every 15 minutes
+- Recommended production source budget: `EBAY_MAX_REQUESTS_PER_MINUTE=10`
 - Recommended production soak: `EBAY_BACKOFF_BASE_SECONDS=900`
 - Set `LISTING_SOURCE=EBAY` for live eBay polling
 - Set `LISTING_SOURCE=MOCK` to run with local mock listings
@@ -124,7 +125,6 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 - Sighting moments are delivered by DM to each user
 - Similar active chases share source queries so eBay requests do not scale one-to-one with users
 - `MAX_ALERTS_PER_CHASE_PER_POLL` caps how many distinct sightings one chase can send from a single source check (default `3`)
-- `SUPPRESS_UNRATED_SELLERS=true` suppresses 0-feedback seller sightings by default
 
 ### eBay Rate Limit Notes
 

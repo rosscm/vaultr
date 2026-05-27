@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { commands } from './commands/index.js';
 import { getPollerState, initializePollerState } from './services/poller-state.js';
 import { listAllChases } from './services/chase-store.js';
+import { getRuntimePollIntervalSeconds } from './services/plans.js';
 
 type CheckResult = {
   name: string;
@@ -37,7 +38,7 @@ function checkDb(): CheckResult {
 }
 
 function checkPollerDefaults(): CheckResult {
-  initializePollerState((process.env.LISTING_SOURCE ?? 'EBAY').toUpperCase(), Number(process.env.POLL_INTERVAL_SECONDS ?? '180'));
+  initializePollerState((process.env.LISTING_SOURCE ?? 'EBAY').toUpperCase(), getRuntimePollIntervalSeconds());
   const state = getPollerState();
   return {
     name: 'poller',

@@ -24,7 +24,7 @@ import { searchEbayListings, type ShippingDestination } from './ebay.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
-import { PLAN_LIMITS } from './plans.js';
+import { getRuntimePollIntervalSeconds, PLAN_LIMITS } from './plans.js';
 import {
   getPollerState,
   initializePollerState,
@@ -856,8 +856,8 @@ async function maybeSendWeeklyReflections(client: Client): Promise<void> {
 }
 
 export function startPoller(client: Client): void {
-  const pollIntervalSeconds = Number(process.env.POLL_INTERVAL_SECONDS ?? '180');
-  const intervalMs = Math.max(30, pollIntervalSeconds) * 1000;
+  const pollIntervalSeconds = getRuntimePollIntervalSeconds();
+  const intervalMs = pollIntervalSeconds * 1000;
   const sourceMode = (process.env.LISTING_SOURCE ?? 'EBAY').toUpperCase();
   initializePollerState(sourceMode, intervalMs / 1000);
   setBackoffUntil(null);
