@@ -1,22 +1,11 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings, getUserPlan, listChases } from '../services/chase-store.js';
 import { convertCurrencyAmount, type SupportedCurrency } from '../services/currency.js';
+import { selectDiscoverySuggestions, type DiscoverySuggestion } from '../services/discovery-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { searchEbayListings } from '../services/ebay.js';
 import { infoEmbed } from '../ui/embeds.js';
 import type { Chase, Listing } from '../types.js';
-
-type DiscoverySeed = {
-  keywords: string[];
-  theme: string;
-  suggestions: DiscoverySuggestion[];
-};
-
-type DiscoverySuggestion = {
-  name: string;
-  why: string;
-  minimumExampleTotalCad?: number;
-};
 
 type DiscoveryCandidate = {
   suggestion: DiscoverySuggestion;
@@ -27,7 +16,7 @@ type DiscoveryCandidate = {
 };
 
 const MAX_LISTING_TITLE_LENGTH = 180;
-const MIN_LEARNED_PROFILE_CHASES = 4;
+const MIN_LEARNED_PROFILE_CHASES = 6;
 const NON_CARD_TERMS = [
   'booster',
   'box',
@@ -54,102 +43,6 @@ const NON_CARD_TERMS = [
 ];
 const CARD_TERMS = ['card', 'cards', 'tcg', 'pokemon', 'psa', 'bgs', 'cgc', 'sgc', 'graded', 'slab'];
 
-const DISCOVERY_SEEDS: DiscoverySeed[] = [
-  {
-    keywords: ['umbreon', 'moonbreon', 'espeon', 'eevee'],
-    theme: 'moonlit Eeveelution cards',
-    suggestions: [
-      {
-        name: "Karen's Umbreon",
-        why: 'extends the Umbreon thread into an older collector lane with strong character identity'
-      },
-      {
-        name: 'Umbreon VMAX 215/203',
-        why: 'sits at the center of the modern moonlit alt-art pattern your Vault is circling'
-      },
-      {
-        name: 'Espeon VMAX 270/264',
-        why: 'keeps the same Eeveelution texture while widening the chase beyond Umbreon'
-      }
-    ]
-  },
-  {
-    keywords: ['gengar', 'darkrai', 'shadow', 'night'],
-    theme: 'dark atmospheric artwork',
-    suggestions: [
-      {
-        name: 'Gengar VMAX 271/264',
-        why: 'matches a darker visual lane with a display-heavy modern chase profile'
-      },
-      {
-        name: 'Darkrai & Cresselia LEGEND',
-        why: 'keeps the shadowy mood but adds a more unusual era and card format'
-      },
-      {
-        name: "Sabrina's Gengar",
-        why: 'turns the same atmosphere toward vintage character-driven collecting'
-      }
-    ]
-  },
-  {
-    keywords: ['pikachu', 'poncho', 'promo'],
-    theme: 'character promo pieces',
-    suggestions: [
-      {
-        name: 'Poncho-Wearing Pikachu',
-        why: 'leans into costume identity and promo scarcity without leaving the character lane',
-        minimumExampleTotalCad: 1000
-      },
-      {
-        name: 'Mario Pikachu',
-        why: 'adds crossover appeal and high-recognition display value',
-        minimumExampleTotalCad: 1000
-      },
-      {
-        name: 'Pretend Magikarp Pikachu',
-        why: 'keeps the playful promo thread with a collector-favorite visual twist',
-        minimumExampleTotalCad: 500
-      }
-    ]
-  },
-  {
-    keywords: ['rayquaza', 'lugia', 'crystal', 'gold star'],
-    theme: 'high-impact vintage grails',
-    suggestions: [
-      {
-        name: 'Gold Star Rayquaza',
-        why: 'fits a premium legendary lane with long-term collector gravity'
-      },
-      {
-        name: 'Crystal Lugia',
-        why: 'shares the high-impact vintage profile while changing the legendary centerpiece'
-      },
-      {
-        name: 'Rayquaza VMAX Alt Art',
-        why: 'keeps the Rayquaza identity but gives the thread a modern alt-art expression'
-      }
-    ]
-  },
-  {
-    keywords: ['japanese', 'jp', 'vending', 'web'],
-    theme: 'Japanese-only texture',
-    suggestions: [
-      {
-        name: 'Web Series Gengar',
-        why: 'keeps the Japanese-only texture with a distinctive oddball release history'
-      },
-      {
-        name: 'Vending Series Mewtwo',
-        why: 'adds unusual format and era depth to a Japanese collector thread'
-      },
-      {
-        name: 'Masaki Gengar',
-        why: 'pairs Japanese exclusivity with a true character grail profile'
-      }
-    ]
-  }
-];
-
 function normalize(value: string): string {
   return value.toLowerCase();
 }
@@ -160,29 +53,6 @@ function normalizedTokens(value: string): string[] {
     .split(/\s+/)
     .map((token) => token.trim())
     .filter((token) => token.length >= 2);
-}
-
-function pickSeed(text: string): DiscoverySeed {
-  const normalized = normalize(text);
-  const seed = DISCOVERY_SEEDS.find((candidate) => candidate.keywords.some((keyword) => normalized.includes(keyword)));
-  return seed ?? {
-    keywords: [],
-    theme: 'cards with strong collector identity',
-    suggestions: [
-      {
-        name: 'Japanese promos',
-        why: 'often carry distinct release stories and strong collection identity'
-      },
-      {
-        name: 'vintage holos',
-        why: 'add era depth and display nostalgia without needing a narrow character lane'
-      },
-      {
-        name: 'illustration rares with matching themes',
-        why: 'expand the visual taste of your Vault while staying collector-first'
-      }
-    ]
-  };
 }
 
 function median(values: number[]): number | undefined {
@@ -211,15 +81,15 @@ function uniqueValues(values: Array<string | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => !!value))];
 }
 
-function tasteSignalsFromChases(chases: Chase[], seed: DiscoverySeed): string[] {
-  if (chases.length === 0) return ['starter collector profile', seed.theme];
+function tasteSignalsFromChases(chases: Chase[], lane: string): string[] {
+  if (chases.length === 0) return ['starter collector profile', lane];
 
   const priorities = chases.map((chase) => chase.priority ?? 'NORMAL');
   const grades = uniqueValues(chases.map((chase) => chase.grade)).slice(0, 2);
   const listingTypes = uniqueValues(
     chases.map((chase) => (chase.listingType && chase.listingType !== 'ANY' ? chase.listingType : undefined))
   );
-  const signals = [seed.theme];
+  const signals = [lane];
 
   if (priorities.includes('GRAIL')) signals.push('grail-weighted pursuit');
   if (grades.length > 0) signals.push(`grade focus: ${grades.join(', ')}`);
@@ -228,23 +98,40 @@ function tasteSignalsFromChases(chases: Chase[], seed: DiscoverySeed): string[] 
   return signals.slice(0, 4);
 }
 
-function profileBasis(focus: string | null, chases: Chase[], hasLearnedProfile: boolean): string {
-  if (focus) return `focused on \`${focus}\``;
-  if (hasLearnedProfile) return `learned from your ${chases.length} active chases`;
-  if (chases.length > 0) return `warming up from your ${chases.length} active chase${chases.length === 1 ? '' : 's'}`;
-  return 'based on a starter collector profile';
-}
-
-function profileStatus(chaseCount: number, hasFullDiscovery: boolean, hasLearnedProfile: boolean): string {
-  if (hasLearnedProfile) return 'Learned profile active';
-  if (!hasFullDiscovery) {
-    return `Developing; Pro unlocks a learned profile after ${MIN_LEARNED_PROFILE_CHASES} active chases`;
+function learningSignal(
+  focus: string | null,
+  chases: Chase[],
+  lane: string,
+  hasFullDiscovery: boolean,
+  hasLearnedProfile: boolean
+): string {
+  if (focus && !hasLearnedProfile) return `steered by \`${focus}\`; early read from ${chases.length} active chase${chases.length === 1 ? '' : 's'}`;
+  if (focus) return `steered by \`${focus}\`, shaped by ${chases.length} active chases`;
+  if (hasLearnedProfile) {
+    const signals = tasteSignalsFromChases(chases, lane).filter((signal) => signal !== lane);
+    const signalNote = signals.length > 0 ? `; ${signals.join(', ')}` : '';
+    return `shaped by ${chases.length} active chases${signalNote}`;
   }
-  return `Developing (${chaseCount}/${MIN_LEARNED_PROFILE_CHASES} active chases tracked)`;
+  if (!hasFullDiscovery && chases.length > 0) {
+    return `early read from ${chases.length} active chase${chases.length === 1 ? '' : 's'}`;
+  }
+  if (!hasFullDiscovery) return 'starter read; add chases to shape future picks';
+  if (chases.length === 0) return 'starter read; add chases to shape future picks';
+  const remainingChases = Math.max(0, MIN_LEARNED_PROFILE_CHASES - chases.length);
+  const chaseNote = remainingChases > 0 ? `; ${remainingChases} more chase${remainingChases === 1 ? '' : 's'} will sharpen future picks` : '';
+  return `developing from ${chases.length} active chase${chases.length === 1 ? '' : 's'}${chaseNote}`;
 }
 
-function developingTasteSignals(seed: DiscoverySeed): string[] {
-  return ['starter thread', seed.theme, 'more chases will sharpen this over time'];
+function priceRangeSummary(
+  priceRange: { min: number; max: number; label: string } | undefined,
+  currency: SupportedCurrency,
+  hasFullDiscovery: boolean,
+  hasLearnedProfile: boolean
+): string {
+  if (hasLearnedProfile && priceRange) return `tuned around ${priceRange.label} ${currency} from chase targets`;
+  if (hasLearnedProfile) return 'add max prices to help Vaultr understand your range';
+  if (hasFullDiscovery) return 'based on chase max prices as your collection grows';
+  return 'based on chase max prices as your collection grows';
 }
 
 function formatMoney(amount: number | undefined, currency: string | undefined): string {
@@ -426,11 +313,11 @@ function discoveryEmbed(candidate: DiscoveryCandidate, index: number, currencyHi
 export const discover = {
   data: new SlashCommandBuilder()
     .setName('discover')
-    .setDescription('Open a discovery thread from your developing taste profile')
+    .setDescription('Open Vaultr Discovery from your developing taste profile')
     .addStringOption((opt) =>
       opt
         .setName('focus')
-        .setDescription('Steer this discovery thread, e.g. umbreon, gengar, or japanese vending')
+        .setDescription('Steer this discovery, e.g. umbreon, gengar, or japanese vending')
         .setMaxLength(80)
     ),
   async execute(interaction: any) {
@@ -443,48 +330,25 @@ export const discover = {
     const entitlements = getEntitlementsForTier(plan.tier);
     const hasFullDiscovery = plan.status === 'ACTIVE' && entitlements.discoveryDepth === 'full';
     const hasLearnedProfile = hasFullDiscovery && chases.length >= MIN_LEARNED_PROFILE_CHASES;
-    const sourceText = focus ?? chases.map((chase) => chase.cardName).join(' ');
-    const seed = pickSeed(sourceText);
+    const selection = selectDiscoverySuggestions(focus, chases);
     const priceRange = hasLearnedProfile ? priceRangeFromChases(chases) : undefined;
-    const tasteSignals = hasLearnedProfile ? tasteSignalsFromChases(chases, seed) : developingTasteSignals(seed);
     const destination = settings.shippingCountry
       ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode }
       : undefined;
     const candidates = hasFullDiscovery
       ? await Promise.all(
-          seed.suggestions.map((suggestion) =>
+          selection.suggestions.map((suggestion) =>
             enrichSuggestion(suggestion, interaction.user.id, destination, priceRange, settings.alertCurrency)
           )
         )
-      : seed.suggestions.map((suggestion) => ({ suggestion }));
+      : selection.suggestions.map((suggestion) => ({ suggestion }));
     const visibleCandidates = candidates.slice(0, 3);
-    const title = focus ? `🔎 Discovery Thread · ${focus}` : '🔎 Discovery Thread';
-    const priceNeighborhood = hasLearnedProfile
-      ? priceRange
-        ? `${priceRange.label} ${settings.alertCurrency}, inferred from chase max prices`
-        : 'learning; add max prices to your chases to shape this'
-      : hasFullDiscovery
-        ? `available after ${MIN_LEARNED_PROFILE_CHASES} active chases`
-        : 'available with a learned Pro profile';
-    const note = hasFullDiscovery
-      ? 'Live examples are supporting evidence, not endorsements.'
-      : 'This is a starter discovery thread. Your taste profile develops as Vaultr sees more active chases.';
+    const title = focus ? `✨ Vaultr Discovery · ${focus}` : '✨ Vaultr Discovery';
     const lines = [
-      `**Collector Thread:** ${seed.theme}`,
-      `**Profile Status:** ${profileStatus(chases.length, hasFullDiscovery, hasLearnedProfile)}`,
-      `**Taste Profile:** ${tasteSignals.join(', ')}`,
-      `**Basis:** ${profileBasis(focus, chases, hasLearnedProfile)}`,
-      `**Price Neighborhood:** ${priceNeighborhood}`,
-      '',
-      `**Note:** ${note}`
+      `**Collector Profile:** ${learningSignal(focus, chases, selection.lane, hasFullDiscovery, hasLearnedProfile)}`,
+      `**Discovery Lane:** ${selection.lane}`,
+      `**Price Range:** ${priceRangeSummary(priceRange, settings.alertCurrency, hasFullDiscovery, hasLearnedProfile)}`
     ];
-
-    if (!hasFullDiscovery) {
-      lines.push(
-        '',
-        `**Pro:** learned discovery uses ${MIN_LEARNED_PROFILE_CHASES}+ tracked chases, price neighborhood, and vetted live examples.`
-      )
-    }
 
     await interaction.editReply({
       embeds: [
