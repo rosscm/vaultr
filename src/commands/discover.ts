@@ -10,12 +10,18 @@ import type { Chase, Listing } from '../types.js';
 type DiscoveryCandidate = {
   suggestion: DiscoverySuggestion;
   listing?: Listing;
-  displayPrice?: number;
-  displayShipping?: number;
+  images: DiscoveryCardImage[];
+  averageAskingTotal?: number;
+  averageSampleSize?: number;
   displayCurrency?: SupportedCurrency;
 };
 
-const MAX_LISTING_TITLE_LENGTH = 180;
+type DiscoveryCardImage = {
+  name: string;
+  url: string;
+  role: 'primary' | 'nearby';
+};
+
 const MIN_LEARNED_PROFILE_CHASES = 6;
 const NON_CARD_TERMS = [
   'booster',
@@ -139,15 +145,12 @@ function formatMoney(amount: number | undefined, currency: string | undefined): 
   return `${amount.toFixed(2)} ${currency ?? ''}`.trim();
 }
 
-function formatSellerFeedback(listing: Listing): string {
-  const percent = listing.sellerFeedbackPercent === undefined ? 'Unknown' : `${listing.sellerFeedbackPercent}%`;
-  const score = listing.sellerFeedbackScore === undefined ? undefined : ` (${listing.sellerFeedbackScore})`;
-  return `${percent}${score ?? ''}`;
+function titleCase(value: string): string {
+  return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function truncate(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  return `${value.slice(0, maxLength - 1)}…`;
+function uniqueValuesPreservingOrder(values: string[]): string[] {
+  return values.filter((value, index) => values.indexOf(value) === index);
 }
 
 function convertedListingParts(
@@ -184,11 +187,12 @@ function includesAnyTerm(value: string, terms: string[]): boolean {
 
 function hasCoreSuggestionTokens(suggestion: DiscoverySuggestion, listing: Listing): boolean {
   const titleTokens = new Set(normalizedTokens(listing.title));
+  const compactTitle = normalize(listing.title).replace(/[^a-z0-9]+/g, '');
   const suggestionTokens = normalizedTokens(suggestion.name).filter(
     (token) => !['the', 'and', 'with', 'wearing'].includes(token)
   );
   if (suggestionTokens.length === 0) return false;
-  const matches = suggestionTokens.filter((token) => titleTokens.has(token));
+  const matches = suggestionTokens.filter((token) => titleTokens.has(token) || compactTitle.includes(token.replace(/[^a-z0-9]+/g, '')));
   return matches.length / suggestionTokens.length >= 0.75;
 }
 
@@ -196,6 +200,11 @@ function looksLikeCardListing(listing: Listing): boolean {
   const title = normalize(listing.title);
   if (includesAnyTerm(title, NON_CARD_TERMS)) return false;
   return includesAnyTerm(title, CARD_TERMS);
+}
+
+function looksLikeRawCardImage(listing: Listing): boolean {
+  const title = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
+  return !includesAnyTerm(title, ['psa', 'bgs', 'cgc', 'sgc', 'graded', 'slab']);
 }
 
 function hasReliableSeller(listing: Listing): boolean {
@@ -231,6 +240,11 @@ function isUsableDiscoveryExample(
   );
 }
 
+function imageUrlFromListing(listing: Listing | undefined): string | undefined {
+  const image = listing?.imageUrl ?? listing?.thumbnailUrl;
+  return image && /^https?:\/\//i.test(image) ? image : undefined;
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timeoutHandle: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<T>((_, reject) => {
@@ -251,6 +265,28 @@ async function enrichSuggestion(
   range: { min: number; max: number } | undefined,
   targetCurrency: SupportedCurrency
 ): Promise<DiscoveryCandidate> {
+  const searchImageForCard = async (name: string, role: DiscoveryCardImage['role']): Promise<DiscoveryCardImage | undefined> => {
+    const imageSuggestion: DiscoverySuggestion = {
+      ...suggestion,
+      name,
+      minimumExampleTotalCad: undefined
+    };
+    const imageChase: Chase = {
+      id: `discover-image:${name}`,
+      userId,
+      cardName: `${name} pokemon card`,
+      createdAt: new Date().toISOString()
+    };
+
+    const imageListings = await withTimeout(searchEbayListings(imageChase, destination), 5000);
+    const usableImageListings = imageListings.filter((candidate) => isUsableDiscoveryExample(imageSuggestion, candidate, range, targetCurrency));
+    const imageListing =
+      usableImageListings.find((candidate) => (candidate.imageUrl || candidate.thumbnailUrl) && looksLikeRawCardImage(candidate)) ??
+      usableImageListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl);
+    const url = imageUrlFromListing(imageListing);
+    return url ? { name, url, role } : undefined;
+  };
+
   const discoveryChase: Chase = {
     id: `discover:${suggestion.name}`,
     userId,
@@ -260,54 +296,73 @@ async function enrichSuggestion(
 
   try {
     const listings = await withTimeout(searchEbayListings(discoveryChase, destination), 7000);
-    const listing = listings.find((candidate) =>
-      isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency)
-    );
-    if (!listing) return { suggestion };
+    const usableListings = listings.filter((candidate) => isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency));
+    const listing =
+      usableListings.find((candidate) => (candidate.imageUrl || candidate.thumbnailUrl) && looksLikeRawCardImage(candidate)) ??
+      usableListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
+      usableListings[0];
+    if (!listing) return { suggestion, images: [] };
 
-    const converted = convertedListingParts(listing, targetCurrency);
+    const totals = usableListings.slice(0, 8).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
+    const averageAskingTotal = totals.length > 0 ? totals.reduce((sum, total) => sum + total, 0) / totals.length : undefined;
+    const primaryImage = imageUrlFromListing(listing);
+    const nearbyImages = await Promise.all(suggestion.nearby.slice(0, 2).map((name) => searchImageForCard(name, 'nearby')));
     return {
       suggestion,
       listing,
-      displayPrice: converted.price,
-      displayShipping: converted.shipping,
-      displayCurrency: converted.currency
+      images: [primaryImage ? { name: suggestion.name, url: primaryImage, role: 'primary' as const } : undefined, ...nearbyImages].filter(
+        (image): image is DiscoveryCardImage => image !== undefined
+      ),
+      averageAskingTotal,
+      averageSampleSize: totals.length,
+      displayCurrency: targetCurrency
     };
   } catch {
-    return { suggestion };
+    return { suggestion, images: [] };
   }
 }
 
+function formatAverageAsking(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
+  if (candidate.averageAskingTotal === undefined || candidate.averageSampleSize === undefined || candidate.averageSampleSize === 0) {
+    return 'not enough clean examples right now';
+  }
+  const sample = `${candidate.averageSampleSize} clean listing${candidate.averageSampleSize === 1 ? '' : 's'}`;
+  return `${formatMoney(candidate.averageAskingTotal, candidate.displayCurrency ?? currencyHint)} average asking from ${sample}`;
+}
+
 function discoveryEmbed(candidate: DiscoveryCandidate, index: number, currencyHint: SupportedCurrency): EmbedBuilder {
-  const title = `${index + 1}. ${candidate.suggestion.name}`;
+  const title = `${index + 1}. ${titleCase(candidate.suggestion.lane)}`;
   const listing = candidate.listing;
   const embed = infoEmbed(title);
 
   if (!listing) {
     embed.setDescription(
-      [`**Why Vaultr picked it:** ${candidate.suggestion.why}`, '**Live Example:** Not available right now'].join('\n')
+      [
+        `**Start With:** ${candidate.suggestion.name}`,
+        `**Why Vaultr Picked It:** ${candidate.suggestion.why}`,
+        `**Nearby Cards:** ${candidate.suggestion.nearby.join(', ')}`,
+        `**Average Asking:** ${formatAverageAsking(candidate, currencyHint)}`
+      ].join('\n')
     );
     return embed;
   }
 
-  const image = listing.thumbnailUrl ?? listing.imageUrl;
-  if (image && /^https?:\/\//i.test(image)) embed.setThumbnail(image);
+  const primaryImage = candidate.images.find((image) => image.role === 'primary') ?? candidate.images[0];
+  if (primaryImage) embed.setImage(primaryImage.url);
 
   embed.setDescription(
     [
-      `**Why Vaultr picked it:** ${candidate.suggestion.why}`,
-      `**Live Example:** ${truncate(listing.title, MAX_LISTING_TITLE_LENGTH)}`,
-      `**Price:** ${formatMoney(candidate.displayPrice, candidate.displayCurrency ?? currencyHint)}`,
-      `**Total:** ${formatMoney(
-        (candidate.displayPrice ?? 0) + (candidate.displayShipping ?? 0),
-        candidate.displayCurrency ?? currencyHint
-      )}`,
-      `**Seller Feedback:** ${formatSellerFeedback(listing)}`,
-      `**Source:** eBay`,
-      `[Open Listing](${listing.url})`
+      `**Start With:** ${candidate.suggestion.name}`,
+      `**Why Vaultr Picked It:** ${candidate.suggestion.why}`,
+      `**Nearby Cards:** ${candidate.suggestion.nearby.join(', ')}`,
+      `**Average Asking:** ${formatAverageAsking(candidate, currencyHint)}`
     ].join('\n')
   );
   return embed;
+}
+
+function discoveryImageEmbed(image: DiscoveryCardImage): EmbedBuilder {
+  return infoEmbed(image.name).setImage(image.url);
 }
 
 export const discover = {
@@ -335,25 +390,27 @@ export const discover = {
     const destination = settings.shippingCountry
       ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode }
       : undefined;
-    const candidates = hasFullDiscovery
-      ? await Promise.all(
-          selection.suggestions.map((suggestion) =>
-            enrichSuggestion(suggestion, interaction.user.id, destination, priceRange, settings.alertCurrency)
-          )
-        )
-      : selection.suggestions.map((suggestion) => ({ suggestion }));
+    const candidates = await Promise.all(
+      selection.suggestions.map((suggestion) =>
+        enrichSuggestion(suggestion, interaction.user.id, destination, priceRange, settings.alertCurrency)
+      )
+    );
     const visibleCandidates = candidates.slice(0, 3);
+    const visibleLanes = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => titleCase(candidate.suggestion.lane)));
     const title = focus ? `✨ Vaultr Discovery · ${focus}` : '✨ Vaultr Discovery';
     const lines = [
       `**Collector Profile:** ${learningSignal(focus, chases, selection.lane, hasFullDiscovery, hasLearnedProfile)}`,
-      `**Discovery Lane:** ${selection.lane}`,
+      `**Discovery Lanes:** ${visibleLanes.join(', ')}`,
       `**Price Range:** ${priceRangeSummary(priceRange, settings.alertCurrency, hasFullDiscovery, hasLearnedProfile)}`
     ];
 
     await interaction.editReply({
       embeds: [
         infoEmbed(title, lines.join('\n')),
-        ...visibleCandidates.map((candidate, index) => discoveryEmbed(candidate, index, settings.alertCurrency))
+        ...visibleCandidates.flatMap((candidate, index) => [
+          discoveryEmbed(candidate, index, settings.alertCurrency),
+          ...candidate.images.filter((image) => image.role === 'nearby').map((image) => discoveryImageEmbed(image))
+        ])
       ]
     });
   }
