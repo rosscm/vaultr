@@ -6,7 +6,11 @@ export type DiscoverySuggestion = {
   lane: string;
   laneWhy: string;
   nearby: string[];
+  evidenceSearchTerm?: string;
+  evidenceAliases?: string[];
+  requiredEvidenceTokens?: string[];
   minimumExampleTotalCad?: number;
+  maximumBaselineRawTotalCad?: number;
 };
 
 type DiscoveryCatalogCard = DiscoverySuggestion & {
@@ -97,6 +101,122 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     keywords: ['mewtwo', 'vending', 'japanese', 'jp'],
     tags: ['japanese exclusive', 'vending', 'vintage', 'legendary'],
     why: 'adds vending-machine era texture for collectors who like Japanese release stories'
+  },
+  {
+    name: 'Mew Southern Islands Promo',
+    lane: 'mythical display cards',
+    laneWhy: 'soft mythical cards with strong binder presence and approachable raw examples',
+    nearby: ['Ancient Mew Promo', 'Mew Black Star Promo 040'],
+    keywords: ['mew', 'shining mew', 'corocoro', 'mythical', 'southern islands'],
+    tags: ['mew', 'mythical', 'promo', 'binder card', 'soft artwork'],
+    why: 'branches from a Shining Mew chase into a more available raw Mew display card',
+    evidenceSearchTerm: 'Mew Southern Islands Pokemon card',
+    evidenceAliases: ['Mew Southern Islands', 'Mew Southern Island', 'Mew No.151 Southern Island', 'Mew 46/040 Southern Islands', 'Mew 01/18 Southern Islands'],
+    requiredEvidenceTokens: ['mew']
+  },
+  {
+    name: 'Ancient Mew Promo',
+    lane: 'mythical movie promos',
+    laneWhy: 'mythical promo cards with strong nostalgia and a distinct object-story feel',
+    nearby: ['Mew Southern Islands Promo', 'Mew Black Star Promo 040'],
+    keywords: ['mew', 'ancient mew', 'movie promo', 'promo', 'mythical'],
+    tags: ['mew', 'mythical', 'movie promo', 'nostalgia', 'promo'],
+    why: 'keeps the Mew thread but shifts toward a nostalgic promo that many collectors remember as an object',
+    evidenceSearchTerm: 'Ancient Mew Pokemon card ungraded',
+    requiredEvidenceTokens: ['mew'],
+    maximumBaselineRawTotalCad: 250
+  },
+  {
+    name: 'Mew GG10 Crown Zenith',
+    lane: 'soft mythical galleries',
+    laneWhy: 'modern gallery cards where mythical Pokemon carry the scene more than rarity alone',
+    nearby: ['Mew ex 193/165 Pokemon 151', 'Mewtwo VSTAR GG44 Crown Zenith'],
+    keywords: ['mew', 'gallery', 'crown zenith', 'gg10', 'mythical'],
+    tags: ['mew', 'mythical', 'gallery', 'modern display', 'soft artwork'],
+    why: 'turns a Mew chase toward a softer modern gallery card with approachable raw-market depth'
+  },
+  {
+    name: 'Squirtle 170/165 Pokemon 151 Illustration Rare',
+    lane: 'starter illustration rares',
+    laneWhy: 'starter Pokemon cards where the appeal comes from scene, nostalgia, and raw display quality',
+    nearby: ['Wartortle 171/165 Pokemon 151', 'Bulbasaur 166/165 Pokemon 151'],
+    keywords: ['squirtle', '007/018', 'starter', 'water type', '151'],
+    tags: ['squirtle', 'starter pokemon', 'illustration rare', 'water type', 'modern display'],
+    why: 'keeps the Squirtle thread but moves it into a liquid modern illustration lane with healthy raw supply'
+  },
+  {
+    name: 'Wartortle 171/165 Pokemon 151 Illustration Rare',
+    lane: 'evolution-line displays',
+    laneWhy: 'cards that help a favorite Pokemon grow into a small visual run instead of a single chase',
+    nearby: ['Squirtle 170/165 Pokemon 151 Illustration Rare', 'Blastoise ex 200/165 Pokemon 151'],
+    keywords: ['squirtle', 'wartortle', 'blastoise', '007/018', '151', 'water starter'],
+    tags: ['squirtle', 'wartortle', 'starter pokemon', 'evolution line', 'illustration rare'],
+    why: 'builds from Squirtle into an evolution-line page with a consistent modern illustration language'
+  },
+  {
+    name: 'Totodile 073/071 Triplet Beat Art Rare',
+    lane: 'water starter side quests',
+    laneWhy: 'starter Pokemon cards that keep the playful water-type energy without repeating the exact same target',
+    nearby: ['Squirtle 170/165 Pokemon 151 Illustration Rare', 'Piplup 239/236 Cosmic Eclipse'],
+    keywords: ['squirtle', 'water starter', 'starter', 'totodile', 'playful art'],
+    tags: ['water type', 'starter pokemon', 'art rare', 'playful art'],
+    why: 'keeps the water-starter feel while branching into a playful art rare with raw-market visibility'
+  },
+  {
+    name: 'Articuno Fossil Holo',
+    lane: 'legendary bird branches',
+    laneWhy: 'single-card branches from trio chases that keep the legendary identity but widen the hunt',
+    nearby: ['Zapdos Fossil Holo', 'Moltres Fossil Holo'],
+    keywords: ['articuno', 'zapdos', 'moltres', 'legendary birds', 'bird trio', 'sm210'],
+    tags: ['legendary bird', 'vintage holo', 'wotc', 'articuno', 'trio branch'],
+    why: 'turns the bird-trio chase into a cleaner single-bird vintage branch with steady raw examples'
+  },
+  {
+    name: 'Zapdos 202/165 Pokemon 151 Illustration Rare',
+    lane: 'legendary bird illustration rares',
+    laneWhy: 'legendary bird cards that make the chase feel scenic, modern, and display-forward',
+    nearby: ['Articuno Fossil Holo', 'Moltres Fossil Holo'],
+    keywords: ['zapdos', 'articuno', 'moltres', 'legendary birds', 'sm210', '151'],
+    tags: ['legendary bird', 'illustration rare', 'zapdos', 'modern display'],
+    why: 'branches from the trio promo into a scenic single-bird card with strong raw-market depth'
+  },
+  {
+    name: 'Moltres Zapdos Articuno GX 66/68 Hidden Fates',
+    lane: 'trio centerpiece cards',
+    laneWhy: 'multi-Pokemon cards that keep the group identity as the main collecting hook',
+    nearby: ['Moltres Zapdos Articuno SM210', 'Articuno Fossil Holo'],
+    keywords: ['moltres', 'zapdos', 'articuno', 'sm210', 'hidden fates', 'bird trio'],
+    tags: ['legendary birds', 'trio card', 'promo-adjacent', 'modern gx'],
+    why: 'keeps the legendary-bird trio intact while moving toward a more available raw centerpiece'
+  },
+  {
+    name: 'Monkey.D.Luffy ST01-001 Leader',
+    lane: 'shonen lead cards',
+    laneWhy: 'main-character cards where the appeal is identity, recognizability, and display impact',
+    nearby: ['Monkey.D.Luffy OP05-119', 'Monkey.D.Luffy ST21-014'],
+    keywords: ['luffy', 'st21', 'st01', 'one piece', 'leader', 'promo'],
+    tags: ['one piece', 'luffy', 'leader card', 'main character', 'shonen lead'],
+    why: 'branches from a Luffy promo chase into a main-character leader card with clear collection identity',
+    evidenceSearchTerm: 'Monkey D Luffy ST01-001 One Piece card',
+    requiredEvidenceTokens: ['luffy']
+  },
+  {
+    name: 'Monkey.D.Luffy OP05-119 Secret Rare',
+    lane: 'manga-era headline cards',
+    laneWhy: 'modern One Piece cards with big character identity and strong collector conversation energy',
+    nearby: ['Monkey.D.Luffy ST01-001 Leader', 'Sabo OP04-083 Super Rare'],
+    keywords: ['luffy', 'op05', '119', 'secret rare', 'one piece', 'manga'],
+    tags: ['one piece', 'luffy', 'secret rare', 'headline card', 'modern chase'],
+    why: 'keeps Luffy as the anchor but shifts toward a higher-signal modern One Piece chase lane'
+  },
+  {
+    name: 'Nami OP01-016 Parallel',
+    lane: 'crew character parallels',
+    laneWhy: 'One Piece character cards that widen a lead-character profile into crew-focused collecting',
+    nearby: ['Roronoa Zoro OP01-025 Parallel', 'Monkey.D.Luffy ST01-001 Leader'],
+    keywords: ['one piece', 'luffy', 'nami', 'parallel', 'crew', 'op01'],
+    tags: ['one piece', 'crew character', 'parallel', 'character card'],
+    why: 'widens a Luffy-centered profile into a crew-character lane with recognizable raw-market examples'
   },
   {
     name: 'Smeargle Neo Discovery',
@@ -207,8 +327,8 @@ function textMatchesPhrase(text: string, phrase: string): boolean {
   return text.includes(normalize(phrase));
 }
 
-function scoreCard(card: DiscoveryCatalogCard, signalText: string, signalTokens: Set<string>, hasFocus: boolean): number {
-  let score = card.starter ? 1 : 0;
+function scoreCard(card: DiscoveryCatalogCard, signalText: string, signalTokens: Set<string>, hasFocus: boolean, hasProfileSignals: boolean): number {
+  let score = !hasProfileSignals && card.starter ? 1 : 0;
   for (const keyword of card.keywords) {
     if (textMatchesPhrase(signalText, keyword)) score += keyword.includes(' ') ? 10 : 7;
   }
@@ -248,25 +368,30 @@ export function selectDiscoverySuggestions(focus: string | null, chases: Chase[]
   const signalText = normalize([focus, chaseText].filter(Boolean).join(' '));
   const signalTokens = new Set(tokens(signalText));
   const hasFocus = !!focus?.trim();
+  const hasProfileSignals = signalText.trim().length > 0;
   const ranked = DISCOVERY_CATALOG
-    .map((card) => ({ card, score: scoreCard(card, signalText, signalTokens, hasFocus) }))
+    .map((card) => ({ card, score: scoreCard(card, signalText, signalTokens, hasFocus, hasProfileSignals) }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score || a.card.name.localeCompare(b.card.name))
     .map(({ card }) => card);
   const selected = pickDistinctLaneCards(ranked.length > 0 ? ranked : DISCOVERY_CATALOG.filter((card) => card.starter), count);
-  if (selected.length < count) {
+  if (selected.length < count && !hasProfileSignals) {
     selected.push(...pickDistinctLaneCards(DISCOVERY_CATALOG.filter((card) => card.starter), count - selected.length, new Set(selected.map((card) => card.lane))));
   }
 
   return {
     lane: pickLane(selected),
-    suggestions: selected.map(({ name, why, lane, laneWhy, nearby, minimumExampleTotalCad }) => ({
+    suggestions: selected.map(({ name, why, lane, laneWhy, nearby, evidenceSearchTerm, evidenceAliases, requiredEvidenceTokens, minimumExampleTotalCad, maximumBaselineRawTotalCad }) => ({
       name,
       why,
       lane,
       laneWhy,
       nearby,
-      minimumExampleTotalCad
+      evidenceSearchTerm,
+      evidenceAliases,
+      requiredEvidenceTokens,
+      minimumExampleTotalCad,
+      maximumBaselineRawTotalCad
     }))
   };
 }

@@ -40,6 +40,34 @@ describe('selectDiscoverySuggestions', () => {
     expectDistinctLanes(selection);
   });
 
+  it('does not inject starter Pikachu picks into an unrelated active vault profile', () => {
+    const selection = selectDiscoverySuggestions(
+      null,
+      [
+        chase({ cardName: 'Corocoro Shining Mew' }),
+        chase({ id: 'c2', cardName: 'Squirtle 007/018' }),
+        chase({ id: 'c3', cardName: 'Moltres Zapdos Articuno SM210' })
+      ],
+      8
+    );
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(names).toContain('Mew Southern Islands Promo');
+    expect(names).toContain('Squirtle 170/165 Pokemon 151 Illustration Rare');
+    expect(names).toContain('Articuno Fossil Holo');
+    expect(names).not.toContain('Pikachu 012 Nintendo Black Star Promo');
+    expectDistinctLanes(selection);
+  });
+
+  it('surfaces One Piece lanes from Luffy chase text', () => {
+    const selection = selectDiscoverySuggestions(null, [chase({ cardName: 'Luffy ST21-014 promo' })], 3);
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(names).toContain('Monkey.D.Luffy ST01-001 Leader');
+    expect(names.some((name) => name.includes('Luffy'))).toBe(true);
+    expectDistinctLanes(selection);
+  });
+
   it('falls back to curated starter cards without focus or chases', () => {
     const selection = selectDiscoverySuggestions(null, [], 3);
 

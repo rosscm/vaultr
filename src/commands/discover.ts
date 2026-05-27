@@ -10,19 +10,21 @@ import type { Chase, Listing } from '../types.js';
 type DiscoveryCandidate = {
   suggestion: DiscoverySuggestion;
   listing?: Listing;
-  images: DiscoveryCardImage[];
-  averageAskingTotal?: number;
-  averageSampleSize?: number;
+  image?: DiscoveryCardImage;
+  typicalRawAskingTotal?: number;
+  marketSampleSize?: number;
   displayCurrency?: SupportedCurrency;
 };
 
 type DiscoveryCardImage = {
   name: string;
   url: string;
-  role: 'primary' | 'nearby';
 };
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
+const VISIBLE_DISCOVERY_COUNT = 3;
+const DISCOVERY_CANDIDATE_POOL_SIZE = 16;
+const MIN_RAW_MARKET_SAMPLE_SIZE = 2;
 const NON_CARD_TERMS = [
   'booster',
   'box',
@@ -87,6 +89,17 @@ function uniqueValues(values: Array<string | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => !!value))];
 }
 
+function chaseSignalText(chase: Chase): string {
+  return [chase.cardName, chase.targetNote, chase.grade, chase.condition, chase.listingType].filter(Boolean).join(' ').toLowerCase();
+}
+
+function hasPromoLeaningProfile(chases: Chase[]): boolean {
+  if (chases.length === 0) return false;
+  const promoPattern = /\b(promo|promotional|black star|corocoro|coro coro|sm\d{2,4}|s[tw]\d{2}-\d{3}|st\d{2}-\d{3})\b/i;
+  const promoSignals = chases.filter((chase) => promoPattern.test(chaseSignalText(chase)));
+  return promoSignals.length >= 2 || promoSignals.length / chases.length >= 0.5;
+}
+
 function tasteSignalsFromChases(chases: Chase[], lane: string): string[] {
   if (chases.length === 0) return ['starter collector profile', lane];
 
@@ -97,6 +110,7 @@ function tasteSignalsFromChases(chases: Chase[], lane: string): string[] {
   );
   const signals = [lane];
 
+  if (hasPromoLeaningProfile(chases)) signals.push('early promo and special-release signal');
   if (priorities.includes('GRAIL')) signals.push('grail-weighted pursuit');
   if (grades.length > 0) signals.push(`grade focus: ${grades.join(', ')}`);
   if (listingTypes.length > 0) signals.push(`buying style: ${listingTypes.join(', ').toLowerCase().replaceAll('_', ' ')}`);
@@ -119,13 +133,15 @@ function learningSignal(
     return `shaped by ${chases.length} active chases${signalNote}`;
   }
   if (!hasFullDiscovery && chases.length > 0) {
-    return `early read from ${chases.length} active chase${chases.length === 1 ? '' : 's'}`;
+    const promoSignal = hasPromoLeaningProfile(chases) ? '; promo and special-release signal emerging' : '';
+    return `early read from ${chases.length} active chase${chases.length === 1 ? '' : 's'}${promoSignal}; lane variety grows with the vault`;
   }
-  if (!hasFullDiscovery) return 'starter read; add chases to shape future picks';
-  if (chases.length === 0) return 'starter read; add chases to shape future picks';
+  if (!hasFullDiscovery) return 'starter read; build your vault to shape future lanes';
+  if (chases.length === 0) return 'starter read; build your vault to shape future lanes';
   const remainingChases = Math.max(0, MIN_LEARNED_PROFILE_CHASES - chases.length);
+  const promoSignal = hasPromoLeaningProfile(chases) ? '; promo and special-release signal emerging' : '';
   const chaseNote = remainingChases > 0 ? `; ${remainingChases} more chase${remainingChases === 1 ? '' : 's'} will sharpen future picks` : '';
-  return `developing from ${chases.length} active chase${chases.length === 1 ? '' : 's'}${chaseNote}`;
+  return `developing from ${chases.length} active chase${chases.length === 1 ? '' : 's'}${promoSignal}${chaseNote}`;
 }
 
 function priceRangeSummary(
@@ -188,12 +204,21 @@ function includesAnyTerm(value: string, terms: string[]): boolean {
 function hasCoreSuggestionTokens(suggestion: DiscoverySuggestion, listing: Listing): boolean {
   const titleTokens = new Set(normalizedTokens(listing.title));
   const compactTitle = normalize(listing.title).replace(/[^a-z0-9]+/g, '');
-  const suggestionTokens = normalizedTokens(suggestion.name).filter(
-    (token) => !['the', 'and', 'with', 'wearing'].includes(token)
-  );
-  if (suggestionTokens.length === 0) return false;
-  const matches = suggestionTokens.filter((token) => titleTokens.has(token) || compactTitle.includes(token.replace(/[^a-z0-9]+/g, '')));
-  return matches.length / suggestionTokens.length >= 0.75;
+  const candidateNames = [suggestion.name, ...(suggestion.evidenceAliases ?? [])];
+  const requiredTokens = suggestion.requiredEvidenceTokens ?? [];
+  const hasRequiredTokens = requiredTokens.every((token) => {
+    const normalized = normalize(token).replace(/[^a-z0-9]+/g, '');
+    return titleTokens.has(token) || compactTitle.includes(normalized);
+  });
+
+  if (!hasRequiredTokens) return false;
+
+  return candidateNames.some((name) => {
+    const suggestionTokens = normalizedTokens(name).filter((token) => !['the', 'and', 'with', 'wearing'].includes(token));
+    if (suggestionTokens.length === 0) return false;
+    const matches = suggestionTokens.filter((token) => titleTokens.has(token) || compactTitle.includes(token.replace(/[^a-z0-9]+/g, '')));
+    return matches.length / suggestionTokens.length >= 0.75;
+  });
 }
 
 function looksLikeCardListing(listing: Listing): boolean {
@@ -202,9 +227,37 @@ function looksLikeCardListing(listing: Listing): boolean {
   return includesAnyTerm(title, CARD_TERMS);
 }
 
-function looksLikeRawCardImage(listing: Listing): boolean {
-  const title = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
-  return !includesAnyTerm(title, ['psa', 'bgs', 'cgc', 'sgc', 'graded', 'slab']);
+function looksLikeRawCardListing(listing: Listing): boolean {
+  const text = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
+  return !/\b(ace grading|beckett|bgs|cgc|gma|psa|sgc|tag graded)\b|\bgraded\b|\bslab(?:bed)?\b/.test(text);
+}
+
+function looksLikeBaselineRawMarketListing(listing: Listing): boolean {
+  const text = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
+  return (
+    looksLikeRawCardListing(listing) &&
+    !/\b(error|gem mint|minty mint|misprint|miscut|nintedo|sealed|unopened|signature|signed|autograph|staff)\b/.test(text) &&
+    !/\b(lot|pack|post ?card)\b|\bcard set\b|\b(complete|master|binder)\b.*\b(set|collection)\b|\b(6|9|18)[- ]?card set\b|\bset of \d+\b/.test(text)
+  );
+}
+
+function meetsBaselineMarketCeiling(
+  suggestion: DiscoverySuggestion,
+  listing: Listing,
+  targetCurrency: SupportedCurrency
+): boolean {
+  if (suggestion.maximumBaselineRawTotalCad === undefined) return true;
+  const ceiling = convertCurrencyAmount(suggestion.maximumBaselineRawTotalCad, 'CAD', targetCurrency);
+  return convertedListingParts(listing, targetCurrency).total <= ceiling;
+}
+
+function typicalMarketTotal(totals: number[]): number | undefined {
+  if (totals.length === 0) return undefined;
+  const sorted = [...totals].sort((a, b) => a - b);
+  const anchor = median(sorted);
+  if (anchor === undefined || anchor <= 0) return anchor;
+  const withoutHighOutliers = sorted.filter((total) => total <= anchor * 3);
+  return median(withoutHighOutliers.length > 0 ? withoutHighOutliers : sorted);
 }
 
 function hasReliableSeller(listing: Listing): boolean {
@@ -265,104 +318,101 @@ async function enrichSuggestion(
   range: { min: number; max: number } | undefined,
   targetCurrency: SupportedCurrency
 ): Promise<DiscoveryCandidate> {
-  const searchImageForCard = async (name: string, role: DiscoveryCardImage['role']): Promise<DiscoveryCardImage | undefined> => {
-    const imageSuggestion: DiscoverySuggestion = {
-      ...suggestion,
-      name,
-      minimumExampleTotalCad: undefined
-    };
-    const imageChase: Chase = {
-      id: `discover-image:${name}`,
-      userId,
-      cardName: `${name} pokemon card`,
-      createdAt: new Date().toISOString()
-    };
-
-    const imageListings = await withTimeout(searchEbayListings(imageChase, destination), 5000);
-    const usableImageListings = imageListings.filter((candidate) => isUsableDiscoveryExample(imageSuggestion, candidate, range, targetCurrency));
-    const imageListing =
-      usableImageListings.find((candidate) => (candidate.imageUrl || candidate.thumbnailUrl) && looksLikeRawCardImage(candidate)) ??
-      usableImageListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl);
-    const url = imageUrlFromListing(imageListing);
-    return url ? { name, url, role } : undefined;
-  };
-
   const discoveryChase: Chase = {
     id: `discover:${suggestion.name}`,
     userId,
-    cardName: `${suggestion.name} pokemon card`,
+    cardName: suggestion.evidenceSearchTerm ?? `${suggestion.name} trading card`,
     createdAt: new Date().toISOString()
   };
 
   try {
     const listings = await withTimeout(searchEbayListings(discoveryChase, destination), 7000);
     const usableListings = listings.filter((candidate) => isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency));
+    const rawListings = usableListings.filter(looksLikeRawCardListing);
+    const baselineRawListings = usableListings.filter(
+      (candidate) => looksLikeBaselineRawMarketListing(candidate) && meetsBaselineMarketCeiling(suggestion, candidate, targetCurrency)
+    );
     const listing =
-      usableListings.find((candidate) => (candidate.imageUrl || candidate.thumbnailUrl) && looksLikeRawCardImage(candidate)) ??
-      usableListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
-      usableListings[0];
-    if (!listing) return { suggestion, images: [] };
+      baselineRawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
+      rawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
+      baselineRawListings[0] ??
+      rawListings[0];
+    if (!listing) return { suggestion };
 
-    const totals = usableListings.slice(0, 8).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
-    const averageAskingTotal = totals.length > 0 ? totals.reduce((sum, total) => sum + total, 0) / totals.length : undefined;
-    const primaryImage = imageUrlFromListing(listing);
-    const nearbyImages = await Promise.all(suggestion.nearby.slice(0, 2).map((name) => searchImageForCard(name, 'nearby')));
+    const totals = baselineRawListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
+    const typicalRawAskingTotal = typicalMarketTotal(totals);
+    const imageUrl = imageUrlFromListing(listing);
     return {
       suggestion,
       listing,
-      images: [primaryImage ? { name: suggestion.name, url: primaryImage, role: 'primary' as const } : undefined, ...nearbyImages].filter(
-        (image): image is DiscoveryCardImage => image !== undefined
-      ),
-      averageAskingTotal,
-      averageSampleSize: totals.length,
+      image: imageUrl ? { name: suggestion.name, url: imageUrl } : undefined,
+      typicalRawAskingTotal,
+      marketSampleSize: totals.length,
       displayCurrency: targetCurrency
     };
   } catch {
-    return { suggestion, images: [] };
+    return { suggestion };
   }
 }
 
-function formatAverageAsking(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
-  if (candidate.averageAskingTotal === undefined || candidate.averageSampleSize === undefined || candidate.averageSampleSize === 0) {
-    return 'not enough clean examples right now';
+function formatMarketFeel(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
+  if (candidate.typicalRawAskingTotal === undefined || candidate.marketSampleSize === undefined || candidate.marketSampleSize === 0) {
+    return 'not enough clean raw examples right now';
   }
-  const sample = `${candidate.averageSampleSize} clean listing${candidate.averageSampleSize === 1 ? '' : 's'}`;
-  return `${formatMoney(candidate.averageAskingTotal, candidate.displayCurrency ?? currencyHint)} average asking from ${sample}`;
+  const sample = `${candidate.marketSampleSize} clean raw listing${candidate.marketSampleSize === 1 ? '' : 's'}`;
+  return `${formatMoney(candidate.typicalRawAskingTotal, candidate.displayCurrency ?? currencyHint)} typical raw asking from ${sample}`;
+}
+
+function hasEnoughRawMarketData(candidate: DiscoveryCandidate): boolean {
+  return candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE;
+}
+
+function hasSomeRawMarketData(candidate: DiscoveryCandidate): boolean {
+  return candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0;
+}
+
+function collectorTheme(candidate: DiscoveryCandidate): string {
+  const text = normalize([candidate.suggestion.name, candidate.suggestion.lane, ...candidate.suggestion.nearby].join(' '));
+  if (/\b(mew|mewtwo|mythical)\b/.test(text)) return 'mythical-mew';
+  if (/\b(articuno|zapdos|moltres|legendary bird|bird trio)\b/.test(text)) return 'legendary-birds';
+  if (/\b(squirtle|wartortle|blastoise|totodile|water starter)\b/.test(text)) return 'water-starters';
+  if (/\b(luffy|nami|zoro|one piece)\b/.test(text)) return 'one-piece';
+  return candidate.suggestion.lane;
+}
+
+function takeDistinctThemes(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
+  const selected: DiscoveryCandidate[] = [];
+  const seenThemes = new Set<string>();
+  for (const candidate of candidates) {
+    const theme = collectorTheme(candidate);
+    if (seenThemes.has(theme)) continue;
+    selected.push(candidate);
+    seenThemes.add(theme);
+    if (selected.length >= VISIBLE_DISCOVERY_COUNT) break;
+  }
+  return selected;
+}
+
+function selectVisibleCandidates(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
+  const strongRawData = candidates.filter(hasEnoughRawMarketData);
+  const partialRawData = candidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate));
+  return takeDistinctThemes([...strongRawData, ...partialRawData]);
 }
 
 function discoveryEmbed(candidate: DiscoveryCandidate, index: number, currencyHint: SupportedCurrency): EmbedBuilder {
-  const title = `${index + 1}. ${titleCase(candidate.suggestion.lane)}`;
-  const listing = candidate.listing;
+  const title = `${index + 1} · ${titleCase(candidate.suggestion.lane)}`;
   const embed = infoEmbed(title);
+  const nearby = candidate.suggestion.nearby.slice(0, 3).map((name) => `• ${name}`).join('\n');
 
-  if (!listing) {
-    embed.setDescription(
-      [
-        `**Start With:** ${candidate.suggestion.name}`,
-        `**Why Vaultr Picked It:** ${candidate.suggestion.why}`,
-        `**Nearby Cards:** ${candidate.suggestion.nearby.join(', ')}`,
-        `**Average Asking:** ${formatAverageAsking(candidate, currencyHint)}`
-      ].join('\n')
+  if (candidate.image) embed.setThumbnail(candidate.image.url);
+
+  embed
+    .setDescription(`**${candidate.suggestion.name}**\n${candidate.suggestion.why}`)
+    .addFields(
+      { name: 'Explore Next', value: nearby || 'Vaultr will widen this lane as the catalog grows.', inline: false },
+      { name: 'Market Feel', value: formatMarketFeel(candidate, currencyHint), inline: false }
     );
-    return embed;
-  }
-
-  const primaryImage = candidate.images.find((image) => image.role === 'primary') ?? candidate.images[0];
-  if (primaryImage) embed.setImage(primaryImage.url);
-
-  embed.setDescription(
-    [
-      `**Start With:** ${candidate.suggestion.name}`,
-      `**Why Vaultr Picked It:** ${candidate.suggestion.why}`,
-      `**Nearby Cards:** ${candidate.suggestion.nearby.join(', ')}`,
-      `**Average Asking:** ${formatAverageAsking(candidate, currencyHint)}`
-    ].join('\n')
-  );
   return embed;
-}
-
-function discoveryImageEmbed(image: DiscoveryCardImage): EmbedBuilder {
-  return infoEmbed(image.name).setImage(image.url);
 }
 
 export const discover = {
@@ -385,7 +435,7 @@ export const discover = {
     const entitlements = getEntitlementsForTier(plan.tier);
     const hasFullDiscovery = plan.status === 'ACTIVE' && entitlements.discoveryDepth === 'full';
     const hasLearnedProfile = hasFullDiscovery && chases.length >= MIN_LEARNED_PROFILE_CHASES;
-    const selection = selectDiscoverySuggestions(focus, chases);
+    const selection = selectDiscoverySuggestions(focus, chases, DISCOVERY_CANDIDATE_POOL_SIZE);
     const priceRange = hasLearnedProfile ? priceRangeFromChases(chases) : undefined;
     const destination = settings.shippingCountry
       ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode }
@@ -395,22 +445,20 @@ export const discover = {
         enrichSuggestion(suggestion, interaction.user.id, destination, priceRange, settings.alertCurrency)
       )
     );
-    const visibleCandidates = candidates.slice(0, 3);
+    const visibleCandidates = selectVisibleCandidates(candidates);
     const visibleLanes = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => titleCase(candidate.suggestion.lane)));
     const title = focus ? `✨ Vaultr Discovery · ${focus}` : '✨ Vaultr Discovery';
+    const laneSummary = visibleLanes.length > 0 ? visibleLanes.join(', ') : 'No raw-market-ready lanes right now';
     const lines = [
       `**Collector Profile:** ${learningSignal(focus, chases, selection.lane, hasFullDiscovery, hasLearnedProfile)}`,
-      `**Discovery Lanes:** ${visibleLanes.join(', ')}`,
+      `**Discovery Lanes:** ${laneSummary}`,
       `**Price Range:** ${priceRangeSummary(priceRange, settings.alertCurrency, hasFullDiscovery, hasLearnedProfile)}`
     ];
 
     await interaction.editReply({
       embeds: [
         infoEmbed(title, lines.join('\n')),
-        ...visibleCandidates.flatMap((candidate, index) => [
-          discoveryEmbed(candidate, index, settings.alertCurrency),
-          ...candidate.images.filter((image) => image.role === 'nearby').map((image) => discoveryImageEmbed(image))
-        ])
+        ...visibleCandidates.map((candidate, index) => discoveryEmbed(candidate, index, settings.alertCurrency))
       ]
     });
   }
