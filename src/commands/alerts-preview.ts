@@ -9,7 +9,7 @@ export const previewAlert = {
   async execute(interaction: any) {
     const settings = getUserAlertSettings(interaction.user.id);
     const currency = settings.alertCurrency;
-    const title = `🏆 Grail Sighting · eBay`;
+    const title = `🔥 Priority Sighting · eBay`;
     const description =
       `**Umbreon VMAX Alt Art PSA 10**\n` +
       `Good alert • under max by 45.00 ${currency} • posted 2m ago`;
@@ -39,7 +39,7 @@ export const previewAlert = {
       embed.addFields(
         {
             name: '🎯 Chase Details',
-          value: ['**Chase:** Umbreon VMAX', '**Priority:** GRAIL', '**Note:** none'].join('\n'),
+          value: ['**Chase:** Umbreon VMAX', '**Priority:** HIGH', '**Note:** none'].join('\n'),
           inline: false
         },
         {
@@ -78,7 +78,7 @@ export const previewAlert = {
     }
 
     embed
-      .setFooter({ text: 'Vaultr • Grail Sighting' })
+      .setFooter({ text: 'Vaultr • Priority Sighting' })
       .setTimestamp();
 
     await interaction.reply({

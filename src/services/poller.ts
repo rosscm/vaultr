@@ -80,6 +80,18 @@ function splitReasons(reasons: string[]): { positive: string; risk: string } {
   };
 }
 
+function sightingPresentation(priority: Chase['priority']): { icon: string; label: string } {
+  switch (priority ?? 'NORMAL') {
+    case 'GRAIL':
+      return { icon: '🏆', label: 'Grail Sighting' };
+    case 'HIGH':
+      return { icon: '🔥', label: 'Priority Sighting' };
+    case 'NORMAL':
+    default:
+      return { icon: '🚨', label: 'Chase Sighting' };
+  }
+}
+
 function formatListingType(listingType: string | undefined): string {
   if (!listingType) return 'Unknown';
   if (listingType === 'AUCTION') return 'Auction';
@@ -114,10 +126,6 @@ function comparablePrice(price: number, shippingCost: number | undefined): numbe
 function maxAlertsPerChasePerPoll(): number {
   const value = Number(process.env.MAX_ALERTS_PER_CHASE_PER_POLL ?? '3');
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 3;
-}
-
-function suppressUnratedSellers(): boolean {
-  return (process.env.SUPPRESS_UNRATED_SELLERS ?? 'true').toLowerCase() !== 'false';
 }
 
 function formatPriceVsMax(listingPrice: number, shippingCost: number | undefined, chaseMax: number | undefined, currency: string): string {
@@ -505,10 +513,6 @@ async function runPoll(client: Client): Promise<void> {
 
       const match = matchChaseToListing(chase, normalizedListing);
       if (!match.isMatch) continue;
-      if (suppressUnratedSellers() && match.reasons.includes('new_seller_penalty')) {
-        markMinScoreSuppression();
-        continue;
-      }
       if (match.score < settings.minScore) {
         markMinScoreSuppression();
         continue;
@@ -560,9 +564,12 @@ async function runPoll(client: Client): Promise<void> {
       }
 
       const sourceLabel = listing.source === 'EBAY' ? 'eBay' : listing.source;
+      const { icon: sightingIcon, label: sightingLabel } = sightingPresentation(chase.priority);
+      const reasonSummary = splitReasons(match.reasons);
+      const watchoutLines = reasonSummary.risk === 'None' ? [] : [`**Watchouts:** ${reasonSummary.risk}`];
       const embed = new EmbedBuilder()
         .setColor(VAULTR_ALERT_COLOR)
-        .setTitle(`${chase.priority === 'GRAIL' ? '🏆 Grail Sighting' : '🔎 Chase Sighting'} · ${sourceLabel}`)
+        .setTitle(`${sightingIcon} ${sightingLabel} · ${sourceLabel}`)
         .setDescription(
           `**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(
             match.score,
@@ -590,7 +597,8 @@ async function runPoll(client: Client): Promise<void> {
               `**Source:** ${sourceLabel}`,
               `**Shipping Destination:** ${listing.shippingDestinationPostalCode ?? 'Unknown'}`,
               `**Confidence:** ${formatScoreWithQuality(match.score)}`,
-              `**Signals:** ${splitReasons(match.reasons).positive}`,
+              `**Signals:** ${reasonSummary.positive}`,
+              ...watchoutLines,
               `**Takeaway:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
@@ -645,7 +653,8 @@ async function runPoll(client: Client): Promise<void> {
             name: '🧠 Match Insight',
             value: [
               `**Confidence:** ${formatScoreWithQuality(match.score)}`,
-              `**Signals:** ${splitReasons(match.reasons).positive}`,
+              `**Signals:** ${reasonSummary.positive}`,
+              ...watchoutLines,
               `**Takeaway:** ${explainDealQuality(match.score)}`
             ].join('\n'),
             inline: false
@@ -653,7 +662,7 @@ async function runPoll(client: Client): Promise<void> {
         );
       }
 
-      embed.setTimestamp().setFooter({ text: 'Vaultr • Grail Sighting' });
+      embed.setTimestamp().setFooter({ text: `Vaultr • ${sightingLabel}` });
 
       if (settings.showImages) {
         if (listing.imageUrl && /^https?:\/\//i.test(listing.imageUrl)) {

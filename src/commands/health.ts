@@ -134,8 +134,13 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
       : 0;
   const recentForUser = countUserAlertsInLastHour(chase.userId);
   const duplicate = hasAlertBeenSent(chase.id, listing.listingId, listing.source);
-  const suppressUnrated = (process.env.SUPPRESS_UNRATED_SELLERS ?? 'true').toLowerCase() !== 'false';
-  const unratedSuppressed = suppressUnrated && match.reasons.includes('new_seller_penalty');
+  const sellerRisk = match.reasons.includes('new_seller_penalty')
+    ? 'New/unrated seller downweighted'
+    : match.reasons.includes('low_seller_feedback_count_penalty')
+      ? 'Limited seller history downweighted'
+      : match.reasons.includes('low_seller_feedback_percent_penalty')
+        ? 'Lower seller feedback downweighted'
+        : 'None';
   const minScoreSuppressed = match.isMatch && match.score < settings.minScore;
   const cooldownSuppressed = recentForChase > 0;
   const hourlySuppressed = recentForUser >= settings.maxAlertsPerHour;
@@ -144,8 +149,7 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
       const normalized = normalizeListingCurrency(sourceListing, targetCurrency);
       const candidateMatch = matchChaseToListing(chase, normalized);
       const candidateDuplicate = hasAlertBeenSent(chase.id, sourceListing.listingId, sourceListing.source);
-      const candidateUnratedSuppressed = suppressUnrated && candidateMatch.reasons.includes('new_seller_penalty');
-      if (!candidateMatch.isMatch || candidateDuplicate || candidateUnratedSuppressed || candidateMatch.score < settings.minScore) {
+      if (!candidateMatch.isMatch || candidateDuplicate || candidateMatch.score < settings.minScore) {
         return null;
       }
 
@@ -160,7 +164,6 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
   const selectedByPerPollCap = candidateRank > 0 && candidateRank <= maxAlertsPerChasePerPoll();
   const wouldAlert =
     match.isMatch &&
-    !unratedSuppressed &&
     !minScoreSuppressed &&
     !cooldownSuppressed &&
     !hourlySuppressed &&
@@ -181,7 +184,7 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
     `**Alert Candidate Rank:** ${candidateRank || 'Not ranked'}`,
     `**Per-Poll Cap:** ${maxAlertsPerChasePerPoll()}`,
     `**Selected By Per-Poll Cap:** ${selectedByPerPollCap ? 'Yes' : 'No'}`,
-    `**Unrated Seller Suppressed:** ${unratedSuppressed ? 'Yes' : 'No'}`,
+    `**Seller Risk:** ${sellerRisk}`,
     `**Min Score Suppressed:** ${minScoreSuppressed ? 'Yes' : 'No'}`,
     `**Cooldown Suppressed:** ${cooldownSuppressed ? 'Yes' : 'No'}`,
     `**Hourly Limit Suppressed:** ${hourlySuppressed ? 'Yes' : 'No'}`,
