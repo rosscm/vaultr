@@ -26,6 +26,15 @@ function maxAlertsPerChasePerPoll(): number {
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 3;
 }
 
+function positiveIntegerEnv(key: string, fallback: number): number | undefined {
+  const value = Number(process.env[key] ?? String(fallback));
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : undefined;
+}
+
+function formatOptionalSeconds(value: number | undefined): string {
+  return value === undefined ? 'n/a' : formatDuration(value);
+}
+
 function listingMatchesItemId(listing: Listing, itemId: string): boolean {
   const needle = itemId.trim();
   if (!needle) return false;
@@ -314,6 +323,8 @@ export const health = {
 
     const state = getPollerState();
     const coverage = state.lastRunCoverage;
+    const maxSourceRequestsPerMinute = positiveIntegerEnv('EBAY_MAX_REQUESTS_PER_MINUTE', 20);
+    const backoffBaseSeconds = positiveIntegerEnv('EBAY_BACKOFF_BASE_SECONDS', 30);
     const duration = state.lastRunDurationMs === undefined ? 'n/a' : `${state.lastRunDurationMs}ms`;
     const nowMs = Date.now();
     const chases = listAllChases();
@@ -321,7 +332,7 @@ export const health = {
     const isBackoffActive = backoffUntilMs !== undefined && Number.isFinite(backoffUntilMs) && backoffUntilMs > nowMs;
     const lines = [
       `**Source:** ${state.sourceMode}`,
-      `**Poller Wake:** every ${state.pollIntervalSeconds}s`,
+      `**Poller Wake:** every ${formatDuration(state.pollIntervalSeconds)}`,
       `**Running:** ${state.isRunning ? 'Yes' : 'No'}`,
       `**Rate Limited / Backing Off:** ${isBackoffActive ? 'Yes' : 'No'}`,
       `**Active Chases:** ${chases.length}`,
@@ -329,6 +340,8 @@ export const health = {
       `**Last Completion:** ${formatTimeWithAge(state.lastRunCompletedAt)}`,
       `**Last Duration:** ${duration}`,
       `**Source Calls (60s):** ${state.sourceCallsLastMinute}`,
+      `**Source Budget:** ${state.sourceCallsLastMinute}/${maxSourceRequestsPerMinute ?? 'n/a'} calls used in last 60s`,
+      `**Backoff Base:** ${formatOptionalSeconds(backoffBaseSeconds)}`,
       `**Rate Limit Skips:** ${state.rateLimitSkips}`,
       `**Consecutive Failures:** ${state.consecutiveFailures}`,
       `**Backoff Until:** ${state.backoffUntil ? formatTimeWithAge(state.backoffUntil) : 'None'}`,
@@ -338,13 +351,13 @@ export const health = {
 
     lines.push(
       '',
-      '**Source Coverage:**',
-      `**Due Groups:** ${coverage.dueGroups} (${coverage.dueChases} chase${coverage.dueChases === 1 ? '' : 's'})`,
-      `**Checked Groups:** ${coverage.checkedGroups} (${coverage.checkedChases} chase${coverage.checkedChases === 1 ? '' : 's'})`,
-      `**Deferred Groups:** ${coverage.deferredGroups} (${coverage.deferredChases} chase${coverage.deferredChases === 1 ? '' : 's'})`,
+      '**Last Run Coverage:**',
+      `**Due Groups This Run:** ${coverage.dueGroups} (${coverage.dueChases} chase${coverage.dueChases === 1 ? '' : 's'})`,
+      `**Checked Groups This Run:** ${coverage.checkedGroups} (${coverage.checkedChases} chase${coverage.checkedChases === 1 ? '' : 's'})`,
+      `**Deferred Groups This Run:** ${coverage.deferredGroups} (${coverage.deferredChases} chase${coverage.deferredChases === 1 ? '' : 's'})`,
       `**Deferred Reasons:** ${coverage.rateLimitedGroups} rate limit, ${coverage.backoffGroups} backoff`,
-      `**Oldest Due:** ${formatCoverageGroup(coverage.oldestDue)}`,
-      `**Oldest Deferred:** ${formatCoverageGroup(coverage.oldestDeferred)}`
+      `**Oldest Due This Run:** ${formatCoverageGroup(coverage.oldestDue)}`,
+      `**Oldest Deferred This Run:** ${formatCoverageGroup(coverage.oldestDeferred)}`
     );
 
     lines.push('', ...buildEligibilityLines(chases, nowMs));
