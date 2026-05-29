@@ -88,6 +88,17 @@ export const alerts = {
               { name: 'Off', value: 'OFF' }
             )
         )
+        .addStringOption((opt) =>
+          opt
+            .setName('source')
+            .setDescription('Where Vaultr watches for sightings (trusted shops are Pro)')
+            .addChoices(
+              { name: 'Default', value: 'DEFAULT' },
+              { name: 'eBay', value: 'EBAY' },
+              { name: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY' },
+              { name: 'Trusted Shops Only', value: 'SHOPIFY' }
+            )
+        )
     )
     .addSubcommand((sub) =>
       sub

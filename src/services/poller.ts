@@ -26,6 +26,7 @@ import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
 import { getRuntimePollIntervalSeconds, PLAN_LIMITS } from './plans.js';
+import { getEntitlementsForTier } from './entitlements.js';
 import {
   getPollerState,
   initializePollerState,
@@ -46,7 +47,7 @@ import {
 import { alertFeedbackButtons, keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
 import { buildWeeklyDiscoveryPathPayload } from '../commands/discover.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
-import type { Chase, Listing } from '../types.js';
+import type { Chase, Listing, ListingSourceModePreference } from '../types.js';
 
 function formatReasons(reasons: string[]): string {
   return reasons
@@ -300,6 +301,7 @@ let backoffUntilMs = 0;
 
 type ActiveGroup = {
   members: Array<{ chase: Chase; settings: ReturnType<typeof getUserAlertSettings> }>;
+  sourceMode: string;
   oldestCreatedAt: string;
   oldestDueAtMs: number;
 };
@@ -441,9 +443,23 @@ function shippingDestinationFromSettings(settings: ReturnType<typeof getUserAler
   };
 }
 
-function sourceQueryKey(chase: Chase, settings: ReturnType<typeof getUserAlertSettings>): string {
+export function effectiveListingSourceMode(
+  configuredSourceMode: string,
+  planTier: ReturnType<typeof getUserPlan>['tier'],
+  preference: ListingSourceModePreference = 'DEFAULT'
+): string {
+  const normalizedMode = configuredSourceMode.toUpperCase();
+  if (normalizedMode === 'MOCK') return 'MOCK';
+  const preferredMode = preference === 'DEFAULT' ? normalizedMode : preference;
+  if (getEntitlementsForTier(planTier).storefrontMonitoring) return preferredMode;
+  if (sourceModeIncludesTrustedShops(preferredMode)) return 'EBAY';
+  return preferredMode;
+}
+
+function sourceQueryKey(chase: Chase, settings: ReturnType<typeof getUserAlertSettings>, sourceMode: string): string {
   const destination = shippingDestinationFromSettings(settings);
   return [
+    sourceMode,
     chase.cardName.trim().toLowerCase(),
     chase.grade?.trim().toLowerCase() ?? '',
     destination?.country?.trim().toUpperCase() ?? '',
@@ -560,9 +576,10 @@ async function runPoll(client: Client): Promise<void> {
         : nowMs;
 
     const settings = getUserAlertSettings(chase.userId);
+  const memberSourceMode = effectiveListingSourceMode(sourceMode, userPlan.tier, settings.listingSourceMode);
     if (isInQuietHours(settings.quietHoursStart, settings.quietHoursEnd)) continue;
-    const key = sourceQueryKey(chase, settings);
-    const group = activeGroups.get(key) ?? { members: [], oldestCreatedAt: chase.createdAt, oldestDueAtMs: dueAtMs };
+    const key = sourceQueryKey(chase, settings, memberSourceMode);
+    const group = activeGroups.get(key) ?? { members: [], sourceMode: memberSourceMode, oldestCreatedAt: chase.createdAt, oldestDueAtMs: dueAtMs };
     group.members.push({ chase, settings });
     if (chase.createdAt.localeCompare(group.oldestCreatedAt) < 0) {
       group.oldestCreatedAt = chase.createdAt;
@@ -605,18 +622,18 @@ async function runPoll(client: Client): Promise<void> {
     const sourceCallsBefore = sourceCallTimestamps.length;
     const listings = await fetchListingsWithRetry(
       representative,
-      sourceMode,
+      group.sourceMode,
       shippingDestinationFromSettings(representativeSettings)
     );
     const didFetchListings =
-      sourceMode === 'MOCK' || sourceModeIncludesTrustedShops(sourceMode) || sourceCallTimestamps.length > sourceCallsBefore;
+      group.sourceMode === 'MOCK' || sourceModeIncludesTrustedShops(group.sourceMode) || sourceCallTimestamps.length > sourceCallsBefore;
     if (didFetchListings) {
       const checkedAtIso = new Date().toISOString();
       lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
       markChasesPollChecked(group.members.map(({ chase }) => chase.id), checkedAtIso);
       markCoverageChecked(coverage, group);
     } else {
-      const reason = sourceMode !== 'MOCK' && Date.now() < backoffUntilMs ? 'Backoff' : 'Rate limit';
+      const reason = group.sourceMode !== 'MOCK' && Date.now() < backoffUntilMs ? 'Backoff' : 'Rate limit';
       markCoverageDeferred(coverage, queryKey, group, nowMs, reason);
     }
 

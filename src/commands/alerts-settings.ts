@@ -4,6 +4,7 @@ import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { OUTPUT_STYLE } from '../ui/style.js';
+import type { ListingSourceModePreference } from '../types.js';
 
 function normalizeShippingCountry(value: string | null): string | null | undefined {
   if (value === null) return undefined;
@@ -17,6 +18,17 @@ function normalizeShippingPostalCode(value: string | null): string | null | unde
   const normalized = value.trim().toUpperCase();
   if (normalized === 'OFF' || normalized === 'NONE' || normalized === 'CLEAR') return null;
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function displaySourceMode(value: ListingSourceModePreference): string {
+  if (value === 'EBAY') return 'eBay';
+  if (value === 'EBAY_SHOPIFY') return 'eBay + Trusted Shops';
+  if (value === 'SHOPIFY') return 'Trusted Shops Only';
+  return 'Default';
+}
+
+function isStorefrontSourceMode(value: ListingSourceModePreference | null): boolean {
+  return value === 'EBAY_SHOPIFY' || value === 'SHOPIFY';
 }
 
 export const alertsSettings = {
@@ -99,6 +111,17 @@ export const alertsSettings = {
           { name: 'On', value: 'ON' },
           { name: 'Off', value: 'OFF' }
         )
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('source')
+        .setDescription('Where Vaultr watches for sightings (trusted shops are Pro)')
+        .addChoices(
+          { name: 'Default', value: 'DEFAULT' },
+          { name: 'eBay', value: 'EBAY' },
+          { name: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY' },
+          { name: 'Trusted Shops Only', value: 'SHOPIFY' }
+        )
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
@@ -113,6 +136,7 @@ export const alertsSettings = {
     const shippingPostalCodeInput = interaction.options.getString('shipping_postal_code');
     const showImages = interaction.options.getString('show_images');
     const compactMode = interaction.options.getString('compact_mode');
+    const source = interaction.options.getString('source') as ListingSourceModePreference | null;
     const shippingCountry = normalizeShippingCountry(shippingCountryInput);
     const shippingPostalCode = normalizeShippingPostalCode(shippingPostalCodeInput);
 
@@ -126,7 +150,8 @@ export const alertsSettings = {
       shippingCountryInput === null &&
       shippingPostalCodeInput === null &&
       showImages === null &&
-      compactMode === null;
+      compactMode === null &&
+      source === null;
 
     if (shippingCountryInput !== null && shippingCountry === undefined) {
       await interaction.reply({
@@ -163,6 +188,19 @@ export const alertsSettings = {
       return;
     }
 
+    if (isStorefrontSourceMode(source) && !entitlements.storefrontMonitoring) {
+      await interaction.reply({
+        embeds: [
+          warningEmbed(
+            'Pro Feature',
+            'Trusted shop monitoring is available on Pro\n\n**Includes:** eBay + Trusted Shops, or Trusted Shops Only\n**Next:** use `/upgrade` to unlock'
+          )
+        ],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
     const settings = noChanges
       ? getUserAlertSettings(interaction.user.id)
       : setUserAlertSettings(interaction.user.id, {
@@ -174,6 +212,7 @@ export const alertsSettings = {
           shippingPostalCode: shippingCountry === null ? null : shippingPostalCode,
           showImages: showImages === null ? undefined : showImages === 'ON',
           compactMode: compactMode === null ? undefined : compactMode === 'ON',
+          listingSourceMode: source ?? undefined,
           quietHoursStart: quietStart ?? undefined,
           quietHoursEnd: quietEnd ?? undefined
         });
@@ -192,6 +231,7 @@ export const alertsSettings = {
       `**Chase Cooldown:** ${settings.chaseCooldownMinutes}m`,
       `**Sighting Currency:** ${settings.alertCurrency}`,
       `**Shipping Destination:** ${shipToLocation}`,
+      `**Listing Source:** ${displaySourceMode(settings.listingSourceMode)}`,
       `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Compact Mode:** ${settings.compactMode ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
       `**Quiet Hours:** ${quietHours}`,

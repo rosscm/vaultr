@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildDailyPulseMessage, buildWeeklyReflectionEmbed, isDueForPollInterval, orderAlertCandidatesForSending, orderGroupsForRun } from '../poller.js';
+import {
+  buildDailyPulseMessage,
+  buildWeeklyReflectionEmbed,
+  effectiveListingSourceMode,
+  isDueForPollInterval,
+  orderAlertCandidatesForSending,
+  orderGroupsForRun
+} from '../poller.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
 import { getRuntimePollIntervalSeconds, PLAN_LIMITS } from '../plans.js';
 
@@ -8,12 +15,12 @@ describe('orderGroupsForRun', () => {
     const ordered = orderGroupsForRun([
       {
         queryKey: 'luffy',
-        group: { members: [], oldestCreatedAt: '2026-05-24T23:25:23.575Z', oldestDueAtMs: 0 },
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-24T23:25:23.575Z', oldestDueAtMs: 0 },
         lastSourceFetchAtMs: 100
       },
       {
         queryKey: 'squirtle',
-        group: { members: [], oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 0 }
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 0 }
       }
     ]);
 
@@ -24,12 +31,12 @@ describe('orderGroupsForRun', () => {
     const ordered = orderGroupsForRun([
       {
         queryKey: 'luffy',
-        group: { members: [], oldestCreatedAt: '2026-05-24T23:25:23.575Z', oldestDueAtMs: 0 },
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-24T23:25:23.575Z', oldestDueAtMs: 0 },
         lastSourceFetchAtMs: 200
       },
       {
         queryKey: 'squirtle',
-        group: { members: [], oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 0 },
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 0 },
         lastSourceFetchAtMs: 100
       }
     ]);
@@ -41,15 +48,42 @@ describe('orderGroupsForRun', () => {
     const ordered = orderGroupsForRun([
       {
         queryKey: 'luffy',
-        group: { members: [], oldestCreatedAt: '2026-05-24T23:25:23.575Z', oldestDueAtMs: 0 }
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-24T23:25:23.575Z', oldestDueAtMs: 0 }
       },
       {
         queryKey: 'squirtle',
-        group: { members: [], oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 0 }
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 0 }
       }
     ]);
 
     expect(ordered.map((entry) => entry.queryKey)).toEqual(['squirtle', 'luffy']);
+  });
+});
+
+describe('effectiveListingSourceMode', () => {
+  it('keeps Free users on eBay when storefront monitoring is configured globally', () => {
+    expect(effectiveListingSourceMode('EBAY_SHOPIFY', 'FREE')).toBe('EBAY');
+    expect(effectiveListingSourceMode('SHOPIFY', 'FREE')).toBe('EBAY');
+  });
+
+  it('allows Pro users to use storefront source modes', () => {
+    expect(effectiveListingSourceMode('EBAY_SHOPIFY', 'PRO')).toBe('EBAY_SHOPIFY');
+    expect(effectiveListingSourceMode('SHOPIFY', 'PRO')).toBe('SHOPIFY');
+  });
+
+  it('lets Pro users override the default source preference', () => {
+    expect(effectiveListingSourceMode('EBAY', 'PRO', 'EBAY_SHOPIFY')).toBe('EBAY_SHOPIFY');
+    expect(effectiveListingSourceMode('EBAY_SHOPIFY', 'PRO', 'SHOPIFY')).toBe('SHOPIFY');
+    expect(effectiveListingSourceMode('SHOPIFY', 'PRO', 'EBAY')).toBe('EBAY');
+  });
+
+  it('keeps Free user storefront preferences on eBay', () => {
+    expect(effectiveListingSourceMode('EBAY', 'FREE', 'EBAY_SHOPIFY')).toBe('EBAY');
+    expect(effectiveListingSourceMode('EBAY', 'FREE', 'SHOPIFY')).toBe('EBAY');
+  });
+
+  it('leaves mock mode available for local testing', () => {
+    expect(effectiveListingSourceMode('MOCK', 'FREE', 'SHOPIFY')).toBe('MOCK');
   });
 });
 

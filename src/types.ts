@@ -1,4 +1,5 @@
 export type ListingSource = 'EBAY' | 'SHOPIFY';
+export type ListingSourceModePreference = 'DEFAULT' | 'EBAY' | 'EBAY_SHOPIFY' | 'SHOPIFY';
 
 export type Chase = {
   id: string;
@@ -64,6 +65,7 @@ export type UserAlertSettings = {
   shippingPostalCode?: string;
   showImages: boolean;
   compactMode: boolean;
+  listingSourceMode: ListingSourceModePreference;
   quietHoursStart?: number;
   quietHoursEnd?: number;
   updatedAt: string;

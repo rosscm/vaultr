@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { makeAlertFeedbackToken } from './alert-feedback-token.js';
 import { normalizePlanTier } from './plans.js';
-import type { Chase, ListingSource, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
+import type { Chase, ListingSource, ListingSourceModePreference, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
 
 type ChaseRow = {
   id: string;
@@ -188,14 +188,14 @@ const upsertUserPlanStmt = db.prepare(`
 `);
 
 const getUserAlertSettingsStmt = db.prepare(`
-  SELECT user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, shipping_country, shipping_postal_code, show_images, compact_mode, quiet_hours_start, quiet_hours_end, updated_at
+  SELECT user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, shipping_country, shipping_postal_code, show_images, compact_mode, listing_source_mode, quiet_hours_start, quiet_hours_end, updated_at
   FROM user_alert_settings
   WHERE user_id = ?
 `);
 
 const upsertUserAlertSettingsStmt = db.prepare(`
-  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, shipping_country, shipping_postal_code, show_images, compact_mode, quiet_hours_start, quiet_hours_end, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, shipping_country, shipping_postal_code, show_images, compact_mode, listing_source_mode, quiet_hours_start, quiet_hours_end, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(user_id) DO UPDATE SET
     min_score = excluded.min_score,
     max_alerts_per_hour = excluded.max_alerts_per_hour,
@@ -205,10 +205,16 @@ const upsertUserAlertSettingsStmt = db.prepare(`
     shipping_postal_code = excluded.shipping_postal_code,
     show_images = excluded.show_images,
     compact_mode = excluded.compact_mode,
+    listing_source_mode = excluded.listing_source_mode,
     quiet_hours_start = excluded.quiet_hours_start,
     quiet_hours_end = excluded.quiet_hours_end,
     updated_at = excluded.updated_at
 `);
+
+function normalizeListingSourceModePreference(value: string | null | undefined): ListingSourceModePreference {
+  if (value === 'EBAY' || value === 'EBAY_SHOPIFY' || value === 'SHOPIFY') return value;
+  return 'DEFAULT';
+}
 
 const countRecentAlertsByUserStmt = db.prepare(`
   SELECT COUNT(*) AS count
@@ -890,6 +896,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
         shipping_postal_code: string | null;
         show_images: number;
         compact_mode: number;
+        listing_source_mode: string | null;
         quiet_hours_start: number | null;
         quiet_hours_end: number | null;
         updated_at: string;
@@ -898,7 +905,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
 
   if (!row) {
     const now = new Date().toISOString();
-    upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, 1, 0, null, null, now);
+    upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, 1, 0, 'DEFAULT', null, null, now);
     return {
       userId,
       minScore: 60,
@@ -907,6 +914,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
       alertCurrency: 'USD',
       showImages: true,
       compactMode: false,
+      listingSourceMode: 'DEFAULT',
       updatedAt: now
     };
   }
@@ -921,6 +929,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
     shippingPostalCode: row.shipping_postal_code ?? undefined,
     showImages: (row.show_images ?? 1) === 1,
     compactMode: (row.compact_mode ?? 0) === 1,
+    listingSourceMode: normalizeListingSourceModePreference(row.listing_source_mode),
     quietHoursStart: row.quiet_hours_start ?? undefined,
     quietHoursEnd: row.quiet_hours_end ?? undefined,
     updatedAt: row.updated_at
@@ -932,7 +941,15 @@ export function setUserAlertSettings(
   patch: Partial<
     Pick<
       UserAlertSettings,
-      'minScore' | 'maxAlertsPerHour' | 'chaseCooldownMinutes' | 'alertCurrency' | 'showImages' | 'compactMode' | 'quietHoursStart' | 'quietHoursEnd'
+      | 'minScore'
+      | 'maxAlertsPerHour'
+      | 'chaseCooldownMinutes'
+      | 'alertCurrency'
+      | 'showImages'
+      | 'compactMode'
+      | 'listingSourceMode'
+      | 'quietHoursStart'
+      | 'quietHoursEnd'
     >
   > & { shippingCountry?: string | null; shippingPostalCode?: string | null }
 ): UserAlertSettings {
@@ -947,6 +964,7 @@ export function setUserAlertSettings(
     shippingPostalCode: patch.shippingPostalCode === null ? undefined : patch.shippingPostalCode ?? current.shippingPostalCode,
     showImages: patch.showImages ?? current.showImages,
     compactMode: patch.compactMode ?? current.compactMode,
+    listingSourceMode: patch.listingSourceMode ?? current.listingSourceMode,
     quietHoursStart: patch.quietHoursStart ?? current.quietHoursStart,
     quietHoursEnd: patch.quietHoursEnd ?? current.quietHoursEnd,
     updatedAt: new Date().toISOString()
@@ -962,6 +980,7 @@ export function setUserAlertSettings(
     next.shippingPostalCode ?? null,
     next.showImages ? 1 : 0,
     next.compactMode ? 1 : 0,
+    next.listingSourceMode,
     next.quietHoursStart ?? null,
     next.quietHoursEnd ?? null,
     next.updatedAt
@@ -1087,7 +1106,7 @@ export function isListingFingerprintIgnored(userId: string, chaseId: string, fin
 
 export function resetUserAlertSettings(userId: string): UserAlertSettings {
   const now = new Date().toISOString();
-  upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, 1, 0, null, null, now);
+  upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, 1, 0, 'DEFAULT', null, null, now);
   return {
     userId,
     minScore: 60,
@@ -1096,6 +1115,7 @@ export function resetUserAlertSettings(userId: string): UserAlertSettings {
     alertCurrency: 'USD',
     showImages: true,
     compactMode: false,
+    listingSourceMode: 'DEFAULT',
     updatedAt: now
   };
 }
