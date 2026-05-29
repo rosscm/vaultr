@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDailyPulseMessage, buildWeeklyReflectionEmbed, isDueForPollInterval, orderGroupsForRun } from '../poller.js';
+import { buildDailyPulseMessage, buildWeeklyReflectionEmbed, isDueForPollInterval, orderAlertCandidatesForSending, orderGroupsForRun } from '../poller.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
 import { getRuntimePollIntervalSeconds, PLAN_LIMITS } from '../plans.js';
 
@@ -70,6 +70,18 @@ describe('isDueForPollInterval', () => {
 
   it('allows checks once the interval window has elapsed', () => {
     expect(isDueForPollInterval(1_000, 900, 1_000 + 900_000)).toBe(true);
+  });
+});
+
+describe('orderAlertCandidatesForSending', () => {
+  it('keeps a trusted shop candidate ahead of eBay when both sources match', () => {
+    const ordered = orderAlertCandidatesForSending([
+      { listing: { source: 'EBAY', listingId: 'ebay-1' }, rankScore: 70_000 },
+      { listing: { source: 'EBAY', listingId: 'ebay-2' }, rankScore: 69_000 },
+      { listing: { source: 'SHOPIFY', listingId: 'shopify-1' }, rankScore: 60_000 }
+    ] as never);
+
+    expect(ordered.map((candidate) => candidate.listing.listingId)).toEqual(['shopify-1', 'ebay-1', 'ebay-2']);
   });
 });
 

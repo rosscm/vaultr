@@ -3,7 +3,7 @@ import { getUserAlertSettings, listChases } from '../services/chase-store.js';
 import { infoEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 10;
 const PAGE_ID_PREFIX = 'chase-list';
 
 function displayAny(value: string | undefined): string {

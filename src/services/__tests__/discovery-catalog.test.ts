@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectDiscoverySuggestions } from '../discovery-catalog.js';
+import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestions } from '../discovery-catalog.js';
 import type { Chase } from '../../types.js';
 
 function chase(overrides: Partial<Chase> = {}): Chase {
@@ -40,7 +40,7 @@ describe('selectDiscoverySuggestions', () => {
     expectDistinctLanes(selection);
   });
 
-  it('does not inject starter Pikachu picks into an unrelated active vault profile', () => {
+  it('prioritizes specific chase branches before broader inferred promo lanes', () => {
     const selection = selectDiscoverySuggestions(
       null,
       [
@@ -53,9 +53,33 @@ describe('selectDiscoverySuggestions', () => {
     const names = selection.suggestions.map((suggestion) => suggestion.name);
 
     expect(names).toContain('Mew Southern Islands Promo');
-    expect(names).toContain('Squirtle 170/165 Pokemon 151 Illustration Rare');
+    expect(names).toContain('Totodile 18/25 McDonald\'s 25th Anniversary Promo');
     expect(names).toContain('Articuno Fossil Holo');
-    expect(names).not.toContain('Pikachu 012 Nintendo Black Star Promo');
+    expect(selection.suggestions.find((suggestion) => suggestion.name === 'Totodile 18/25 McDonald\'s 25th Anniversary Promo')?.evidenceSearchTerm).toBe(
+      'Totodile 18/25 McDonalds Pokemon'
+    );
+    expect(names).not.toContain('Monkey.D.Luffy ST01-001 Leader');
+    expectDistinctLanes(selection);
+  });
+
+  it('infers promo and special-release profile signals without literal promo text', () => {
+    const chases = [
+      chase({ cardName: 'Squirtle 007/018', grade: 'UNGRADED' }),
+      chase({ id: 'c2', cardName: 'Moltres Zapdos Articuno SM210', grade: 'UNGRADED' }),
+      chase({ id: 'c3', cardName: 'Corocoro Shining Mew', grade: 'UNGRADED' }),
+      chase({ id: 'c4', cardName: 'Mew RC24', grade: 'UNGRADED' }),
+      chase({ id: 'c5', cardName: 'Mew 347/190', grade: 'UNGRADED' }),
+      chase({ id: 'c6', cardName: 'Mew ex 053' })
+    ];
+    const selection = selectDiscoverySuggestions(null, chases, 16);
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(hasPromoLeaningDiscoveryProfile(chases)).toBe(true);
+    expect(names).toContain('Pikachu 012 Nintendo Black Star Promo');
+    expect(names).toContain('Mewtwo Vending Series');
+    expect(names).toContain('Articuno 148/147 Supreme Victors Secret Rare');
+    expect(names).toContain('Mew Southern Islands Promo');
+    expect(names).toContain('Totodile 18/25 McDonald\'s 25th Anniversary Promo');
     expectDistinctLanes(selection);
   });
 

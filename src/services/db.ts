@@ -123,6 +123,16 @@ db.exec(`
     chase_id TEXT PRIMARY KEY,
     last_checked_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS discovery_vault_actions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    card_name TEXT NOT NULL,
+    lane TEXT NOT NULL,
+    max_price REAL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
 `);
 
 try {
@@ -238,5 +248,7 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_guild_time ON sent_alerts(gu
 db.exec(`CREATE INDEX IF NOT EXISTS idx_ignored_listing_fingerprints_user_chase ON ignored_listing_fingerprints(user_id, chase_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_guild_started_users_guild_time ON guild_started_users(guild_id, started_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_weekly_reflection_posts_user_week ON user_weekly_reflection_posts(user_id, week_key);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_user ON discovery_vault_actions(user_id);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_expires ON discovery_vault_actions(expires_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_feedback_user_time ON alert_feedback(user_id, created_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chase_poll_state_last_checked ON chase_poll_state(last_checked_at);`);

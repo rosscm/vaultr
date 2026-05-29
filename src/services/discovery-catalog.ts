@@ -11,6 +11,7 @@ export type DiscoverySuggestion = {
   requiredEvidenceTokens?: string[];
   minimumExampleTotalCad?: number;
   maximumBaselineRawTotalCad?: number;
+  curiosityScore?: number;
 };
 
 type DiscoveryCatalogCard = DiscoverySuggestion & {
@@ -19,12 +20,38 @@ type DiscoveryCatalogCard = DiscoverySuggestion & {
   starter?: boolean;
 };
 
+type ChaseDiscoverySignals = {
+  text: string;
+  promoLike: boolean;
+  specialReleaseLike: boolean;
+};
+
 export type DiscoverySelection = {
   lane: string;
   suggestions: DiscoverySuggestion[];
 };
 
 const STOP_WORDS = new Set(['and', 'card', 'cards', 'for', 'from', 'pokemon', 'the', 'with']);
+
+const PROMO_RELEASE_PATTERNS = [
+  /\b(promo|promotional|black star|corocoro|coro coro|mcdonald'?s|movie promo|league promo|staff promo|prerelease)\b/i,
+  /\b(sm|swsh|svp|xy|bw|dp|hgss)\s?-?\d{2,4}\b/i,
+  /\b(?:sm|swsh|svp|xy|bw|dp|hgss)\d{2,4}\b/i
+];
+
+const SPECIAL_RELEASE_PATTERNS = [
+  /\b(radiant collection|rc\d{1,3}|southern islands?|classic collection|celebrations|pop series|trainer kit|battle academy)\b/i,
+  /\b(\d{1,3})\s?\/\s?(?:018|025|030)\b/i
+];
+
+const KNOWN_RELEASE_HINTS: Array<{ pattern: RegExp; signals: string; promoLike?: boolean; specialReleaseLike?: boolean }> = [
+  { pattern: /\bcorocoro\b|\bshining mew\b/i, signals: 'corocoro promo special release japanese magazine promo', promoLike: true, specialReleaseLike: true },
+  { pattern: /\bmoltres\b.*\bzapdos\b.*\barticuno\b.*\bsm\s?-?210\b/i, signals: 'sm210 black star promo legendary birds special release', promoLike: true, specialReleaseLike: true },
+  { pattern: /\bmew\s+ex\s+0?53\b/i, signals: 'mew ex svp 053 black star promo scarlet violet promo special release', promoLike: true, specialReleaseLike: true },
+  { pattern: /\bsquirtle\s+0?07\s?\/\s?0?18\b/i, signals: 'squirtle 007/018 mcdonalds promo starter pokemon special release', promoLike: true, specialReleaseLike: true },
+  { pattern: /\bmew\s+rc\s?24\b/i, signals: 'mew rc24 radiant collection special subset mythical display', specialReleaseLike: true },
+  { pattern: /\bmew\s+347\s?\/\s?190\b/i, signals: 'mew shiny treasure shiny special art rare japanese special release', specialReleaseLike: true }
+];
 
 const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
   {
@@ -35,6 +62,12 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     keywords: ['pikachu', 'promo', 'black star', 'nintendo', '012'],
     tags: ['character promo', 'nintendo era', 'black star promo', 'pikachu'],
     why: 'follows the Pikachu lane into a quieter Nintendo-era promo with strong binder-page charm',
+    evidenceSearchTerm: 'Pikachu 012 Nintendo Black Star Promo',
+    evidenceAliases: ['Pikachu 012 Nintendo Black Star Promo', 'Pikachu Black Star Promo 012', 'Pikachu Nintendo Promo 012'],
+    requiredEvidenceTokens: ['pikachu', '012'],
+    minimumExampleTotalCad: 40,
+    maximumBaselineRawTotalCad: 450,
+    curiosityScore: 8,
     starter: true
   },
   {
@@ -100,7 +133,13 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     nearby: ['Gengar Web Series', 'Vending Series Mew'],
     keywords: ['mewtwo', 'vending', 'japanese', 'jp'],
     tags: ['japanese exclusive', 'vending', 'vintage', 'legendary'],
-    why: 'adds vending-machine era texture for collectors who like Japanese release stories'
+    why: 'adds vending-machine era texture for collectors who like Japanese release stories',
+    evidenceSearchTerm: 'Mewtwo Vending Series Pokemon',
+    evidenceAliases: ['Mewtwo Vending Series', 'Mewtwo Glossy Vending', 'Mewtwo Japanese Vending'],
+    requiredEvidenceTokens: ['mewtwo', 'vending'],
+    minimumExampleTotalCad: 35,
+    maximumBaselineRawTotalCad: 350,
+    curiosityScore: 9
   },
   {
     name: 'Mew Southern Islands Promo',
@@ -112,7 +151,8 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     why: 'branches from a Shining Mew chase into a more available raw Mew display card',
     evidenceSearchTerm: 'Mew Southern Islands Pokemon card',
     evidenceAliases: ['Mew Southern Islands', 'Mew Southern Island', 'Mew No.151 Southern Island', 'Mew 46/040 Southern Islands', 'Mew 01/18 Southern Islands'],
-    requiredEvidenceTokens: ['mew']
+    requiredEvidenceTokens: ['mew'],
+    curiosityScore: 7
   },
   {
     name: 'Ancient Mew Promo',
@@ -122,9 +162,10 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     keywords: ['mew', 'ancient mew', 'movie promo', 'promo', 'mythical'],
     tags: ['mew', 'mythical', 'movie promo', 'nostalgia', 'promo'],
     why: 'keeps the Mew thread but shifts toward a nostalgic promo that many collectors remember as an object',
-    evidenceSearchTerm: 'Ancient Mew Pokemon card ungraded',
+    evidenceSearchTerm: 'Ancient Mew Pokemon',
     requiredEvidenceTokens: ['mew'],
-    maximumBaselineRawTotalCad: 250
+    maximumBaselineRawTotalCad: 250,
+    curiosityScore: 6
   },
   {
     name: 'Mew GG10 Crown Zenith',
@@ -133,16 +174,36 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     nearby: ['Mew ex 193/165 Pokemon 151', 'Mewtwo VSTAR GG44 Crown Zenith'],
     keywords: ['mew', 'gallery', 'crown zenith', 'gg10', 'mythical'],
     tags: ['mew', 'mythical', 'gallery', 'modern display', 'soft artwork'],
-    why: 'turns a Mew chase toward a softer modern gallery card with approachable raw-market depth'
+    why: 'turns a Mew chase toward a softer modern gallery card with approachable raw-market depth',
+    evidenceSearchTerm: 'Mew GG10 Crown Zenith',
+    evidenceAliases: ['Mew GG10/GG70 Crown Zenith', 'Mew GG10 Crown Zenith', 'Mew Galarian Gallery'],
+    requiredEvidenceTokens: ['mew', 'gg10']
+  },
+  {
+    name: 'Totodile 18/25 McDonald\'s 25th Anniversary Promo',
+    lane: 'starter promo side paths',
+    laneWhy: 'starter Pokemon promos that keep the release-story feel without repeating the exact same grail',
+    nearby: ['Pikachu 25/25 McDonald\'s 25th Anniversary Promo', 'Cyndaquil 10/25 McDonald\'s 25th Anniversary Promo'],
+    keywords: ['squirtle', '007/018', 'mcdonalds', 'mcdonald\'s', 'starter promo', 'totodile', '18/25'],
+    tags: ['starter pokemon', 'promo', 'mcdonalds promo', 'water type', 'special release'],
+    why: 'branches from the McDonald\'s Squirtle chase into another starter promo with a lighter, set-building feel',
+    evidenceSearchTerm: 'Totodile 18/25 McDonalds Pokemon',
+    evidenceAliases: ['Totodile 18/25 McDonald\'s', 'Totodile 18/25 McDonalds', 'Totodile McDonald\'s 25th Anniversary'],
+    requiredEvidenceTokens: ['totodile', '18', '25'],
+    minimumExampleTotalCad: 20,
+    curiosityScore: 3
   },
   {
     name: 'Squirtle 170/165 Pokemon 151 Illustration Rare',
     lane: 'starter illustration rares',
     laneWhy: 'starter Pokemon cards where the appeal comes from scene, nostalgia, and raw display quality',
     nearby: ['Wartortle 171/165 Pokemon 151', 'Bulbasaur 166/165 Pokemon 151'],
-    keywords: ['squirtle', '007/018', 'starter', 'water type', '151'],
+    keywords: ['squirtle', 'starter', 'water type', '151'],
     tags: ['squirtle', 'starter pokemon', 'illustration rare', 'water type', 'modern display'],
-    why: 'keeps the Squirtle thread but moves it into a liquid modern illustration lane with healthy raw supply'
+    why: 'keeps the Squirtle thread but moves it into a liquid modern illustration lane with healthy raw supply',
+    evidenceSearchTerm: 'Squirtle 170/165 Pokemon 151',
+    evidenceAliases: ['Squirtle 170/165 Pokemon 151', 'Squirtle AR SV2a 170/165', 'Squirtle Illustration Rare 170/165'],
+    requiredEvidenceTokens: ['squirtle', '170', '165']
   },
   {
     name: 'Wartortle 171/165 Pokemon 151 Illustration Rare',
@@ -151,7 +212,10 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     nearby: ['Squirtle 170/165 Pokemon 151 Illustration Rare', 'Blastoise ex 200/165 Pokemon 151'],
     keywords: ['squirtle', 'wartortle', 'blastoise', '007/018', '151', 'water starter'],
     tags: ['squirtle', 'wartortle', 'starter pokemon', 'evolution line', 'illustration rare'],
-    why: 'builds from Squirtle into an evolution-line page with a consistent modern illustration language'
+    why: 'builds from Squirtle into an evolution-line page with a consistent modern illustration language',
+    evidenceSearchTerm: 'Wartortle 171/165 Pokemon 151',
+    evidenceAliases: ['Wartortle 171/165 Pokemon 151', 'Wartortle AR SV2a 171/165', 'Wartortle Illustration Rare 171/165'],
+    requiredEvidenceTokens: ['wartortle', '171', '165']
   },
   {
     name: 'Totodile 073/071 Triplet Beat Art Rare',
@@ -172,13 +236,29 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     why: 'turns the bird-trio chase into a cleaner single-bird vintage branch with steady raw examples'
   },
   {
+    name: 'Articuno 148/147 Supreme Victors Secret Rare',
+    lane: 'secret rare bird detours',
+    laneWhy: 'older secret rares that keep the legendary-bird thread but feel more discovered than obvious',
+    nearby: ['Zapdos 202/165 Pokemon 151 Illustration Rare', 'Articuno Fossil Holo'],
+    keywords: ['articuno', 'zapdos', 'moltres', 'legendary birds', 'bird trio', 'sm210', 'secret rare', 'supreme victors'],
+    tags: ['legendary bird', 'secret rare', 'vintage-adjacent', 'articuno', 'hidden gem'],
+    why: 'turns the bird-trio thread toward an older secret rare that still sits below true grail territory in raw copies',
+    evidenceSearchTerm: 'Articuno Supreme Victors 148/147 Pokemon',
+    evidenceAliases: ['Articuno 148/147 Supreme Victors', 'Articuno Supreme Victors Secret Rare', 'Articuno Supreme Victors 148/147'],
+    requiredEvidenceTokens: ['articuno', '148', '147'],
+    minimumExampleTotalCad: 80,
+    maximumBaselineRawTotalCad: 450,
+    curiosityScore: 8
+  },
+  {
     name: 'Zapdos 202/165 Pokemon 151 Illustration Rare',
     lane: 'legendary bird illustration rares',
     laneWhy: 'legendary bird cards that make the chase feel scenic, modern, and display-forward',
     nearby: ['Articuno Fossil Holo', 'Moltres Fossil Holo'],
     keywords: ['zapdos', 'articuno', 'moltres', 'legendary birds', 'sm210', '151'],
     tags: ['legendary bird', 'illustration rare', 'zapdos', 'modern display'],
-    why: 'branches from the trio promo into a scenic single-bird card with strong raw-market depth'
+    why: 'branches from the trio promo into a scenic single-bird card with strong raw-market depth',
+    curiosityScore: 4
   },
   {
     name: 'Moltres Zapdos Articuno GX 66/68 Hidden Fates',
@@ -187,7 +267,8 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     nearby: ['Moltres Zapdos Articuno SM210', 'Articuno Fossil Holo'],
     keywords: ['moltres', 'zapdos', 'articuno', 'sm210', 'hidden fates', 'bird trio'],
     tags: ['legendary birds', 'trio card', 'promo-adjacent', 'modern gx'],
-    why: 'keeps the legendary-bird trio intact while moving toward a more available raw centerpiece'
+    why: 'keeps the legendary-bird trio intact while moving toward a more available raw centerpiece',
+    curiosityScore: 5
   },
   {
     name: 'Monkey.D.Luffy ST01-001 Leader',
@@ -323,11 +404,48 @@ function tokens(value: string): string[] {
     .filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
 }
 
+function chaseRawSignalText(chase: Chase): string {
+  return [chase.cardName, chase.targetNote, chase.grade, chase.condition, chase.listingType].filter(Boolean).join(' ');
+}
+
+function inferChaseDiscoverySignals(chase: Chase): ChaseDiscoverySignals {
+  const rawText = chaseRawSignalText(chase);
+  const inferredSignals: string[] = [];
+  let promoLike = PROMO_RELEASE_PATTERNS.some((pattern) => pattern.test(rawText));
+  let specialReleaseLike = promoLike || SPECIAL_RELEASE_PATTERNS.some((pattern) => pattern.test(rawText));
+
+  for (const hint of KNOWN_RELEASE_HINTS) {
+    if (!hint.pattern.test(rawText)) continue;
+    inferredSignals.push(hint.signals);
+    promoLike = promoLike || hint.promoLike === true;
+    specialReleaseLike = specialReleaseLike || hint.specialReleaseLike === true;
+  }
+
+  if (promoLike) inferredSignals.push('promo black star promo release-story character promo');
+  if (specialReleaseLike) inferredSignals.push('special release limited release unusual release path');
+
+  return {
+    text: [rawText, ...inferredSignals].join(' '),
+    promoLike,
+    specialReleaseLike
+  };
+}
+
+export function hasPromoLeaningDiscoveryProfile(chases: Chase[]): boolean {
+  if (chases.length === 0) return false;
+  const promoSignals = chases.filter((chase) => inferChaseDiscoverySignals(chase).promoLike);
+  return promoSignals.length >= 2 || promoSignals.length / chases.length >= 0.5;
+}
+
 function textMatchesPhrase(text: string, phrase: string): boolean {
   return text.includes(normalize(phrase));
 }
 
 function scoreCard(card: DiscoveryCatalogCard, signalText: string, signalTokens: Set<string>, hasFocus: boolean, hasProfileSignals: boolean): number {
+  const isOnePieceCard = card.tags.some((tag) => /\bone piece\b/i.test(tag));
+  const hasOnePieceSignal = /\b(one piece|luffy|nami|zoro|sabo)\b/i.test(signalText);
+  if (isOnePieceCard && !hasOnePieceSignal) return 0;
+
   let score = !hasProfileSignals && card.starter ? 1 : 0;
   for (const keyword of card.keywords) {
     if (textMatchesPhrase(signalText, keyword)) score += keyword.includes(' ') ? 10 : 7;
@@ -364,7 +482,7 @@ function pickDistinctLaneCards(cards: DiscoveryCatalogCard[], count: number, exi
 }
 
 export function selectDiscoverySuggestions(focus: string | null, chases: Chase[], count = 3): DiscoverySelection {
-  const chaseText = chases.map((chase) => [chase.cardName, chase.targetNote, chase.grade, chase.condition, chase.listingType].filter(Boolean).join(' ')).join(' ');
+  const chaseText = chases.map((chase) => inferChaseDiscoverySignals(chase).text).join(' ');
   const signalText = normalize([focus, chaseText].filter(Boolean).join(' '));
   const signalTokens = new Set(tokens(signalText));
   const hasFocus = !!focus?.trim();
@@ -381,7 +499,7 @@ export function selectDiscoverySuggestions(focus: string | null, chases: Chase[]
 
   return {
     lane: pickLane(selected),
-    suggestions: selected.map(({ name, why, lane, laneWhy, nearby, evidenceSearchTerm, evidenceAliases, requiredEvidenceTokens, minimumExampleTotalCad, maximumBaselineRawTotalCad }) => ({
+    suggestions: selected.map(({ name, why, lane, laneWhy, nearby, evidenceSearchTerm, evidenceAliases, requiredEvidenceTokens, minimumExampleTotalCad, maximumBaselineRawTotalCad, curiosityScore }) => ({
       name,
       why,
       lane,
@@ -391,7 +509,8 @@ export function selectDiscoverySuggestions(focus: string | null, chases: Chase[]
       evidenceAliases,
       requiredEvidenceTokens,
       minimumExampleTotalCad,
-      maximumBaselineRawTotalCad
+      maximumBaselineRawTotalCad,
+      curiosityScore
     }))
   };
 }

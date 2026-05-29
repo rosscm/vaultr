@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
+import { makeAlertFeedbackToken } from './alert-feedback-token.js';
 import { normalizePlanTier } from './plans.js';
-import type { Chase, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
+import type { Chase, ListingSource, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
 
 type ChaseRow = {
   id: string;
@@ -16,6 +17,26 @@ type ChaseRow = {
   listing_type: 'ANY' | 'AUCTION' | 'BUY_IT_NOW';
   negative_keywords: string | null;
   created_at: string;
+};
+
+export type DiscoveryVaultAction = {
+  token: string;
+  userId: string;
+  cardName: string;
+  lane: string;
+  maxPrice?: number;
+  createdAt: string;
+  expiresAt: string;
+};
+
+type DiscoveryVaultActionRow = {
+  token: string;
+  user_id: string;
+  card_name: string;
+  lane: string;
+  max_price: number | null;
+  created_at: string;
+  expires_at: string;
 };
 
 function mapRow(row: ChaseRow): Chase {
@@ -218,6 +239,13 @@ const getSentAlertByKeyStmt = db.prepare(`
   LIMIT 1
 `);
 
+const listSentAlertsByChaseStmt = db.prepare(`
+  SELECT chase_id, user_id, listing_id, source, sent_at, listing_title, listing_price, listing_currency, listing_url, match_score
+  FROM sent_alerts
+  WHERE user_id = ? AND chase_id = ?
+  ORDER BY sent_at DESC
+`);
+
 const listGuildCommandChannelsStmt = db.prepare(`
   SELECT guild_id, channel_id
   FROM guild_alert_channels
@@ -377,6 +405,35 @@ const hasIgnoredFingerprintStmt = db.prepare(`
   LIMIT 1
 `);
 
+const insertDiscoveryVaultActionStmt = db.prepare(`
+  INSERT INTO discovery_vault_actions (token, user_id, card_name, lane, max_price, created_at, expires_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+
+const getDiscoveryVaultActionStmt = db.prepare(`
+  SELECT token, user_id, card_name, lane, max_price, created_at, expires_at
+  FROM discovery_vault_actions
+  WHERE token = ? AND user_id = ? AND expires_at > ?
+  LIMIT 1
+`);
+
+const deleteExpiredDiscoveryVaultActionsStmt = db.prepare(`
+  DELETE FROM discovery_vault_actions
+  WHERE expires_at <= ?
+`);
+
+function mapDiscoveryVaultAction(row: DiscoveryVaultActionRow): DiscoveryVaultAction {
+  return {
+    token: row.token,
+    userId: row.user_id,
+    cardName: row.card_name,
+    lane: row.lane,
+    maxPrice: row.max_price ?? undefined,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at
+  };
+}
+
 export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
   const chase: Chase = {
     ...input,
@@ -400,6 +457,45 @@ export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
   });
 
   return chase;
+}
+
+export function createDiscoveryVaultAction(input: {
+  token: string;
+  userId: string;
+  cardName: string;
+  lane: string;
+  maxPrice?: number;
+  expiresAt: string;
+}): DiscoveryVaultAction {
+  const createdAt = new Date().toISOString();
+  insertDiscoveryVaultActionStmt.run(
+    input.token,
+    input.userId,
+    input.cardName,
+    input.lane,
+    input.maxPrice ?? null,
+    createdAt,
+    input.expiresAt
+  );
+  return {
+    token: input.token,
+    userId: input.userId,
+    cardName: input.cardName,
+    lane: input.lane,
+    maxPrice: input.maxPrice,
+    createdAt,
+    expiresAt: input.expiresAt
+  };
+}
+
+export function getDiscoveryVaultAction(userId: string, token: string): DiscoveryVaultAction | null {
+  const row = getDiscoveryVaultActionStmt.get(token, userId, new Date().toISOString()) as DiscoveryVaultActionRow | undefined;
+  return row ? mapDiscoveryVaultAction(row) : null;
+}
+
+export function deleteExpiredDiscoveryVaultActions(): number {
+  const result = deleteExpiredDiscoveryVaultActionsStmt.run(new Date().toISOString());
+  return result.changes;
 }
 
 export function listChases(userId: string): Chase[] {
@@ -594,12 +690,12 @@ export function updateChase(
   return result.changes > 0 ? next : null;
 }
 
-export function hasAlertBeenSent(chaseId: string, listingId: string, source: 'EBAY'): boolean {
+export function hasAlertBeenSent(chaseId: string, listingId: string, source: ListingSource): boolean {
   const row = hasSentAlertStmt.get(chaseId, listingId, source) as { 1: number } | undefined;
   return !!row;
 }
 
-export function markAlertSent(chaseId: string, userId: string, listingId: string, source: 'EBAY'): boolean {
+export function markAlertSent(chaseId: string, userId: string, listingId: string, source: ListingSource): boolean {
   return markAlertSentWithDetails(chaseId, userId, listingId, source, {});
 }
 
@@ -607,7 +703,7 @@ export function markAlertSentWithDetails(
   chaseId: string,
   userId: string,
   listingId: string,
-  source: 'EBAY',
+  source: ListingSource,
   details: {
     guildId?: string;
     listingTitle?: string;
@@ -892,7 +988,7 @@ export function listRecentAlerts(userId: string, limit = 20): SentAlert[] {
     card_name: string | null;
     user_id: string;
     listing_id: string;
-    source: 'EBAY';
+    source: ListingSource;
     sent_at: string;
     listing_title: string | null;
     listing_price: number | null;
@@ -920,14 +1016,14 @@ export function getSentAlertByKey(
   userId: string,
   chaseId: string,
   listingId: string,
-  source: 'EBAY'
+  source: ListingSource
 ): SentAlert | null {
   const row = getSentAlertByKeyStmt.get(userId, chaseId, listingId, source) as
     | {
         chase_id: string;
         user_id: string;
         listing_id: string;
-        source: 'EBAY';
+        source: ListingSource;
         sent_at: string;
         listing_title: string | null;
         listing_price: number | null;
@@ -936,6 +1032,35 @@ export function getSentAlertByKey(
         match_score: number | null;
       }
     | undefined;
+  if (!row) return null;
+  return {
+    chaseId: row.chase_id,
+    userId: row.user_id,
+    listingId: row.listing_id,
+    source: row.source,
+    sentAt: row.sent_at,
+    listingTitle: row.listing_title ?? undefined,
+    listingPrice: row.listing_price ?? undefined,
+    listingCurrency: row.listing_currency ?? undefined,
+    listingUrl: row.listing_url ?? undefined,
+    matchScore: row.match_score ?? undefined
+  };
+}
+
+export function getSentAlertByFeedbackToken(userId: string, chaseId: string, feedbackToken: string): SentAlert | null {
+  const rows = listSentAlertsByChaseStmt.all(userId, chaseId) as Array<{
+    chase_id: string;
+    user_id: string;
+    listing_id: string;
+    source: ListingSource;
+    sent_at: string;
+    listing_title: string | null;
+    listing_price: number | null;
+    listing_currency: string | null;
+    listing_url: string | null;
+    match_score: number | null;
+  }>;
+  const row = rows.find((candidate) => makeAlertFeedbackToken(candidate.chase_id, candidate.listing_id) === feedbackToken);
   if (!row) return null;
   return {
     chaseId: row.chase_id,

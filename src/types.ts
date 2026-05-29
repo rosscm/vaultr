@@ -1,3 +1,5 @@
+export type ListingSource = 'EBAY' | 'SHOPIFY';
+
 export type Chase = {
   id: string;
   userId: string;
@@ -14,7 +16,7 @@ export type Chase = {
 };
 
 export type Listing = {
-  source: 'EBAY';
+  source: ListingSource;
   listingId: string;
   title: string;
   price: number;
@@ -72,7 +74,7 @@ export type SentAlert = {
   chaseName?: string;
   userId: string;
   listingId: string;
-  source: 'EBAY';
+  source: ListingSource;
   sentAt: string;
   listingTitle?: string;
   listingPrice?: number;

@@ -1,5 +1,5 @@
 import { ActionRowBuilder, MessageFlags, StringSelectMenuBuilder } from 'discord.js';
-import { addIgnoredListingFingerprint, getSentAlertByKey, recordAlertFeedback } from '../services/chase-store.js';
+import { addIgnoredListingFingerprint, getSentAlertByFeedbackToken, recordAlertFeedback } from '../services/chase-store.js';
 import { makeListingFingerprint } from '../services/listing-fingerprint.js';
 
 const FEEDBACK_PREFIX = 'alert-feedback';
@@ -21,10 +21,10 @@ function normalizeFeedback(value: string): 'GOOD_ALERT' | 'TUNE_OUT' | undefined
   return undefined;
 }
 
-function tuneOutReasonMenu(chaseId: string, listingId: string): ActionRowBuilder<StringSelectMenuBuilder> {
+function tuneOutReasonMenu(chaseId: string, feedbackToken: string): ActionRowBuilder<StringSelectMenuBuilder> {
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId(`${REASON_PREFIX}:${chaseId}:${listingId}`)
+      .setCustomId(`${REASON_PREFIX}:${chaseId}:${feedbackToken}`)
       .setPlaceholder('What should Vaultr learn from this?')
       .addOptions(...tuneOutReasons)
   );
@@ -34,18 +34,18 @@ async function handleTuneOutReason(interaction: any): Promise<boolean> {
   if (!interaction.isStringSelectMenu()) return false;
   if (!interaction.customId.startsWith(`${REASON_PREFIX}:`)) return false;
 
-  const [, chaseId, listingId] = interaction.customId.split(':');
+  const [, chaseId, feedbackToken] = interaction.customId.split(':');
   const reason = interaction.values?.[0] as (typeof tuneOutReasons)[number]['value'] | undefined;
-  if (!chaseId || !listingId || !tuneOutReasons.some((option) => option.value === reason)) {
+  const alert = chaseId && feedbackToken ? getSentAlertByFeedbackToken(interaction.user.id, chaseId, feedbackToken) : null;
+  if (!chaseId || !feedbackToken || !alert || !tuneOutReasons.some((option) => option.value === reason)) {
     await interaction.update({ content: 'Could not record that feedback.', components: [] });
     return true;
   }
 
-  recordAlertFeedback(interaction.user.id, chaseId, listingId, 'TUNE_OUT', reason);
+  recordAlertFeedback(interaction.user.id, chaseId, alert.listingId, 'TUNE_OUT', reason);
 
   let followUp = 'Noted. This helps tune future alerts.';
   if (reason === 'ALREADY_SEEN_BOUGHT') {
-    const alert = getSentAlertByKey(interaction.user.id, chaseId, listingId, 'EBAY');
     const fingerprint = alert?.listingTitle ? makeListingFingerprint(alert.listingTitle) : '';
     if (fingerprint) {
       addIgnoredListingFingerprint(interaction.user.id, chaseId, fingerprint);
@@ -62,9 +62,10 @@ export async function handleAlertFeedback(interaction: any): Promise<boolean> {
   if (!interaction.isButton()) return false;
   if (!interaction.customId.startsWith(`${FEEDBACK_PREFIX}:`)) return false;
 
-  const [, feedbackRaw, chaseId, listingId] = interaction.customId.split(':');
+  const [, feedbackRaw, chaseId, feedbackToken] = interaction.customId.split(':');
   const feedback = normalizeFeedback(feedbackRaw);
-  if (!feedback || !chaseId || !listingId) {
+  const alert = chaseId && feedbackToken ? getSentAlertByFeedbackToken(interaction.user.id, chaseId, feedbackToken) : null;
+  if (!feedback || !chaseId || !feedbackToken || !alert) {
     await interaction.reply({
       content: 'Could not record that feedback.',
       flags: MessageFlags.Ephemeral
@@ -73,7 +74,7 @@ export async function handleAlertFeedback(interaction: any): Promise<boolean> {
   }
 
   if (feedback === 'GOOD_ALERT') {
-    recordAlertFeedback(interaction.user.id, chaseId, listingId, feedback);
+    recordAlertFeedback(interaction.user.id, chaseId, alert.listingId, feedback);
     await interaction.reply({
       content: 'Noted. This helps tune future alerts.',
       flags: MessageFlags.Ephemeral
@@ -83,7 +84,7 @@ export async function handleAlertFeedback(interaction: any): Promise<boolean> {
 
   await interaction.reply({
     content: 'What should Vaultr learn from this alert?',
-    components: [tuneOutReasonMenu(chaseId, listingId)],
+    components: [tuneOutReasonMenu(chaseId, feedbackToken)],
     flags: MessageFlags.Ephemeral
   });
   return true;

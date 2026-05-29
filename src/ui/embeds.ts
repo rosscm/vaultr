@@ -1,4 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
+import { makeAlertFeedbackToken } from '../services/alert-feedback-token.js';
 
 const COLORS = {
   info: 0x3b82f6,
@@ -47,13 +48,14 @@ export function listingLinkButton(url: string): ActionRowBuilder<ButtonBuilder> 
 }
 
 export function alertFeedbackButtons(chaseId: string, listingId: string): ActionRowBuilder<ButtonBuilder> {
+  const feedbackToken = makeAlertFeedbackToken(chaseId, listingId);
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`alert-feedback:GOOD_ALERT:${chaseId}:${listingId}`)
+      .setCustomId(`alert-feedback:GOOD_ALERT:${chaseId}:${feedbackToken}`)
       .setLabel('Good Alert')
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId(`alert-feedback:TUNE_OUT:${chaseId}:${listingId}`)
+      .setCustomId(`alert-feedback:TUNE_OUT:${chaseId}:${feedbackToken}`)
       .setLabel('Tune Out')
       .setStyle(ButtonStyle.Secondary)
   );

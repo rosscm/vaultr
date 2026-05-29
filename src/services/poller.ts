@@ -21,6 +21,7 @@ import {
   markAlertSentWithDetails
 } from './chase-store.js';
 import { searchEbayListings, type ShippingDestination } from './ebay.js';
+import { searchTrustedShopifyListings } from './shopify.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
@@ -43,6 +44,7 @@ import {
   setSourceCallsLastMinute
 } from './poller-state.js';
 import { alertFeedbackButtons, keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
+import { buildWeeklyDiscoveryPathPayload } from '../commands/discover.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
 import type { Chase, Listing } from '../types.js';
 
@@ -233,6 +235,28 @@ function rankAlertCandidate(candidate: Omit<AlertCandidate, 'rankScore'>, chase:
     priceFitScore(candidate.normalizedListing.price, candidate.normalizedListing.shippingCost, chase.maxPrice) +
     freshnessScore(candidate.listing.postedAt)
   );
+}
+
+export function orderAlertCandidatesForSending(candidates: AlertCandidate[]): AlertCandidate[] {
+  const sources = new Set(candidates.map((candidate) => candidate.listing.source));
+  if (sources.size <= 1) return candidates;
+
+  const selected = new Set<AlertCandidate>();
+  const sourceLeaders: AlertCandidate[] = [];
+  for (const candidate of candidates) {
+    if (sourceLeaders.some((leader) => leader.listing.source === candidate.listing.source)) continue;
+    sourceLeaders.push(candidate);
+    selected.add(candidate);
+  }
+
+  sourceLeaders.sort((a, b) => {
+    if (a.listing.source === b.listing.source) return b.rankScore - a.rankScore;
+    if (a.listing.source === 'EBAY') return 1;
+    if (b.listing.source === 'EBAY') return -1;
+    return b.rankScore - a.rankScore;
+  });
+
+  return [...sourceLeaders, ...candidates.filter((candidate) => !selected.has(candidate))];
 }
 
 function summarizeWhyMatched(
@@ -427,6 +451,10 @@ function sourceQueryKey(chase: Chase, settings: ReturnType<typeof getUserAlertSe
   ].join('|');
 }
 
+function sourceModeIncludesTrustedShops(sourceMode: string): boolean {
+  return sourceMode === 'SHOPIFY' || sourceMode === 'EBAY_SHOPIFY';
+}
+
 async function fetchListingsWithRetry(chase: Chase, sourceMode: string, destination?: ShippingDestination): Promise<Listing[]> {
   const maxRequestsPerMinute = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '20');
   const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '30');
@@ -434,18 +462,28 @@ async function fetchListingsWithRetry(chase: Chase, sourceMode: string, destinat
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       if (sourceMode === 'MOCK') return searchMockListings(chase, destination);
+      if (sourceMode === 'SHOPIFY') return searchTrustedShopifyListings(chase);
+
+      const includeEbay = sourceMode === 'EBAY' || sourceMode === 'EBAY_SHOPIFY';
+      const includeShopify = sourceModeIncludesTrustedShops(sourceMode);
+      if (!includeEbay) return [];
+
+      const shopifyListingsPromise = includeShopify ? searchTrustedShopifyListings(chase) : Promise.resolve([]);
       const nowMs = Date.now();
       if (nowMs < backoffUntilMs) {
-        return [];
+        return shopifyListingsPromise;
       }
       if (!canCallSource(nowMs, maxRequestsPerMinute)) {
         markRateLimitSkip();
-        return [];
+        return shopifyListingsPromise;
       }
       markSourceCall(nowMs);
-      const listings = await withTimeout(searchEbayListings(chase, destination), 10000, 'Listing source timeout');
+      const [ebayListings, shopifyListings] = await Promise.all([
+        withTimeout(searchEbayListings(chase, destination), 10000, 'Listing source timeout'),
+        shopifyListingsPromise
+      ]);
       markSourceSuccessNow();
-      return listings;
+      return [...ebayListings, ...shopifyListings];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
@@ -570,7 +608,8 @@ async function runPoll(client: Client): Promise<void> {
       sourceMode,
       shippingDestinationFromSettings(representativeSettings)
     );
-    const didFetchListings = sourceMode === 'MOCK' || sourceCallTimestamps.length > sourceCallsBefore;
+    const didFetchListings =
+      sourceMode === 'MOCK' || sourceModeIncludesTrustedShops(sourceMode) || sourceCallTimestamps.length > sourceCallsBefore;
     if (didFetchListings) {
       const checkedAtIso = new Date().toISOString();
       lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
@@ -642,8 +681,9 @@ async function runPoll(client: Client): Promise<void> {
       }
 
       candidates.sort((a, b) => b.rankScore - a.rankScore);
+      const orderedCandidates = orderAlertCandidatesForSending(candidates);
 
-      for (const candidate of candidates) {
+      for (const candidate of orderedCandidates) {
       if (sentForChaseThisPoll >= maxForChaseThisPoll) {
         markChaseCooldownSuppression();
         break;
@@ -661,7 +701,7 @@ async function runPoll(client: Client): Promise<void> {
         continue;
       }
 
-      const sourceLabel = listing.source === 'EBAY' ? 'eBay' : listing.source;
+      const sourceLabel = listing.source === 'EBAY' ? 'eBay' : listing.seller ?? 'Trusted shop';
       const { icon: sightingIcon, label: sightingLabel } = sightingPresentation(chase.priority);
       const reasonSummary = splitReasons(match.reasons);
       const watchoutLines = reasonSummary.risk === 'None' ? [] : [`**Watchouts:** ${reasonSummary.risk}`];
@@ -945,7 +985,11 @@ async function maybeSendWeeklyReflections(client: Client): Promise<void> {
 
     try {
       const user = await client.users.fetch(userId);
-      await user.send({ embeds: [buildWeeklyReflectionEmbed(summary)] });
+      const discovery = await buildWeeklyDiscoveryPathPayload(userId);
+      await user.send({
+        embeds: [buildWeeklyReflectionEmbed(summary), ...(discovery?.embeds ?? [])],
+        components: discovery?.components ?? []
+      });
       markPostedUserWeeklyReflection(userId, weekKey);
     } catch (error) {
       console.error(`Failed to send weekly reflection to user ${userId}`, error);
