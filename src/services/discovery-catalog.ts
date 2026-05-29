@@ -115,7 +115,28 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     keywords: ['gengar', 'web', 'japanese', 'jp'],
     tags: ['gengar', 'japanese exclusive', 'web series', 'vintage', 'dark atmospheric'],
     why: 'moves a Gengar chase toward a Japanese-only release with a stranger collector texture',
+    evidenceSearchTerm: 'Gengar Web Series Pokemon Japanese',
+    evidenceAliases: ['Gengar Web Series', 'Gengar Pokemon Web', 'Japanese Web Gengar'],
+    requiredEvidenceTokens: ['gengar', 'web'],
+    minimumExampleTotalCad: 40,
+    maximumBaselineRawTotalCad: 400,
+    curiosityScore: 8,
     starter: true
+  },
+  {
+    name: 'Gengar TG06/TG30 Lost Origin Trainer Gallery',
+    lane: 'shadow character galleries',
+    laneWhy: 'Gengar cards with strong character mood that stay approachable in raw copies',
+    nearby: ['Gengar Web Series', 'Mimikyu 245/236 Cosmic Eclipse'],
+    keywords: ['gengar', 'tg06', 'lost origin', 'trainer gallery', 'shadow'],
+    tags: ['gengar', 'trainer gallery', 'dark atmospheric', 'modern display', 'character card'],
+    why: 'keeps the Gengar identity but lands on a display-friendly card with healthier raw-market depth',
+    evidenceSearchTerm: 'Gengar TG06 Lost Origin Pokemon',
+    evidenceAliases: ['Gengar TG06/TG30 Lost Origin', 'Gengar Trainer Gallery TG06', 'Gengar Lost Origin TG06'],
+    requiredEvidenceTokens: ['gengar', 'tg06'],
+    minimumExampleTotalCad: 20,
+    maximumBaselineRawTotalCad: 175,
+    curiosityScore: 7
   },
   {
     name: 'Darkrai & Cresselia LEGEND',
@@ -487,12 +508,31 @@ export function selectDiscoverySuggestions(focus: string | null, chases: Chase[]
   const signalTokens = new Set(tokens(signalText));
   const hasFocus = !!focus?.trim();
   const hasProfileSignals = signalText.trim().length > 0;
+  const focusText = normalize(focus ?? '');
+  const focusTokens = new Set(tokens(focusText));
+  const focusRanked = hasFocus
+    ? DISCOVERY_CATALOG
+        .map((card) => ({ card, score: scoreCard(card, focusText, focusTokens, true, true) }))
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => b.score - a.score || a.card.name.localeCompare(b.card.name))
+        .map(({ card }) => card)
+    : [];
   const ranked = DISCOVERY_CATALOG
     .map((card) => ({ card, score: scoreCard(card, signalText, signalTokens, hasFocus, hasProfileSignals) }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score || a.card.name.localeCompare(b.card.name))
     .map(({ card }) => card);
-  const selected = pickDistinctLaneCards(ranked.length > 0 ? ranked : DISCOVERY_CATALOG.filter((card) => card.starter), count);
+  const selected = pickDistinctLaneCards(focusRanked, count);
+  if (selected.length < count) {
+    const selectedNames = new Set(selected.map((card) => card.name));
+    selected.push(
+      ...pickDistinctLaneCards(
+        (ranked.length > 0 ? ranked : DISCOVERY_CATALOG.filter((card) => card.starter)).filter((card) => !selectedNames.has(card.name)),
+        count - selected.length,
+        new Set(selected.map((card) => card.lane))
+      )
+    );
+  }
   if (selected.length < count && !hasProfileSignals) {
     selected.push(...pickDistinctLaneCards(DISCOVERY_CATALOG.filter((card) => card.starter), count - selected.length, new Set(selected.map((card) => card.lane))));
   }

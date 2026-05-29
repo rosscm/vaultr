@@ -393,11 +393,25 @@ function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]): DiscoveryCan
   return [...candidates].sort((left, right) => curiosityRankScore(right) - curiosityRankScore(left));
 }
 
+function candidateMatchesFocus(candidate: DiscoveryCandidate, focus: string | null): boolean {
+  const focusTokens = normalizedTokens(focus ?? '');
+  if (focusTokens.length === 0) return false;
+  const candidateText = normalize([
+    candidate.suggestion.name,
+    candidate.suggestion.lane,
+    candidate.suggestion.laneWhy,
+    ...candidate.suggestion.nearby,
+    ...(candidate.suggestion.evidenceAliases ?? [])
+  ].join(' '));
+  return focusTokens.some((token) => candidateText.includes(token));
+}
+
 function discoveryVisualTone(lane: string): { icon: string; color: number; path: string } {
   const normalizedLane = normalize(lane);
   if (/japanese|vending|oddit/.test(normalizedLane)) return { icon: '🗾', color: DISCOVERY_LANE_COLOR, path: 'Hidden release path' };
   if (/secret|bird|legendary/.test(normalizedLane)) return { icon: '✦', color: DISCOVERY_LANE_COLOR, path: 'Rarer detour' };
-  if (/promo|character/.test(normalizedLane)) return { icon: '◆', color: DISCOVERY_LANE_COLOR, path: 'Promo thread' };
+  if (/promo/.test(normalizedLane)) return { icon: '◆', color: DISCOVERY_LANE_COLOR, path: 'Promo thread' };
+  if (/gallery|character/.test(normalizedLane)) return { icon: '◆', color: DISCOVERY_LANE_COLOR, path: 'Character gallery' };
   if (/mythical|mew/.test(normalizedLane)) return { icon: '✧', color: DISCOVERY_LANE_COLOR, path: 'Mythical thread' };
   return { icon: '◇', color: DISCOVERY_LANE_COLOR, path: 'Discovery thread' };
 }
@@ -429,10 +443,11 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[]): DiscoveryCandidat
   return selected;
 }
 
-function selectVisibleCandidates(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
+function selectVisibleCandidates(candidates: DiscoveryCandidate[], focus: string | null): DiscoveryCandidate[] {
+  const focusedRawData = rankDiscoveryCandidates(candidates.filter((candidate) => candidateMatchesFocus(candidate, focus) && hasSomeRawMarketData(candidate)));
   const strongRawData = rankDiscoveryCandidates(candidates.filter(hasEnoughRawMarketData));
   const partialRawData = rankDiscoveryCandidates(candidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)));
-  return takeDistinctThemes([...strongRawData, ...partialRawData]);
+  return takeDistinctThemes([...focusedRawData, ...strongRawData, ...partialRawData]);
 }
 
 function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): EmbedBuilder {
@@ -517,7 +532,7 @@ async function discoverCandidatesForUser(userId: string, focus: string | null, c
     hasLearnedProfile,
     lane: selection.lane,
     priceRange,
-    candidates: selectVisibleCandidates(enriched).slice(0, count)
+    candidates: selectVisibleCandidates(enriched, focus).slice(0, count)
   };
 }
 
