@@ -149,14 +149,6 @@ function formatShippingCost(cost: number | undefined, currency: string | undefin
   return `${cost.toFixed(2)} ${currency ?? ''}`.trim();
 }
 
-function formatShippingEligibility(listing: Listing): string {
-  if (!listing.shippingEligibility) return 'Unknown';
-  if (listing.shippingEligibilityMessage) return listing.shippingEligibilityMessage;
-  if (listing.shippingEligibility === 'AVAILABLE') return 'Shipping shown for your location';
-  if (listing.shippingEligibility === 'MAY_NOT_SHIP') return 'May not ship to your location';
-  return 'Shipping availability is unknown';
-}
-
 function formatTotalCost(price: number, shippingCost: number | undefined): number | undefined {
   if (shippingCost === undefined || Number.isNaN(shippingCost)) return undefined;
   return price + shippingCost;

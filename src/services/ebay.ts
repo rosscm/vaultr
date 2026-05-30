@@ -76,6 +76,16 @@ function parseNumber(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function browseShippingOptionWithCost(shippingOptions: unknown): any | undefined {
+  if (!Array.isArray(shippingOptions)) return undefined;
+  return shippingOptions.find((option) => parseNumber(option?.shippingCost?.value) !== undefined) ?? shippingOptions[0];
+}
+
+function shoppingItemIdFromListingId(listingId: string): string {
+  const browseIdMatch = /^v\d+\|([^|]+)\|/i.exec(listingId);
+  return browseIdMatch?.[1] ?? listingId;
+}
+
 function normalizeCountryCode(value: string | undefined): string | undefined {
   const normalized = value?.trim().toUpperCase();
   return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
@@ -92,10 +102,10 @@ function getDeliveryPostalCode(destination: ShippingDestination | undefined): st
 
 function getBrowseEndUserContext(destination: ShippingDestination | undefined): string | undefined {
   const country = getDeliveryCountry(destination);
-  if (!country) return undefined;
-
   const postalCode = getDeliveryPostalCode(destination);
-  return postalCode ? `contextualLocation=country=${country},zip=${postalCode}` : `contextualLocation=country=${country}`;
+  if (!country || !postalCode) return undefined;
+
+  return `contextualLocation=country=${country},zip=${postalCode}`;
 }
 
 function destinationLabel(country: string, postalCode: string | undefined): string {
@@ -246,7 +256,7 @@ function mapBrowseItemToListing(item: any, destination?: ShippingDestination): L
   const currency = item?.price?.currency ?? 'USD';
   if (!listingId || !title || !url || price === undefined) return null;
 
-  const shipping = Array.isArray(item?.shippingOptions) ? item.shippingOptions[0] : undefined;
+  const shipping = browseShippingOptionWithCost(item?.shippingOptions);
   const shippingCost = parseNumber(shipping?.shippingCost?.value);
   const deliveryCountry = getDeliveryCountry(destination);
   const deliveryPostalCode = getDeliveryPostalCode(destination);
@@ -294,6 +304,7 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
   });
 
   const endUserContext = getBrowseEndUserContext(destination);
+  const contextualDestination = endUserContext ? destination : undefined;
   const response = await fetch(`${getEbayBrowseEndpoint()}?${params.toString()}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -310,9 +321,21 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
   }
 
   const items = Array.isArray(json?.itemSummaries) ? json.itemSummaries : [];
-  return items
-    .map((item: any) => mapBrowseItemToListing(item, destination))
+  const listings = items
+    .map((item: any) => mapBrowseItemToListing(item, contextualDestination))
     .filter((listing: Listing | null): listing is Listing => listing !== null);
+
+  const appId = process.env.EBAY_APP_ID ?? process.env.EBAY_CLIENT_ID;
+  const needsEnrichment = listings.filter((listing: Listing) => listing.shippingCost === undefined);
+  if (!appId || needsEnrichment.length === 0) return listings;
+
+  const enrichedById = new Map<string, Listing>();
+  for (const listing of needsEnrichment) {
+    const enriched = await enrichListingFromShoppingApi(listing, appId);
+    enrichedById.set(listing.listingId, enriched);
+  }
+
+  return listings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
 }
 
 async function enrichListingFromShoppingApi(listing: Listing, appId: string): Promise<Listing> {
@@ -323,7 +346,7 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string): Pr
     appid: appId,
     version: '967',
     siteid: '0',
-    ItemID: listing.listingId,
+    ItemID: shoppingItemIdFromListingId(listing.listingId),
     IncludeSelector: 'Details,ShippingCosts'
   });
 

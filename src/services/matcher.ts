@@ -75,11 +75,22 @@ function isUngradedPreference(grade: string | undefined): boolean {
   return g === 'ungraded' || g === 'raw';
 }
 
-function listingLooksUngraded(title: string, condition: string | undefined): boolean {
+function hasUngradedIntent(chase: Chase): boolean {
+  if (isUngradedPreference(chase.grade)) return true;
+  return /\b(ungraded|raw)\b/.test(normalize(`${chase.cardName} ${chase.targetNote ?? ''}`));
+}
+
+function listingLooksGraded(title: string, condition: string | undefined): boolean {
   const normalizedTitle = normalize(title);
   const normalizedCondition = normalize(condition ?? '');
   const gradedTerms = /\b(psa|bgs|cgc|sgc|tag|ace|beckett|graded|slabbed|slab|gem mint|mint 10)\b/;
-  if (gradedTerms.test(normalizedTitle)) return false;
+  return gradedTerms.test(normalizedTitle) || /\bgraded\b/.test(normalizedCondition);
+}
+
+function listingLooksUngraded(title: string, condition: string | undefined): boolean {
+  const normalizedTitle = normalize(title);
+  const normalizedCondition = normalize(condition ?? '');
+  if (listingLooksGraded(title, condition)) return false;
   return /\b(ungraded|raw)\b/.test(normalizedTitle) || /\b(ungraded|raw)\b/.test(normalizedCondition);
 }
 
@@ -133,7 +144,7 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     }
   }
 
-  if (isUngradedPreference(chase.grade)) {
+  if (hasUngradedIntent(chase)) {
     if (listingLooksUngraded(listing.title, listing.condition)) {
       score += 15;
       reasons.push('ungraded_match');

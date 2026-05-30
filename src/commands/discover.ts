@@ -356,14 +356,6 @@ async function enrichSuggestion(
   }
 }
 
-function formatMarketFeel(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
-  if (candidate.typicalRawAskingTotal === undefined || candidate.marketSampleSize === undefined || candidate.marketSampleSize === 0) {
-    return 'not enough clean raw examples right now';
-  }
-  const sample = `${candidate.marketSampleSize} clean raw listing${candidate.marketSampleSize === 1 ? '' : 's'}`;
-  return `${formatMoney(candidate.typicalRawAskingTotal, candidate.displayCurrency ?? currencyHint)} typical raw asking from ${sample}`;
-}
-
 function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
   if (candidate.typicalRawAskingTotal === undefined || candidate.marketSampleSize === undefined || candidate.marketSampleSize === 0) {
     return 'Market is thin right now; treat this as a lane to watch.';

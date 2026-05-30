@@ -1,6 +1,5 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings } from '../services/chase-store.js';
-import { OUTPUT_STYLE } from '../ui/style.js';
 
 export const previewAlert = {
   data: new SlashCommandBuilder()

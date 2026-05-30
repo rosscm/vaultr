@@ -92,6 +92,30 @@ describe('matchChaseToListing', () => {
     expect(result.reasons).toEqual(['ungraded_miss']);
   });
 
+  it('rejects eBay graded-condition listings for ungraded preference even when the title omits grading terms', () => {
+    const chase = baseChase({ cardName: 'Mew ex 053', grade: 'UNGRADED' });
+    const listing = baseListing({
+      title: 'Mew ex 053 Sv: Scarlet & Violet Promo Cards Holo',
+      condition: 'Graded'
+    });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(false);
+    expect(result.reasons).toEqual(['ungraded_miss']);
+  });
+
+  it('treats raw or ungraded chase text as an ungraded preference', () => {
+    const chase = baseChase({ cardName: 'Mew ex 053 raw' });
+    const listing = baseListing({
+      title: 'Mew ex 053 Sv: Scarlet & Violet Promo Cards Holo',
+      condition: 'Graded'
+    });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(false);
+    expect(result.reasons).toEqual(['ungraded_miss']);
+  });
+
   it('fails when condition does not match', () => {
     const chase = baseChase({ condition: 'LP' });
     const listing = baseListing({ condition: 'Near Mint' });
