@@ -68,6 +68,22 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS user_discovery_preferences (
+    user_id TEXT NOT NULL,
+    focus TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, focus)
+  );
+
+  CREATE TABLE IF NOT EXISTS user_discovery_seen (
+    user_id TEXT NOT NULL,
+    suggestion_name TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    times_seen INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (user_id, suggestion_name)
+  );
+
   CREATE TABLE IF NOT EXISTS guild_community_feed (
     guild_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 0,
@@ -242,6 +258,26 @@ try {
 } catch {
   // Column is already absent on fresh or upgraded databases.
 }
+
+const discoveryPreferenceColumns = db.prepare(`PRAGMA table_info(user_discovery_preferences);`).all() as Array<{ name: string; pk: number }>;
+const hasMultiFocusDiscoveryPreferenceKey = discoveryPreferenceColumns.some((column) => column.name === 'user_id' && column.pk === 1) && discoveryPreferenceColumns.some((column) => column.name === 'focus' && column.pk === 2);
+if (discoveryPreferenceColumns.length > 0 && !hasMultiFocusDiscoveryPreferenceKey) {
+  db.exec(`
+    DROP TABLE IF EXISTS user_discovery_preferences_next;
+    CREATE TABLE user_discovery_preferences_next (
+      user_id TEXT NOT NULL,
+      focus TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, focus)
+    );
+    INSERT OR IGNORE INTO user_discovery_preferences_next (user_id, focus, updated_at)
+    SELECT user_id, TRIM(focus), updated_at
+    FROM user_discovery_preferences
+    WHERE focus IS NOT NULL AND TRIM(focus) != '';
+    DROP TABLE user_discovery_preferences;
+    ALTER TABLE user_discovery_preferences_next RENAME TO user_discovery_preferences;
+  `);
+}
 try {
   db.exec(`ALTER TABLE guild_community_feed ADD COLUMN mode TEXT NOT NULL DEFAULT 'PULSE';`);
 } catch {
@@ -259,6 +295,8 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_guild_time ON sent_alerts(gu
 db.exec(`CREATE INDEX IF NOT EXISTS idx_ignored_listing_fingerprints_user_chase ON ignored_listing_fingerprints(user_id, chase_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_guild_started_users_guild_time ON guild_started_users(guild_id, started_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_weekly_reflection_posts_user_week ON user_weekly_reflection_posts(user_id, week_key);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_user_discovery_preferences_user_updated ON user_discovery_preferences(user_id, updated_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_user_discovery_seen_user_last_seen ON user_discovery_seen(user_id, last_seen_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_user ON discovery_vault_actions(user_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_expires ON discovery_vault_actions(expires_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_feedback_user_time ON alert_feedback(user_id, created_at);`);

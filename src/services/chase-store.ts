@@ -205,6 +205,53 @@ const upsertUserAlertSettingsStmt = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
+const listUserDiscoveryFocusesStmt = db.prepare(`
+  SELECT focus
+  FROM user_discovery_preferences
+  WHERE user_id = ?
+  ORDER BY updated_at DESC, focus ASC
+`);
+
+const upsertUserDiscoveryFocusStmt = db.prepare(`
+  INSERT INTO user_discovery_preferences (user_id, focus, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(user_id, focus) DO UPDATE SET
+    updated_at = excluded.updated_at
+`);
+
+const pruneUserDiscoveryFocusesStmt = db.prepare(`
+  DELETE FROM user_discovery_preferences
+  WHERE user_id = ?
+    AND focus NOT IN (
+      SELECT focus
+      FROM user_discovery_preferences
+      WHERE user_id = ?
+      ORDER BY updated_at DESC, focus ASC
+      LIMIT ?
+    )
+`);
+
+const clearUserDiscoveryFocusesStmt = db.prepare(`
+  DELETE FROM user_discovery_preferences
+  WHERE user_id = ?
+`);
+
+const listRecentUserDiscoverySeenStmt = db.prepare(`
+  SELECT suggestion_name
+  FROM user_discovery_seen
+  WHERE user_id = ?
+  ORDER BY last_seen_at DESC
+  LIMIT ?
+`);
+
+const upsertUserDiscoverySeenStmt = db.prepare(`
+  INSERT INTO user_discovery_seen (user_id, suggestion_name, first_seen_at, last_seen_at, times_seen)
+  VALUES (?, ?, ?, ?, 1)
+  ON CONFLICT(user_id, suggestion_name) DO UPDATE SET
+    last_seen_at = excluded.last_seen_at,
+    times_seen = user_discovery_seen.times_seen + 1
+`);
+
 function normalizeListingSourceModePreference(value: string | null | undefined): ListingSourceModePreference {
   if (value === 'EBAY' || value === 'EBAY_SHOPIFY' || value === 'SHOPIFY') return value;
   return 'EBAY';
@@ -553,7 +600,7 @@ export function getGuildCommunityStatsToday(guildId: string): {
     usersAlerted: Number(usersRow?.count ?? 0),
     matches: Number(matchesRow?.count ?? 0),
     grailsSurfaced: Number(grailsRow?.count ?? 0),
-    topTrackedFamily: inferFamilyFromText(collectorText) ?? 'Mixed collections',
+    topTrackedFamily: inferFamilyFromText(collectorText, 2) ?? 'Mixed collections',
     topTrackedTheme: inferThemeFromText(collectorText) ?? 'Varied styles',
     hiddenDiscovery: alertTitles[0] ?? 'A quiet spotlight. Chases are still watching.'
   };
@@ -1079,7 +1126,33 @@ export function resetUserAlertSettings(userId: string): UserAlertSettings {
   };
 }
 
-function inferFamilyFromText(values: string[]): string | null {
+export function listUserDiscoveryFocuses(userId: string): string[] {
+  const rows = listUserDiscoveryFocusesStmt.all(userId) as Array<{ focus: string }>;
+  return rows.map((row) => row.focus);
+}
+
+export function addUserDiscoveryFocus(userId: string, focus: string, limit = 5): string[] {
+  upsertUserDiscoveryFocusStmt.run(userId, focus, new Date().toISOString());
+  pruneUserDiscoveryFocusesStmt.run(userId, userId, limit);
+  return listUserDiscoveryFocuses(userId);
+}
+
+export function clearUserDiscoveryFocuses(userId: string): void {
+  clearUserDiscoveryFocusesStmt.run(userId);
+}
+
+export function listRecentUserDiscoverySeenNames(userId: string, limit = 24): string[] {
+  const rows = listRecentUserDiscoverySeenStmt.all(userId, limit) as Array<{ suggestion_name: string }>;
+  return rows.map((row) => row.suggestion_name);
+}
+
+export function markUserDiscoverySuggestionsSeen(userId: string, suggestionNames: string[]): void {
+  const now = new Date().toISOString();
+  const uniqueSuggestionNames = [...new Set(suggestionNames.map((name) => name.trim()).filter(Boolean))];
+  for (const suggestionName of uniqueSuggestionNames) upsertUserDiscoverySeenStmt.run(userId, suggestionName, now, now);
+}
+
+function inferFamilyFromText(values: string[], minimumMentions = 1): string | null {
   const text = values.join(' ').toLowerCase();
   const families = [
     'umbreon',
@@ -1100,7 +1173,7 @@ function inferFamilyFromText(values: string[]): string | null {
   let best: { name: string; count: number } | null = null;
   for (const name of families) {
     const count = text.split(name).length - 1;
-    if (count <= 0) continue;
+    if (count < minimumMentions) continue;
     if (!best || count > best.count) best = { name, count };
   }
   if (!best) return null;

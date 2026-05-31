@@ -889,47 +889,96 @@ function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): 
   return parts.join(' • ');
 }
 
+function dailyPulseMood(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
+  if (stats.grailsSurfaced > 0) return `A grail broke through while ${stats.topTrackedTheme.toLowerCase()} stayed warm.`;
+  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'New Vaults opened and fresh sightings moved through the room.';
+  if (stats.usersAlerted > 0) return `Sightings kept ${stats.topTrackedFamily.toLowerCase()} collectors busy today.`;
+  if (stats.newVaultrs > 0) return 'A few new Vaults joined the watch list today.';
+  return 'The room stayed quiet, but the watch list kept learning in the background.';
+}
+
+function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStatsToday>): string[] {
+  const lines: string[] = [];
+  if (stats.newVaultrs > 0) lines.push(`• New Vaults: ${pluralize(stats.newVaultrs, 'collector')}`);
+  if (stats.usersAlerted > 0) {
+    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} reached ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')} received a sighting`;
+    lines.push(`• Sightings: ${sightingDetail}`);
+  }
+  if (stats.grailsSurfaced > 0) lines.push(`• Breakthroughs: ${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
+  return lines.length > 0 ? lines : ['• Chases watched quietly in the background'];
+}
+
+function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
+  if (stats.topTrackedFamily === 'Mixed collections' && stats.topTrackedTheme === 'Varied styles') {
+    return 'Mixed collections with no single lane taking over yet.';
+  }
+  return `${stats.topTrackedTheme} around ${stats.topTrackedFamily}`;
+}
+
 export function buildDailyPulseMessage(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   return [
     '🗝️ **Vault Pulse**',
     dailyPulseLine(stats),
+    dailyPulseMood(stats),
+    '',
+    '**Today in the Vault**',
+    ...dailyPulseActivityLines(stats),
     '',
     '**Collector Current**',
-    `• Thread: ${stats.topTrackedTheme}`,
-    `• Family: ${stats.topTrackedFamily}`,
+    `• ${dailyPulseCollectorCurrent(stats)}`,
     '',
-    '**Today\'s Spotlight**',
+    '**Market Whisper**',
     `• ${truncateForEmbed(stats.hiddenDiscovery, 180)}`
   ].join('\n');
 }
 
-function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
-  if (summary.alertsReceived === 0) {
-    return 'Your Vault stayed quiet this week, but every chase still helped shape what Vaultr understands about your taste.';
-  }
-  return `Vaultr surfaced ${pluralize(summary.alertsReceived, 'sighting')} this week and kept tuning your collector profile around ${summary.topTasteTheme}.`;
+export function shouldPostDailyPulse(stats: ReturnType<typeof getGuildCommunityStatsToday>): boolean {
+  return stats.newVaultrs > 0 || stats.usersAlerted > 0 || stats.matches > 0 || stats.grailsSurfaced > 0;
 }
 
-function weeklyReflectionNote(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
-  const notes: string[] = [];
-  if (summary.newChasesAdded > 0) notes.push(`${pluralize(summary.newChasesAdded, 'new chase')} added new signal`);
-  if (summary.grailsSurfaced > 0) notes.push(`${pluralize(summary.grailsSurfaced, 'grail')} surfaced`);
-  if (notes.length === 0) return 'No major shifts this week. Your existing chases kept teaching Vaultr in the background.';
-  return notes.join(' • ');
+function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
+  if (summary.alertsReceived === 0) {
+    return '**Quiet week.** Vaultr kept your chases warm in the background.';
+  }
+  const grailNote = summary.grailsSurfaced > 0 ? `, including ${pluralize(summary.grailsSurfaced, 'grail')}` : '';
+  return `**${pluralize(summary.alertsReceived, 'sighting')} surfaced** this week${grailNote}.`;
+}
+
+function weeklyNextStep(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
+  if (summary.alertsReceived >= 25) return 'If this felt noisy, tighten max price, condition, or negative keywords on the chases that fired most.';
+  if (summary.newChasesAdded > 0) return 'Your new chases are now part of Discovery. Add a focus if you want Vaultr to explore a specific lane.';
+  if (summary.alertsReceived === 0) return 'Add a focus or refresh a chase if you want Discovery to explore a new lane next week.';
+  return 'Keep useful chases active and tune out listings that do not match your collecting intent.';
+}
+
+function weeklyReflectionColor(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): number {
+  if (summary.alertsReceived >= 25) return 0xf97316;
+  if (summary.grailsSurfaced > 0) return 0xf59e0b;
+  if (summary.alertsReceived === 0) return 0x64748b;
+  return 0x0e7490;
+}
+
+function weeklyMetricField(name: string, value: number, label: string): { name: string; value: string; inline: true } {
+  return {
+    name,
+    value: `**${value.toLocaleString()}**\n${label}`,
+    inline: true
+  };
 }
 
 export function buildWeeklyReflectionEmbed(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): EmbedBuilder {
   return new EmbedBuilder()
-    .setColor(0xf59e0b)
+    .setColor(weeklyReflectionColor(summary))
     .setTitle('🗝️ Vaultr Weekly')
     .setDescription(weeklyReflectionIntro(summary))
     .addFields(
-      keyValue('Collector Thread', `${summary.topTasteTheme} • ${summary.topTasteFamily}`),
-      keyValue('Taste Signals', weeklyReflectionNote(summary)),
-      keyValue('Discovery Thread', truncateForEmbed(summary.recentDiscovery)),
-      keyValue('Next Week', 'Keep your chases active. Every sighting and Tune Out helps Vaultr sharpen your collector profile.')
+      weeklyMetricField('👁️ Sightings', summary.alertsReceived, 'alerts sent'),
+      weeklyMetricField('💎 Grails', summary.grailsSurfaced, 'high-priority hits'),
+      weeklyMetricField('➕ New Chases', summary.newChasesAdded, 'added signal'),
+      keyValue('🧭 Current Read', `${summary.topTasteTheme} around ${summary.topTasteFamily}`),
+      keyValue('🎯 Next Step', weeklyNextStep(summary))
     )
-    .setFooter({ text: 'Vaultr • Weekly collector profile' })
+    .setFooter({ text: 'Vaultr • Weekly' })
     .setTimestamp();
 }
 
@@ -954,6 +1003,7 @@ async function maybePostDailyCommunityStats(client: Client): Promise<void> {
     if (!channel || !('send' in channel)) continue;
 
     const stats = getGuildCommunityStatsToday(guildId);
+    if (!shouldPostDailyPulse(stats)) continue;
     await channel.send(buildDailyPulseMessage(stats));
 
     markPostedGuildDailyStats(guildId, dayKey);

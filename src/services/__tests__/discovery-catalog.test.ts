@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestions } from '../discovery-catalog.js';
+import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestions, selectDiscoverySuggestionsForFocuses } from '../discovery-catalog.js';
 import type { Chase } from '../../types.js';
 
 function chase(overrides: Partial<Chase> = {}): Chase {
@@ -37,6 +37,27 @@ describe('selectDiscoverySuggestions', () => {
     expect(selection.suggestions.map((suggestion) => suggestion.name)).toContain('Gengar Web Series');
     expect(gengar?.lane).toBe('Japanese-only oddities');
     expect(gengar?.nearby).toContain('Mewtwo Vending Series');
+    expectDistinctLanes(selection);
+  });
+
+  it('blends multiple saved focuses instead of letting one focus dominate', () => {
+    const selection = selectDiscoverySuggestionsForFocuses(['e reader', 'vending'], [], 3);
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(names).toContain('Houndoom Aquapolis H11/H32');
+    expect(names).toContain('Mewtwo Vending Series');
+    expectDistinctLanes(selection);
+  });
+
+  it('avoids recently seen suggestions before falling back to repeats', () => {
+    const selection = selectDiscoverySuggestionsForFocuses(['e reader', 'vending'], [], 3, {
+      excludedNames: ['Houndoom Aquapolis H11/H32', 'Mewtwo Vending Series']
+    });
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(names).not.toContain('Houndoom Aquapolis H11/H32');
+    expect(names).not.toContain('Mewtwo Vending Series');
+    expect(names).toContain('Ninetales Expedition H19/H32');
     expectDistinctLanes(selection);
   });
 

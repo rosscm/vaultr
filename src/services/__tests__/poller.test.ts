@@ -5,7 +5,8 @@ import {
   effectiveListingSourceMode,
   isDueForPollInterval,
   orderAlertCandidatesForSending,
-  orderGroupsForRun
+  orderGroupsForRun,
+  shouldPostDailyPulse
 } from '../poller.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
 import { getRuntimePollIntervalSeconds, PLAN_LIMITS } from '../plans.js';
@@ -168,7 +169,7 @@ describe('poller coverage state', () => {
 });
 
 describe('buildWeeklyReflectionEmbed', () => {
-  it('frames the weekly DM as a learned collector profile update', () => {
+  it('frames the weekly DM as a concise collector recap', () => {
     const embed = buildWeeklyReflectionEmbed({
       alertsReceived: 4,
       grailsSurfaced: 1,
@@ -181,22 +182,68 @@ describe('buildWeeklyReflectionEmbed', () => {
 
     expect(data.title).toBe('🗝️ Vaultr Weekly');
     expect(data.description).toContain('4 sightings');
-    expect(data.description).toContain('collector profile');
+    expect(data.description).toContain('1 grail');
     expect(data.fields?.map((field) => field.name)).toEqual([
-      'Collector Thread',
-      'Taste Signals',
-      'Discovery Thread',
-      'Next Week'
+      '👁️ Sightings',
+      '💎 Grails',
+      '➕ New Chases',
+      '🧭 Current Read',
+      '🎯 Next Step'
     ]);
-    expect(data.fields?.[0].value).toBe('moonlit alt art • Eeveelution cards');
-    expect(data.fields?.[1].value).toContain('2 new chases added new signal');
-    expect(data.fields?.[1].value).toContain('1 grail surfaced');
-    expect(data.fields?.[3].value).toContain('Tune Out');
-    expect(data.footer?.text).toBe('Vaultr • Weekly collector profile');
+    expect(data.fields?.[0].value).toBe('**4**\nalerts sent');
+    expect(data.fields?.[0].inline).toBe(true);
+    expect(data.fields?.[1].value).toBe('**1**\nhigh-priority hits');
+    expect(data.fields?.[2].value).toBe('**2**\nadded signal');
+    expect(data.fields?.[3].value).toBe('moonlit alt art around Eeveelution cards');
+    expect(data.fields?.[4].value).toContain('new chases are now part of Discovery');
+    expect(data.footer?.text).toBe('Vaultr • Weekly');
+  });
+
+  it('nudges noisy weeks toward chase tuning', () => {
+    const embed = buildWeeklyReflectionEmbed({
+      alertsReceived: 36,
+      grailsSurfaced: 7,
+      newChasesAdded: 5,
+      topTasteFamily: 'Mew line',
+      topTasteTheme: 'Japanese exclusives',
+      recentDiscovery: 'Mewtwo Vending Series'
+    });
+    const data = embed.toJSON();
+
+    expect(data.description).toBe('**36 sightings surfaced** this week, including 7 grails.');
+    expect(data.fields?.[0].value).toBe('**36**\nalerts sent');
+    expect(data.fields?.[1].value).toBe('**7**\nhigh-priority hits');
+    expect(data.fields?.[4].value).toContain('If this felt noisy');
+    expect(data.fields?.[4].value).toContain('negative keywords');
   });
 });
 
 describe('buildDailyPulseMessage', () => {
+  it('posts only when the daily pulse has real activity', () => {
+    expect(
+      shouldPostDailyPulse({
+        newVaultrs: 0,
+        usersAlerted: 0,
+        matches: 0,
+        grailsSurfaced: 0,
+        topTrackedFamily: 'Mixed collections',
+        topTrackedTheme: 'Varied styles',
+        hiddenDiscovery: 'A quiet spotlight. Chases are still watching.'
+      })
+    ).toBe(false);
+    expect(
+      shouldPostDailyPulse({
+        newVaultrs: 0,
+        usersAlerted: 1,
+        matches: 1,
+        grailsSurfaced: 0,
+        topTrackedFamily: 'Mixed collections',
+        topTrackedTheme: 'Varied styles',
+        hiddenDiscovery: 'A sighting moved through the Vault.'
+      })
+    ).toBe(true);
+  });
+
   it('formats an active community day as a collector heartbeat', () => {
     const message = buildDailyPulseMessage({
       newVaultrs: 2,
@@ -211,11 +258,15 @@ describe('buildDailyPulseMessage', () => {
     expect(message).toContain('🗝️ **Vault Pulse**');
     expect(message).toContain('2 collectors opened a Vault');
     expect(message).toContain('3 collectors received a sighting');
+    expect(message).toContain('A grail broke through while moonlit alt art stayed warm.');
+    expect(message).toContain('**Today in the Vault**');
+    expect(message).toContain('• New Vaults: 2 collectors');
+    expect(message).toContain('• Sightings: 5 listings reached 3 collectors');
+    expect(message).toContain('• Breakthroughs: 1 grail surfaced');
     expect(message).toContain('1 grail surfaced');
     expect(message).toContain('**Collector Current**');
-    expect(message).toContain('• Thread: moonlit alt art');
-    expect(message).toContain('• Family: Eeveelution cards');
-    expect(message).toContain("**Today's Spotlight**");
+    expect(message).toContain('• moonlit alt art around Eeveelution cards');
+    expect(message).toContain('**Market Whisper**');
     expect(message).toContain('Umbreon VMAX Alt Art PSA 10');
     expect(message).not.toContain('received a match');
   });
@@ -232,7 +283,8 @@ describe('buildDailyPulseMessage', () => {
     });
 
     expect(message).toContain('A quiet day in the Vault. Chases kept watching in the background.');
-    expect(message).toContain('• Thread: Varied styles');
-    expect(message).toContain('• Family: Mixed collections');
+    expect(message).toContain('The room stayed quiet, but the watch list kept learning in the background.');
+    expect(message).toContain('• Chases watched quietly in the background');
+    expect(message).toContain('• Mixed collections with no single lane taking over yet.');
   });
 });

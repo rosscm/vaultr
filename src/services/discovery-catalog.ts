@@ -31,6 +31,10 @@ export type DiscoverySelection = {
   suggestions: DiscoverySuggestion[];
 };
 
+type DiscoverySelectionOptions = {
+  excludedNames?: Iterable<string>;
+};
+
 const STOP_WORDS = new Set(['and', 'card', 'cards', 'for', 'from', 'pokemon', 'the', 'with']);
 
 const PROMO_RELEASE_PATTERNS = [
@@ -417,9 +421,12 @@ function normalize(value: string): string {
   return value.toLowerCase();
 }
 
+function normalizeSearchText(value: string): string {
+  return normalize(value).replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function tokens(value: string): string[] {
-  return normalize(value)
-    .replace(/[^a-z0-9\s/-]+/g, ' ')
+  return normalizeSearchText(value)
     .split(/\s+/)
     .map((token) => token.trim())
     .filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
@@ -459,7 +466,7 @@ export function hasPromoLeaningDiscoveryProfile(chases: Chase[]): boolean {
 }
 
 function textMatchesPhrase(text: string, phrase: string): boolean {
-  return text.includes(normalize(phrase));
+  return normalizeSearchText(text).includes(normalizeSearchText(phrase));
 }
 
 function scoreCard(card: DiscoveryCatalogCard, signalText: string, signalTokens: Set<string>, hasFocus: boolean, hasProfileSignals: boolean): number {
@@ -502,28 +509,69 @@ function pickDistinctLaneCards(cards: DiscoveryCatalogCard[], count: number, exi
   return selected;
 }
 
-export function selectDiscoverySuggestions(focus: string | null, chases: Chase[], count = 3): DiscoverySelection {
-  const chaseText = chases.map((chase) => inferChaseDiscoverySignals(chase).text).join(' ');
-  const signalText = normalize([focus, chaseText].filter(Boolean).join(' '));
+function rankCards(signalText: string, hasFocus: boolean, hasProfileSignals: boolean): DiscoveryCatalogCard[] {
   const signalTokens = new Set(tokens(signalText));
-  const hasFocus = !!focus?.trim();
-  const hasProfileSignals = signalText.trim().length > 0;
-  const focusText = normalize(focus ?? '');
-  const focusTokens = new Set(tokens(focusText));
-  const focusRanked = hasFocus
-    ? DISCOVERY_CATALOG
-        .map((card) => ({ card, score: scoreCard(card, focusText, focusTokens, true, true) }))
-        .filter(({ score }) => score > 0)
-        .sort((a, b) => b.score - a.score || a.card.name.localeCompare(b.card.name))
-        .map(({ card }) => card)
-    : [];
-  const ranked = DISCOVERY_CATALOG
+  return DISCOVERY_CATALOG
     .map((card) => ({ card, score: scoreCard(card, signalText, signalTokens, hasFocus, hasProfileSignals) }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score || a.card.name.localeCompare(b.card.name))
     .map(({ card }) => card);
-  const selected = pickDistinctLaneCards(focusRanked, count);
+}
+
+function addDistinctCard(selected: DiscoveryCatalogCard[], card: DiscoveryCatalogCard, selectedNames: Set<string>, selectedLanes: Set<string>, count: number): boolean {
+  if (selected.length >= count || selectedNames.has(card.name) || selectedLanes.has(card.lane)) return false;
+  selected.push(card);
+  selectedNames.add(card.name);
+  selectedLanes.add(card.lane);
+  return true;
+}
+
+function pickBlendedFocusCards(focusRankedLists: DiscoveryCatalogCard[][], count: number, excludedNames: Set<string>): DiscoveryCatalogCard[] {
+  const selected: DiscoveryCatalogCard[] = [];
+  const selectedNames = new Set<string>();
+  const selectedLanes = new Set<string>();
+  const maxRankLength = Math.max(0, ...focusRankedLists.map((ranked) => ranked.length));
+  for (let rankIndex = 0; rankIndex < maxRankLength && selected.length < count; rankIndex += 1) {
+    for (const ranked of focusRankedLists) {
+      const card = ranked[rankIndex];
+      if (card && !excludedNames.has(card.name)) addDistinctCard(selected, card, selectedNames, selectedLanes, count);
+      if (selected.length >= count) break;
+    }
+  }
+  return selected;
+}
+
+export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: Chase[], count = 3, options: DiscoverySelectionOptions = {}): DiscoverySelection {
+  const normalizedFocuses = [...new Set(focuses.map((focus) => focus.trim()).filter(Boolean))];
+  const chaseText = chases.map((chase) => inferChaseDiscoverySignals(chase).text).join(' ');
+  const focusText = normalizedFocuses.join(' ');
+  const signalText = normalize([focusText, chaseText].filter(Boolean).join(' '));
+  const hasFocus = normalizedFocuses.length > 0;
+  const hasProfileSignals = signalText.trim().length > 0;
+  const excludedNames = new Set(options.excludedNames ?? []);
+  const focusRankedLists = normalizedFocuses.map((focus) => rankCards(normalize(focus), true, true));
+  const ranked = rankCards(signalText, hasFocus, hasProfileSignals);
+  const selected = pickBlendedFocusCards(focusRankedLists, count, excludedNames);
   if (selected.length < count) {
+    const selectedNames = new Set(selected.map((card) => card.name));
+    selected.push(
+      ...pickDistinctLaneCards(
+        (ranked.length > 0 ? ranked : DISCOVERY_CATALOG.filter((card) => card.starter)).filter((card) => !selectedNames.has(card.name) && !excludedNames.has(card.name)),
+        count - selected.length,
+        new Set(selected.map((card) => card.lane))
+      )
+    );
+  }
+  if (selected.length < count && !hasProfileSignals) {
+    selected.push(
+      ...pickDistinctLaneCards(
+        DISCOVERY_CATALOG.filter((card) => card.starter && !excludedNames.has(card.name)),
+        count - selected.length,
+        new Set(selected.map((card) => card.lane))
+      )
+    );
+  }
+  if (selected.length === 0 && excludedNames.size > 0) {
     const selectedNames = new Set(selected.map((card) => card.name));
     selected.push(
       ...pickDistinctLaneCards(
@@ -532,9 +580,6 @@ export function selectDiscoverySuggestions(focus: string | null, chases: Chase[]
         new Set(selected.map((card) => card.lane))
       )
     );
-  }
-  if (selected.length < count && !hasProfileSignals) {
-    selected.push(...pickDistinctLaneCards(DISCOVERY_CATALOG.filter((card) => card.starter), count - selected.length, new Set(selected.map((card) => card.lane))));
   }
 
   return {
@@ -553,4 +598,8 @@ export function selectDiscoverySuggestions(focus: string | null, chases: Chase[]
       curiosityScore
     }))
   };
+}
+
+export function selectDiscoverySuggestions(focus: string | null, chases: Chase[], count = 3, options: DiscoverySelectionOptions = {}): DiscoverySelection {
+  return selectDiscoverySuggestionsForFocuses(focus ? [focus] : [], chases, count, options);
 }

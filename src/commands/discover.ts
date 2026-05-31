@@ -2,16 +2,21 @@ import { randomUUID } from 'node:crypto';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import {
   addChase,
+  addUserDiscoveryFocus,
+  clearUserDiscoveryFocuses,
   countUserChases,
   createDiscoveryVaultAction,
   deleteExpiredDiscoveryVaultActions,
   getDiscoveryVaultAction,
   getUserAlertSettings,
   getUserPlan,
-  listChases
+  listChases,
+  listRecentUserDiscoverySeenNames,
+  listUserDiscoveryFocuses,
+  markUserDiscoverySuggestionsSeen
 } from '../services/chase-store.js';
 import { convertCurrencyAmount, type SupportedCurrency } from '../services/currency.js';
-import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestions, type DiscoverySuggestion } from '../services/discovery-catalog.js';
+import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { searchEbayListings } from '../services/ebay.js';
 import { PLAN_LIMITS } from '../services/plans.js';
@@ -120,23 +125,17 @@ function learningSignal(
   hasFullDiscovery: boolean,
   hasLearnedProfile: boolean
 ): string {
-  if (focus && !hasLearnedProfile) return `steered by \`${focus}\`; early read from ${chases.length} active chase${chases.length === 1 ? '' : 's'}`;
-  if (focus) return `steered by \`${focus}\`, shaped by ${chases.length} active chases`;
+  if (chases.length === 0 && focus) return `steered by saved focus${focus.includes(',') ? 'es' : ''}: \`${focus}\`; Vaultr will sharpen this as your vault grows`;
+  if (chases.length === 0) return 'start with a focus or a few chases to shape Discovery';
+  const focusNote = focus ? ` and saved focus${focus.includes(',') ? 'es' : ''}: \`${focus}\`` : '';
+  const promoSignal = hasPromoLeaningDiscoveryProfile(chases) ? '; promo and special-release signal emerging' : '';
   if (hasLearnedProfile) {
     const signals = tasteSignalsFromChases(chases, lane).filter((signal) => signal !== lane);
     const signalNote = signals.length > 0 ? `; ${signals.join(', ')}` : '';
-    return `built from ${chases.length} active chases${signalNote}`;
+    return `Discovery is blending your active chases${focusNote} with recent finds${signalNote}`;
   }
-  if (!hasFullDiscovery && chases.length > 0) {
-    const promoSignal = hasPromoLeaningDiscoveryProfile(chases) ? '; promo and special-release signal emerging' : '';
-    return `early read from ${chases.length} active chase${chases.length === 1 ? '' : 's'}${promoSignal}; lane variety grows with the vault`;
-  }
-  if (!hasFullDiscovery) return 'starter read; build your vault to shape future lanes';
-  if (chases.length === 0) return 'starter read; build your vault to shape future lanes';
-  const remainingChases = Math.max(0, MIN_LEARNED_PROFILE_CHASES - chases.length);
-  const promoSignal = hasPromoLeaningDiscoveryProfile(chases) ? '; promo and special-release signal emerging' : '';
-  const chaseNote = remainingChases > 0 ? `; ${remainingChases} more chase${remainingChases === 1 ? '' : 's'} will sharpen future picks` : '';
-  return `developing from ${chases.length} active chase${chases.length === 1 ? '' : 's'}${promoSignal}${chaseNote}`;
+  if (hasFullDiscovery) return `your Discovery profile is taking shape from active chases${focusNote}${promoSignal}`;
+  return `early read from your active chases${focusNote}${promoSignal}`;
 }
 
 function priceRangeSummary(
@@ -162,6 +161,19 @@ function titleCase(value: string): string {
 
 function truncateValue(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+}
+
+function parseFocusInput(value: string): { clear: boolean; focuses: string[] } {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  if (!normalized || /^(clear|none|off|reset)$/i.test(normalized)) return { clear: true, focuses: [] };
+  return {
+    clear: false,
+    focuses: [...new Set(normalized.split(/[;,]/).map((focus) => focus.trim()).filter(Boolean))]
+  };
+}
+
+function focusListLabel(focuses: string[]): string | null {
+  return focuses.length > 0 ? focuses.join(', ') : null;
 }
 
 function uniqueValuesPreservingOrder(values: string[]): string[] {
@@ -360,8 +372,7 @@ function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: Supported
   if (candidate.typicalRawAskingTotal === undefined || candidate.marketSampleSize === undefined || candidate.marketSampleSize === 0) {
     return 'Market is thin right now; treat this as a lane to watch.';
   }
-  const sample = `${candidate.marketSampleSize} clean raw listing${candidate.marketSampleSize === 1 ? '' : 's'}`;
-  return `${formatMoney(candidate.typicalRawAskingTotal, candidate.displayCurrency ?? currencyHint)} typical raw ask\n${sample} found`;
+  return `${formatMoney(candidate.typicalRawAskingTotal, candidate.displayCurrency ?? currencyHint)} typical raw ask`;
 }
 
 function hasEnoughRawMarketData(candidate: DiscoveryCandidate): boolean {
@@ -455,10 +466,9 @@ function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: SupportedCu
     .addFields(
       { name: 'Why It Resonates', value: candidate.suggestion.laneWhy, inline: false },
       { name: 'Market Read', value: formatMarketRead(candidate, currencyHint), inline: true },
-      { name: 'Discovery Path', value: tone.path, inline: true },
       { name: 'Next Threads', value: nearby || 'Vaultr will widen this lane as the catalog grows.', inline: false }
     )
-    .setFooter({ text: 'Vaultr • Discovery Path' })
+    .setFooter({ text: 'Vaultr • Discovery' })
     .setTimestamp();
   return embed;
 }
@@ -492,7 +502,7 @@ function discoveryActionRows(userId: string, candidates: DiscoveryCandidate[]): 
   return discoveryVaultButtons(userId, candidates);
 }
 
-async function discoverCandidatesForUser(userId: string, focus: string | null, count: number): Promise<{
+async function discoverCandidatesForUser(userId: string, focuses: string[], count: number): Promise<{
   chases: Chase[];
   settings: ReturnType<typeof getUserAlertSettings>;
   hasFullDiscovery: boolean;
@@ -507,22 +517,46 @@ async function discoverCandidatesForUser(userId: string, focus: string | null, c
   const entitlements = getEntitlementsForTier(plan.tier);
   const hasFullDiscovery = plan.status === 'ACTIVE' && entitlements.discoveryDepth === 'full';
   const hasLearnedProfile = hasFullDiscovery && chases.length >= MIN_LEARNED_PROFILE_CHASES;
-  const selection = selectDiscoverySuggestions(focus, chases, DISCOVERY_CANDIDATE_POOL_SIZE);
+  const recentlySeenNames = listRecentUserDiscoverySeenNames(userId);
   const priceRange = hasLearnedProfile ? priceRangeFromChases(chases) : undefined;
   const destination = settings.shippingCountry ? { country: settings.shippingCountry } : undefined;
-  const enriched = await Promise.all(
-    selection.suggestions.map((suggestion, index) =>
-      enrichSuggestion(suggestion, index, userId, destination, priceRange, settings.alertCurrency)
-    )
-  );
+  const focusLabel = focusListLabel(focuses);
+  const selectAndEnrich = async (excludedNames: string[]) => {
+    const selection = selectDiscoverySuggestionsForFocuses(focuses, chases, DISCOVERY_CANDIDATE_POOL_SIZE, { excludedNames });
+    const enriched = await Promise.all(
+      selection.suggestions.map((suggestion, index) =>
+        enrichSuggestion(suggestion, index, userId, destination, priceRange, settings.alertCurrency)
+      )
+    );
+    return {
+      lane: selection.lane,
+      candidates: selectVisibleCandidates(enriched, focusLabel).slice(0, count)
+    };
+  };
+  const preferred = await selectAndEnrich(recentlySeenNames);
+  let lane = preferred.lane;
+  let candidates = preferred.candidates;
+  if (candidates.length < count && recentlySeenNames.length > 0) {
+    const fallback = await selectAndEnrich([]);
+    const candidateNames = new Set(candidates.map((candidate) => candidate.suggestion.name));
+    const mergedCandidates = [...candidates];
+    for (const candidate of fallback.candidates) {
+      if (candidateNames.has(candidate.suggestion.name)) continue;
+      mergedCandidates.push(candidate);
+      candidateNames.add(candidate.suggestion.name);
+      if (mergedCandidates.length >= count) break;
+    }
+    if (candidates.length === 0) lane = fallback.lane;
+    candidates = mergedCandidates.length > 0 ? mergedCandidates : fallback.candidates;
+  }
   return {
     chases,
     settings,
     hasFullDiscovery,
     hasLearnedProfile,
-    lane: selection.lane,
+    lane,
     priceRange,
-    candidates: selectVisibleCandidates(enriched, focus).slice(0, count)
+    candidates
   };
 }
 
@@ -530,17 +564,14 @@ export async function buildWeeklyDiscoveryPathPayload(userId: string): Promise<{
   embeds: EmbedBuilder[];
   components: ActionRowBuilder<ButtonBuilder>[];
 } | null> {
-  const discovery = await discoverCandidatesForUser(userId, null, 1);
+  const focuses = listUserDiscoveryFocuses(userId);
+  if (focuses.length === 0) return null;
+  const discovery = await discoverCandidatesForUser(userId, focuses, 1);
   const [candidate] = discovery.candidates;
-  if (!candidate) return null;
-  const intro = new EmbedBuilder()
-    .setColor(DISCOVERY_OVERVIEW_COLOR)
-    .setTitle('✨ Taste Profile Discovery')
-    .setDescription('Vaultr found one card your taste profile may want to remember this week.')
-    .setFooter({ text: 'Vaultr • Taste profile' })
-    .setTimestamp();
+  if (!candidate || candidate.typicalRawAskingTotal === undefined) return null;
+  markUserDiscoverySuggestionsSeen(userId, [candidate.suggestion.name]);
   return {
-    embeds: [intro, discoveryEmbed(candidate, discovery.settings.alertCurrency)],
+    embeds: [discoveryEmbed(candidate, discovery.settings.alertCurrency)],
     components: discoveryActionRows(userId, [candidate])
   };
 }
@@ -552,15 +583,27 @@ export const discover = {
     .addStringOption((opt) =>
       opt
         .setName('focus')
-        .setDescription('Steer this discovery, e.g. umbreon, gengar, or japanese vending')
+        .setDescription('Remember discovery focuses, e.g. e reader, vending; use clear to reset')
         .setMaxLength(80)
     ),
   async execute(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const focus = interaction.options.getString('focus');
-    const discovery = await discoverCandidatesForUser(interaction.user.id, focus, VISIBLE_DISCOVERY_COUNT);
+    const focusInput = interaction.options.getString('focus');
+    let savedFocuses = listUserDiscoveryFocuses(interaction.user.id);
+    if (focusInput !== null) {
+      const parsedFocusInput = parseFocusInput(focusInput);
+      if (parsedFocusInput.clear) {
+        clearUserDiscoveryFocuses(interaction.user.id);
+        savedFocuses = [];
+      } else {
+        for (const requestedFocus of parsedFocusInput.focuses) savedFocuses = addUserDiscoveryFocus(interaction.user.id, requestedFocus);
+      }
+    }
+    const focus = focusListLabel(savedFocuses);
+    const discovery = await discoverCandidatesForUser(interaction.user.id, savedFocuses, VISIBLE_DISCOVERY_COUNT);
     const visibleCandidates = discovery.candidates;
+    markUserDiscoverySuggestionsSeen(interaction.user.id, visibleCandidates.map((candidate) => candidate.suggestion.name));
     const visibleLanes = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => titleCase(candidate.suggestion.lane)));
     const title = focus ? `✨ Vaultr Discovery · ${focus}` : '✨ Vaultr Discovery';
     const laneSummary = visibleLanes.length > 0 ? visibleLanes.join(', ') : 'No raw-market-ready lanes right now';
