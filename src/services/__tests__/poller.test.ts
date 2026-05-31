@@ -66,9 +66,9 @@ describe('effectiveListingSourceMode', () => {
     expect(effectiveListingSourceMode('SHOPIFY', 'FREE')).toBe('EBAY');
   });
 
-  it('allows Pro users to use storefront source modes', () => {
-    expect(effectiveListingSourceMode('EBAY_SHOPIFY', 'PRO')).toBe('EBAY_SHOPIFY');
-    expect(effectiveListingSourceMode('SHOPIFY', 'PRO')).toBe('SHOPIFY');
+  it('uses eBay as the default source mode', () => {
+    expect(effectiveListingSourceMode('EBAY_SHOPIFY', 'PRO')).toBe('EBAY');
+    expect(effectiveListingSourceMode('SHOPIFY', 'PRO')).toBe('EBAY');
   });
 
   it('lets Pro users override the default source preference', () => {

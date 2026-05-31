@@ -23,8 +23,8 @@ export const help = {
       '- Start: `/start`',
       '- Chases: `/chase add` · `/chase list` · `/chase edit` · `/chase remove` (`entries` accepts one or many values)',
       '- Alerts: `/alerts settings` · `/alerts recent` · `/alerts preview`',
-      '  defaults in `/alerts settings`: `min_score=60`, `max_alerts_per_hour=10`, `chase_cooldown_minutes=30`, `alert_currency=USD`, `show_images=ON`, `compact_mode=OFF`',
-      '  Pro controls: `show_images`, `compact_mode`, `quiet_start`, `quiet_end`',
+      '  defaults in `/alerts settings`: `source=eBay`, `min_score=60`, `alert_volume=BALANCED` (10/hour), `alert_currency=USD`, `shipping=OFF`',
+      '  trusted shop sources are Pro',
       '  confidence meaning: higher confidence means a stronger fit with your chase',
       '- Plan: `/plan view` · `/plan set` · `/upgrade`',
       '- Setup (Admin): `/setup channel` · `/feed`',
@@ -38,8 +38,7 @@ export const help = {
       '',
       '**Glossary**',
       '- `confidence`: how strongly a listing fits your chase',
-      '- `signals`: the main reasons a sighting surfaced',
-      '- `chase cooldown`: minimum minutes between DMs for the same chase'
+      '- `signals`: the main reasons a sighting surfaced'
     ];
 
     await interaction.reply({

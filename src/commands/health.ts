@@ -12,6 +12,7 @@ import { convertCurrencyAmount, normalizeSupportedCurrency } from '../services/c
 import { searchEbayListings } from '../services/ebay.js';
 import { matchChaseToListing } from '../services/matcher.js';
 import { PLAN_LIMITS } from '../services/plans.js';
+import { CHASE_ALERT_COOLDOWN_MINUTES } from '../services/alert-policy.js';
 import { getPollerState } from '../services/poller-state.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatTimeWithAge } from '../ui/time.js';
@@ -182,9 +183,7 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
   const settings = getUserAlertSettings(chase.userId);
   const listings = await searchEbayListings(
     chase,
-    settings.shippingCountry
-      ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode }
-      : undefined
+    settings.shippingCountry ? { country: settings.shippingCountry } : undefined
   );
   const sourceIndex = listings.findIndex((listing) => listingMatchesItemId(listing, itemId));
   const listing = sourceIndex >= 0 ? listings[sourceIndex] : undefined;
@@ -193,7 +192,7 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
     `**Chase:** ${chase.cardName}`,
     `**Chase ID:** ${chase.id}`,
     `**User ID:** ${chase.userId}`,
-    `**Settings:** min score ${settings.minScore}, cooldown ${settings.chaseCooldownMinutes}m, max/hour ${settings.maxAlertsPerHour}, currency ${settings.alertCurrency}`,
+    `**Settings:** min score ${settings.minScore}, cooldown ${CHASE_ALERT_COOLDOWN_MINUTES}m, max/hour ${settings.maxAlertsPerHour}, currency ${settings.alertCurrency}`,
     `**Fetched Listings:** ${listings.length}`,
     ...formatListingDebug(listing, sourceIndex >= 0 ? sourceIndex + 1 : null)
   ];
@@ -207,10 +206,7 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
   const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
   const normalizedListing = normalizeListingCurrency(listing, targetCurrency);
   const match = matchChaseToListing(chase, normalizedListing);
-  const recentForChase =
-    settings.chaseCooldownMinutes > 0
-      ? countChaseAlertsWithinMinutes(chase.userId, chase.id, settings.chaseCooldownMinutes)
-      : 0;
+  const recentForChase = countChaseAlertsWithinMinutes(chase.userId, chase.id, CHASE_ALERT_COOLDOWN_MINUTES);
   const recentForUser = countUserAlertsInLastHour(chase.userId);
   const duplicate = hasAlertBeenSent(chase.id, listing.listingId, listing.source);
   const sellerRisk = match.reasons.includes('new_seller_penalty')

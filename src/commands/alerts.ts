@@ -3,6 +3,20 @@ import { alertsRecent } from './alerts-recent.js';
 import { alertsSettings } from './alerts-settings.js';
 import { previewAlert } from './alerts-preview.js';
 
+const SHIPPING_COUNTRY_CHOICES = [
+  { name: 'Off', value: 'OFF' },
+  { name: 'United States (USD)', value: 'US' },
+  { name: 'Canada (CAD)', value: 'CA' },
+  { name: 'United Kingdom (GBP)', value: 'GB' },
+  { name: 'Japan (JPY)', value: 'JP' },
+  { name: 'Germany (EUR)', value: 'DE' },
+  { name: 'France (EUR)', value: 'FR' },
+  { name: 'Italy (EUR)', value: 'IT' },
+  { name: 'Spain (EUR)', value: 'ES' },
+  { name: 'Netherlands (EUR)', value: 'NL' },
+  { name: 'Australia', value: 'AU' }
+] as const;
+
 export const alerts = {
   data: new SlashCommandBuilder()
     .setName('alerts')
@@ -11,45 +25,37 @@ export const alerts = {
       sub
         .setName('settings')
         .setDescription('View or update your sighting controls')
+        .addStringOption((opt) =>
+          opt
+            .setName('source')
+            .setDescription('Where Vaultr watches for sightings (default: eBay; shops Pro)')
+            .addChoices(
+              { name: 'eBay', value: 'EBAY' },
+              { name: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY' },
+              { name: 'Trusted Shops Only', value: 'SHOPIFY' }
+            )
+        )
         .addIntegerOption((opt) =>
           opt
             .setName('min_score')
-            .setDescription('Minimum confidence for a DM sighting (0-100; default 60)')
+            .setDescription('Minimum confidence for a DM sighting (0-100; default: 60)')
             .setMinValue(0)
             .setMaxValue(100)
         )
-        .addIntegerOption((opt) =>
+        .addStringOption((opt) =>
           opt
-            .setName('max_alerts_per_hour')
-            .setDescription('Most DM sightings Vaultr can send per hour (default: 10)')
-            .setMinValue(1)
-            .setMaxValue(200)
-        )
-        .addIntegerOption((opt) =>
-          opt
-            .setName('chase_cooldown_minutes')
-            .setDescription('Minutes before the same chase can surface again (default: 30)')
-            .setMinValue(0)
-            .setMaxValue(1440)
-        )
-        .addIntegerOption((opt) =>
-          opt
-            .setName('quiet_start')
-            .setDescription('Hour to pause sighting DMs (0-23, server time; default Off)')
-            .setMinValue(0)
-            .setMaxValue(23)
-        )
-        .addIntegerOption((opt) =>
-          opt
-            .setName('quiet_end')
-            .setDescription('Hour to resume sighting DMs (0-23, server time; default Off)')
-            .setMinValue(0)
-            .setMaxValue(23)
+            .setName('alert_volume')
+            .setDescription('How many sightings Vaultr may DM you (default: Balanced, 10/hour)')
+            .addChoices(
+              { name: 'Quiet (3/hour)', value: 'QUIET' },
+              { name: 'Balanced (10/hour)', value: 'BALANCED' },
+              { name: 'More (25/hour)', value: 'MORE' }
+            )
         )
         .addStringOption((opt) =>
           opt
             .setName('alert_currency')
-            .setDescription('Currency for sighting prices (default: USD)')
+            .setDescription('Currency for listing prices and max comparisons (default: USD)')
             .addChoices(
               { name: 'USD', value: 'USD' },
               { name: 'CAD', value: 'CAD' },
@@ -61,43 +67,9 @@ export const alerts = {
         .addStringOption((opt) =>
           opt
             .setName('shipping_country')
-            .setDescription('Country for shipping checks, e.g. CA or OFF')
+            .setDescription('Ship-to country for shipping checks (default: Off)')
+            .addChoices(...SHIPPING_COUNTRY_CHOICES)
             .setMaxLength(3)
-        )
-        .addStringOption((opt) =>
-          opt
-            .setName('shipping_postal_code')
-            .setDescription('Postal/ZIP prefix for shipping checks, e.g. M5V or OFF')
-            .setMaxLength(16)
-        )
-        .addStringOption((opt) =>
-          opt
-            .setName('show_images')
-            .setDescription('Show listing images in DM sightings (default: On)')
-            .addChoices(
-              { name: 'On', value: 'ON' },
-              { name: 'Off', value: 'OFF' }
-            )
-        )
-        .addStringOption((opt) =>
-          opt
-            .setName('compact_mode')
-            .setDescription('Use the shorter sighting DM layout (default: Off)')
-            .addChoices(
-              { name: 'On', value: 'ON' },
-              { name: 'Off', value: 'OFF' }
-            )
-        )
-        .addStringOption((opt) =>
-          opt
-            .setName('source')
-            .setDescription('Where Vaultr watches for sightings (trusted shops are Pro)')
-            .addChoices(
-              { name: 'Default', value: 'DEFAULT' },
-              { name: 'eBay', value: 'EBAY' },
-              { name: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY' },
-              { name: 'Trusted Shops Only', value: 'SHOPIFY' }
-            )
         )
     )
     .addSubcommand((sub) =>
@@ -107,7 +79,7 @@ export const alerts = {
         .addIntegerOption((opt) =>
           opt
             .setName('limit')
-            .setDescription('How many sightings to show (max 20)')
+            .setDescription('How many sightings to show (default: 10; max: 20)')
             .setMinValue(1)
             .setMaxValue(20)
         )

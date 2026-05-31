@@ -62,15 +62,9 @@ db.exec(`
     user_id TEXT PRIMARY KEY,
     min_score INTEGER NOT NULL DEFAULT 50,
     max_alerts_per_hour INTEGER NOT NULL DEFAULT 20,
-    chase_cooldown_minutes INTEGER NOT NULL DEFAULT 30,
     alert_currency TEXT NOT NULL DEFAULT 'USD',
     shipping_country TEXT,
-    shipping_postal_code TEXT,
-    show_images INTEGER NOT NULL DEFAULT 1,
-    compact_mode INTEGER NOT NULL DEFAULT 0,
-    listing_source_mode TEXT NOT NULL DEFAULT 'DEFAULT',
-    quiet_hours_start INTEGER,
-    quiet_hours_end INTEGER,
+    listing_source_mode TEXT NOT NULL DEFAULT 'EBAY',
     updated_at TEXT NOT NULL
   );
 
@@ -203,11 +197,6 @@ try {
   // Column already exists on upgraded databases.
 }
 try {
-  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN chase_cooldown_minutes INTEGER NOT NULL DEFAULT 30;`);
-} catch {
-  // Column already exists on upgraded databases.
-}
-try {
   db.exec(`ALTER TABLE user_alert_settings ADD COLUMN alert_currency TEXT NOT NULL DEFAULT 'USD';`);
 } catch {
   // Column already exists on upgraded databases.
@@ -218,24 +207,40 @@ try {
   // Column already exists on upgraded databases.
 }
 try {
-  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN shipping_postal_code TEXT;`);
+  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN listing_source_mode TEXT NOT NULL DEFAULT 'EBAY';`);
 } catch {
   // Column already exists on upgraded databases.
 }
+db.exec(`UPDATE user_alert_settings SET listing_source_mode = 'EBAY' WHERE listing_source_mode = 'DEFAULT';`);
 try {
-  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN show_images INTEGER NOT NULL DEFAULT 1;`);
+  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN quiet_hours_start;`);
 } catch {
-  // Column already exists on upgraded databases.
+  // Column is already absent on fresh or upgraded databases.
 }
 try {
-  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN compact_mode INTEGER NOT NULL DEFAULT 0;`);
+  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN quiet_hours_end;`);
 } catch {
-  // Column already exists on upgraded databases.
+  // Column is already absent on fresh or upgraded databases.
 }
 try {
-  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN listing_source_mode TEXT NOT NULL DEFAULT 'DEFAULT';`);
+  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN chase_cooldown_minutes;`);
 } catch {
-  // Column already exists on upgraded databases.
+  // Column is already absent on fresh or upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN show_images;`);
+} catch {
+  // Column is already absent on fresh or upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN compact_mode;`);
+} catch {
+  // Column is already absent on fresh or upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN shipping_postal_code;`);
+} catch {
+  // Column is already absent on fresh or upgraded databases.
 }
 try {
   db.exec(`ALTER TABLE guild_community_feed ADD COLUMN mode TEXT NOT NULL DEFAULT 'PULSE';`);

@@ -63,7 +63,7 @@ export const alertsRecent = {
     .addIntegerOption((opt) =>
       opt
         .setName('limit')
-        .setDescription('How many sightings to show (max 20)')
+        .setDescription('How many sightings to show (default: 10; max: 20)')
         .setMinValue(1)
         .setMaxValue(20)
     ),

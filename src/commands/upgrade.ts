@@ -26,7 +26,7 @@ export const upgrade = {
       '',
       `**Active Chases:** ${PLAN_LIMITS.FREE.maxActiveChases} → ${PLAN_LIMITS.PRO.maxActiveChases}`,
       `**Checks for New Listings:** ${formatPollInterval(PLAN_LIMITS.FREE.pollIntervalSeconds)} → ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
-      '**Signal Controls:** add quiet hours, compact DMs, and image display controls',
+      '**Signal Controls:** watch trusted shop sources alongside eBay',
       '**Discovery:** richer recommendations as your Vault grows',
       '**Precision Filters:** condition, listing type, custom blocked terms, priority, and chase notes',
       '**How to Upgrade:** Upgrade path coming soon.'

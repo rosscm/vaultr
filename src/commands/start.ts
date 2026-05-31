@@ -6,7 +6,6 @@ import {
 } from '../services/chase-store.js';
 import { PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed } from '../ui/embeds.js';
-import { OUTPUT_STYLE } from '../ui/style.js';
 
 export const start = {
   data: new SlashCommandBuilder()
@@ -28,10 +27,7 @@ export const start = {
       `**Plan:** ${plan.tier} (${plan.status})`,
       `**Active Chases:** ${activeChases}/${limits.maxActiveChases}`,
       `**Minimum Confidence:** ${settings.minScore}`,
-      `**Chase Cooldown:** ${settings.chaseCooldownMinutes}m`,
-      `**Sighting Currency:** ${settings.alertCurrency}`,
-      `**Show Images:** ${settings.showImages ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
-      `**Compact Mode:** ${settings.compactMode ? OUTPUT_STYLE.on : OUTPUT_STYLE.off}`,
+      `**Price Currency:** ${settings.alertCurrency}`,
       '',
       '**Tip:** Add the card number when it matters; it helps Vaultr understand the exact piece you mean'
     ];

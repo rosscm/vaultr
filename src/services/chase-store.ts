@@ -188,32 +188,26 @@ const upsertUserPlanStmt = db.prepare(`
 `);
 
 const getUserAlertSettingsStmt = db.prepare(`
-  SELECT user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, shipping_country, shipping_postal_code, show_images, compact_mode, listing_source_mode, quiet_hours_start, quiet_hours_end, updated_at
+  SELECT user_id, min_score, max_alerts_per_hour, alert_currency, shipping_country, listing_source_mode, updated_at
   FROM user_alert_settings
   WHERE user_id = ?
 `);
 
 const upsertUserAlertSettingsStmt = db.prepare(`
-  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, chase_cooldown_minutes, alert_currency, shipping_country, shipping_postal_code, show_images, compact_mode, listing_source_mode, quiet_hours_start, quiet_hours_end, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, alert_currency, shipping_country, listing_source_mode, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(user_id) DO UPDATE SET
     min_score = excluded.min_score,
     max_alerts_per_hour = excluded.max_alerts_per_hour,
-    chase_cooldown_minutes = excluded.chase_cooldown_minutes,
     alert_currency = excluded.alert_currency,
     shipping_country = excluded.shipping_country,
-    shipping_postal_code = excluded.shipping_postal_code,
-    show_images = excluded.show_images,
-    compact_mode = excluded.compact_mode,
     listing_source_mode = excluded.listing_source_mode,
-    quiet_hours_start = excluded.quiet_hours_start,
-    quiet_hours_end = excluded.quiet_hours_end,
     updated_at = excluded.updated_at
 `);
 
 function normalizeListingSourceModePreference(value: string | null | undefined): ListingSourceModePreference {
   if (value === 'EBAY' || value === 'EBAY_SHOPIFY' || value === 'SHOPIFY') return value;
-  return 'DEFAULT';
+  return 'EBAY';
 }
 
 const countRecentAlertsByUserStmt = db.prepare(`
@@ -890,31 +884,22 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
         user_id: string;
         min_score: number;
         max_alerts_per_hour: number;
-        chase_cooldown_minutes: number;
         alert_currency: 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY';
         shipping_country: string | null;
-        shipping_postal_code: string | null;
-        show_images: number;
-        compact_mode: number;
         listing_source_mode: string | null;
-        quiet_hours_start: number | null;
-        quiet_hours_end: number | null;
         updated_at: string;
       }
     | undefined;
 
   if (!row) {
     const now = new Date().toISOString();
-    upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, 1, 0, 'DEFAULT', null, null, now);
+    upsertUserAlertSettingsStmt.run(userId, 60, 10, 'USD', null, 'EBAY', now);
     return {
       userId,
       minScore: 60,
       maxAlertsPerHour: 10,
-      chaseCooldownMinutes: 30,
       alertCurrency: 'USD',
-      showImages: true,
-      compactMode: false,
-      listingSourceMode: 'DEFAULT',
+      listingSourceMode: 'EBAY',
       updatedAt: now
     };
   }
@@ -923,15 +908,9 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
     userId: row.user_id,
     minScore: row.min_score,
     maxAlertsPerHour: row.max_alerts_per_hour,
-    chaseCooldownMinutes: row.chase_cooldown_minutes,
     alertCurrency: row.alert_currency ?? 'USD',
     shippingCountry: row.shipping_country ?? undefined,
-    shippingPostalCode: row.shipping_postal_code ?? undefined,
-    showImages: (row.show_images ?? 1) === 1,
-    compactMode: (row.compact_mode ?? 0) === 1,
     listingSourceMode: normalizeListingSourceModePreference(row.listing_source_mode),
-    quietHoursStart: row.quiet_hours_start ?? undefined,
-    quietHoursEnd: row.quiet_hours_end ?? undefined,
     updatedAt: row.updated_at
   };
 }
@@ -943,30 +922,19 @@ export function setUserAlertSettings(
       UserAlertSettings,
       | 'minScore'
       | 'maxAlertsPerHour'
-      | 'chaseCooldownMinutes'
       | 'alertCurrency'
-      | 'showImages'
-      | 'compactMode'
       | 'listingSourceMode'
-      | 'quietHoursStart'
-      | 'quietHoursEnd'
     >
-  > & { shippingCountry?: string | null; shippingPostalCode?: string | null }
+  > & { shippingCountry?: string | null }
 ): UserAlertSettings {
   const current = getUserAlertSettings(userId);
   const next: UserAlertSettings = {
     userId,
     minScore: patch.minScore ?? current.minScore,
     maxAlertsPerHour: patch.maxAlertsPerHour ?? current.maxAlertsPerHour,
-    chaseCooldownMinutes: patch.chaseCooldownMinutes ?? current.chaseCooldownMinutes,
     alertCurrency: patch.alertCurrency ?? current.alertCurrency,
     shippingCountry: patch.shippingCountry === null ? undefined : patch.shippingCountry ?? current.shippingCountry,
-    shippingPostalCode: patch.shippingPostalCode === null ? undefined : patch.shippingPostalCode ?? current.shippingPostalCode,
-    showImages: patch.showImages ?? current.showImages,
-    compactMode: patch.compactMode ?? current.compactMode,
     listingSourceMode: patch.listingSourceMode ?? current.listingSourceMode,
-    quietHoursStart: patch.quietHoursStart ?? current.quietHoursStart,
-    quietHoursEnd: patch.quietHoursEnd ?? current.quietHoursEnd,
     updatedAt: new Date().toISOString()
   };
 
@@ -974,15 +942,9 @@ export function setUserAlertSettings(
     userId,
     next.minScore,
     next.maxAlertsPerHour,
-    next.chaseCooldownMinutes,
     next.alertCurrency,
     next.shippingCountry ?? null,
-    next.shippingPostalCode ?? null,
-    next.showImages ? 1 : 0,
-    next.compactMode ? 1 : 0,
     next.listingSourceMode,
-    next.quietHoursStart ?? null,
-    next.quietHoursEnd ?? null,
     next.updatedAt
   );
 
@@ -1106,16 +1068,13 @@ export function isListingFingerprintIgnored(userId: string, chaseId: string, fin
 
 export function resetUserAlertSettings(userId: string): UserAlertSettings {
   const now = new Date().toISOString();
-  upsertUserAlertSettingsStmt.run(userId, 60, 10, 30, 'USD', null, null, 1, 0, 'DEFAULT', null, null, now);
+  upsertUserAlertSettingsStmt.run(userId, 60, 10, 'USD', null, 'EBAY', now);
   return {
     userId,
     minScore: 60,
     maxAlertsPerHour: 10,
-    chaseCooldownMinutes: 30,
     alertCurrency: 'USD',
-    showImages: true,
-    compactMode: false,
-    listingSourceMode: 'DEFAULT',
+    listingSourceMode: 'EBAY',
     updatedAt: now
   };
 }

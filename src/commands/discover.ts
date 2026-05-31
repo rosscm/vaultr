@@ -509,9 +509,7 @@ async function discoverCandidatesForUser(userId: string, focus: string | null, c
   const hasLearnedProfile = hasFullDiscovery && chases.length >= MIN_LEARNED_PROFILE_CHASES;
   const selection = selectDiscoverySuggestions(focus, chases, DISCOVERY_CANDIDATE_POOL_SIZE);
   const priceRange = hasLearnedProfile ? priceRangeFromChases(chases) : undefined;
-  const destination = settings.shippingCountry
-    ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode }
-    : undefined;
+  const destination = settings.shippingCountry ? { country: settings.shippingCountry } : undefined;
   const enriched = await Promise.all(
     selection.suggestions.map((suggestion, index) =>
       enrichSuggestion(suggestion, index, userId, destination, priceRange, settings.alertCurrency)

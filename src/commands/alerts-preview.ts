@@ -1,5 +1,6 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings } from '../services/chase-store.js';
+import { USE_COMPACT_ALERT_LAYOUT } from '../services/alert-policy.js';
 
 export const previewAlert = {
   data: new SlashCommandBuilder()
@@ -18,7 +19,7 @@ export const previewAlert = {
       .setTitle(title)
       .setDescription(description);
 
-    if (settings.compactMode) {
+    if (USE_COMPACT_ALERT_LAYOUT) {
       embed.addFields({
         name: '📌 Summary',
         value: [

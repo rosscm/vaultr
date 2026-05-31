@@ -26,6 +26,7 @@ import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
 import { getRuntimePollIntervalSeconds, PLAN_LIMITS } from './plans.js';
+import { CHASE_ALERT_COOLDOWN_MINUTES, SHOW_ALERT_IMAGES, USE_COMPACT_ALERT_LAYOUT } from './alert-policy.js';
 import { getEntitlementsForTier } from './entitlements.js';
 import {
   getPollerState,
@@ -273,14 +274,6 @@ function summarizeWhyMatched(
   return `${matchLabel} • ${pricePart} • ${postedPart}`;
 }
 
-function isInQuietHours(start: number | undefined, end: number | undefined): boolean {
-  if (start === undefined || end === undefined) return false;
-  const hour = new Date().getHours();
-  if (start === end) return true;
-  if (start < end) return hour >= start && hour < end;
-  return hour >= start || hour < end;
-}
-
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -430,19 +423,18 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMes
 function shippingDestinationFromSettings(settings: ReturnType<typeof getUserAlertSettings>): ShippingDestination | undefined {
   if (!settings.shippingCountry) return undefined;
   return {
-    country: settings.shippingCountry,
-    postalCode: settings.shippingPostalCode
+    country: settings.shippingCountry
   };
 }
 
 export function effectiveListingSourceMode(
   configuredSourceMode: string,
   planTier: ReturnType<typeof getUserPlan>['tier'],
-  preference: ListingSourceModePreference = 'DEFAULT'
+  preference: ListingSourceModePreference = 'EBAY'
 ): string {
   const normalizedMode = configuredSourceMode.toUpperCase();
   if (normalizedMode === 'MOCK') return 'MOCK';
-  const preferredMode = preference === 'DEFAULT' ? normalizedMode : preference;
+  const preferredMode = preference;
   if (getEntitlementsForTier(planTier).storefrontMonitoring) return preferredMode;
   if (sourceModeIncludesTrustedShops(preferredMode)) return 'EBAY';
   return preferredMode;
@@ -568,8 +560,7 @@ async function runPoll(client: Client): Promise<void> {
         : nowMs;
 
     const settings = getUserAlertSettings(chase.userId);
-  const memberSourceMode = effectiveListingSourceMode(sourceMode, userPlan.tier, settings.listingSourceMode);
-    if (isInQuietHours(settings.quietHoursStart, settings.quietHoursEnd)) continue;
+    const memberSourceMode = effectiveListingSourceMode(sourceMode, userPlan.tier, settings.listingSourceMode);
     const key = sourceQueryKey(chase, settings, memberSourceMode);
     const group = activeGroups.get(key) ?? { members: [], sourceMode: memberSourceMode, oldestCreatedAt: chase.createdAt, oldestDueAtMs: dueAtMs };
     group.members.push({ chase, settings });
@@ -632,12 +623,10 @@ async function runPoll(client: Client): Promise<void> {
 
   finishCoverageSnapshot(coverage);
     for (const { chase, settings } of group.members) {
-      if (settings.chaseCooldownMinutes > 0) {
-        const recentForChase = countChaseAlertsWithinMinutes(chase.userId, chase.id, settings.chaseCooldownMinutes);
-        if (recentForChase > 0) {
-          markChaseCooldownSuppression();
-          continue;
-        }
+      const recentForChase = countChaseAlertsWithinMinutes(chase.userId, chase.id, CHASE_ALERT_COOLDOWN_MINUTES);
+      if (recentForChase > 0) {
+        markChaseCooldownSuppression();
+        continue;
       }
 
       let sentForChaseThisPoll = 0;
@@ -698,8 +687,9 @@ async function runPoll(client: Client): Promise<void> {
         break;
       }
 
-      if (countUserAlertsInLastHour(chase.userId) >= settings.maxAlertsPerHour) {
-        await sendThrottleNoticeIfNeeded(client, chase.userId, settings.maxAlertsPerHour);
+      const maxAlertsPerHour = settings.maxAlertsPerHour;
+      if (countUserAlertsInLastHour(chase.userId) >= maxAlertsPerHour) {
+        await sendThrottleNoticeIfNeeded(client, chase.userId, maxAlertsPerHour);
         break;
       }
 
@@ -728,7 +718,7 @@ async function runPoll(client: Client): Promise<void> {
           )}`
         );
 
-      if (settings.compactMode) {
+      if (USE_COMPACT_ALERT_LAYOUT) {
         embed.addFields(
           {
             name: '📌 Summary',
@@ -811,7 +801,7 @@ async function runPoll(client: Client): Promise<void> {
 
       embed.setTimestamp().setFooter({ text: `Vaultr • ${sightingLabel}` });
 
-      if (settings.showImages) {
+      if (SHOW_ALERT_IMAGES) {
         if (listing.imageUrl && /^https?:\/\//i.test(listing.imageUrl)) {
           embed.setImage(listing.imageUrl);
         } else if (listing.thumbnailUrl && /^https?:\/\//i.test(listing.thumbnailUrl)) {

@@ -211,14 +211,13 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 
 - Per-user controls via `/alerts settings`
 - `min_score`: minimum fit score before Vaultr sends a DM sighting
-- `max_alerts_per_hour`: cap how many sightings can surface per hour
-- `chase_cooldown_minutes`: minimum minutes between DMs for the same chase
-- `alert_currency`: currency used in sighting prices and max-price comparisons (`USD`, `CAD`, `EUR`, `GBP`, `JPY`)
-- `shipping_country` / `shipping_postal_code`: optional per-user ship-to location used to warn when a listing may not ship to you, e.g. `/alerts settings shipping_country:CA shipping_postal_code:M5V`
+- `alert_volume`: friendly DM volume preference (`Quiet` 3/hour, `Balanced` 10/hour, `More` 25/hour)
+- `alert_currency`: price currency used for listing prices and max-price comparisons (`USD`, `CAD`, `EUR`, `GBP`, `JPY`)
+- `shipping_country`: optional per-user ship-to country used to warn when a listing may not ship to you; selected from common destinations aligned with supported currencies
+- `source`: where Vaultr watches for sightings (`eBay`, `eBay + Trusted Shops`, or `Trusted Shops Only`; default `eBay`; trusted shop sources are Pro)
 - `max_price` compares against total cost when shipping is known, and item price when shipping is unavailable
 - FX conversion uses live USD-based rates with background refresh and fallback to env overrides
-- `quiet_start` / `quiet_end`: pause DM sightings during a quiet window (server local time)
-- Recommended defaults: `min_score=60`, `max_alerts_per_hour=10`, quiet hours off
+- Recommended defaults: `source=eBay`, `min_score=60`, `alert_volume=Balanced`, `alert_currency=USD`
 - Per-chase blocked terms via `negative_keywords` on `/chase add` and `/chase edit`
 - Default blocked terms on new chases: `proxy, custom, reprint, lot, orica, replica`
 - Per-chase grading uses `grading_type` plus `grade_value`, or `Raw / Ungraded` for raw cards only
