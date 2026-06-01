@@ -67,7 +67,7 @@ export const alerts = {
         .addStringOption((opt) =>
           opt
             .setName('shipping_country')
-            .setDescription('Ship-to country for shipping checks (default: Off)')
+            .setDescription('Ship-to country for better shipping estimates (default: Off)')
             .addChoices(...SHIPPING_COUNTRY_CHOICES)
             .setMaxLength(3)
         )

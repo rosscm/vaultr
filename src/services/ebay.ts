@@ -326,20 +326,23 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
     .filter((listing: Listing | null): listing is Listing => listing !== null);
 
   const appId = process.env.EBAY_APP_ID ?? process.env.EBAY_CLIENT_ID;
-  const needsEnrichment = listings.filter((listing: Listing) => listing.shippingCost === undefined);
+  const needsDestinationShipping = getDeliveryCountry(destination) !== undefined;
+  const needsEnrichment = listings.filter((listing: Listing) => needsDestinationShipping || listing.shippingCost === undefined);
   if (!appId || needsEnrichment.length === 0) return listings;
 
   const enrichedById = new Map<string, Listing>();
   for (const listing of needsEnrichment) {
-    const enriched = await enrichListingFromShoppingApi(listing, appId);
+    const enriched = await enrichListingFromShoppingApi(listing, appId, destination);
     enrichedById.set(listing.listingId, enriched);
   }
 
   return listings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
 }
 
-async function enrichListingFromShoppingApi(listing: Listing, appId: string): Promise<Listing> {
+async function enrichListingFromShoppingApi(listing: Listing, appId: string, destination?: ShippingDestination): Promise<Listing> {
   const endpoint = getEbayShoppingEndpoint();
+  const destinationCountry = getDeliveryCountry(destination);
+  const destinationPostalCode = getDeliveryPostalCode(destination);
   const params = new URLSearchParams({
     callname: 'GetSingleItem',
     responseencoding: 'JSON',
@@ -349,6 +352,8 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string): Pr
     ItemID: shoppingItemIdFromListingId(listing.listingId),
     IncludeSelector: 'Details,ShippingCosts'
   });
+  if (destinationCountry) params.set('DestinationCountryCode', destinationCountry);
+  if (destinationPostalCode) params.set('DestinationPostalCode', destinationPostalCode);
 
   try {
     const response = await fetch(`${endpoint}?${params.toString()}`);
@@ -362,6 +367,7 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string): Pr
     const fallbackSellerFeedbackScore = Number(item?.Seller?.FeedbackScore);
     const fallbackShippingCost = Number(item?.ShippingCostSummary?.ShippingServiceCost?.Value);
     const fallbackShippingCurrency = item?.ShippingCostSummary?.ShippingServiceCost?.CurrencyID ?? listing.currency;
+    const hasFallbackShippingCost = !Number.isNaN(fallbackShippingCost);
     const fallbackImageUrl = firstNonEmptyString([
       item?.PictureURLSuperSize,
       item?.PictureURL?.[0],
@@ -379,9 +385,17 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string): Pr
         (Number.isNaN(fallbackSellerFeedbackPercent) ? undefined : fallbackSellerFeedbackPercent),
       sellerFeedbackScore:
         listing.sellerFeedbackScore ?? (Number.isNaN(fallbackSellerFeedbackScore) ? undefined : fallbackSellerFeedbackScore),
-      shippingCost: listing.shippingCost ?? (Number.isNaN(fallbackShippingCost) ? undefined : fallbackShippingCost),
+      shippingCost: hasFallbackShippingCost ? fallbackShippingCost : listing.shippingCost,
       shippingCurrency:
-        listing.shippingCurrency ?? (Number.isNaN(fallbackShippingCost) ? undefined : fallbackShippingCurrency),
+        hasFallbackShippingCost ? fallbackShippingCurrency : listing.shippingCurrency,
+      shippingDestinationCountry: hasFallbackShippingCost && destinationCountry ? destinationCountry : listing.shippingDestinationCountry,
+      shippingDestinationPostalCode:
+        hasFallbackShippingCost && destinationPostalCode ? destinationPostalCode : listing.shippingDestinationPostalCode,
+      shippingEligibility: hasFallbackShippingCost && destinationCountry ? 'AVAILABLE' : listing.shippingEligibility,
+      shippingEligibilityMessage:
+        hasFallbackShippingCost && destinationCountry
+          ? `Shipping shown for ${destinationLabel(destinationCountry, destinationPostalCode)}`
+          : listing.shippingEligibilityMessage,
       imageUrl: listing.imageUrl ?? fallbackImageUrl ?? undefined,
       thumbnailUrl: listing.thumbnailUrl ?? listing.imageUrl ?? fallbackImageUrl ?? undefined
     };
@@ -480,8 +494,10 @@ async function searchEbayFindingListings(chase: Chase, destination?: ShippingDes
     })
     .filter((listing: Listing | null): listing is Listing => listing !== null);
 
+  const needsDestinationShipping = getDeliveryCountry(destination) !== undefined;
   const needsEnrichment = listings.filter(
     (listing: Listing) =>
+      needsDestinationShipping ||
       !listing.seller ||
       listing.sellerFeedbackPercent === undefined ||
       listing.sellerFeedbackScore === undefined ||
@@ -493,7 +509,7 @@ async function searchEbayFindingListings(chase: Chase, destination?: ShippingDes
 
   const enrichedById = new Map<string, Listing>();
   for (const listing of needsEnrichment) {
-    const enriched = await enrichListingFromShoppingApi(listing, appId);
+    const enriched = await enrichListingFromShoppingApi(listing, appId, destination);
     enrichedById.set(listing.listingId, enriched);
   }
 

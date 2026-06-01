@@ -732,7 +732,6 @@ async function runPoll(client: Client): Promise<void> {
               }`,
               `**Posted:** ${formatPostedAge(listing.postedAt)}`,
               `**Source:** ${sourceLabel}`,
-              `**Shipping Destination:** ${listing.shippingDestinationPostalCode ?? 'Unknown'}`,
               `**Confidence:** ${formatScoreWithQuality(match.score)}`,
               `**Signals:** ${reasonSummary.positive}`,
               ...watchoutLines,
@@ -768,7 +767,6 @@ async function runPoll(client: Client): Promise<void> {
                 chase.maxPrice,
                 targetCurrency
               )}`,
-               `**Shipping Destination:** ${listing.shippingDestinationPostalCode ?? 'Unknown'}`,
               `**Listing Type:** ${formatListingType(normalizedListing.listingType)}`
             ].join('\n'),
             inline: false
@@ -882,35 +880,35 @@ function truncateForEmbed(value: string, maxLength = 200): string {
 
 function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   const parts: string[] = [];
-  if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'collector')} opened a Vault`);
-  if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received a sighting`);
-  if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  if (parts.length === 0) return 'A quiet day in the Vault. Chases kept watching in the background.';
+  if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'collector')} started a Vault`);
+  if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} got a chase ping`);
+  if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} peeked out`);
+  if (parts.length === 0) return 'Quiet day. The chases stayed tucked in and kept watch.';
   return parts.join(' • ');
 }
 
 function dailyPulseMood(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
-  if (stats.grailsSurfaced > 0) return `A grail broke through while ${stats.topTrackedTheme.toLowerCase()} stayed warm.`;
-  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'New Vaults opened and fresh sightings moved through the room.';
-  if (stats.usersAlerted > 0) return `Sightings kept ${stats.topTrackedFamily.toLowerCase()} collectors busy today.`;
-  if (stats.newVaultrs > 0) return 'A few new Vaults joined the watch list today.';
-  return 'The room stayed quiet, but the watch list kept learning in the background.';
+  if (stats.grailsSurfaced > 0) return `A grail made an appearance, with ${stats.topTrackedTheme.toLowerCase()} still drawing eyes.`;
+  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'Fresh Vaults, fresh pings, and a few new tabs worth opening.';
+  if (stats.usersAlerted > 0) return `${stats.topTrackedFamily} collectors had something to inspect today.`;
+  if (stats.newVaultrs > 0) return 'A few new Vaults joined the chase board today.';
+  return 'Nothing loud today, but the watch list kept doing its quiet collector math.';
 }
 
 function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStatsToday>): string[] {
   const lines: string[] = [];
   if (stats.newVaultrs > 0) lines.push(`• New Vaults: ${pluralize(stats.newVaultrs, 'collector')}`);
   if (stats.usersAlerted > 0) {
-    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} reached ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')} received a sighting`;
-    lines.push(`• Sightings: ${sightingDetail}`);
+    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} caught ${pluralize(stats.usersAlerted, 'collector')}' attention` : `${pluralize(stats.usersAlerted, 'collector')} got a chase ping`;
+    lines.push(`• Chase pings: ${sightingDetail}`);
   }
-  if (stats.grailsSurfaced > 0) lines.push(`• Breakthroughs: ${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  return lines.length > 0 ? lines : ['• Chases watched quietly in the background'];
+  if (stats.grailsSurfaced > 0) lines.push(`• Grail watch: ${pluralize(stats.grailsSurfaced, 'grail')} peeked out`);
+  return lines.length > 0 ? lines : ['• Chases stayed on watch in the background'];
 }
 
 function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   if (stats.topTrackedFamily === 'Mixed collections' && stats.topTrackedTheme === 'Varied styles') {
-    return 'Mixed collections with no single lane taking over yet.';
+    return 'A little bit of everything today; no single lane ran away with it.';
   }
   return `${stats.topTrackedTheme} around ${stats.topTrackedFamily}`;
 }
@@ -921,13 +919,13 @@ export function buildDailyPulseMessage(stats: ReturnType<typeof getGuildCommunit
     dailyPulseLine(stats),
     dailyPulseMood(stats),
     '',
-    '**Today in the Vault**',
+    '**Today’s Chase Board**',
     ...dailyPulseActivityLines(stats),
     '',
-    '**Collector Current**',
+    '**What Collectors Are Circling**',
     `• ${dailyPulseCollectorCurrent(stats)}`,
     '',
-    '**Market Whisper**',
+    '**Worth a Look**',
     `• ${truncateForEmbed(stats.hiddenDiscovery, 180)}`
   ].join('\n');
 }

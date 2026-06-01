@@ -256,17 +256,17 @@ describe('buildDailyPulseMessage', () => {
     });
 
     expect(message).toContain('🗝️ **Vault Pulse**');
-    expect(message).toContain('2 collectors opened a Vault');
-    expect(message).toContain('3 collectors received a sighting');
-    expect(message).toContain('A grail broke through while moonlit alt art stayed warm.');
-    expect(message).toContain('**Today in the Vault**');
+    expect(message).toContain('2 collectors started a Vault');
+    expect(message).toContain('3 collectors got a chase ping');
+    expect(message).toContain('A grail made an appearance, with moonlit alt art still drawing eyes.');
+    expect(message).toContain('**Today’s Chase Board**');
     expect(message).toContain('• New Vaults: 2 collectors');
-    expect(message).toContain('• Sightings: 5 listings reached 3 collectors');
-    expect(message).toContain('• Breakthroughs: 1 grail surfaced');
-    expect(message).toContain('1 grail surfaced');
-    expect(message).toContain('**Collector Current**');
+    expect(message).toContain("• Chase pings: 5 listings caught 3 collectors' attention");
+    expect(message).toContain('• Grail watch: 1 grail peeked out');
+    expect(message).toContain('1 grail peeked out');
+    expect(message).toContain('**What Collectors Are Circling**');
     expect(message).toContain('• moonlit alt art around Eeveelution cards');
-    expect(message).toContain('**Market Whisper**');
+    expect(message).toContain('**Worth a Look**');
     expect(message).toContain('Umbreon VMAX Alt Art PSA 10');
     expect(message).not.toContain('received a match');
   });
@@ -282,9 +282,9 @@ describe('buildDailyPulseMessage', () => {
       hiddenDiscovery: 'A quiet spotlight. Chases are still watching.'
     });
 
-    expect(message).toContain('A quiet day in the Vault. Chases kept watching in the background.');
-    expect(message).toContain('The room stayed quiet, but the watch list kept learning in the background.');
-    expect(message).toContain('• Chases watched quietly in the background');
-    expect(message).toContain('• Mixed collections with no single lane taking over yet.');
+    expect(message).toContain('Quiet day. The chases stayed tucked in and kept watch.');
+    expect(message).toContain('Nothing loud today, but the watch list kept doing its quiet collector math.');
+    expect(message).toContain('• Chases stayed on watch in the background');
+    expect(message).toContain('• A little bit of everything today; no single lane ran away with it.');
   });
 });

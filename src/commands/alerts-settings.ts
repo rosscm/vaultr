@@ -99,7 +99,7 @@ export const alertsSettings = {
     .addStringOption((opt) =>
       opt
         .setName('shipping_country')
-        .setDescription('Ship-to country for shipping checks (default: Off)')
+        .setDescription('Ship-to country for better shipping estimates (default: Off)')
         .addChoices(...SHIPPING_COUNTRY_CHOICES)
         .setMaxLength(3)
     ),
@@ -121,7 +121,7 @@ export const alertsSettings = {
 
     if (shippingCountryInput !== null && shippingCountry === undefined) {
       await interaction.reply({
-        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or `OFF` to clear your shipping destination.')],
+        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or `OFF` to clear your ship-to country.')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -157,7 +157,7 @@ export const alertsSettings = {
       `**Minimum Confidence:** ${settings.minScore} (default: 60)`,
       `**Alert Volume:** ${displayAlertVolume(settings.maxAlertsPerHour)} (default: Balanced, 10/hour)`,
       `**Price Currency:** ${settings.alertCurrency} (default: USD)`,
-      `**Shipping Destination:** ${shipToLocation} (default: Off)`,
+      `**Ship-to Country:** ${shipToLocation} (default: Off)`,
       `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`
     ];
 

@@ -60,13 +60,13 @@ describe('searchEbayListings Browse shipping', () => {
       );
 
     const { searchEbayListings } = await import('../ebay.js');
-    const listings = await searchEbayListings(baseChase(), { country: 'US', postalCode: '90210' });
+    const listings = await searchEbayListings(baseChase());
 
     expect(listings[0]?.shippingCost).toBe(7.5);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('does not send imprecise country-only context that can reduce Browse shipping costs', async () => {
+  it('uses Shopping details for country-only destination shipping instead of Browse defaults', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
@@ -84,15 +84,27 @@ describe('searchEbayListings Browse shipping', () => {
             }
           ]
         })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          Item: {
+            ShippingCostSummary: {
+              ShippingServiceCost: { Value: '18.50', CurrencyID: 'CAD' }
+            }
+          }
+        })
       );
 
     const { searchEbayListings } = await import('../ebay.js');
     const listings = await searchEbayListings(baseChase(), { country: 'CA' });
     const browseHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>;
+    const shoppingUrl = String(fetchMock.mock.calls[2]?.[0]);
 
     expect(browseHeaders['X-EBAY-C-ENDUSERCTX']).toBeUndefined();
-    expect(listings[0]?.shippingCost).toBe(7.5);
-    expect(listings[0]?.shippingDestinationCountry).toBeUndefined();
+    expect(shoppingUrl).toContain('DestinationCountryCode=CA');
+    expect(listings[0]?.shippingCost).toBe(18.5);
+    expect(listings[0]?.shippingCurrency).toBe('CAD');
+    expect(listings[0]?.shippingDestinationCountry).toBe('CA');
   });
 
   it('enriches missing Browse shipping with Shopping details using the legacy item id', async () => {
@@ -131,5 +143,7 @@ describe('searchEbayListings Browse shipping', () => {
     expect(listings[0]?.shippingCurrency).toBe('USD');
     expect(shoppingUrl).toContain('GetSingleItem');
     expect(shoppingUrl).toContain('ItemID=1234567890');
+    expect(shoppingUrl).toContain('DestinationCountryCode=US');
+    expect(shoppingUrl).toContain('DestinationPostalCode=90210');
   });
 });

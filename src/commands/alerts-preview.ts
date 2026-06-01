@@ -28,7 +28,6 @@ export const previewAlert = {
           `**Total:** 1155.00 ${currency}`,
           '**Posted:** 2m ago',
           '**Source:** eBay',
-           '**Shipping Destination:** CA',
           '**Confidence:** good (72)',
           '**Signals:** exact card name, requested grade',
           '**Takeaway:** meets the core chase criteria'
@@ -49,7 +48,6 @@ export const previewAlert = {
             `**Shipping:** 15.00 ${currency}`,
             `**Total:** 1155.00 ${currency}`,
             `**Total vs Max:** 45.00 ${currency} under max`,
-             '**Shipping Destination:** CA',
             '**Listing Type:** Buy It Now'
           ].join('\n'),
           inline: false

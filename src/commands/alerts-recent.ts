@@ -20,7 +20,7 @@ const reasonSuggestions: Record<AlertFeedbackReason, string> = {
   WRONG_CARD: 'tighten the chase name or add negative keywords for variants you do not want',
   WRONG_GRADE_TYPE: 'set grading type and grade value for the slab or raw status you want',
   CONDITION_ISSUE: 'set a condition threshold if surface quality is the deciding factor',
-  PRICE_SHIPPING: 'review max price and shipping destination so total cost lines up with your range',
+  PRICE_SHIPPING: 'review max price and ship-to country so total cost lines up with your range',
   SELLER_CONCERN: 'keep seller feedback visible and tune out sellers or listings that feel off',
   ALREADY_SEEN_BOUGHT: 'similar title repeats are being suppressed for that chase',
   JUST_NOT_INTERESTED: 'make the chase more specific or add a short target note'
