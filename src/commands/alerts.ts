@@ -75,7 +75,7 @@ export const alerts = {
     .addSubcommand((sub) =>
       sub
         .setName('recent')
-        .setDescription('Review recent sightings and what Vaultr is learning')
+        .setDescription('Review Vaultr sightings and what Vaultr is learning')
         .addIntegerOption((opt) =>
           opt
             .setName('limit')

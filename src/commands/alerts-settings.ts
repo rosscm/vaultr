@@ -1,5 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings, getUserPlan, setUserAlertSettings } from '../services/chase-store.js';
+import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { OUTPUT_STYLE } from '../ui/style.js';
@@ -57,6 +58,27 @@ function isStorefrontSourceMode(value: ListingSourceModePreference | null): bool
   return value === 'EBAY_SHOPIFY' || value === 'SHOPIFY';
 }
 
+function displayListingSourceSetting(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
+  if (activeTier === 'FREE' && isStorefrontSourceMode(value)) return 'eBay (stored shop preference paused)';
+  return displaySourceMode(value);
+}
+
+function displayPlanAccess(plan: ReturnType<typeof getUserPlan>, activeTier: 'FREE' | 'PRO'): string {
+  if (plan.tier === activeTier) return activeTier;
+  return `${activeTier} (${plan.tier} ${plan.status}; Pro paused)`;
+}
+
+function displayTrustedShopAccess(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
+  if (activeTier === 'FREE') {
+    return isStorefrontSourceMode(value)
+      ? `Paused until Pro (${PLAN_LIMITS.PRO.maxActiveChases} chases + trusted shop monitoring)`
+      : `Unlock with Pro (${PLAN_LIMITS.PRO.maxActiveChases} chases + trusted shop monitoring)`;
+  }
+  if (value === 'EBAY_SHOPIFY') return 'Enabled with eBay';
+  if (value === 'SHOPIFY') return 'Enabled, trusted shops only';
+  return 'Available; switch source to eBay + Trusted Shops or Trusted Shops Only';
+}
+
 export const alertsSettings = {
   data: new SlashCommandBuilder()
     .setName('alerts-settings')
@@ -105,6 +127,7 @@ export const alertsSettings = {
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
+    const activeTier = activePlanTier(plan);
     const minScore = interaction.options.getInteger('min_score');
     const alertVolume = interaction.options.getString('alert_volume') as AlertVolume | null;
     const alertCurrency = interaction.options.getString('alert_currency');
@@ -127,12 +150,12 @@ export const alertsSettings = {
       return;
     }
 
-    if (isStorefrontSourceMode(source) && plan.tier !== 'PRO') {
+    if (isStorefrontSourceMode(source) && activeTier !== 'PRO') {
       await interaction.reply({
         embeds: [
           warningEmbed(
             'Pro Feature',
-            'Trusted shop monitoring is available on Pro\n\n**Includes:** eBay + Trusted Shops, or Trusted Shops Only\n**Next:** use `/upgrade` to unlock'
+            `Pro watches trusted card shops alongside eBay, useful for raw singles, promos, and shop restocks.\n\n**Free:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Pro:** eBay + Trusted Shops, Trusted Shops Only, and ${PLAN_LIMITS.PRO.maxActiveChases} active chases\n**Next:** use \`/upgrade\` to unlock`
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -152,18 +175,51 @@ export const alertsSettings = {
 
     const shipToLocation = settings.shippingCountry ?? OUTPUT_STYLE.off;
 
-    const lines = [
-      `**Listing Source:** ${displaySourceMode(settings.listingSourceMode)} (default: eBay)`,
-      `**Minimum Confidence:** ${settings.minScore} (default: 60)`,
-      `**Alert Volume:** ${displayAlertVolume(settings.maxAlertsPerHour)} (default: Balanced, 10/hour)`,
-      `**Price Currency:** ${settings.alertCurrency} (default: USD)`,
-      `**Ship-to Country:** ${shipToLocation} (default: Off)`,
-      `**Updated:** ${formatLocalDateTime(settings.updatedAt)}`
+    const fields = [
+      {
+        name: 'Plan',
+        value: [
+          `**Access:** ${displayPlanAccess(plan, activeTier)}`,
+          `**Chases:** ${PLAN_LIMITS[activeTier].maxActiveChases} active`
+        ].join('\n'),
+        inline: false
+      },
+      {
+        name: 'Sources',
+        value: [
+          `**Watching:** ${displayListingSourceSetting(settings.listingSourceMode, activeTier)}`,
+          `**Trusted Shops:** ${displayTrustedShopAccess(settings.listingSourceMode, activeTier)}`
+        ].join('\n'),
+        inline: false
+      },
+      {
+        name: 'Alert Rules',
+        value: [
+          `**Confidence:** ${settings.minScore} (default: 60)`,
+          `**Volume:** ${displayAlertVolume(settings.maxAlertsPerHour)} (default: Balanced)`
+        ].join('\n'),
+        inline: false
+      },
+      {
+        name: 'Pricing',
+        value: [
+          `**Currency:** ${settings.alertCurrency} (default: USD)`,
+          `**Ship-to:** ${shipToLocation} (default: Off)`
+        ].join('\n'),
+        inline: false
+      },
+      {
+        name: 'Updated',
+        value: formatLocalDateTime(settings.updatedAt),
+        inline: false
+      }
     ];
 
     const embed = noChanges
-      ? infoEmbed('🔔 Vault Signal Settings', lines.join('\n'))
-      : successEmbed('Vault Signal Settings Updated', lines.join('\n')).setTitle('✅ Vault Signal Settings Updated');
+      ? infoEmbed('🔔 Vaultr Settings', 'Your chase sighting controls at a glance.')
+      : successEmbed('Vaultr Settings Updated', 'Your chase sighting controls are updated.').setTitle('✅ Vaultr Settings Updated');
+
+    embed.addFields(...fields);
 
     await interaction.reply({
       embeds: [embed],

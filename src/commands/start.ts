@@ -4,7 +4,7 @@ import {
   getUserAlertSettings,
   getUserPlan
 } from '../services/chase-store.js';
-import { PLAN_LIMITS } from '../services/plans.js';
+import { activePlanLimits, activePlanTier } from '../services/plans.js';
 import { infoEmbed } from '../ui/embeds.js';
 
 export const start = {
@@ -15,7 +15,8 @@ export const start = {
     const plan = getUserPlan(interaction.user.id);
     const settings = getUserAlertSettings(interaction.user.id);
     const activeChases = countUserChases(interaction.user.id);
-    const limits = PLAN_LIMITS[plan.tier];
+    const activeTier = activePlanTier(plan);
+    const limits = activePlanLimits(plan);
 
     const lines = [
       '**Build your Vault. Chase your grails. Discover what you love next.**',
@@ -25,7 +26,7 @@ export const start = {
       '**Step 3:** Use `/discover` when you want Vaultr to find a new lane',
       '**Step 4:** Watch your DMs for chase sightings and weekly recaps',
       '',
-      `**Plan:** ${plan.tier} (${plan.status})`,
+      `**Plan:** ${activeTier}${plan.tier !== activeTier ? ` (${plan.tier} ${plan.status}; Pro paused)` : ''}`,
       `**Active Chases:** ${activeChases}/${limits.maxActiveChases}`,
       `**Minimum Confidence:** ${settings.minScore}`,
       `**Price Currency:** ${settings.alertCurrency}`,

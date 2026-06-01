@@ -1,6 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserPlan, listChases, updateChase } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
+import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES, gradeSelectionWarning, inferGradingTypeFromGrade, normalizeConditionChoice } from './chase-options.js';
@@ -101,7 +102,8 @@ export const chaseEdit = {
     const targetNote = targetNoteRaw === null ? undefined : targetNoteRaw;
     const negativeKeywordsRaw = interaction.options.getString('negative_keywords');
     const plan = getUserPlan(interaction.user.id);
-    const entitlements = getEntitlementsForTier(plan.tier);
+    const activeTier = activePlanTier(plan);
+    const entitlements = getEntitlementsForTier(activeTier);
     const usesPrecisionControls =
       (conditionRaw !== null && conditionRaw !== 'ANY') ||
       (listingType !== undefined && listingType !== 'ANY') ||
@@ -114,7 +116,7 @@ export const chaseEdit = {
         embeds: [
           warningEmbed(
             'Pro Feature',
-            'Precision chase controls are available on Pro\n\n**Includes:** condition, listing type, custom blocked terms, priority, and chase notes\n**Next:** use `/upgrade` to unlock'
+            `Pro adds precision controls for serious chases.\n\n**Includes:** condition, listing type, custom blocked terms, priority, and chase notes\n**Also:** ${PLAN_LIMITS.PRO.maxActiveChases} active chases and trusted shop monitoring\n**Next:** use \`/upgrade\` to unlock`
           )
         ],
         flags: MessageFlags.Ephemeral

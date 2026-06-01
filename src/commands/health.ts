@@ -11,7 +11,7 @@ import {
 import { convertCurrencyAmount, normalizeSupportedCurrency } from '../services/currency.js';
 import { searchEbayListings } from '../services/ebay.js';
 import { matchChaseToListing } from '../services/matcher.js';
-import { PLAN_LIMITS } from '../services/plans.js';
+import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { CHASE_ALERT_COOLDOWN_MINUTES } from '../services/alert-policy.js';
 import { getPollerState } from '../services/poller-state.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
@@ -94,7 +94,8 @@ function buildEligibilityLines(chases: Chase[], nowMs: number): string[] {
 
   for (const chase of chases) {
     const plan = getUserPlan(chase.userId);
-    const intervalSeconds = PLAN_LIMITS[plan.tier].pollIntervalSeconds;
+    const tier = activePlanTier(plan);
+    const intervalSeconds = PLAN_LIMITS[tier].pollIntervalSeconds;
     const lastCheckedAt = getChaseLastPollCheckAt(chase.id);
     const lastCheckedAtMs = lastCheckedAt ? new Date(lastCheckedAt).getTime() : undefined;
     const secondsUntilDue = lastCheckedAtMs !== undefined && Number.isFinite(lastCheckedAtMs)
@@ -103,7 +104,7 @@ function buildEligibilityLines(chases: Chase[], nowMs: number): string[] {
 
     if (!lastCheckedAt) neverChecked += 1;
 
-    const summary = { chase, tier: plan.tier, secondsUntilDue };
+    const summary = { chase, tier, secondsUntilDue };
     if (secondsUntilDue <= 0) {
       dueNow += 1;
       if (!oldestEligible || secondsUntilDue < oldestEligible.secondsUntilDue) oldestEligible = summary;

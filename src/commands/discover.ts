@@ -19,7 +19,7 @@ import { convertCurrencyAmount, type SupportedCurrency } from '../services/curre
 import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { searchEbayListings } from '../services/ebay.js';
-import { PLAN_LIMITS } from '../services/plans.js';
+import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import type { Chase, Listing } from '../types.js';
 
@@ -514,8 +514,9 @@ async function discoverCandidatesForUser(userId: string, focuses: string[], coun
   const chases = listChases(userId);
   const settings = getUserAlertSettings(userId);
   const plan = getUserPlan(userId);
-  const entitlements = getEntitlementsForTier(plan.tier);
-  const hasFullDiscovery = plan.status === 'ACTIVE' && entitlements.discoveryDepth === 'full';
+  const activeTier = activePlanTier(plan);
+  const entitlements = getEntitlementsForTier(activeTier);
+  const hasFullDiscovery = entitlements.discoveryDepth === 'full';
   const hasLearnedProfile = hasFullDiscovery && chases.length >= MIN_LEARNED_PROFILE_CHASES;
   const recentlySeenNames = listRecentUserDiscoverySeenNames(userId);
   const priceRange = hasLearnedProfile ? priceRangeFromChases(chases) : undefined;
@@ -612,6 +613,9 @@ export const discover = {
       `**Today’s Finds:** ${laneSummary}`,
       `**Spend Feel:** ${priceRangeSummary(discovery.priceRange, discovery.settings.alertCurrency, discovery.hasFullDiscovery, discovery.hasLearnedProfile)}`
     ];
+    if (!discovery.hasFullDiscovery) {
+      lines.push('**Pro Adds:** deeper weekly Taste Profile paths and trusted shop monitoring.');
+    }
     const overviewEmbed = infoEmbed(title, lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Discovery profile' });
 
     await interaction.editReply({
@@ -658,11 +662,16 @@ export async function handleDiscoveryVaultAdd(interaction: any): Promise<boolean
   }
 
   const plan = getUserPlan(interaction.user.id);
+  const activeTier = activePlanTier(plan);
   const currentCount = countUserChases(interaction.user.id);
-  const maxChases = PLAN_LIMITS[plan.tier].maxActiveChases;
+  const maxChases = PLAN_LIMITS[activeTier].maxActiveChases;
   if (currentCount >= maxChases) {
+    const message =
+      activeTier === 'PRO'
+        ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another.`
+        : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} chases plus trusted shop monitoring. Remove one with /chase remove or run /upgrade.`;
     await interaction.reply({
-      embeds: [warningEmbed('Plan Limit Reached', `You have reached your ${plan.tier} limit of ${maxChases} active chases. Remove one with /chase remove or run /upgrade.`)],
+      embeds: [warningEmbed('Vault Limit Reached', message)],
       flags: MessageFlags.Ephemeral
     });
     return true;

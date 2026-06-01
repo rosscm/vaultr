@@ -22,14 +22,14 @@ export const upgrade = {
     }
 
     const lines = [
-      'Pro gives your Vault more room, quicker sightings, and finer control over each chase.',
+      'Pro is for collectors who want more room to chase and more places watched for restocks.',
       '',
-      `**Active Chases:** ${PLAN_LIMITS.FREE.maxActiveChases} → ${PLAN_LIMITS.PRO.maxActiveChases}`,
+      `**Active Chases:** ${PLAN_LIMITS.FREE.maxActiveChases} free → ${PLAN_LIMITS.PRO.maxActiveChases} Pro`,
       `**Checks for New Listings:** ${formatPollInterval(PLAN_LIMITS.FREE.pollIntervalSeconds)} → ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
-      '**Signal Controls:** watch trusted shop sources alongside eBay',
-      '**Discovery:** richer recommendations as your Vault grows',
-      '**Precision Filters:** condition, listing type, custom blocked terms, priority, and chase notes',
-      '**How to Upgrade:** Upgrade path coming soon.'
+      '**Trusted Shops:** watch curated card shops alongside eBay, or shop-only when you want restock signals',
+      '**Taste Profile:** deeper weekly Discovery paths as your Vault grows',
+      '**Precision Controls:** condition, listing type, custom blocked terms, priority, and chase notes',
+      '**Payments:** Stripe checkout coming soon; Pro access can be tested before launch.'
     ];
 
     await interaction.reply({

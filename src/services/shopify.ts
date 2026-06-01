@@ -72,6 +72,10 @@ const TRUSTED_SHOPIFY_SHOPS: TrustedShopifyShop[] = [
   }
 ];
 
+export function listTrustedShopifyShopNames(): string[] {
+  return TRUSTED_SHOPIFY_SHOPS.map((shop) => shop.name);
+}
+
 const SHOPIFY_PAGE_LIMIT = 250;
 const SHOPIFY_MAX_PAGES = 3;
 

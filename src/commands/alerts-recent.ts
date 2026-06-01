@@ -59,7 +59,7 @@ function formatConfidence(score: number | undefined): string {
 export const alertsRecent = {
   data: new SlashCommandBuilder()
     .setName('alerts-recent')
-    .setDescription('Review recent sightings and what Vaultr is learning')
+    .setDescription('Review Vaultr sightings and what Vaultr is learning')
     .addIntegerOption((opt) =>
       opt
         .setName('limit')
@@ -74,8 +74,8 @@ export const alertsRecent = {
     if (recent.length === 0) {
       await interaction.reply({
         embeds: [
-          infoEmbed(
-            '📨 Recent Sightings',
+              infoEmbed(
+                '📨 Vaultr Sightings',
             'No sightings yet. Keep your chases active; Vaultr will DM you when something fitting surfaces.'
           )
         ],
@@ -84,7 +84,7 @@ export const alertsRecent = {
       return;
     }
 
-    const embed = infoEmbed('📨 Recent Sightings', `Latest ${recent.length} chase sighting${recent.length === 1 ? '' : 's'} from your DMs.`);
+    const embed = infoEmbed('📨 Vaultr Sightings', `Latest ${recent.length} chase sighting${recent.length === 1 ? '' : 's'} from your DMs.`);
 
     embed.addFields(
       recent.map((alert, index) => {

@@ -8,7 +8,7 @@ import {
   markGuildUserStarted
 } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
-import { PLAN_LIMITS } from '../services/plans.js';
+import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
@@ -82,18 +82,18 @@ export const chaseAdd = {
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
-    const entitlements = getEntitlementsForTier(plan.tier);
+    const activeTier = activePlanTier(plan);
+    const entitlements = getEntitlementsForTier(activeTier);
     const currentCount = countUserChases(interaction.user.id);
-    const maxChases = PLAN_LIMITS[plan.tier].maxActiveChases;
+    const maxChases = PLAN_LIMITS[activeTier].maxActiveChases;
 
     if (currentCount >= maxChases) {
+      const message =
+        activeTier === 'PRO'
+          ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another.`
+          : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} chases plus trusted shop monitoring. Remove one with /chase remove or run /upgrade.`;
       await interaction.reply({
-        embeds: [
-          warningEmbed(
-            'Plan Limit Reached',
-            `You have reached your ${plan.tier} limit of ${maxChases} active chases. Remove one with /chase remove or run /upgrade.`
-          )
-        ],
+        embeds: [warningEmbed('Vault Limit Reached', message)],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -136,7 +136,7 @@ export const chaseAdd = {
         embeds: [
           warningEmbed(
             'Pro Feature',
-            'Precision chase controls are available on Pro\n\n**Includes:** condition, listing type, custom blocked terms, priority, and chase notes\n**Next:** use `/upgrade` to unlock'
+            `Pro adds precision controls for serious chases.\n\n**Includes:** condition, listing type, custom blocked terms, priority, and chase notes\n**Also:** ${PLAN_LIMITS.PRO.maxActiveChases} active chases and trusted shop monitoring\n**Next:** use \`/upgrade\` to unlock`
           )
         ],
         flags: MessageFlags.Ephemeral

@@ -25,7 +25,7 @@ import { searchTrustedShopifyListings } from './shopify.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
-import { getRuntimePollIntervalSeconds, PLAN_LIMITS } from './plans.js';
+import { activePlanTier, getRuntimePollIntervalSeconds, PLAN_LIMITS } from './plans.js';
 import { CHASE_ALERT_COOLDOWN_MINUTES, SHOW_ALERT_IMAGES, USE_COMPACT_ALERT_LAYOUT } from './alert-policy.js';
 import { getEntitlementsForTier } from './entitlements.js';
 import {
@@ -548,7 +548,8 @@ async function runPoll(client: Client): Promise<void> {
   const activeGroups = new Map<string, ActiveGroup>();
   for (const chase of chases) {
     const userPlan = getUserPlan(chase.userId);
-    const intervalSeconds = PLAN_LIMITS[userPlan.tier].pollIntervalSeconds;
+    const tier = activePlanTier(userPlan);
+    const intervalSeconds = PLAN_LIMITS[tier].pollIntervalSeconds;
     const lastCheckedAtIso = getChaseLastPollCheckAt(chase.id);
     const lastCheckedAtMs = lastCheckedAtIso ? new Date(lastCheckedAtIso).getTime() : undefined;
     if (!isDueForPollInterval(Number.isFinite(lastCheckedAtMs) ? lastCheckedAtMs : undefined, intervalSeconds, nowMs)) continue;
@@ -560,7 +561,7 @@ async function runPoll(client: Client): Promise<void> {
         : nowMs;
 
     const settings = getUserAlertSettings(chase.userId);
-    const memberSourceMode = effectiveListingSourceMode(sourceMode, userPlan.tier, settings.listingSourceMode);
+    const memberSourceMode = effectiveListingSourceMode(sourceMode, tier, settings.listingSourceMode);
     const key = sourceQueryKey(chase, settings, memberSourceMode);
     const group = activeGroups.get(key) ?? { members: [], sourceMode: memberSourceMode, oldestCreatedAt: chase.createdAt, oldestDueAtMs: dueAtMs };
     group.members.push({ chase, settings });

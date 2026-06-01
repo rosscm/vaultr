@@ -9,7 +9,7 @@ import {
   shouldPostDailyPulse
 } from '../poller.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
-import { getRuntimePollIntervalSeconds, PLAN_LIMITS } from '../plans.js';
+import { activePlanTier, getRuntimePollIntervalSeconds, PLAN_LIMITS } from '../plans.js';
 
 describe('orderGroupsForRun', () => {
   it('prioritizes groups that have never consumed a source fetch', () => {
@@ -85,6 +85,20 @@ describe('effectiveListingSourceMode', () => {
 
   it('leaves mock mode available for local testing', () => {
     expect(effectiveListingSourceMode('MOCK', 'FREE', 'SHOPIFY')).toBe('MOCK');
+  });
+});
+
+describe('plan access', () => {
+  it('uses Free 3 and Pro 50 chase limits', () => {
+    expect(PLAN_LIMITS.FREE.maxActiveChases).toBe(3);
+    expect(PLAN_LIMITS.PRO.maxActiveChases).toBe(50);
+  });
+
+  it('treats inactive Pro subscriptions as Free access', () => {
+    expect(activePlanTier({ tier: 'PRO', status: 'ACTIVE' })).toBe('PRO');
+    expect(activePlanTier({ tier: 'PRO', status: 'PAST_DUE' })).toBe('FREE');
+    expect(activePlanTier({ tier: 'PRO', status: 'CANCELED' })).toBe('FREE');
+    expect(activePlanTier({ tier: 'FREE', status: 'ACTIVE' })).toBe('FREE');
   });
 });
 

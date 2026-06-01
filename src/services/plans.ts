@@ -1,4 +1,4 @@
-import type { PlanTier } from '../types.js';
+import type { PlanTier, UserPlan } from '../types.js';
 import { getEntitlementsForTier } from './entitlements.js';
 
 export const PLAN_LIMITS: Record<PlanTier, { maxActiveChases: number; pollIntervalSeconds: number }> = {
@@ -15,6 +15,14 @@ export const PLAN_LIMITS: Record<PlanTier, { maxActiveChases: number; pollInterv
 export function normalizePlanTier(input: string | null | undefined): PlanTier {
   if (input?.toUpperCase() === 'PRO') return 'PRO';
   return 'FREE';
+}
+
+export function activePlanTier(plan: Pick<UserPlan, 'tier' | 'status'>): PlanTier {
+  return plan.tier === 'PRO' && plan.status === 'ACTIVE' ? 'PRO' : 'FREE';
+}
+
+export function activePlanLimits(plan: Pick<UserPlan, 'tier' | 'status'>): { maxActiveChases: number; pollIntervalSeconds: number } {
+  return PLAN_LIMITS[activePlanTier(plan)];
 }
 
 export function getRuntimePollIntervalSeconds(): number {

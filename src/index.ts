@@ -4,6 +4,7 @@ import { commands } from './commands/index.js';
 import { handleAlertFeedback } from './commands/alert-feedback.js';
 import { handleChaseListPagination } from './commands/chase-list.js';
 import { handleDiscoveryVaultAdd } from './commands/discover.js';
+import { handlePlanSourceButtons } from './commands/plan.js';
 import { initializeCurrencyRates } from './services/currency.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
 import { startPoller } from './services/poller.js';
@@ -29,6 +30,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (await handleChaseListPagination(interaction)) return;
   if (await handleAlertFeedback(interaction)) return;
   if (await handleDiscoveryVaultAdd(interaction)) return;
+  if (await handlePlanSourceButtons(interaction)) return;
   if (!interaction.isChatInputCommand()) return;
 
   const command = commandMap.get(interaction.commandName);
