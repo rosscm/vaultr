@@ -11,6 +11,8 @@ const EBAY_SHOPPING_ENDPOINT_PROD = 'https://open.api.ebay.com/shopping';
 const EBAY_SHOPPING_ENDPOINT_SANDBOX = 'https://open.api.sandbox.ebay.com/shopping';
 const EBAY_BROWSE_ENDPOINT_PROD = 'https://api.ebay.com/buy/browse/v1/item_summary/search';
 const EBAY_BROWSE_ENDPOINT_SANDBOX = 'https://api.sandbox.ebay.com/buy/browse/v1/item_summary/search';
+const EBAY_BROWSE_ITEM_ENDPOINT_PROD = 'https://api.ebay.com/buy/browse/v1/item';
+const EBAY_BROWSE_ITEM_ENDPOINT_SANDBOX = 'https://api.sandbox.ebay.com/buy/browse/v1/item';
 const EBAY_OAUTH_ENDPOINT_PROD = 'https://api.ebay.com/identity/v1/oauth2/token';
 const EBAY_OAUTH_ENDPOINT_SANDBOX = 'https://api.sandbox.ebay.com/identity/v1/oauth2/token';
 
@@ -31,6 +33,10 @@ function getEbayShoppingEndpoint(): string {
 
 function getEbayBrowseEndpoint(): string {
   return getEbayEnv() === 'SANDBOX' ? EBAY_BROWSE_ENDPOINT_SANDBOX : EBAY_BROWSE_ENDPOINT_PROD;
+}
+
+function getEbayBrowseItemEndpoint(): string {
+  return getEbayEnv() === 'SANDBOX' ? EBAY_BROWSE_ITEM_ENDPOINT_SANDBOX : EBAY_BROWSE_ITEM_ENDPOINT_PROD;
 }
 
 function getEbayOauthEndpoint(): string {
@@ -106,6 +112,14 @@ function getBrowseEndUserContext(destination: ShippingDestination | undefined): 
   if (!country || !postalCode) return undefined;
 
   return `contextualLocation=country=${country},zip=${postalCode}`;
+}
+
+function getBrowseItemEndUserContext(destination: ShippingDestination | undefined): string | undefined {
+  const country = getDeliveryCountry(destination);
+  const postalCode = getDeliveryPostalCode(destination);
+  if (!country) return undefined;
+
+  return postalCode ? `contextualLocation=country=${country},zip=${postalCode}` : `contextualLocation=country=${country}`;
 }
 
 function destinationLabel(country: string, postalCode: string | undefined): string {
@@ -332,11 +346,48 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
 
   const enrichedById = new Map<string, Listing>();
   for (const listing of needsEnrichment) {
-    const enriched = await enrichListingFromShoppingApi(listing, appId, destination);
+    const browseEnriched = await enrichListingFromBrowseItemApi(listing, token, destination);
+    const enriched = browseEnriched.shippingCost === undefined
+      ? await enrichListingFromShoppingApi(browseEnriched, appId, destination)
+      : browseEnriched;
     enrichedById.set(listing.listingId, enriched);
   }
 
   return listings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
+}
+
+async function enrichListingFromBrowseItemApi(listing: Listing, token: string, destination?: ShippingDestination): Promise<Listing> {
+  try {
+    const endUserContext = getBrowseItemEndUserContext(destination);
+    const response = await fetch(`${getEbayBrowseItemEndpoint()}/${encodeURIComponent(listing.listingId)}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US',
+        ...(endUserContext ? { 'X-EBAY-C-ENDUSERCTX': endUserContext } : {})
+      }
+    });
+    if (!response.ok) return listing;
+    const json: any = await parseJsonResponse(response);
+    const shipping = browseShippingOptionWithCost(json?.shippingOptions);
+    const shippingCost = parseNumber(shipping?.shippingCost?.value);
+    if (shippingCost === undefined) return listing;
+
+    const destinationCountry = getDeliveryCountry(destination);
+    const destinationPostalCode = getDeliveryPostalCode(destination);
+    return {
+      ...listing,
+      shippingCost,
+      shippingCurrency: shipping?.shippingCost?.currency ?? listing.currency,
+      shippingDestinationCountry: destinationCountry ?? listing.shippingDestinationCountry,
+      shippingDestinationPostalCode: destinationPostalCode ?? listing.shippingDestinationPostalCode,
+      shippingEligibility: destinationCountry ? 'AVAILABLE' : listing.shippingEligibility,
+      shippingEligibilityMessage: destinationCountry
+        ? `Shipping shown for ${destinationLabel(destinationCountry, destinationPostalCode)}`
+        : listing.shippingEligibilityMessage
+    };
+  } catch {
+    return listing;
+  }
 }
 
 async function enrichListingFromShoppingApi(listing: Listing, appId: string, destination?: ShippingDestination): Promise<Listing> {
