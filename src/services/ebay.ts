@@ -1,8 +1,13 @@
 import type { Chase, Listing } from '../types.js';
+import { setBackoffUntil } from './poller-state.js';
 
 export type ShippingDestination = {
   country?: string;
   postalCode?: string;
+};
+
+export type EbaySearchOptions = {
+  enrichMissingShipping?: boolean;
 };
 
 const EBAY_FINDING_ENDPOINT_PROD = 'https://svcs.ebay.com/services/search/FindingService/v1';
@@ -17,6 +22,121 @@ const EBAY_OAUTH_ENDPOINT_PROD = 'https://api.ebay.com/identity/v1/oauth2/token'
 const EBAY_OAUTH_ENDPOINT_SANDBOX = 'https://api.sandbox.ebay.com/identity/v1/oauth2/token';
 
 let cachedBrowseToken: { token: string; expiresAtMs: number } | undefined;
+const ebayRequestTimestamps: number[] = [];
+const ebaySearchCache = new Map<string, { listings: Listing[]; expiresAtMs: number }>();
+let ebayRequestQueue = Promise.resolve();
+
+class EbayRateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EbayRateLimitError';
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function ebayBackoffSeconds(): number {
+  const seconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '900');
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 900;
+}
+
+function ebayMaxRequestsPerMinute(): number {
+  const requests = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '6');
+  return Number.isFinite(requests) && requests > 0 ? Math.max(1, Math.floor(requests)) : 6;
+}
+
+function ebayMinRequestGapMs(): number {
+  const gapMs = Number(process.env.EBAY_MIN_REQUEST_GAP_MS ?? '0');
+  return Number.isFinite(gapMs) && gapMs > 0 ? Math.floor(gapMs) : 0;
+}
+
+function ebaySearchCacheTtlMs(): number {
+  const seconds = Number(process.env.EBAY_SEARCH_CACHE_TTL_SECONDS ?? '120');
+  return Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds * 1000) : 0;
+}
+
+function cloneListings(listings: Listing[]): Listing[] {
+  return listings.map((listing) => ({ ...listing }));
+}
+
+function ebaySearchCacheKey(chase: Chase, destination: ShippingDestination | undefined, options: EbaySearchOptions, preferredApi: string): string {
+  return [
+    getEbayEnv(),
+    preferredApi,
+    process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US',
+    process.env.EBAY_SEARCH_LIMIT ?? '50',
+    process.env.EBAY_BROWSE_SORT ?? 'newlyListed',
+    chase.cardName.trim().toLowerCase(),
+    chase.grade?.trim().toLowerCase() ?? '',
+    normalizeCountryCode(destination?.country) ?? '',
+    destination?.postalCode?.trim().toUpperCase() ?? '',
+    options.enrichMissingShipping === false ? 'light' : 'full'
+  ].join('|');
+}
+
+function getCachedEbaySearch(cacheKey: string): Listing[] | null {
+  const entry = ebaySearchCache.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAtMs) {
+    ebaySearchCache.delete(cacheKey);
+    return null;
+  }
+  return cloneListings(entry.listings);
+}
+
+function setCachedEbaySearch(cacheKey: string, listings: Listing[]): void {
+  const ttlMs = ebaySearchCacheTtlMs();
+  if (ttlMs <= 0) return;
+  ebaySearchCache.set(cacheKey, { listings: cloneListings(listings), expiresAtMs: Date.now() + ttlMs });
+}
+
+function pruneEbayRequestWindow(nowMs: number): void {
+  const oneMinuteAgo = nowMs - 60_000;
+  while (ebayRequestTimestamps.length > 0 && ebayRequestTimestamps[0] < oneMinuteAgo) ebayRequestTimestamps.shift();
+}
+
+async function waitForEbayRequestBudget(): Promise<void> {
+  const waitTurn = async () => {
+    const maxRequestsPerMinute = ebayMaxRequestsPerMinute();
+    const minGapMs = ebayMinRequestGapMs();
+    let nowMs = Date.now();
+    pruneEbayRequestWindow(nowMs);
+
+    const oldestRequestMs = ebayRequestTimestamps[0];
+    const windowWaitMs = ebayRequestTimestamps.length >= maxRequestsPerMinute && oldestRequestMs !== undefined ? oldestRequestMs + 60_000 - nowMs : 0;
+    const lastRequestMs = ebayRequestTimestamps.at(-1);
+    const gapWaitMs = lastRequestMs !== undefined ? lastRequestMs + minGapMs - nowMs : 0;
+    const waitMs = Math.max(0, windowWaitMs, gapWaitMs);
+    if (waitMs > 0) await sleep(waitMs);
+
+    nowMs = Date.now();
+    pruneEbayRequestWindow(nowMs);
+    ebayRequestTimestamps.push(nowMs);
+  };
+
+  const nextTurn = ebayRequestQueue.then(waitTurn, waitTurn);
+  ebayRequestQueue = nextTurn.then(() => undefined, () => undefined);
+  return nextTurn;
+}
+
+async function fetchEbay(url: string, init?: RequestInit): Promise<Response> {
+  await waitForEbayRequestBudget();
+  return fetch(url, init);
+}
+
+function rememberEbayRateLimit(): void {
+  setBackoffUntil(new Date(Date.now() + ebayBackoffSeconds() * 1000));
+}
+
+function isEbayRateLimitMessage(message: string): boolean {
+  return message.includes('429') || /rate limit|quota|ratelimiter|exceeded the number of times|EbayRateLimitError/i.test(message);
+}
+
+function isEbayRateLimitError(error: unknown): boolean {
+  return error instanceof EbayRateLimitError || isEbayRateLimitMessage(error instanceof Error ? error.message : String(error));
+}
 
 function getEbayEnv(): 'PRODUCTION' | 'SANDBOX' {
   const env = (process.env.EBAY_ENV ?? 'PRODUCTION').toUpperCase();
@@ -240,7 +360,7 @@ async function getBrowseAccessToken(): Promise<string> {
     scope: 'https://api.ebay.com/oauth/api_scope'
   });
 
-  const response = await fetch(getEbayOauthEndpoint(), {
+  const response = await fetchEbay(getEbayOauthEndpoint(), {
     method: 'POST',
     headers: {
       Authorization: `Basic ${auth}`,
@@ -307,7 +427,7 @@ function mapBrowseItemToListing(item: any, destination?: ShippingDestination): L
   };
 }
 
-async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDestination): Promise<Listing[]> {
+async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {
   const token = await getBrowseAccessToken();
   const gradeTerm = gradeSearchTerm(chase.grade);
   const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
@@ -319,7 +439,7 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
 
   const endUserContext = getBrowseEndUserContext(destination);
   const contextualDestination = endUserContext ? destination : undefined;
-  const response = await fetch(`${getEbayBrowseEndpoint()}?${params.toString()}`, {
+  const response = await fetchEbay(`${getEbayBrowseEndpoint()}?${params.toString()}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US',
@@ -328,7 +448,7 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
   });
   const json: any = await parseJsonResponse(response);
   if (isBrowseRateLimitError(response, json)) {
-    throw new Error(`eBay rate limit exceeded: ${response.status}`);
+    throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`);
   }
   if (!response.ok) {
     throw new Error(`eBay Browse request failed: ${response.status}`);
@@ -338,6 +458,8 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
   const listings = items
     .map((item: any) => mapBrowseItemToListing(item, contextualDestination))
     .filter((listing: Listing | null): listing is Listing => listing !== null);
+
+  if (options.enrichMissingShipping === false) return listings;
 
   const appId = process.env.EBAY_APP_ID ?? process.env.EBAY_CLIENT_ID;
   const needsDestinationShipping = getDeliveryCountry(destination) !== undefined;
@@ -359,7 +481,7 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
 async function enrichListingFromBrowseItemApi(listing: Listing, token: string, destination?: ShippingDestination): Promise<Listing> {
   try {
     const endUserContext = getBrowseItemEndUserContext(destination);
-    const response = await fetch(`${getEbayBrowseItemEndpoint()}/${encodeURIComponent(listing.listingId)}`, {
+    const response = await fetchEbay(`${getEbayBrowseItemEndpoint()}/${encodeURIComponent(listing.listingId)}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US',
@@ -407,7 +529,7 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string, des
   if (destinationPostalCode) params.set('DestinationPostalCode', destinationPostalCode);
 
   try {
-    const response = await fetch(`${endpoint}?${params.toString()}`);
+    const response = await fetchEbay(`${endpoint}?${params.toString()}`);
     if (!response.ok) return listing;
     const json: any = await response.json();
     const item = json?.Item;
@@ -455,7 +577,7 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string, des
   }
 }
 
-async function searchEbayFindingListings(chase: Chase, destination?: ShippingDestination): Promise<Listing[]> {
+async function searchEbayFindingListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {
   const appId = process.env.EBAY_APP_ID;
   if (!appId) return [];
   const endpoint = getEbayFindingEndpoint();
@@ -478,10 +600,10 @@ async function searchEbayFindingListings(chase: Chase, destination?: ShippingDes
   const deliveryPostalCode = getDeliveryPostalCode(destination);
   if (deliveryPostalCode) params.append('buyerPostalCode', deliveryPostalCode);
 
-  const response = await fetch(`${endpoint}?${params.toString()}`);
+  const response = await fetchEbay(`${endpoint}?${params.toString()}`);
   const json: any = await parseJsonResponse(response);
   if (isFindingRateLimitError(json)) {
-    throw new Error(`eBay rate limit exceeded: ${response.status}`);
+    throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`);
   }
   if (!response.ok) {
     throw new Error(`eBay request failed: ${response.status}`);
@@ -545,6 +667,8 @@ async function searchEbayFindingListings(chase: Chase, destination?: ShippingDes
     })
     .filter((listing: Listing | null): listing is Listing => listing !== null);
 
+  if (options.enrichMissingShipping === false) return listings;
+
   const needsDestinationShipping = getDeliveryCountry(destination) !== undefined;
   const needsEnrichment = listings.filter(
     (listing: Listing) =>
@@ -567,8 +691,32 @@ async function searchEbayFindingListings(chase: Chase, destination?: ShippingDes
   return listings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
 }
 
-export async function searchEbayListings(chase: Chase, destination?: ShippingDestination): Promise<Listing[]> {
-  return getEbaySearchApi() === 'BROWSE'
-    ? searchEbayBrowseListings(chase, destination)
-    : searchEbayFindingListings(chase, destination);
+export async function searchEbayListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {
+  const preferredApi = getEbaySearchApi();
+  const cacheKey = ebaySearchCacheKey(chase, destination, options, preferredApi);
+  const cached = getCachedEbaySearch(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const listings = preferredApi === 'BROWSE'
+      ? await searchEbayBrowseListings(chase, destination, options)
+      : await searchEbayFindingListings(chase, destination, options);
+    setCachedEbaySearch(cacheKey, listings);
+    return cloneListings(listings);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isEbayRateLimitMessage(message)) rememberEbayRateLimit();
+    if (preferredApi === 'BROWSE' && isEbayRateLimitError(error)) throw error;
+    if (preferredApi !== 'BROWSE') throw error;
+
+    try {
+      const listings = await searchEbayFindingListings(chase, destination, options);
+      setCachedEbaySearch(cacheKey, listings);
+      return cloneListings(listings);
+    } catch (fallbackError) {
+      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      if (isEbayRateLimitMessage(fallbackMessage)) rememberEbayRateLimit();
+      throw fallbackError;
+    }
+  }
 }

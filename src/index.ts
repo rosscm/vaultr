@@ -3,7 +3,7 @@ import { Client, Events, GatewayIntentBits, MessageFlags } from 'discord.js';
 import { commands } from './commands/index.js';
 import { handleAlertFeedback } from './commands/alert-feedback.js';
 import { handleChaseListPagination } from './commands/chase-list.js';
-import { handleDiscoveryVaultAdd } from './commands/discover.js';
+import { handleDiscoveryActionSelect, handleDiscoveryFeedback, handleDiscoveryVaultAdd } from './commands/discover.js';
 import { handlePlanSourceButtons } from './commands/plan.js';
 import { initializeCurrencyRates } from './services/currency.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
@@ -29,6 +29,8 @@ client.once(Events.ClientReady, (readyClient) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (await handleChaseListPagination(interaction)) return;
   if (await handleAlertFeedback(interaction)) return;
+  if (await handleDiscoveryActionSelect(interaction)) return;
+  if (await handleDiscoveryFeedback(interaction)) return;
   if (await handleDiscoveryVaultAdd(interaction)) return;
   if (await handlePlanSourceButtons(interaction)) return;
   if (!interaction.isChatInputCommand()) return;

@@ -8,10 +8,17 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/Documents/GitHub/vaultr
 EnvironmentFile=/home/pi/Documents/GitHub/vaultr/.env
+Environment=EBAY_MAX_REQUESTS_PER_MINUTE=6
+Environment=EBAY_MIN_REQUEST_GAP_MS=10000
+Environment=EBAY_SEARCH_CACHE_TTL_SECONDS=120
+Environment=EBAY_BACKOFF_BASE_SECONDS=900
 ExecStartPre=/usr/bin/mkdir -p /home/pi/Documents/GitHub/vaultr/data/logs
-ExecStart=/usr/bin/npm run start
+ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr/dist/index.js
 Restart=always
 RestartSec=5
+MemoryAccounting=yes
+MemoryHigh=350M
+MemoryMax=500M
 StandardOutput=append:/home/pi/Documents/GitHub/vaultr/data/logs/vaultr.log
 StandardError=append:/home/pi/Documents/GitHub/vaultr/data/logs/vaultr.log
 

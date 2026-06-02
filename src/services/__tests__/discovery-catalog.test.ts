@@ -49,6 +49,23 @@ describe('selectDiscoverySuggestions', () => {
     expectDistinctLanes(selection);
   });
 
+  it('uses saved focuses as a light steer once active chases provide stronger taste', () => {
+    const selection = selectDiscoverySuggestionsForFocuses(
+      ['e reader', 'vending'],
+      [
+        chase({ cardName: 'Squirtle 007/018', priority: 'NORMAL' }),
+        chase({ id: 'c2', cardName: 'Corocoro Shining Mew', priority: 'GRAIL' })
+      ],
+      8
+    );
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(names[0]).toBe('Houndoom Aquapolis H11/H32');
+    expect(names.slice(1, 4)).toEqual(['Mew Southern Islands Promo', 'Ancient Mew Promo', 'Mew GG10 Crown Zenith']);
+    expect(names.indexOf('Mewtwo Vending Series')).toBeGreaterThan(names.indexOf("Totodile 18/25 McDonald's 25th Anniversary Promo"));
+    expectDistinctLanes(selection);
+  });
+
   it('avoids recently seen suggestions before falling back to repeats', () => {
     const selection = selectDiscoverySuggestionsForFocuses(['e reader', 'vending'], [], 3, {
       excludedNames: ['Houndoom Aquapolis H11/H32', 'Mewtwo Vending Series']
@@ -58,6 +75,27 @@ describe('selectDiscoverySuggestions', () => {
     expect(names).not.toContain('Houndoom Aquapolis H11/H32');
     expect(names).not.toContain('Mewtwo Vending Series');
     expect(names).toContain('Ninetales Expedition H19/H32');
+    expectDistinctLanes(selection);
+  });
+
+  it('can cool down recently seen lanes for live discovery variety', () => {
+    const selection = selectDiscoverySuggestionsForFocuses(
+      ['e reader', 'vending'],
+      [
+        chase({ cardName: 'Squirtle 007/018', priority: 'NORMAL' }),
+        chase({ id: 'c2', cardName: 'Corocoro Shining Mew', priority: 'GRAIL' })
+      ],
+      8,
+      {
+        excludedNames: ['Mewtwo Vending Series', 'Articuno Fossil Holo'],
+        excludeLanesForExcludedNames: true
+      }
+    );
+    const lanes = selection.suggestions.map((suggestion) => suggestion.lane);
+
+    expect(selection.suggestions.map((suggestion) => suggestion.name)).not.toContain('Mewtwo Vending Series');
+    expect(lanes).not.toContain('Japanese-only oddities');
+    expect(lanes).not.toContain('legendary birds');
     expectDistinctLanes(selection);
   });
 
@@ -79,6 +117,77 @@ describe('selectDiscoverySuggestions', () => {
     expect(selection.suggestions.find((suggestion) => suggestion.name === 'Totodile 18/25 McDonald\'s 25th Anniversary Promo')?.evidenceSearchTerm).toBe(
       'Totodile 18/25 McDonalds Pokemon'
     );
+    expect(names).not.toContain('Monkey.D.Luffy ST01-001 Leader');
+    expectDistinctLanes(selection);
+  });
+
+  it('lets high-priority chase taste outrank lower-priority profile noise', () => {
+    const selection = selectDiscoverySuggestions(
+      null,
+      [
+        chase({ cardName: 'Squirtle 007/018', priority: 'NORMAL' }),
+        chase({ id: 'c2', cardName: 'Corocoro Shining Mew', priority: 'GRAIL' })
+      ],
+      8
+    );
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(names.slice(0, 3)).toEqual(['Mew Southern Islands Promo', 'Ancient Mew Promo', 'Mew GG10 Crown Zenith']);
+    expect(names.indexOf('Mew Southern Islands Promo')).toBeLessThan(names.indexOf("Totodile 18/25 McDonald's 25th Anniversary Promo"));
+    expect(names.indexOf('Pikachu 012 Nintendo Black Star Promo')).toBeGreaterThan(names.indexOf('Mewtwo Vending Series'));
+    expectDistinctLanes(selection);
+  });
+
+  it('keeps interacted historical chases in the taste profile after they leave active chases', () => {
+    const selection = selectDiscoverySuggestions(
+      null,
+      [
+        chase({ cardName: 'Squirtle 007/018', priority: 'NORMAL' }),
+        chase({ id: 'taste:mew', cardName: 'Corocoro Shining Mew', tasteWeight: 0.8, tasteSource: 'GOOD_ALERT' })
+      ],
+      8
+    );
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(names.slice(0, 3)).toEqual(['Mew Southern Islands Promo', "Totodile 18/25 McDonald's 25th Anniversary Promo", 'Ancient Mew Promo']);
+    expect(names).toContain('Mew GG10 Crown Zenith');
+    expectDistinctLanes(selection);
+  });
+
+  it('keeps active grail intent stronger than weak removed-chase memory', () => {
+    const selection = selectDiscoverySuggestions(
+      null,
+      [
+        chase({ cardName: 'Squirtle 007/018', priority: 'GRAIL' }),
+        chase({ id: 'taste:mew', cardName: 'Corocoro Shining Mew', tasteWeight: 0.35, tasteSource: 'REMOVED_CHASE' })
+      ],
+      8
+    );
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(names.slice(0, 3)).toEqual([
+      'Wartortle 171/165 Pokemon 151 Illustration Rare',
+      "Totodile 18/25 McDonald's 25th Anniversary Promo",
+      'Squirtle 170/165 Pokemon 151 Illustration Rare'
+    ]);
+    expect(names.indexOf('Mew Southern Islands Promo')).toBeGreaterThan(names.indexOf('Squirtle 170/165 Pokemon 151 Illustration Rare'));
+    expectDistinctLanes(selection);
+  });
+
+  it('amplifies repeated named-character taste without overfitting to generic promo text', () => {
+    const selection = selectDiscoverySuggestions(
+      null,
+      [
+        chase({ cardName: 'Corocoro Shining Mew', priority: 'HIGH' }),
+        chase({ id: 'c2', cardName: 'Mew RC24', priority: 'HIGH' }),
+        chase({ id: 'c3', cardName: 'Mew 347/190', priority: 'NORMAL' })
+      ],
+      8
+    );
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+
+    expect(names.slice(0, 4)).toEqual(['Mew Southern Islands Promo', 'Ancient Mew Promo', 'Mew GG10 Crown Zenith', 'Mewtwo Vending Series']);
+    expect(names.indexOf('Pikachu 012 Nintendo Black Star Promo')).toBeGreaterThan(names.indexOf('Mewtwo Vending Series'));
     expect(names).not.toContain('Monkey.D.Luffy ST01-001 Leader');
     expectDistinctLanes(selection);
   });

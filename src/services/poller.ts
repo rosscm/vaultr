@@ -456,8 +456,8 @@ function sourceModeIncludesTrustedShops(sourceMode: string): boolean {
 }
 
 async function fetchListingsWithRetry(chase: Chase, sourceMode: string, destination?: ShippingDestination): Promise<Listing[]> {
-  const maxRequestsPerMinute = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '20');
-  const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '30');
+  const maxRequestsPerMinute = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '6');
+  const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '900');
   const attempts = 2;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -479,14 +479,14 @@ async function fetchListingsWithRetry(chase: Chase, sourceMode: string, destinat
       }
       markSourceCall(nowMs);
       const [ebayListings, shopifyListings] = await Promise.all([
-        withTimeout(searchEbayListings(chase, destination), 10000, 'Listing source timeout'),
+        withTimeout(searchEbayListings(chase, destination), 30000, 'Listing source timeout'),
         shopifyListingsPromise
       ]);
       markSourceSuccessNow();
       return [...ebayListings, ...shopifyListings];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
+      if (message.includes('429') || /rate limit|quota|ratelimiter|listing source timeout/i.test(message)) {
         const backoffMs = backoffBaseSeconds * 1000 * attempt;
         backoffUntilMs = Date.now() + backoffMs;
         setBackoffUntil(new Date(backoffUntilMs));
@@ -909,7 +909,7 @@ function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStats
 
 function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   if (stats.topTrackedFamily === 'Mixed collections' && stats.topTrackedTheme === 'Varied styles') {
-    return 'A little bit of everything today; no single lane ran away with it.';
+    return 'A little bit of everything today; no single thread ran away with it.';
   }
   return `${stats.topTrackedTheme} around ${stats.topTrackedFamily}`;
 }
@@ -945,8 +945,8 @@ function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectio
 
 function weeklyNextStep(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
   if (summary.alertsReceived >= 25) return 'If this felt noisy, tighten max price, condition, or negative keywords on the chases that fired most.';
-  if (summary.newChasesAdded > 0) return 'Your new chases are now part of Discovery. Add a focus if you want Vaultr to explore a specific lane.';
-  if (summary.alertsReceived === 0) return 'Add a focus or refresh a chase if you want Discovery to explore a new lane next week.';
+  if (summary.newChasesAdded > 0) return 'Your new chases are now part of Discovery, shaping the next thread Vaultr explores.';
+  if (summary.alertsReceived === 0) return 'Refresh a chase or add another grail if you want Discovery to explore a new thread next week.';
   return 'Keep useful chases active and tune out listings that do not match your collecting intent.';
 }
 

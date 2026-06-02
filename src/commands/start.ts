@@ -23,7 +23,7 @@ export const start = {
       '',
       '**Step 1:** Add a card you are chasing with `/chase add`',
       '**Step 2:** Tune your sighting controls with `/alerts settings`',
-      '**Step 3:** Use `/discover` when you want Vaultr to find a new lane',
+      '**Step 3:** Use `/discover` when you want Vaultr to find a new thread',
       '**Step 4:** Watch your DMs for chase sightings and weekly recaps',
       '',
       `**Plan:** ${activeTier}${plan.tier !== activeTier ? ` (${plan.tier} ${plan.status}; Pro paused)` : ''}`,
@@ -31,7 +31,7 @@ export const start = {
       `**Minimum Confidence:** ${settings.minScore}`,
       `**Price Currency:** ${settings.alertCurrency}`,
       '',
-      '**Tip:** Add the card number when it matters; use `/discover focus:<idea>` to steer future finds'
+      '**Tip:** Add the card number when it matters; your chase profile steers future Discovery finds'
     ];
 
     await interaction.reply({

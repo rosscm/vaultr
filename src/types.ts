@@ -14,6 +14,8 @@ export type Chase = {
   listingType?: 'ANY' | 'AUCTION' | 'BUY_IT_NOW';
   negativeKeywords?: string[];
   createdAt: string;
+  tasteWeight?: number;
+  tasteSource?: 'ACTIVE_CHASE' | 'REMOVED_CHASE' | 'GOOD_ALERT' | 'BOUGHT_OR_SEEN' | 'DISCOVERY_ADD' | 'DISCOVERY_LIKE';
 };
 
 export type Listing = {

@@ -299,6 +299,6 @@ describe('buildDailyPulseMessage', () => {
     expect(message).toContain('Quiet day. The chases stayed tucked in and kept watch.');
     expect(message).toContain('Nothing loud today, but the watch list kept doing its quiet collector math.');
     expect(message).toContain('• Chases stayed on watch in the background');
-    expect(message).toContain('• A little bit of everything today; no single lane ran away with it.');
+    expect(message).toContain('• A little bit of everything today; no single thread ran away with it.');
   });
 });

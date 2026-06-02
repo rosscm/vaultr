@@ -40,7 +40,7 @@ function buildChaseListEmbed(userId: string, page: number) {
   if (total === 0) {
     return {
       empty: true as const,
-      embeds: [infoEmbed('📭 No Active Chases', 'Use `/chase add` to start one, or try `/discover focus:<idea>` to explore a lane first.')],
+      embeds: [infoEmbed('📭 No Active Chases', 'Use `/chase add` to start one; your chases shape what `/discover` finds next.')],
       components: []
     };
   }
@@ -92,7 +92,7 @@ function buildChaseListEmbed(userId: string, page: number) {
     groupedSections.join('\n\n'),
     '',
     '---',
-    '**Quick Actions:** refine with `/chase edit entry:<n>`, clear with `/chase remove entries:<n>`, or explore new lanes with `/discover`'
+    '**Quick Actions:** refine with `/chase edit entry:<n>`, clear with `/chase remove entries:<n>`, or explore new threads with `/discover`'
   ].join('\n');
 
   return {

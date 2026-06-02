@@ -1,8 +1,8 @@
-/home/pi/Documents/GitHub/vaultr/data/logs/*.log {
+/home/pi/Documents/GitHub/vaultr/data/logs/*.log /home/pi/Documents/GitHub/vaultr/data/ebay-deletions.log {
   weekly
+  maxsize 5M
   rotate 8
   compress
-  delaycompress
   missingok
   notifempty
   copytruncate

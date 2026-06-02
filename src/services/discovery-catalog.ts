@@ -6,6 +6,9 @@ export type DiscoverySuggestion = {
   lane: string;
   laneWhy: string;
   nearby: string[];
+  referenceImageUrl?: string;
+  referenceSourceName?: string;
+  referenceSourceCardId?: string;
   evidenceSearchTerm?: string;
   evidenceAliases?: string[];
   requiredEvidenceTokens?: string[];
@@ -21,9 +24,15 @@ type DiscoveryCatalogCard = DiscoverySuggestion & {
 };
 
 type ChaseDiscoverySignals = {
+  rawText: string;
   text: string;
   promoLike: boolean;
   specialReleaseLike: boolean;
+};
+
+type ChaseSignalProfile = ChaseDiscoverySignals & {
+  weight: number;
+  signalTokens: Set<string>;
 };
 
 export type DiscoverySelection = {
@@ -31,11 +40,15 @@ export type DiscoverySelection = {
   suggestions: DiscoverySuggestion[];
 };
 
+export type DiscoveryMode = 'similar' | 'adjacent' | 'wildcard' | 'budget';
+
 type DiscoverySelectionOptions = {
   excludedNames?: Iterable<string>;
+  excludeLanesForExcludedNames?: boolean;
+  mode?: DiscoveryMode;
 };
 
-const STOP_WORDS = new Set(['and', 'card', 'cards', 'for', 'from', 'pokemon', 'the', 'with']);
+const STOP_WORDS = new Set(['and', 'any', 'buy', 'card', 'cards', 'for', 'from', 'holo', 'now', 'pokemon', 'raw', 'the', 'ungraded', 'with']);
 
 const PROMO_RELEASE_PATTERNS = [
   /\b(promo|promotional|black star|corocoro|coro coro|mcdonald'?s|movie promo|league promo|staff promo|prerelease)\b/i,
@@ -386,6 +399,9 @@ const DISCOVERY_CATALOG: DiscoveryCatalogCard[] = [
     nearby: ['Ditto Pikachu Delta Species', 'Ditto Squirtle Delta Species'],
     keywords: ['ditto', 'charmander', 'delta species', 'ex era'],
     tags: ['delta species', 'ex era', 'playful art', 'oddity'],
+    referenceImageUrl: 'https://images.pokemontcg.io/ex11/37_hires.png',
+    referenceSourceName: 'Pokemon TCG (EX Delta Species)',
+    referenceSourceCardId: 'ex11-37',
     why: 'turns character collecting toward a strange, memorable ex-era oddity'
   },
   {
@@ -453,9 +469,26 @@ function inferChaseDiscoverySignals(chase: Chase): ChaseDiscoverySignals {
   if (specialReleaseLike) inferredSignals.push('special release limited release unusual release path');
 
   return {
+    rawText,
     text: [rawText, ...inferredSignals].join(' '),
     promoLike,
     specialReleaseLike
+  };
+}
+
+function chaseSignalWeight(chase: Chase): number {
+  if (chase.tasteWeight !== undefined) return chase.tasteWeight;
+  if (chase.priority === 'GRAIL') return 2.4;
+  if (chase.priority === 'HIGH') return 1.6;
+  return 1;
+}
+
+function buildChaseSignalProfile(chase: Chase): ChaseSignalProfile {
+  const signals = inferChaseDiscoverySignals(chase);
+  return {
+    ...signals,
+    weight: chaseSignalWeight(chase),
+    signalTokens: new Set(tokens(signals.rawText))
   };
 }
 
@@ -467,6 +500,15 @@ export function hasPromoLeaningDiscoveryProfile(chases: Chase[]): boolean {
 
 function textMatchesPhrase(text: string, phrase: string): boolean {
   return normalizeSearchText(text).includes(normalizeSearchText(phrase));
+}
+
+function cardSearchText(card: DiscoveryCatalogCard): string {
+  return normalizeSearchText([card.name, card.lane, card.laneWhy, ...card.keywords, ...card.tags].join(' '));
+}
+
+function cardMatchesAny(card: DiscoveryCatalogCard, terms: string[]): boolean {
+  const text = cardSearchText(card);
+  return terms.some((term) => textMatchesPhrase(text, term));
 }
 
 function scoreCard(card: DiscoveryCatalogCard, signalText: string, signalTokens: Set<string>, hasFocus: boolean, hasProfileSignals: boolean): number {
@@ -489,6 +531,53 @@ function scoreCard(card: DiscoveryCatalogCard, signalText: string, signalTokens:
   }
   if (hasFocus && score === (card.starter ? 1 : 0)) return 0;
   return score;
+}
+
+function repeatedProfileTokenCounts(profiles: ChaseSignalProfile[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const profile of profiles) {
+    for (const token of profile.signalTokens) counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function profileGroupBoost(card: DiscoveryCatalogCard, profiles: ChaseSignalProfile[], repeatedTokens: Map<string, number>): number {
+  if (profiles.length === 0) return 0;
+  let boost = 0;
+  const profileText = normalizeSearchText(profiles.map((profile) => profile.text).join(' '));
+  const cardText = cardSearchText(card);
+
+  for (const token of tokens(card.name)) {
+    const count = repeatedTokens.get(token) ?? 0;
+    if (count >= 2) boost += Math.min(8, count * 2);
+  }
+
+  const promoSignals = profiles.filter((profile) => profile.promoLike).length;
+  if (promoSignals >= 2 || promoSignals / profiles.length >= 0.5) {
+    if (cardMatchesAny(card, ['promo', 'black star promo', 'movie promo', 'character promo', 'special release'])) boost += 5;
+  }
+
+  const specialReleaseSignals = profiles.filter((profile) => profile.specialReleaseLike).length;
+  if (specialReleaseSignals >= 2 || specialReleaseSignals / profiles.length >= 0.5) {
+    if (cardMatchesAny(card, ['japanese exclusive', 'vending', 'secret rare', 'special release', 'oddities', 'unusual format', 'hidden gem'])) boost += 6;
+  }
+
+  const tasteGroups: Array<{ profileTerms: string[]; cardTerms: string[]; score: number }> = [
+    { profileTerms: ['mew', 'mewtwo', 'mythical'], cardTerms: ['mew', 'mewtwo', 'mythical'], score: 14 },
+    { profileTerms: ['articuno', 'zapdos', 'moltres', 'legendary birds', 'bird trio', 'sm210'], cardTerms: ['articuno', 'zapdos', 'moltres', 'legendary bird', 'bird trio'], score: 12 },
+    { profileTerms: ['squirtle', 'wartortle', 'blastoise', 'totodile', 'water starter'], cardTerms: ['squirtle', 'wartortle', 'blastoise', 'totodile', 'water type', 'water starter'], score: 7 },
+    { profileTerms: ['japanese', 'corocoro', 'vending', 'jp'], cardTerms: ['japanese', 'japanese exclusive', 'vending'], score: 6 },
+    { profileTerms: ['gengar', 'dark', 'shadow', 'night'], cardTerms: ['gengar', 'dark atmospheric', 'shadow', 'ghost type'], score: 6 }
+  ];
+
+  for (const group of tasteGroups) {
+    const matchingProfiles = profiles.filter((profile) => group.profileTerms.some((term) => textMatchesPhrase(profile.text, term))).length;
+    if (matchingProfiles === 0) continue;
+    if (group.cardTerms.some((term) => textMatchesPhrase(cardText, term))) boost += group.score + Math.min(5, matchingProfiles - 1);
+  }
+
+  if (/\b(grail|high)\b/i.test(profileText) && (card.curiosityScore ?? 0) >= 8) boost += 2;
+  return boost;
 }
 
 function pickLane(cards: DiscoveryCatalogCard[]): string {
@@ -518,6 +607,55 @@ function rankCards(signalText: string, hasFocus: boolean, hasProfileSignals: boo
     .map(({ card }) => card);
 }
 
+function modeRankScore(card: DiscoveryCatalogCard, mode: DiscoveryMode): number {
+  if (mode === 'budget') {
+    const ceiling = card.maximumBaselineRawTotalCad ?? 300;
+    const floor = card.minimumExampleTotalCad ?? 0;
+    return Math.max(0, 500 - ceiling) / 25 + Math.max(0, 120 - floor) / 20 + (card.curiosityScore ?? 0) * 0.2;
+  }
+  if (mode === 'wildcard') return (card.curiosityScore ?? 0) * 2 + (card.starter ? 0 : 1);
+  if (mode === 'adjacent') return (card.curiosityScore ?? 0) + (card.tags.some((tag) => /oddity|hidden|japanese|unusual|side path/i.test(tag)) ? 4 : 0);
+  return 0;
+}
+
+function applyDiscoveryMode(cards: DiscoveryCatalogCard[], mode: DiscoveryMode): DiscoveryCatalogCard[] {
+  if (mode === 'similar') return cards;
+  return [...cards].sort((left, right) => modeRankScore(right, mode) - modeRankScore(left, mode) || cards.indexOf(left) - cards.indexOf(right));
+}
+
+function rankCardsForTasteProfile(focuses: string[], chases: Chase[], mode: DiscoveryMode): DiscoveryCatalogCard[] {
+  const focusText = focuses.join(' ');
+  const profiles = chases.map(buildChaseSignalProfile);
+  const chaseText = profiles.map((profile) => profile.text).join(' ');
+  const signalText = normalize([focusText, chaseText].filter(Boolean).join(' '));
+  const hasFocus = focuses.length > 0;
+  const hasProfileSignals = signalText.trim().length > 0;
+  const signalTokens = new Set(tokens(signalText));
+  const repeatedTokens = repeatedProfileTokenCounts(profiles);
+
+  const ranked = DISCOVERY_CATALOG
+    .map((card) => {
+      const globalScore = scoreCard(card, signalText, signalTokens, hasFocus, hasProfileSignals);
+      let weightedChaseTotal = 0;
+      let strongestChaseScore = 0;
+      for (const profile of profiles) {
+        const rawScore = scoreCard(card, profile.rawText, profile.signalTokens, false, true);
+        if (rawScore <= 0) continue;
+        const weightedScore = rawScore * profile.weight;
+        weightedChaseTotal += weightedScore;
+        strongestChaseScore = Math.max(strongestChaseScore, weightedScore);
+      }
+      const affinityScore = profileGroupBoost(card, profiles, repeatedTokens);
+      const curiosityScore = hasProfileSignals ? (card.curiosityScore ?? 0) * 0.35 : 0;
+      const score = Math.max(globalScore * 0.35, strongestChaseScore * 1.4) + weightedChaseTotal * 0.55 + affinityScore + curiosityScore;
+      return { card, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || (b.card.curiosityScore ?? 0) - (a.card.curiosityScore ?? 0) || a.card.name.localeCompare(b.card.name))
+    .map(({ card }) => card);
+  return applyDiscoveryMode(ranked, mode);
+}
+
 function addDistinctCard(selected: DiscoveryCatalogCard[], card: DiscoveryCatalogCard, selectedNames: Set<string>, selectedLanes: Set<string>, count: number): boolean {
   if (selected.length >= count || selectedNames.has(card.name) || selectedLanes.has(card.lane)) return false;
   selected.push(card);
@@ -526,7 +664,7 @@ function addDistinctCard(selected: DiscoveryCatalogCard[], card: DiscoveryCatalo
   return true;
 }
 
-function pickBlendedFocusCards(focusRankedLists: DiscoveryCatalogCard[][], count: number, excludedNames: Set<string>): DiscoveryCatalogCard[] {
+function pickBlendedFocusCards(focusRankedLists: DiscoveryCatalogCard[][], count: number, shouldSkipCard: (card: DiscoveryCatalogCard) => boolean): DiscoveryCatalogCard[] {
   const selected: DiscoveryCatalogCard[] = [];
   const selectedNames = new Set<string>();
   const selectedLanes = new Set<string>();
@@ -534,7 +672,7 @@ function pickBlendedFocusCards(focusRankedLists: DiscoveryCatalogCard[][], count
   for (let rankIndex = 0; rankIndex < maxRankLength && selected.length < count; rankIndex += 1) {
     for (const ranked of focusRankedLists) {
       const card = ranked[rankIndex];
-      if (card && !excludedNames.has(card.name)) addDistinctCard(selected, card, selectedNames, selectedLanes, count);
+      if (card && !shouldSkipCard(card)) addDistinctCard(selected, card, selectedNames, selectedLanes, count);
       if (selected.length >= count) break;
     }
   }
@@ -542,6 +680,7 @@ function pickBlendedFocusCards(focusRankedLists: DiscoveryCatalogCard[][], count
 }
 
 export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: Chase[], count = 3, options: DiscoverySelectionOptions = {}): DiscoverySelection {
+  const mode = options.mode ?? 'similar';
   const normalizedFocuses = [...new Set(focuses.map((focus) => focus.trim()).filter(Boolean))];
   const chaseText = chases.map((chase) => inferChaseDiscoverySignals(chase).text).join(' ');
   const focusText = normalizedFocuses.join(' ');
@@ -549,14 +688,29 @@ export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: 
   const hasFocus = normalizedFocuses.length > 0;
   const hasProfileSignals = signalText.trim().length > 0;
   const excludedNames = new Set(options.excludedNames ?? []);
+  const excludedLanes = options.excludeLanesForExcludedNames
+    ? new Set(DISCOVERY_CATALOG.filter((card) => excludedNames.has(card.name)).map((card) => card.lane))
+    : new Set<string>();
+  const shouldSkipPreferredCard = (card: DiscoveryCatalogCard) => excludedNames.has(card.name) || excludedLanes.has(card.lane);
   const focusRankedLists = normalizedFocuses.map((focus) => rankCards(normalize(focus), true, true));
-  const ranked = rankCards(signalText, hasFocus, hasProfileSignals);
-  const selected = pickBlendedFocusCards(focusRankedLists, count, excludedNames);
+  const ranked = rankCardsForTasteProfile(normalizedFocuses, chases, mode);
+  const focusSeedCount = chases.length > 0 && normalizedFocuses.length > 0 ? 1 : count;
+  const selected = pickBlendedFocusCards(focusRankedLists, focusSeedCount, shouldSkipPreferredCard);
   if (selected.length < count) {
     const selectedNames = new Set(selected.map((card) => card.name));
     selected.push(
       ...pickDistinctLaneCards(
-        (ranked.length > 0 ? ranked : DISCOVERY_CATALOG.filter((card) => card.starter)).filter((card) => !selectedNames.has(card.name) && !excludedNames.has(card.name)),
+        applyDiscoveryMode(ranked.length > 0 ? ranked : DISCOVERY_CATALOG.filter((card) => card.starter), mode).filter((card) => !selectedNames.has(card.name) && !shouldSkipPreferredCard(card)),
+        count - selected.length,
+        new Set(selected.map((card) => card.lane))
+      )
+    );
+  }
+  if (selected.length < count && excludedLanes.size > 0) {
+    const selectedNames = new Set(selected.map((card) => card.name));
+    selected.push(
+      ...pickDistinctLaneCards(
+        applyDiscoveryMode(ranked.length > 0 ? ranked : DISCOVERY_CATALOG.filter((card) => card.starter), mode).filter((card) => !selectedNames.has(card.name) && !excludedNames.has(card.name)),
         count - selected.length,
         new Set(selected.map((card) => card.lane))
       )
@@ -565,7 +719,7 @@ export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: 
   if (selected.length < count && !hasProfileSignals) {
     selected.push(
       ...pickDistinctLaneCards(
-        DISCOVERY_CATALOG.filter((card) => card.starter && !excludedNames.has(card.name)),
+        applyDiscoveryMode(DISCOVERY_CATALOG.filter((card) => card.starter && !shouldSkipPreferredCard(card)), mode),
         count - selected.length,
         new Set(selected.map((card) => card.lane))
       )
@@ -575,7 +729,7 @@ export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: 
     const selectedNames = new Set(selected.map((card) => card.name));
     selected.push(
       ...pickDistinctLaneCards(
-        (ranked.length > 0 ? ranked : DISCOVERY_CATALOG.filter((card) => card.starter)).filter((card) => !selectedNames.has(card.name)),
+        applyDiscoveryMode(ranked.length > 0 ? ranked : DISCOVERY_CATALOG.filter((card) => card.starter), mode).filter((card) => !selectedNames.has(card.name)),
         count - selected.length,
         new Set(selected.map((card) => card.lane))
       )
@@ -584,12 +738,15 @@ export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: 
 
   return {
     lane: pickLane(selected),
-    suggestions: selected.map(({ name, why, lane, laneWhy, nearby, evidenceSearchTerm, evidenceAliases, requiredEvidenceTokens, minimumExampleTotalCad, maximumBaselineRawTotalCad, curiosityScore }) => ({
+    suggestions: selected.map(({ name, why, lane, laneWhy, nearby, referenceImageUrl, referenceSourceName, referenceSourceCardId, evidenceSearchTerm, evidenceAliases, requiredEvidenceTokens, minimumExampleTotalCad, maximumBaselineRawTotalCad, curiosityScore }) => ({
       name,
       why,
       lane,
       laneWhy,
       nearby,
+      referenceImageUrl,
+      referenceSourceName,
+      referenceSourceCardId,
       evidenceSearchTerm,
       evidenceAliases,
       requiredEvidenceTokens,

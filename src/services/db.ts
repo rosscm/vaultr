@@ -84,6 +84,44 @@ db.exec(`
     PRIMARY KEY (user_id, suggestion_name)
   );
 
+  CREATE TABLE IF NOT EXISTS user_discovery_feedback (
+    user_id TEXT NOT NULL,
+    suggestion_name TEXT NOT NULL,
+    lane TEXT NOT NULL,
+    feedback TEXT NOT NULL,
+    interaction_count INTEGER NOT NULL DEFAULT 1,
+    first_interacted_at TEXT NOT NULL,
+    last_interacted_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, suggestion_name)
+  );
+
+  CREATE TABLE IF NOT EXISTS discovery_market_cache (
+    cache_key TEXT PRIMARY KEY,
+    suggestion_name TEXT NOT NULL,
+    display_currency TEXT NOT NULL,
+    destination_country TEXT,
+    listing_id TEXT,
+    listing_title TEXT,
+    listing_url TEXT,
+    image_url TEXT,
+    typical_raw_asking_total REAL,
+    market_sample_size INTEGER,
+    source_status TEXT,
+    fetched_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS discovery_reference_cache (
+    cache_key TEXT PRIMARY KEY,
+    suggestion_name TEXT NOT NULL,
+    image_url TEXT,
+    source_name TEXT,
+    source_card_id TEXT,
+    source_status TEXT,
+    fetched_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS guild_community_feed (
     guild_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 0,
@@ -143,6 +181,19 @@ db.exec(`
     max_price REAL,
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS user_taste_memory (
+    user_id TEXT NOT NULL,
+    signal_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    card_name TEXT NOT NULL,
+    max_price REAL,
+    weight REAL NOT NULL,
+    interaction_count INTEGER NOT NULL DEFAULT 1,
+    first_interacted_at TEXT NOT NULL,
+    last_interacted_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, signal_id, source)
   );
 `);
 
@@ -297,6 +348,9 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_guild_started_users_guild_time ON guild_
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_weekly_reflection_posts_user_week ON user_weekly_reflection_posts(user_id, week_key);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_discovery_preferences_user_updated ON user_discovery_preferences(user_id, updated_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_discovery_seen_user_last_seen ON user_discovery_seen(user_id, last_seen_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_user_discovery_feedback_user_feedback ON user_discovery_feedback(user_id, feedback, last_interacted_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_market_cache_suggestion ON discovery_market_cache(suggestion_name, fetched_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_reference_cache_suggestion ON discovery_reference_cache(suggestion_name, fetched_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_user ON discovery_vault_actions(user_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_expires ON discovery_vault_actions(expires_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_feedback_user_time ON alert_feedback(user_id, created_at);`);

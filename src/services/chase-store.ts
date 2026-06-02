@@ -4,6 +4,8 @@ import { makeAlertFeedbackToken } from './alert-feedback-token.js';
 import { normalizePlanTier } from './plans.js';
 import type { Chase, ListingSource, ListingSourceModePreference, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
 
+type TasteMemorySource = NonNullable<Chase['tasteSource']>;
+
 type ChaseRow = {
   id: string;
   user_id: string;
@@ -37,6 +39,28 @@ type DiscoveryVaultActionRow = {
   max_price: number | null;
   created_at: string;
   expires_at: string;
+};
+
+type UserTasteMemoryRow = {
+  user_id: string;
+  signal_id: string;
+  source: TasteMemorySource;
+  card_name: string;
+  max_price: number | null;
+  weight: number;
+  interaction_count: number;
+  first_interacted_at: string;
+  last_interacted_at: string;
+};
+
+type UserDiscoveryFeedback = 'MORE_LIKE_THIS' | 'NOT_FOR_ME';
+
+type UserDiscoveryFeedbackRow = {
+  suggestion_name: string;
+  lane: string;
+  feedback: UserDiscoveryFeedback;
+  interaction_count: number;
+  last_interacted_at: string;
 };
 
 function mapRow(row: ChaseRow): Chase {
@@ -250,6 +274,24 @@ const upsertUserDiscoverySeenStmt = db.prepare(`
   ON CONFLICT(user_id, suggestion_name) DO UPDATE SET
     last_seen_at = excluded.last_seen_at,
     times_seen = user_discovery_seen.times_seen + 1
+`);
+
+const upsertUserDiscoveryFeedbackStmt = db.prepare(`
+  INSERT INTO user_discovery_feedback (user_id, suggestion_name, lane, feedback, interaction_count, first_interacted_at, last_interacted_at)
+  VALUES (?, ?, ?, ?, 1, ?, ?)
+  ON CONFLICT(user_id, suggestion_name) DO UPDATE SET
+    lane = excluded.lane,
+    feedback = excluded.feedback,
+    interaction_count = user_discovery_feedback.interaction_count + 1,
+    last_interacted_at = excluded.last_interacted_at
+`);
+
+const listRecentUserDiscoveryFeedbackStmt = db.prepare(`
+  SELECT suggestion_name, lane, feedback, interaction_count, last_interacted_at
+  FROM user_discovery_feedback
+  WHERE user_id = ? AND feedback = ?
+  ORDER BY last_interacted_at DESC
+  LIMIT ?
 `);
 
 function normalizeListingSourceModePreference(value: string | null | undefined): ListingSourceModePreference {
@@ -469,6 +511,25 @@ const deleteExpiredDiscoveryVaultActionsStmt = db.prepare(`
   WHERE expires_at <= ?
 `);
 
+const upsertUserTasteMemoryStmt = db.prepare(`
+  INSERT INTO user_taste_memory (user_id, signal_id, source, card_name, max_price, weight, interaction_count, first_interacted_at, last_interacted_at)
+  VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+  ON CONFLICT(user_id, signal_id, source) DO UPDATE SET
+    card_name = excluded.card_name,
+    max_price = COALESCE(excluded.max_price, user_taste_memory.max_price),
+    weight = MAX(user_taste_memory.weight, excluded.weight),
+    interaction_count = user_taste_memory.interaction_count + 1,
+    last_interacted_at = excluded.last_interacted_at
+`);
+
+const listUserTasteMemoryStmt = db.prepare(`
+  SELECT user_id, signal_id, source, card_name, max_price, weight, interaction_count, first_interacted_at, last_interacted_at
+  FROM user_taste_memory
+  WHERE user_id = ?
+  ORDER BY weight DESC, interaction_count DESC, last_interacted_at DESC
+  LIMIT ?
+`);
+
 function mapDiscoveryVaultAction(row: DiscoveryVaultActionRow): DiscoveryVaultAction {
   return {
     token: row.token,
@@ -478,6 +539,55 @@ function mapDiscoveryVaultAction(row: DiscoveryVaultActionRow): DiscoveryVaultAc
     maxPrice: row.max_price ?? undefined,
     createdAt: row.created_at,
     expiresAt: row.expires_at
+  };
+}
+
+function tasteMemoryWeight(source: TasteMemorySource): number {
+  if (source === 'GOOD_ALERT') return 0.85;
+  if (source === 'BOUGHT_OR_SEEN') return 0.8;
+  if (source === 'DISCOVERY_ADD') return 0.8;
+  if (source === 'DISCOVERY_LIKE') return 0.65;
+  if (source === 'REMOVED_CHASE') return 0.35;
+  return 1;
+}
+
+function rememberTasteSignal(input: {
+  userId: string;
+  signalId: string;
+  source: TasteMemorySource;
+  cardName: string;
+  maxPrice?: number;
+  weight?: number;
+}): void {
+  const now = new Date().toISOString();
+  const cardName = input.cardName.trim();
+  if (!cardName) return;
+  upsertUserTasteMemoryStmt.run(
+    input.userId,
+    input.signalId,
+    input.source,
+    cardName,
+    input.maxPrice ?? null,
+    input.weight ?? tasteMemoryWeight(input.source),
+    now,
+    now
+  );
+}
+
+function currentChaseForTaste(userId: string, chaseId: string): Chase | undefined {
+  return listChases(userId).find((chase) => chase.id === chaseId);
+}
+
+function mapTasteMemoryRow(row: UserTasteMemoryRow): Chase {
+  return {
+    id: `taste:${row.source}:${row.signal_id}`,
+    userId: row.user_id,
+    cardName: row.card_name,
+    maxPrice: row.max_price ?? undefined,
+    priority: 'NORMAL',
+    createdAt: row.first_interacted_at,
+    tasteWeight: row.weight,
+    tasteSource: row.source
   };
 }
 
@@ -548,6 +658,56 @@ export function deleteExpiredDiscoveryVaultActions(): number {
 export function listChases(userId: string): Chase[] {
   const rows = listChasesStmt.all(userId) as ChaseRow[];
   return rows.map(mapRow);
+}
+
+export function listUserTasteMemoryChases(userId: string, limit = 24): Chase[] {
+  const rows = listUserTasteMemoryStmt.all(userId, limit) as UserTasteMemoryRow[];
+  return rows.map(mapTasteMemoryRow);
+}
+
+export function recordDiscoveryAddTaste(userId: string, cardName: string, maxPrice?: number): void {
+  rememberTasteSignal({
+    userId,
+    signalId: cardName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+    source: 'DISCOVERY_ADD',
+    cardName,
+    maxPrice
+  });
+}
+
+export function recordDiscoveryFeedback(input: {
+  userId: string;
+  cardName: string;
+  lane: string;
+  feedback: UserDiscoveryFeedback;
+  maxPrice?: number;
+}): void {
+  const now = new Date().toISOString();
+  upsertUserDiscoveryFeedbackStmt.run(input.userId, input.cardName, input.lane, input.feedback, now, now);
+  if (input.feedback === 'MORE_LIKE_THIS') {
+    rememberTasteSignal({
+      userId: input.userId,
+      signalId: input.cardName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+      source: 'DISCOVERY_LIKE',
+      cardName: input.cardName,
+      maxPrice: input.maxPrice
+    });
+  }
+}
+
+export function listRecentUserDiscoveryFeedback(
+  userId: string,
+  feedback: UserDiscoveryFeedback,
+  limit = 24
+): Array<{ suggestionName: string; lane: string; feedback: UserDiscoveryFeedback; interactionCount: number; lastInteractedAt: string }> {
+  const rows = listRecentUserDiscoveryFeedbackStmt.all(userId, feedback, limit) as UserDiscoveryFeedbackRow[];
+  return rows.map((row) => ({
+    suggestionName: row.suggestion_name,
+    lane: row.lane,
+    feedback: row.feedback,
+    interactionCount: row.interaction_count,
+    lastInteractedAt: row.last_interacted_at
+  }));
 }
 
 export function countUserChases(userId: string): number {
@@ -666,7 +826,17 @@ export function listAllChases(): Chase[] {
 }
 
 export function removeChase(userId: string, chaseId: string): boolean {
+  const chase = currentChaseForTaste(userId, chaseId);
   const result = db.transaction(() => {
+    if (chase) {
+      rememberTasteSignal({
+        userId,
+        signalId: chase.id,
+        source: 'REMOVED_CHASE',
+        cardName: chase.cardName,
+        maxPrice: chase.maxPrice
+      });
+    }
     const removed = removeChaseStmt.run(userId, chaseId);
     if (removed.changes > 0) deleteChasePollStateStmt.run(chaseId);
     return removed;
@@ -675,7 +845,17 @@ export function removeChase(userId: string, chaseId: string): boolean {
 }
 
 export function removeAllChases(userId: string): number {
+  const chases = listChases(userId);
   const result = db.transaction(() => {
+    for (const chase of chases) {
+      rememberTasteSignal({
+        userId,
+        signalId: chase.id,
+        source: 'REMOVED_CHASE',
+        cardName: chase.cardName,
+        maxPrice: chase.maxPrice
+      });
+    }
     deleteChasePollStateByUserStmt.run(userId);
     return removeAllChasesByUserStmt.run(userId);
   })();
@@ -790,6 +970,25 @@ export function recordAlertFeedback(
   reason?: string
 ): void {
   upsertAlertFeedbackStmt.run(userId, chaseId, listingId, feedback, reason ?? null, new Date().toISOString());
+  const chase = currentChaseForTaste(userId, chaseId);
+  if (!chase) return;
+  if (feedback === 'GOOD_ALERT') {
+    rememberTasteSignal({
+      userId,
+      signalId: chaseId,
+      source: 'GOOD_ALERT',
+      cardName: chase.cardName,
+      maxPrice: chase.maxPrice
+    });
+  } else if (reason === 'ALREADY_SEEN_BOUGHT') {
+    rememberTasteSignal({
+      userId,
+      signalId: chaseId,
+      source: 'BOUGHT_OR_SEEN',
+      cardName: chase.cardName,
+      maxPrice: chase.maxPrice
+    });
+  }
 }
 
 export type AlertFeedbackReason =

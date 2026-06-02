@@ -30,7 +30,7 @@ export const help = {
       '- Plan: `/plan view` · `/upgrade`',
       '- Setup (Admin): `/setup channel` · `/feed`',
       '  default for `/feed`: `On`',
-      '- Discovery: `/discover` · `/discover focus:<idea>`',
+      '- Discovery: `/discover`',
       '',
       '**Troubleshooting**',
       '- If your Vault feels quiet, lower `min_score` or broaden the chase',

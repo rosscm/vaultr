@@ -156,4 +156,45 @@ describe('searchEbayListings Browse shipping', () => {
     expect(shoppingUrl).toContain('DestinationCountryCode=US');
     expect(shoppingUrl).toContain('DestinationPostalCode=90210');
   });
+
+  it('does not call Finding fallback after Browse returns a rate limit', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(jsonResponse({ errors: [{ message: 'rate limit exceeded' }] }, false, 429));
+
+    const { searchEbayListings } = await import('../ebay.js');
+    await expect(searchEbayListings(baseChase())).rejects.toThrow(/rate limit/i);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses recent successful eBay searches from cache', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          itemSummaries: [
+            {
+              itemId: 'v1|1234567890|0',
+              title: 'Umbreon VMAX Alt Art',
+              itemWebUrl: 'https://example.com/item/1234567890',
+              price: { value: '100.00', currency: 'USD' },
+              shippingOptions: [{ shippingCost: { value: '7.50', currency: 'USD' } }],
+              itemLocation: { country: 'US' },
+              buyingOptions: ['FIXED_PRICE']
+            }
+          ]
+        })
+      );
+
+    const { searchEbayListings } = await import('../ebay.js');
+    const first = await searchEbayListings(baseChase());
+    first[0]!.title = 'Mutated locally';
+    const second = await searchEbayListings(baseChase());
+
+    expect(second[0]?.title).toBe('Umbreon VMAX Alt Art');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
