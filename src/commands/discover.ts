@@ -19,7 +19,6 @@ import {
   getUserPlan,
   listChases,
   listRecentUserDiscoveryFeedback,
-  listRecentUserDiscoverySeenNames,
   listUserTasteMemoryChases,
   markUserDiscoverySuggestionsSeen,
   recordDiscoveryFeedback,
@@ -35,6 +34,7 @@ import {
   type DiscoveryMarketCacheEntry
 } from '../services/discovery-market-cache.js';
 import { getOrFetchDiscoveryReferenceImage } from '../services/discovery-reference-cache.js';
+import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { searchEbayListings } from '../services/ebay.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
@@ -114,6 +114,39 @@ const DISCOVERY_FEEDBACK_PREFIX = 'discover-feedback';
 const DISCOVERY_SELECT_PREFIX = 'discover-action';
 const DISCOVERY_VAULT_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
+const PROFILE_SUBJECT_STOP_WORDS = new Set([
+  'black',
+  'card',
+  'cards',
+  'collection',
+  'corocoro',
+  'ex',
+  'gx',
+  'holo',
+  'illustration',
+  'japanese',
+  'lp',
+  'mega',
+  'mp',
+  'nm',
+  'pokemon',
+  'promo',
+  'promos',
+  'raw',
+  'shining',
+  'special',
+  'star',
+  'the',
+  'trading',
+  'v',
+  'vmax',
+  'vstar',
+  'with'
+]);
+const JAPANESE_PROMO_CODE_PATTERN = /\b(?:\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3})\b/i;
+const JAPANESE_SCRIPT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff]/;
+const JAPANESE_RELEASE_MARKER_PATTERN = /\b(?:coro\s?coro|vending|masaki|munch|poncho|battle\s*festa|players?\s+club|fan\s+club|trainers?\s+magazine|yu\s?nagaba|precious\s+collector|kanazawa|yokohama|sapporo|pokemon\s+center)\b/i;
+const BARE_COLLECTOR_NUMBER_PATTERN = /\b(\d{1,3})\s*\/\s*(\d{1,3})\b/;
 
 const DISCOVERY_MODE_LABELS: Record<DiscoveryMode, string> = {
   similar: 'Close Match',
@@ -218,6 +251,100 @@ function uniqueValuesPreservingOrder(values: string[]): string[] {
   return values.filter((value, index) => values.indexOf(value) === index);
 }
 
+function discoveryNameKey(value: string): string {
+  return normalize(value).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function chaseSignalWeight(chase: Chase): number {
+  if (chase.tasteWeight !== undefined) return chase.tasteWeight;
+  if (chase.priority === 'GRAIL') return 2.4;
+  if (chase.priority === 'HIGH') return 1.6;
+  return 1;
+}
+
+function hasJapaneseChaseSignal(chase: Chase): boolean {
+  const text = [chase.cardName, chase.targetNote].filter(Boolean).join(' ');
+  if (/\b(japanese|japan|jp|jpn)\b/i.test(text) || JAPANESE_PROMO_CODE_PATTERN.test(text) || JAPANESE_SCRIPT_PATTERN.test(text) || JAPANESE_RELEASE_MARKER_PATTERN.test(text)) {
+    return true;
+  }
+  const collectorNumber = BARE_COLLECTOR_NUMBER_PATTERN.exec(chase.cardName);
+  if (!collectorNumber) return false;
+  const localNumber = Number(collectorNumber[1]);
+  const setTotal = Number(collectorNumber[2]);
+  return Number.isFinite(localNumber) && Number.isFinite(setTotal) && (setTotal <= 30 || (localNumber > setTotal && setTotal <= 200));
+}
+
+function japaneseSignalWeightRatio(chases: Chase[]): number {
+  const totalWeight = chases.reduce((sum, chase) => sum + chaseSignalWeight(chase), 0);
+  if (totalWeight <= 0) return 0;
+  return chases.filter(hasJapaneseChaseSignal).reduce((sum, chase) => sum + chaseSignalWeight(chase), 0) / totalWeight;
+}
+
+function hasPriorityJapaneseChase(chases: Chase[]): boolean {
+  return chases.some((chase) => hasJapaneseChaseSignal(chase) && (chase.priority === 'GRAIL' || chase.priority === 'HIGH' || chaseSignalWeight(chase) >= 1.6));
+}
+
+const ACTIVE_CHASE_ECHO_STOP_WORDS = new Set(['card', 'cards', 'holo', 'lp', 'mp', 'nm', 'mint', 'near', 'pokemon', 'raw', 'the', 'trading', 'with']);
+
+function activeChaseEchoTokens(value: string): string[] {
+  return normalizedTokens(value).filter((token) => token.length >= 2 && !ACTIVE_CHASE_ECHO_STOP_WORDS.has(token));
+}
+
+function compactIdentifier(value: string): string {
+  return normalize(value).replace(/[^a-z0-9]+/g, '');
+}
+
+function activeChaseStrongIdentifiers(value: string): string[] {
+  const identifiers = new Set<string>();
+  for (const match of value.matchAll(/\b(?:[A-Z]{0,4}\d{1,3}\s*\/\s*\d{1,3}|(?:GG|TG|RC|XY|SM|SWSH|SVP|BW|DP|HGSS)\s?-?\d{1,4}|H\d{1,2})\b/gi)) {
+    identifiers.add(compactIdentifier(match[0]));
+  }
+  return [...identifiers];
+}
+
+function activeChaseWeakIdentifiers(value: string): string[] {
+  const identifiers = new Set<string>();
+  for (const match of value.matchAll(/\b([A-Z]{0,4}\d{1,3})\s*\/\s*\d{1,3}\b/gi)) {
+    identifiers.add(compactIdentifier(match[1]));
+  }
+  return [...identifiers];
+}
+
+function suggestionEvidenceText(suggestion: DiscoverySuggestion): string {
+  return [suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
+}
+
+export function isActiveChaseEchoSuggestion(suggestion: DiscoverySuggestion, activeChases: Chase[]): boolean {
+  const suggestionText = suggestionEvidenceText(suggestion);
+  return isActiveChaseEchoText(suggestionText, activeChases);
+}
+
+export function isActiveChaseEchoText(text: string, activeChases: Chase[]): boolean {
+  const compactSuggestionText = compactIdentifier(text);
+  const suggestionTokens = new Set(activeChaseEchoTokens(text));
+
+  return activeChases.some((chase) => {
+    const chaseTokens = activeChaseEchoTokens(chase.cardName);
+    const primaryToken = chaseTokens[0];
+    const hasPrimaryToken = !!primaryToken && suggestionTokens.has(primaryToken);
+
+    const strongIdentifiers = activeChaseStrongIdentifiers(chase.cardName);
+    if (strongIdentifiers.length > 0 && strongIdentifiers.some((identifier) => compactSuggestionText.includes(identifier))) return true;
+
+    const weakIdentifiers = activeChaseWeakIdentifiers(chase.cardName);
+    if (hasPrimaryToken && weakIdentifiers.length > 0 && weakIdentifiers.some((identifier) => compactSuggestionText.includes(identifier))) return true;
+
+    if (!hasPrimaryToken) return false;
+
+    const matchedTokenCount = chaseTokens.filter((token) => suggestionTokens.has(token)).length;
+    return chaseTokens.length >= 3 && matchedTokenCount >= Math.min(3, chaseTokens.length);
+  });
+}
+
+function isActiveChaseEchoListing(listing: Listing, activeChases: Chase[]): boolean {
+  return isActiveChaseEchoText([listing.title, listing.listingId].join(' '), activeChases);
+}
+
 function mergeActiveAndTasteMemoryChases(activeChases: Chase[], memoryChases: Chase[]): Chase[] {
   const activeNames = new Set(activeChases.map((chase) => normalize(chase.cardName)));
   const merged: Chase[] = activeChases.map((chase) => ({ ...chase, tasteSource: 'ACTIVE_CHASE' as const }));
@@ -260,6 +387,11 @@ function includesAnyTerm(value: string, terms: string[]): boolean {
   return terms.some((term) => normalized.includes(term));
 }
 
+function includesAnyNonCardTerm(value: string): boolean {
+  const normalized = normalize(value).replace(/\btoys\s*r\s*us\b/g, 'retail promo');
+  return NON_CARD_TERMS.some((term) => normalized.includes(term));
+}
+
 function hasCoreSuggestionTokens(suggestion: DiscoverySuggestion, listing: Listing): boolean {
   const titleTokens = new Set(normalizedTokens(listing.title));
   const compactTitle = normalize(listing.title).replace(/[^a-z0-9]+/g, '');
@@ -272,6 +404,8 @@ function hasCoreSuggestionTokens(suggestion: DiscoverySuggestion, listing: Listi
 
   if (!hasRequiredTokens) return false;
 
+  if (suggestion.lane.includes('discovery') && requiredTokens.length > 0 && looksLikeCardListing(listing)) return true;
+
   return candidateNames.some((name) => {
     const suggestionTokens = normalizedTokens(name).filter((token) => !['the', 'and', 'with', 'wearing'].includes(token));
     if (suggestionTokens.length === 0) return false;
@@ -282,12 +416,12 @@ function hasCoreSuggestionTokens(suggestion: DiscoverySuggestion, listing: Listi
 
 function looksLikeCardListing(listing: Listing): boolean {
   const title = normalize(listing.title);
-  if (includesAnyTerm(title, NON_CARD_TERMS)) return false;
+  if (includesAnyNonCardTerm(title)) return false;
   return includesAnyTerm(title, CARD_TERMS);
 }
 
 function hasNonCardTerms(listing: Listing): boolean {
-  return includesAnyTerm(listing.title, NON_CARD_TERMS);
+  return includesAnyNonCardTerm(listing.title);
 }
 
 function looksLikeDiscoveryCardListing(suggestion: DiscoverySuggestion, listing: Listing): boolean {
@@ -420,15 +554,34 @@ function shouldRefreshDiscoveryMarketCache(entry: DiscoveryMarketCacheEntry | nu
   return ageMs >= DISCOVERY_MARKET_CACHE_TTL_MS;
 }
 
+async function expandSourceBackedSuggestions(suggestions: DiscoverySuggestion[], activeChases: Chase[], tasteProfileChases: Chase[] = activeChases): Promise<DiscoverySuggestion[]> {
+  const expandedGroups = await mapWithConcurrency(suggestions, DISCOVERY_ENRICHMENT_CONCURRENCY, async (suggestion) => {
+    const sourceBacked = await resolveSourceBackedDiscoveryCards(suggestion, activeChases, 12, tasteProfileChases);
+    return sourceBacked.suggestions;
+  });
+  const expanded: DiscoverySuggestion[] = [];
+  const seenNames = new Set<string>();
+  for (const suggestion of expandedGroups.flat()) {
+    if (isActiveChaseEchoSuggestion(suggestion, activeChases)) continue;
+    const nameKey = discoveryNameKey(suggestion.name);
+    if (seenNames.has(nameKey)) continue;
+    expanded.push(suggestion);
+    seenNames.add(nameKey);
+  }
+  return expanded;
+}
+
 function candidateFromCachedMarket(
   suggestion: DiscoverySuggestion,
   selectionIndex: number,
   cacheEntry: DiscoveryMarketCacheEntry | null,
   targetCurrency: SupportedCurrency,
+  activeChases: Chase[] = [],
   refreshQueued = false
 ): DiscoveryCandidate {
   if (!cacheEntry) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
   const listing = listingFromDiscoveryMarketCache(cacheEntry);
+  if (listing && isActiveChaseEchoListing(listing, activeChases)) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
   const sourceStatus = refreshQueued && cacheEntry.sourceStatus ? 'PENDING' : cacheEntry.sourceStatus;
   return {
     suggestion,
@@ -446,6 +599,7 @@ async function enrichSuggestion(
   suggestion: DiscoverySuggestion,
   selectionIndex: number,
   userId: string,
+  activeChases: Chase[],
   destination: { country?: string; postalCode?: string } | undefined,
   range: { min: number; max: number } | undefined,
   targetCurrency: SupportedCurrency
@@ -462,7 +616,8 @@ async function enrichSuggestion(
       searchEbayListings(discoveryChase, destination, { enrichMissingShipping: false }),
       DISCOVERY_SOURCE_TIMEOUT_MS
     );
-    const usableListings = listings.filter((candidate) => isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency));
+    const nonActiveListings = listings.filter((candidate) => !isActiveChaseEchoListing(candidate, activeChases));
+    const usableListings = nonActiveListings.filter((candidate) => isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency));
     const rawListings = usableListings.filter(looksLikeRawCardListing);
     const baselineRawListings = usableListings.filter(
       (candidate) => looksLikeBaselineRawMarketListing(candidate) && meetsBaselineMarketCeiling(suggestion, candidate, targetCurrency)
@@ -472,7 +627,7 @@ async function enrichSuggestion(
       rawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
       baselineRawListings[0] ??
       rawListings[0];
-    const visualListing = listings.find((candidate) => looksLikeVisualDiscoveryListing(suggestion, candidate));
+    const visualListing = nonActiveListings.find((candidate) => looksLikeVisualDiscoveryListing(suggestion, candidate));
     const listing = marketListing ?? visualListing;
     if (!listing) return { suggestion, selectionIndex };
 
@@ -498,6 +653,7 @@ type DiscoveryMarketRefreshJob = {
   suggestion: DiscoverySuggestion;
   selectionIndex: number;
   userId: string;
+  activeChases: Chase[];
   destination: { country?: string; postalCode?: string } | undefined;
   range: { min: number; max: number } | undefined;
   targetCurrency: SupportedCurrency;
@@ -551,7 +707,7 @@ async function runDiscoveryMarketRefreshQueue(): Promise<void> {
   try {
     await mapWithConcurrency(discoveryMarketRefreshQueue.splice(0), DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY, async (job) => {
       try {
-        const candidate = await enrichSuggestion(job.suggestion, job.selectionIndex, job.userId, job.destination, job.range, job.targetCurrency);
+        const candidate = await enrichSuggestion(job.suggestion, job.selectionIndex, job.userId, job.activeChases, job.destination, job.range, job.targetCurrency);
         saveDiscoveryMarketRefreshResult(job, candidate);
       } catch (error) {
         saveDiscoveryMarketRefreshResult(job, { suggestion: job.suggestion, selectionIndex: job.selectionIndex, sourceStatus: discoverySourceStatus(error) });
@@ -620,8 +776,92 @@ function curiosityRankScore(candidate: DiscoveryCandidate): number {
   return tasteOrderScore + curiosity * 3 + marketSweetSpot + evidenceDepth;
 }
 
+function sourcePreferenceRankScore(candidate: DiscoveryCandidate, chases: Chase[] = []): number {
+  const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName ?? '';
+  const suggestionText = [candidate.suggestion.name, candidate.suggestion.lane, candidate.suggestion.evidenceSearchTerm, ...(candidate.suggestion.requiredEvidenceTokens ?? [])].join(' ');
+  const japaneseAffinity = japaneseSignalWeightRatio(chases);
+  const priorityJapanese = hasPriorityJapaneseChase(chases);
+  const hasJapaneseSource = /\btcgdex japanese\b/i.test(sourceName) || /\bjapanese\b/i.test(suggestionText);
+  const isEnglishBlackStar = /\bblack star promos?\b/i.test([candidate.suggestion.name, sourceName].join(' '));
+  const japaneseBoost = hasJapaneseSource ? Math.round(80 + japaneseAffinity * 80 + (priorityJapanese ? 80 : 0)) : 0;
+  const blackStarPenalty = (japaneseAffinity >= 0.35 || priorityJapanese) && isEnglishBlackStar ? 90 : 0;
+  return japaneseBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty;
+}
+
+function profileSubjectTokens(value: string): string[] {
+  return normalize(value)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !PROFILE_SUBJECT_STOP_WORDS.has(token) && !/^\d+$/.test(token));
+}
+
+function subjectProfileRankScore(candidate: DiscoveryCandidate, chases: Chase[] = []): number {
+  if (chases.length === 0) return 0;
+  const tokenStats = new Map<string, { weight: number; support: number }>();
+  for (const chase of chases) {
+    const tokens = new Set(profileSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')));
+    for (const token of tokens) {
+      const existing = tokenStats.get(token) ?? { weight: 0, support: 0 };
+      existing.weight += chaseSignalWeight(chase);
+      existing.support += 1;
+      tokenStats.set(token, existing);
+    }
+  }
+
+  const candidateTokens = new Set(profileSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' ')));
+  let score = 0;
+  for (const token of candidateTokens) {
+    const stat = tokenStats.get(token);
+    if (!stat) continue;
+    score += stat.weight * 18 + Math.max(0, stat.support - 1) * 18;
+  }
+  return Math.min(140, Math.round(score));
+}
+
 function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
   return [...candidates].sort((left, right) => curiosityRankScore(right) - curiosityRankScore(left));
+}
+
+function rankDiscoveryCandidatesForProfile(candidates: DiscoveryCandidate[], chases: Chase[] = []): DiscoveryCandidate[] {
+  return [...candidates].sort((left, right) => {
+    const sourceDelta = sourcePreferenceRankScore(right, chases) - sourcePreferenceRankScore(left, chases);
+    return sourceDelta || curiosityRankScore(right) - curiosityRankScore(left);
+  });
+}
+
+function tasteOnlyCandidate(suggestion: DiscoverySuggestion, selectionIndex: number): DiscoveryCandidate {
+  const imageUrl = suggestion.referenceImageUrl;
+  return {
+    suggestion,
+    selectionIndex,
+    image: imageUrl
+      ? {
+          name: suggestion.name,
+          url: imageUrl,
+          sourceName: suggestion.referenceSourceName,
+          sourceCardId: suggestion.referenceSourceCardId,
+          sourceKind: 'CARD_REFERENCE'
+        }
+      : undefined
+  };
+}
+
+function isJapaneseSourceSuggestion(suggestion: DiscoverySuggestion): boolean {
+  return /\bjapanese\b/i.test([suggestion.name, suggestion.evidenceSearchTerm, suggestion.referenceSourceName, ...(suggestion.requiredEvidenceTokens ?? [])].filter(Boolean).join(' '));
+}
+
+function hasJapaneseWeightedProfile(chases: Chase[]): boolean {
+  return japaneseSignalWeightRatio(chases) >= 0.35 || hasPriorityJapaneseChase(chases);
+}
+
+export function preserveLanguageSignalFallbackSuggestions(sourceBackedSuggestions: DiscoverySuggestion[], freshSuggestions: DiscoverySuggestion[], chases: Chase[]): DiscoverySuggestion[] {
+  if (!hasJapaneseWeightedProfile(chases) || freshSuggestions.some(isJapaneseSourceSuggestion)) return freshSuggestions;
+  const fallbackJapanese = sourceBackedSuggestions.find((suggestion) => isJapaneseSourceSuggestion(suggestion));
+  if (!fallbackJapanese) return freshSuggestions;
+  const freshNameKeys = new Set(freshSuggestions.map((suggestion) => discoveryNameKey(suggestion.name)));
+  if (freshNameKeys.has(discoveryNameKey(fallbackJapanese.name))) return freshSuggestions;
+  return [fallbackJapanese, ...freshSuggestions];
 }
 
 function discoveryVisualTone(lane: string): { icon: string; color: number; path: string } {
@@ -651,32 +891,50 @@ function collectionThread(candidate: DiscoveryCandidate): string {
 }
 
 function collectorTheme(candidate: DiscoveryCandidate): string {
-  const text = normalize([candidate.suggestion.name, candidate.suggestion.lane, ...candidate.suggestion.nearby].join(' '));
-  if (/\b(mew|mewtwo|mythical)\b/.test(text)) return 'mythical-mew';
-  if (/\b(articuno|zapdos|moltres|legendary bird|bird trio)\b/.test(text)) return 'legendary-birds';
-  if (/\b(squirtle|wartortle|blastoise|totodile|water starter)\b/.test(text)) return 'water-starters';
-  if (/\b(luffy|nami|zoro|one piece)\b/.test(text)) return 'one-piece';
-  return candidate.suggestion.lane;
+  const requiredToken = candidate.suggestion.requiredEvidenceTokens?.[0];
+  return [candidate.suggestion.lane, requiredToken].filter(Boolean).join(':');
 }
 
-function takeDistinctThemes(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
+function candidateSubjectKeys(candidate: DiscoveryCandidate): string[] {
+  return profileSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' '));
+}
+
+function isJapaneseDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
+  return /\bjapanese\b|\btcgdex japanese\b/i.test(
+    [candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
+      .filter(Boolean)
+      .join(' ')
+  );
+}
+
+function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = []): DiscoveryCandidate[] {
   const selected: DiscoveryCandidate[] = [];
   const seenThemes = new Set<string>();
+  const seenSubjects = new Set<string>();
+  const japaneseAffinity = japaneseSignalWeightRatio(chases);
+  const shouldLeaveRoomForNonJapanese = japaneseAffinity > 0 && japaneseAffinity < 0.85 && candidates.some((candidate) => !isJapaneseDiscoveryCandidate(candidate));
+  const japaneseLimit = shouldLeaveRoomForNonJapanese ? Math.max(1, VISIBLE_DISCOVERY_COUNT - 1) : VISIBLE_DISCOVERY_COUNT;
+  let japaneseCount = 0;
   for (const candidate of candidates) {
     const theme = collectorTheme(candidate);
+    const subjectKeys = candidateSubjectKeys(candidate);
     if (seenThemes.has(theme)) continue;
+    if (subjectKeys.some((subjectKey) => seenSubjects.has(subjectKey))) continue;
+    if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
     selected.push(candidate);
     seenThemes.add(theme);
+    for (const subjectKey of subjectKeys) seenSubjects.add(subjectKey);
+    if (isJapaneseDiscoveryCandidate(candidate)) japaneseCount += 1;
     if (selected.length >= VISIBLE_DISCOVERY_COUNT) break;
   }
   return selected;
 }
 
-export function selectVisibleCandidates(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
-  const strongRawData = rankDiscoveryCandidates(candidates.filter(hasEnoughRawMarketData));
-  const partialRawData = rankDiscoveryCandidates(candidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)));
-  const tasteRankedFallback = rankDiscoveryCandidates(candidates.filter((candidate) => !hasSomeRawMarketData(candidate)));
-  return takeDistinctThemes([...strongRawData, ...partialRawData, ...tasteRankedFallback]);
+export function selectVisibleCandidates(candidates: DiscoveryCandidate[], chases: Chase[] = []): DiscoveryCandidate[] {
+  const strongRawData = rankDiscoveryCandidatesForProfile(candidates.filter(hasEnoughRawMarketData), chases);
+  const partialRawData = rankDiscoveryCandidatesForProfile(candidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases);
+  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(candidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases);
+  return takeDistinctThemes([...strongRawData, ...partialRawData, ...tasteRankedFallback], chases);
 }
 
 export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency, includeMarketRead: boolean, displayIndex?: number): EmbedBuilder {
@@ -779,6 +1037,20 @@ export function discoveryActionRows(userId: string, candidates: DiscoveryCandida
   return [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)];
 }
 
+export function mergeFreshDiscoveryCandidates(candidates: DiscoveryCandidate[], fallbackCandidates: DiscoveryCandidate[], recentlySeenNames: string[], count: number): DiscoveryCandidate[] {
+  const candidateNames = new Set(candidates.map((candidate) => discoveryNameKey(candidate.suggestion.name)));
+  const recentlySeenNameKeys = new Set(recentlySeenNames.map(discoveryNameKey));
+  const mergedCandidates = [...candidates];
+  for (const candidate of fallbackCandidates) {
+    const candidateNameKey = discoveryNameKey(candidate.suggestion.name);
+    if (candidateNames.has(candidateNameKey) || recentlySeenNameKeys.has(candidateNameKey)) continue;
+    mergedCandidates.push(candidate);
+    candidateNames.add(candidateNameKey);
+    if (mergedCandidates.length >= count) break;
+  }
+  return mergedCandidates;
+}
+
 async function discoverCandidatesForUser(userId: string, count: number, mode: DiscoveryMode = 'similar'): Promise<{
   chases: Chase[];
   tasteProfileChases: Chase[];
@@ -798,60 +1070,32 @@ async function discoverCandidatesForUser(userId: string, count: number, mode: Di
   const entitlements = getEntitlementsForTier(activeTier);
   const hasFullDiscovery = entitlements.discoveryDepth === 'full';
   const hasLearnedProfile = hasFullDiscovery && tasteProfileChases.length >= MIN_LEARNED_PROFILE_CHASES;
-  const recentlySeenNames = listRecentUserDiscoverySeenNames(userId);
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const rejectedNames = recentlyRejected.map((item) => item.suggestionName);
   const priceRange = hasLearnedProfile ? priceRangeFromChases(tasteProfileChases) : undefined;
   const destination = settings.shippingCountry ? { country: settings.shippingCountry } : undefined;
-  const selectAndEnrich = async (excludedNames: string[]) => {
-    const combinedExcludedNames = uniqueValuesPreservingOrder([...excludedNames, ...rejectedNames]);
+  const selectAndEnrich = async () => {
+    const combinedExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
+    const combinedSourceExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
     const selection = selectDiscoverySuggestionsForFocuses([], tasteProfileChases, DISCOVERY_CANDIDATE_POOL_SIZE, {
       excludedNames: combinedExcludedNames,
       excludeLanesForExcludedNames: combinedExcludedNames.length > 0,
       mode
     });
-    const refreshJobs: DiscoveryMarketRefreshJob[] = [];
-    const enriched = selection.suggestions.map((suggestion, index) => {
-      const cacheKey = discoveryMarketCacheKey(suggestion.name, settings.alertCurrency, destination?.country);
-      const cacheEntry = getDiscoveryMarketCache(cacheKey);
-      const refreshQueued = shouldRefreshDiscoveryMarketCache(cacheEntry);
-      if (refreshQueued) {
-        refreshJobs.push({
-          cacheKey,
-          suggestion,
-          selectionIndex: index,
-          userId,
-          destination,
-          range: priceRange,
-          targetCurrency: settings.alertCurrency
-        });
-      }
-      return candidateFromCachedMarket(suggestion, index, cacheEntry, settings.alertCurrency, refreshQueued);
-    });
-    const candidates = await attachReferenceImages(selectVisibleCandidates(enriched).slice(0, count));
-    const visibleNames = new Set(candidates.map((candidate) => candidate.suggestion.name));
-    queueDiscoveryMarketRefreshes(refreshJobs.filter((job) => visibleNames.has(job.suggestion.name)));
+    const activeSafeSuggestions = selection.suggestions.filter((suggestion) => !isActiveChaseEchoSuggestion(suggestion, chases));
+    const sourceBackedSuggestions = await expandSourceBackedSuggestions(activeSafeSuggestions, chases, tasteProfileChases);
+    const excludedSourceNameKeys = new Set(combinedSourceExcludedNames.map(discoveryNameKey));
+    const freshSourceBackedSuggestions = sourceBackedSuggestions.filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)));
+    const enriched = freshSourceBackedSuggestions.map((suggestion, index) => tasteOnlyCandidate(suggestion, index));
+    const candidates = await attachReferenceImages(selectVisibleCandidates(enriched, tasteProfileChases).slice(0, count));
     return {
       lane: selection.lane,
       candidates
     };
   };
-  const preferred = await selectAndEnrich(recentlySeenNames);
+  const preferred = await selectAndEnrich();
   let lane = preferred.lane;
   let candidates = preferred.candidates;
-  if (candidates.length < count && recentlySeenNames.length > 0) {
-    const fallback = await selectAndEnrich(rejectedNames.length > 0 ? [] : rejectedNames);
-    const candidateNames = new Set(candidates.map((candidate) => candidate.suggestion.name));
-    const mergedCandidates = [...candidates];
-    for (const candidate of fallback.candidates) {
-      if (candidateNames.has(candidate.suggestion.name)) continue;
-      mergedCandidates.push(candidate);
-      candidateNames.add(candidate.suggestion.name);
-      if (mergedCandidates.length >= count) break;
-    }
-    if (candidates.length === 0) lane = fallback.lane;
-    candidates = mergedCandidates.length > 0 ? mergedCandidates : fallback.candidates;
-  }
   return {
     chases,
     tasteProfileChases,
@@ -871,10 +1115,10 @@ export async function buildWeeklyDiscoveryPathPayload(userId: string): Promise<{
   const discovery = await discoverCandidatesForUser(userId, 1);
   if (discovery.tasteProfileChases.length === 0) return null;
   const [candidate] = discovery.candidates;
-  if (!candidate || candidate.typicalRawAskingTotal === undefined) return null;
+  if (!candidate) return null;
   markUserDiscoverySuggestionsSeen(userId, [candidate.suggestion.name]);
   return {
-    embeds: [discoveryEmbed(candidate, discovery.settings.alertCurrency, discovery.hasFullDiscovery)],
+    embeds: [discoveryEmbed(candidate, discovery.settings.alertCurrency, false)],
     components: discoveryActionRows(userId, [candidate])
   };
 }
@@ -903,7 +1147,7 @@ export const discover = {
     markUserDiscoverySuggestionsSeen(interaction.user.id, visibleCandidates.map((candidate) => candidate.suggestion.name));
     const visibleThreads = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => titleCase(candidate.suggestion.lane)));
     const title = '✨ Vaultr Discovery';
-    const threadSummary = visibleThreads.length > 0 ? visibleThreads.join(', ') : 'No raw-market-ready threads right now';
+    const threadSummary = visibleThreads.length > 0 ? visibleThreads.join(', ') : 'No source-backed card matches right now';
     const lines = [
       `**Mode:** ${DISCOVERY_MODE_LABELS[mode]}`,
       `**Collector Profile:** ${learningSignal(
@@ -924,7 +1168,7 @@ export const discover = {
     await interaction.editReply({
       embeds: [
         overviewEmbed,
-        ...visibleCandidates.map((candidate, index) => discoveryEmbed(candidate, discovery.settings.alertCurrency, discovery.hasFullDiscovery, index + 1))
+        ...visibleCandidates.map((candidate, index) => discoveryEmbed(candidate, discovery.settings.alertCurrency, false, index + 1))
       ],
       components: discoveryActionRows(interaction.user.id, visibleCandidates)
     });
