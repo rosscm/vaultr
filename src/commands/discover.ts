@@ -879,15 +879,27 @@ function markdownLink(label: string, url: string | undefined): string {
   return url ? `[${safeLabel}](${url})` : safeLabel;
 }
 
-function imageSourceLabel(candidate: DiscoveryCandidate): string {
-  if (!candidate.image) return 'No reliable card image yet';
-  const source = candidate.image.sourceName ?? (candidate.image.sourceKind === 'CARD_REFERENCE' ? 'card reference cache' : 'cached market image');
-  const cardId = candidate.image.sourceCardId ? ` · ${candidate.image.sourceCardId}` : '';
-  return `${source}${cardId}`;
-}
-
 function collectionThread(candidate: DiscoveryCandidate): string {
   return candidate.suggestion.why;
+}
+
+function resonanceText(candidate: DiscoveryCandidate): string {
+  const text = [candidate.suggestion.name, candidate.suggestion.lane, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, ...(candidate.suggestion.sourceTasteTokens ?? []), ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
+    .filter(Boolean)
+    .join(' ');
+  const normalized = normalize(text);
+  const reasons: string[] = [];
+  if (/\bjapanese\b|tcgdex japanese/.test(normalized)) reasons.push('Japanese release signal');
+  if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push('e-reader era thread');
+  if (/\bpromo|black star|special release\b/.test(normalized)) reasons.push('promo/special-release lane');
+  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(normalized)) reasons.push('display-card rarity');
+  if (/\btag team\b|\bgx\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(normalized)) reasons.push('collector format match');
+  const subject = profileSubjectTokens(candidate.suggestion.name)[0];
+  if (subject) reasons.push(`${titleCase(subject)} appears in your taste profile`);
+
+  const uniqueReasons = uniqueValuesPreservingOrder(reasons).slice(0, 3);
+  if (uniqueReasons.length === 0) return 'Vaultr is following shared traits from your Vault and keeping the exact active chase out of the result.';
+  return `${uniqueReasons.join(' + ')}. Vaultr found a source-backed card that branches from those signals without repeating an active chase.`;
 }
 
 function collectorTheme(candidate: DiscoveryCandidate): string {
@@ -944,9 +956,8 @@ export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: Supp
   const embed = new EmbedBuilder().setColor(tone.color).setTitle(title);
   const nearby = candidate.suggestion.nearby.slice(0, 3).map((name) => `• ${name}`).join('\n');
   const fields = [
-    { name: 'Why It Resonates', value: candidate.suggestion.laneWhy, inline: false },
+    { name: 'Why It Resonates', value: resonanceText(candidate), inline: false },
     { name: 'Collection Thread', value: collectionThread(candidate), inline: false },
-    { name: 'Image Source', value: imageSourceLabel(candidate), inline: true },
     ...(includeMarketRead ? [{ name: 'Market Read', value: formatMarketRead(candidate, currencyHint), inline: true }] : []),
     { name: 'Next Threads', value: nearby || 'Vaultr will widen this thread as the catalog grows.', inline: false }
   ];

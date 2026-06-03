@@ -413,13 +413,35 @@ describe('discoveryEmbed', () => {
   it('hides market read for limited Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false).toJSON();
 
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Collection Thread', 'Image Source', 'Next Threads']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Collection Thread', 'Next Threads']);
   });
 
   it('shows market read for full Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', true).toJSON();
 
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Collection Thread', 'Image Source', 'Market Read', 'Next Threads']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Collection Thread', 'Market Read', 'Next Threads']);
+  });
+
+  it('explains concrete profile signals instead of internal source details', () => {
+    const embed = discoveryEmbed(
+      {
+        ...sourceCandidate('Zapdos Aquapolis H32', 'Pokemon TCG (Aquapolis)', 0),
+        suggestion: {
+          ...sourceCandidate('Zapdos Aquapolis H32', 'Pokemon TCG (Aquapolis)', 0).suggestion,
+          lane: 'era taste discovery',
+          evidenceSearchTerm: 'Zapdos Aquapolis H32 Pokemon card',
+          sourceTasteTokens: ['e-reader', 'vintage'],
+          requiredEvidenceTokens: ['zapdos', 'h32']
+        }
+      },
+      'CAD',
+      false
+    ).toJSON();
+
+    const why = embed.fields?.find((field) => field.name === 'Why It Resonates')?.value;
+    expect(why).toContain('e-reader era thread');
+    expect(why).toContain('Zapdos appears in your taste profile');
+    expect(embed.fields?.some((field) => field.name === 'Image Source')).toBe(false);
   });
 
   it('uses cooldown language for active eBay throttle states', () => {
