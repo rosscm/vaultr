@@ -161,7 +161,7 @@ describe('selectDiscoverySuggestions', () => {
     const selection = selectDiscoverySuggestions(null, chases, 6);
 
     expect(hasPromoLeaningDiscoveryProfile(chases)).toBe(true);
-    expect(selection.suggestions.some((suggestion) => suggestion.lane === 'taste-match discovery')).toBe(true);
+    expect(selection.suggestions.some((suggestion) => suggestion.lane === 'Promo Trail')).toBe(true);
     expect(selection.suggestions.some((suggestion) => suggestion.name.startsWith('Squirtle'))).toBe(false);
     expect(selection.suggestions.map((suggestion) => suggestion.name)).not.toContain('Pikachu 012 Nintendo Black Star Promo');
     expectDistinctLanes(selection);

@@ -35,7 +35,7 @@ function sourceCandidate(name: string, sourceName: string, selectionIndex: numbe
     selectionIndex,
     suggestion: {
       name,
-      lane: 'taste-match discovery',
+      lane: 'Promo Trail',
       laneWhy: 'profile source match',
       why: `try ${name}`,
       nearby: [],
@@ -193,7 +193,7 @@ describe('selectVisibleCandidates', () => {
 describe('mergeFreshDiscoveryCandidates', () => {
   it('does not let fallback refill visible slots with recently seen source cards', () => {
     const merged = mergeFreshDiscoveryCandidates(
-      [candidate('ピカチュウ ポケモンカード151 025', 'taste-match discovery', 0)],
+      [candidate('ピカチュウ ポケモンカード151 025', 'Promo Trail', 0)],
       [
         candidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'source-backed matches', 1),
         candidate('Pikachu & Zekrom-GX SM Black Star Promos SM168', 'source-backed matches', 2),
@@ -216,7 +216,7 @@ describe('preserveLanguageSignalFallbackSuggestions', () => {
   it('keeps one Japanese source candidate when seen filtering would erase a Japanese-weighted profile', () => {
     const japaneseSuggestion = {
       name: 'Mew Japanese S12a 052',
-      lane: 'taste-match discovery',
+      lane: 'Promo Trail',
       laneWhy: 'profile',
       why: 'profile',
       nearby: [],
@@ -225,7 +225,7 @@ describe('preserveLanguageSignalFallbackSuggestions', () => {
     };
     const englishSuggestion = {
       name: 'Pikachu Scarlet & Violet Black Star Promos 101',
-      lane: 'taste-match discovery',
+      lane: 'Promo Trail',
       laneWhy: 'profile',
       why: 'profile',
       nearby: [],
@@ -428,7 +428,7 @@ describe('discoveryEmbed', () => {
         ...sourceCandidate('Zapdos Aquapolis H32', 'Pokemon TCG (Aquapolis)', 0),
         suggestion: {
           ...sourceCandidate('Zapdos Aquapolis H32', 'Pokemon TCG (Aquapolis)', 0).suggestion,
-          lane: 'era taste discovery',
+          lane: 'E-Reader Era Trail',
           evidenceSearchTerm: 'Zapdos Aquapolis H32 Pokemon card',
           sourceTasteTokens: ['e-reader', 'vintage'],
           requiredEvidenceTokens: ['zapdos', 'h32']

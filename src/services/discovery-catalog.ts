@@ -579,20 +579,20 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
       addTasteFeature(features, profile, {
         key: profile.languageHints.includes('japanese') ? 'release:japanese-promo' : 'release:promo',
         name: profile.languageHints.includes('japanese') ? 'Japanese promo Pokemon cards' : 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         requiredTerms: profile.languageHints.includes('japanese') ? ['japanese', 'promo'] : ['promo'],
         laneWhy: 'matches repeated release and promo signals across your chase profile',
-        why: 'uses active and remembered chases as taste signals, then asks the market for other cards with the same collector shape',
+        why: 'uses active and remembered chases as taste signals, then asks the market for other cards from the same collector lane',
         tasteTokens: profile.languageHints.includes('japanese') ? ['japanese', 'promo'] : ['promo'],
         curiosityScore: 8
       });
       addTasteFeature(features, profile, {
         key: 'release:special',
         name: 'Pokemon special release cards',
-        lane: 'release-shape discovery',
+        lane: 'Special Release Trail',
         requiredTerms: ['pokemon'],
-        laneWhy: 'follows the shared special-release shape without naming any active chase card',
-        why: 'looks for cards that share the release pattern, while active chase cards are excluded from market evidence',
+        laneWhy: 'follows shared promo and limited-release signals without naming any active chase card',
+        why: 'looks for cards from similar promo, small-set, or limited-release paths while active chase cards are excluded from market evidence',
         tasteTokens: ['promo', 'special'],
         curiosityScore: 7
       });
@@ -601,7 +601,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
       addTasteFeature(features, profile, {
         key: 'language:japanese',
         name: 'Japanese Pokemon cards',
-        lane: 'language taste discovery',
+        lane: 'Japanese Collector Trail',
         requiredTerms: ['japanese'],
         laneWhy: 'keeps the language signal from your profile while leaving the current card behind',
         why: 'uses region and language as a broad taste marker rather than a prewritten card branch',
@@ -613,7 +613,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
       addTasteFeature(features, profile, {
         key: profile.traitHints.includes('full art') ? 'visual:full-art' : 'visual:illustration',
         name: profile.traitHints.includes('full art') ? 'Pokemon full art cards' : 'Pokemon illustration rare cards',
-        lane: 'visual taste discovery',
+        lane: profile.traitHints.includes('full art') ? 'Full Art Trail' : 'Illustration Rarity Trail',
         requiredTerms: profile.traitHints.includes('full art') ? ['full', 'art'] : ['illustration', 'rare'],
         laneWhy: 'matches display-oriented visual signals from your chase profile',
         why: 'lets visual-format taste steer the search while evidence decides which card is viable',
@@ -625,7 +625,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
       addTasteFeature(features, profile, {
         key: 'era:e-reader',
         name: 'e-reader Pokemon cards',
-        lane: 'era taste discovery',
+        lane: 'E-Reader Era Trail',
         requiredTerms: ['e-reader'],
         laneWhy: 'matches e-reader and early-2000s release signals from your chase profile',
         why: 'opens a source-backed e-reader thread without repeating the current chase card',
@@ -637,7 +637,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
       addTasteFeature(features, profile, {
         key: 'format:tag-team',
         name: 'Tag Team Pokemon cards',
-        lane: 'format taste discovery',
+        lane: 'Tag Team Trail',
         requiredTerms: ['tag', 'team'],
         laneWhy: 'matches multi-Pokemon card structure from your chase profile',
         why: 'uses card format as a taste signal while source evidence chooses the actual recommendations',
@@ -650,7 +650,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
       addTasteFeature(features, profile, {
         key: `format:${powerTrait}`,
         name: `${powerTrait.toUpperCase()} Pokemon cards`,
-        lane: 'format taste discovery',
+        lane: `${powerTrait.toUpperCase()} Format Trail`,
         requiredTerms: [powerTrait],
         laneWhy: `matches ${powerTrait.toUpperCase()} card-format signals from your chase profile`,
         why: 'uses card format as a taste marker instead of a hard-coded card branch',
@@ -662,7 +662,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
       addTasteFeature(features, profile, {
         key: 'era:vintage',
         name: 'vintage Pokemon cards',
-        lane: 'era taste discovery',
+        lane: 'Vintage Era Trail',
         requiredTerms: ['vintage'],
         laneWhy: 'uses older-era language as the taste signal instead of a named card branch',
         why: 'opens a related era thread and relies on source-backed listings for viable examples',
@@ -675,7 +675,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
   addTasteFeature(features, { sourceText: 'Pokemon collector cards', anchor: 'pokemon', displayAnchor: 'Pokemon', tokens: ['pokemon'], weight: 0.65, isActiveChase: false, promoLike: false, specialReleaseLike: false, languageHints: [], traitHints: [] }, {
     key: 'open:collector',
     name: 'Pokemon collector cards',
-    lane: 'open taste discovery',
+    lane: 'Collector Compass',
     requiredTerms: ['pokemon'],
     laneWhy: 'keeps Discovery moving from the overall profile when no narrower shared trait is ready',
     why: 'uses the chase profile as taste context while market evidence supplies the actual card examples',

@@ -27,7 +27,7 @@ describe('discovery source catalog', () => {
   it('builds Pokemon TCG catalog queries from broad taste threads', () => {
     const queries = pokemonTcgCatalogQueriesForSuggestion({
       name: 'Pokemon promo cards',
-      lane: 'taste-match discovery',
+      lane: 'Promo Trail',
       laneWhy: 'profile',
       why: 'profile',
       nearby: [],
@@ -41,7 +41,7 @@ describe('discovery source catalog', () => {
   it('builds e-reader era source queries from e-reader taste threads', () => {
     const queries = pokemonTcgCatalogQueriesForSuggestion({
       name: 'e-reader Pokemon cards',
-      lane: 'era taste discovery',
+      lane: 'E-Reader Era Trail',
       laneWhy: 'profile',
       why: 'profile',
       nearby: [],
@@ -76,7 +76,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -116,7 +116,7 @@ describe('discovery source catalog', () => {
 
     const suggestion = {
       name: 'Pokemon promo cards',
-      lane: 'taste-match discovery',
+      lane: 'Promo Trail',
       laneWhy: 'profile',
       why: 'profile',
       nearby: [],
@@ -164,7 +164,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -229,7 +229,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -283,7 +283,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -337,7 +337,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -391,7 +391,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon illustration rare cards',
-        lane: 'visual taste discovery',
+        lane: 'Illustration Rarity Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -473,7 +473,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -567,7 +567,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Japanese promo Pokemon cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -654,7 +654,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -737,7 +737,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Japanese Pokemon cards',
-        lane: 'language taste discovery',
+        lane: 'Japanese Collector Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -825,7 +825,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -940,7 +940,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -1008,7 +1008,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Japanese Pokemon cards',
-        lane: 'language taste discovery',
+        lane: 'Japanese Collector Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -1097,7 +1097,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon collector cards',
-        lane: 'open taste discovery',
+        lane: 'Collector Compass',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
@@ -1149,7 +1149,7 @@ describe('discovery source catalog', () => {
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
         name: 'Pokemon promo cards',
-        lane: 'taste-match discovery',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
