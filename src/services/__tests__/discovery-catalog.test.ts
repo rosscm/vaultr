@@ -46,7 +46,8 @@ describe('selectDiscoverySuggestions', () => {
 
     expect(names).toContain('Pokemon promo cards');
     expect(names).toContain('Pokemon special release cards');
-    expect(names).toContain('Pokemon collector cards');
+    expect(names).toContain('Pokemon promo value cards');
+    expect(names).not.toContain('Pokemon collector cards');
     expect(selection.suggestions.find((suggestion) => suggestion.name === 'Pokemon promo cards')?.sourceTasteTokens).toEqual(
       expect.arrayContaining(['promo', 'special'])
     );

@@ -63,9 +63,10 @@ type DiscoveryFeedbackAction = 'MORE_LIKE_THIS' | 'NOT_FOR_ME';
 const MIN_LEARNED_PROFILE_CHASES = 6;
 const VISIBLE_DISCOVERY_COUNT = 3;
 const DISCOVERY_CANDIDATE_POOL_SIZE = 16;
-const DISCOVERY_SOURCE_PARENT_POOL_SIZE = 6;
+const DISCOVERY_SOURCE_PARENT_BATCH_SIZE = 6;
 const DISCOVERY_SOURCE_CARD_LIMIT_PER_PARENT = 4;
 const DISCOVERY_ENRICHMENT_CONCURRENCY = 6;
+const DISCOVERY_SOURCE_OVERFETCH_MULTIPLIER = 3;
 const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MIN_RAW_MARKET_SAMPLE_SIZE = 2;
 const NON_CARD_TERMS = [
@@ -472,20 +473,27 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper:
   return results;
 }
 
-async function expandSourceBackedSuggestions(suggestions: DiscoverySuggestion[], activeChases: Chase[], tasteProfileChases: Chase[] = activeChases): Promise<DiscoverySuggestion[]> {
-  const sourceParents = suggestions.slice(0, DISCOVERY_SOURCE_PARENT_POOL_SIZE);
-  const expandedGroups = await mapWithConcurrency(sourceParents, DISCOVERY_ENRICHMENT_CONCURRENCY, async (suggestion) => {
-    const sourceBacked = await resolveSourceBackedDiscoveryCards(suggestion, activeChases, DISCOVERY_SOURCE_CARD_LIMIT_PER_PARENT, tasteProfileChases);
-    return sourceBacked.suggestions;
-  });
+export function isSourceBackedDiscoverySuggestion(suggestion: DiscoverySuggestion): boolean {
+  return !!suggestion.referenceSourceCardId || !!suggestion.referenceImageUrl;
+}
+
+async function expandSourceBackedSuggestions(suggestions: DiscoverySuggestion[], activeChases: Chase[], tasteProfileChases: Chase[] = activeChases, desiredCount = VISIBLE_DISCOVERY_COUNT): Promise<DiscoverySuggestion[]> {
   const expanded: DiscoverySuggestion[] = [];
   const seenNames = new Set<string>();
-  for (const suggestion of expandedGroups.flat()) {
-    if (isActiveChaseEchoSuggestion(suggestion, activeChases)) continue;
-    const nameKey = discoveryNameKey(suggestion.name);
-    if (seenNames.has(nameKey)) continue;
-    expanded.push(suggestion);
-    seenNames.add(nameKey);
+  for (let start = 0; start < suggestions.length && expanded.length < desiredCount; start += DISCOVERY_SOURCE_PARENT_BATCH_SIZE) {
+    const sourceParents = suggestions.slice(start, start + DISCOVERY_SOURCE_PARENT_BATCH_SIZE);
+    const expandedGroups = await mapWithConcurrency(sourceParents, DISCOVERY_ENRICHMENT_CONCURRENCY, async (suggestion) => {
+      const sourceBacked = await resolveSourceBackedDiscoveryCards(suggestion, activeChases, DISCOVERY_SOURCE_CARD_LIMIT_PER_PARENT, tasteProfileChases);
+      return sourceBacked.suggestions;
+    });
+    for (const suggestion of expandedGroups.flat()) {
+      if (!isSourceBackedDiscoverySuggestion(suggestion) || isActiveChaseEchoSuggestion(suggestion, activeChases)) continue;
+      const nameKey = discoveryNameKey(suggestion.name);
+      if (seenNames.has(nameKey)) continue;
+      expanded.push(suggestion);
+      seenNames.add(nameKey);
+      if (expanded.length >= desiredCount) break;
+    }
   }
   return expanded;
 }
@@ -641,17 +649,15 @@ function resonanceText(candidate: DiscoveryCandidate): string {
     .join(' ');
   const normalized = normalize(text);
   const reasons: string[] = [];
-  if (/\bjapanese\b|tcgdex japanese/.test(normalized)) reasons.push('Japanese release signal');
-  if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push('e-reader era thread');
-  if (/\bpromo|black star|special release\b/.test(normalized)) reasons.push('promo/special-release lane');
-  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(normalized)) reasons.push('display-card rarity');
-  if (/\btag team\b|\bgx\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(normalized)) reasons.push('collector format match');
-  const subject = profileSubjectTokens(candidate.suggestion.name)[0];
-  if (subject) reasons.push(`${titleCase(subject)} appears in your taste profile`);
+  if (/\bjapanese\b|tcgdex japanese/.test(normalized)) reasons.push('Japanese release path: regional printings and set variants often collect differently from English runs.');
+  if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push('e-reader era appeal: Expedition/Aquapolis/Skyridge-era cards sit in a distinct vintage collector lane.');
+  if (/\bpromo|black star|special release\b/.test(normalized)) reasons.push('Promo/special-release angle: limited distribution and Black Star-style paths can create durable side quests.');
+  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(normalized)) reasons.push('Display-card pull: illustration, gallery, full-art, or art-rare treatments tend to anchor binder pages.');
+  if (/\btag team\b|\bgx\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(normalized)) reasons.push('Collector format match: GX, VMAX, VSTAR, Tag Team, and Radiant-style cards form recognizable side collections.');
 
   const uniqueReasons = uniqueValuesPreservingOrder(reasons).slice(0, 3);
-  if (uniqueReasons.length === 0) return 'Vaultr is following shared traits from your Vault and recent Discovery activity.';
-  return uniqueReasons.join(' + ');
+  if (uniqueReasons.length === 0) return 'Vaultr is following shared collector traits from your Vault and recent Discovery activity.';
+  return uniqueReasons.join('\n');
 }
 
 function collectorTheme(candidate: DiscoveryCandidate): string {
@@ -704,7 +710,7 @@ export function selectVisibleCandidates(candidates: DiscoveryCandidate[], chases
 export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency, includeMarketRead: boolean, displayIndex?: number): EmbedBuilder {
   const tone = discoveryVisualTone(candidate.suggestion.lane);
   const prefix = displayIndex === undefined ? tone.icon : `${displayIndex}. ${tone.icon}`;
-  const title = `${prefix} ${titleCase(candidate.suggestion.lane)}`;
+  const title = `${prefix} ${truncateValue(candidate.suggestion.name, 220)}`;
   const embed = new EmbedBuilder().setColor(tone.color).setTitle(title);
   const nearby = candidate.suggestion.nearby.slice(0, 3).map((name) => `• ${name}`).join('\n');
   const fields = [
@@ -716,7 +722,7 @@ export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: Supp
   if (candidate.image) embed.setThumbnail(candidate.image.url);
 
   embed
-    .setDescription(`**${markdownLink(candidate.suggestion.name, candidate.listing?.url)}**`)
+    .setDescription(`**${titleCase(candidate.suggestion.lane)}**${candidate.listing?.url ? `\n${markdownLink('Open example listing', candidate.listing.url)}` : ''}`)
     .addFields(...fields)
     .setFooter({ text: 'Vaultr • Discovery' })
     .setTimestamp();
@@ -823,7 +829,7 @@ async function discoverCandidatesForUser(userId: string, count: number, mode: Di
       mode
     });
     const activeSafeSuggestions = selection.suggestions.filter((suggestion) => !isActiveChaseEchoSuggestion(suggestion, chases));
-    const sourceBackedSuggestions = await expandSourceBackedSuggestions(activeSafeSuggestions, chases, tasteProfileChases);
+    const sourceBackedSuggestions = await expandSourceBackedSuggestions(activeSafeSuggestions, chases, tasteProfileChases, count * DISCOVERY_SOURCE_OVERFETCH_MULTIPLIER);
     const excludedSourceNameKeys = new Set(combinedSourceExcludedNames.map(discoveryNameKey));
     const freshSourceBackedSuggestions = sourceBackedSuggestions.filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)));
     const enriched = freshSourceBackedSuggestions.map((suggestion, index) => tasteOnlyCandidate(suggestion, index));
@@ -885,9 +891,9 @@ export const discover = {
     const discovery = await discoverCandidatesForUser(interaction.user.id, VISIBLE_DISCOVERY_COUNT, mode);
     const visibleCandidates = discovery.candidates;
     markUserDiscoverySuggestionsSeen(interaction.user.id, visibleCandidates.map((candidate) => candidate.suggestion.name));
-    const visibleThreads = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => titleCase(candidate.suggestion.lane)));
+    const visibleFinds = visibleCandidates.map((candidate) => candidate.suggestion.name);
     const title = '✨ Vaultr Discovery';
-    const threadSummary = visibleThreads.length > 0 ? visibleThreads.join(', ') : 'No source-backed card matches right now';
+    const findSummary = visibleFinds.length > 0 ? visibleFinds.map((name) => truncateValue(name, 80)).join(', ') : 'No source-backed card matches right now';
     const lines = [
       `**Mode:** ${DISCOVERY_MODE_LABELS[mode]}`,
       `**Collector Profile:** ${learningSignal(
@@ -897,7 +903,7 @@ export const discover = {
         discovery.hasFullDiscovery,
         discovery.hasLearnedProfile
       )}`,
-      `**Today’s Threads:** ${threadSummary}`,
+      `**Today’s Finds:** ${findSummary}`,
       `**Spend Feel:** ${priceRangeSummary(discovery.priceRange, discovery.settings.alertCurrency, discovery.hasFullDiscovery, discovery.hasLearnedProfile)}`
     ];
     if (!discovery.hasFullDiscovery) {

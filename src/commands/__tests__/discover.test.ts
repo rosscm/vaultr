@@ -6,6 +6,7 @@ import {
   isUsableDiscoveryExample,
   isActiveChaseEchoSuggestion,
   isActiveChaseEchoText,
+  isSourceBackedDiscoverySuggestion,
   looksLikeVisualDiscoveryListing,
   mergeFreshDiscoveryCandidates,
   preserveLanguageSignalFallbackSuggestions,
@@ -112,6 +113,23 @@ describe('selectVisibleCandidates', () => {
     ]);
   });
 
+  it('fills visible slots with later source-backed candidates after duplicate subjects collapse', () => {
+    const visible = selectVisibleCandidates(
+      [
+        candidate('Mew Southern Islands Promo', 'mythical display cards', 0),
+        candidate('Pikachu XY Black Star Promo', 'promo side path', 1),
+        candidate('Pikachu Expedition Reverse Holo', 'e-reader era thread', 2),
+        candidate('Zapdos Aquapolis H32/H32', 'e-reader era thread', 3)
+      ]
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Mew Southern Islands Promo',
+      'Pikachu XY Black Star Promo',
+      'Zapdos Aquapolis H32/H32'
+    ]);
+  });
+
   it('prioritizes Japanese source cards over English Black Star promos for Japanese-weighted grails', () => {
     const visible = selectVisibleCandidates(
       [
@@ -209,6 +227,32 @@ describe('mergeFreshDiscoveryCandidates', () => {
     );
 
     expect(merged.map((item) => item.suggestion.name)).toEqual(['ピカチュウ ポケモンカード151 025', 'Mew Southern Islands Promo']);
+  });
+});
+
+describe('isSourceBackedDiscoverySuggestion', () => {
+  it('does not treat abstract taste threads as visible card suggestions', () => {
+    expect(
+      isSourceBackedDiscoverySuggestion({
+        name: 'Japanese Pokemon cards',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Japanese Pokemon cards',
+        requiredEvidenceTokens: ['japanese']
+      })
+    ).toBe(false);
+    expect(
+      isSourceBackedDiscoverySuggestion({
+        name: 'Metang Chaos Rising 60',
+        lane: 'source-backed matches',
+        laneWhy: 'source match',
+        why: 'source match',
+        nearby: [],
+        referenceSourceCardId: 'mega-060'
+      })
+    ).toBe(true);
   });
 });
 
@@ -375,7 +419,7 @@ describe('active chase echo guard', () => {
     ];
     const selection = selectDiscoverySuggestions(null, activeChases, 8);
 
-    expect(selection.suggestions.map((suggestion) => suggestion.name)).toEqual(['Pokemon promo cards', 'Pokemon special release cards', 'Pokemon collector cards']);
+    expect(selection.suggestions.map((suggestion) => suggestion.name)).toEqual(['Pokemon promo cards', 'Pokemon promo value cards', 'Pokemon special release cards']);
     expect(selection.suggestions.filter((suggestion) => !isActiveChaseEchoSuggestion(suggestion, activeChases)).length).toBeGreaterThanOrEqual(3);
   });
 
@@ -413,6 +457,8 @@ describe('discoveryEmbed', () => {
   it('hides market read for limited Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false).toJSON();
 
+    expect(embed.title).toContain('Mew Southern Islands Promo');
+    expect(embed.description).toContain('Mythical Display Cards');
     expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Next Threads']);
   });
 
@@ -439,8 +485,9 @@ describe('discoveryEmbed', () => {
     ).toJSON();
 
     const why = embed.fields?.find((field) => field.name === 'Why It Resonates')?.value;
-    expect(why).toContain('e-reader era thread');
-    expect(why).toContain('Zapdos appears in your taste profile');
+    expect(why).toContain('e-reader era appeal');
+    expect(why).toContain('distinct vintage collector lane');
+    expect(why).not.toContain('Zapdos appears in your taste profile');
     expect(why).not.toContain('active chase');
     expect(why).not.toContain('patterns emerging');
     expect(embed.fields?.some((field) => field.name === 'Image Source')).toBe(false);
@@ -464,6 +511,7 @@ describe('discoveryEmbed', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false, 2).toJSON();
 
     expect(embed.title).toContain('2.');
+    expect(embed.title).toContain('Mew Southern Islands Promo');
   });
 
   it('does not show the internal collection thread field', () => {

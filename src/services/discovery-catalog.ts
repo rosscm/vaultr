@@ -597,6 +597,19 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
         tasteTokens: ['promo', 'special'],
         curiosityScore: 7
       });
+      if (!profile.languageHints.includes('japanese')) {
+        addTasteFeature(features, profile, {
+          key: 'release:promo-value',
+          name: 'Pokemon promo value cards',
+          lane: 'Smart Value Trail',
+          requiredTerms: ['promo'],
+          laneWhy: 'keeps the promo signal but looks for a lighter pickup path',
+          why: 'uses promo and release taste as the filter, then favors approachable source-backed examples',
+          tasteTokens: ['promo', 'value'],
+          curiosityScore: 4,
+          maximumBaselineRawTotalCad: 225
+        });
+      }
     }
     if (profile.languageHints.includes('japanese')) {
       addTasteFeature(features, profile, {
@@ -673,17 +686,19 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
     }
   }
 
-  addTasteFeature(features, { sourceText: 'Pokemon collector cards', anchor: 'pokemon', displayAnchor: 'Pokemon', tokens: ['pokemon'], weight: 0.65, isActiveChase: false, promoLike: false, specialReleaseLike: false, languageHints: [], traitHints: [] }, {
-    key: 'open:collector',
-    name: 'Pokemon collector cards',
-    lane: 'Collector Compass',
-    requiredTerms: ['pokemon'],
-    laneWhy: 'keeps Discovery moving from the overall profile when no narrower shared trait is ready',
-    why: 'uses the chase profile as taste context while market evidence supplies the actual card examples',
-    tasteTokens: ['collector'],
-    curiosityScore: 2,
-    maximumBaselineRawTotalCad: 225
-  });
+  if (features.size === 0) {
+    addTasteFeature(features, { sourceText: 'Pokemon collector cards', anchor: 'pokemon', displayAnchor: 'Pokemon', tokens: ['pokemon'], weight: 0.65, isActiveChase: false, promoLike: false, specialReleaseLike: false, languageHints: [], traitHints: [] }, {
+      key: 'open:collector',
+      name: 'Pokemon collector cards',
+      lane: 'Collector Compass',
+      requiredTerms: ['pokemon'],
+      laneWhy: 'keeps Discovery moving from the overall profile when no narrower shared trait is ready',
+      why: 'uses the chase profile as taste context while market evidence supplies the actual card examples',
+      tasteTokens: ['collector'],
+      curiosityScore: 2,
+      maximumBaselineRawTotalCad: 225
+    });
+  }
 
   const tokenSupport = new Map<string, { total: number; remembered: number }>();
   for (const profile of profiles) {
