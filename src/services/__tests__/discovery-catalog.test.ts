@@ -142,6 +142,15 @@ describe('selectDiscoverySuggestions', () => {
     expectDistinctLanes(cooled);
   });
 
+  it('cools explicitly rejected lanes without requiring user-steered focus', () => {
+    const cooled = selectDiscoverySuggestions(null, [chase({ cardName: 'Gengar vintage Japanese cards' })], 3, {
+      excludedLanes: ['Japanese Collector Trail']
+    });
+
+    expect(cooled.suggestions.map((suggestion) => suggestion.lane)).not.toContain('Japanese Collector Trail');
+    expectDistinctLanes(cooled);
+  });
+
   it('lets mode change ordering without changing the learning source', () => {
     const chases = [chase({ cardName: 'Mew RC24', priority: 'HIGH', tasteSource: 'GOOD_ALERT' })];
     const similar = selectDiscoverySuggestions(null, chases, 3, { mode: 'similar' });

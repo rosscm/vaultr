@@ -413,13 +413,13 @@ describe('discoveryEmbed', () => {
   it('hides market read for limited Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false).toJSON();
 
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Collection Thread', 'Next Threads']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Next Threads']);
   });
 
   it('shows market read for full Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', true).toJSON();
 
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Collection Thread', 'Market Read', 'Next Threads']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Market Read', 'Next Threads']);
   });
 
   it('explains concrete profile signals instead of internal source details', () => {
@@ -441,6 +441,8 @@ describe('discoveryEmbed', () => {
     const why = embed.fields?.find((field) => field.name === 'Why It Resonates')?.value;
     expect(why).toContain('e-reader era thread');
     expect(why).toContain('Zapdos appears in your taste profile');
+    expect(why).not.toContain('active chase');
+    expect(why).not.toContain('patterns emerging');
     expect(embed.fields?.some((field) => field.name === 'Image Source')).toBe(false);
   });
 
@@ -464,7 +466,7 @@ describe('discoveryEmbed', () => {
     expect(embed.title).toContain('2.');
   });
 
-  it('does not repeat next threads inside collection thread', () => {
+  it('does not show the internal collection thread field', () => {
     const embed = discoveryEmbed(
       {
         ...candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2),
@@ -478,8 +480,8 @@ describe('discoveryEmbed', () => {
       false
     ).toJSON();
 
-    const collectionThread = embed.fields?.find((field) => field.name === 'Collection Thread')?.value;
-    expect(collectionThread).toBe('branches from a Mew chase');
+    expect(embed.fields?.some((field) => field.name === 'Collection Thread')).toBe(false);
+    expect(embed.fields?.find((field) => field.name === 'Next Threads')?.value).toContain('Ancient Mew Promo');
   });
 });
 

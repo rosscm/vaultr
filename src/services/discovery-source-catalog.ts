@@ -56,10 +56,16 @@ type SourceTasteProfile = {
 
 const POKEMON_TCG_ENDPOINT = 'https://api.pokemontcg.io/v2/cards';
 const TCGDEX_JA_CARDS_ENDPOINT = 'https://api.tcgdex.net/v2/ja/cards';
-const SOURCE_CATALOG_TIMEOUT_MS = 8000;
+const SOURCE_CATALOG_TIMEOUT_MS = 4000;
 const SOURCE_CATALOG_PAGE_SIZE = 48;
-const TCGDEX_SOURCE_CATALOG_PAGE_SIZE = 36;
+const TCGDEX_SOURCE_CATALOG_PAGE_SIZE = 18;
 const SOURCE_API_CACHE_TTL_MS = 15 * 60 * 1000;
+const SOURCE_PROFILE_TIMEOUT_MS = 2500;
+const SOURCE_PROFILE_CHASE_LIMIT = 4;
+const SOURCE_PROFILE_PRIMARY_TERM_LIMIT = 2;
+const SOURCE_PROFILE_FALLBACK_TERM_LIMIT = 2;
+const TCGDEX_PROFILE_CHASE_LIMIT = 4;
+const TCGDEX_PROFILE_TERM_LIMIT = 2;
 const ACTIVE_CARD_TOKEN_STOP_WORDS = new Set(['card', 'cards', 'holo', 'hp', 'it', 'lp', 'mp', 'nm', 'mint', 'near', 'pokemon', 'raw', 'the', 'trading', 'with']);
 const SOURCE_PROFILE_IDENTITY_STOP_WORDS = new Set([
   'black',
@@ -88,7 +94,6 @@ const JAPANESE_PROMO_CODE_PATTERN = /\b(?:\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|
 const JAPANESE_SCRIPT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff]/;
 const JAPANESE_RELEASE_MARKER_PATTERN = /\b(?:coro\s?coro|vending|masaki|munch|poncho|battle\s*festa|players?\s+club|fan\s+club|trainers?\s+magazine|yu\s?nagaba|precious\s+collector|kanazawa|yokohama|sapporo|pokemon\s+center)\b/i;
 const BARE_COLLECTOR_NUMBER_PATTERN = /\b(\d{1,3})\s*\/\s*(\d{1,3})\b/;
-const CARD_FORMAT_TOKENS = ['tag team', 'illustration', 'full art', 'gallery', 'e-reader', 'radiant', 'delta', 'vstar', 'vmax', 'gx', 'ex', 'v'] as const;
 
 type SourceApiCacheEntry = {
   expiresAt: number;
@@ -96,10 +101,17 @@ type SourceApiCacheEntry = {
   promise?: Promise<any>;
 };
 
+type SourceProfileCacheEntry = {
+  expiresAt: number;
+  promise: Promise<SourceTasteProfile>;
+};
+
 const sourceApiResponseCache = new Map<string, SourceApiCacheEntry>();
+const sourceTasteProfileCache = new Map<string, SourceProfileCacheEntry>();
 
 export function clearDiscoverySourceCatalogCache(): void {
   sourceApiResponseCache.clear();
+  sourceTasteProfileCache.clear();
 }
 
 function normalize(value: string): string {
@@ -340,9 +352,9 @@ async function fetchTcgDexJapaneseCard(id: string): Promise<TcgDexCard | null> {
 async function resolveActiveChaseSourceCards(activeChases: Chase[]): Promise<PokemonTcgCard[]> {
   const cards: PokemonTcgCard[] = [];
   const seenIds = new Set<string>();
-  for (const chase of activeChases.slice(0, 8)) {
+  for (const chase of activeChases.slice(0, SOURCE_PROFILE_CHASE_LIMIT)) {
     let resolvedChase = false;
-    for (const term of activeChaseSearchTerms(chase).slice(0, 5)) {
+    for (const term of activeChaseSearchTerms(chase).slice(0, SOURCE_PROFILE_PRIMARY_TERM_LIMIT)) {
       const results = await fetchPokemonCards(pokemonTcgQueryForActiveTerm(term), 3).catch(() => []);
       const card = results.find(
         (candidate) =>
@@ -356,7 +368,7 @@ async function resolveActiveChaseSourceCards(activeChases: Chase[]): Promise<Pok
       break;
     }
     if (resolvedChase) continue;
-    for (const term of activeChaseSearchTerms(chase).filter(isUsefulIdentityTerm).slice(0, 4)) {
+    for (const term of activeChaseSearchTerms(chase).filter(isUsefulIdentityTerm).slice(0, SOURCE_PROFILE_FALLBACK_TERM_LIMIT)) {
       const results = await fetchPokemonCards(`name:${quoted(term.name)}`, 5).catch(() => []);
       const card = results.find((candidate) => normalize(candidate.supertype ?? '') === 'pokemon' && (candidate.nationalPokedexNumbers?.length ?? 0) > 0);
       if (!card?.id || seenIds.has(card.id)) continue;
@@ -405,8 +417,42 @@ function sourceTasteProfileFromCards(cards: PokemonTcgCard[], activeChases: Chas
   return { cards, dexNumbers, dexNames, explicitFormatCounts, formatCounts, ordinaryExSupportCount, types, subtypes, setTokens, releaseYears, kantoRatio, japaneseSignalRatio, hasPriorityJapaneseSignal };
 }
 
+function sourceTasteProfileCacheKey(activeChases: Chase[]): string {
+  return activeChases
+    .slice(0, SOURCE_PROFILE_CHASE_LIMIT)
+    .map((chase) => [chase.cardName, chase.targetNote ?? '', chase.priority ?? '', chase.tasteSource ?? '', chase.tasteWeight ?? ''].join('|'))
+    .join('||');
+}
+
+async function withFallbackTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 async function sourceTasteProfile(activeChases: Chase[]): Promise<SourceTasteProfile> {
-  return sourceTasteProfileFromCards(await resolveActiveChaseSourceCards(activeChases), activeChases, japaneseSignalRatio(activeChases), hasPriorityJapaneseSignal(activeChases));
+  const now = Date.now();
+  const cacheKey = sourceTasteProfileCacheKey(activeChases);
+  const cached = sourceTasteProfileCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const sourceCardsPromise = resolveActiveChaseSourceCards(activeChases).catch(() => []);
+  const promise = withFallbackTimeout(sourceCardsPromise, SOURCE_PROFILE_TIMEOUT_MS, []).then((cards) =>
+    sourceTasteProfileFromCards(cards, activeChases, japaneseSignalRatio(activeChases), hasPriorityJapaneseSignal(activeChases))
+  );
+  sourceTasteProfileCache.set(cacheKey, { expiresAt: now + SOURCE_API_CACHE_TTL_MS, promise });
+  try {
+    return await promise;
+  } catch (error) {
+    sourceTasteProfileCache.delete(cacheKey);
+    throw error;
+  }
 }
 
 function expandedQueriesForProfile(baseQueries: string[], profile: SourceTasteProfile): string[] {
@@ -704,8 +750,8 @@ async function resolveTcgDexJapaneseCards(
     }
   }
 
-  for (const chase of tasteProfileChases.slice(0, 8)) {
-    for (const term of activeChaseSearchTerms(chase).filter((searchTerm) => /[a-z]/i.test(searchTerm.name) && isUsefulIdentityTerm(searchTerm)).slice(0, 4)) {
+  for (const chase of tasteProfileChases.slice(0, TCGDEX_PROFILE_CHASE_LIMIT)) {
+    for (const term of activeChaseSearchTerms(chase).filter((searchTerm) => /[a-z]/i.test(searchTerm.name) && isUsefulIdentityTerm(searchTerm)).slice(0, TCGDEX_PROFILE_TERM_LIMIT)) {
       const summaries = await fetchTcgDexJapaneseSummariesByName(term.name).catch(() => []);
       for (const summary of summaries.slice(0, Math.floor(TCGDEX_SOURCE_CATALOG_PAGE_SIZE / 3))) {
         if (summary.id) summariesById.set(summary.id, summary);

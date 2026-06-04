@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   EmbedBuilder,
   MessageFlags,
   SlashCommandBuilder,
@@ -26,19 +24,10 @@ import {
 } from '../services/chase-store.js';
 import { convertCurrencyAmount, type SupportedCurrency } from '../services/currency.js';
 import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoveryMode, type DiscoverySuggestion } from '../services/discovery-catalog.js';
-import {
-  discoveryMarketCacheKey,
-  getDiscoveryMarketCache,
-  listingFromDiscoveryMarketCache,
-  upsertDiscoveryMarketCache,
-  type DiscoveryMarketCacheEntry
-} from '../services/discovery-market-cache.js';
 import { getOrFetchDiscoveryReferenceImage } from '../services/discovery-reference-cache.js';
 import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
-import { searchEbayListings } from '../services/ebay.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
-import { getPollerState } from '../services/poller-state.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import type { Chase, Listing } from '../types.js';
 
@@ -67,19 +56,17 @@ type DiscoveryActionItem = {
   index: number;
 };
 
-type DiscoveryActionRow = ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>;
+type DiscoveryActionRow = ActionRowBuilder<StringSelectMenuBuilder>;
 type DiscoveryPick = NonNullable<ReturnType<typeof getDiscoveryVaultAction>>;
 type DiscoveryFeedbackAction = 'MORE_LIKE_THIS' | 'NOT_FOR_ME';
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
 const VISIBLE_DISCOVERY_COUNT = 3;
 const DISCOVERY_CANDIDATE_POOL_SIZE = 16;
-const DISCOVERY_ENRICHMENT_CONCURRENCY = 4;
-const DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY = 1;
-const DISCOVERY_SOURCE_TIMEOUT_MS = 30000;
-const DISCOVERY_MARKET_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const DISCOVERY_SOURCE_PARENT_POOL_SIZE = 6;
+const DISCOVERY_SOURCE_CARD_LIMIT_PER_PARENT = 4;
+const DISCOVERY_ENRICHMENT_CONCURRENCY = 6;
 const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const DISCOVERY_SOURCE_STATUS_RETRY_MS = 15 * 60 * 1000;
 const MIN_RAW_MARKET_SAMPLE_SIZE = 2;
 const NON_CARD_TERMS = [
   'booster',
@@ -341,10 +328,6 @@ export function isActiveChaseEchoText(text: string, activeChases: Chase[]): bool
   });
 }
 
-function isActiveChaseEchoListing(listing: Listing, activeChases: Chase[]): boolean {
-  return isActiveChaseEchoText([listing.title, listing.listingId].join(' '), activeChases);
-}
-
 function mergeActiveAndTasteMemoryChases(activeChases: Chase[], memoryChases: Chase[]): Chase[] {
   const activeNames = new Set(activeChases.map((chase) => normalize(chase.cardName)));
   const merged: Chase[] = activeChases.map((chase) => ({ ...chase, tasteSource: 'ACTIVE_CHASE' as const }));
@@ -429,39 +412,6 @@ function looksLikeDiscoveryCardListing(suggestion: DiscoverySuggestion, listing:
   return looksLikeCardListing(listing) || hasCoreSuggestionTokens(suggestion, listing);
 }
 
-function looksLikeRawCardListing(listing: Listing): boolean {
-  const text = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
-  return !/\b(ace grading|beckett|bgs|cgc|gma|psa|sgc|tag graded)\b|\bgraded\b|\bslab(?:bed)?\b/.test(text);
-}
-
-function looksLikeBaselineRawMarketListing(listing: Listing): boolean {
-  const text = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
-  return (
-    looksLikeRawCardListing(listing) &&
-    !/\b(error|gem mint|minty mint|misprint|miscut|nintedo|sealed|unopened|signature|signed|autograph|staff)\b/.test(text) &&
-    !/\b(lot|pack|post ?card)\b|\bcard set\b|\b(complete|master|binder)\b.*\b(set|collection)\b|\b(6|9|18)[- ]?card set\b|\bset of \d+\b/.test(text)
-  );
-}
-
-function meetsBaselineMarketCeiling(
-  suggestion: DiscoverySuggestion,
-  listing: Listing,
-  targetCurrency: SupportedCurrency
-): boolean {
-  if (suggestion.maximumBaselineRawTotalCad === undefined) return true;
-  const ceiling = convertCurrencyAmount(suggestion.maximumBaselineRawTotalCad, 'CAD', targetCurrency);
-  return convertedListingParts(listing, targetCurrency).total <= ceiling;
-}
-
-function typicalMarketTotal(totals: number[]): number | undefined {
-  if (totals.length === 0) return undefined;
-  const sorted = [...totals].sort((a, b) => a - b);
-  const anchor = median(sorted);
-  if (anchor === undefined || anchor <= 0) return anchor;
-  const withoutHighOutliers = sorted.filter((total) => total <= anchor * 3);
-  return median(withoutHighOutliers.length > 0 ? withoutHighOutliers : sorted);
-}
-
 function hasReliableSeller(listing: Listing): boolean {
   const feedbackScore = listing.sellerFeedbackScore;
   const feedbackPercent = listing.sellerFeedbackPercent;
@@ -504,19 +454,6 @@ export function looksLikeVisualDiscoveryListing(suggestion: DiscoverySuggestion,
   return hasCoreSuggestionTokens(suggestion, listing) && looksLikeDiscoveryCardListing(suggestion, listing) && imageUrlFromListing(listing) !== undefined;
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timeoutHandle: NodeJS.Timeout | undefined;
-  const timeoutPromise = new Promise<T>((_, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error('Discovery source timeout')), timeoutMs);
-  });
-
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutHandle) clearTimeout(timeoutHandle);
-  }
-}
-
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let nextIndex = 0;
@@ -535,28 +472,10 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper:
   return results;
 }
 
-function discoverySourceStatus(error: unknown): DiscoveryCandidate['sourceStatus'] {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/429|rate limit|quota|ratelimiter|exceeded the number of times/i.test(message)) return 'RATE_LIMITED';
-  if (/timeout/i.test(message)) return 'TIMEOUT';
-  return 'ERROR';
-}
-
-function cacheAgeMs(entry: DiscoveryMarketCacheEntry, nowMs = Date.now()): number {
-  const fetchedAtMs = new Date(entry.fetchedAt).getTime();
-  return Number.isFinite(fetchedAtMs) ? nowMs - fetchedAtMs : Number.POSITIVE_INFINITY;
-}
-
-function shouldRefreshDiscoveryMarketCache(entry: DiscoveryMarketCacheEntry | null, nowMs = Date.now()): boolean {
-  if (!entry) return true;
-  const ageMs = cacheAgeMs(entry, nowMs);
-  if (entry.sourceStatus) return ageMs >= DISCOVERY_SOURCE_STATUS_RETRY_MS;
-  return ageMs >= DISCOVERY_MARKET_CACHE_TTL_MS;
-}
-
 async function expandSourceBackedSuggestions(suggestions: DiscoverySuggestion[], activeChases: Chase[], tasteProfileChases: Chase[] = activeChases): Promise<DiscoverySuggestion[]> {
-  const expandedGroups = await mapWithConcurrency(suggestions, DISCOVERY_ENRICHMENT_CONCURRENCY, async (suggestion) => {
-    const sourceBacked = await resolveSourceBackedDiscoveryCards(suggestion, activeChases, 12, tasteProfileChases);
+  const sourceParents = suggestions.slice(0, DISCOVERY_SOURCE_PARENT_POOL_SIZE);
+  const expandedGroups = await mapWithConcurrency(sourceParents, DISCOVERY_ENRICHMENT_CONCURRENCY, async (suggestion) => {
+    const sourceBacked = await resolveSourceBackedDiscoveryCards(suggestion, activeChases, DISCOVERY_SOURCE_CARD_LIMIT_PER_PARENT, tasteProfileChases);
     return sourceBacked.suggestions;
   });
   const expanded: DiscoverySuggestion[] = [];
@@ -569,165 +488,6 @@ async function expandSourceBackedSuggestions(suggestions: DiscoverySuggestion[],
     seenNames.add(nameKey);
   }
   return expanded;
-}
-
-function candidateFromCachedMarket(
-  suggestion: DiscoverySuggestion,
-  selectionIndex: number,
-  cacheEntry: DiscoveryMarketCacheEntry | null,
-  targetCurrency: SupportedCurrency,
-  activeChases: Chase[] = [],
-  refreshQueued = false
-): DiscoveryCandidate {
-  if (!cacheEntry) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
-  const listing = listingFromDiscoveryMarketCache(cacheEntry);
-  if (listing && isActiveChaseEchoListing(listing, activeChases)) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
-  const sourceStatus = refreshQueued && cacheEntry.sourceStatus ? 'PENDING' : cacheEntry.sourceStatus;
-  return {
-    suggestion,
-    selectionIndex,
-    listing,
-    image: cacheEntry.imageUrl ? { name: suggestion.name, url: cacheEntry.imageUrl, sourceName: 'eBay cached market image', sourceKind: 'MARKET_LISTING' } : undefined,
-    typicalRawAskingTotal: cacheEntry.typicalRawAskingTotal,
-    marketSampleSize: cacheEntry.marketSampleSize,
-    displayCurrency: cacheEntry.displayCurrency ?? targetCurrency,
-    sourceStatus
-  };
-}
-
-async function enrichSuggestion(
-  suggestion: DiscoverySuggestion,
-  selectionIndex: number,
-  userId: string,
-  activeChases: Chase[],
-  destination: { country?: string; postalCode?: string } | undefined,
-  range: { min: number; max: number } | undefined,
-  targetCurrency: SupportedCurrency
-): Promise<DiscoveryCandidate> {
-  const discoveryChase: Chase = {
-    id: `discover:${suggestion.name}`,
-    userId,
-    cardName: suggestion.evidenceSearchTerm ?? `${suggestion.name} trading card`,
-    createdAt: new Date().toISOString()
-  };
-
-  try {
-    const listings = await withTimeout(
-      searchEbayListings(discoveryChase, destination, { enrichMissingShipping: false }),
-      DISCOVERY_SOURCE_TIMEOUT_MS
-    );
-    const nonActiveListings = listings.filter((candidate) => !isActiveChaseEchoListing(candidate, activeChases));
-    const usableListings = nonActiveListings.filter((candidate) => isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency));
-    const rawListings = usableListings.filter(looksLikeRawCardListing);
-    const baselineRawListings = usableListings.filter(
-      (candidate) => looksLikeBaselineRawMarketListing(candidate) && meetsBaselineMarketCeiling(suggestion, candidate, targetCurrency)
-    );
-    const marketListing =
-      baselineRawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
-      rawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
-      baselineRawListings[0] ??
-      rawListings[0];
-    const visualListing = nonActiveListings.find((candidate) => looksLikeVisualDiscoveryListing(suggestion, candidate));
-    const listing = marketListing ?? visualListing;
-    if (!listing) return { suggestion, selectionIndex };
-
-    const totals = baselineRawListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
-    const typicalRawAskingTotal = typicalMarketTotal(totals);
-    const imageUrl = imageUrlFromListing(listing);
-    return {
-      suggestion,
-      selectionIndex,
-      listing,
-      image: imageUrl ? { name: suggestion.name, url: imageUrl, sourceName: 'eBay listing image', sourceKind: 'MARKET_LISTING' } : undefined,
-      typicalRawAskingTotal,
-      marketSampleSize: totals.length,
-      displayCurrency: targetCurrency
-    };
-  } catch (error) {
-    return { suggestion, selectionIndex, sourceStatus: discoverySourceStatus(error) };
-  }
-}
-
-type DiscoveryMarketRefreshJob = {
-  cacheKey: string;
-  suggestion: DiscoverySuggestion;
-  selectionIndex: number;
-  userId: string;
-  activeChases: Chase[];
-  destination: { country?: string; postalCode?: string } | undefined;
-  range: { min: number; max: number } | undefined;
-  targetCurrency: SupportedCurrency;
-};
-
-const discoveryMarketRefreshQueue: DiscoveryMarketRefreshJob[] = [];
-const queuedDiscoveryMarketRefreshKeys = new Set<string>();
-let isDiscoveryMarketRefreshRunning = false;
-let scheduledDiscoveryMarketRefreshTimer: NodeJS.Timeout | undefined;
-
-function nextDiscoveryMarketRefreshDelayMs(): number {
-  const backoffUntil = getPollerState().backoffUntil;
-  if (!backoffUntil) return 0;
-  const backoffUntilMs = new Date(backoffUntil).getTime();
-  if (!Number.isFinite(backoffUntilMs)) return 0;
-  return Math.max(0, backoffUntilMs - Date.now());
-}
-
-function saveDiscoveryMarketRefreshResult(job: DiscoveryMarketRefreshJob, candidate: DiscoveryCandidate): void {
-  upsertDiscoveryMarketCache({
-    cacheKey: job.cacheKey,
-    suggestionName: job.suggestion.name,
-    displayCurrency: job.targetCurrency,
-    destinationCountry: job.destination?.country,
-    listing: candidate.listing,
-    imageUrl: candidate.image?.url,
-    typicalRawAskingTotal: candidate.typicalRawAskingTotal,
-    marketSampleSize: candidate.marketSampleSize,
-    sourceStatus: candidate.sourceStatus === 'PENDING' ? undefined : candidate.sourceStatus
-  });
-}
-
-function scheduleDiscoveryMarketRefreshQueue(): void {
-  if (isDiscoveryMarketRefreshRunning || discoveryMarketRefreshQueue.length === 0) return;
-  const delayMs = nextDiscoveryMarketRefreshDelayMs();
-  if (delayMs > 0) {
-    if (!scheduledDiscoveryMarketRefreshTimer) {
-      scheduledDiscoveryMarketRefreshTimer = setTimeout(() => {
-        scheduledDiscoveryMarketRefreshTimer = undefined;
-        void runDiscoveryMarketRefreshQueue();
-      }, Math.min(delayMs, DISCOVERY_SOURCE_STATUS_RETRY_MS));
-    }
-    return;
-  }
-  void runDiscoveryMarketRefreshQueue();
-}
-
-async function runDiscoveryMarketRefreshQueue(): Promise<void> {
-  if (isDiscoveryMarketRefreshRunning) return;
-  isDiscoveryMarketRefreshRunning = true;
-  try {
-    await mapWithConcurrency(discoveryMarketRefreshQueue.splice(0), DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY, async (job) => {
-      try {
-        const candidate = await enrichSuggestion(job.suggestion, job.selectionIndex, job.userId, job.activeChases, job.destination, job.range, job.targetCurrency);
-        saveDiscoveryMarketRefreshResult(job, candidate);
-      } catch (error) {
-        saveDiscoveryMarketRefreshResult(job, { suggestion: job.suggestion, selectionIndex: job.selectionIndex, sourceStatus: discoverySourceStatus(error) });
-      } finally {
-        queuedDiscoveryMarketRefreshKeys.delete(job.cacheKey);
-      }
-    });
-  } finally {
-    isDiscoveryMarketRefreshRunning = false;
-    if (discoveryMarketRefreshQueue.length > 0) scheduleDiscoveryMarketRefreshQueue();
-  }
-}
-
-function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshJob[]): void {
-  for (const job of jobs) {
-    if (queuedDiscoveryMarketRefreshKeys.has(job.cacheKey)) continue;
-    queuedDiscoveryMarketRefreshKeys.add(job.cacheKey);
-    discoveryMarketRefreshQueue.push(job);
-  }
-  scheduleDiscoveryMarketRefreshQueue();
 }
 
 function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
@@ -819,10 +579,6 @@ function subjectProfileRankScore(candidate: DiscoveryCandidate, chases: Chase[] 
   return Math.min(140, Math.round(score));
 }
 
-function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
-  return [...candidates].sort((left, right) => curiosityRankScore(right) - curiosityRankScore(left));
-}
-
 function rankDiscoveryCandidatesForProfile(candidates: DiscoveryCandidate[], chases: Chase[] = []): DiscoveryCandidate[] {
   return [...candidates].sort((left, right) => {
     const sourceDelta = sourcePreferenceRankScore(right, chases) - sourcePreferenceRankScore(left, chases);
@@ -879,10 +635,6 @@ function markdownLink(label: string, url: string | undefined): string {
   return url ? `[${safeLabel}](${url})` : safeLabel;
 }
 
-function collectionThread(candidate: DiscoveryCandidate): string {
-  return candidate.suggestion.why;
-}
-
 function resonanceText(candidate: DiscoveryCandidate): string {
   const text = [candidate.suggestion.name, candidate.suggestion.lane, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, ...(candidate.suggestion.sourceTasteTokens ?? []), ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
     .filter(Boolean)
@@ -898,8 +650,8 @@ function resonanceText(candidate: DiscoveryCandidate): string {
   if (subject) reasons.push(`${titleCase(subject)} appears in your taste profile`);
 
   const uniqueReasons = uniqueValuesPreservingOrder(reasons).slice(0, 3);
-  if (uniqueReasons.length === 0) return 'Vaultr is following shared traits from your Vault and keeping the exact active chase out of the result.';
-  return `${uniqueReasons.join(' + ')}. Vaultr found a source-backed card that branches from those signals without repeating an active chase.`;
+  if (uniqueReasons.length === 0) return 'Vaultr is following shared traits from your Vault and recent Discovery activity.';
+  return uniqueReasons.join(' + ');
 }
 
 function collectorTheme(candidate: DiscoveryCandidate): string {
@@ -957,7 +709,6 @@ export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: Supp
   const nearby = candidate.suggestion.nearby.slice(0, 3).map((name) => `• ${name}`).join('\n');
   const fields = [
     { name: 'Why It Resonates', value: resonanceText(candidate), inline: false },
-    { name: 'Collection Thread', value: collectionThread(candidate), inline: false },
     ...(includeMarketRead ? [{ name: 'Market Read', value: formatMarketRead(candidate, currencyHint), inline: true }] : []),
     { name: 'Next Threads', value: nearby || 'Vaultr will widen this thread as the catalog grows.', inline: false }
   ];
@@ -988,29 +739,6 @@ function createDiscoveryVaultButtonToken(userId: string, candidate: DiscoveryCan
 
 function createDiscoveryActionItems(userId: string, candidates: DiscoveryCandidate[]): DiscoveryActionItem[] {
   return candidates.slice(0, 3).map((candidate, index) => ({ candidate, token: createDiscoveryVaultButtonToken(userId, candidate), index: index + 1 }));
-}
-
-function discoveryVaultButtons(userId: string, actionItems: DiscoveryActionItem[]): ActionRowBuilder<ButtonBuilder>[] {
-  if (actionItems.length === 0) return [];
-  const buttons = actionItems.map(({ candidate, token, index }) =>
-    new ButtonBuilder()
-      .setCustomId(`${DISCOVERY_VAULT_PREFIX}:${userId}:${token}`)
-      .setLabel(truncateValue(`Add ${index}: ${candidate.suggestion.name}`, 80))
-      .setStyle(ButtonStyle.Primary)
-  );
-  return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
-}
-
-function discoveryFeedbackButtons(userId: string, actionItems: DiscoveryActionItem[], feedback: DiscoveryFeedbackAction): ActionRowBuilder<ButtonBuilder>[] {
-  if (actionItems.length === 0) return [];
-  const isPositive = feedback === 'MORE_LIKE_THIS';
-  const buttons = actionItems.map(({ token, index }) =>
-    new ButtonBuilder()
-      .setCustomId(`${DISCOVERY_FEEDBACK_PREFIX}:${userId}:${token}:${feedback}`)
-      .setLabel(`${isPositive ? 'More like' : 'Not for me'} ${index}`)
-      .setStyle(isPositive ? ButtonStyle.Secondary : ButtonStyle.Danger)
-  );
-  return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
 }
 
 function discoveryActionLabel(action: 'ADD' | DiscoveryFeedbackAction, index: number, cardName: string): string {
@@ -1083,13 +811,14 @@ async function discoverCandidatesForUser(userId: string, count: number, mode: Di
   const hasLearnedProfile = hasFullDiscovery && tasteProfileChases.length >= MIN_LEARNED_PROFILE_CHASES;
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const rejectedNames = recentlyRejected.map((item) => item.suggestionName);
+  const rejectedLanes = uniqueValuesPreservingOrder(recentlyRejected.map((item) => item.lane).filter(Boolean));
   const priceRange = hasLearnedProfile ? priceRangeFromChases(tasteProfileChases) : undefined;
-  const destination = settings.shippingCountry ? { country: settings.shippingCountry } : undefined;
   const selectAndEnrich = async () => {
     const combinedExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
     const combinedSourceExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
     const selection = selectDiscoverySuggestionsForFocuses([], tasteProfileChases, DISCOVERY_CANDIDATE_POOL_SIZE, {
       excludedNames: combinedExcludedNames,
+      excludedLanes: rejectedLanes,
       excludeLanesForExcludedNames: combinedExcludedNames.length > 0,
       mode
     });

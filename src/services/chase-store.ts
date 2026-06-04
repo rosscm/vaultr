@@ -229,37 +229,6 @@ const upsertUserAlertSettingsStmt = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
-const listUserDiscoveryFocusesStmt = db.prepare(`
-  SELECT focus
-  FROM user_discovery_preferences
-  WHERE user_id = ?
-  ORDER BY updated_at DESC, focus ASC
-`);
-
-const upsertUserDiscoveryFocusStmt = db.prepare(`
-  INSERT INTO user_discovery_preferences (user_id, focus, updated_at)
-  VALUES (?, ?, ?)
-  ON CONFLICT(user_id, focus) DO UPDATE SET
-    updated_at = excluded.updated_at
-`);
-
-const pruneUserDiscoveryFocusesStmt = db.prepare(`
-  DELETE FROM user_discovery_preferences
-  WHERE user_id = ?
-    AND focus NOT IN (
-      SELECT focus
-      FROM user_discovery_preferences
-      WHERE user_id = ?
-      ORDER BY updated_at DESC, focus ASC
-      LIMIT ?
-    )
-`);
-
-const clearUserDiscoveryFocusesStmt = db.prepare(`
-  DELETE FROM user_discovery_preferences
-  WHERE user_id = ?
-`);
-
 const listRecentUserDiscoverySeenStmt = db.prepare(`
   SELECT suggestion_name
   FROM user_discovery_seen
@@ -551,6 +520,13 @@ function tasteMemoryWeight(source: TasteMemorySource): number {
   return 1;
 }
 
+function reinforcedTasteMemoryWeight(row: UserTasteMemoryRow): number {
+  if (row.source === 'REMOVED_CHASE') return row.weight;
+  const reinforcement = Math.min(0.6, Math.max(0, row.interaction_count - 1) * 0.15);
+  const cap = row.source === 'DISCOVERY_LIKE' ? 1.25 : 1.4;
+  return Math.min(cap, row.weight + reinforcement);
+}
+
 function rememberTasteSignal(input: {
   userId: string;
   signalId: string;
@@ -586,7 +562,7 @@ function mapTasteMemoryRow(row: UserTasteMemoryRow): Chase {
     maxPrice: row.max_price ?? undefined,
     priority: 'NORMAL',
     createdAt: row.first_interacted_at,
-    tasteWeight: row.weight,
+    tasteWeight: reinforcedTasteMemoryWeight(row),
     tasteSource: row.source
   };
 }
@@ -1323,21 +1299,6 @@ export function resetUserAlertSettings(userId: string): UserAlertSettings {
     listingSourceMode: 'EBAY',
     updatedAt: now
   };
-}
-
-export function listUserDiscoveryFocuses(userId: string): string[] {
-  const rows = listUserDiscoveryFocusesStmt.all(userId) as Array<{ focus: string }>;
-  return rows.map((row) => row.focus);
-}
-
-export function addUserDiscoveryFocus(userId: string, focus: string, limit = 5): string[] {
-  upsertUserDiscoveryFocusStmt.run(userId, focus, new Date().toISOString());
-  pruneUserDiscoveryFocusesStmt.run(userId, userId, limit);
-  return listUserDiscoveryFocuses(userId);
-}
-
-export function clearUserDiscoveryFocuses(userId: string): void {
-  clearUserDiscoveryFocusesStmt.run(userId);
 }
 
 export function listRecentUserDiscoverySeenNames(userId: string, limit = 24): string[] {
