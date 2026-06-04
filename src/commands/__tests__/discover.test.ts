@@ -3,18 +3,21 @@ import {
   discover,
   discoveryActionRows,
   discoveryEmbed,
+  discoveryTasteProfileChases,
+  discoveryVisibleCountForPlan,
   isUsableDiscoveryExample,
   isActiveChaseEchoSuggestion,
   isActiveChaseEchoText,
-  isSourceBackedDiscoverySuggestion,
   looksLikeVisualDiscoveryListing,
   mergeFreshDiscoveryCandidates,
+  orderCandidatesFromPersistedState,
   preserveLanguageSignalFallbackSuggestions,
   selectVisibleCandidates,
+  selectVisibleCandidatesForCount,
   type DiscoveryCandidate
 } from '../discover.js';
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
-import type { Listing } from '../../types.js';
+import type { Chase, Listing } from '../../types.js';
 
 function candidate(name: string, lane: string, selectionIndex: number, marketSampleSize?: number): DiscoveryCandidate {
   return {
@@ -113,23 +116,6 @@ describe('selectVisibleCandidates', () => {
     ]);
   });
 
-  it('fills visible slots with later source-backed candidates after duplicate subjects collapse', () => {
-    const visible = selectVisibleCandidates(
-      [
-        candidate('Mew Southern Islands Promo', 'mythical display cards', 0),
-        candidate('Pikachu XY Black Star Promo', 'promo side path', 1),
-        candidate('Pikachu Expedition Reverse Holo', 'e-reader era thread', 2),
-        candidate('Zapdos Aquapolis H32/H32', 'e-reader era thread', 3)
-      ]
-    );
-
-    expect(visible.map((item) => item.suggestion.name)).toEqual([
-      'Mew Southern Islands Promo',
-      'Pikachu XY Black Star Promo',
-      'Zapdos Aquapolis H32/H32'
-    ]);
-  });
-
   it('prioritizes Japanese source cards over English Black Star promos for Japanese-weighted grails', () => {
     const visible = selectVisibleCandidates(
       [
@@ -204,7 +190,118 @@ describe('selectVisibleCandidates', () => {
       ]
     );
 
-    expect(visible.map((item) => item.suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Pikachu Japanese SV2a 025']);
+    expect(visible.map((item) => item.suggestion.name)).toEqual(
+      expect.arrayContaining([
+        'Mew Japanese S12a 052',
+        'Pikachu Japanese SV2a 025',
+        'Mew Japanese S12a 183',
+        'Mewtwo & Mew-GX SM Black Star Promos SM191',
+        'Pikachu-GX SM Black Star Promos SM232'
+      ])
+    );
+    expect(visible.some((item) => !/japanese|tcgdex japanese/i.test([item.suggestion.name, item.suggestion.referenceSourceName].filter(Boolean).join(' ')))).toBe(true);
+  });
+
+  it('backfills visible slots with distinct source-backed cards when subject diversity is sparse', () => {
+    const visible = selectVisibleCandidates(
+      [
+        sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 0),
+        sourceCandidate('Pikachu VMAX SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 1),
+        sourceCandidate('Pikachu-GX SM Black Star Promos SM232', 'Pokemon TCG (SM Black Star Promos)', 2),
+        sourceCandidate('Pikachu & Zekrom-GX SM Black Star Promos SM168', 'Pokemon TCG (SM Black Star Promos)', 3)
+      ],
+      [
+        {
+          id: 'c1',
+          userId: 'u1',
+          cardName: 'Pikachu 26/83 promo',
+          priority: 'HIGH',
+          createdAt: '2026-06-03T00:00:00.000Z'
+        },
+        {
+          id: 'c2',
+          userId: 'u1',
+          cardName: 'Mew RC24',
+          priority: 'HIGH',
+          createdAt: '2026-06-03T00:00:00.000Z'
+        }
+      ]
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toHaveLength(4);
+    expect(new Set(visible.map((item) => item.suggestion.name)).size).toBe(4);
+  });
+
+  it('balances the seven-card shelf across production-facing trails when alternatives exist', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 0),
+        sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 1),
+        sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 2),
+        sourceCandidate('Articuno Skyridge H3', 'Pokemon TCG (Skyridge)', 3),
+        sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 4),
+        sourceCandidate('Moltres XY Black Star Promos XY127', 'Pokemon TCG (XY Black Star Promos)', 5),
+        sourceCandidate('Mew ex Paldean Fates 232', 'Pokemon TCG (Paldean Fates)', 6),
+        sourceCandidate('Charizard VMAX SWSH Black Star Promos SWSH261', 'Pokemon TCG (SWSH Black Star Promos)', 7)
+      ].map((item) => ({
+        ...item,
+        suggestion: {
+          ...item.suggestion,
+          lane: item.suggestion.name.includes('Japanese')
+            ? 'Special Release Trail'
+            : /Black Star Promos/.test(item.suggestion.name)
+              ? 'Special Release Trail'
+              : /Paldean Fates/.test(item.suggestion.name)
+                ? 'Collector Compass'
+                : 'Vintage Era Trail',
+          evidenceSearchTerm: `${item.suggestion.name} Pokemon card`,
+          sourceTasteTokens: ['mew', 'promo', 'e-reader']
+        }
+      })),
+      [],
+      7
+    );
+    const descriptions = visible.map((item) => discoveryEmbed(item, 'CAD', false).toJSON().description);
+
+    expect(descriptions.filter((description) => description?.includes('Vintage Era Trail')).length).toBeLessThanOrEqual(3);
+    expect(descriptions.some((description) => description?.includes('Japanese Collector Trail'))).toBe(true);
+    expect(descriptions.some((description) => description?.includes('Special Release Trail'))).toBe(true);
+    expect(descriptions.some((description) => description?.includes('Collector Compass'))).toBe(true);
+  });
+
+  it('does not let one Pokemon subject dominate the shelf when other subjects exist', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 0),
+        sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 1),
+        sourceCandidate('Mew Wizards Black Star Promos 8', 'Pokemon TCG (Wizards Black Star Promos)', 2),
+        sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 3),
+        sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 4),
+        sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 5),
+        sourceCandidate('Moltres Wizards Black Star Promos 21', 'Pokemon TCG (Wizards Black Star Promos)', 6),
+        sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 7),
+        sourceCandidate('Articuno Skyridge H3', 'Pokemon TCG (Skyridge)', 8)
+      ].map((item) => ({
+        ...item,
+        suggestion: {
+          ...item.suggestion,
+          lane: item.suggestion.name.includes('Japanese')
+            ? 'Special Release Trail'
+            : /Expedition|Aquapolis/.test(item.suggestion.name)
+              ? 'Vintage Era Trail'
+              : 'Special Release Trail',
+          evidenceSearchTerm: `${item.suggestion.name} Pokemon card`,
+          sourceTasteTokens: ['mew', 'promo', 'e-reader']
+        }
+      })),
+      [],
+      7
+    );
+    const visibleNames = visible.map((item) => item.suggestion.name);
+    const mewFamilyCount = visibleNames.filter((name) => /\bmew\b/i.test(name)).length;
+
+    expect(mewFamilyCount).toBeLessThanOrEqual(2);
+    expect(visibleNames).toEqual(expect.arrayContaining(['Squirtle Expedition Base Set 132', 'Special Delivery Pikachu SWSH Black Star Promos SWSH074']));
   });
 });
 
@@ -230,29 +327,30 @@ describe('mergeFreshDiscoveryCandidates', () => {
   });
 });
 
-describe('isSourceBackedDiscoverySuggestion', () => {
-  it('does not treat abstract taste threads as visible card suggestions', () => {
-    expect(
-      isSourceBackedDiscoverySuggestion({
-        name: 'Japanese Pokemon cards',
-        lane: 'Japanese Collector Trail',
-        laneWhy: 'profile',
-        why: 'profile',
-        nearby: [],
-        evidenceSearchTerm: 'Japanese Pokemon cards',
-        requiredEvidenceTokens: ['japanese']
-      })
-    ).toBe(false);
-    expect(
-      isSourceBackedDiscoverySuggestion({
-        name: 'Metang Chaos Rising 60',
-        lane: 'source-backed matches',
-        laneWhy: 'source match',
-        why: 'source match',
-        nearby: [],
-        referenceSourceCardId: 'mega-060'
-      })
-    ).toBe(true);
+describe('orderCandidatesFromPersistedState', () => {
+  it('keeps same-mode Discovery cards stable while the profile fingerprint still matches', () => {
+    const ranked = [
+      candidate('Pikachu Skyridge 84', 'Vintage Era Trail', 0),
+      candidate('Mew Japanese S12a 052', 'Japanese Collector Trail', 1),
+      candidate('Squirtle Expedition Base Set 132', 'Vintage Era Trail', 2),
+      candidate('Mew Expedition Base Set 55', 'Vintage Era Trail', 3)
+    ];
+
+    const ordered = orderCandidatesFromPersistedState(
+      ranked,
+      ['Mew Japanese S12a 052', 'Squirtle Expedition Base Set 132', 'Mew Expedition Base Set 55'],
+      3
+    );
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Squirtle Expedition Base Set 132', 'Mew Expedition Base Set 55']);
+  });
+
+  it('fills missing persisted cards from the current ranked pool', () => {
+    const ranked = [candidate('Pikachu Skyridge 84', 'Vintage Era Trail', 0), candidate('Mew Japanese S12a 052', 'Japanese Collector Trail', 1)];
+
+    const ordered = orderCandidatesFromPersistedState(ranked, ['Missing Source Card', 'Mew Japanese S12a 052'], 2);
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Pikachu Skyridge 84']);
   });
 });
 
@@ -419,7 +517,7 @@ describe('active chase echo guard', () => {
     ];
     const selection = selectDiscoverySuggestions(null, activeChases, 8);
 
-    expect(selection.suggestions.map((suggestion) => suggestion.name)).toEqual(['Pokemon promo cards', 'Pokemon promo value cards', 'Pokemon special release cards']);
+    expect(selection.suggestions.map((suggestion) => suggestion.name)).toEqual(['Pokemon promo cards', 'Pokemon special release cards', 'Pokemon collector cards']);
     expect(selection.suggestions.filter((suggestion) => !isActiveChaseEchoSuggestion(suggestion, activeChases)).length).toBeGreaterThanOrEqual(3);
   });
 
@@ -457,15 +555,13 @@ describe('discoveryEmbed', () => {
   it('hides market read for limited Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false).toJSON();
 
-    expect(embed.title).toContain('Mew Southern Islands Promo');
-    expect(embed.description).toContain('Mythical Display Cards');
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Next Threads']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why This Card', 'Taste Cue']);
   });
 
   it('shows market read for full Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', true).toJSON();
 
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Resonates', 'Market Read', 'Next Threads']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why This Card', 'Taste Cue', 'Market Read']);
   });
 
   it('explains concrete profile signals instead of internal source details', () => {
@@ -484,13 +580,148 @@ describe('discoveryEmbed', () => {
       false
     ).toJSON();
 
-    const why = embed.fields?.find((field) => field.name === 'Why It Resonates')?.value;
-    expect(why).toContain('e-reader era appeal');
-    expect(why).toContain('distinct vintage collector lane');
-    expect(why).not.toContain('Zapdos appears in your taste profile');
-    expect(why).not.toContain('active chase');
-    expect(why).not.toContain('patterns emerging');
+    const why = embed.fields?.find((field) => field.name === 'Why This Card')?.value;
+    expect(why).toContain('concrete early-2000s set identity');
+    expect(why).toContain('clearer collecting shape');
+    expect(why).not.toContain('appears in your taste profile');
     expect(embed.fields?.some((field) => field.name === 'Image Source')).toBe(false);
+  });
+
+  it('explains surfaced taste cues without pretending the recommended card is already a chase', () => {
+    const embed = discoveryEmbed(
+      {
+        ...sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 0),
+        suggestion: {
+          ...sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 0).suggestion,
+          evidenceSearchTerm: 'Special Delivery Pikachu SWSH Black Star Promos SWSH074 Pokemon card',
+          sourceTasteTokens: ['japanese', 'promo', 'special']
+        }
+      },
+      'CAD',
+      false
+    ).toJSON();
+
+    const why = embed.fields?.find((field) => field.name === 'Why This Card')?.value;
+    const signal = embed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    expect(why).toContain('collector milestone');
+    expect(signal).toContain('Promo Releases');
+    expect(signal).not.toContain('Special Delivery Pikachu interest');
+    expect(signal).not.toContain('appears in your taste profile');
+    expect(signal).not.toContain('Japanese Prints');
+  });
+
+  it('uses collector-facing fallback copy instead of internal resolver language', () => {
+    const embed = discoveryEmbed(
+      {
+        selectionIndex: 0,
+        suggestion: {
+          name: 'Mew POP Series 4 4',
+          lane: 'Collector Compass',
+          laneWhy: 'profile source match',
+          why: 'try Mew POP Series 4 4',
+          nearby: [],
+          referenceSourceName: 'Pokemon TCG',
+          evidenceSearchTerm: 'Mew POP Series 4 4 Pokemon card',
+          sourceTasteTokens: ['collector'],
+          requiredEvidenceTokens: []
+        },
+        image: {
+          name: 'Mew POP Series 4 4',
+          url: 'https://images.example/card.png',
+          sourceName: 'Pokemon TCG',
+          sourceKind: 'CARD_REFERENCE'
+        }
+      },
+      'CAD',
+      false
+    ).toJSON();
+
+    const why = embed.fields?.find((field) => field.name === 'Why This Card')?.value;
+    const signal = embed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    expect(why).toContain('nearby card to compare');
+    expect(why).toContain('artwork, set feel, and release story');
+    expect(why).not.toContain('source-backed');
+    expect(why).not.toContain('follows your profile');
+    expect(why).not.toContain('out of the result');
+    expect(signal).toBe('Profile Path');
+    expect(signal).not.toBe('Collector Fit');
+  });
+
+  it('uses actual taste tokens instead of overstating surfaced card adjacency', () => {
+    const embed = discoveryEmbed(
+      {
+        ...sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 0),
+        suggestion: {
+          ...sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 0).suggestion,
+          evidenceSearchTerm: 'Mewtwo & Mew-GX SM Black Star Promos SM191 Pokemon card',
+          sourceTasteTokens: ['mew', 'promo', 'gx', 'tag', 'team']
+        }
+      },
+      'CAD',
+      false
+    ).toJSON();
+
+    const signal = embed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    expect(signal).toContain('Mew Path');
+    expect(signal).toContain('Promo Releases');
+    expect(signal).toContain('GX/Tag Team Format');
+    expect(signal).not.toContain('Mewtwo & Mew-GX adjacency');
+  });
+
+  it('does not repeat broad profile chips on unrelated source-backed cards', () => {
+    const embed = discoveryEmbed(
+      {
+        ...sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0),
+        suggestion: {
+          ...sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0).suggestion,
+          lane: 'Vintage Era Trail',
+          evidenceSearchTerm: 'Zapdos Aquapolis 44 Pokemon card',
+          sourceTasteTokens: ['mew', 'promo', 'e-reader'],
+          requiredEvidenceTokens: ['zapdos', '44']
+        }
+      },
+      'CAD',
+      false
+    ).toJSON();
+
+    const signal = embed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    expect(signal).toBe('E-Reader Era');
+    expect(signal).not.toContain('Mew Thread');
+    expect(signal).not.toContain('Promo Releases');
+  });
+
+  it('only mentions Japanese curiosity when the returned card is Japanese', () => {
+    const englishEmbed = discoveryEmbed(
+      {
+        ...sourceCandidate('Moltres Wizards Black Star Promos 21', 'Pokemon TCG (Wizards Black Star Promos)', 0),
+        suggestion: {
+          ...sourceCandidate('Moltres Wizards Black Star Promos 21', 'Pokemon TCG (Wizards Black Star Promos)', 0).suggestion,
+          evidenceSearchTerm: 'Moltres Wizards Black Star Promos 21 Pokemon card',
+          sourceTasteTokens: ['japanese', 'promo']
+        }
+      },
+      'CAD',
+      false
+    ).toJSON();
+    const japaneseEmbed = discoveryEmbed(
+      {
+        ...sourceCandidate('Pikachu Japanese SV2a 025', 'TCGdex Japanese (SV2a)', 1),
+        suggestion: {
+          ...sourceCandidate('Pikachu Japanese SV2a 025', 'TCGdex Japanese (SV2a)', 1).suggestion,
+          evidenceSearchTerm: 'Pikachu Japanese Pokemon card SV2a 025',
+          sourceTasteTokens: ['japanese', 'promo']
+        }
+      },
+      'CAD',
+      false
+    ).toJSON();
+
+    const englishSignal = englishEmbed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    const englishWhy = englishEmbed.fields?.find((field) => field.name === 'Why This Card')?.value;
+    const japaneseSignal = japaneseEmbed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    expect(englishSignal).not.toContain('Japanese Prints');
+    expect(englishWhy).not.toContain('Japanese print path');
+    expect(japaneseSignal).toContain('Japanese Prints');
   });
 
   it('uses cooldown language for active eBay throttle states', () => {
@@ -510,11 +741,21 @@ describe('discoveryEmbed', () => {
   it('can number visible cards for feedback buttons', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false, 2).toJSON();
 
-    expect(embed.title).toContain('2.');
-    expect(embed.title).toContain('Mew Southern Islands Promo');
+    expect(embed.title).toBe('2. Mew Southern Islands Promo');
+    expect(embed.description).toBe('✧ Collector Compass');
   });
 
-  it('does not show the internal collection thread field', () => {
+  it('normalizes internal lanes into production-facing trails', () => {
+    const promoEmbed = discoveryEmbed(sourceCandidate('Special Delivery Pikachu SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 0), 'CAD', false).toJSON();
+    const artworkEmbed = discoveryEmbed(candidate('Gardevoir full art', 'visual-format discovery', 1), 'CAD', false).toJSON();
+    const formatEmbed = discoveryEmbed(candidate('Mewtwo & Mew-GX SM191', 'Tag Team Trail', 2), 'CAD', false).toJSON();
+
+    expect(promoEmbed.description).toBe('◆ Promo Trail');
+    expect(artworkEmbed.description).toBe('◇ Artwork Trail');
+    expect(formatEmbed.description).toBe('◇ Format Trail');
+  });
+
+  it('does not include per-card next threads', () => {
     const embed = discoveryEmbed(
       {
         ...candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2),
@@ -528,8 +769,9 @@ describe('discoveryEmbed', () => {
       false
     ).toJSON();
 
-    expect(embed.fields?.some((field) => field.name === 'Collection Thread')).toBe(false);
-    expect(embed.fields?.find((field) => field.name === 'Next Threads')?.value).toContain('Ancient Mew Promo');
+    expect(embed.fields?.some((field) => field.name === 'Next Threads')).toBe(false);
+    expect(JSON.stringify(embed.fields)).not.toContain('Ancient Mew Promo');
+    expect(JSON.stringify(embed.fields)).not.toContain('Mew Black Star Promo 040');
   });
 });
 
@@ -546,19 +788,45 @@ describe('discoveryActionRows', () => {
     expect(json.components).toHaveLength(1);
     expect(json.components[0].options).toHaveLength(9);
   });
+
+  it('includes actions for a seven-card Discovery shelf', () => {
+    const rows = discoveryActionRows('user-1', [
+      candidate('Mew Southern Islands Promo', 'mythical display cards', 0),
+      candidate('Totodile McDonalds Promo', 'starter promo side paths', 1),
+      candidate('Houndoom Aquapolis H11/H32', 'e-reader atmosphere', 2),
+      candidate('Pikachu Skyridge 84', 'e-reader atmosphere', 3),
+      candidate('Zapdos Aquapolis 44', 'legendary bird thread', 4),
+      candidate('Articuno Skyridge H3', 'legendary bird thread', 5),
+      candidate('Moltres Wizards Black Star Promos 21', 'promo bird thread', 6)
+    ]);
+    const json = rows[0]?.toJSON() as any;
+
+    expect(json.components[0].options).toHaveLength(21);
+  });
+});
+
+describe('Discovery plan scaling', () => {
+  it('uses a three-card Free preview and a seven-card Pro shelf', () => {
+    expect(discoveryVisibleCountForPlan('FREE')).toBe(3);
+    expect(discoveryVisibleCountForPlan('PRO')).toBe(7);
+  });
+
+  it('keeps Free Discovery on active Vault signals while Pro can blend taste memory', () => {
+    const activeChases: Chase[] = [
+      { id: 'c1', userId: 'u1', cardName: 'Pikachu 26/83 promo', createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c2', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+    const tasteMemory: Chase[] = [{ id: 'taste:1', userId: 'u1', cardName: 'Corocoro Shining Mew', createdAt: '2026-06-03T00:00:00.000Z', tasteSource: 'DISCOVERY_ADD' }];
+
+    expect(discoveryTasteProfileChases(activeChases, tasteMemory, false).map((chase) => chase.cardName)).toEqual(['Pikachu 26/83 promo', 'Mew RC24']);
+    expect(discoveryTasteProfileChases(activeChases, tasteMemory, true).map((chase) => chase.cardName)).toEqual(['Pikachu 26/83 promo', 'Mew RC24', 'Corocoro Shining Mew']);
+  });
 });
 
 describe('discover command', () => {
-  it('uses collector-friendly mode names with stable internal values', () => {
+  it('does not expose mode or focus options', () => {
     const options = discover.data.toJSON().options ?? [];
-    const modeOption = options.find((option: any) => option.name === 'mode') as any;
 
-    expect(modeOption.choices).toEqual([
-      { name: 'Close Match', value: 'similar' },
-      { name: 'Side Quest', value: 'adjacent' },
-      { name: 'Deep Cut', value: 'wildcard' },
-      { name: 'Smart Value', value: 'budget' }
-    ]);
-    expect(options.some((option: any) => option.name === 'focus')).toBe(false);
+    expect(options).toEqual([]);
   });
 });

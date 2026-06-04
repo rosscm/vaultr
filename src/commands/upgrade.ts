@@ -1,5 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserPlan } from '../services/chase-store.js';
+import { getEntitlementsForTier } from '../services/entitlements.js';
 import { formatPollInterval, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, successEmbed } from '../ui/embeds.js';
 
@@ -25,6 +26,7 @@ export const upgrade = {
       'Pro is for collectors who want more room to chase and more places watched for restocks.',
       '',
       `**Active Chases:** ${PLAN_LIMITS.FREE.maxActiveChases} free → ${PLAN_LIMITS.PRO.maxActiveChases} Pro`,
+      `**Discovery:** ${getEntitlementsForTier('FREE').discoveryVisibleCards}-card taste preview → ${getEntitlementsForTier('PRO').discoveryVisibleCards}-card Taste Profile shelf`,
       `**Checks for New Listings:** ${formatPollInterval(PLAN_LIMITS.FREE.pollIntervalSeconds)} → ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
       '**Trusted Shops:** watch curated card shops alongside eBay, or shop-only when you want restock signals',
       '**Taste Profile:** deeper weekly Discovery paths as your Vault grows',

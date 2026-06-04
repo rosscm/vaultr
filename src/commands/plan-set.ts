@@ -1,6 +1,6 @@
 import { MessageFlags } from 'discord.js';
 import { setUserPlan } from '../services/chase-store.js';
-import { normalizePlanTier } from '../services/plans.js';
+import { formatActivePlanAccess, normalizePlanTier } from '../services/plans.js';
 import { successEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 
@@ -14,6 +14,7 @@ export async function executePlanSet(interaction: any): Promise<void> {
     `**User:** <@${user.id}>`,
     `**Tier:** ${updated.tier}`,
     `**Status:** ${updated.status}`,
+    `**Active:** ${formatActivePlanAccess(updated)}`,
     `**Updated:** ${formatLocalDateTime(updated.updatedAt)}`
   ];
 

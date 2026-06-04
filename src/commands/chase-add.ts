@@ -135,7 +135,7 @@ export const chaseAdd = {
       await interaction.reply({
         embeds: [
           warningEmbed(
-            'Pro Feature',
+            'Pro Chase Controls',
             `Pro adds precision controls for serious chases.\n\n**Includes:** condition, listing type, custom blocked terms, priority, and chase notes\n**Also:** ${PLAN_LIMITS.PRO.maxActiveChases} active chases and trusted shop monitoring\n**Next:** use \`/upgrade\` to unlock`
           )
         ],
@@ -199,7 +199,7 @@ export const chaseAdd = {
         if (channel && 'send' in channel) {
           const displayName = interaction.member?.nickname ?? interaction.user.globalName ?? interaction.user.username;
           await channel.send(
-            `🗝️✨ **${displayName}** just unlocked their **Vault** with their first chase`
+            `🏁✨ **${displayName}** started their **Vault** with their first chase`
           );
         }
       }

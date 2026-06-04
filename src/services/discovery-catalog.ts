@@ -23,13 +23,9 @@ export type DiscoverySelection = {
   suggestions: DiscoverySuggestion[];
 };
 
-export type DiscoveryMode = 'similar' | 'adjacent' | 'wildcard' | 'budget';
-
 type DiscoverySelectionOptions = {
   excludedNames?: Iterable<string>;
-  excludedLanes?: Iterable<string>;
   excludeLanesForExcludedNames?: boolean;
-  mode?: DiscoveryMode;
 };
 
 type ChaseSignalProfile = {
@@ -136,7 +132,6 @@ const PROMO_RELEASE_PATTERNS = [
 ];
 
 const SPECIAL_RELEASE_PATTERNS = [
-  /\b\d{1,3}\s?\/\s?0?(?:18|25|30)\b/i,
   /\b(?:gg|tg|rc)\s?-?\d{1,3}\b/i,
   /\b(radiant collection|southern islands?|classic collection|celebrations|pop series|trainer kit|battle academy|vending|e-reader|corocoro|coro coro)\b/i
 ];
@@ -201,7 +196,7 @@ const THREAD_TEMPLATES: ThreadTemplate[] = [
     scope: 'trait',
     anchor: (profile) => (profile.languageHints.includes('japanese') ? 'Japanese promo' : 'promo and special release'),
     requiredTerms: (profile) => (profile.languageHints.includes('japanese') ? ['japanese', 'promo'] : ['promo']),
-    laneWhy: () => 'widens release traits that sources and listings can verify',
+    laneWhy: () => 'widens from active chases into release traits that sources and listings can verify',
     why: () => 'uses release metadata from your profile without choosing a specific follow-up card in code',
     applies: (profile) => profile.promoLike || profile.specialReleaseLike,
     score: (profile) => 90 * profile.weight,
@@ -213,8 +208,8 @@ const THREAD_TEMPLATES: ThreadTemplate[] = [
     scope: 'trait',
     anchor: () => 'retail promo',
     requiredTerms: () => ['promo'],
-    laneWhy: () => 'uses retail or event-distribution signals from your profile',
-    why: () => 'opens the hunt to source-backed retail promos with evidence users can inspect',
+    laneWhy: () => 'uses retail or event-distribution signals without repeating the chase card',
+    why: () => 'opens the hunt to source-backed retail promos rather than the card already in your Vault',
     applies: (profile) => RETAIL_RELEASE_PATTERN.test(profile.sourceText),
     score: (profile) => 86 * profile.weight,
     curiosityScore: 8
@@ -247,7 +242,7 @@ const THREAD_TEMPLATES: ThreadTemplate[] = [
     scope: 'trait',
     anchor: () => 'Japanese collector',
     requiredTerms: () => ['japanese'],
-    laneWhy: () => 'keeps the language signal from your profile',
+    laneWhy: () => 'keeps the language signal while removing the current chase card from the search',
     why: () => 'lets external evidence surface what else exists in the same language or region space',
     applies: (profile) => profile.languageHints.includes('japanese'),
     score: (profile) => 80 * profile.weight,
@@ -269,7 +264,7 @@ const THREAD_TEMPLATES: ThreadTemplate[] = [
     scope: 'trait',
     anchor: () => 'illustration rare',
     requiredTerms: () => ['illustration', 'rare'],
-    laneWhy: () => 'tests visual collecting formats from your profile',
+    laneWhy: () => 'tests visual collecting formats without repeating the current chase card',
     why: () => 'uses the chase as a signal for display-oriented cards while evidence decides the actual results',
     applies: (profile) => /\b(illustration|art rare|alt art|alternate art|full art|gallery|sar|ar)\b/i.test(profile.sourceText),
     score: (profile) => 68 * profile.weight,
@@ -293,7 +288,7 @@ const THREAD_TEMPLATES: ThreadTemplate[] = [
     requiredTerms: () => ['promo'],
     laneWhy: () => 'uses compact set-number structure as a broad collector signal instead of the current card',
     why: () => 'searches for small-release examples and lets market evidence decide what is real enough to show',
-    applies: (profile) => /\/0?(?:18|25|30)\b/i.test(profile.cardNumber ?? ''),
+    applies: (profile) => profile.traitHints.includes('small set'),
     score: (profile) => 74 * profile.weight,
     curiosityScore: 8
   },
@@ -348,7 +343,7 @@ const THREAD_TEMPLATES: ThreadTemplate[] = [
     scope: 'trait',
     anchor: () => 'Pokemon collector',
     requiredTerms: () => ['pokemon'],
-    laneWhy: () => 'keeps Discovery moving while your profile is still forming',
+    laneWhy: () => 'uses the active chase only as permission to explore, without repeating the chase card',
     why: () => 'keeps Discovery moving when a chase has not exposed stronger release, language, era, or art signals yet',
     applies: () => true,
     score: (profile) => 18 * profile.weight,
@@ -409,14 +404,10 @@ function languageHints(value: string): string[] {
   if (/\b(japanese|japan|jp|jpn)\b/i.test(value) || JAPANESE_PROMO_CODE_PATTERN.test(value) || JAPANESE_SCRIPT_PATTERN.test(value) || JAPANESE_RELEASE_MARKER_PATTERN.test(value)) {
     return ['japanese'];
   }
-  const collectorNumber = BARE_COLLECTOR_NUMBER_PATTERN.exec(value);
-  if (!collectorNumber) return [];
-  const localNumber = Number(collectorNumber[1]);
-  const setTotal = Number(collectorNumber[2]);
-  return Number.isFinite(localNumber) && Number.isFinite(setTotal) && (setTotal <= 30 || (localNumber > setTotal && setTotal <= 200)) ? ['japanese'] : [];
+  return [];
 }
 
-function traitHints(value: string, cardNumber: string | undefined): string[] {
+function traitHints(value: string): string[] {
   const hints = new Set<string>();
   if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/i.test(value)) hints.add('e-reader');
   if (/\bfull art\b|\bfa\b/i.test(value)) hints.add('full art');
@@ -427,10 +418,9 @@ function traitHints(value: string, cardNumber: string | undefined): string[] {
   if (/\bgx\b/i.test(value)) hints.add('gx');
   if (/\b(?:v|vmax|vstar)\b/i.test(value)) hints.add('v');
   if (/\bdelta species\b|\bdelta\b/i.test(value)) hints.add('delta');
-  if (/\b(vintage|wotc|old|classic|neo|base)\b/i.test(value)) hints.add('vintage');
+  if (/\b(vintage|wotc|old|classic|neo|base)\b/i.test(value) || JAPANESE_RELEASE_MARKER_PATTERN.test(value)) hints.add('vintage');
+  if (/\bsmall set\b/i.test(value)) hints.add('small set');
   if (RETAIL_RELEASE_PATTERN.test(value)) hints.add('retail');
-  if (/\/0?18\b/i.test(cardNumber ?? '')) hints.add('e-reader');
-  if (/\/0?(?:18|25|30)\b/i.test(cardNumber ?? '')) hints.add('small set');
   return [...hints];
 }
 
@@ -452,7 +442,7 @@ function profileFromText(sourceText: string, weight = 1, isActiveChase = false):
   const japanesePromoLike = JAPANESE_PROMO_CODE_PATTERN.test(sourceText);
   const japaneseReleaseMarkerLike = JAPANESE_RELEASE_MARKER_PATTERN.test(sourceText);
   const specialReleaseLike = promoLike || japanesePromoLike || japaneseReleaseMarkerLike || SPECIAL_RELEASE_PATTERNS.some((pattern) => pattern.test(sourceText));
-  const traits = traitHints(sourceText, cardNumber);
+  const traits = traitHints(sourceText);
   return {
     sourceText,
     anchor,
@@ -530,23 +520,23 @@ function suggestionFromTemplate(profile: ChaseSignalProfile, template: ThreadTem
   };
 }
 
-function modeMultiplier(template: ThreadTemplate, mode: DiscoveryMode): number {
-  if (mode === 'similar') return template.lane === 'source-backed matches' ? 1.5 : template.lane === 'value watch thread' ? 0.8 : 1;
-  if (mode === 'adjacent') return /release|language|visual|era/.test(template.lane) ? 1.45 : 0.9;
-  if (mode === 'wildcard') return /release|language|era|adjacent/.test(template.lane) ? 1.65 : 0.75;
-  return template.lane === 'value watch thread' ? 2.3 : template.maximumBaselineRawTotalCad ? 1.5 : 0.45;
+function ambientThreadMultiplier(template: ThreadTemplate): number {
+  if (template.lane === 'source-backed matches') return 1.25;
+  if (template.lane === 'value watch thread') return 1.1;
+  if (/release|language|visual|era|adjacent/.test(template.lane)) return 1.15;
+  return 1;
 }
 
-function scoreSuggestion(profile: ChaseSignalProfile, template: ThreadTemplate, mode: DiscoveryMode, profileIndex: number): number {
-  return template.score(profile) * modeMultiplier(template, mode) - profileIndex * 4;
+function scoreSuggestion(profile: ChaseSignalProfile, template: ThreadTemplate, profileIndex: number): number {
+  return template.score(profile) * ambientThreadMultiplier(template) - profileIndex * 4;
 }
 
-function generateProfileSuggestions(profile: ChaseSignalProfile, mode: DiscoveryMode, profileIndex: number): Array<{ suggestion: DiscoverySuggestion; score: number }> {
+function generateProfileSuggestions(profile: ChaseSignalProfile, profileIndex: number): Array<{ suggestion: DiscoverySuggestion; score: number }> {
   const templates = THREAD_TEMPLATES.filter((template) => template.applies(profile));
   const selectedTemplates = profile.isActiveChase ? [] : templates;
   return selectedTemplates.map((template) => ({
     suggestion: suggestionFromTemplate(profile, template),
-    score: scoreSuggestion(profile, template, mode, profileIndex)
+    score: scoreSuggestion(profile, template, profileIndex)
   }));
 }
 
@@ -592,24 +582,11 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
         name: 'Pokemon special release cards',
         lane: 'Special Release Trail',
         requiredTerms: ['pokemon'],
-        laneWhy: 'follows shared promo and limited-release signals from your profile',
-        why: 'looks for cards from similar promo, small-set, or limited-release paths with source-backed evidence',
+        laneWhy: 'follows shared promo and limited-release signals without naming any active chase card',
+        why: 'looks for cards from similar promo, small-set, or limited-release paths while active chase cards are excluded from market evidence',
         tasteTokens: ['promo', 'special'],
         curiosityScore: 7
       });
-      if (!profile.languageHints.includes('japanese')) {
-        addTasteFeature(features, profile, {
-          key: 'release:promo-value',
-          name: 'Pokemon promo value cards',
-          lane: 'Smart Value Trail',
-          requiredTerms: ['promo'],
-          laneWhy: 'keeps the promo signal but looks for a lighter pickup path',
-          why: 'uses promo and release taste as the filter, then favors approachable source-backed examples',
-          tasteTokens: ['promo', 'value'],
-          curiosityScore: 4,
-          maximumBaselineRawTotalCad: 225
-        });
-      }
     }
     if (profile.languageHints.includes('japanese')) {
       addTasteFeature(features, profile, {
@@ -642,7 +619,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
         lane: 'E-Reader Era Trail',
         requiredTerms: ['e-reader'],
         laneWhy: 'matches e-reader and early-2000s release signals from your chase profile',
-        why: 'opens a source-backed e-reader thread from your era and set signals',
+        why: 'opens a source-backed e-reader thread without repeating the current chase card',
         tasteTokens: ['e-reader', 'vintage'],
         curiosityScore: 7
       });
@@ -672,7 +649,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
         curiosityScore: 6
       });
     }
-    if (/\b(vintage|wotc|old|classic|e-reader|expedition|neo|base)\b/i.test(profile.sourceText)) {
+    if (profile.traitHints.includes('vintage') || /\b(vintage|wotc|old|classic|e-reader|expedition|neo|base)\b/i.test(profile.sourceText)) {
       addTasteFeature(features, profile, {
         key: 'era:vintage',
         name: 'vintage Pokemon cards',
@@ -686,19 +663,17 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
     }
   }
 
-  if (features.size === 0) {
-    addTasteFeature(features, { sourceText: 'Pokemon collector cards', anchor: 'pokemon', displayAnchor: 'Pokemon', tokens: ['pokemon'], weight: 0.65, isActiveChase: false, promoLike: false, specialReleaseLike: false, languageHints: [], traitHints: [] }, {
-      key: 'open:collector',
-      name: 'Pokemon collector cards',
-      lane: 'Collector Compass',
-      requiredTerms: ['pokemon'],
-      laneWhy: 'keeps Discovery moving from the overall profile when no narrower shared trait is ready',
-      why: 'uses the chase profile as taste context while market evidence supplies the actual card examples',
-      tasteTokens: ['collector'],
-      curiosityScore: 2,
-      maximumBaselineRawTotalCad: 225
-    });
-  }
+  addTasteFeature(features, { sourceText: 'Pokemon collector cards', anchor: 'pokemon', displayAnchor: 'Pokemon', tokens: ['pokemon'], weight: 0.65, isActiveChase: false, promoLike: false, specialReleaseLike: false, languageHints: [], traitHints: [] }, {
+    key: 'open:collector',
+    name: 'Pokemon collector cards',
+    lane: 'Collector Compass',
+    requiredTerms: ['pokemon'],
+    laneWhy: 'keeps Discovery moving from the overall profile when no narrower shared trait is ready',
+    why: 'uses the chase profile as taste context while market evidence supplies the actual card examples',
+    tasteTokens: ['collector'],
+    curiosityScore: 2,
+    maximumBaselineRawTotalCad: 225
+  });
 
   const tokenSupport = new Map<string, { total: number; remembered: number }>();
   for (const profile of profiles) {
@@ -710,7 +685,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
     }
   }
 
-  const isConcreteTraitFeature = (feature: TasteFeature): boolean => /^(era:e-reader|visual:|format:)/.test(feature.key);
+  const isConcreteTraitFeature = (feature: TasteFeature): boolean => /^(era:e-reader|era:vintage|visual:|format:)/.test(feature.key);
 
   return [...features.values()]
     .filter(
@@ -726,7 +701,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
     }));
 }
 
-function tasteFeatureSuggestions(profiles: ChaseSignalProfile[], mode: DiscoveryMode): TasteFeatureSuggestion[] {
+function tasteFeatureSuggestions(profiles: ChaseSignalProfile[]): TasteFeatureSuggestion[] {
   return collectTasteFeatures(profiles).map((feature) => ({
     suggestion: {
       name: feature.name,
@@ -741,7 +716,7 @@ function tasteFeatureSuggestions(profiles: ChaseSignalProfile[], mode: Discovery
       maximumBaselineRawTotalCad: feature.maximumBaselineRawTotalCad,
       curiosityScore: feature.curiosityScore
     },
-    score: feature.score * 100 * (mode === 'wildcard' ? 1.25 : mode === 'budget' && feature.maximumBaselineRawTotalCad ? 1.3 : 1)
+    score: feature.score * 100 * (feature.maximumBaselineRawTotalCad ? 1.05 : 1)
   }));
 }
 
@@ -762,8 +737,7 @@ function normalizeKey(value: string): string {
 }
 
 function excludedLaneKeys(excludedNames: Set<string>, suggestions: DiscoverySuggestion[]): Set<string> {
-  const excludedNameKeys = new Set([...excludedNames].map(normalizeKey));
-  return new Set(suggestions.filter((suggestion) => excludedNameKeys.has(normalizeKey(suggestion.name))).map((suggestion) => suggestion.lane));
+  return new Set(suggestions.filter((suggestion) => excludedNames.has(suggestion.name)).map((suggestion) => suggestion.lane));
 }
 
 function pickLane(suggestions: DiscoverySuggestion[]): string {
@@ -773,20 +747,19 @@ function pickLane(suggestions: DiscoverySuggestion[]): string {
 }
 
 export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: Chase[], count = 3, options: DiscoverySelectionOptions = {}): DiscoverySelection {
-  const mode = options.mode ?? 'similar';
   const normalizedFocuses = [...new Set(focuses.map((focus) => focus.trim()).filter(Boolean))];
   const profiles = profilesFromInputs(normalizedFocuses, chases);
   const activeProfiles = profiles.length > 0 ? profiles : starterProfiles();
   const hasActiveChaseSignals = chases.some((chase) => chase.tasteSource === undefined || chase.tasteSource === 'ACTIVE_CHASE');
   const generated = [
-    ...(hasActiveChaseSignals ? tasteFeatureSuggestions(activeProfiles, mode) : []),
-    ...activeProfiles.flatMap((profile, profileIndex) => generateProfileSuggestions(profile, mode, profileIndex))
+    ...(hasActiveChaseSignals ? tasteFeatureSuggestions(activeProfiles) : []),
+    ...activeProfiles.flatMap((profile, profileIndex) => generateProfileSuggestions(profile, profileIndex))
   ];
   const ranked = generated.sort((left, right) => right.score - left.score || left.suggestion.name.localeCompare(right.suggestion.name));
   const excludedNames = new Set([...(options.excludedNames ?? [])]);
   const excludedNameKeys = new Set([...excludedNames].map(normalizeKey));
   const allSuggestions = ranked.map((entry) => entry.suggestion);
-  const excludedLanes = new Set([...(options.excludedLanes ?? []), ...(options.excludeLanesForExcludedNames ? excludedLaneKeys(excludedNames, allSuggestions) : [])]);
+  const excludedLanes = options.excludeLanesForExcludedNames ? excludedLaneKeys(excludedNames, allSuggestions) : new Set<string>();
   const selected: DiscoverySuggestion[] = [];
   const selectedNames = new Set<string>();
   const selectedLanes = new Set<string>();
@@ -805,7 +778,7 @@ export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: 
   if (selected.length < count) {
     for (const { suggestion } of ranked) {
       const nameKey = normalizeKey(suggestion.name);
-      if (selected.length >= count || selectedNames.has(nameKey) || excludedNameKeys.has(nameKey) || excludedLanes.has(suggestion.lane)) continue;
+      if (selected.length >= count || selectedNames.has(nameKey) || excludedNameKeys.has(nameKey)) continue;
       selected.push(suggestion);
       selectedNames.add(nameKey);
     }
@@ -814,7 +787,7 @@ export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: 
     for (const { suggestion } of ranked) {
       if (selected.length >= count) break;
       const nameKey = normalizeKey(suggestion.name);
-      if (selectedNames.has(nameKey) || excludedNameKeys.has(nameKey) || excludedLanes.has(suggestion.lane)) continue;
+      if (selectedNames.has(nameKey) || selectedLanes.has(suggestion.lane) || excludedLanes.has(suggestion.lane)) continue;
       selected.push(suggestion);
       selectedNames.add(nameKey);
       selectedLanes.add(suggestion.lane);

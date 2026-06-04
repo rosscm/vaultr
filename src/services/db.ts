@@ -95,6 +95,15 @@ db.exec(`
     PRIMARY KEY (user_id, suggestion_name)
   );
 
+  CREATE TABLE IF NOT EXISTS user_discovery_state (
+    user_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    profile_fingerprint TEXT NOT NULL,
+    suggestion_names_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, mode)
+  );
+
   CREATE TABLE IF NOT EXISTS discovery_market_cache (
     cache_key TEXT PRIMARY KEY,
     suggestion_name TEXT NOT NULL,

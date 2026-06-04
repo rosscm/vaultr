@@ -115,7 +115,7 @@ export const chaseEdit = {
       await interaction.reply({
         embeds: [
           warningEmbed(
-            'Pro Feature',
+            'Pro Chase Controls',
             `Pro adds precision controls for serious chases.\n\n**Includes:** condition, listing type, custom blocked terms, priority, and chase notes\n**Also:** ${PLAN_LIMITS.PRO.maxActiveChases} active chases and trusted shop monitoring\n**Next:** use \`/upgrade\` to unlock`
           )
         ],

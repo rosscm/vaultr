@@ -1,6 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   MessageFlags,
   SlashCommandBuilder,
@@ -13,6 +15,7 @@ import {
   createDiscoveryVaultAction,
   deleteExpiredDiscoveryVaultActions,
   getDiscoveryVaultAction,
+  getUserDiscoveryState,
   getUserAlertSettings,
   getUserPlan,
   listChases,
@@ -20,16 +23,26 @@ import {
   listUserTasteMemoryChases,
   markUserDiscoverySuggestionsSeen,
   recordDiscoveryFeedback,
-  recordDiscoveryAddTaste
+  recordDiscoveryAddTaste,
+  upsertUserDiscoveryState
 } from '../services/chase-store.js';
 import { convertCurrencyAmount, type SupportedCurrency } from '../services/currency.js';
-import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoveryMode, type DiscoverySuggestion } from '../services/discovery-catalog.js';
+import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
+import {
+  discoveryMarketCacheKey,
+  getDiscoveryMarketCache,
+  listingFromDiscoveryMarketCache,
+  upsertDiscoveryMarketCache,
+  type DiscoveryMarketCacheEntry
+} from '../services/discovery-market-cache.js';
 import { getOrFetchDiscoveryReferenceImage } from '../services/discovery-reference-cache.js';
 import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
-import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
+import { searchEbayListings } from '../services/ebay.js';
+import { activePlanChases, activePlanTier, PLAN_LIMITS } from '../services/plans.js';
+import { getPollerState } from '../services/poller-state.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
-import type { Chase, Listing } from '../types.js';
+import type { Chase, Listing, PlanTier } from '../types.js';
 
 export type DiscoveryCandidate = {
   suggestion: DiscoverySuggestion;
@@ -56,18 +69,19 @@ type DiscoveryActionItem = {
   index: number;
 };
 
-type DiscoveryActionRow = ActionRowBuilder<StringSelectMenuBuilder>;
+type DiscoveryActionRow = ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>;
 type DiscoveryPick = NonNullable<ReturnType<typeof getDiscoveryVaultAction>>;
 type DiscoveryFeedbackAction = 'MORE_LIKE_THIS' | 'NOT_FOR_ME';
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
-const VISIBLE_DISCOVERY_COUNT = 3;
-const DISCOVERY_CANDIDATE_POOL_SIZE = 16;
-const DISCOVERY_SOURCE_PARENT_BATCH_SIZE = 6;
-const DISCOVERY_SOURCE_CARD_LIMIT_PER_PARENT = 4;
-const DISCOVERY_ENRICHMENT_CONCURRENCY = 6;
-const DISCOVERY_SOURCE_OVERFETCH_MULTIPLIER = 3;
+const VISIBLE_DISCOVERY_COUNT = 7;
+const DISCOVERY_CANDIDATE_POOL_SIZE = 24;
+const DISCOVERY_ENRICHMENT_CONCURRENCY = 4;
+const DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY = 1;
+const DISCOVERY_SOURCE_TIMEOUT_MS = 30000;
+const DISCOVERY_MARKET_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DISCOVERY_SOURCE_STATUS_RETRY_MS = 15 * 60 * 1000;
 const MIN_RAW_MARKET_SAMPLE_SIZE = 2;
 const NON_CARD_TERMS = [
   'booster',
@@ -97,6 +111,8 @@ const CARD_TERMS = ['card', 'cards', 'tcg', 'pokemon', 'psa', 'bgs', 'cgc', 'sgc
 
 const DISCOVERY_OVERVIEW_COLOR = 0x8b5cf6;
 const DISCOVERY_LANE_COLOR = 0x0e7490;
+const DISCOVERY_SELECTION_VERSION = 4;
+const DISCOVERY_STATE_KEY = 'ambient';
 const DISCOVERY_VAULT_PREFIX = 'discover-vault';
 const DISCOVERY_FEEDBACK_PREFIX = 'discover-feedback';
 const DISCOVERY_SELECT_PREFIX = 'discover-action';
@@ -136,13 +152,6 @@ const JAPANESE_SCRIPT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff]/;
 const JAPANESE_RELEASE_MARKER_PATTERN = /\b(?:coro\s?coro|vending|masaki|munch|poncho|battle\s*festa|players?\s+club|fan\s+club|trainers?\s+magazine|yu\s?nagaba|precious\s+collector|kanazawa|yokohama|sapporo|pokemon\s+center)\b/i;
 const BARE_COLLECTOR_NUMBER_PATTERN = /\b(\d{1,3})\s*\/\s*(\d{1,3})\b/;
 
-const DISCOVERY_MODE_LABELS: Record<DiscoveryMode, string> = {
-  similar: 'Close Match',
-  adjacent: 'Side Quest',
-  wildcard: 'Deep Cut',
-  budget: 'Smart Value'
-};
-
 function normalize(value: string): string {
   return value.toLowerCase();
 }
@@ -160,21 +169,6 @@ function median(values: number[]): number | undefined {
   const sorted = [...values].sort((a, b) => a - b);
   const midpoint = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[midpoint - 1] + sorted[midpoint]) / 2 : sorted[midpoint];
-}
-
-function priceRangeFromChases(chases: Chase[]): { min: number; max: number; label: string } | undefined {
-  const maxPrices = chases
-    .map((chase) => chase.maxPrice)
-    .filter((price): price is number => price !== undefined && price > 0);
-  const anchor = median(maxPrices);
-  if (anchor === undefined) return undefined;
-  const min = Math.max(0, anchor * 0.5);
-  const max = anchor * 1.5;
-  return {
-    min,
-    max,
-    label: `${min.toFixed(0)}-${max.toFixed(0)}`
-  };
 }
 
 function tasteSignalsFromChases(chases: Chase[], lane: string): string[] {
@@ -210,16 +204,12 @@ function learningSignal(
   return `early read from your active chases${memoryNote}${promoSignal}`;
 }
 
-function priceRangeSummary(
-  priceRange: { min: number; max: number; label: string } | undefined,
-  currency: SupportedCurrency,
-  hasFullDiscovery: boolean,
-  hasLearnedProfile: boolean
-): string {
-  if (hasLearnedProfile && priceRange) return `below your biggest chases, with room for lighter pickups`;
-  if (hasLearnedProfile) return 'add max prices to help Vaultr understand your range';
-  if (hasFullDiscovery) return 'based on chase max prices as your collection grows';
-  return 'based on chase max prices as your collection grows';
+export function discoveryVisibleCountForPlan(tier: PlanTier): number {
+  return getEntitlementsForTier(tier).discoveryVisibleCards;
+}
+
+export function discoveryTasteProfileChases(chases: Chase[], tasteMemoryChases: Chase[], hasFullDiscovery: boolean): Chase[] {
+  return hasFullDiscovery ? mergeActiveAndTasteMemoryChases(chases, tasteMemoryChases) : chases;
 }
 
 function formatMoney(amount: number | undefined, currency: string | undefined): string {
@@ -229,6 +219,25 @@ function formatMoney(amount: number | undefined, currency: string | undefined): 
 
 function titleCase(value: string): string {
   return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function discoveryTrailLabel(lane: string): string {
+  const normalizedLane = normalize(lane);
+  if (/japanese|language|region|vending|oddit/.test(normalizedLane)) return 'Japanese Collector Trail';
+  if (/e[- ]?reader/.test(normalizedLane)) return 'E-Reader Era Trail';
+  if (/vintage|era/.test(normalizedLane)) return 'Vintage Era Trail';
+  if (/special|release-history/.test(normalizedLane)) return 'Special Release Trail';
+  if (/promo|release-family|retail/.test(normalizedLane)) return 'Promo Trail';
+  if (/illustration|art|gallery|visual|full art/.test(normalizedLane)) return 'Artwork Trail';
+  if (/tag team|format|multi-card|gx|ex|v format|delta/.test(normalizedLane)) return 'Format Trail';
+  if (/value|watch/.test(normalizedLane)) return 'Value Watch';
+  return 'Collector Compass';
+}
+
+function discoveryCandidateTrailLabel(candidate: DiscoveryCandidate): string {
+  const cardText = sourceCardText(candidate);
+  if (hasJapaneseCardEvidence(normalize(cardText))) return 'Japanese Collector Trail';
+  return discoveryTrailLabel(candidate.suggestion.lane);
 }
 
 function truncateValue(value: string, maxLength: number): string {
@@ -329,6 +338,10 @@ export function isActiveChaseEchoText(text: string, activeChases: Chase[]): bool
   });
 }
 
+function isActiveChaseEchoListing(listing: Listing, activeChases: Chase[]): boolean {
+  return isActiveChaseEchoText([listing.title, listing.listingId].join(' '), activeChases);
+}
+
 function mergeActiveAndTasteMemoryChases(activeChases: Chase[], memoryChases: Chase[]): Chase[] {
   const activeNames = new Set(activeChases.map((chase) => normalize(chase.cardName)));
   const merged: Chase[] = activeChases.map((chase) => ({ ...chase, tasteSource: 'ACTIVE_CHASE' as const }));
@@ -413,6 +426,39 @@ function looksLikeDiscoveryCardListing(suggestion: DiscoverySuggestion, listing:
   return looksLikeCardListing(listing) || hasCoreSuggestionTokens(suggestion, listing);
 }
 
+function looksLikeRawCardListing(listing: Listing): boolean {
+  const text = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
+  return !/\b(ace grading|beckett|bgs|cgc|gma|psa|sgc|tag graded)\b|\bgraded\b|\bslab(?:bed)?\b/.test(text);
+}
+
+function looksLikeBaselineRawMarketListing(listing: Listing): boolean {
+  const text = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
+  return (
+    looksLikeRawCardListing(listing) &&
+    !/\b(error|gem mint|minty mint|misprint|miscut|nintedo|sealed|unopened|signature|signed|autograph|staff)\b/.test(text) &&
+    !/\b(lot|pack|post ?card)\b|\bcard set\b|\b(complete|master|binder)\b.*\b(set|collection)\b|\b(6|9|18)[- ]?card set\b|\bset of \d+\b/.test(text)
+  );
+}
+
+function meetsBaselineMarketCeiling(
+  suggestion: DiscoverySuggestion,
+  listing: Listing,
+  targetCurrency: SupportedCurrency
+): boolean {
+  if (suggestion.maximumBaselineRawTotalCad === undefined) return true;
+  const ceiling = convertCurrencyAmount(suggestion.maximumBaselineRawTotalCad, 'CAD', targetCurrency);
+  return convertedListingParts(listing, targetCurrency).total <= ceiling;
+}
+
+function typicalMarketTotal(totals: number[]): number | undefined {
+  if (totals.length === 0) return undefined;
+  const sorted = [...totals].sort((a, b) => a - b);
+  const anchor = median(sorted);
+  if (anchor === undefined || anchor <= 0) return anchor;
+  const withoutHighOutliers = sorted.filter((total) => total <= anchor * 3);
+  return median(withoutHighOutliers.length > 0 ? withoutHighOutliers : sorted);
+}
+
 function hasReliableSeller(listing: Listing): boolean {
   const feedbackScore = listing.sellerFeedbackScore;
   const feedbackPercent = listing.sellerFeedbackPercent;
@@ -455,6 +501,19 @@ export function looksLikeVisualDiscoveryListing(suggestion: DiscoverySuggestion,
   return hasCoreSuggestionTokens(suggestion, listing) && looksLikeDiscoveryCardListing(suggestion, listing) && imageUrlFromListing(listing) !== undefined;
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutHandle = setTimeout(() => reject(new Error('Discovery source timeout')), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let nextIndex = 0;
@@ -473,37 +532,244 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper:
   return results;
 }
 
-export function isSourceBackedDiscoverySuggestion(suggestion: DiscoverySuggestion): boolean {
-  return !!suggestion.referenceSourceCardId || !!suggestion.referenceImageUrl;
+function discoverySourceStatus(error: unknown): DiscoveryCandidate['sourceStatus'] {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/429|rate limit|quota|ratelimiter|exceeded the number of times/i.test(message)) return 'RATE_LIMITED';
+  if (/timeout/i.test(message)) return 'TIMEOUT';
+  return 'ERROR';
 }
 
-async function expandSourceBackedSuggestions(suggestions: DiscoverySuggestion[], activeChases: Chase[], tasteProfileChases: Chase[] = activeChases, desiredCount = VISIBLE_DISCOVERY_COUNT): Promise<DiscoverySuggestion[]> {
-  const expanded: DiscoverySuggestion[] = [];
-  const seenNames = new Set<string>();
-  for (let start = 0; start < suggestions.length && expanded.length < desiredCount; start += DISCOVERY_SOURCE_PARENT_BATCH_SIZE) {
-    const sourceParents = suggestions.slice(start, start + DISCOVERY_SOURCE_PARENT_BATCH_SIZE);
-    const expandedGroups = await mapWithConcurrency(sourceParents, DISCOVERY_ENRICHMENT_CONCURRENCY, async (suggestion) => {
-      const sourceBacked = await resolveSourceBackedDiscoveryCards(suggestion, activeChases, DISCOVERY_SOURCE_CARD_LIMIT_PER_PARENT, tasteProfileChases);
-      return sourceBacked.suggestions;
-    });
-    for (const suggestion of expandedGroups.flat()) {
-      if (!isSourceBackedDiscoverySuggestion(suggestion) || isActiveChaseEchoSuggestion(suggestion, activeChases)) continue;
-      const nameKey = discoveryNameKey(suggestion.name);
-      if (seenNames.has(nameKey)) continue;
-      expanded.push(suggestion);
-      seenNames.add(nameKey);
-      if (expanded.length >= desiredCount) break;
+function cacheAgeMs(entry: DiscoveryMarketCacheEntry, nowMs = Date.now()): number {
+  const fetchedAtMs = new Date(entry.fetchedAt).getTime();
+  return Number.isFinite(fetchedAtMs) ? nowMs - fetchedAtMs : Number.POSITIVE_INFINITY;
+}
+
+function shouldRefreshDiscoveryMarketCache(entry: DiscoveryMarketCacheEntry | null, nowMs = Date.now()): boolean {
+  if (!entry) return true;
+  const ageMs = cacheAgeMs(entry, nowMs);
+  if (entry.sourceStatus) return ageMs >= DISCOVERY_SOURCE_STATUS_RETRY_MS;
+  return ageMs >= DISCOVERY_MARKET_CACHE_TTL_MS;
+}
+
+async function expandSourceBackedSuggestions(
+  suggestions: DiscoverySuggestion[],
+  activeChases: Chase[],
+  tasteProfileChases: Chase[] = activeChases,
+  targetCount = VISIBLE_DISCOVERY_COUNT,
+  echoGuardChases: Chase[] = activeChases
+): Promise<DiscoverySuggestion[]> {
+  const expandedGroups = new Map<number, DiscoverySuggestion[]>();
+  let nextIndex = 0;
+  let timedOut = false;
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const targetPoolSize = Math.max(targetCount * 3, targetCount);
+  const sourceParentLimit = Math.min(suggestions.length, Math.max(targetCount * 2, targetCount));
+  const deadline = new Promise<void>((resolve) => {
+    timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      resolve();
+    }, DISCOVERY_SOURCE_TIMEOUT_MS);
+  });
+  const collectDistinct = (): DiscoverySuggestion[] => {
+    const expanded: DiscoverySuggestion[] = [];
+    const seenNames = new Set<string>();
+    for (let index = 0; index < suggestions.length; index += 1) {
+      const group = expandedGroups.get(index);
+      if (!group) continue;
+      for (const suggestion of group) {
+        if (isActiveChaseEchoSuggestion(suggestion, echoGuardChases)) continue;
+        const nameKey = discoveryNameKey(suggestion.name);
+        if (seenNames.has(nameKey)) continue;
+        expanded.push(suggestion);
+        seenNames.add(nameKey);
+        if (expanded.length >= targetPoolSize) return expanded;
+      }
     }
+    return expanded;
+  };
+  const worker = async () => {
+    while (!timedOut && nextIndex < sourceParentLimit) {
+      const index = nextIndex;
+      const suggestion = suggestions[nextIndex];
+      nextIndex += 1;
+      const sourceBacked = await resolveSourceBackedDiscoveryCards(suggestion, activeChases, 12, tasteProfileChases);
+      expandedGroups.set(index, sourceBacked.suggestions);
+    }
+  };
+  const workers = Promise.all(Array.from({ length: Math.min(DISCOVERY_ENRICHMENT_CONCURRENCY, suggestions.length) }, worker)).catch(() => undefined);
+  await Promise.race([workers, deadline]);
+  if (timeoutHandle) clearTimeout(timeoutHandle);
+  if (!timedOut && collectDistinct().length < targetCount) {
+    await workers;
   }
-  return expanded;
+  return collectDistinct();
+}
+
+function candidateFromCachedMarket(
+  suggestion: DiscoverySuggestion,
+  selectionIndex: number,
+  cacheEntry: DiscoveryMarketCacheEntry | null,
+  targetCurrency: SupportedCurrency,
+  activeChases: Chase[] = [],
+  refreshQueued = false
+): DiscoveryCandidate {
+  if (!cacheEntry) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
+  const listing = listingFromDiscoveryMarketCache(cacheEntry);
+  if (listing && isActiveChaseEchoListing(listing, activeChases)) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
+  const sourceStatus = refreshQueued && cacheEntry.sourceStatus ? 'PENDING' : cacheEntry.sourceStatus;
+  return {
+    suggestion,
+    selectionIndex,
+    listing,
+    image: cacheEntry.imageUrl ? { name: suggestion.name, url: cacheEntry.imageUrl, sourceName: 'eBay cached market image', sourceKind: 'MARKET_LISTING' } : undefined,
+    typicalRawAskingTotal: cacheEntry.typicalRawAskingTotal,
+    marketSampleSize: cacheEntry.marketSampleSize,
+    displayCurrency: cacheEntry.displayCurrency ?? targetCurrency,
+    sourceStatus
+  };
+}
+
+async function enrichSuggestion(
+  suggestion: DiscoverySuggestion,
+  selectionIndex: number,
+  userId: string,
+  activeChases: Chase[],
+  destination: { country?: string; postalCode?: string } | undefined,
+  range: { min: number; max: number } | undefined,
+  targetCurrency: SupportedCurrency
+): Promise<DiscoveryCandidate> {
+  const discoveryChase: Chase = {
+    id: `discover:${suggestion.name}`,
+    userId,
+    cardName: suggestion.evidenceSearchTerm ?? `${suggestion.name} trading card`,
+    createdAt: new Date().toISOString()
+  };
+
+  try {
+    const listings = await withTimeout(
+      searchEbayListings(discoveryChase, destination, { enrichMissingShipping: false }),
+      DISCOVERY_SOURCE_TIMEOUT_MS
+    );
+    const nonActiveListings = listings.filter((candidate) => !isActiveChaseEchoListing(candidate, activeChases));
+    const usableListings = nonActiveListings.filter((candidate) => isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency));
+    const rawListings = usableListings.filter(looksLikeRawCardListing);
+    const baselineRawListings = usableListings.filter(
+      (candidate) => looksLikeBaselineRawMarketListing(candidate) && meetsBaselineMarketCeiling(suggestion, candidate, targetCurrency)
+    );
+    const marketListing =
+      baselineRawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
+      rawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
+      baselineRawListings[0] ??
+      rawListings[0];
+    const visualListing = nonActiveListings.find((candidate) => looksLikeVisualDiscoveryListing(suggestion, candidate));
+    const listing = marketListing ?? visualListing;
+    if (!listing) return { suggestion, selectionIndex };
+
+    const totals = baselineRawListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
+    const typicalRawAskingTotal = typicalMarketTotal(totals);
+    const imageUrl = imageUrlFromListing(listing);
+    return {
+      suggestion,
+      selectionIndex,
+      listing,
+      image: imageUrl ? { name: suggestion.name, url: imageUrl, sourceName: 'eBay listing image', sourceKind: 'MARKET_LISTING' } : undefined,
+      typicalRawAskingTotal,
+      marketSampleSize: totals.length,
+      displayCurrency: targetCurrency
+    };
+  } catch (error) {
+    return { suggestion, selectionIndex, sourceStatus: discoverySourceStatus(error) };
+  }
+}
+
+type DiscoveryMarketRefreshJob = {
+  cacheKey: string;
+  suggestion: DiscoverySuggestion;
+  selectionIndex: number;
+  userId: string;
+  activeChases: Chase[];
+  destination: { country?: string; postalCode?: string } | undefined;
+  range: { min: number; max: number } | undefined;
+  targetCurrency: SupportedCurrency;
+};
+
+const discoveryMarketRefreshQueue: DiscoveryMarketRefreshJob[] = [];
+const queuedDiscoveryMarketRefreshKeys = new Set<string>();
+let isDiscoveryMarketRefreshRunning = false;
+let scheduledDiscoveryMarketRefreshTimer: NodeJS.Timeout | undefined;
+
+function nextDiscoveryMarketRefreshDelayMs(): number {
+  const backoffUntil = getPollerState().backoffUntil;
+  if (!backoffUntil) return 0;
+  const backoffUntilMs = new Date(backoffUntil).getTime();
+  if (!Number.isFinite(backoffUntilMs)) return 0;
+  return Math.max(0, backoffUntilMs - Date.now());
+}
+
+function saveDiscoveryMarketRefreshResult(job: DiscoveryMarketRefreshJob, candidate: DiscoveryCandidate): void {
+  upsertDiscoveryMarketCache({
+    cacheKey: job.cacheKey,
+    suggestionName: job.suggestion.name,
+    displayCurrency: job.targetCurrency,
+    destinationCountry: job.destination?.country,
+    listing: candidate.listing,
+    imageUrl: candidate.image?.url,
+    typicalRawAskingTotal: candidate.typicalRawAskingTotal,
+    marketSampleSize: candidate.marketSampleSize,
+    sourceStatus: candidate.sourceStatus === 'PENDING' ? undefined : candidate.sourceStatus
+  });
+}
+
+function scheduleDiscoveryMarketRefreshQueue(): void {
+  if (isDiscoveryMarketRefreshRunning || discoveryMarketRefreshQueue.length === 0) return;
+  const delayMs = nextDiscoveryMarketRefreshDelayMs();
+  if (delayMs > 0) {
+    if (!scheduledDiscoveryMarketRefreshTimer) {
+      scheduledDiscoveryMarketRefreshTimer = setTimeout(() => {
+        scheduledDiscoveryMarketRefreshTimer = undefined;
+        void runDiscoveryMarketRefreshQueue();
+      }, Math.min(delayMs, DISCOVERY_SOURCE_STATUS_RETRY_MS));
+    }
+    return;
+  }
+  void runDiscoveryMarketRefreshQueue();
+}
+
+async function runDiscoveryMarketRefreshQueue(): Promise<void> {
+  if (isDiscoveryMarketRefreshRunning) return;
+  isDiscoveryMarketRefreshRunning = true;
+  try {
+    await mapWithConcurrency(discoveryMarketRefreshQueue.splice(0), DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY, async (job) => {
+      try {
+        const candidate = await enrichSuggestion(job.suggestion, job.selectionIndex, job.userId, job.activeChases, job.destination, job.range, job.targetCurrency);
+        saveDiscoveryMarketRefreshResult(job, candidate);
+      } catch (error) {
+        saveDiscoveryMarketRefreshResult(job, { suggestion: job.suggestion, selectionIndex: job.selectionIndex, sourceStatus: discoverySourceStatus(error) });
+      } finally {
+        queuedDiscoveryMarketRefreshKeys.delete(job.cacheKey);
+      }
+    });
+  } finally {
+    isDiscoveryMarketRefreshRunning = false;
+    if (discoveryMarketRefreshQueue.length > 0) scheduleDiscoveryMarketRefreshQueue();
+  }
+}
+
+function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshJob[]): void {
+  for (const job of jobs) {
+    if (queuedDiscoveryMarketRefreshKeys.has(job.cacheKey)) continue;
+    queuedDiscoveryMarketRefreshKeys.add(job.cacheKey);
+    discoveryMarketRefreshQueue.push(job);
+  }
+  scheduleDiscoveryMarketRefreshQueue();
 }
 
 function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
   if (candidate.sourceStatus === 'PENDING') return 'Market refresh queued; Vaultr will attach image and pricing once the source responds.';
   if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market refresh is cooling down after an eBay throttle response; Vaultr will retry after backoff.';
-  if (candidate.sourceStatus === 'TIMEOUT') return 'eBay did not answer in time; Vaultr will try this thread again after backoff.';
+  if (candidate.sourceStatus === 'TIMEOUT') return 'eBay did not answer in time; Vaultr will try this path again after backoff.';
   if (candidate.typicalRawAskingTotal === undefined || candidate.marketSampleSize === undefined || candidate.marketSampleSize === 0) {
-    return 'Market is thin right now; treat this as a thread to watch.';
+    return 'Market is thin right now; treat this as a collecting path to watch.';
   }
   return `${formatMoney(candidate.typicalRawAskingTotal, candidate.displayCurrency ?? currencyHint)} typical raw ask`;
 }
@@ -587,6 +853,10 @@ function subjectProfileRankScore(candidate: DiscoveryCandidate, chases: Chase[] 
   return Math.min(140, Math.round(score));
 }
 
+function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
+  return [...candidates].sort((left, right) => curiosityRankScore(right) - curiosityRankScore(left));
+}
+
 function rankDiscoveryCandidatesForProfile(candidates: DiscoveryCandidate[], chases: Chase[] = []): DiscoveryCandidate[] {
   return [...candidates].sort((left, right) => {
     const sourceDelta = sourcePreferenceRankScore(right, chases) - sourcePreferenceRankScore(left, chases);
@@ -632,31 +902,127 @@ function discoveryVisualTone(lane: string): { icon: string; color: number; path:
   const normalizedLane = normalize(lane);
   if (/japanese|vending|oddit/.test(normalizedLane)) return { icon: '🗾', color: DISCOVERY_LANE_COLOR, path: 'Hidden release path' };
   if (/secret|bird|legendary/.test(normalizedLane)) return { icon: '✦', color: DISCOVERY_LANE_COLOR, path: 'Rarer detour' };
-  if (/promo/.test(normalizedLane)) return { icon: '◆', color: DISCOVERY_LANE_COLOR, path: 'Promo thread' };
+  if (/promo/.test(normalizedLane)) return { icon: '◆', color: DISCOVERY_LANE_COLOR, path: 'Promo path' };
   if (/gallery|character/.test(normalizedLane)) return { icon: '◆', color: DISCOVERY_LANE_COLOR, path: 'Character gallery' };
-  if (/mythical|mew/.test(normalizedLane)) return { icon: '✧', color: DISCOVERY_LANE_COLOR, path: 'Mythical thread' };
-  return { icon: '◇', color: DISCOVERY_LANE_COLOR, path: 'Discovery thread' };
+  if (/mythical|mew/.test(normalizedLane)) return { icon: '✧', color: DISCOVERY_LANE_COLOR, path: 'Mythical path' };
+  return { icon: '◇', color: DISCOVERY_LANE_COLOR, path: 'Discovery path' };
 }
 
-function markdownLink(label: string, url: string | undefined): string {
-  const safeLabel = label.replaceAll('[', '').replaceAll(']', '');
-  return url ? `[${safeLabel}](${url})` : safeLabel;
+function sourceSetLabel(candidate: DiscoveryCandidate): string | undefined {
+  const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
+  const match = /\(([^)]+)\)/.exec(sourceName ?? '');
+  return match?.[1];
+}
+
+function sourceCardSubject(candidate: DiscoveryCandidate, setLabel: string | undefined): string {
+  let subject = candidate.suggestion.name;
+  if (setLabel) subject = subject.replace(new RegExp(`\\s+${setLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b.*$`, 'i'), '');
+  subject = subject
+    .replace(/\b(?:special delivery|with grey felt hat|grey felt hat|felt hat|illustration collection|toys r us|staff|winner|prerelease)\b/gi, ' ')
+    .replace(/\b(?:promo|promos|black star)\b/gi, ' ')
+    .replace(/\s+Japanese\b.*$/i, '')
+    .replace(/\s+\S*\d{1,4}\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return subject || candidate.suggestion.name;
+}
+
+function sourceCardText(candidate: DiscoveryCandidate): string {
+  return [candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function hasJapaneseCardEvidence(normalizedCardText: string): boolean {
+  return /\bjapanese\b|tcgdex japanese/.test(normalizedCardText);
+}
+
+const TASTE_SIGNAL_TRAIT_TOKENS = new Set([
+  'art',
+  'collector',
+  'delta',
+  'e-reader',
+  'ex',
+  'full',
+  'gallery',
+  'gx',
+  'illustration',
+  'japanese',
+  'pokemon',
+  'promo',
+  'rare',
+  'retail',
+  'set',
+  'small',
+  'special',
+  'tag',
+  'team',
+  'v',
+  'vintage'
+]);
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function cardTextHasToken(normalizedCardText: string, token: string): boolean {
+  const normalizedToken = normalize(token).trim();
+  if (!normalizedToken || /^\d+$/.test(normalizedToken)) return false;
+  const parts = normalizedToken.split(/\s+/).filter(Boolean).map(escapeRegExp);
+  if (parts.length === 0) return false;
+  const pattern = parts.join('[^a-z0-9]+');
+  return new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`, 'i').test(normalizedCardText);
+}
+
+function tasteSignalTokenLabels(tokens: string[], normalizedCardText: string): string[] {
+  const normalizedTokens = tokens.map((token) => normalize(token).trim()).filter(Boolean);
+  const identityLabels = normalizedTokens
+    .filter((token) => token.length >= 3 && !TASTE_SIGNAL_TRAIT_TOKENS.has(token) && cardTextHasToken(normalizedCardText, token))
+    .slice(0, 2)
+    .map((token) => `${titleCase(token)} Path`);
+  return identityLabels;
+}
+
+function tasteSignalText(candidate: DiscoveryCandidate): string {
+  const cardText = sourceCardText(candidate);
+  const normalizedCardText = normalize(cardText);
+  const sourceTasteTokens = candidate.suggestion.sourceTasteTokens ?? [];
+  const cardAndSourceText = normalizedCardText;
+  const signals: string[] = [];
+
+  signals.push(...tasteSignalTokenLabels(sourceTasteTokens, normalizedCardText));
+  if (/\bpromo|black star|special release|limited release\b/.test(cardAndSourceText)) signals.push('Promo Releases');
+  if (hasJapaneseCardEvidence(normalizedCardText)) signals.push('Japanese Prints');
+  if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(cardAndSourceText)) signals.push('E-Reader Era');
+  else if (/\bbase set\b|\bteam rocket\b|\bgym heroes\b|\bgym challenge\b|\bneo\b|\bwizards black star\b/.test(cardAndSourceText)) signals.push('Vintage Era');
+  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(cardAndSourceText)) signals.push('Binder Art');
+  if (/\btag team\b|\bgx\b/.test(cardAndSourceText)) signals.push('GX/Tag Team Format');
+  else if (/\bex\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(cardAndSourceText)) signals.push('Card Format');
+
+  const uniqueSignals = uniqueValuesPreservingOrder(signals).slice(0, 3);
+  if (uniqueSignals.length === 0) return 'Profile Path';
+  return uniqueSignals.join(' • ');
 }
 
 function resonanceText(candidate: DiscoveryCandidate): string {
-  const text = [candidate.suggestion.name, candidate.suggestion.lane, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, ...(candidate.suggestion.sourceTasteTokens ?? []), ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
-    .filter(Boolean)
-    .join(' ');
-  const normalized = normalize(text);
+  const cardText = sourceCardText(candidate);
+  const normalizedCardText = normalize(cardText);
+  const normalized = normalize([cardText, candidate.suggestion.lane, ...(candidate.suggestion.sourceTasteTokens ?? [])].filter(Boolean).join(' '));
+  const setLabel = sourceSetLabel(candidate);
+  const subject = sourceCardSubject(candidate, setLabel);
+  const sourceContext = setLabel ?? 'this print';
   const reasons: string[] = [];
-  if (/\bjapanese\b|tcgdex japanese/.test(normalized)) reasons.push('Japanese release path: regional printings and set variants often collect differently from English runs.');
-  if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push('e-reader era appeal: Expedition/Aquapolis/Skyridge-era cards sit in a distinct vintage collector lane.');
-  if (/\bpromo|black star|special release\b/.test(normalized)) reasons.push('Promo/special-release angle: limited distribution and Black Star-style paths can create durable side quests.');
-  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(normalized)) reasons.push('Display-card pull: illustration, gallery, full-art, or art-rare treatments tend to anchor binder pages.');
-  if (/\btag team\b|\bgx\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(normalized)) reasons.push('Collector format match: GX, VMAX, VSTAR, Tag Team, and Radiant-style cards form recognizable side collections.');
+  if (/\bspecial delivery\b/.test(normalizedCardText)) reasons.push(`A promo with a real release story: ${candidate.suggestion.name.split(/\s+SWSH Black Star/i)[0]} feels more like a collector milestone than a standard set filler.`);
+  else if (/\bfelt hat\b/.test(normalizedCardText)) reasons.push(`A memorable promo story: the Felt Hat release gives ${subject} crossover appeal beyond the base promo set.`);
+  else if (hasJapaneseCardEvidence(normalizedCardText)) reasons.push(`${sourceContext} gives ${subject} a regional print to compare against English runs instead of another generic copy.`);
+  else if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalizedCardText)) reasons.push(`${sourceContext} gives ${subject} a concrete early-2000s set identity, so the card has a clearer collecting shape than a broad vintage search.`);
+  else if (/\bpromo|black star|special release\b/.test(normalizedCardText)) reasons.push(`${sourceContext} gives ${subject} a named release to track instead of a generic main-set copy.`);
+  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(normalizedCardText)) reasons.push(`${subject} has art-led treatment that can stand on its own visually in a binder page.`);
+  if (/\btag team\b|\bgx\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(normalizedCardText)) reasons.push(`${subject} fits a recognizable side-collection format with a different collecting shape than your current Vault.`);
+  if (reasons.length === 0 && /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push('This gives your Vault an early-2000s print to compare by set texture, artwork, and binder feel.');
 
   const uniqueReasons = uniqueValuesPreservingOrder(reasons).slice(0, 3);
-  if (uniqueReasons.length === 0) return 'Vaultr is following shared collector traits from your Vault and recent Discovery activity.';
+  if (uniqueReasons.length === 0) return `${subject} gives your Vault a nearby card to compare by artwork, set feel, and release story without being another copy of the same chase.`;
   return uniqueReasons.join('\n');
 }
 
@@ -669,6 +1035,11 @@ function candidateSubjectKeys(candidate: DiscoveryCandidate): string[] {
   return profileSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' '));
 }
 
+function candidateSubjectBalanceKeys(candidate: DiscoveryCandidate): string[] {
+  const subject = sourceCardSubject(candidate, sourceSetLabel(candidate));
+  return profileSubjectTokens(subject).slice(0, 3);
+}
+
 function isJapaneseDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
   return /\bjapanese\b|\btcgdex japanese\b/i.test(
     [candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
@@ -677,25 +1048,85 @@ function isJapaneseDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
   );
 }
 
-function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = []): DiscoveryCandidate[] {
+function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = [], count = VISIBLE_DISCOVERY_COUNT): DiscoveryCandidate[] {
   const selected: DiscoveryCandidate[] = [];
   const seenThemes = new Set<string>();
   const seenSubjects = new Set<string>();
+  const seenNames = new Set<string>();
+  const selectedTrailLabels = new Set<string>();
+  const trailCounts = new Map<string, number>();
+  const subjectCounts = new Map<string, number>();
   const japaneseAffinity = japaneseSignalWeightRatio(chases);
   const shouldLeaveRoomForNonJapanese = japaneseAffinity > 0 && japaneseAffinity < 0.85 && candidates.some((candidate) => !isJapaneseDiscoveryCandidate(candidate));
-  const japaneseLimit = shouldLeaveRoomForNonJapanese ? Math.max(1, VISIBLE_DISCOVERY_COUNT - 1) : VISIBLE_DISCOVERY_COUNT;
+  const japaneseLimit = shouldLeaveRoomForNonJapanese ? Math.max(1, count - 1) : count;
+  const trailLimit = Math.max(1, Math.ceil(count / 3));
+  const subjectLimit = count >= 5 ? 2 : count;
   let japaneseCount = 0;
+  const candidateSubjectIsUnderLimit = (candidate: DiscoveryCandidate): boolean => {
+    const subjectKeys = candidateSubjectBalanceKeys(candidate);
+    return subjectKeys.length === 0 || subjectKeys.every((subjectKey) => (subjectCounts.get(subjectKey) ?? 0) < subjectLimit);
+  };
+  const hasSubjectBalancedAlternative = (): boolean =>
+    candidates.some((candidate) => !seenNames.has(discoveryNameKey(candidate.suggestion.name)) && candidateSubjectIsUnderLimit(candidate) && (!isJapaneseDiscoveryCandidate(candidate) || japaneseCount < japaneseLimit));
+  const canUseCandidateSubject = (candidate: DiscoveryCandidate): boolean => candidateSubjectIsUnderLimit(candidate) || !hasSubjectBalancedAlternative();
+  const pushCandidate = (candidate: DiscoveryCandidate): void => {
+    const nameKey = discoveryNameKey(candidate.suggestion.name);
+    const trailLabel = discoveryCandidateTrailLabel(candidate);
+    selected.push(candidate);
+    seenNames.add(nameKey);
+    trailCounts.set(trailLabel, (trailCounts.get(trailLabel) ?? 0) + 1);
+    for (const subjectKey of candidateSubjectBalanceKeys(candidate)) subjectCounts.set(subjectKey, (subjectCounts.get(subjectKey) ?? 0) + 1);
+    if (isJapaneseDiscoveryCandidate(candidate)) japaneseCount += 1;
+  };
   for (const candidate of candidates) {
     const theme = collectorTheme(candidate);
     const subjectKeys = candidateSubjectKeys(candidate);
+    const trailLabel = discoveryCandidateTrailLabel(candidate);
     if (seenThemes.has(theme)) continue;
     if (subjectKeys.some((subjectKey) => seenSubjects.has(subjectKey))) continue;
+    if (selectedTrailLabels.has(trailLabel)) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
-    selected.push(candidate);
+    if (!canUseCandidateSubject(candidate)) continue;
+    pushCandidate(candidate);
+    selectedTrailLabels.add(trailLabel);
     seenThemes.add(theme);
     for (const subjectKey of subjectKeys) seenSubjects.add(subjectKey);
-    if (isJapaneseDiscoveryCandidate(candidate)) japaneseCount += 1;
-    if (selected.length >= VISIBLE_DISCOVERY_COUNT) break;
+    if (selected.length >= count) break;
+  }
+  for (const candidate of candidates) {
+    if (selected.length >= count) break;
+    const nameKey = discoveryNameKey(candidate.suggestion.name);
+    const trailLabel = discoveryCandidateTrailLabel(candidate);
+    if (seenNames.has(nameKey) || selectedTrailLabels.has(trailLabel)) continue;
+    if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
+    if (!canUseCandidateSubject(candidate)) continue;
+    pushCandidate(candidate);
+    selectedTrailLabels.add(trailLabel);
+  }
+  for (const candidate of candidates) {
+    if (selected.length >= count) break;
+    const nameKey = discoveryNameKey(candidate.suggestion.name);
+    const trailLabel = discoveryCandidateTrailLabel(candidate);
+    if (seenNames.has(nameKey)) continue;
+    if ((trailCounts.get(trailLabel) ?? 0) >= trailLimit && candidates.some((other) => !seenNames.has(discoveryNameKey(other.suggestion.name)) && (trailCounts.get(discoveryCandidateTrailLabel(other)) ?? 0) < trailLimit)) continue;
+    if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
+    if (!canUseCandidateSubject(candidate)) continue;
+    pushCandidate(candidate);
+  }
+  for (const candidate of candidates) {
+    if (selected.length >= count) break;
+    const nameKey = discoveryNameKey(candidate.suggestion.name);
+    if (seenNames.has(nameKey)) continue;
+    if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
+    if (!canUseCandidateSubject(candidate)) continue;
+    pushCandidate(candidate);
+  }
+  for (const candidate of candidates) {
+    if (selected.length >= count) break;
+    const nameKey = discoveryNameKey(candidate.suggestion.name);
+    if (seenNames.has(nameKey)) continue;
+    if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
+    pushCandidate(candidate);
   }
   return selected;
 }
@@ -707,22 +1138,29 @@ export function selectVisibleCandidates(candidates: DiscoveryCandidate[], chases
   return takeDistinctThemes([...strongRawData, ...partialRawData, ...tasteRankedFallback], chases);
 }
 
+export function selectVisibleCandidatesForCount(candidates: DiscoveryCandidate[], chases: Chase[] = [], count = VISIBLE_DISCOVERY_COUNT): DiscoveryCandidate[] {
+  const strongRawData = rankDiscoveryCandidatesForProfile(candidates.filter(hasEnoughRawMarketData), chases);
+  const partialRawData = rankDiscoveryCandidatesForProfile(candidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases);
+  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(candidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases);
+  return takeDistinctThemes([...strongRawData, ...partialRawData, ...tasteRankedFallback], chases, count);
+}
+
 export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency, includeMarketRead: boolean, displayIndex?: number): EmbedBuilder {
   const tone = discoveryVisualTone(candidate.suggestion.lane);
-  const prefix = displayIndex === undefined ? tone.icon : `${displayIndex}. ${tone.icon}`;
-  const title = `${prefix} ${truncateValue(candidate.suggestion.name, 220)}`;
+  const title = displayIndex === undefined ? candidate.suggestion.name : `${displayIndex}. ${candidate.suggestion.name}`;
+  const threadLabel = `${tone.icon} ${discoveryCandidateTrailLabel(candidate)}`;
   const embed = new EmbedBuilder().setColor(tone.color).setTitle(title);
-  const nearby = candidate.suggestion.nearby.slice(0, 3).map((name) => `• ${name}`).join('\n');
   const fields = [
-    { name: 'Why It Resonates', value: resonanceText(candidate), inline: false },
-    ...(includeMarketRead ? [{ name: 'Market Read', value: formatMarketRead(candidate, currencyHint), inline: true }] : []),
-    { name: 'Next Threads', value: nearby || 'Vaultr will widen this thread as the catalog grows.', inline: false }
+    { name: 'Why This Card', value: resonanceText(candidate), inline: false },
+    { name: 'Taste Cue', value: tasteSignalText(candidate), inline: false },
+    ...(includeMarketRead ? [{ name: 'Market Read', value: formatMarketRead(candidate, currencyHint), inline: true }] : [])
   ];
 
   if (candidate.image) embed.setThumbnail(candidate.image.url);
+  if (candidate.listing?.url) embed.setURL(candidate.listing.url);
 
   embed
-    .setDescription(`**${titleCase(candidate.suggestion.lane)}**${candidate.listing?.url ? `\n${markdownLink('Open example listing', candidate.listing.url)}` : ''}`)
+    .setDescription(threadLabel)
     .addFields(...fields)
     .setFooter({ text: 'Vaultr • Discovery' })
     .setTimestamp();
@@ -744,7 +1182,30 @@ function createDiscoveryVaultButtonToken(userId: string, candidate: DiscoveryCan
 }
 
 function createDiscoveryActionItems(userId: string, candidates: DiscoveryCandidate[]): DiscoveryActionItem[] {
-  return candidates.slice(0, 3).map((candidate, index) => ({ candidate, token: createDiscoveryVaultButtonToken(userId, candidate), index: index + 1 }));
+  return candidates.map((candidate, index) => ({ candidate, token: createDiscoveryVaultButtonToken(userId, candidate), index: index + 1 }));
+}
+
+function discoveryVaultButtons(userId: string, actionItems: DiscoveryActionItem[]): ActionRowBuilder<ButtonBuilder>[] {
+  if (actionItems.length === 0) return [];
+  const buttons = actionItems.map(({ candidate, token, index }) =>
+    new ButtonBuilder()
+      .setCustomId(`${DISCOVERY_VAULT_PREFIX}:${userId}:${token}`)
+      .setLabel(truncateValue(`Add ${index}: ${candidate.suggestion.name}`, 80))
+      .setStyle(ButtonStyle.Primary)
+  );
+  return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
+}
+
+function discoveryFeedbackButtons(userId: string, actionItems: DiscoveryActionItem[], feedback: DiscoveryFeedbackAction): ActionRowBuilder<ButtonBuilder>[] {
+  if (actionItems.length === 0) return [];
+  const isPositive = feedback === 'MORE_LIKE_THIS';
+  const buttons = actionItems.map(({ token, index }) =>
+    new ButtonBuilder()
+      .setCustomId(`${DISCOVERY_FEEDBACK_PREFIX}:${userId}:${token}:${feedback}`)
+      .setLabel(`${isPositive ? 'More like' : 'Not for me'} ${index}`)
+      .setStyle(isPositive ? ButtonStyle.Secondary : ButtonStyle.Danger)
+  );
+  return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
 }
 
 function discoveryActionLabel(action: 'ADD' | DiscoveryFeedbackAction, index: number, cardName: string): string {
@@ -770,11 +1231,11 @@ export function discoveryActionRows(userId: string, candidates: DiscoveryCandida
       .setValue(`ADD:${token}`),
     new StringSelectMenuOptionBuilder()
       .setLabel(discoveryActionLabel('MORE_LIKE_THIS', index, candidate.suggestion.name))
-      .setDescription('Save this as a taste signal')
+      .setDescription('Save this as a taste cue')
       .setValue(`MORE_LIKE_THIS:${token}`),
     new StringSelectMenuOptionBuilder()
       .setLabel(discoveryActionLabel('NOT_FOR_ME', index, candidate.suggestion.name))
-      .setDescription('Steer Discovery away from this thread')
+      .setDescription('Steer Discovery away from this path')
       .setValue(`NOT_FOR_ME:${token}`)
   ]);
 
@@ -796,44 +1257,89 @@ export function mergeFreshDiscoveryCandidates(candidates: DiscoveryCandidate[], 
   return mergedCandidates;
 }
 
-async function discoverCandidatesForUser(userId: string, count: number, mode: DiscoveryMode = 'similar'): Promise<{
+function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames: string[]): string {
+  const profileInput = {
+    discoverySelectionVersion: DISCOVERY_SELECTION_VERSION,
+    chases: tasteProfileChases.map((chase) => ({
+      id: chase.id,
+      cardName: chase.cardName,
+      priority: chase.priority ?? 'NORMAL',
+      targetNote: chase.targetNote ?? '',
+      maxPrice: chase.maxPrice ?? null,
+      tasteWeight: chase.tasteWeight ?? null,
+      tasteSource: chase.tasteSource ?? 'ACTIVE_CHASE',
+      createdAt: chase.createdAt
+    })),
+    rejectedNames: rejectedNames.map(discoveryNameKey).sort()
+  };
+  return createHash('sha256').update(JSON.stringify(profileInput)).digest('hex');
+}
+
+export function orderCandidatesFromPersistedState(candidates: DiscoveryCandidate[], persistedNames: string[], count: number): DiscoveryCandidate[] {
+  const candidatesByName = new Map(candidates.map((candidate) => [discoveryNameKey(candidate.suggestion.name), candidate]));
+  const selected: DiscoveryCandidate[] = [];
+  const selectedNames = new Set<string>();
+  for (const name of persistedNames) {
+    const nameKey = discoveryNameKey(name);
+    const candidate = candidatesByName.get(nameKey);
+    if (!candidate || selectedNames.has(nameKey)) continue;
+    selected.push(candidate);
+    selectedNames.add(nameKey);
+    if (selected.length >= count) return selected;
+  }
+  for (const candidate of candidates) {
+    const nameKey = discoveryNameKey(candidate.suggestion.name);
+    if (selectedNames.has(nameKey)) continue;
+    selected.push(candidate);
+    selectedNames.add(nameKey);
+    if (selected.length >= count) break;
+  }
+  return selected;
+}
+
+async function discoverCandidatesForUser(userId: string, count: number): Promise<{
   chases: Chase[];
   tasteProfileChases: Chase[];
   settings: ReturnType<typeof getUserAlertSettings>;
   hasFullDiscovery: boolean;
   hasLearnedProfile: boolean;
   lane: string;
-  priceRange: { min: number; max: number; label: string } | undefined;
   candidates: DiscoveryCandidate[];
 }> {
-  const chases = listChases(userId);
-  const tasteMemoryChases = listUserTasteMemoryChases(userId);
-  const tasteProfileChases = mergeActiveAndTasteMemoryChases(chases, tasteMemoryChases);
+  const storedChases = listChases(userId);
   const settings = getUserAlertSettings(userId);
   const plan = getUserPlan(userId);
+  const chases = activePlanChases(storedChases, plan);
   const activeTier = activePlanTier(plan);
   const entitlements = getEntitlementsForTier(activeTier);
   const hasFullDiscovery = entitlements.discoveryDepth === 'full';
+  const visibleCount = Math.min(count, discoveryVisibleCountForPlan(activeTier));
+  const tasteMemoryChases = hasFullDiscovery ? listUserTasteMemoryChases(userId) : [];
+  const tasteProfileChases = discoveryTasteProfileChases(chases, tasteMemoryChases, hasFullDiscovery);
   const hasLearnedProfile = hasFullDiscovery && tasteProfileChases.length >= MIN_LEARNED_PROFILE_CHASES;
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const rejectedNames = recentlyRejected.map((item) => item.suggestionName);
-  const rejectedLanes = uniqueValuesPreservingOrder(recentlyRejected.map((item) => item.lane).filter(Boolean));
-  const priceRange = hasLearnedProfile ? priceRangeFromChases(tasteProfileChases) : undefined;
+  const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames);
   const selectAndEnrich = async () => {
     const combinedExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
     const combinedSourceExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
     const selection = selectDiscoverySuggestionsForFocuses([], tasteProfileChases, DISCOVERY_CANDIDATE_POOL_SIZE, {
       excludedNames: combinedExcludedNames,
-      excludedLanes: rejectedLanes,
-      excludeLanesForExcludedNames: combinedExcludedNames.length > 0,
-      mode
+      excludeLanesForExcludedNames: combinedExcludedNames.length > 0
     });
-    const activeSafeSuggestions = selection.suggestions.filter((suggestion) => !isActiveChaseEchoSuggestion(suggestion, chases));
-    const sourceBackedSuggestions = await expandSourceBackedSuggestions(activeSafeSuggestions, chases, tasteProfileChases, count * DISCOVERY_SOURCE_OVERFETCH_MULTIPLIER);
+    const activeSafeSuggestions = selection.suggestions.filter((suggestion) => !isActiveChaseEchoSuggestion(suggestion, storedChases));
+    const sourceBackedSuggestions = await expandSourceBackedSuggestions(activeSafeSuggestions, chases, tasteProfileChases, visibleCount, storedChases);
     const excludedSourceNameKeys = new Set(combinedSourceExcludedNames.map(discoveryNameKey));
     const freshSourceBackedSuggestions = sourceBackedSuggestions.filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)));
     const enriched = freshSourceBackedSuggestions.map((suggestion, index) => tasteOnlyCandidate(suggestion, index));
-    const candidates = await attachReferenceImages(selectVisibleCandidates(enriched, tasteProfileChases).slice(0, count));
+    const rankedCandidates = selectVisibleCandidatesForCount(enriched, tasteProfileChases, Math.max(visibleCount, discoveryVisibleCountForPlan(activeTier)));
+    const persistedState = hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT ? getUserDiscoveryState(userId, DISCOVERY_STATE_KEY) : null;
+    const persistedCandidates = persistedState?.profileFingerprint === profileFingerprint ? orderCandidatesFromPersistedState(rankedCandidates, persistedState.suggestionNames, visibleCount) : null;
+    const visibleCandidates = persistedCandidates ?? rankedCandidates.slice(0, visibleCount);
+    if (hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT) {
+      upsertUserDiscoveryState({ userId, mode: DISCOVERY_STATE_KEY, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
+    }
+    const candidates = await attachReferenceImages(visibleCandidates);
     return {
       lane: selection.lane,
       candidates
@@ -849,7 +1355,6 @@ async function discoverCandidatesForUser(userId: string, count: number, mode: Di
     hasFullDiscovery,
     hasLearnedProfile,
     lane,
-    priceRange,
     candidates
   };
 }
@@ -872,30 +1377,17 @@ export async function buildWeeklyDiscoveryPathPayload(userId: string): Promise<{
 export const discover = {
   data: new SlashCommandBuilder()
     .setName('discover')
-    .setDescription('Open Vaultr Discovery from your developing taste profile')
-    .addStringOption((opt) =>
-      opt
-        .setName('mode')
-        .setDescription('Choose how far Discovery should wander from your taste profile')
-        .addChoices(
-          { name: 'Close Match', value: 'similar' },
-          { name: 'Side Quest', value: 'adjacent' },
-          { name: 'Deep Cut', value: 'wildcard' },
-          { name: 'Smart Value', value: 'budget' }
-        )
-    ),
+    .setDescription('Open Vaultr Discovery from your past and present taste profile'),
   async execute(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const mode = (interaction.options.getString('mode') ?? 'similar') as DiscoveryMode;
-    const discovery = await discoverCandidatesForUser(interaction.user.id, VISIBLE_DISCOVERY_COUNT, mode);
+    const discovery = await discoverCandidatesForUser(interaction.user.id, VISIBLE_DISCOVERY_COUNT);
     const visibleCandidates = discovery.candidates;
     markUserDiscoverySuggestionsSeen(interaction.user.id, visibleCandidates.map((candidate) => candidate.suggestion.name));
-    const visibleFinds = visibleCandidates.map((candidate) => candidate.suggestion.name);
+    const visiblePaths = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => discoveryCandidateTrailLabel(candidate)));
     const title = '✨ Vaultr Discovery';
-    const findSummary = visibleFinds.length > 0 ? visibleFinds.map((name) => truncateValue(name, 80)).join(', ') : 'No source-backed card matches right now';
+    const pathSummary = visiblePaths.length > 0 ? visiblePaths.join(', ') : 'No fresh Discovery matches right now';
     const lines = [
-      `**Mode:** ${DISCOVERY_MODE_LABELS[mode]}`,
       `**Collector Profile:** ${learningSignal(
         discovery.chases,
         discovery.tasteProfileChases,
@@ -903,11 +1395,10 @@ export const discover = {
         discovery.hasFullDiscovery,
         discovery.hasLearnedProfile
       )}`,
-      `**Today’s Finds:** ${findSummary}`,
-      `**Spend Feel:** ${priceRangeSummary(discovery.priceRange, discovery.settings.alertCurrency, discovery.hasFullDiscovery, discovery.hasLearnedProfile)}`
+      `**Collecting Paths:** ${pathSummary}`
     ];
     if (!discovery.hasFullDiscovery) {
-      lines.push('**Pro Adds:** deeper weekly Taste Profile paths and trusted shop monitoring.');
+      lines.push(`**Pro Adds:** A ${discoveryVisibleCountForPlan('PRO')}-card Taste Profile shelf that remembers what you like`);
     }
     const overviewEmbed = infoEmbed(title, lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Discovery profile' });
 
@@ -953,7 +1444,7 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
   const existingChases = listChases(interaction.user.id);
   if (existingChases.some((chase) => normalize(chase.cardName) === normalize(pick.cardName))) {
     await interaction.reply({
-      embeds: [warningEmbed('Already In Your Vault', `**${pick.cardName}** is already an active chase.`)],
+      embeds: [warningEmbed('Already In Vault', `**${pick.cardName}** is already an active chase.`)],
       flags: MessageFlags.Ephemeral
     });
     return;
@@ -989,7 +1480,7 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
 
   const lines = [
     `**Card:** ${chase.cardName}`,
-    `**Thread:** ${titleCase(pick.lane)}`,
+    `**Path:** ${discoveryTrailLabel(pick.lane)}`,
     `**Max Price:** ${chase.maxPrice ?? 'Any'}`,
     `**Grade:** Ungraded`,
     '',
@@ -1042,8 +1533,8 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
   const title = feedback === 'MORE_LIKE_THIS' ? 'Taste Saved' : 'Discovery Tuned';
   const message =
     feedback === 'MORE_LIKE_THIS'
-      ? `Vaultr will treat **${pick.cardName}** as a stronger taste signal.`
-      : `Vaultr will steer away from **${pick.cardName}** and its thread for now.`;
+      ? `Vaultr will treat **${pick.cardName}** as a stronger taste cue.`
+      : `Vaultr will steer away from **${pick.cardName}** and this path for now.`;
 
   await interaction.reply({
     embeds: [successEmbed(title, message)],

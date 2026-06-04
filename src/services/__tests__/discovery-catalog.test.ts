@@ -46,8 +46,7 @@ describe('selectDiscoverySuggestions', () => {
 
     expect(names).toContain('Pokemon promo cards');
     expect(names).toContain('Pokemon special release cards');
-    expect(names).toContain('Pokemon promo value cards');
-    expect(names).not.toContain('Pokemon collector cards');
+    expect(names).toContain('Pokemon collector cards');
     expect(selection.suggestions.find((suggestion) => suggestion.name === 'Pokemon promo cards')?.sourceTasteTokens).toEqual(
       expect.arrayContaining(['promo', 'special'])
     );
@@ -82,7 +81,7 @@ describe('selectDiscoverySuggestions', () => {
     expect(names.some((name) => name.startsWith('Mario Pikachu'))).toBe(false);
   });
 
-  it('keeps high-priority active chases ahead of weaker taste memory without hard-coded branches', () => {
+  it('does not let weak /018 taste memory fabricate e-reader or small-set support', () => {
     const selection = selectDiscoverySuggestions(
       null,
       [
@@ -92,14 +91,14 @@ describe('selectDiscoverySuggestions', () => {
       8
     );
     const names = selection.suggestions.map((suggestion) => suggestion.name);
+    const sourceTasteTokens = selection.suggestions.flatMap((suggestion) => suggestion.sourceTasteTokens ?? []);
 
-    expect(names[0]).toBe('Japanese Pokemon cards');
-    expect(names).toContain('Japanese promo Pokemon cards');
-    expect(names).toContain('Pokemon special release cards');
+    expect(names[0]).toBe('vintage Pokemon cards');
     expect(names.some((name) => name.startsWith('Corocoro Shining Mew'))).toBe(false);
     expect(names.some((name) => name.startsWith('Squirtle'))).toBe(true);
     expect(names).not.toContain('Mew Southern Islands Promo');
-    expect(names.indexOf('Squirtle 007/018 trading card')).toBeGreaterThan(names.indexOf('Pokemon promo cards'));
+    expect(sourceTasteTokens).not.toContain('e-reader');
+    expect(sourceTasteTokens).not.toContain('small set');
   });
 
   it('uses saved focuses only as lightweight text signals', () => {
@@ -143,28 +142,19 @@ describe('selectDiscoverySuggestions', () => {
     expectDistinctLanes(cooled);
   });
 
-  it('cools explicitly rejected lanes without requiring user-steered focus', () => {
-    const cooled = selectDiscoverySuggestions(null, [chase({ cardName: 'Gengar vintage Japanese cards' })], 3, {
-      excludedLanes: ['Japanese Collector Trail']
-    });
-
-    expect(cooled.suggestions.map((suggestion) => suggestion.lane)).not.toContain('Japanese Collector Trail');
-    expectDistinctLanes(cooled);
-  });
-
-  it('lets mode change ordering without changing the learning source', () => {
+  it('blends remembered card and value-aware paths in one ambient profile stream', () => {
     const chases = [chase({ cardName: 'Mew RC24', priority: 'HIGH', tasteSource: 'GOOD_ALERT' })];
-    const similar = selectDiscoverySuggestions(null, chases, 3, { mode: 'similar' });
-    const budget = selectDiscoverySuggestions(null, chases, 3, { mode: 'budget' });
+    const selection = selectDiscoverySuggestions(null, chases, 8);
+    const sourceBacked = selection.suggestions.find((suggestion) => suggestion.lane === 'source-backed matches');
+    const valueAware = selection.suggestions.find((suggestion) => suggestion.maximumBaselineRawTotalCad !== undefined);
 
-    expect(similar.suggestions[0].lane).toBe('source-backed matches');
-    expect(budget.suggestions[0].lane).toBe('value watch thread');
-    expect(budget.suggestions[0].maximumBaselineRawTotalCad).toBe(225);
+    expect(sourceBacked?.name).toBe('Mew RC24 trading card');
+    expect(valueAware?.maximumBaselineRawTotalCad).toBe(225);
   });
 
   it('infers promo and special-release leaning from repeated generic signals', () => {
     const chases = [
-      chase({ cardName: 'Squirtle 007/018', grade: 'UNGRADED' }),
+      chase({ cardName: 'Pikachu Toys R Us 26/83 promo', grade: 'UNGRADED' }),
       chase({ id: 'c2', cardName: 'Moltres Zapdos Articuno SM210', grade: 'UNGRADED' }),
       chase({ id: 'c3', cardName: 'Corocoro Shining Mew', grade: 'UNGRADED' })
     ];
@@ -172,9 +162,23 @@ describe('selectDiscoverySuggestions', () => {
 
     expect(hasPromoLeaningDiscoveryProfile(chases)).toBe(true);
     expect(selection.suggestions.some((suggestion) => suggestion.lane === 'Promo Trail')).toBe(true);
+    expect(selection.suggestions.some((suggestion) => suggestion.lane === 'Vintage Era Trail')).toBe(true);
     expect(selection.suggestions.some((suggestion) => suggestion.name.startsWith('Squirtle'))).toBe(false);
     expect(selection.suggestions.map((suggestion) => suggestion.name)).not.toContain('Pikachu 012 Nintendo Black Star Promo');
     expectDistinctLanes(selection);
+  });
+
+  it('does not infer e-reader, Japanese, or small-set traits from /018 text alone', () => {
+    const selection = selectDiscoverySuggestions(null, [chase({ cardName: 'Squirtle 007/018', priority: 'GRAIL' })], 8);
+    const names = selection.suggestions.map((suggestion) => suggestion.name);
+    const sourceTasteTokens = selection.suggestions.flatMap((suggestion) => suggestion.sourceTasteTokens ?? []);
+
+    expect(names).not.toContain('e-reader Pokemon cards');
+    expect(names).not.toContain('Japanese Pokemon cards');
+    expect(names).not.toContain('Pokemon special release cards');
+    expect(sourceTasteTokens).not.toContain('e-reader');
+    expect(sourceTasteTokens).not.toContain('small set');
+    expect(sourceTasteTokens).not.toContain('japanese');
   });
 
   it('falls back to broad source-backed starter threads without chases', () => {

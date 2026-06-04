@@ -25,7 +25,7 @@ import { searchTrustedShopifyListings } from './shopify.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
-import { activePlanTier, getRuntimePollIntervalSeconds, PLAN_LIMITS } from './plans.js';
+import { activePlanChases, activePlanTier, getRuntimePollIntervalSeconds, PLAN_LIMITS } from './plans.js';
 import { CHASE_ALERT_COOLDOWN_MINUTES, SHOW_ALERT_IMAGES, USE_COMPACT_ALERT_LAYOUT } from './alert-policy.js';
 import { getEntitlementsForTier } from './entitlements.js';
 import {
@@ -545,8 +545,23 @@ async function runPoll(client: Client): Promise<void> {
     return;
   }
 
+  const activeChaseIds = new Set<string>();
+  const chasesByUser = new Map<string, Chase[]>();
+  for (const chase of chases) {
+    const userChases = chasesByUser.get(chase.userId) ?? [];
+    userChases.push(chase);
+    chasesByUser.set(chase.userId, userChases);
+  }
+  for (const [userId, userChases] of chasesByUser.entries()) {
+    const userPlan = getUserPlan(userId);
+    for (const chase of activePlanChases(userChases, userPlan)) {
+      activeChaseIds.add(chase.id);
+    }
+  }
+
   const activeGroups = new Map<string, ActiveGroup>();
   for (const chase of chases) {
+    if (!activeChaseIds.has(chase.id)) continue;
     const userPlan = getUserPlan(chase.userId);
     const tier = activePlanTier(userPlan);
     const intervalSeconds = PLAN_LIMITS[tier].pollIntervalSeconds;
@@ -909,14 +924,14 @@ function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStats
 
 function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   if (stats.topTrackedFamily === 'Mixed collections' && stats.topTrackedTheme === 'Varied styles') {
-    return 'A little bit of everything today; no single thread ran away with it.';
+    return 'A little bit of everything today; no single collecting path ran away with it.';
   }
   return `${stats.topTrackedTheme} around ${stats.topTrackedFamily}`;
 }
 
 export function buildDailyPulseMessage(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   return [
-    '🗝️ **Vault Pulse**',
+    '📡 **Vault Pulse**',
     dailyPulseLine(stats),
     dailyPulseMood(stats),
     '',
@@ -945,8 +960,8 @@ function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectio
 
 function weeklyNextStep(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
   if (summary.alertsReceived >= 25) return 'If this felt noisy, tighten max price, condition, or negative keywords on the chases that fired most.';
-  if (summary.newChasesAdded > 0) return 'Your new chases are now part of Discovery, shaping the next thread Vaultr explores.';
-  if (summary.alertsReceived === 0) return 'Refresh a chase or add another grail if you want Discovery to explore a new thread next week.';
+  if (summary.newChasesAdded > 0) return 'Your new chases are now part of Discovery, shaping the next collecting path Vaultr explores.';
+  if (summary.alertsReceived === 0) return 'Refresh a chase or add another grail if you want Discovery to explore a new collecting path next week.';
   return 'Keep useful chases active and tune out listings that do not match your collecting intent.';
 }
 
@@ -968,12 +983,12 @@ function weeklyMetricField(name: string, value: number, label: string): { name: 
 export function buildWeeklyReflectionEmbed(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(weeklyReflectionColor(summary))
-    .setTitle('🗝️ Vaultr Weekly')
+    .setTitle('📬 Vaultr Weekly')
     .setDescription(weeklyReflectionIntro(summary))
     .addFields(
       weeklyMetricField('👁️ Sightings', summary.alertsReceived, 'alerts sent'),
       weeklyMetricField('💎 Grails', summary.grailsSurfaced, 'high-priority hits'),
-      weeklyMetricField('➕ New Chases', summary.newChasesAdded, 'added signal'),
+      weeklyMetricField('➕ New Chases', summary.newChasesAdded, 'added taste'),
       keyValue('🧭 Current Read', `${summary.topTasteTheme} around ${summary.topTasteFamily}`),
       keyValue('🎯 Next Step', weeklyNextStep(summary))
     )

@@ -15,7 +15,7 @@ type PokemonTcgCard = {
   rarity?: string;
   supertype?: string;
   subtypes?: string[];
-  set?: { name?: string; series?: string; releaseDate?: string };
+  set?: { name?: string; series?: string; releaseDate?: string; printedTotal?: number; total?: number };
   images?: { small?: string; large?: string };
   nationalPokedexNumbers?: number[];
   types?: string[];
@@ -55,13 +55,16 @@ type SourceTasteProfile = {
   hasPriorityJapaneseSignal: boolean;
 };
 
+type SourceIdentityTermSignal = { term: string; weight: number; firstIndex: number };
+
 const POKEMON_TCG_ENDPOINT = 'https://api.pokemontcg.io/v2/cards';
 const TCGDEX_JA_CARDS_ENDPOINT = 'https://api.tcgdex.net/v2/ja/cards';
 const SOURCE_CATALOG_TIMEOUT_MS = 7000;
 const SOURCE_CATALOG_PAGE_SIZE = 48;
 const TCGDEX_SOURCE_CATALOG_PAGE_SIZE = 18;
+const TCGDEX_MAX_DEX_SUMMARY_MATCHES = 60;
 const SOURCE_API_CACHE_TTL_MS = 15 * 60 * 1000;
-const SOURCE_PROFILE_TIMEOUT_MS = 2500;
+const SOURCE_PROFILE_TIMEOUT_MS = 6000;
 const SOURCE_PROFILE_CHASE_LIMIT = 4;
 const SOURCE_PROFILE_PRIMARY_TERM_LIMIT = 2;
 const SOURCE_PROFILE_FALLBACK_TERM_LIMIT = 2;
@@ -95,8 +98,6 @@ const SOURCE_PROFILE_IDENTITY_STOP_WORDS = new Set([
 const JAPANESE_PROMO_CODE_PATTERN = /\b(?:\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3})\b/i;
 const JAPANESE_SCRIPT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff]/;
 const JAPANESE_RELEASE_MARKER_PATTERN = /\b(?:coro\s?coro|vending|masaki|munch|poncho|battle\s*festa|players?\s+club|fan\s+club|trainers?\s+magazine|yu\s?nagaba|precious\s+collector|kanazawa|yokohama|sapporo|pokemon\s+center)\b/i;
-const BARE_COLLECTOR_NUMBER_PATTERN = /\b(\d{1,3})\s*\/\s*(\d{1,3})\b/;
-
 type SourceApiCacheEntry = {
   expiresAt: number;
   json?: any;
@@ -122,6 +123,10 @@ function normalize(value: string): string {
 
 function normalizeSearchText(value: string): string {
   return normalize(value).replace(/[^a-z0-9/ -]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function displayIdentityTerm(value: string): string {
+  return normalizeSearchText(value).replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function normalizedTokens(value: string): string[] {
@@ -200,7 +205,13 @@ export function pokemonTcgCatalogQueriesForSuggestion(suggestion: DiscoverySugge
     queries.push('supertype:Pokemon set.name:Aquapolis');
     queries.push('supertype:Pokemon set.name:Skyridge');
   }
-  if (requiredTokens.has('vintage') || /\bvintage\b/i.test(text)) queries.push('supertype:Pokemon');
+  if (requiredTokens.has('vintage') || /\bvintage\b/i.test(text)) {
+    queries.push('supertype:Pokemon set.series:Base');
+    queries.push('supertype:Pokemon set.series:Gym');
+    queries.push('supertype:Pokemon set.series:Neo');
+    queries.push('supertype:Pokemon set.series:"E-Card"');
+    queries.push('supertype:Pokemon set.series:EX');
+  }
   if (requiredTokens.has('promo') || /\bpromo\b/i.test(text)) queries.push('supertype:Pokemon rarity:Promo');
   if (/\bspecial release\b/i.test(text)) queries.push('supertype:Pokemon rarity:Promo');
   if (/\bcollector\b/i.test(normalized)) queries.push('supertype:Pokemon');
@@ -215,14 +226,7 @@ function hasJapaneseTaste(suggestion: DiscoverySuggestion): boolean {
 
 function hasJapaneseChaseSignal(chase: Chase): boolean {
   const text = [chase.cardName, chase.targetNote].filter(Boolean).join(' ');
-  if (/\b(japanese|japan|jp|jpn)\b/i.test(text) || JAPANESE_PROMO_CODE_PATTERN.test(text) || JAPANESE_SCRIPT_PATTERN.test(text) || JAPANESE_RELEASE_MARKER_PATTERN.test(text)) {
-    return true;
-  }
-  const collectorNumber = BARE_COLLECTOR_NUMBER_PATTERN.exec(chase.cardName);
-  if (!collectorNumber) return false;
-  const localNumber = Number(collectorNumber[1]);
-  const setTotal = Number(collectorNumber[2]);
-  return Number.isFinite(localNumber) && Number.isFinite(setTotal) && (setTotal <= 30 || (localNumber > setTotal && setTotal <= 200));
+  return /\b(japanese|japan|jp|jpn)\b/i.test(text) || JAPANESE_PROMO_CODE_PATTERN.test(text) || JAPANESE_SCRIPT_PATTERN.test(text) || JAPANESE_RELEASE_MARKER_PATTERN.test(text);
 }
 
 function chaseSignalWeight(chase: Chase): number {
@@ -294,7 +298,15 @@ function cardFormatTokensFromText(value: string): Set<string> {
 }
 
 function cardFormatTokens(card: PokemonTcgCard): Set<string> {
-  return cardFormatTokensFromText([card.name, card.rarity, card.set?.name, card.set?.series, ...(card.subtypes ?? [])].filter(Boolean).join(' '));
+  const tokens = cardFormatTokensFromText([card.name, card.rarity, card.set?.name, card.set?.series, ...(card.subtypes ?? [])].filter(Boolean).join(' '));
+  const size = setSize(card);
+  if (size !== undefined && size <= 30) tokens.add('small set');
+  return tokens;
+}
+
+function setSize(card: PokemonTcgCard): number | undefined {
+  const size = card.set?.printedTotal ?? card.set?.total;
+  return typeof size === 'number' && Number.isFinite(size) && size > 0 ? size : undefined;
 }
 
 function isPremiumIllustrationRarity(card: PokemonTcgCard): boolean {
@@ -319,6 +331,22 @@ function isModernPlainPromo(card: PokemonTcgCard): boolean {
   const nameTokens = normalizedTokens(card.name ?? '').filter((token) => !['ex', 'gx', 'v', 'vmax', 'vstar'].includes(token));
   const year = releaseYear(card);
   return year >= 2017 && nameTokens.length <= 2 && /\bpromo|black star|promos\b/.test(text) && !hasPremiumCollectorShape(card) && !isOrdinaryExCard(card);
+}
+
+function isOrdinaryModernMainSetCard(card: PokemonTcgCard): boolean {
+  const text = normalizeSearchText([card.name, card.rarity, card.set?.name, card.set?.series, ...(card.subtypes ?? [])].filter(Boolean).join(' '));
+  const year = releaseYear(card);
+  if (year < 2017) return false;
+  if (/\bpromo|black star|promos\b/.test(text)) return false;
+  if (hasPremiumCollectorShape(card) || isOrdinaryExCard(card)) return false;
+  return /\b(?:common|uncommon|rare|rare holo)\b/.test(text);
+}
+
+function isOrdinaryLowRarityMainSetCard(card: PokemonTcgCard): boolean {
+  const text = normalizeSearchText([card.name, card.rarity, card.set?.name, card.set?.series, ...(card.subtypes ?? [])].filter(Boolean).join(' '));
+  if (/\bpromo|black star|promos\b/.test(text)) return false;
+  if (hasPremiumCollectorShape(card) || isOrdinaryExCard(card)) return false;
+  return /\b(?:common|uncommon)\b/.test(text);
 }
 
 function addFormatCounts(formatCounts: Map<string, number>, formats: Iterable<string>): void {
@@ -351,6 +379,11 @@ async function fetchTcgDexJapaneseSummariesByName(name: string): Promise<TcgDexC
 async function fetchTcgDexJapaneseCard(id: string): Promise<TcgDexCard | null> {
   const json = await fetchJsonWithTimeout(`${TCGDEX_JA_CARDS_ENDPOINT}/${encodeURIComponent(id)}`, SOURCE_CATALOG_TIMEOUT_MS).catch(() => null);
   return json && typeof json === 'object' ? (json as TcgDexCard) : null;
+}
+
+async function fetchDexNumbersForIdentityTerm(term: string): Promise<number[]> {
+  const cards = await fetchPokemonCards(`name:${quoted(term)}`, 5).catch(() => []);
+  return [...new Set(cards.flatMap((card) => card.nationalPokedexNumbers ?? []).filter((dex) => Number.isFinite(dex)))];
 }
 
 async function resolveActiveChaseSourceCards(activeChases: Chase[]): Promise<PokemonTcgCard[]> {
@@ -414,7 +447,7 @@ function sourceTasteProfileFromCards(cards: PokemonTcgCard[], activeChases: Chas
   const ordinaryExSupportCount = explicitExSignalCount > 0 ? resolvedOrdinaryExCount : 0;
   const types = new Set(cards.flatMap((card) => card.types ?? []).map(normalizeSearchText).filter(Boolean));
   const subtypes = new Set(cards.flatMap((card) => card.subtypes ?? []).map(normalizeSearchText).filter(Boolean));
-  const setTokens = normalizeTokenSet(cards.flatMap((card) => [card.set?.name, card.set?.series, card.rarity]));
+  const setTokens = normalizeTokenSet(cards.flatMap((card) => [card.set?.name, card.set?.series, card.rarity, setSize(card) !== undefined && setSize(card)! <= 30 ? 'small set' : undefined]));
   const releaseYears = cards.map(releaseYear).filter((year) => year > 0);
   const dexValues = [...dexNumbers];
   const kantoRatio = dexValues.length === 0 ? 0 : dexValues.filter((dex) => dex >= 1 && dex <= 151).length / dexValues.length;
@@ -444,38 +477,71 @@ async function sourceTasteProfile(activeChases: Chase[]): Promise<SourceTastePro
   const now = Date.now();
   const cacheKey = sourceTasteProfileCacheKey(activeChases);
   const cached = sourceTasteProfileCache.get(cacheKey);
-  if (cached && cached.expiresAt > now) return cached.promise;
+  const fallbackProfile = sourceTasteProfileFromCards([], activeChases, japaneseSignalRatio(activeChases), hasPriorityJapaneseSignal(activeChases));
+  if (cached && cached.expiresAt > now) return withFallbackTimeout(cached.promise, SOURCE_PROFILE_TIMEOUT_MS, fallbackProfile);
 
   const sourceCardsPromise = resolveActiveChaseSourceCards(activeChases).catch(() => []);
-  const promise = withFallbackTimeout(sourceCardsPromise, SOURCE_PROFILE_TIMEOUT_MS, []).then((cards) =>
+  const promise = sourceCardsPromise.then((cards) =>
     sourceTasteProfileFromCards(cards, activeChases, japaneseSignalRatio(activeChases), hasPriorityJapaneseSignal(activeChases))
   );
   sourceTasteProfileCache.set(cacheKey, { expiresAt: now + SOURCE_API_CACHE_TTL_MS, promise });
   try {
-    return await promise;
+    return await withFallbackTimeout(promise, SOURCE_PROFILE_TIMEOUT_MS, fallbackProfile);
   } catch (error) {
     sourceTasteProfileCache.delete(cacheKey);
     throw error;
   }
 }
 
-function sourceIdentityTermsFromChases(chases: Chase[], limit: number): string[] {
-  const terms: string[] = [];
+function sourceIdentityTermSignalsFromChases(chases: Chase[], limit: number): SourceIdentityTermSignal[] {
+  const terms = new Map<string, SourceIdentityTermSignal>();
+  let firstIndex = 0;
   for (const chase of chases) {
+    const weight = chaseSignalWeight(chase);
     const chaseTerms = activeChaseSearchTerms(chase)
       .flatMap((term) => normalizedTokens(term.name))
       .filter((token) => token.length >= 3 && /[a-z]/i.test(token) && !/\d/.test(token) && !SOURCE_PROFILE_IDENTITY_STOP_WORDS.has(token));
     for (const term of chaseTerms) {
-      if (terms.includes(term)) continue;
-      terms.push(term);
-      if (terms.length >= limit) return terms;
+      const existing = terms.get(term);
+      if (existing) {
+        existing.weight = Math.max(existing.weight, weight);
+        continue;
+      }
+      terms.set(term, { term, weight, firstIndex });
+      firstIndex += 1;
     }
   }
-  return terms;
+  return [...terms.values()].sort((left, right) => right.weight - left.weight || left.firstIndex - right.firstIndex).slice(0, limit);
+}
+
+function sourceIdentityTermsFromChases(chases: Chase[], limit: number): string[] {
+  return sourceIdentityTermSignalsFromChases(chases, limit).map((signal) => signal.term);
+}
+
+function sourceIdentityTermWeightByTerm(chases: Chase[]): Map<string, number> {
+  return new Map(sourceIdentityTermSignalsFromChases(chases, Number.POSITIVE_INFINITY).map((signal) => [signal.term, signal.weight]));
+}
+
+function queryNameAnchorTerm(query: string): string | undefined {
+  const term = /(?:^|\s)name:"([^"]+)"/i.exec(query)?.[1];
+  return term ? normalizeSearchText(term) : undefined;
+}
+
+function anchorBoostForWeight(weight: number | undefined): number {
+  return weight === undefined ? 80 : 60 + Math.round(weight * 35);
+}
+
+function hasEReaderProfileEvidence(profile: SourceTasteProfile): boolean {
+  return profile.formatCounts.has('e-reader') || ['e-card', 'expedition', 'aquapolis', 'skyridge'].some((token) => profile.setTokens.has(token));
+}
+
+function hasSmallSetProfileEvidence(profile: SourceTasteProfile): boolean {
+  return profile.formatCounts.has('small set') || profile.setTokens.has('small set');
 }
 
 function expandedQueriesForProfile(baseQueries: string[], profile: SourceTasteProfile, activeChases: Chase[] = []): string[] {
   const queries = [...baseQueries];
+  const profileTerms = sourceIdentityTermsFromChases(activeChases, 12);
   const promoBase = baseQueries.find((query) => /rarity:Promo/i.test(query));
   if (promoBase) {
     if (profile.kantoRatio >= 0.5) queries.push(`${promoBase} nationalPokedexNumbers:[1 TO 151]`);
@@ -484,11 +550,20 @@ function expandedQueriesForProfile(baseQueries: string[], profile: SourceTastePr
       if (profile.subtypes.has(subtype)) queries.push(`${promoBase} subtypes:${subtype.includes(' ') ? quoted(subtype.toUpperCase()) : subtype.toUpperCase()}`);
     }
     for (const type of [...profile.types].slice(0, 3)) queries.push(`${promoBase} types:${type}`);
+    for (const term of profileTerms) queries.push(`${promoBase} name:${quoted(term)}`);
   }
-  const eReaderBases = baseQueries.filter((query) => /set\.(?:series|name):/i.test(query) && /e-card|expedition|aquapolis|skyridge/i.test(query));
+  const broadPokemonBases = baseQueries.filter((query) => /^supertype:Pokemon$/i.test(query));
+  for (const base of broadPokemonBases) {
+    for (const term of profileTerms.slice(0, 8)) queries.push(`${base} name:${quoted(term)}`);
+  }
+  const profileEReaderBases = ['supertype:Pokemon set.series:"E-Card"', 'supertype:Pokemon set.name:Expedition', 'supertype:Pokemon set.name:Aquapolis', 'supertype:Pokemon set.name:Skyridge'];
+  const explicitEReaderBases = baseQueries.filter((query) => /set\.(?:series|name):/i.test(query) && /e-card|expedition|aquapolis|skyridge/i.test(query));
+  const eReaderBases = explicitEReaderBases.length > 0 ? explicitEReaderBases : hasEReaderProfileEvidence(profile) ? profileEReaderBases : [];
+  if (explicitEReaderBases.length === 0 && eReaderBases.length > 0) queries.push(...eReaderBases);
+  if (hasSmallSetProfileEvidence(profile)) queries.push('supertype:Pokemon');
   if (eReaderBases.length > 0) {
     const targetedBases = eReaderBases.filter((query) => /set\.series:/i.test(query));
-    const targetTerms = sourceIdentityTermsFromChases(activeChases, 8);
+    const targetTerms = profileTerms.slice(0, 8);
     if (targetTerms.length > 0 && targetedBases.length > 0) {
       const nonEReaderQueries = queries.filter((query) => !eReaderBases.includes(query));
       queries.length = 0;
@@ -691,6 +766,12 @@ function isBroadCollectorSuggestion(suggestion: DiscoverySuggestion): boolean {
   return taste.includes('collector') || /\bcollector\b/.test(text);
 }
 
+function isVintageSuggestion(suggestion: DiscoverySuggestion): boolean {
+  const taste = (suggestion.sourceTasteTokens ?? []).map(normalizeSearchText).filter(Boolean);
+  const text = normalizeSearchText([sourceText(suggestion), ...taste, ...(suggestion.requiredEvidenceTokens ?? [])].join(' '));
+  return taste.includes('vintage') || /\bvintage\b|\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(text);
+}
+
 function hasExactPokemonProfileAnchor(card: PokemonTcgCard, profile: SourceTasteProfile): boolean {
   if (profile.dexNumbers.size === 0) return true;
   return (card.nationalPokedexNumbers ?? []).some((dex) => profile.dexNumbers.has(dex));
@@ -700,6 +781,12 @@ function matchesPokemonTcgProfileAnchor(card: PokemonTcgCard, suggestion: Discov
   if (isBroadCollectorSuggestion(suggestion) && profile.dexNumbers.size === 0) return false;
   if (hasExactPokemonProfileAnchor(card, profile)) return true;
   return !isBroadCollectorSuggestion(suggestion);
+}
+
+function matchesVintageProfileEvidence(card: PokemonTcgCard, suggestion: DiscoverySuggestion, profile: SourceTasteProfile, hasAnchoredQuery: boolean): boolean {
+  if (!isVintageSuggestion(suggestion) || profile.signalCount === 0) return true;
+  const hasExactDexEvidence = profile.dexNumbers.size > 0 && hasExactPokemonProfileAnchor(card, profile);
+  return hasExactDexEvidence || hasAnchoredQuery;
 }
 
 function isGenericSourceThread(suggestion: DiscoverySuggestion): boolean {
@@ -719,7 +806,9 @@ function matchesCardFormatProfile(card: PokemonTcgCard, suggestion: DiscoverySug
 }
 
 function matchesCollectorQualityProfile(card: PokemonTcgCard, suggestion: DiscoverySuggestion, profile: SourceTasteProfile): boolean {
-  if (isGenericSourceThread(suggestion) && profile.signalCount > 0 && profile.dexNumbers.size === 0 && !hasPremiumCollectorShape(card)) return false;
+  if (isBroadCollectorSuggestion(suggestion) && profile.signalCount > 0 && profile.dexNumbers.size === 0 && !hasPremiumCollectorShape(card)) return false;
+  if (isGenericSourceThread(suggestion) && !isVintageSuggestion(suggestion) && isOrdinaryLowRarityMainSetCard(card)) return false;
+  if (isGenericSourceThread(suggestion) && isOrdinaryModernMainSetCard(card)) return false;
   return !(isGenericSourceThread(suggestion) && isModernPlainPromo(card));
 }
 
@@ -778,6 +867,7 @@ async function resolveTcgDexJapaneseCards(
   const summariesById = new Map<string, TcgDexCardSummary>();
   for (const dexId of [...profile.dexNumbers].slice(0, 8)) {
     const summaries = await fetchTcgDexJapaneseSummaries(dexId).catch(() => []);
+    if (summaries.length > TCGDEX_MAX_DEX_SUMMARY_MATCHES) continue;
     for (const summary of summaries.slice(0, TCGDEX_SOURCE_CATALOG_PAGE_SIZE)) {
       if (summary.id) summariesById.set(summary.id, summary);
     }
@@ -785,8 +875,18 @@ async function resolveTcgDexJapaneseCards(
 
   for (const chase of tasteProfileChases.slice(0, TCGDEX_PROFILE_CHASE_LIMIT)) {
     for (const term of activeChaseSearchTerms(chase).filter((searchTerm) => /[a-z]/i.test(searchTerm.name) && isUsefulIdentityTerm(searchTerm)).slice(0, TCGDEX_PROFILE_TERM_LIMIT)) {
+      const dexNumbers = await fetchDexNumbersForIdentityTerm(term.name);
+      for (const dexId of dexNumbers) {
+        profile.dexNumbers.add(dexId);
+        if (!profile.dexNames.has(dexId)) profile.dexNames.set(dexId, displayIdentityTerm(term.name));
+        const summaries = await fetchTcgDexJapaneseSummaries(dexId).catch(() => []);
+        if (summaries.length > TCGDEX_MAX_DEX_SUMMARY_MATCHES) continue;
+        for (const summary of summaries.slice(0, TCGDEX_SOURCE_CATALOG_PAGE_SIZE)) {
+          if (summary.id) summariesById.set(summary.id, summary);
+        }
+      }
       const summaries = await fetchTcgDexJapaneseSummariesByName(term.name).catch(() => []);
-      for (const summary of summaries.slice(0, Math.floor(TCGDEX_SOURCE_CATALOG_PAGE_SIZE / 3))) {
+      for (const summary of summaries.slice(0, TCGDEX_SOURCE_CATALOG_PAGE_SIZE)) {
         if (summary.id) summariesById.set(summary.id, summary);
       }
     }
@@ -834,25 +934,35 @@ export async function resolveSourceBackedDiscoveryCards(
     }
 
     const cardsById = new Map<string, PokemonTcgCard>();
-    const anchoredQueryCardIds = new Set<string>();
+    const anchoredQueryCardScores = new Map<string, number>();
+    const anchorWeightsByTerm = sourceIdentityTermWeightByTerm(tasteProfileChases);
     const expandedQueries = expandedQueriesForProfile(queries, profile, tasteProfileChases);
     const queryResults = await Promise.all(expandedQueries.map(async (query) => ({ query, cards: await fetchPokemonCards(query, SOURCE_CATALOG_PAGE_SIZE).catch(() => []) })));
     for (const { query, cards } of queryResults) {
+      const anchorTerm = queryNameAnchorTerm(query);
+      const anchorBoost = anchorBoostForWeight(anchorTerm ? anchorWeightsByTerm.get(anchorTerm) : undefined);
       for (const card of cards) {
         if (!card.id || normalize(card.supertype ?? '') !== 'pokemon') continue;
         cardsById.set(card.id, card);
-        if (/\bname:/i.test(query)) anchoredQueryCardIds.add(card.id);
+        if (anchorTerm) anchoredQueryCardScores.set(card.id, Math.max(anchoredQueryCardScores.get(card.id) ?? 0, anchorBoost));
       }
     }
 
-    const rankedCardScore = (card: PokemonTcgCard) => candidateScore(card, suggestion, profile) + (anchoredQueryCardIds.has(card.id ?? '') ? 80 : 0);
+    const rankedCardScore = (card: PokemonTcgCard) => candidateScore(card, suggestion, profile) + (anchoredQueryCardScores.get(card.id ?? '') ?? 0);
     const rankedCards = [...cardsById.values()].sort((left, right) => rankedCardScore(right) - rankedCardScore(left));
     const japaneseSeed = japaneseSuggestions.slice(0, japaneseSuggestionCap(suggestion, profile, limit));
     const suggestions: DiscoverySuggestion[] = [...japaneseSeed];
     const seenNames = new Set(japaneseSeed.map((sourceSuggestion) => normalizeSearchText(sourceSuggestion.name)));
     const seenPokemonSubjects = new Set<string>();
     for (const card of rankedCards) {
-      if (!matchesPokemonTcgProfileAnchor(card, suggestion, profile) || !matchesCardFormatProfile(card, suggestion, profile) || !matchesCollectorQualityProfile(card, suggestion, profile)) continue;
+      const hasAnchoredQuery = anchoredQueryCardScores.has(card.id ?? '');
+      if (
+        !matchesPokemonTcgProfileAnchor(card, suggestion, profile) ||
+        !matchesVintageProfileEvidence(card, suggestion, profile, hasAnchoredQuery) ||
+        !matchesCardFormatProfile(card, suggestion, profile) ||
+        !matchesCollectorQualityProfile(card, suggestion, profile)
+      )
+        continue;
       const sourceSuggestion = sourceSuggestionFromPokemonCard(suggestion, card);
       if (!sourceSuggestion) continue;
       if (isActiveChaseEchoText(sourceSuggestion.name, activeChases) || isActiveChaseEchoText(sourceSuggestion.evidenceSearchTerm ?? '', activeChases)) continue;

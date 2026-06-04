@@ -9,7 +9,7 @@ import {
   shouldPostDailyPulse
 } from '../poller.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
-import { activePlanTier, getRuntimePollIntervalSeconds, PLAN_LIMITS } from '../plans.js';
+import { activePlanChases, activePlanTier, getRuntimePollIntervalSeconds, pausedPlanChases, PLAN_LIMITS } from '../plans.js';
 
 describe('orderGroupsForRun', () => {
   it('prioritizes groups that have never consumed a source fetch', () => {
@@ -99,6 +99,19 @@ describe('plan access', () => {
     expect(activePlanTier({ tier: 'PRO', status: 'PAST_DUE' })).toBe('FREE');
     expect(activePlanTier({ tier: 'PRO', status: 'CANCELED' })).toBe('FREE');
     expect(activePlanTier({ tier: 'FREE', status: 'ACTIVE' })).toBe('FREE');
+  });
+
+  it('keeps only the Free allowance active when Pro access is paused', () => {
+    const chases = [
+      { id: 'normal-old', priority: 'NORMAL' as const, createdAt: '2026-06-01T00:00:00.000Z' },
+      { id: 'grail-new', priority: 'GRAIL' as const, createdAt: '2026-06-04T00:00:00.000Z' },
+      { id: 'high', priority: 'HIGH' as const, createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'normal-new', priority: 'NORMAL' as const, createdAt: '2026-06-05T00:00:00.000Z' }
+    ];
+
+    expect(activePlanChases(chases, { tier: 'PRO', status: 'PAST_DUE' }).map((chase) => chase.id)).toEqual(['grail-new', 'high', 'normal-old']);
+    expect(pausedPlanChases(chases, { tier: 'PRO', status: 'PAST_DUE' }).map((chase) => chase.id)).toEqual(['normal-new']);
+    expect(activePlanChases(chases, { tier: 'PRO', status: 'ACTIVE' }).map((chase) => chase.id)).toEqual(['grail-new', 'high', 'normal-old', 'normal-new']);
   });
 });
 
@@ -194,7 +207,7 @@ describe('buildWeeklyReflectionEmbed', () => {
     });
     const data = embed.toJSON();
 
-    expect(data.title).toBe('🗝️ Vaultr Weekly');
+    expect(data.title).toBe('📬 Vaultr Weekly');
     expect(data.description).toContain('4 sightings');
     expect(data.description).toContain('1 grail');
     expect(data.fields?.map((field) => field.name)).toEqual([
@@ -207,7 +220,7 @@ describe('buildWeeklyReflectionEmbed', () => {
     expect(data.fields?.[0].value).toBe('**4**\nalerts sent');
     expect(data.fields?.[0].inline).toBe(true);
     expect(data.fields?.[1].value).toBe('**1**\nhigh-priority hits');
-    expect(data.fields?.[2].value).toBe('**2**\nadded signal');
+    expect(data.fields?.[2].value).toBe('**2**\nadded taste');
     expect(data.fields?.[3].value).toBe('moonlit alt art around Eeveelution cards');
     expect(data.fields?.[4].value).toContain('new chases are now part of Discovery');
     expect(data.footer?.text).toBe('Vaultr • Weekly');
@@ -269,7 +282,7 @@ describe('buildDailyPulseMessage', () => {
       hiddenDiscovery: 'Umbreon VMAX Alt Art PSA 10'
     });
 
-    expect(message).toContain('🗝️ **Vault Pulse**');
+    expect(message).toContain('📡 **Vault Pulse**');
     expect(message).toContain('2 collectors started a Vault');
     expect(message).toContain('3 collectors got a chase ping');
     expect(message).toContain('A grail made an appearance, with moonlit alt art still drawing eyes.');
@@ -299,6 +312,6 @@ describe('buildDailyPulseMessage', () => {
     expect(message).toContain('Quiet day. The chases stayed tucked in and kept watch.');
     expect(message).toContain('Nothing loud today, but the watch list kept doing its quiet collector math.');
     expect(message).toContain('• Chases stayed on watch in the background');
-    expect(message).toContain('• A little bit of everything today; no single thread ran away with it.');
+    expect(message).toContain('• A little bit of everything today; no single collecting path ran away with it.');
   });
 });

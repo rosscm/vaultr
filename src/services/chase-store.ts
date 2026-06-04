@@ -63,6 +63,22 @@ type UserDiscoveryFeedbackRow = {
   last_interacted_at: string;
 };
 
+export type UserDiscoveryState = {
+  userId: string;
+  mode: string;
+  profileFingerprint: string;
+  suggestionNames: string[];
+  updatedAt: string;
+};
+
+type UserDiscoveryStateRow = {
+  user_id: string;
+  mode: string;
+  profile_fingerprint: string;
+  suggestion_names_json: string;
+  updated_at: string;
+};
+
 function mapRow(row: ChaseRow): Chase {
   return {
     id: row.id,
@@ -262,6 +278,39 @@ const listRecentUserDiscoveryFeedbackStmt = db.prepare(`
   ORDER BY last_interacted_at DESC
   LIMIT ?
 `);
+
+const getUserDiscoveryStateStmt = db.prepare(`
+  SELECT user_id, mode, profile_fingerprint, suggestion_names_json, updated_at
+  FROM user_discovery_state
+  WHERE user_id = ? AND mode = ?
+  LIMIT 1
+`);
+
+const upsertUserDiscoveryStateStmt = db.prepare(`
+  INSERT INTO user_discovery_state (user_id, mode, profile_fingerprint, suggestion_names_json, updated_at)
+  VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(user_id, mode) DO UPDATE SET
+    profile_fingerprint = excluded.profile_fingerprint,
+    suggestion_names_json = excluded.suggestion_names_json,
+    updated_at = excluded.updated_at
+`);
+
+function mapUserDiscoveryState(row: UserDiscoveryStateRow): UserDiscoveryState {
+  let suggestionNames: string[] = [];
+  try {
+    const parsed = JSON.parse(row.suggestion_names_json) as unknown;
+    if (Array.isArray(parsed)) suggestionNames = parsed.filter((name): name is string => typeof name === 'string' && name.trim().length > 0);
+  } catch {
+    suggestionNames = [];
+  }
+  return {
+    userId: row.user_id,
+    mode: row.mode,
+    profileFingerprint: row.profile_fingerprint,
+    suggestionNames,
+    updatedAt: row.updated_at
+  };
+}
 
 function normalizeListingSourceModePreference(value: string | null | undefined): ListingSourceModePreference {
   if (value === 'EBAY' || value === 'EBAY_SHOPIFY' || value === 'SHOPIFY') return value;
@@ -1310,6 +1359,17 @@ export function markUserDiscoverySuggestionsSeen(userId: string, suggestionNames
   const now = new Date().toISOString();
   const uniqueSuggestionNames = [...new Set(suggestionNames.map((name) => name.trim()).filter(Boolean))];
   for (const suggestionName of uniqueSuggestionNames) upsertUserDiscoverySeenStmt.run(userId, suggestionName, now, now);
+}
+
+export function getUserDiscoveryState(userId: string, mode: string): UserDiscoveryState | null {
+  const row = getUserDiscoveryStateStmt.get(userId, mode) as UserDiscoveryStateRow | undefined;
+  return row ? mapUserDiscoveryState(row) : null;
+}
+
+export function upsertUserDiscoveryState(input: { userId: string; mode: string; profileFingerprint: string; suggestionNames: string[] }): void {
+  const now = new Date().toISOString();
+  const suggestionNames = [...new Set(input.suggestionNames.map((name) => name.trim()).filter(Boolean))];
+  upsertUserDiscoveryStateStmt.run(input.userId, input.mode, input.profileFingerprint, JSON.stringify(suggestionNames), now);
 }
 
 function inferFamilyFromText(values: string[], minimumMentions = 1): string | null {

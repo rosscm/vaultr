@@ -25,6 +25,39 @@ export function activePlanLimits(plan: Pick<UserPlan, 'tier' | 'status'>): { max
   return PLAN_LIMITS[activePlanTier(plan)];
 }
 
+type PlanChaseLike = {
+  priority?: 'GRAIL' | 'HIGH' | 'NORMAL';
+  createdAt: string;
+};
+
+function planChasePriorityRank(chase: PlanChaseLike): number {
+  if (chase.priority === 'GRAIL') return 1;
+  if (chase.priority === 'HIGH') return 2;
+  return 3;
+}
+
+export function orderPlanChases<T extends PlanChaseLike>(chases: T[]): T[] {
+  return [...chases].sort((a, b) => {
+    const priorityDelta = planChasePriorityRank(a) - planChasePriorityRank(b);
+    if (priorityDelta !== 0) return priorityDelta;
+    return a.createdAt.localeCompare(b.createdAt);
+  });
+}
+
+export function activePlanChases<T extends PlanChaseLike>(chases: T[], plan: Pick<UserPlan, 'tier' | 'status'>): T[] {
+  return orderPlanChases(chases).slice(0, activePlanLimits(plan).maxActiveChases);
+}
+
+export function pausedPlanChases<T extends PlanChaseLike>(chases: T[], plan: Pick<UserPlan, 'tier' | 'status'>): T[] {
+  return orderPlanChases(chases).slice(activePlanLimits(plan).maxActiveChases);
+}
+
+export function formatActivePlanAccess(plan: Pick<UserPlan, 'tier' | 'status'>): string {
+  const activeTier = activePlanTier(plan);
+  if (plan.tier === activeTier) return activeTier;
+  return `${activeTier} (${plan.tier} ${plan.status}; Pro paused)`;
+}
+
 export function getRuntimePollIntervalSeconds(): number {
   const value = Number(process.env.POLL_INTERVAL_SECONDS ?? '300');
   return Number.isFinite(value) ? Math.max(30, Math.floor(value)) : 300;

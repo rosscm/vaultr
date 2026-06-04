@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings, getUserPlan, setUserAlertSettings } from '../services/chase-store.js';
-import { activePlanTier, formatPollInterval, PLAN_LIMITS } from '../services/plans.js';
+import { getEntitlementsForTier } from '../services/entitlements.js';
+import { activePlanTier, formatActivePlanAccess, formatPollInterval, PLAN_LIMITS } from '../services/plans.js';
 import { listTrustedShopifyShopNames } from '../services/shopify.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
@@ -13,6 +14,13 @@ function displaySourceMode(value: ListingSourceModePreference): string {
   if (value === 'EBAY_SHOPIFY') return 'eBay + Trusted Shops';
   if (value === 'SHOPIFY') return 'Trusted Shops Only';
   return 'eBay';
+}
+
+export function displayEffectiveSourceMode(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
+  const entitlements = getEntitlementsForTier(activeTier);
+  if (entitlements.storefrontMonitoring) return displaySourceMode(value);
+  if (value === 'EBAY_SHOPIFY' || value === 'SHOPIFY') return displaySourceMode('EBAY');
+  return displaySourceMode(value);
 }
 
 function planSourceButton(
@@ -52,14 +60,16 @@ function planSourceRows(userId: string, activeTier: 'FREE' | 'PRO', currentSourc
   return buttons.length > 0 ? [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)] : [];
 }
 
-function buildPlanViewPayload(userId: string, title = '🧾 Your Vaultr Plan') {
+function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan') {
   const userPlan = getUserPlan(userId);
   const settings = getUserAlertSettings(userId);
   const activeTier = activePlanTier(userPlan);
   const limits = PLAN_LIMITS[activeTier];
   const trustedShopNames = listTrustedShopifyShopNames().join(', ');
-  const activeAccessLine = userPlan.tier === activeTier ? activeTier : `${activeTier} (${userPlan.tier} ${userPlan.status}; Pro paused)`;
-  const embed = infoEmbed(title, 'Your Vault access and Pro controls at a glance.');
+  const wiredShopsLine =
+    activeTier === 'PRO' ? `**Wired Shops:** ${trustedShopNames}` : `**Wired Shops:** Pro monitors ${trustedShopNames}`;
+  const activeAccessLine = formatActivePlanAccess(userPlan);
+  const embed = infoEmbed(title, 'Your current access, limits, and source controls.');
   embed.addFields(
     {
       name: 'Access',
@@ -77,17 +87,17 @@ function buildPlanViewPayload(userId: string, title = '🧾 Your Vaultr Plan') {
     {
       name: 'Sources',
       value: [
-        `**Current:** ${displaySourceMode(settings.listingSourceMode)}`,
+        `**Current:** ${displayEffectiveSourceMode(settings.listingSourceMode, activeTier)}`,
         activeTier === 'PRO'
           ? '**Trusted Shops:** Choose eBay + shops, or shops only, with the buttons below'
           : '**Trusted Shops:** Unlock with Pro for shop restocks and fixed-price singles',
-        `**Wired Shops:** ${trustedShopNames}`
+        wiredShopsLine
       ].join('\n'),
       inline: false
     },
     {
       name: 'Discovery',
-      value: activeTier === 'PRO' ? 'Full Taste Profile depth' : 'Basic taste paths; Pro deepens weekly Taste Profile recaps',
+      value: activeTier === 'PRO' ? 'Full Taste Profile depth' : 'Basic collecting paths; Pro deepens weekly Taste Profile recaps',
       inline: false
     },
     {
@@ -161,7 +171,7 @@ export async function handlePlanSourceButtons(interaction: any): Promise<boolean
   const [, ownerUserId, sourceRaw] = interaction.customId.split(':');
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({
-      embeds: [warningEmbed('Not Your Plan', 'Only the original requester can update this Vault source.')],
+      embeds: [warningEmbed('Plan Belongs Elsewhere', 'Only the original requester can update this Vault source.')],
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -173,7 +183,7 @@ export async function handlePlanSourceButtons(interaction: any): Promise<boolean
   const userPlan = getUserPlan(interaction.user.id);
   if (activePlanTier(userPlan) !== 'PRO') {
     await interaction.reply({
-      embeds: [warningEmbed('Pro Feature', 'Trusted shop source controls are available on Pro.')],
+      embeds: [warningEmbed('Shop Sources Are Pro', 'Trusted shop source controls are available on Pro.')],
       flags: MessageFlags.Ephemeral
     });
     return true;

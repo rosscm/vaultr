@@ -1,20 +1,22 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import {
-  countUserChases,
   getUserAlertSettings,
-  getUserPlan
+  getUserPlan,
+  listChases
 } from '../services/chase-store.js';
-import { activePlanLimits, activePlanTier } from '../services/plans.js';
+import { activePlanChases, activePlanLimits, activePlanTier, formatActivePlanAccess, pausedPlanChases } from '../services/plans.js';
 import { infoEmbed } from '../ui/embeds.js';
 
 export const start = {
   data: new SlashCommandBuilder()
     .setName('start')
-    .setDescription('Open your Vault and begin your first chase'),
+    .setDescription('Open the Vaultr onboarding guide'),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
     const settings = getUserAlertSettings(interaction.user.id);
-    const activeChases = countUserChases(interaction.user.id);
+    const storedChases = listChases(interaction.user.id);
+    const activeChases = activePlanChases(storedChases, plan);
+    const pausedChases = pausedPlanChases(storedChases, plan);
     const activeTier = activePlanTier(plan);
     const limits = activePlanLimits(plan);
 
@@ -23,11 +25,12 @@ export const start = {
       '',
       '**Step 1:** Add a card you are chasing with `/chase add`',
       '**Step 2:** Tune your sighting controls with `/alerts settings`',
-      '**Step 3:** Use `/discover` when you want Vaultr to find a new thread',
+      '**Step 3:** Use `/discover` when you want Vaultr to surface a new collecting path',
       '**Step 4:** Watch your DMs for chase sightings and weekly recaps',
       '',
-      `**Plan:** ${activeTier}${plan.tier !== activeTier ? ` (${plan.tier} ${plan.status}; Pro paused)` : ''}`,
-      `**Active Chases:** ${activeChases}/${limits.maxActiveChases}`,
+      `**Plan:** ${formatActivePlanAccess(plan)}`,
+      `**Active Chases:** ${activeChases.length}/${limits.maxActiveChases}`,
+      ...(pausedChases.length > 0 ? [`**Paused Chases:** ${pausedChases.length} saved for Pro`] : []),
       `**Minimum Confidence:** ${settings.minScore}`,
       `**Price Currency:** ${settings.alertCurrency}`,
       '',
@@ -35,7 +38,7 @@ export const start = {
     ];
 
     await interaction.reply({
-      embeds: [infoEmbed('🗝️ Start Your Vault', lines.join('\n'))],
+      embeds: [infoEmbed('🏁 Getting Started', lines.join('\n'))],
       flags: MessageFlags.Ephemeral
     });
   }

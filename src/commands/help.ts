@@ -18,7 +18,7 @@ export const help = {
       '',
       '**Collector Tip**',
       '- Casing does not matter',
-      '- For cleaner signals, include card number when relevant',
+      '- For cleaner matches, include card number when relevant',
       '',
       '**Commands**',
       '- Start: `/start`',
@@ -39,11 +39,11 @@ export const help = {
       '',
       '**Glossary**',
       '- `confidence`: how strongly a listing fits your chase',
-      '- `signals`: the main reasons a sighting surfaced'
+      '- `cues`: the main reasons a sighting surfaced'
     ];
 
     await interaction.reply({
-      embeds: [infoEmbed('🗝️ Vaultr Guide', lines.join('\n'))],
+      embeds: [infoEmbed('🧭 Vaultr Guide', lines.join('\n'))],
       flags: MessageFlags.Ephemeral
     });
   }

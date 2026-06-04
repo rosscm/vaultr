@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, SlashCommandBuilder } from 'discord.js';
-import { getUserAlertSettings, listChases } from '../services/chase-store.js';
+import { getUserAlertSettings, getUserPlan, listChases } from '../services/chase-store.js';
+import { activePlanChases, activePlanLimits, pausedPlanChases } from '../services/plans.js';
 import { infoEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 
@@ -35,6 +36,10 @@ function makePaginationRow(userId: string, page: number, totalPages: number): Ac
 function buildChaseListEmbed(userId: string, page: number) {
   const chases = listChases(userId);
   const settings = getUserAlertSettings(userId);
+  const plan = getUserPlan(userId);
+  const limits = activePlanLimits(plan);
+  const activeChaseIds = new Set(activePlanChases(chases, plan).map((chase) => chase.id));
+  const pausedCount = pausedPlanChases(chases, plan).length;
   const currency = settings.alertCurrency;
   const total = chases.length;
   if (total === 0) {
@@ -68,6 +73,7 @@ function buildChaseListEmbed(userId: string, page: number) {
       if (c.negativeKeywords && c.negativeKeywords.length > 0) {
         extras.push(`Blocked: ${c.negativeKeywords.join(', ')}`);
       }
+      if (!activeChaseIds.has(c.id)) extras.push('Status: Paused until Pro');
 
       return extras.length > 0 ? `${summary}\n${extras.join(' | ')}` : summary;
     });
@@ -86,18 +92,20 @@ function buildChaseListEmbed(userId: string, page: number) {
   ].filter(Boolean);
 
   const description = [
-    `**Total Active Chases:** ${total}`,
+    `**Active Chases:** ${activeChaseIds.size}/${limits.maxActiveChases}`,
+    ...(pausedCount > 0 ? [`**Paused Chases:** ${pausedCount} saved for Pro`] : []),
+    `**Saved Chases:** ${total}`,
     `**Page:** ${currentPage + 1}/${totalPages}`,
     '',
     groupedSections.join('\n\n'),
     '',
     '---',
-    '**Quick Actions:** refine with `/chase edit entry:<n>`, clear with `/chase remove entries:<n>`, or explore new threads with `/discover`'
+    '**Quick Actions:** refine with `/chase edit entry:<n>`, clear with `/chase remove entries:<n>`, or explore new collecting paths with `/discover`'
   ].join('\n');
 
   return {
     empty: false as const,
-    embeds: [infoEmbed('🗝️ Your Vault Chases', description)],
+    embeds: [infoEmbed('📚 Vault Chases', description)],
     components: [makePaginationRow(userId, currentPage, totalPages)]
   };
 }

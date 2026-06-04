@@ -1,6 +1,6 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserAlertSettings, getUserPlan, setUserAlertSettings } from '../services/chase-store.js';
-import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
+import { activePlanTier, formatActivePlanAccess, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { OUTPUT_STYLE } from '../ui/style.js';
@@ -61,11 +61,6 @@ function isStorefrontSourceMode(value: ListingSourceModePreference | null): bool
 function displayListingSourceSetting(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
   if (activeTier === 'FREE' && isStorefrontSourceMode(value)) return 'eBay (stored shop preference paused)';
   return displaySourceMode(value);
-}
-
-function displayPlanAccess(plan: ReturnType<typeof getUserPlan>, activeTier: 'FREE' | 'PRO'): string {
-  if (plan.tier === activeTier) return activeTier;
-  return `${activeTier} (${plan.tier} ${plan.status}; Pro paused)`;
 }
 
 function displayTrustedShopAccess(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
@@ -154,7 +149,7 @@ export const alertsSettings = {
       await interaction.reply({
         embeds: [
           warningEmbed(
-            'Pro Feature',
+            'Shop Sources Are Pro',
             `Pro watches trusted card shops alongside eBay, useful for raw singles, promos, and shop restocks.\n\n**Free:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Pro:** eBay + Trusted Shops, Trusted Shops Only, and ${PLAN_LIMITS.PRO.maxActiveChases} active chases\n**Next:** use \`/upgrade\` to unlock`
           )
         ],
@@ -179,7 +174,7 @@ export const alertsSettings = {
       {
         name: 'Plan',
         value: [
-          `**Access:** ${displayPlanAccess(plan, activeTier)}`,
+          `**Access:** ${formatActivePlanAccess(plan)}`,
           `**Chases:** ${PLAN_LIMITS[activeTier].maxActiveChases} active`
         ].join('\n'),
         inline: false
@@ -216,8 +211,8 @@ export const alertsSettings = {
     ];
 
     const embed = noChanges
-      ? infoEmbed('🔔 Vaultr Settings', 'Your chase sighting controls at a glance.')
-      : successEmbed('Vaultr Settings Updated', 'Your chase sighting controls are updated.').setTitle('✅ Vaultr Settings Updated');
+      ? infoEmbed('🔔 Vaultr Settings', 'Your alert rules and source settings.')
+      : successEmbed('Vaultr Settings Updated', 'Your alert rules are updated.').setTitle('✅ Vaultr Settings Updated');
 
     embed.addFields(...fields);
 

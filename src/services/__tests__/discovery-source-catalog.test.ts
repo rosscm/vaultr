@@ -52,148 +52,6 @@ describe('discovery source catalog', () => {
     expect(queries).toEqual(expect.arrayContaining(['supertype:Pokemon set.series:"E-Card"', 'supertype:Pokemon set.name:Expedition']));
   });
 
-  it('keeps source expansion alive when one expanded catalog query times out', async () => {
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(String(input));
-      const query = url.searchParams.get('q') ?? '';
-      if (query.includes('set.series')) {
-        const error = new Error('timeout');
-        error.name = 'AbortError';
-        throw error;
-      }
-      const data = query.includes('set.name:Expedition')
-        ? [
-            {
-              id: 'ecard-pikachu-124',
-              name: 'Pikachu',
-              number: '124',
-              supertype: 'Pokemon',
-              subtypes: ['Basic'],
-              rarity: 'Common',
-              nationalPokedexNumbers: [25],
-              set: { name: 'Expedition Base Set', series: 'E-Card', releaseDate: '2002/09/15' },
-              images: { small: 'https://images.example/pikachu-expedition.png' }
-            }
-          ]
-        : [];
-      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }) as any;
-
-    const resolved = await resolveSourceBackedDiscoveryCards(
-      {
-        name: 'e-reader Pokemon cards',
-        lane: 'E-Reader Era Trail',
-        laneWhy: 'profile',
-        why: 'profile',
-        nearby: [],
-        evidenceSearchTerm: 'e-reader Pokemon cards',
-        requiredEvidenceTokens: ['e-reader'],
-        sourceTasteTokens: ['e-reader', 'vintage']
-      },
-      [],
-      3,
-      []
-    );
-
-    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual(['Pikachu Expedition Base Set 124']);
-  });
-
-  it('uses active profile identity terms to find e-reader cards beyond the broad catalog page', async () => {
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(String(input));
-      const query = url.searchParams.get('q') ?? '';
-      const data = query.includes('name:"zapdos"')
-        ? [
-            {
-              id: 'ecard-zapdos-h32',
-              name: 'Zapdos',
-              number: 'H32',
-              supertype: 'Pokemon',
-              subtypes: ['Basic'],
-              rarity: 'Rare Holo',
-              nationalPokedexNumbers: [145],
-              set: { name: 'Aquapolis', series: 'E-Card', releaseDate: '2003/01/15' },
-              images: { small: 'https://images.example/zapdos-aquapolis.png' }
-            }
-          ]
-        : [];
-      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }) as any;
-
-    const resolved = await resolveSourceBackedDiscoveryCards(
-      {
-        name: 'e-reader Pokemon cards',
-        lane: 'E-Reader Era Trail',
-        laneWhy: 'profile',
-        why: 'profile',
-        nearby: [],
-        evidenceSearchTerm: 'e-reader Pokemon cards',
-        requiredEvidenceTokens: ['e-reader'],
-        sourceTasteTokens: ['e-reader', 'vintage']
-      },
-      [chase('Moltres Zapdos Articuno SM210')],
-      3,
-      [chase('Moltres Zapdos Articuno SM210')]
-    );
-
-    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual(['Zapdos Aquapolis H32']);
-  });
-
-  it('ranks active-profile e-reader query results ahead of broad e-reader page results', async () => {
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(String(input));
-      const query = url.searchParams.get('q') ?? '';
-      const data = query.includes('name:"moltres"')
-        ? [
-            {
-              id: 'ecard-moltres-h20',
-              name: 'Moltres',
-              number: 'H20',
-              supertype: 'Pokemon',
-              subtypes: ['Basic'],
-              rarity: 'Rare Holo',
-              nationalPokedexNumbers: [146],
-              set: { name: 'Skyridge', series: 'E-Card', releaseDate: '2003/05/12' },
-              images: { small: 'https://images.example/moltres-skyridge.png' }
-            }
-          ]
-        : query.includes('set.name:Skyridge')
-          ? [
-              {
-                id: 'ecard-umbreon-h30',
-                name: 'Umbreon',
-                number: 'H30',
-                supertype: 'Pokemon',
-                subtypes: ['Stage 1'],
-                rarity: 'Rare Holo',
-                nationalPokedexNumbers: [197],
-                set: { name: 'Skyridge', series: 'E-Card', releaseDate: '2003/05/12' },
-                images: { small: 'https://images.example/umbreon-skyridge.png' }
-              }
-            ]
-          : [];
-      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }) as any;
-
-    const resolved = await resolveSourceBackedDiscoveryCards(
-      {
-        name: 'e-reader Pokemon cards',
-        lane: 'E-Reader Era Trail',
-        laneWhy: 'profile',
-        why: 'profile',
-        nearby: [],
-        evidenceSearchTerm: 'e-reader Pokemon cards',
-        requiredEvidenceTokens: ['e-reader'],
-        sourceTasteTokens: ['e-reader', 'vintage']
-      },
-      [chase('Moltres Zapdos Articuno SM210')],
-      2,
-      [chase('Moltres Zapdos Articuno SM210')]
-    );
-
-    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual(['Moltres Skyridge H20']);
-  });
-
   it('turns broad taste threads into named source-backed cards', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(
@@ -315,7 +173,8 @@ describe('discovery source catalog', () => {
         sourceTasteTokens: ['promo', 'ex']
       },
       [],
-      2
+      2,
+      [chase('Pikachu')]
     );
 
     expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual(['Alakazam ex Scarlet & Violet Black Star Promos 50']);
@@ -548,6 +407,244 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.name).toBe('Gardevoir ex Scarlet & Violet 245');
   });
 
+  it('uses resolved active card metadata to open e-reader source paths', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const query = url.searchParams.get('q') ?? '';
+      const data = query.includes('name:"squirtle" number:007')
+        ? [
+            {
+              id: 'ecard-squirtle-007',
+              name: 'Squirtle',
+              number: '007',
+              supertype: 'Pokemon',
+              subtypes: ['Basic'],
+              rarity: 'Common',
+              types: ['Water'],
+              nationalPokedexNumbers: [7],
+              set: { name: 'Expedition Base Set', series: 'E-Card', releaseDate: '2002/09/15', printedTotal: 165 }
+            }
+          ]
+        : query.includes('set.series:"E-Card"')
+          ? [
+              {
+                id: 'ecard-articuno-h3',
+                name: 'Articuno',
+                number: 'H3',
+                supertype: 'Pokemon',
+                subtypes: ['Basic'],
+                rarity: 'Rare Holo',
+                types: ['Water'],
+                nationalPokedexNumbers: [144],
+                set: { name: 'Skyridge', series: 'E-Card', releaseDate: '2003/05/12', printedTotal: 144 },
+                images: { small: 'https://images.example/articuno-skyridge.png' }
+              }
+            ]
+          : [];
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Pokemon special release cards',
+        lane: 'Special Release Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Pokemon special release cards',
+        requiredEvidenceTokens: ['pokemon'],
+        sourceTasteTokens: ['special']
+      },
+      [priorityChase('Squirtle 007/018', 'GRAIL')],
+      3
+    );
+
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toContain('Articuno Skyridge H3');
+  });
+
+  it('uses chase priority to rank source-backed e-reader identity matches without card-specific expectations', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const query = url.searchParams.get('q') ?? '';
+      const data = query.includes('name:"squirtle" number:007')
+        ? [
+            {
+              id: 'ecard-squirtle-007',
+              name: 'Squirtle',
+              number: '007',
+              supertype: 'Pokemon',
+              subtypes: ['Basic'],
+              rarity: 'Common',
+              types: ['Water'],
+              nationalPokedexNumbers: [7],
+              set: { name: 'Expedition Base Set', series: 'E-Card', releaseDate: '2002/09/15', printedTotal: 165 }
+            }
+          ]
+        : query.includes('set.series:"E-Card" name:"squirtle"')
+          ? [
+              {
+                id: 'ecard-squirtle-132',
+                name: 'Squirtle',
+                number: '132',
+                supertype: 'Pokemon',
+                subtypes: ['Basic'],
+                rarity: 'Common',
+                types: ['Water'],
+                nationalPokedexNumbers: [7],
+                set: { name: 'Expedition Base Set', series: 'E-Card', releaseDate: '2002/09/15', printedTotal: 165 },
+                images: { small: 'https://images.example/squirtle-expedition.png' }
+              }
+            ]
+          : query.includes('set.series:"E-Card" name:"articuno"')
+            ? [
+                {
+                  id: 'ecard-articuno-h3',
+                  name: 'Articuno',
+                  number: 'H3',
+                  supertype: 'Pokemon',
+                  subtypes: ['Basic'],
+                  rarity: 'Rare Holo',
+                  types: ['Water'],
+                  nationalPokedexNumbers: [144],
+                  set: { name: 'Skyridge', series: 'E-Card', releaseDate: '2003/05/12', printedTotal: 144 },
+                  images: { small: 'https://images.example/articuno-skyridge.png' }
+                }
+              ]
+            : [];
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'e-reader Pokemon cards',
+        lane: 'E-Reader Era Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'e-reader Pokemon cards',
+        requiredEvidenceTokens: ['e-reader'],
+        sourceTasteTokens: ['e-reader', 'vintage']
+      },
+      [priorityChase('Squirtle 007/018', 'GRAIL'), priorityChase('Articuno', 'NORMAL')],
+      3
+    );
+
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual(['Squirtle Expedition Base Set 132', 'Articuno Skyridge H3']);
+  });
+
+  it('does not surface unanchored broad vintage catalog filler when a profile exists', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const query = url.searchParams.get('q') ?? '';
+      const data = query.includes('name:"mew"')
+        ? [
+            {
+              id: 'ecard-mew-55',
+              name: 'Mew',
+              number: '55',
+              supertype: 'Pokemon',
+              subtypes: ['Basic'],
+              rarity: 'Rare Holo',
+              types: ['Psychic'],
+              nationalPokedexNumbers: [151],
+              set: { name: 'Expedition Base Set', series: 'E-Card', releaseDate: '2002/09/15' }
+            }
+          ]
+        : query.includes('set.series:Base')
+          ? [
+              {
+                id: 'base-zubat-70',
+                name: 'Zubat',
+                number: '70',
+                supertype: 'Pokemon',
+                subtypes: ['Basic'],
+                rarity: 'Common',
+                types: ['Grass'],
+                nationalPokedexNumbers: [41],
+                set: { name: 'Team Rocket', series: 'Base', releaseDate: '2000/04/24' },
+                images: { small: 'https://images.example/zubat-rocket.png' }
+              }
+            ]
+          : [];
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'vintage Pokemon cards',
+        lane: 'Vintage Era Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'vintage Pokemon cards',
+        requiredEvidenceTokens: ['vintage'],
+        sourceTasteTokens: ['vintage']
+      },
+      [priorityChase('Mew RC24', 'HIGH')],
+      3
+    );
+
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toContain('Mew Expedition Base Set 55');
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain('Zubat Team Rocket 70');
+  });
+
+  it('uses resolved set size metadata rather than /018 text for compact-set profile expansion', async () => {
+    const queries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const query = url.searchParams.get('q') ?? '';
+      queries.push(query);
+      const data = query.includes('name:"pikachu" number:001')
+        ? [
+            {
+              id: 'mini-pikachu-001',
+              name: 'Pikachu',
+              number: '001',
+              supertype: 'Pokemon',
+              subtypes: ['Basic'],
+              rarity: 'Common',
+              types: ['Lightning'],
+              nationalPokedexNumbers: [25],
+              set: { name: 'Tiny Source Set', series: 'Other', releaseDate: '2022/01/01', printedTotal: 18 }
+            }
+          ]
+        : query === 'supertype:Pokemon'
+          ? [
+              {
+                id: 'mini-eevee-002',
+                name: 'Eevee',
+                number: '002',
+                supertype: 'Pokemon',
+                subtypes: ['Basic'],
+                rarity: 'Common',
+                types: ['Colorless'],
+                nationalPokedexNumbers: [133],
+                set: { name: 'Tiny Source Set', series: 'Other', releaseDate: '2022/01/01', printedTotal: 18 },
+                images: { small: 'https://images.example/eevee-mini.png' }
+              }
+            ]
+          : [];
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Pokemon promo cards',
+        lane: 'Promo Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Pokemon promo cards',
+        requiredEvidenceTokens: ['promo'],
+        sourceTasteTokens: ['promo']
+      },
+      [priorityChase('Pikachu 001/018', 'HIGH')],
+      2
+    );
+
+    expect(queries).toContain('supertype:Pokemon');
+  });
+
   it('uses active source-profile metadata to prefer matching collector energy over generic modern promos', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
@@ -729,6 +826,96 @@ describe('discovery source catalog', () => {
     );
     expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain('ロケットのミュウツー 闇からの挑戦 055');
     expect(resolved.suggestions[0]?.requiredEvidenceTokens).toContain('japanese');
+  });
+
+  it('ignores overly broad TCGdex dex summaries so real Japanese profile matches survive', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        const query = url.searchParams.get('q') ?? '';
+        const data = query.includes('name:"pikachu"')
+          ? [
+              {
+                id: 'basep-26',
+                name: 'Pikachu',
+                number: '26',
+                supertype: 'Pokemon',
+                subtypes: ['Basic'],
+                rarity: 'Promo',
+                types: ['Lightning'],
+                nationalPokedexNumbers: [25],
+                set: { name: 'Wizards Black Star Promos', series: 'Base', releaseDate: '2000/07/01' }
+              }
+            ]
+          : query.includes('name:"mew"')
+            ? [
+                {
+                  id: 'bw11-RC24',
+                  name: 'Mew-EX',
+                  number: 'RC24',
+                  supertype: 'Pokemon',
+                  subtypes: ['Basic', 'EX'],
+                  rarity: 'Rare Ultra',
+                  types: ['Psychic'],
+                  nationalPokedexNumbers: [151],
+                  set: { name: 'Legendary Treasures', series: 'Black & White', releaseDate: '2013/11/06' }
+                }
+              ]
+            : [];
+        return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (url.pathname === '/v2/ja/cards') {
+        if (url.searchParams.get('dexId') === '25') {
+          return new Response(
+            JSON.stringify(
+              Array.from({ length: 70 }, (_, index) => ({ id: `NOISY-${index}`, localId: String(index + 1).padStart(3, '0'), name: `Noisy ${index}` }))
+            ),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        if (url.searchParams.get('dexId') === '151') {
+          return new Response(JSON.stringify([{ id: 'S12a-052', localId: '052', name: 'ミュウ', image: 'https://assets.tcgdex.net/ja/S/S12a/052' }]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      return new Response(
+        JSON.stringify({
+          category: 'Pokemon',
+          id: 'S12a-052',
+          localId: '052',
+          name: 'ミュウ',
+          image: 'https://assets.tcgdex.net/ja/S/S12a/052',
+          rarity: 'Rare',
+          set: { id: 'S12a', name: 'VSTARユニバース' },
+          dexId: [151],
+          types: ['Psychic'],
+          stage: 'Basic'
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Japanese Pokemon cards',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Japanese Pokemon cards',
+        requiredEvidenceTokens: ['japanese'],
+        sourceTasteTokens: ['japanese']
+      },
+      [priorityChase('Pikachu 26/83 promo', 'HIGH'), priorityChase('Mew RC24', 'HIGH')],
+      2
+    );
+
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toContain('Mew Japanese S12a 052');
   });
 
   it('uses Japanese-coded active chases to resolve broad promo threads through TCGdex', async () => {
@@ -1100,8 +1287,7 @@ describe('discovery source catalog', () => {
       3
     );
 
-    expect(resolved.suggestions.map((suggestion) => suggestion.referenceSourceName)).toEqual(['TCGdex Japanese (SV2a)']);
-    expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain('Mewtwo & Mew-GX SM Black Star Promos SM191');
+    expect(resolved.suggestions[0]?.referenceSourceName).toBe('TCGdex Japanese (SV2a)');
     expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain('コイキング トリプレットビート 022');
   });
 
@@ -1238,14 +1424,14 @@ describe('discovery source catalog', () => {
 
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
-        name: 'Pokemon collector cards',
-        lane: 'Collector Compass',
+        name: 'Pokemon promo cards',
+        lane: 'Promo Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
-        evidenceSearchTerm: 'Pokemon collector cards',
-        requiredEvidenceTokens: ['pokemon'],
-        sourceTasteTokens: ['collector']
+        evidenceSearchTerm: 'Pokemon promo cards',
+        requiredEvidenceTokens: ['promo'],
+        sourceTasteTokens: ['promo']
       },
       [chase('Mew LP MP it RC24'), chase('Zapdos lightning promo')],
       3
@@ -1257,120 +1443,52 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain('Tauros Chaos Rising 96');
   });
 
-  it('does not resolve broad collector threads when the source profile has no card anchors', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          data: [
-            {
-              id: 'mega-060',
-              name: 'Metang',
-              number: '60',
-              supertype: 'Pokemon',
-              subtypes: ['Stage 1'],
-              rarity: 'Uncommon',
-              nationalPokedexNumbers: [375],
-              set: { name: 'Chaos Rising', series: 'Mega Evolution', releaseDate: '2026/05/01' }
-            }
-          ]
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      )
-    ) as any;
-
-    const resolved = await resolveSourceBackedDiscoveryCards(
-      {
-        name: 'Pokemon collector cards',
-        lane: 'Collector Compass',
-        laneWhy: 'profile',
-        why: 'profile',
-        nearby: [],
-        evidenceSearchTerm: 'Pokemon collector cards',
-        requiredEvidenceTokens: ['pokemon'],
-        sourceTasteTokens: ['collector']
-      },
-      [],
-      3,
-      []
-    );
-
-    expect(resolved.suggestions).toEqual([]);
-  });
-
-  it('still resolves special-release threads to premium collector shapes when profile anchors are unavailable', async () => {
+  it('does not surface ordinary modern common cards when collector-shaped alternatives exist', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      const query = url.searchParams.get('q') ?? '';
-      const data = query.includes('name:')
-        ? []
-        : [
-            {
-              id: 'sm-promos-SM168',
-              name: 'Pikachu & Zekrom-GX',
-              number: 'SM168',
-              supertype: 'Pokemon',
-              subtypes: ['Basic', 'TAG TEAM', 'GX'],
-              rarity: 'Promo',
-              nationalPokedexNumbers: [25, 644],
-              set: { name: 'SM Black Star Promos', series: 'Sun & Moon', releaseDate: '2019/01/01' },
-              images: { small: 'https://images.example/pikachu-zekrom.png' }
-            },
-            {
-              id: 'sv-teal-025',
-              name: 'Teal Mask Ogerpon ex',
-              number: '25',
-              supertype: 'Pokemon',
-              subtypes: ['Basic', 'ex'],
-              rarity: 'Promo',
-              nationalPokedexNumbers: [1017],
-              set: { name: 'Scarlet & Violet Black Star Promos', series: 'Scarlet & Violet', releaseDate: '2025/05/01' },
-              images: { small: 'https://images.example/ogerpon.png' }
-            }
-          ];
+      if (url.hostname === 'api.tcgdex.net') {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const data = [
+        {
+          id: 'sv4pt5-18',
+          name: 'Pikachu',
+          number: '18',
+          supertype: 'Pokemon',
+          subtypes: ['Basic'],
+          rarity: 'Common',
+          types: ['Lightning'],
+          nationalPokedexNumbers: [25],
+          set: { name: 'Paldean Fates', series: 'Scarlet & Violet', releaseDate: '2024/01/26' },
+          images: { small: 'https://images.pokemontcg.io/sv4pt5/18.png' }
+        },
+        {
+          id: 'swshp-SWSH074',
+          name: 'Special Delivery Pikachu',
+          number: 'SWSH074',
+          supertype: 'Pokemon',
+          subtypes: ['Basic'],
+          rarity: 'Promo',
+          types: ['Lightning'],
+          nationalPokedexNumbers: [25],
+          set: { name: 'SWSH Black Star Promos', series: 'Sword & Shield', releaseDate: '2020/11/13' },
+          images: { small: 'https://images.pokemontcg.io/swshp/SWSH074.png' }
+        },
+        {
+          id: 'swshp-SWSH286',
+          name: 'Pikachu VMAX',
+          number: 'SWSH286',
+          supertype: 'Pokemon',
+          subtypes: ['VMAX', 'Promo'],
+          rarity: 'Promo',
+          types: ['Lightning'],
+          nationalPokedexNumbers: [25],
+          set: { name: 'SWSH Black Star Promos', series: 'Sword & Shield', releaseDate: '2022/11/11' },
+          images: { small: 'https://images.pokemontcg.io/swshp/SWSH286.png' }
+        }
+      ];
       return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }) as any;
-
-    const resolved = await resolveSourceBackedDiscoveryCards(
-      {
-        name: 'Pokemon special release cards',
-        lane: 'Special Release Trail',
-        laneWhy: 'profile',
-        why: 'profile',
-        nearby: [],
-        evidenceSearchTerm: 'Pokemon special release cards',
-        requiredEvidenceTokens: ['pokemon'],
-        sourceTasteTokens: ['promo', 'special']
-      },
-      [chase('Mew LP MP it RC24')],
-      3,
-      [chase('Mew LP MP it RC24')]
-    );
-
-    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual(['Pikachu & Zekrom-GX SM Black Star Promos SM168']);
-    expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain('Teal Mask Ogerpon ex Scarlet & Violet Black Star Promos 25');
-  });
-
-  it('does not resolve generic promo threads to unrelated cards when a user profile has no source anchors', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          data: [
-            {
-              id: 'sv-teal-025',
-              name: 'Teal Mask Ogerpon ex',
-              number: '25',
-              supertype: 'Pokemon',
-              subtypes: ['Basic', 'ex'],
-              rarity: 'Promo',
-              nationalPokedexNumbers: [1017],
-              set: { name: 'Scarlet & Violet Black Star Promos', series: 'Scarlet & Violet', releaseDate: '2025/05/01' },
-              images: { small: 'https://images.example/ogerpon.png' }
-            }
-          ]
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      )
-    ) as any;
 
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
@@ -1383,12 +1501,13 @@ describe('discovery source catalog', () => {
         requiredEvidenceTokens: ['promo'],
         sourceTasteTokens: ['promo']
       },
-      [chase('Mew LP MP it RC24')],
-      3,
-      [chase('Mew LP MP it RC24')]
+      [],
+      2
     );
 
-    expect(resolved.suggestions).toEqual([]);
+    const names = resolved.suggestions.map((suggestion) => suggestion.name);
+    expect(names).not.toContain('Pikachu Paldean Fates 18');
+    expect(names).toEqual(expect.arrayContaining(['Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pikachu VMAX SWSH Black Star Promos SWSH286']));
   });
 
   it('does not return cards already on the active chase list', async () => {

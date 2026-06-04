@@ -5,6 +5,7 @@ export type PlanEntitlements = {
   pollIntervalSeconds: number;
   advancedFiltering: boolean;
   discoveryDepth: 'limited' | 'full';
+  discoveryVisibleCards: number;
   storefrontMonitoring: boolean;
 };
 
@@ -14,6 +15,7 @@ export const ENTITLEMENTS_BY_TIER: Record<PlanTier, PlanEntitlements> = {
     pollIntervalSeconds: 1800,
     advancedFiltering: false,
     discoveryDepth: 'limited',
+    discoveryVisibleCards: 3,
     storefrontMonitoring: false
   },
   PRO: {
@@ -21,6 +23,7 @@ export const ENTITLEMENTS_BY_TIER: Record<PlanTier, PlanEntitlements> = {
     pollIntervalSeconds: 900,
     advancedFiltering: true,
     discoveryDepth: 'full',
+    discoveryVisibleCards: 7,
     storefrontMonitoring: true
   }
 };
