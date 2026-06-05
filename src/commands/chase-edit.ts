@@ -1,4 +1,4 @@
-import { MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { ActionRowBuilder, MessageFlags, ModalBuilder, SlashCommandBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { getUserPlan, listChases, updateChase } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
@@ -6,42 +6,218 @@ import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES, gradeSelectionWarning, inferGradingTypeFromGrade, normalizeConditionChoice } from './chase-options.js';
 
+const CHASE_EDIT_MODAL_PREFIX = 'chase-edit-modal';
+
 function displayAny(value: string | undefined): string {
   if (!value || value === 'ANY') return OUTPUT_STYLE.any;
   return value;
 }
 
+function chaseDetailLines(chase: ReturnType<typeof listChases>[number]): string[] {
+  return [
+    `**Card:** ${chase.cardName}`,
+    `**Priority:** ${chase.priority ?? 'NORMAL'}`,
+    `**Note:** ${orNone(chase.targetNote)}`,
+    `**Max Price:** ${chase.maxPrice ?? OUTPUT_STYLE.any}`,
+    `**Grade:** ${displayGrade(chase.grade)}`,
+    `**Condition:** ${displayCondition(chase.condition)}`,
+    `**Listing Type:** ${displayAny(chase.listingType)}`,
+    `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`
+  ];
+}
+
+function chaseChoiceName(chase: ReturnType<typeof listChases>[number], entry: number): string {
+  const details = [
+    chase.maxPrice !== undefined ? `Max ${chase.maxPrice}` : undefined,
+    chase.grade ? displayGrade(chase.grade) : undefined,
+    chase.priority && chase.priority !== 'NORMAL' ? chase.priority : undefined
+  ].filter(Boolean);
+  const suffix = details.length > 0 ? ` — ${details.join(' · ')}` : '';
+  return `#${entry} ${chase.cardName}${suffix}`.slice(0, 100);
+}
+
+function addOptionalValue(input: TextInputBuilder, value: string | undefined): TextInputBuilder {
+  return value && value.length > 0 ? input.setValue(value) : input;
+}
+
+function optionalTextInputValue(interaction: any, customId: string): string | undefined {
+  try {
+    return interaction.fields.getTextInputValue(customId);
+  } catch {
+    return undefined;
+  }
+}
+
+function proControlNames(values: {
+  conditionRaw: string | null;
+  listingType: string | undefined;
+  priority: string | undefined;
+  targetNoteRaw: string | null;
+  negativeKeywordsRaw: string | null;
+}): string[] {
+  return [
+    values.conditionRaw !== null && values.conditionRaw !== 'ANY' ? 'condition' : undefined,
+    values.listingType !== undefined && values.listingType !== 'ANY' ? 'listing type' : undefined,
+    values.priority !== undefined && values.priority !== 'NORMAL' ? 'priority' : undefined,
+    values.targetNoteRaw !== null ? 'note' : undefined,
+    values.negativeKeywordsRaw !== null ? 'blocked terms' : undefined
+  ].filter((value): value is string => Boolean(value));
+}
+
+function chaseEditModal(userId: string, chase: ReturnType<typeof listChases>[number], entry: number, includeProControls: boolean): ModalBuilder {
+  const card = new TextInputBuilder()
+    .setCustomId('card')
+    .setLabel('Card')
+    .setStyle(TextInputStyle.Short)
+    .setMinLength(3)
+    .setMaxLength(100)
+    .setRequired(true)
+    .setValue(chase.cardName);
+  const maxPrice = addOptionalValue(
+    new TextInputBuilder()
+      .setCustomId('max_price')
+      .setLabel('Max price')
+      .setStyle(TextInputStyle.Short)
+      .setMaxLength(20)
+      .setRequired(false)
+      .setPlaceholder('Blank for any price'),
+    chase.maxPrice === undefined ? undefined : String(chase.maxPrice)
+  );
+  const grade = addOptionalValue(
+    new TextInputBuilder()
+      .setCustomId('grade')
+      .setLabel('Grade')
+      .setStyle(TextInputStyle.Short)
+      .setMaxLength(40)
+      .setRequired(false)
+      .setPlaceholder('Blank for Any, or PSA 10 / Ungraded'),
+    chase.grade
+  );
+  const components = [
+    new ActionRowBuilder<TextInputBuilder>().addComponents(card),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(maxPrice),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(grade)
+  ];
+
+  if (includeProControls) {
+    const targetNote = addOptionalValue(
+      new TextInputBuilder()
+        .setCustomId('target_note')
+        .setLabel('Note')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(120)
+        .setRequired(false)
+        .setPlaceholder('What makes this chase special'),
+      chase.targetNote
+    );
+    const negativeKeywords = addOptionalValue(
+      new TextInputBuilder()
+        .setCustomId('negative_keywords')
+        .setLabel('Blocked terms')
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(240)
+        .setRequired(false)
+        .setPlaceholder('Comma-separated terms to block'),
+      chase.negativeKeywords?.join(', ')
+    );
+    components.push(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(targetNote),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(negativeKeywords)
+    );
+  }
+
+  return new ModalBuilder()
+    .setCustomId(`${CHASE_EDIT_MODAL_PREFIX}:${userId}:${chase.id}`)
+    .setTitle(`Edit #${entry}`.slice(0, 45))
+    .addComponents(...components);
+}
+
+function normalizeModalGrade(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || /^any$/i.test(trimmed)) return null;
+  if (/^(raw|ungraded)$/i.test(trimmed)) return 'UNGRADED';
+  return trimmed;
+}
+
+function parseModalMaxPrice(value: string): number | null | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || /^any$/i.test(trimmed)) return null;
+  const parsed = Number(trimmed.replace(/[$,]/g, ''));
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return parsed;
+}
+
+function parseModalNegativeKeywords(value: string): string[] | null {
+  const keywords = value
+    .split(',')
+    .map((keyword) => keyword.trim())
+    .filter(Boolean);
+  return keywords.length > 0 ? keywords : null;
+}
+
+export async function handleChaseEditAutocomplete(interaction: any): Promise<boolean> {
+  if (!interaction.isAutocomplete()) return false;
+  if (interaction.commandName !== 'chase') return false;
+  if (interaction.options.getSubcommand() !== 'edit') return false;
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== 'chase') return false;
+
+  const query = String(focused.value ?? '').trim().toLowerCase();
+  const chases = listChases(interaction.user.id);
+  const entryById = new Map(chases.map((chase, index) => [chase.id, index + 1]));
+  const matches = chases
+    .filter((chase, index) => {
+      if (query.length === 0) return index < 25;
+      const entry = String(index + 1);
+      return entry === query || chase.cardName.toLowerCase().includes(query);
+    })
+    .slice(0, 25)
+    .map((chase) => ({
+      name: chaseChoiceName(chase, entryById.get(chase.id) ?? 0),
+      value: chase.id
+    }));
+
+  await interaction.respond(matches);
+  return true;
+}
+
 export const chaseEdit = {
   data: new SlashCommandBuilder()
     .setName('chase-edit')
-    .setDescription('Tune an active chase by list entry number')
-    .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase list').setRequired(true))
+    .setDescription('Refine a Vault chase')
     .addStringOption((opt) =>
-      opt.setName('card').setDescription('Updated card name or set number').setMinLength(3).setMaxLength(100)
+      opt
+        .setName('chase')
+        .setDescription('Start typing, then pick the chase to edit')
+        .setRequired(true)
+        .setAutocomplete(true)
     )
-    .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated highest total price to surface').setMinValue(0.01))
+    .addStringOption((opt) =>
+      opt.setName('card').setDescription('New card name or set number').setMinLength(3).setMaxLength(100)
+    )
+    .addNumberOption((opt) => opt.setName('max_price').setDescription('New highest total price to surface').setMinValue(0.01))
     .addStringOption((opt) =>
       opt
         .setName('grading_type')
-        .setDescription('Updated slab/raw preference')
+        .setDescription('New slab/raw preference')
         .addChoices(...GRADING_TYPE_CHOICES)
     )
     .addStringOption((opt) =>
       opt
         .setName('grade_value')
-        .setDescription('Updated numeric grade preference')
+        .setDescription('New numeric grade preference')
         .addChoices(...GRADE_VALUE_CHOICES)
     )
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Pro: updated minimum raw condition')
+        .setDescription('Pro: new minimum raw condition')
         .addChoices(...CONDITION_CHOICES)
     )
     .addStringOption((opt) =>
       opt
         .setName('listing_type')
-        .setDescription('Pro: updated auction or Buy It Now preference')
+        .setDescription('Pro: new auction or Buy It Now preference')
         .addChoices(
           { name: 'Any', value: 'ANY' },
           { name: 'Auction', value: 'AUCTION' },
@@ -51,13 +227,13 @@ export const chaseEdit = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Pro: updated terms to keep out')
+        .setDescription('Pro: new terms to block')
         .setMaxLength(240)
     )
     .addStringOption((opt) =>
       opt
         .setName('priority')
-        .setDescription('Pro: updated chase importance')
+        .setDescription('Pro: new chase importance')
         .addChoices(
           { name: 'Normal', value: 'NORMAL' },
           { name: 'High', value: 'HIGH' },
@@ -65,16 +241,18 @@ export const chaseEdit = {
         )
     )
     .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Pro: updated note about this chase').setMaxLength(120)
+      opt.setName('target_note').setDescription('Pro: new note for this chase').setMaxLength(120)
     ),
   async execute(interaction: any) {
-    const entry = interaction.options.getInteger('entry', true);
+    const chaseId = interaction.options.getString('chase', true);
     const chases = listChases(interaction.user.id);
-    const match = chases[entry - 1];
+    const entryById = new Map(chases.map((chase, index) => [chase.id, index + 1]));
+    const match = chases.find((chase) => chase.id === chaseId);
+    const matchEntry = match ? entryById.get(match.id) : undefined;
 
     if (!match) {
       await interaction.reply({
-        embeds: [errorEmbed('Entry Not Found', `No chase found at entry \`${entry}\`. Use /chase list first.`)],
+        embeds: [errorEmbed('Chase Not Found', 'That saved chase could not be found. Try the `chase` picker again.')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -104,28 +282,11 @@ export const chaseEdit = {
     const plan = getUserPlan(interaction.user.id);
     const activeTier = activePlanTier(plan);
     const entitlements = getEntitlementsForTier(activeTier);
-    const usesPrecisionControls =
-      (conditionRaw !== null && conditionRaw !== 'ANY') ||
-      (listingType !== undefined && listingType !== 'ANY') ||
-      (priority !== undefined && priority !== 'NORMAL') ||
-      targetNoteRaw !== null ||
-      negativeKeywordsRaw !== null;
-
-    if (usesPrecisionControls && !entitlements.advancedFiltering) {
-      await interaction.reply({
-        embeds: [
-          warningEmbed(
-            'Pro Chase Controls',
-            `Pro adds precision controls for serious chases.\n\n**Includes:** condition, listing type, custom blocked terms, priority, and chase notes\n**Also:** ${PLAN_LIMITS.PRO.maxActiveChases} active chases and trusted shop monitoring\n**Next:** use \`/upgrade\` to unlock`
-          )
-        ],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
+    const blockedProControls = entitlements.advancedFiltering ? [] : proControlNames({ conditionRaw, listingType, priority, targetNoteRaw, negativeKeywordsRaw });
+    const canUsePrecisionControls = entitlements.advancedFiltering;
 
     const negativeKeywords =
-      negativeKeywordsRaw === null
+      !canUsePrecisionControls || negativeKeywordsRaw === null
         ? undefined
         : negativeKeywordsRaw
             .split(',')
@@ -150,8 +311,23 @@ export const chaseEdit = {
       targetNote === undefined &&
       negativeKeywords === undefined
     ) {
+      await interaction.showModal(chaseEditModal(interaction.user.id, match, matchEntry ?? 0, entitlements.advancedFiltering));
+      return;
+    }
+
+    if (
+      !cardName &&
+      maxPrice === undefined &&
+      grade === undefined &&
+      blockedProControls.length > 0
+    ) {
       await interaction.reply({
-        embeds: [warningEmbed('No Changes Provided', 'Set at least one field to update.')],
+        embeds: [
+          warningEmbed(
+            'Pro Controls Not Applied',
+            `Free Vaults cannot change ${blockedProControls.join(', ')}.\n\n**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`
+          )
+        ],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -159,12 +335,12 @@ export const chaseEdit = {
 
     const updated = updateChase(interaction.user.id, match.id, {
       cardName,
-      priority,
-      targetNote,
+      priority: canUsePrecisionControls ? priority : undefined,
+      targetNote: canUsePrecisionControls ? targetNote : undefined,
       maxPrice,
       grade,
-      condition,
-      listingType,
+      condition: canUsePrecisionControls ? condition : undefined,
+      listingType: canUsePrecisionControls ? listingType : undefined,
       negativeKeywords
     });
 
@@ -174,21 +350,108 @@ export const chaseEdit = {
     }
 
     const lines = [
-      `**Card:** ${updated.cardName}`,
-      `**Priority:** ${updated.priority ?? 'NORMAL'}`,
-      `**Note:** ${orNone(updated.targetNote)}`,
-      `**Max Price:** ${updated.maxPrice ?? OUTPUT_STYLE.any}`,
-      `**Grade:** ${displayGrade(updated.grade)}`,
-      `**Condition:** ${displayCondition(updated.condition)}`,
-      `**Listing Type:** ${displayAny(updated.listingType)}`,
-      `**Blocked Terms:** ${updated.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
+      ...chaseDetailLines(updated),
+      ...(blockedProControls.length > 0
+        ? [
+            '',
+            `**Pro Controls Not Applied:** ${blockedProControls.join(', ')}`,
+            `**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`
+          ]
+        : []),
       '',
       '**Next:** Use `/chase list` to confirm ordering and details'
     ];
 
     await interaction.reply({
-      embeds: [successEmbed(`Chase #${entry} Updated`, lines.join('\n')).setTitle(`✅ Chase #${entry} Updated`)],
+      embeds: [successEmbed(`Chase #${matchEntry} Updated`, lines.join('\n')).setTitle(`✅ Chase #${matchEntry} Updated`)],
       flags: MessageFlags.Ephemeral
     });
   }
 };
+
+export async function handleChaseEditModal(interaction: any): Promise<boolean> {
+  if (!interaction.isModalSubmit()) return false;
+  if (!interaction.customId.startsWith(`${CHASE_EDIT_MODAL_PREFIX}:`)) return false;
+  const [, ownerUserId, chaseId] = interaction.customId.split(':');
+  if (interaction.user.id !== ownerUserId) {
+    await interaction.reply({ embeds: [warningEmbed('Edit Belongs Elsewhere', 'Only the original requester can update this chase.')], flags: MessageFlags.Ephemeral });
+    return true;
+  }
+
+  const chases = listChases(interaction.user.id);
+  const entryById = new Map(chases.map((chase, index) => [chase.id, index + 1]));
+  const match = chases.find((chase) => chase.id === chaseId);
+  if (!match) {
+    await interaction.reply({ embeds: [errorEmbed('Chase Not Found', 'That saved chase could not be found. Try `/chase edit` again.')], flags: MessageFlags.Ephemeral });
+    return true;
+  }
+
+  const cardName = interaction.fields.getTextInputValue('card').trim();
+  const maxPrice = parseModalMaxPrice(interaction.fields.getTextInputValue('max_price'));
+  const grade = normalizeModalGrade(interaction.fields.getTextInputValue('grade'));
+  const targetNoteRaw = optionalTextInputValue(interaction, 'target_note');
+  const negativeKeywordsRaw = optionalTextInputValue(interaction, 'negative_keywords');
+  const targetNoteValue = targetNoteRaw?.trim();
+  const targetNote = targetNoteValue === undefined ? undefined : targetNoteValue.length > 0 ? targetNoteValue : null;
+  const negativeKeywords = negativeKeywordsRaw === undefined ? undefined : parseModalNegativeKeywords(negativeKeywordsRaw);
+
+  if (cardName.length < 3) {
+    await interaction.reply({ embeds: [warningEmbed('Card Name Too Short', 'Use at least 3 characters for the card name.')], flags: MessageFlags.Ephemeral });
+    return true;
+  }
+  if (maxPrice === undefined) {
+    await interaction.reply({ embeds: [warningEmbed('Invalid Max Price', 'Use a number greater than 0, or leave max price blank for Any.')], flags: MessageFlags.Ephemeral });
+    return true;
+  }
+  if (negativeKeywords && negativeKeywords.length > 15) {
+    await interaction.reply({ embeds: [warningEmbed('Too Many Blocked Terms', 'Use at most 15 comma-separated blocked terms.')], flags: MessageFlags.Ephemeral });
+    return true;
+  }
+
+  const plan = getUserPlan(interaction.user.id);
+  const activeTier = activePlanTier(plan);
+  const entitlements = getEntitlementsForTier(activeTier);
+  const changedProFields =
+    (targetNote !== undefined && targetNote !== (match.targetNote ?? null)) ||
+    (negativeKeywords !== undefined && (negativeKeywords?.join(',') ?? null) !== (match.negativeKeywords?.join(',') ?? null));
+  const blockedProControls = changedProFields && !entitlements.advancedFiltering ? ['note or blocked terms'] : [];
+  if (blockedProControls.length > 0 && cardName === match.cardName && maxPrice === (match.maxPrice ?? null) && grade === (match.grade ?? null)) {
+    await interaction.reply({
+      embeds: [warningEmbed('Pro Controls Not Applied', `Free Vaults cannot change note or blocked terms.\n\n**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`)],
+      flags: MessageFlags.Ephemeral
+    });
+    return true;
+  }
+
+  const updated = updateChase(interaction.user.id, match.id, {
+    cardName,
+    maxPrice,
+    grade,
+    targetNote: entitlements.advancedFiltering ? targetNote : undefined,
+    negativeKeywords: entitlements.advancedFiltering ? negativeKeywords : undefined
+  });
+
+  if (!updated) {
+    await interaction.reply({ embeds: [errorEmbed('Update Failed', 'Unable to update chase.')], flags: MessageFlags.Ephemeral });
+    return true;
+  }
+
+  const entry = entryById.get(match.id) ?? 0;
+  const lines = [
+    ...chaseDetailLines(updated),
+    ...(blockedProControls.length > 0
+      ? [
+          '',
+          `**Pro Controls Not Applied:** ${blockedProControls.join(', ')}`,
+          `**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`
+        ]
+      : []),
+    '',
+    '**Next:** Use `/chase list` to confirm ordering and details'
+  ];
+  await interaction.reply({
+    embeds: [successEmbed(`Chase #${entry} Updated`, lines.join('\n')).setTitle(`✅ Chase #${entry} Updated`)],
+    flags: MessageFlags.Ephemeral
+  });
+  return true;
+}

@@ -24,7 +24,7 @@ export const alerts = {
     .addSubcommand((sub) =>
       sub
         .setName('settings')
-        .setDescription('View or update your sighting controls')
+        .setDescription('View or update your Vaultr controls')
         .addStringOption((opt) =>
           opt
             .setName('source')
@@ -75,14 +75,7 @@ export const alerts = {
     .addSubcommand((sub) =>
       sub
         .setName('recent')
-        .setDescription('Review Vaultr sightings and what Vaultr is learning')
-        .addIntegerOption((opt) =>
-          opt
-            .setName('limit')
-            .setDescription('How many sightings to show (default: 10; max: 20)')
-            .setMinValue(1)
-            .setMaxValue(20)
-        )
+        .setDescription('Review your latest Vaultr settings')
     )
     .addSubcommand((sub) =>
       sub

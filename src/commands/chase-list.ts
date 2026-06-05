@@ -45,7 +45,7 @@ function buildChaseListEmbed(userId: string, page: number) {
   if (total === 0) {
     return {
       empty: true as const,
-      embeds: [infoEmbed('📭 No Active Chases', 'Use `/chase add` to start one; your chases shape what `/discover` finds next.')],
+      embeds: [infoEmbed('📭 No Active Chases', 'Clean slate. Use `/chase add` to start the Vault; your chases shape what `/discover` finds next.')],
       components: []
     };
   }
@@ -56,12 +56,20 @@ function buildChaseListEmbed(userId: string, page: number) {
   const pageItems = chases.slice(start, start + PAGE_SIZE);
   const entryById = new Map<string, number>(chases.map((c, idx) => [c.id, idx + 1]));
 
-  const renderGroup = (title: string, items: Array<(typeof pageItems)[number]>): string => {
+  const priorityLabel = (priority: string | undefined): string => {
+    if (priority === 'GRAIL') return 'Grail';
+    if (priority === 'HIGH') return 'High';
+    return 'Normal';
+  };
+
+  const renderGroup = (title: string, items: Array<(typeof pageItems)[number]>, options: { includePriority?: boolean; paused?: boolean } = {}): string => {
     if (items.length === 0) return '';
+    const { includePriority = false, paused = false } = options;
     const rows = items.map((c) => {
       const absoluteIndex = entryById.get(c.id) ?? 0;
       const summary = [
         `**#${absoluteIndex} — ${c.cardName}**`,
+        ...(includePriority ? [`Priority: ${priorityLabel(c.priority)}`] : []),
         `Max: ${c.maxPrice !== undefined ? `${c.maxPrice} ${currency}` : OUTPUT_STYLE.any}`,
         `Grade: ${displayGrade(c.grade)}`,
         `Condition: ${displayCondition(c.condition)}`,
@@ -73,7 +81,7 @@ function buildChaseListEmbed(userId: string, page: number) {
       if (c.negativeKeywords && c.negativeKeywords.length > 0) {
         extras.push(`Blocked: ${c.negativeKeywords.join(', ')}`);
       }
-      if (!activeChaseIds.has(c.id)) extras.push('Status: Paused until Pro');
+      if (paused) extras.push('Status: Paused until Pro');
 
       return extras.length > 0 ? `${summary}\n${extras.join(' | ')}` : summary;
     });
@@ -81,26 +89,31 @@ function buildChaseListEmbed(userId: string, page: number) {
     return `**${title}**\n${rows.join('\n')}`;
   };
 
-  const grail = pageItems.filter((c) => (c.priority ?? 'NORMAL') === 'GRAIL');
-  const high = pageItems.filter((c) => (c.priority ?? 'NORMAL') === 'HIGH');
-  const normal = pageItems.filter((c) => (c.priority ?? 'NORMAL') === 'NORMAL');
+  const activePageItems = pageItems.filter((chase) => activeChaseIds.has(chase.id));
+  const pausedPageItems = pageItems.filter((chase) => !activeChaseIds.has(chase.id));
+  const activeGrail = activePageItems.filter((chase) => (chase.priority ?? 'NORMAL') === 'GRAIL');
+  const activeHigh = activePageItems.filter((chase) => (chase.priority ?? 'NORMAL') === 'HIGH');
+  const activeNormal = activePageItems.filter((chase) => (chase.priority ?? 'NORMAL') === 'NORMAL');
 
   const groupedSections = [
-    renderGroup('🏆 Grail', grail),
-    renderGroup('🔥 High Priority', high),
-    renderGroup('🟢 Normal', normal)
+    renderGroup('🏆 Grail', activeGrail),
+    renderGroup('🔥 High Priority', activeHigh),
+    renderGroup('🟢 Normal', activeNormal),
+    renderGroup('⏸️ Paused Until Pro', pausedPageItems, { includePriority: true, paused: true })
   ].filter(Boolean);
 
   const description = [
     `**Active Chases:** ${activeChaseIds.size}/${limits.maxActiveChases}`,
-    ...(pausedCount > 0 ? [`**Paused Chases:** ${pausedCount} saved for Pro`] : []),
-    `**Saved Chases:** ${total}`,
+    ...(pausedCount > 0 ? [`**Paused Chases:** ${pausedCount} saved, not checked while on Free`] : []),
     `**Page:** ${currentPage + 1}/${totalPages}`,
     '',
     groupedSections.join('\n\n'),
     '',
     '---',
-    '**Quick Actions:** refine with `/chase edit entry:<n>`, clear with `/chase remove entries:<n>`, or explore new collecting paths with `/discover`'
+    '**Next Actions**',
+    '✏️ Refine with `/chase edit`',
+    '🗑️ Remove with `/chase remove`',
+    '✨ Explore a side quest with `/discover`'
   ].join('\n');
 
   return {
@@ -111,7 +124,7 @@ function buildChaseListEmbed(userId: string, page: number) {
 }
 
 export const chaseList = {
-  data: new SlashCommandBuilder().setName('chase-list').setDescription('Show the cards your Vault is watching'),
+  data: new SlashCommandBuilder().setName('chase-list').setDescription('Show your Vault chases'),
   async execute(interaction: any) {
     const payload = buildChaseListEmbed(interaction.user.id, 0);
     await interaction.reply({

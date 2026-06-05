@@ -352,6 +352,39 @@ describe('orderCandidatesFromPersistedState', () => {
 
     expect(ordered.map((item) => item.suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Pikachu Skyridge 84']);
   });
+
+  it('skips recently seen cards when restoring a persisted Pro shelf', () => {
+    const ranked = [
+      candidate('Teal Mask Ogerpon Scarlet & Violet Black Star Promos 123', 'Promo Trail', 0),
+      candidate('Pikachu Skyridge 84', 'Vintage Era Trail', 1),
+      candidate('Mew Japanese S12a 052', 'Japanese Collector Trail', 2)
+    ];
+
+    const ordered = orderCandidatesFromPersistedState(
+      ranked,
+      ['Teal Mask Ogerpon Scarlet & Violet Black Star Promos 123', 'Pikachu Skyridge 84'],
+      2,
+      ['Teal Mask Ogerpon Scarlet & Violet Black Star Promos 123']
+    );
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual(['Pikachu Skyridge 84', 'Mew Japanese S12a 052']);
+  });
+
+  it('can refill a Pro shelf when an older persisted state only has three cards', () => {
+    const ranked = [
+      candidate('Pikachu Skyridge 84', 'Vintage Era Trail', 0),
+      candidate('Mew Japanese S12a 052', 'Japanese Collector Trail', 1),
+      candidate('Squirtle Expedition Base Set 132', 'Vintage Era Trail', 2),
+      candidate('Mew Expedition Base Set 55', 'Vintage Era Trail', 3),
+      candidate('Zapdos Aquapolis 44', 'E-Reader Era Trail', 4),
+      candidate('Articuno Skyridge H3', 'E-Reader Era Trail', 5),
+      candidate('Moltres Wizards Black Star Promos 21', 'Promo Trail', 6)
+    ];
+
+    const ordered = orderCandidatesFromPersistedState(ranked, ['Mew Japanese S12a 052', 'Squirtle Expedition Base Set 132', 'Mew Expedition Base Set 55'], 7);
+
+    expect(ordered.map((item) => item.suggestion.name)).toHaveLength(7);
+  });
 });
 
 describe('preserveLanguageSignalFallbackSuggestions', () => {
@@ -662,7 +695,7 @@ describe('discoveryEmbed', () => {
     ).toJSON();
 
     const signal = embed.fields?.find((field) => field.name === 'Taste Cue')?.value;
-    expect(signal).toContain('Mew Path');
+    expect(signal).toContain('Mew Family');
     expect(signal).toContain('Promo Releases');
     expect(signal).toContain('GX/Tag Team Format');
     expect(signal).not.toContain('Mewtwo & Mew-GX adjacency');
@@ -776,7 +809,7 @@ describe('discoveryEmbed', () => {
 });
 
 describe('discoveryActionRows', () => {
-  it('uses one compact select menu for mobile-friendly actions', () => {
+  it('uses direct Add buttons for Free Discovery', () => {
     const rows = discoveryActionRows('user-1', [
       candidate('Mew Southern Islands Promo', 'mythical display cards', 0),
       candidate('Totodile McDonalds Promo', 'starter promo side paths', 1),
@@ -785,11 +818,11 @@ describe('discoveryActionRows', () => {
     const json = rows[0]?.toJSON() as any;
 
     expect(rows).toHaveLength(1);
-    expect(json.components).toHaveLength(1);
-    expect(json.components[0].options).toHaveLength(9);
+    expect(json.components).toHaveLength(3);
+    expect(json.components[0].label).toBe('Add 1 to Vault');
   });
 
-  it('includes actions for a seven-card Discovery shelf', () => {
+  it('uses one compact card picker for Pro Discovery actions', () => {
     const rows = discoveryActionRows('user-1', [
       candidate('Mew Southern Islands Promo', 'mythical display cards', 0),
       candidate('Totodile McDonalds Promo', 'starter promo side paths', 1),
@@ -798,10 +831,13 @@ describe('discoveryActionRows', () => {
       candidate('Zapdos Aquapolis 44', 'legendary bird thread', 4),
       candidate('Articuno Skyridge H3', 'legendary bird thread', 5),
       candidate('Moltres Wizards Black Star Promos 21', 'promo bird thread', 6)
-    ]);
+    ], true);
     const json = rows[0]?.toJSON() as any;
 
-    expect(json.components[0].options).toHaveLength(21);
+    expect(rows).toHaveLength(1);
+    expect(json.components).toHaveLength(1);
+    expect(json.components[0].placeholder).toBe('Choose a Discovery card');
+    expect(json.components[0].options).toHaveLength(7);
   });
 });
 

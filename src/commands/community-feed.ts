@@ -5,12 +5,12 @@ import { errorEmbed, successEmbed } from '../ui/embeds.js';
 export const communityFeed = {
   data: new SlashCommandBuilder()
     .setName('feed')
-    .setDescription('Admin: set the public Vault Pulse mode')
+    .setDescription('Admin: manage the community Vault Pulse')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((opt) =>
       opt
         .setName('toggle')
-        .setDescription('Control low-noise community pulse posts')
+        .setDescription('Turn community pulse posts on or off')
         .setRequired(true)
         .addChoices(
           { name: 'On', value: 'ON' },

@@ -20,6 +20,7 @@ import {
   getUserPlan,
   listChases,
   listRecentUserDiscoveryFeedback,
+  listRecentUserDiscoverySeenNames,
   listUserTasteMemoryChases,
   markUserDiscoverySuggestionsSeen,
   recordDiscoveryFeedback,
@@ -112,7 +113,7 @@ const CARD_TERMS = ['card', 'cards', 'tcg', 'pokemon', 'psa', 'bgs', 'cgc', 'sgc
 const DISCOVERY_OVERVIEW_COLOR = 0x8b5cf6;
 const DISCOVERY_LANE_COLOR = 0x0e7490;
 const DISCOVERY_SELECTION_VERSION = 4;
-const DISCOVERY_STATE_KEY = 'ambient';
+const DISCOVERY_STATE_BASE_KEY = 'ambient';
 const DISCOVERY_VAULT_PREFIX = 'discover-vault';
 const DISCOVERY_FEEDBACK_PREFIX = 'discover-feedback';
 const DISCOVERY_SELECT_PREFIX = 'discover-action';
@@ -979,7 +980,7 @@ function tasteSignalTokenLabels(tokens: string[], normalizedCardText: string): s
   const identityLabels = normalizedTokens
     .filter((token) => token.length >= 3 && !TASTE_SIGNAL_TRAIT_TOKENS.has(token) && cardTextHasToken(normalizedCardText, token))
     .slice(0, 2)
-    .map((token) => `${titleCase(token)} Path`);
+    .map((token) => `${titleCase(token)} Family`);
   return identityLabels;
 }
 
@@ -1187,57 +1188,57 @@ function createDiscoveryActionItems(userId: string, candidates: DiscoveryCandida
 
 function discoveryVaultButtons(userId: string, actionItems: DiscoveryActionItem[]): ActionRowBuilder<ButtonBuilder>[] {
   if (actionItems.length === 0) return [];
-  const buttons = actionItems.map(({ candidate, token, index }) =>
+  const buttons = actionItems.map(({ token, index }) =>
     new ButtonBuilder()
       .setCustomId(`${DISCOVERY_VAULT_PREFIX}:${userId}:${token}`)
-      .setLabel(truncateValue(`Add ${index}: ${candidate.suggestion.name}`, 80))
+      .setLabel(`Add ${index} to Vault`)
       .setStyle(ButtonStyle.Primary)
   );
   return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
 }
 
-function discoveryFeedbackButtons(userId: string, actionItems: DiscoveryActionItem[], feedback: DiscoveryFeedbackAction): ActionRowBuilder<ButtonBuilder>[] {
-  if (actionItems.length === 0) return [];
-  const isPositive = feedback === 'MORE_LIKE_THIS';
-  const buttons = actionItems.map(({ token, index }) =>
+function discoverySelectedActionRows(userId: string, token: string, includeFeedbackActions: boolean): ActionRowBuilder<ButtonBuilder>[] {
+  const buttons = [
     new ButtonBuilder()
-      .setCustomId(`${DISCOVERY_FEEDBACK_PREFIX}:${userId}:${token}:${feedback}`)
-      .setLabel(`${isPositive ? 'More like' : 'Not for me'} ${index}`)
-      .setStyle(isPositive ? ButtonStyle.Secondary : ButtonStyle.Danger)
-  );
+      .setCustomId(`${DISCOVERY_VAULT_PREFIX}:${userId}:${token}`)
+      .setLabel('Add to Vault')
+      .setStyle(ButtonStyle.Primary)
+  ];
+
+  if (includeFeedbackActions) {
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId(`${DISCOVERY_FEEDBACK_PREFIX}:${userId}:${token}:MORE_LIKE_THIS`)
+        .setLabel('More like this')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`${DISCOVERY_FEEDBACK_PREFIX}:${userId}:${token}:NOT_FOR_ME`)
+        .setLabel('Not for me')
+        .setStyle(ButtonStyle.Danger)
+    );
+  }
+
   return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
 }
 
-function discoveryActionLabel(action: 'ADD' | DiscoveryFeedbackAction, index: number, cardName: string): string {
-  if (action === 'ADD') return truncateValue(`Add ${index}: ${cardName}`, 100);
-  if (action === 'MORE_LIKE_THIS') return truncateValue(`More like ${index}: ${cardName}`, 100);
-  return truncateValue(`Not for me ${index}: ${cardName}`, 100);
-}
-
-export function discoveryActionRows(userId: string, candidates: DiscoveryCandidate[]): DiscoveryActionRow[] {
+export function discoveryActionRows(userId: string, candidates: DiscoveryCandidate[], includeFeedbackActions = false): DiscoveryActionRow[] {
   const actionItems = createDiscoveryActionItems(userId, candidates);
   if (actionItems.length === 0) return [];
 
+  if (!includeFeedbackActions) return discoveryVaultButtons(userId, actionItems);
+
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`${DISCOVERY_SELECT_PREFIX}:${userId}`)
-    .setPlaceholder('Choose a Discovery action')
+    .setPlaceholder('Choose a Discovery card')
     .setMinValues(1)
     .setMaxValues(1);
 
-  const options = actionItems.flatMap(({ candidate, token, index }) => [
+  const options = actionItems.map(({ candidate, token, index }) =>
     new StringSelectMenuOptionBuilder()
-      .setLabel(discoveryActionLabel('ADD', index, candidate.suggestion.name))
-      .setDescription('Add this card to your Vault')
-      .setValue(`ADD:${token}`),
-    new StringSelectMenuOptionBuilder()
-      .setLabel(discoveryActionLabel('MORE_LIKE_THIS', index, candidate.suggestion.name))
-      .setDescription('Save this as a taste cue')
-      .setValue(`MORE_LIKE_THIS:${token}`),
-    new StringSelectMenuOptionBuilder()
-      .setLabel(discoveryActionLabel('NOT_FOR_ME', index, candidate.suggestion.name))
-      .setDescription('Steer Discovery away from this path')
-      .setValue(`NOT_FOR_ME:${token}`)
-  ]);
+      .setLabel(truncateValue(`${index}. ${candidate.suggestion.name}`, 100))
+      .setDescription('Open actions for this card')
+      .setValue(token)
+  );
 
   menu.addOptions(...options);
   return [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)];
@@ -1257,9 +1258,15 @@ export function mergeFreshDiscoveryCandidates(candidates: DiscoveryCandidate[], 
   return mergedCandidates;
 }
 
-function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames: string[]): string {
+function discoveryStateKey(tier: PlanTier, visibleCount: number): string {
+  return `${DISCOVERY_STATE_BASE_KEY}:v${DISCOVERY_SELECTION_VERSION}:${tier.toLowerCase()}:${visibleCount}`;
+}
+
+function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames: string[], tier: PlanTier, visibleCount: number): string {
   const profileInput = {
     discoverySelectionVersion: DISCOVERY_SELECTION_VERSION,
+    tier,
+    visibleCount,
     chases: tasteProfileChases.map((chase) => ({
       id: chase.id,
       cardName: chase.cardName,
@@ -1275,24 +1282,32 @@ function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames:
   return createHash('sha256').update(JSON.stringify(profileInput)).digest('hex');
 }
 
-export function orderCandidatesFromPersistedState(candidates: DiscoveryCandidate[], persistedNames: string[], count: number): DiscoveryCandidate[] {
+export function orderCandidatesFromPersistedState(candidates: DiscoveryCandidate[], persistedNames: string[], count: number, excludedNames: string[] = []): DiscoveryCandidate[] {
   const candidatesByName = new Map(candidates.map((candidate) => [discoveryNameKey(candidate.suggestion.name), candidate]));
   const selected: DiscoveryCandidate[] = [];
   const selectedNames = new Set<string>();
+  const excludedNameKeys = new Set(excludedNames.map(discoveryNameKey));
   for (const name of persistedNames) {
     const nameKey = discoveryNameKey(name);
     const candidate = candidatesByName.get(nameKey);
-    if (!candidate || selectedNames.has(nameKey)) continue;
+    if (!candidate || selectedNames.has(nameKey) || excludedNameKeys.has(nameKey)) continue;
     selected.push(candidate);
     selectedNames.add(nameKey);
     if (selected.length >= count) return selected;
   }
   for (const candidate of candidates) {
     const nameKey = discoveryNameKey(candidate.suggestion.name);
-    if (selectedNames.has(nameKey)) continue;
+    if (selectedNames.has(nameKey) || excludedNameKeys.has(nameKey)) continue;
     selected.push(candidate);
     selectedNames.add(nameKey);
     if (selected.length >= count) break;
+  }
+  for (const candidate of candidates) {
+    if (selected.length >= count) break;
+    const nameKey = discoveryNameKey(candidate.suggestion.name);
+    if (selectedNames.has(nameKey)) continue;
+    selected.push(candidate);
+    selectedNames.add(nameKey);
   }
   return selected;
 }
@@ -1319,7 +1334,9 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
   const hasLearnedProfile = hasFullDiscovery && tasteProfileChases.length >= MIN_LEARNED_PROFILE_CHASES;
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const rejectedNames = recentlyRejected.map((item) => item.suggestionName);
-  const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames);
+  const recentlySeenNames = listRecentUserDiscoverySeenNames(userId);
+  const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames, activeTier, visibleCount);
+  const stateKey = discoveryStateKey(activeTier, visibleCount);
   const selectAndEnrich = async () => {
     const combinedExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
     const combinedSourceExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
@@ -1333,11 +1350,14 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
     const freshSourceBackedSuggestions = sourceBackedSuggestions.filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)));
     const enriched = freshSourceBackedSuggestions.map((suggestion, index) => tasteOnlyCandidate(suggestion, index));
     const rankedCandidates = selectVisibleCandidatesForCount(enriched, tasteProfileChases, Math.max(visibleCount, discoveryVisibleCountForPlan(activeTier)));
-    const persistedState = hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT ? getUserDiscoveryState(userId, DISCOVERY_STATE_KEY) : null;
-    const persistedCandidates = persistedState?.profileFingerprint === profileFingerprint ? orderCandidatesFromPersistedState(rankedCandidates, persistedState.suggestionNames, visibleCount) : null;
-    const visibleCandidates = persistedCandidates ?? rankedCandidates.slice(0, visibleCount);
-    if (hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT) {
-      upsertUserDiscoveryState({ userId, mode: DISCOVERY_STATE_KEY, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
+    const persistedState = hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT ? getUserDiscoveryState(userId, stateKey) : null;
+    const persistedCandidates =
+      persistedState?.profileFingerprint === profileFingerprint && persistedState.suggestionNames.length >= visibleCount
+        ? orderCandidatesFromPersistedState(rankedCandidates, persistedState.suggestionNames, visibleCount, recentlySeenNames)
+        : null;
+    const visibleCandidates = persistedCandidates ?? orderCandidatesFromPersistedState(rankedCandidates, [], visibleCount, recentlySeenNames);
+    if (hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT && visibleCandidates.length >= visibleCount) {
+      upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
     }
     const candidates = await attachReferenceImages(visibleCandidates);
     return {
@@ -1377,7 +1397,7 @@ export async function buildWeeklyDiscoveryPathPayload(userId: string): Promise<{
 export const discover = {
   data: new SlashCommandBuilder()
     .setName('discover')
-    .setDescription('Open Vaultr Discovery from your past and present taste profile'),
+    .setDescription('Discover cards shaped by your Vault'),
   async execute(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -1398,16 +1418,16 @@ export const discover = {
       `**Collecting Paths:** ${pathSummary}`
     ];
     if (!discovery.hasFullDiscovery) {
-      lines.push(`**Pro Adds:** A ${discoveryVisibleCountForPlan('PRO')}-card Taste Profile shelf that remembers what you like`);
+      lines.push('', '**Pro Discovery:** unlock a deeper Taste Profile shelf with more collector paths, remembered taste cues, and controls to guide what Vaultr learns next');
     }
-    const overviewEmbed = infoEmbed(title, lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Discovery profile' });
+    const overviewEmbed = infoEmbed(title, lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Discovery Profile' });
 
     await interaction.editReply({
       embeds: [
         overviewEmbed,
         ...visibleCandidates.map((candidate, index) => discoveryEmbed(candidate, discovery.settings.alertCurrency, false, index + 1))
       ],
-      components: discoveryActionRows(interaction.user.id, visibleCandidates)
+      components: discoveryActionRows(interaction.user.id, visibleCandidates, discovery.hasFullDiscovery)
     });
   }
 };
@@ -1458,7 +1478,7 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
     const message =
       activeTier === 'PRO'
         ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another.`
-        : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} chases plus trusted shop monitoring. Remove one with /chase remove or run /upgrade.`;
+        : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, deeper Discovery, and trusted shop sources. Remove one with /chase remove or run /upgrade.`;
     await interaction.reply({
       embeds: [warningEmbed('Vault Limit Reached', message)],
       flags: MessageFlags.Ephemeral
@@ -1479,12 +1499,14 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
   recordDiscoveryAddTaste(interaction.user.id, chase.cardName, chase.maxPrice);
 
   const lines = [
+    'Good find. This one is joining the Vault.',
+    '',
     `**Card:** ${chase.cardName}`,
     `**Path:** ${discoveryTrailLabel(pick.lane)}`,
     `**Max Price:** ${chase.maxPrice ?? 'Any'}`,
     `**Grade:** Ungraded`,
     '',
-    '**Next:** Use `/chase list` to review your Vault entries'
+    '**Next:** Use `/chase list` to see where it landed'
   ];
 
   await interaction.reply({
@@ -1548,8 +1570,11 @@ export async function handleDiscoveryActionSelect(interaction: any): Promise<boo
 
   const [, ownerUserId] = interaction.customId.split(':');
   const [rawValue] = interaction.values ?? [];
-  const [action, token] = String(rawValue ?? '').split(':');
-  if (!ownerUserId || !token || (action !== 'ADD' && action !== 'MORE_LIKE_THIS' && action !== 'NOT_FOR_ME')) return false;
+  const valueParts = String(rawValue ?? '').split(':');
+  const [legacyAction, legacyToken] = valueParts;
+  const isLegacyAction = legacyAction === 'ADD' || legacyAction === 'MORE_LIKE_THIS' || legacyAction === 'NOT_FOR_ME';
+  const token = isLegacyAction ? legacyToken : legacyAction;
+  if (!ownerUserId || !token) return false;
 
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({
@@ -1560,10 +1585,37 @@ export async function handleDiscoveryActionSelect(interaction: any): Promise<boo
   }
 
   const pick = getDiscoveryVaultAction(interaction.user.id, token);
-  if (action === 'ADD') {
+  if (isLegacyAction && legacyAction === 'ADD') {
     await replyToDiscoveryVaultAdd(interaction, pick);
-  } else {
-    await replyToDiscoveryFeedback(interaction, pick, action);
+    return true;
   }
+  if (isLegacyAction && (legacyAction === 'MORE_LIKE_THIS' || legacyAction === 'NOT_FOR_ME')) {
+    await replyToDiscoveryFeedback(interaction, pick, legacyAction);
+    return true;
+  }
+
+  if (!pick) {
+    await interaction.reply({
+      embeds: [warningEmbed('Discovery Expired', 'Run `/discover` again for fresh card actions.')],
+      flags: MessageFlags.Ephemeral
+    });
+    return true;
+  }
+
+  const activeTier = activePlanTier(getUserPlan(interaction.user.id));
+  const includeFeedbackActions = activeTier === 'PRO';
+  const lines = [
+    'Pick your move for this Discovery card.',
+    '',
+    `**Card:** ${pick.cardName}`,
+    `**Path:** ${discoveryTrailLabel(pick.lane)}`,
+    ...(pick.maxPrice === undefined ? [] : [`**Suggested Max:** ${pick.maxPrice}`])
+  ];
+
+  await interaction.reply({
+    embeds: [infoEmbed('Discovery Actions', lines.join('\n'))],
+    components: discoverySelectedActionRows(interaction.user.id, token, includeFeedbackActions),
+    flags: MessageFlags.Ephemeral
+  });
   return true;
 }

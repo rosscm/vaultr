@@ -8,20 +8,20 @@ import { CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES } from './
 export const chase = {
   data: new SlashCommandBuilder()
     .setName('chase')
-    .setDescription('Manage the cards your Vault is watching')
+    .setDescription('Manage your Vault chases')
     .addSubcommand((sub) =>
       sub
         .setName('add')
-        .setDescription('Add a card for Vaultr to watch')
+        .setDescription('Add a card to your Vault')
         .addStringOption((opt) =>
           opt
             .setName('card')
-            .setDescription('Card to chase, e.g. Umbreon VMAX 215/203')
+            .setDescription('Card name or number, e.g. Umbreon VMAX 215/203')
             .setRequired(true)
             .setMinLength(3)
             .setMaxLength(100)
         )
-        .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price you want surfaced').setMinValue(0.01))
+        .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price to surface').setMinValue(0.01))
         .addStringOption((opt) =>
           opt
             .setName('grading_type')
@@ -37,7 +37,7 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Pro: minimum raw condition to surface')
+            .setDescription('Pro: minimum raw condition')
             .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
@@ -53,13 +53,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('negative_keywords')
-            .setDescription('Pro: terms to keep out of this chase')
+            .setDescription('Pro: terms to block from this chase')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
           opt
             .setName('priority')
-            .setDescription('Pro: how important this chase is')
+            .setDescription('Pro: chase importance')
             .addChoices(
               { name: 'Normal', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
@@ -67,43 +67,49 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Pro: short note about what makes this one special').setMaxLength(120)
+          opt.setName('target_note').setDescription('Pro: short note for this chase').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>
-      sub.setName('list').setDescription('Show the cards your Vault is watching')
+      sub.setName('list').setDescription('Show your Vault chases')
     )
     .addSubcommand((sub) =>
       sub
         .setName('edit')
-        .setDescription('Tune an active chase by list entry number')
-        .addIntegerOption((opt) => opt.setName('entry').setDescription('Entry number from /chase list').setRequired(true))
+        .setDescription('Refine a Vault chase')
         .addStringOption((opt) =>
-          opt.setName('card').setDescription('Updated card name or set number').setMinLength(3).setMaxLength(100)
+          opt
+            .setName('chase')
+            .setDescription('Start typing, then pick the chase to edit')
+            .setRequired(true)
+            .setAutocomplete(true)
         )
-        .addNumberOption((opt) => opt.setName('max_price').setDescription('Updated highest total price to surface').setMinValue(0.01))
+        .addStringOption((opt) =>
+          opt.setName('card').setDescription('New card name or set number').setMinLength(3).setMaxLength(100)
+        )
+        .addNumberOption((opt) => opt.setName('max_price').setDescription('New highest total price to surface').setMinValue(0.01))
         .addStringOption((opt) =>
           opt
             .setName('grading_type')
-            .setDescription('Updated slab/raw preference')
+            .setDescription('New slab/raw preference')
             .addChoices(...GRADING_TYPE_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('grade_value')
-            .setDescription('Updated numeric grade preference')
+            .setDescription('New numeric grade preference')
             .addChoices(...GRADE_VALUE_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Pro: updated minimum raw condition')
+            .setDescription('Pro: new minimum raw condition')
             .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('listing_type')
-            .setDescription('Pro: updated auction or Buy It Now preference')
+            .setDescription('Pro: new auction or Buy It Now preference')
             .addChoices(
               { name: 'Any', value: 'ANY' },
               { name: 'Auction', value: 'AUCTION' },
@@ -113,13 +119,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('negative_keywords')
-            .setDescription('Pro: updated terms to keep out')
+            .setDescription('Pro: new terms to block')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
           opt
             .setName('priority')
-            .setDescription('Pro: updated chase importance')
+            .setDescription('Pro: new chase importance')
             .addChoices(
               { name: 'Normal', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
@@ -127,27 +133,19 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Pro: updated note about this chase').setMaxLength(120)
+          opt.setName('target_note').setDescription('Pro: new note for this chase').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>
       sub
         .setName('remove')
-        .setDescription('Stop watching one or more chases')
+        .setDescription('Remove a Vault chase')
         .addStringOption((opt) =>
           opt
-            .setName('entries')
-            .setDescription('Entry numbers from /chase list, e.g. 1 or 1,3,5')
-            .setMaxLength(120)
-        )
-        .addStringOption((opt) =>
-          opt
-            .setName('all')
-            .setDescription('Stop watching every active chase')
-            .addChoices(
-              { name: 'No', value: 'NO' },
-              { name: 'Yes, remove all', value: 'YES' }
-            )
+            .setName('chase')
+            .setDescription('Start typing, then pick the chase to remove')
+            .setRequired(true)
+            .setAutocomplete(true)
         )
     ),
   async execute(interaction: any) {

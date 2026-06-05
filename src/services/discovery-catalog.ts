@@ -573,7 +573,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
         lane: 'Promo Trail',
         requiredTerms: profile.languageHints.includes('japanese') ? ['japanese', 'promo'] : ['promo'],
         laneWhy: 'matches repeated release and promo signals across your chase profile',
-        why: 'uses active and remembered chases as taste signals, then asks the market for other cards from the same collector lane',
+        why: 'uses active and remembered chases as taste cues, then asks the market for other cards from the same collector lane',
         tasteTokens: profile.languageHints.includes('japanese') ? ['japanese', 'promo'] : ['promo'],
         curiosityScore: 8
       });
@@ -619,7 +619,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
         lane: 'E-Reader Era Trail',
         requiredTerms: ['e-reader'],
         laneWhy: 'matches e-reader and early-2000s release signals from your chase profile',
-        why: 'opens a source-backed e-reader thread without repeating the current chase card',
+        why: 'opens a source-backed e-reader path without repeating the current chase card',
         tasteTokens: ['e-reader', 'vintage'],
         curiosityScore: 7
       });
@@ -631,7 +631,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
         lane: 'Tag Team Trail',
         requiredTerms: ['tag', 'team'],
         laneWhy: 'matches multi-Pokemon card structure from your chase profile',
-        why: 'uses card format as a taste signal while source evidence chooses the actual recommendations',
+        why: 'uses card format as a taste cue while source evidence chooses the actual recommendations',
         tasteTokens: ['tag team', 'gx', 'promo'],
         curiosityScore: 7
       });
@@ -655,8 +655,8 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
         name: 'vintage Pokemon cards',
         lane: 'Vintage Era Trail',
         requiredTerms: ['vintage'],
-        laneWhy: 'uses older-era language as the taste signal instead of a named card branch',
-        why: 'opens a related era thread and relies on source-backed listings for viable examples',
+        laneWhy: 'uses older-era language as the taste cue instead of a named card branch',
+        why: 'opens a related era path and relies on source-backed listings for viable examples',
         tasteTokens: ['vintage'],
         curiosityScore: 6
       });

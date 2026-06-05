@@ -20,19 +20,35 @@ function displayAny(value: string | undefined): string {
   return value;
 }
 
+function proControlNames(values: {
+  conditionRaw: string | null;
+  listingTypeRaw: string | null;
+  priorityRaw: string | null;
+  targetNote: string | undefined;
+  hasCustomNegativeKeywords: boolean;
+}): string[] {
+  return [
+    values.conditionRaw !== null && values.conditionRaw !== 'ANY' ? 'condition' : undefined,
+    values.listingTypeRaw !== null && values.listingTypeRaw !== 'ANY' ? 'listing type' : undefined,
+    values.priorityRaw !== null && values.priorityRaw !== 'NORMAL' ? 'priority' : undefined,
+    values.targetNote !== undefined ? 'note' : undefined,
+    values.hasCustomNegativeKeywords ? 'blocked terms' : undefined
+  ].filter((value): value is string => Boolean(value));
+}
+
 export const chaseAdd = {
   data: new SlashCommandBuilder()
     .setName('chase-add')
-    .setDescription('Add a card for Vaultr to watch')
+    .setDescription('Add a card to your Vault')
     .addStringOption((opt) =>
       opt
         .setName('card')
-        .setDescription('Card to chase, e.g. Umbreon VMAX 215/203')
+        .setDescription('Card name or number, e.g. Umbreon VMAX 215/203')
         .setRequired(true)
         .setMinLength(3)
         .setMaxLength(100)
     )
-    .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price you want surfaced').setMinValue(0.01))
+    .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price to surface').setMinValue(0.01))
     .addStringOption((opt) =>
       opt
         .setName('grading_type')
@@ -48,7 +64,7 @@ export const chaseAdd = {
     .addStringOption((opt) =>
       opt
         .setName('condition')
-        .setDescription('Pro: minimum raw condition to surface')
+        .setDescription('Pro: minimum raw condition')
         .addChoices(...CONDITION_CHOICES)
     )
     .addStringOption((opt) =>
@@ -64,13 +80,13 @@ export const chaseAdd = {
     .addStringOption((opt) =>
       opt
         .setName('negative_keywords')
-        .setDescription('Pro: terms to keep out of this chase')
+        .setDescription('Pro: terms to block from this chase')
         .setMaxLength(240)
     )
     .addStringOption((opt) =>
       opt
         .setName('priority')
-        .setDescription('Pro: how important this chase is')
+        .setDescription('Pro: chase importance')
         .addChoices(
           { name: 'Normal', value: 'NORMAL' },
           { name: 'High', value: 'HIGH' },
@@ -78,7 +94,7 @@ export const chaseAdd = {
         )
     )
     .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Pro: short note about what makes this one special').setMaxLength(120)
+      opt.setName('target_note').setDescription('Pro: short note for this chase').setMaxLength(120)
     ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
@@ -91,7 +107,7 @@ export const chaseAdd = {
       const message =
         activeTier === 'PRO'
           ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another.`
-          : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} chases plus trusted shop monitoring. Remove one with /chase remove or run /upgrade.`;
+          : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, deeper Discovery, and trusted shop sources. Remove one with /chase remove or run /upgrade.`;
       await interaction.reply({
         embeds: [warningEmbed('Vault Limit Reached', message)],
         flags: MessageFlags.Ephemeral
@@ -124,32 +140,20 @@ export const chaseAdd = {
         .split(',')
         .map((k: string) => k.trim())
         .filter(Boolean).length > 0;
-    const usesPrecisionControls =
-      (conditionRaw !== null && conditionRaw !== 'ANY') ||
-      (listingTypeRaw !== null && listingTypeRaw !== 'ANY') ||
-      (priorityRaw !== null && priorityRaw !== 'NORMAL') ||
-      targetNote !== undefined ||
-      hasCustomNegativeKeywords;
-
-    if (usesPrecisionControls && !entitlements.advancedFiltering) {
-      await interaction.reply({
-        embeds: [
-          warningEmbed(
-            'Pro Chase Controls',
-            `Pro adds precision controls for serious chases.\n\n**Includes:** condition, listing type, custom blocked terms, priority, and chase notes\n**Also:** ${PLAN_LIMITS.PRO.maxActiveChases} active chases and trusted shop monitoring\n**Next:** use \`/upgrade\` to unlock`
-          )
-        ],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    const listingType = listingTypeRaw ?? 'ANY';
-    const priority = priorityRaw ?? 'NORMAL';
-    const negativeKeywords = negativeKeywordsRaw
-      ?.split(',')
-      .map((k: string) => k.trim())
-      .filter(Boolean);
+    const blockedProControls = entitlements.advancedFiltering
+      ? []
+      : proControlNames({ conditionRaw, listingTypeRaw, priorityRaw, targetNote, hasCustomNegativeKeywords });
+    const canUsePrecisionControls = entitlements.advancedFiltering;
+    const appliedCondition = canUsePrecisionControls ? condition : undefined;
+    const listingType = canUsePrecisionControls ? listingTypeRaw ?? 'ANY' : 'ANY';
+    const priority = canUsePrecisionControls ? priorityRaw ?? 'NORMAL' : 'NORMAL';
+    const appliedTargetNote = canUsePrecisionControls ? targetNote : undefined;
+    const negativeKeywords = canUsePrecisionControls
+      ? negativeKeywordsRaw
+          ?.split(',')
+          .map((k: string) => k.trim())
+          .filter(Boolean)
+      : undefined;
 
     if (negativeKeywords && negativeKeywords.length > 15) {
       await interaction.reply({
@@ -164,15 +168,17 @@ export const chaseAdd = {
       guildId: interaction.guildId ?? undefined,
       cardName,
       priority,
-      targetNote,
+      targetNote: appliedTargetNote,
       maxPrice,
       grade,
-      condition,
+      condition: appliedCondition,
       listingType,
       negativeKeywords: negativeKeywords && negativeKeywords.length > 0 ? negativeKeywords : DEFAULT_NEGATIVE_KEYWORDS
     });
 
     const lines = [
+      'Nice pick. Vaultr is watching this chase now.',
+      '',
       `**Card:** ${chase.cardName}`,
       `**Priority:** ${chase.priority ?? 'NORMAL'}`,
       `**Note:** ${orNone(chase.targetNote)}`,
@@ -181,8 +187,15 @@ export const chaseAdd = {
       `**Condition:** ${displayCondition(chase.condition)}`,
       `**Listing Type:** ${displayAny(chase.listingType)}`,
       `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
+      ...(blockedProControls.length > 0
+        ? [
+            '',
+            `**Pro Controls Not Applied:** ${blockedProControls.join(', ')}`,
+            `**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`
+          ]
+        : []),
       '',
-      '**Next:** Use `/chase list` to review your vault entries'
+      '**Next:** Use `/chase list` to admire the lineup'
     ];
 
     await interaction.reply({

@@ -2,9 +2,11 @@ import 'dotenv/config';
 import { Client, Events, GatewayIntentBits, MessageFlags } from 'discord.js';
 import { commands } from './commands/index.js';
 import { handleAlertFeedback } from './commands/alert-feedback.js';
+import { handleAlertSourceButtons } from './commands/alerts-settings.js';
+import { handleChaseEditAutocomplete, handleChaseEditModal } from './commands/chase-edit.js';
 import { handleChaseListPagination } from './commands/chase-list.js';
+import { handleChaseRemoveAutocomplete } from './commands/chase-remove.js';
 import { handleDiscoveryActionSelect, handleDiscoveryFeedback, handleDiscoveryVaultAdd } from './commands/discover.js';
-import { handlePlanSourceButtons } from './commands/plan.js';
 import { initializeCurrencyRates } from './services/currency.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
 import { startPoller } from './services/poller.js';
@@ -27,12 +29,15 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (await handleChaseEditAutocomplete(interaction)) return;
+  if (await handleChaseRemoveAutocomplete(interaction)) return;
+  if (await handleChaseEditModal(interaction)) return;
   if (await handleChaseListPagination(interaction)) return;
   if (await handleAlertFeedback(interaction)) return;
+  if (await handleAlertSourceButtons(interaction)) return;
   if (await handleDiscoveryActionSelect(interaction)) return;
   if (await handleDiscoveryFeedback(interaction)) return;
   if (await handleDiscoveryVaultAdd(interaction)) return;
-  if (await handlePlanSourceButtons(interaction)) return;
   if (!interaction.isChatInputCommand()) return;
 
   const command = commandMap.get(interaction.commandName);

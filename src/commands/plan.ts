@@ -1,5 +1,5 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { getUserAlertSettings, getUserPlan, setUserAlertSettings } from '../services/chase-store.js';
+import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { getUserAlertSettings, getUserPlan } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanTier, formatActivePlanAccess, formatPollInterval, PLAN_LIMITS } from '../services/plans.js';
 import { listTrustedShopifyShopNames } from '../services/shopify.js';
@@ -7,8 +7,6 @@ import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { executePlanSet } from './plan-set.js';
 import type { ListingSourceModePreference } from '../types.js';
-
-const PLAN_SOURCE_PREFIX = 'plan-source';
 
 function displaySourceMode(value: ListingSourceModePreference): string {
   if (value === 'EBAY_SHOPIFY') return 'eBay + Trusted Shops';
@@ -23,93 +21,38 @@ export function displayEffectiveSourceMode(value: ListingSourceModePreference, a
   return displaySourceMode(value);
 }
 
-function planSourceButton(
-  userId: string,
-  mode: ListingSourceModePreference,
-  label: string,
-  style = ButtonStyle.Secondary,
-  disabled = false
-): ButtonBuilder {
-  return new ButtonBuilder()
-    .setCustomId(`${PLAN_SOURCE_PREFIX}:${userId}:${mode}`)
-    .setLabel(label)
-    .setStyle(style)
-    .setDisabled(disabled);
-}
-
-function planSourceRows(userId: string, activeTier: 'FREE' | 'PRO', currentSource: ListingSourceModePreference): ActionRowBuilder<ButtonBuilder>[] {
-  if (activeTier !== 'PRO') return [];
-
-  const buttons = [
-    planSourceButton(
-      userId,
-      'EBAY_SHOPIFY',
-      currentSource === 'EBAY_SHOPIFY' ? 'eBay + Trusted Shops Active' : 'Use eBay + Trusted Shops',
-      ButtonStyle.Primary,
-      currentSource === 'EBAY_SHOPIFY'
-    ),
-    planSourceButton(
-      userId,
-      'SHOPIFY',
-      currentSource === 'SHOPIFY' ? 'Trusted Shops Only Active' : 'Trusted Shops Only',
-      ButtonStyle.Secondary,
-      currentSource === 'SHOPIFY'
-    )
-  ];
-
-  return buttons.length > 0 ? [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)] : [];
-}
-
 function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan') {
   const userPlan = getUserPlan(userId);
   const settings = getUserAlertSettings(userId);
   const activeTier = activePlanTier(userPlan);
   const limits = PLAN_LIMITS[activeTier];
   const trustedShopNames = listTrustedShopifyShopNames().join(', ');
-  const wiredShopsLine =
-    activeTier === 'PRO' ? `**Wired Shops:** ${trustedShopNames}` : `**Wired Shops:** Pro monitors ${trustedShopNames}`;
   const activeAccessLine = formatActivePlanAccess(userPlan);
-  const embed = infoEmbed(title, 'Your current access, limits, and source controls.');
+  const sourceLine = `**Source:** ${displayEffectiveSourceMode(settings.listingSourceMode, activeTier)}`;
+  const shopLine = activeTier === 'PRO' ? `**Shops:** ${trustedShopNames}` : `**Pro Unlocks:** shop sources, faster checks, and deeper Discovery`;
+  const nextLine = activeTier === 'PRO' ? '**Source Controls:** use `/alerts settings` to pick a watch mode' : '**Next:** use `/upgrade` to unlock Pro';
+  const embed = infoEmbed(title, activeTier === 'PRO' ? 'Pro access is active.' : 'Free access is active. A tidy starter Vault.');
   embed.addFields(
     {
-      name: 'Access',
-      value: [`**Tier:** ${userPlan.tier}`, `**Status:** ${userPlan.status}`, `**Active:** ${activeAccessLine}`].join('\n'),
+      name: 'Plan',
+      value: [`**Access:** ${activeAccessLine}`, `**Chases:** ${limits.maxActiveChases} active`, `**Checks:** Every ${formatPollInterval(limits.pollIntervalSeconds)}`].join('\n'),
       inline: false
     },
     {
-      name: 'Capacity',
-      value: [
-        `**Chases:** ${limits.maxActiveChases} active`,
-        `**Listing Checks:** Every ${formatPollInterval(limits.pollIntervalSeconds)}`
-      ].join('\n'),
+      name: 'Vault Depth',
+      value: activeTier === 'PRO' ? 'full Discovery shelf and Taste Profile memory' : '3-card Discovery preview from active chases',
       inline: false
     },
     {
       name: 'Sources',
-      value: [
-        `**Current:** ${displayEffectiveSourceMode(settings.listingSourceMode, activeTier)}`,
-        activeTier === 'PRO'
-          ? '**Trusted Shops:** Choose eBay + shops, or shops only, with the buttons below'
-          : '**Trusted Shops:** Unlock with Pro for shop restocks and fixed-price singles',
-        wiredShopsLine
-      ].join('\n'),
-      inline: false
-    },
-    {
-      name: 'Discovery',
-      value: activeTier === 'PRO' ? 'Full Taste Profile depth' : 'Basic collecting paths; Pro deepens weekly Taste Profile recaps',
-      inline: false
-    },
-    {
-      name: 'Updated',
-      value: formatLocalDateTime(userPlan.updatedAt),
+      value: [sourceLine, shopLine, nextLine, `**Updated:** ${formatLocalDateTime(userPlan.updatedAt)}`].join('\n'),
       inline: false
     }
   );
 
   return {
     embeds: [embed],
-    components: planSourceRows(userId, activeTier, settings.listingSourceMode),
+    components: [],
     flags: MessageFlags.Ephemeral
   };
 }
@@ -117,17 +60,17 @@ function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan') {
 export const plan = {
   data: new SlashCommandBuilder()
     .setName('plan')
-    .setDescription('View your Vaultr plan and Vault capacity')
-    .addSubcommand((sub) => sub.setName('view').setDescription('Show your plan, limits, and Pro depth'))
+    .setDescription('View your Vaultr plan')
+    .addSubcommand((sub) => sub.setName('view').setDescription('Show your plan, limits, and Pro access'))
     .addSubcommand((sub) =>
       sub
         .setName('set')
-        .setDescription('Admin: set a user plan tier for testing')
-        .addUserOption((opt) => opt.setName('user').setDescription('User to update').setRequired(true))
+        .setDescription('Admin: update a user plan')
+        .addUserOption((opt) => opt.setName('user').setDescription('Member to update').setRequired(true))
         .addStringOption((opt) =>
           opt
             .setName('tier')
-            .setDescription('Plan tier to assign')
+            .setDescription('Plan tier')
             .setRequired(true)
             .addChoices(
               { name: 'FREE', value: 'FREE' },
@@ -137,7 +80,7 @@ export const plan = {
         .addStringOption((opt) =>
           opt
             .setName('status')
-            .setDescription('Plan status to assign')
+            .setDescription('Plan status')
             .addChoices(
               { name: 'ACTIVE', value: 'ACTIVE' },
               { name: 'PAST_DUE', value: 'PAST_DUE' },
@@ -163,34 +106,3 @@ export const plan = {
     await interaction.reply(buildPlanViewPayload(interaction.user.id));
   }
 };
-
-export async function handlePlanSourceButtons(interaction: any): Promise<boolean> {
-  if (!interaction.isButton()) return false;
-  if (!interaction.customId.startsWith(`${PLAN_SOURCE_PREFIX}:`)) return false;
-
-  const [, ownerUserId, sourceRaw] = interaction.customId.split(':');
-  if (interaction.user.id !== ownerUserId) {
-    await interaction.reply({
-      embeds: [warningEmbed('Plan Belongs Elsewhere', 'Only the original requester can update this Vault source.')],
-      flags: MessageFlags.Ephemeral
-    });
-    return true;
-  }
-
-  const source = sourceRaw as ListingSourceModePreference;
-  if (source !== 'EBAY' && source !== 'EBAY_SHOPIFY' && source !== 'SHOPIFY') return false;
-
-  const userPlan = getUserPlan(interaction.user.id);
-  if (activePlanTier(userPlan) !== 'PRO') {
-    await interaction.reply({
-      embeds: [warningEmbed('Shop Sources Are Pro', 'Trusted shop source controls are available on Pro.')],
-      flags: MessageFlags.Ephemeral
-    });
-    return true;
-  }
-
-  setUserAlertSettings(interaction.user.id, { listingSourceMode: source });
-  const payload = buildPlanViewPayload(interaction.user.id, '✅ Plan Source Updated');
-  await interaction.update({ embeds: payload.embeds, components: payload.components });
-  return true;
-}

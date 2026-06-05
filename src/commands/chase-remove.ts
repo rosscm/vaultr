@@ -1,29 +1,55 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
-import { listChases, removeAllChases, removeChase } from '../services/chase-store.js';
-import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
+import { listChases, removeChase } from '../services/chase-store.js';
+import { errorEmbed, successEmbed } from '../ui/embeds.js';
+import { displayGrade } from '../ui/style.js';
+
+function chaseChoiceName(chase: ReturnType<typeof listChases>[number]): string {
+  const details = [
+    chase.maxPrice !== undefined ? `Max ${chase.maxPrice}` : undefined,
+    chase.grade ? displayGrade(chase.grade) : undefined,
+    chase.priority && chase.priority !== 'NORMAL' ? chase.priority : undefined
+  ].filter(Boolean);
+  const suffix = details.length > 0 ? ` — ${details.join(' · ')}` : '';
+  return `${chase.cardName}${suffix}`.slice(0, 100);
+}
+
+export async function handleChaseRemoveAutocomplete(interaction: any): Promise<boolean> {
+  if (!interaction.isAutocomplete()) return false;
+  if (interaction.commandName !== 'chase') return false;
+  if (interaction.options.getSubcommand() !== 'remove') return false;
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== 'chase') return false;
+
+  const query = String(focused.value ?? '').trim().toLowerCase();
+  const chases = listChases(interaction.user.id);
+  const matches = chases
+    .filter((chase, index) => {
+      if (query.length === 0) return index < 25;
+      return chase.cardName.toLowerCase().includes(query);
+    })
+    .slice(0, 25)
+    .map((chase) => ({
+      name: chaseChoiceName(chase),
+      value: chase.id
+    }));
+
+  await interaction.respond(matches);
+  return true;
+}
 
 export const chaseRemove = {
   data: new SlashCommandBuilder()
     .setName('chase-remove')
-    .setDescription('Stop watching one or more chases')
+    .setDescription('Remove a Vault chase')
     .addStringOption((opt) =>
       opt
-        .setName('entries')
-        .setDescription('Entry numbers from /chase list, e.g. 1 or 1,3,5')
-        .setMaxLength(120)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('all')
-        .setDescription('Stop watching every active chase')
-        .addChoices(
-          { name: 'No', value: 'NO' },
-          { name: 'Yes, remove all', value: 'YES' }
-        )
+        .setName('chase')
+        .setDescription('Start typing, then pick the chase to remove')
+        .setRequired(true)
+        .setAutocomplete(true)
     ),
   async execute(interaction: any) {
-    const all = interaction.options.getString('all');
-    const entriesCsv = interaction.options.getString('entries');
+    const chaseId = interaction.options.getString('chase');
     const chases = listChases(interaction.user.id);
 
     if (chases.length === 0) {
@@ -34,70 +60,27 @@ export const chaseRemove = {
       return;
     }
 
-    if (all === 'YES') {
-      const removedCount = removeAllChases(interaction.user.id);
+    if (!chaseId) {
       await interaction.reply({
-        embeds: [
-          successEmbed(
-            'All Chases Removed',
-            `Removed ${removedCount} active chase(s)\n\n**Next:** Use \`/chase add\` to start a fresh vault`
-          ).setTitle('✅ All Chases Removed')
-        ],
+        embeds: [errorEmbed('Chase Required', 'Pick a current chase from `/chase remove` and try again.')],
         flags: MessageFlags.Ephemeral
       });
       return;
     }
 
-    if (all !== 'YES' && entriesCsv === null) {
+    const target = chases.find((chase) => chase.id === chaseId);
+    if (!target) {
       await interaction.reply({
-        embeds: [warningEmbed('No Targets Provided', 'Set `entries` or choose `all: Yes, remove all`')],
+        embeds: [errorEmbed('Chase Not Found', 'Pick a current chase from `/chase remove` and try again.')],
         flags: MessageFlags.Ephemeral
       });
       return;
     }
 
-    const requestedEntries = new Set<number>();
-    if (entriesCsv) {
-      for (const token of entriesCsv.split(',')) {
-        const n = Number(token.trim());
-        if (Number.isInteger(n)) requestedEntries.add(n);
-      }
-    }
-
-    if (requestedEntries.size === 0) {
+    const removed = removeChase(interaction.user.id, target.id);
+    if (!removed) {
       await interaction.reply({
-        embeds: [warningEmbed('Invalid Entries', 'Use valid entry numbers, e.g. `entries: 2` or `entries: 1,3,5`')],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    const validEntries = [...requestedEntries].filter((entry) => entry >= 1 && entry <= chases.length);
-    if (validEntries.length === 0) {
-      await interaction.reply({
-        embeds: [errorEmbed('Entry Not Found', 'No matching entries found. Use /chase list first.')],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    const targets = validEntries
-      .map((entry) => ({ entry, chase: chases[entry - 1] }))
-      .filter((x) => !!x.chase);
-
-    let removedCount = 0;
-    const removedLabels: string[] = [];
-    for (const target of targets) {
-      const removed = removeChase(interaction.user.id, target.chase.id);
-      if (removed) {
-        removedCount += 1;
-        removedLabels.push(`#${target.entry} ${target.chase.cardName}`);
-      }
-    }
-
-    if (removedCount === 0) {
-      await interaction.reply({
-        embeds: [errorEmbed('Remove Failed', 'No chases were removed.')],
+        embeds: [errorEmbed('Remove Failed', 'No chase was removed.')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -105,10 +88,7 @@ export const chaseRemove = {
 
     await interaction.reply({
       embeds: [
-        successEmbed(
-          'Chases Removed',
-          `Removed ${removedCount} chase(s):\n${removedLabels.map((label) => `- ${label}`).join('\n')}\n\n**Next:** Use \`/chase list\` to review remaining entries`
-        ).setTitle('✅ Chases Removed')
+        successEmbed('Chase Removed', `Removed **${target.cardName}**\n\n**Next:** Use \`/chase list\` to tidy the lineup`).setTitle('✅ Chase Removed')
       ],
       flags: MessageFlags.Ephemeral
     });

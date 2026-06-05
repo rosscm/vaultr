@@ -5,16 +5,16 @@ import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 export const setupChannelSet = {
   data: new SlashCommandBuilder()
     .setName('setup')
-    .setDescription('Admin: choose where Vaultr lives in this server')
+    .setDescription('Admin: choose the Vaultr server channel')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub
         .setName('channel')
-        .setDescription('Set the channel where Vaultr commands belong')
+        .setDescription('Set the Vaultr command channel')
         .addChannelOption((opt) =>
           opt
             .setName('channel')
-            .setDescription('Channel for Vaultr commands and community pulse')
+            .setDescription('Channel for commands and Vault Pulse')
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(true)
         )
@@ -37,7 +37,7 @@ export const setupChannelSet = {
     setGuildCommandChannel(interaction.guildId, channel.id);
     const lines = [
       `**Channel:** <#${channel.id}>`,
-      '**Quickstart:** 1) /alerts settings  2) /chase add  3) /help'
+      '**Quickstart:** 1) `/start`  2) `/chase add`  3) `/discover`'
     ];
 
     await interaction.reply({

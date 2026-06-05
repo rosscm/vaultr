@@ -5,6 +5,7 @@ import { formatTimeWithAge } from '../ui/time.js';
 
 const MAX_FIELD_TITLE_LENGTH = 84;
 const MAX_LISTING_TITLE_LENGTH = 180;
+const RECENT_ALERT_LIMIT = 10;
 
 const reasonLabels: Record<AlertFeedbackReason, string> = {
   WRONG_CARD: 'wrong card',
@@ -59,24 +60,16 @@ function formatConfidence(score: number | undefined): string {
 export const alertsRecent = {
   data: new SlashCommandBuilder()
     .setName('alerts-recent')
-    .setDescription('Review Vaultr sightings and what Vaultr is learning')
-    .addIntegerOption((opt) =>
-      opt
-        .setName('limit')
-        .setDescription('How many sightings to show (default: 10; max: 20)')
-        .setMinValue(1)
-        .setMaxValue(20)
-    ),
+    .setDescription('Review your latest Vaultr settings'),
   async execute(interaction: any) {
-    const limit = interaction.options.getInteger('limit') ?? 10;
-    const recent = listRecentAlerts(interaction.user.id, limit);
+    const recent = listRecentAlerts(interaction.user.id, RECENT_ALERT_LIMIT);
 
     if (recent.length === 0) {
       await interaction.reply({
         embeds: [
-              infoEmbed(
-                '📨 Vaultr Sightings',
-            'No sightings yet. Keep your chases active; Vaultr will DM you when something fitting surfaces.'
+          infoEmbed(
+            '📨 Vaultr Sightings',
+            'No sightings yet. Keep your Vault active; fitting cards will land here after Vaultr sends them by DM.'
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -84,7 +77,7 @@ export const alertsRecent = {
       return;
     }
 
-    const embed = infoEmbed('📨 Vaultr Sightings', `Latest ${recent.length} chase sighting${recent.length === 1 ? '' : 's'} from your DMs.`);
+    const embed = infoEmbed('📨 Vaultr Sightings', `Latest ${recent.length} Vaultr sighting${recent.length === 1 ? '' : 's'} from your DMs.`);
 
     embed.addFields(
       recent.map((alert, index) => {

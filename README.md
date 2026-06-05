@@ -8,7 +8,7 @@ Vaultr is a Discord-native collector companion for card chases, grail sightings,
 
 - Discord slash commands for building a personal Vault
 - Persistent chase criteria and collector context per user
-- Source adapters (start with eBay)
+- Source adapters for eBay and trusted shop sources
 - DM-first grail sightings with dedupe and fit scoring
 - Lightweight discovery shaped by the user's active chases
 - Optional community heartbeat for shared collector activity
@@ -51,18 +51,19 @@ Vaultr is a Discord-native collector companion for card chases, grail sightings,
 - `/setup channel` (admin setup)
 - `/upgrade`
 
-## User Plans (Initial Plumbing)
+## User Plans
 
 - Default tier is `FREE`
 - `FREE` limit: 3 active chases
 - `PRO` limit: 50 active chases
 - `/chase add` enforces active chase limits
+- Free users can submit Pro-only chase modifiers, but Vaultr ignores those modifiers until Pro instead of rejecting the whole chase
 - `/plan view` shows the user's current tier and limits
 - `/plan set` lets server admins set a user's tier/status for testing
 
 ## Run As A Service (Raspberry Pi)
 
-Use the included unit file: [deploy/vaultr.service](/Users/rossc10/projects/vaultr/deploy/vaultr.service)
+Use the included unit file: [deploy/vaultr.service](deploy/vaultr.service)
 
 1. Build once:
    - `npm run build`
@@ -196,7 +197,7 @@ Use this when your webhook runs on a Raspberry Pi and needs a public HTTPS endpo
 
 ### Persistence on Pi
 
-For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/rossc10/projects/vaultr/deploy/vaultr-ebay-webhook.service):
+For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/vaultr-ebay-webhook.service):
 
 1. Build webhook:
    - `npm run build`
@@ -221,7 +222,7 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](/Users/
 - `max_price` compares against total cost when shipping is known, and item price when shipping is unavailable
 - FX conversion uses live USD-based rates with background refresh and fallback to env overrides
 - Recommended defaults: `source=eBay`, `min_score=60`, `alert_volume=Balanced`, `alert_currency=USD`
-- Per-chase blocked terms via `negative_keywords` on `/chase add` and `/chase edit`
+- Pro per-chase blocked terms via `negative_keywords` on `/chase add` and `/chase edit`
 - Default blocked terms on new chases: `proxy, custom, reprint, lot, orica, replica`
 - Per-chase grading uses `grading_type` plus `grade_value`, or `Raw / Ungraded` for raw cards only
 - Per-chase `condition` uses thresholds like `LP or better` and `MP or better`
