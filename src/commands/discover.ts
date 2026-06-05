@@ -1379,22 +1379,28 @@ function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames:
   return createHash('sha256').update(JSON.stringify(profileInput)).digest('hex');
 }
 
-export function orderCandidatesFromPersistedState(candidates: DiscoveryCandidate[], persistedNames: string[], count: number, excludedNames: string[] = []): DiscoveryCandidate[] {
+export function orderCandidatesFromPersistedState(
+  candidates: DiscoveryCandidate[],
+  persistedNames: string[],
+  count: number,
+  options: { hardExcludedNames?: string[]; softAvoidNames?: string[] } = {}
+): DiscoveryCandidate[] {
   const candidatesByName = new Map(candidates.map((candidate) => [discoveryNameKey(candidate.suggestion.name), candidate]));
   const selected: DiscoveryCandidate[] = [];
   const selectedNames = new Set<string>();
-  const excludedNameKeys = new Set(excludedNames.map(discoveryNameKey));
+  const hardExcludedNameKeys = new Set((options.hardExcludedNames ?? []).map(discoveryNameKey));
+  const softAvoidNameKeys = new Set((options.softAvoidNames ?? []).map(discoveryNameKey));
   for (const name of persistedNames) {
     const nameKey = discoveryNameKey(name);
     const candidate = candidatesByName.get(nameKey);
-    if (!candidate || selectedNames.has(nameKey) || excludedNameKeys.has(nameKey)) continue;
+    if (!candidate || selectedNames.has(nameKey) || hardExcludedNameKeys.has(nameKey)) continue;
     selected.push(candidate);
     selectedNames.add(nameKey);
     if (selected.length >= count) return selected;
   }
   for (const candidate of candidates) {
     const nameKey = discoveryNameKey(candidate.suggestion.name);
-    if (selectedNames.has(nameKey) || excludedNameKeys.has(nameKey)) continue;
+    if (selectedNames.has(nameKey) || hardExcludedNameKeys.has(nameKey) || softAvoidNameKeys.has(nameKey)) continue;
     selected.push(candidate);
     selectedNames.add(nameKey);
     if (selected.length >= count) break;
@@ -1402,7 +1408,7 @@ export function orderCandidatesFromPersistedState(candidates: DiscoveryCandidate
   for (const candidate of candidates) {
     if (selected.length >= count) break;
     const nameKey = discoveryNameKey(candidate.suggestion.name);
-    if (selectedNames.has(nameKey) || excludedNameKeys.has(nameKey)) continue;
+    if (selectedNames.has(nameKey) || hardExcludedNameKeys.has(nameKey)) continue;
     selected.push(candidate);
     selectedNames.add(nameKey);
   }
@@ -1450,9 +1456,9 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
     const persistedState = hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT ? getUserDiscoveryState(userId, stateKey) : null;
     const persistedCandidates =
       persistedState?.profileFingerprint === profileFingerprint && persistedState.suggestionNames.length >= visibleCount
-        ? orderCandidatesFromPersistedState(rankedCandidates, persistedState.suggestionNames, visibleCount, recentlySeenNames)
+        ? orderCandidatesFromPersistedState(rankedCandidates, persistedState.suggestionNames, visibleCount, { hardExcludedNames: rejectedNames })
         : null;
-    const visibleCandidates = persistedCandidates ?? orderCandidatesFromPersistedState(rankedCandidates, [], visibleCount, recentlySeenNames);
+    const visibleCandidates = persistedCandidates ?? orderCandidatesFromPersistedState(rankedCandidates, [], visibleCount, { hardExcludedNames: rejectedNames, softAvoidNames: recentlySeenNames });
     if (hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT && visibleCandidates.length >= visibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
     }
