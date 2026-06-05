@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDailyPulseMessage,
   buildWeeklyReflectionEmbed,
+  alertEbaySearchOptions,
+  chaseTuningNoticeLines,
   effectiveListingSourceMode,
   isDueForPollInterval,
+  listingSourceFailureReason,
   orderAlertCandidatesForSending,
+  shouldSendChaseTuningNotice,
   orderGroupsForRun,
   shouldPostDailyPulse
 } from '../poller.js';
@@ -147,6 +151,44 @@ describe('orderAlertCandidatesForSending', () => {
   });
 });
 
+describe('alert eBay search options', () => {
+  it('keeps poller eBay searches lightweight so broad chases do not block alert delivery on shipping enrichment', () => {
+    expect(alertEbaySearchOptions()).toEqual({ enrichMissingShipping: false });
+  });
+
+  it('classifies source failures for poller coverage without failing the whole run', () => {
+    expect(listingSourceFailureReason(new Error('Listing source timeout'))).toBe('Source timeout');
+    expect(listingSourceFailureReason(new Error('eBay rate limit exceeded: 429'))).toBe('Rate limit');
+    expect(listingSourceFailureReason(new Error('socket hang up'))).toBe('Source error');
+  });
+
+  it('nudges chase tuning only when one chase has more eligible alerts than the per-poll cap', () => {
+    expect(shouldSendChaseTuningNotice(3, 8, 3)).toBe(true);
+    expect(shouldSendChaseTuningNotice(2, 8, 3)).toBe(false);
+    expect(shouldSendChaseTuningNotice(3, 3, 3)).toBe(false);
+  });
+
+  it('keeps high-volume chase guidance within Free controls while softly pointing to Pro', () => {
+    const text = chaseTuningNoticeLines({ cardName: 'blastoise 002' }, 'FREE', 3, 8).join('\n');
+
+    expect(text).toContain('tighten the chase name');
+    expect(text).toContain('lower the max price');
+    expect(text).toContain('/upgrade');
+    expect(text).toContain('Pro toolkit');
+    expect(text).not.toContain('negative keywords');
+    expect(text).not.toContain('condition or grade');
+  });
+
+  it('keeps Pro high-volume chase guidance focused on advanced tuning controls', () => {
+    const text = chaseTuningNoticeLines({ cardName: 'blastoise 002' }, 'PRO', 3, 8).join('\n');
+
+    expect(text).toContain('condition or grade');
+    expect(text).toContain('negative keywords');
+    expect(text).toContain('/alerts settings');
+    expect(text).not.toContain('/upgrade');
+  });
+});
+
 describe('poller coverage state', () => {
   it('stores a defensive copy of the last source coverage snapshot', () => {
     const snapshot = {
@@ -158,6 +200,8 @@ describe('poller coverage state', () => {
       deferredChases: 1,
       rateLimitedGroups: 1,
       backoffGroups: 0,
+      sourceTimeoutGroups: 0,
+      sourceErrorGroups: 0,
       oldestDue: { queryKey: 'moltres zapdos articuno', chaseCount: 1, overdueSeconds: 1860 },
       oldestDeferred: { queryKey: 'moltres zapdos articuno', chaseCount: 1, overdueSeconds: 1860, reason: 'Rate limit' }
     };
@@ -182,7 +226,9 @@ describe('poller coverage state', () => {
       deferredGroups: 1,
       deferredChases: 1,
       rateLimitedGroups: 1,
-      backoffGroups: 0
+      backoffGroups: 0,
+      sourceTimeoutGroups: 0,
+      sourceErrorGroups: 0
     });
 
     markPollerRunStart();

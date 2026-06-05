@@ -33,13 +33,17 @@ describe('discovery market cache', () => {
         listingType: 'BUY_IT_NOW'
       },
       typicalRawAskingTotal: 42,
-      marketSampleSize: 3
+      marketSampleSize: 3,
+      typicalRawSoldTotal: 37,
+      soldSampleSize: 4
     });
 
     const entry = getDiscoveryMarketCache(cacheKey);
     expect(entry?.suggestionName).toBe(testKey);
     expect(entry?.typicalRawAskingTotal).toBe(42);
     expect(entry?.marketSampleSize).toBe(3);
+    expect(entry?.typicalRawSoldTotal).toBe(37);
+    expect(entry?.soldSampleSize).toBe(4);
     expect(entry?.imageUrl).toBe('https://i.ebayimg.example/mew.jpg');
 
     const listing = listingFromDiscoveryMarketCache(entry!);

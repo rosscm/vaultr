@@ -282,7 +282,7 @@ function normalizeTokenSet(values: Array<string | undefined>): Set<string> {
 function cardFormatTokensFromText(value: string): Set<string> {
   const text = normalizeSearchText(value);
   const tokens = new Set<string>();
-  if (/\btag team\b|&/.test(text)) tokens.add('tag team');
+  if (/\btag team\b/.test(text)) tokens.add('tag team');
   if (/\billustration rare\b|\bart rare\b|\balt art\b|\balternate art\b|\bsar\b|\bar\b/.test(text)) tokens.add('illustration');
   if (/\bfull art\b|\bfa\b/.test(text)) tokens.add('full art');
   if (/\btrainer gallery\b|\bgalarian gallery\b|\bgallery\b|\bgg\s?-?\d{1,3}\b|\btg\s?-?\d{1,3}\b/.test(text)) tokens.add('gallery');
@@ -323,6 +323,7 @@ function hasPremiumCollectorShape(card: PokemonTcgCard): boolean {
   const formats = cardFormatTokens(card);
   if (isPremiumIllustrationRarity(card)) return true;
   if (/\billustration collection\b/.test(text)) return true;
+  if (/\b(?:special delivery|munch|poncho|pokemon center|kanazawa|yokohama|sapporo)\b/.test(text)) return true;
   return ['tag team', 'illustration', 'full art', 'gallery', 'e-reader', 'radiant', 'delta', 'vstar', 'vmax', 'gx'].some((format) => formats.has(format));
 }
 
@@ -331,6 +332,12 @@ function isModernPlainPromo(card: PokemonTcgCard): boolean {
   const nameTokens = normalizedTokens(card.name ?? '').filter((token) => !['ex', 'gx', 'v', 'vmax', 'vstar'].includes(token));
   const year = releaseYear(card);
   return year >= 2017 && nameTokens.length <= 2 && /\bpromo|black star|promos\b/.test(text) && !hasPremiumCollectorShape(card) && !isOrdinaryExCard(card);
+}
+
+function isModernPromo(card: PokemonTcgCard): boolean {
+  const text = normalizeSearchText([card.name, card.rarity, card.set?.name, card.set?.series, ...(card.subtypes ?? [])].filter(Boolean).join(' '));
+  const year = releaseYear(card);
+  return (year >= 2017 || /\bscarlet|violet|sword|shield\b/.test(text)) && /\bpromo|black star|promos\b/.test(text);
 }
 
 function isOrdinaryModernMainSetCard(card: PokemonTcgCard): boolean {
@@ -805,10 +812,11 @@ function matchesCardFormatProfile(card: PokemonTcgCard, suggestion: DiscoverySug
   return true;
 }
 
-function matchesCollectorQualityProfile(card: PokemonTcgCard, suggestion: DiscoverySuggestion, profile: SourceTasteProfile): boolean {
+function matchesCollectorQualityProfile(card: PokemonTcgCard, suggestion: DiscoverySuggestion, profile: SourceTasteProfile, hasAnchoredQuery: boolean): boolean {
   if (isBroadCollectorSuggestion(suggestion) && profile.signalCount > 0 && profile.dexNumbers.size === 0 && !hasPremiumCollectorShape(card)) return false;
   if (isGenericSourceThread(suggestion) && !isVintageSuggestion(suggestion) && isOrdinaryLowRarityMainSetCard(card)) return false;
   if (isGenericSourceThread(suggestion) && isOrdinaryModernMainSetCard(card)) return false;
+  if (isGenericSourceThread(suggestion) && isModernPromo(card) && !hasAnchoredQuery && !hasPremiumCollectorShape(card)) return false;
   return !(isGenericSourceThread(suggestion) && isModernPlainPromo(card));
 }
 
@@ -960,7 +968,7 @@ export async function resolveSourceBackedDiscoveryCards(
         !matchesPokemonTcgProfileAnchor(card, suggestion, profile) ||
         !matchesVintageProfileEvidence(card, suggestion, profile, hasAnchoredQuery) ||
         !matchesCardFormatProfile(card, suggestion, profile) ||
-        !matchesCollectorQualityProfile(card, suggestion, profile)
+        !matchesCollectorQualityProfile(card, suggestion, profile, hasAnchoredQuery)
       )
         continue;
       const sourceSuggestion = sourceSuggestionFromPokemonCard(suggestion, card);

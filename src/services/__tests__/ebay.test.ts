@@ -197,4 +197,94 @@ describe('searchEbayListings Browse shipping', () => {
     expect(second[0]?.title).toBe('Umbreon VMAX Alt Art');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('enriches a selected alert listing without enriching the whole search window', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          shippingOptions: [
+            {
+              shippingCost: { value: '9.25', currency: 'USD' }
+            }
+          ]
+        })
+      );
+
+    const { enrichEbayListingDetails } = await import('../ebay.js');
+    const listing = await enrichEbayListingDetails({
+      source: 'EBAY',
+      listingId: 'v1|1234567890|0',
+      title: 'Umbreon VMAX Alt Art',
+      price: 100,
+      currency: 'USD',
+      url: 'https://example.com/item/1234567890',
+      region: 'US',
+      listingType: 'BUY_IT_NOW'
+    }, { country: 'US' });
+
+    const itemDetailsUrl = String(fetchMock.mock.calls[1]?.[0]);
+    expect(itemDetailsUrl).toContain('/buy/browse/v1/item/v1%7C1234567890%7C0');
+    expect(listing.shippingCost).toBe(9.25);
+    expect(listing.shippingCurrency).toBe('USD');
+    expect(listing.shippingDestinationCountry).toBe('US');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('searchEbaySoldListings', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+    process.env = {
+      ...ORIGINAL_ENV,
+      EBAY_APP_ID: 'app-id',
+      EBAY_SEARCH_LIMIT: '2'
+    };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  it('uses completed sold items from the Finding API', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        findCompletedItemsResponse: [
+          {
+            searchResult: [
+              {
+                item: [
+                  {
+                    itemId: ['1234567890'],
+                    title: ['Umbreon VMAX Alt Art Raw'],
+                    viewItemURL: ['https://example.com/sold/1234567890'],
+                    galleryURL: ['https://example.com/sold.jpg'],
+                    sellingStatus: [{ currentPrice: [{ __value__: '210.00', '@currencyId': 'USD' }], sellingState: ['EndedWithSales'] }],
+                    shippingInfo: [{ shippingServiceCost: [{ __value__: '8.00', '@currencyId': 'USD' }], shipToLocations: ['Worldwide'] }],
+                    listingInfo: [{ listingType: ['FixedPrice'], endTime: ['2026-06-01T00:00:00.000Z'] }],
+                    country: ['US']
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      })
+    );
+
+    const { searchEbaySoldListings } = await import('../ebay.js');
+    const listings = await searchEbaySoldListings(baseChase(), { country: 'CA' });
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+
+    expect(url).toContain('OPERATION-NAME=findCompletedItems');
+    expect(url).toContain('itemFilter%280%29.name=SoldItemsOnly');
+    expect(url).toContain('itemFilter%280%29.value=true');
+    expect(listings[0]?.price).toBe(210);
+    expect(listings[0]?.shippingCost).toBe(8);
+    expect(listings[0]?.listingType).toBe('BUY_IT_NOW');
+  });
 });

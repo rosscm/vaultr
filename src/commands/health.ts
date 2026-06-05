@@ -352,7 +352,7 @@ export const health = {
       `**Due Groups This Run:** ${coverage.dueGroups} (${coverage.dueChases} chase${coverage.dueChases === 1 ? '' : 's'})`,
       `**Checked Groups This Run:** ${coverage.checkedGroups} (${coverage.checkedChases} chase${coverage.checkedChases === 1 ? '' : 's'})`,
       `**Deferred Groups This Run:** ${coverage.deferredGroups} (${coverage.deferredChases} chase${coverage.deferredChases === 1 ? '' : 's'})`,
-      `**Deferred Reasons:** ${coverage.rateLimitedGroups} rate limit, ${coverage.backoffGroups} backoff`,
+      `**Deferred Reasons:** ${coverage.rateLimitedGroups} rate limit, ${coverage.backoffGroups} backoff, ${coverage.sourceTimeoutGroups} source timeout, ${coverage.sourceErrorGroups} source error`,
       `**Oldest Due This Run:** ${formatCoverageGroup(coverage.oldestDue)}`,
       `**Oldest Deferred This Run:** ${formatCoverageGroup(coverage.oldestDeferred)}`
     );

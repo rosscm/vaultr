@@ -15,6 +15,8 @@ export type DiscoveryMarketCacheEntry = {
   imageUrl?: string;
   typicalRawAskingTotal?: number;
   marketSampleSize?: number;
+  typicalRawSoldTotal?: number;
+  soldSampleSize?: number;
   sourceStatus?: DiscoveryMarketSourceStatus;
   fetchedAt: string;
   updatedAt: string;
@@ -31,6 +33,8 @@ type DiscoveryMarketCacheRow = {
   image_url: string | null;
   typical_raw_asking_total: number | null;
   market_sample_size: number | null;
+  typical_raw_sold_total: number | null;
+  sold_sample_size: number | null;
   source_status: DiscoveryMarketSourceStatus | null;
   fetched_at: string;
   updated_at: string;
@@ -45,13 +49,15 @@ type UpsertDiscoveryMarketCacheInput = {
   imageUrl?: string;
   typicalRawAskingTotal?: number;
   marketSampleSize?: number;
+  typicalRawSoldTotal?: number;
+  soldSampleSize?: number;
   sourceStatus?: DiscoveryMarketSourceStatus;
   fetchedAt?: string;
 };
 
 const getDiscoveryMarketCacheStmt = db.prepare(`
   SELECT cache_key, suggestion_name, display_currency, destination_country, listing_id, listing_title, listing_url, image_url,
-         typical_raw_asking_total, market_sample_size, source_status, fetched_at, updated_at
+         typical_raw_asking_total, market_sample_size, typical_raw_sold_total, sold_sample_size, source_status, fetched_at, updated_at
   FROM discovery_market_cache
   WHERE cache_key = ?
 `);
@@ -59,11 +65,11 @@ const getDiscoveryMarketCacheStmt = db.prepare(`
 const upsertDiscoveryMarketCacheStmt = db.prepare(`
   INSERT INTO discovery_market_cache (
     cache_key, suggestion_name, display_currency, destination_country, listing_id, listing_title, listing_url, image_url,
-    typical_raw_asking_total, market_sample_size, source_status, fetched_at, updated_at
+    typical_raw_asking_total, market_sample_size, typical_raw_sold_total, sold_sample_size, source_status, fetched_at, updated_at
   )
   VALUES (
     @cache_key, @suggestion_name, @display_currency, @destination_country, @listing_id, @listing_title, @listing_url, @image_url,
-    @typical_raw_asking_total, @market_sample_size, @source_status, @fetched_at, @updated_at
+    @typical_raw_asking_total, @market_sample_size, @typical_raw_sold_total, @sold_sample_size, @source_status, @fetched_at, @updated_at
   )
   ON CONFLICT(cache_key) DO UPDATE SET
     suggestion_name = excluded.suggestion_name,
@@ -75,6 +81,8 @@ const upsertDiscoveryMarketCacheStmt = db.prepare(`
     image_url = excluded.image_url,
     typical_raw_asking_total = excluded.typical_raw_asking_total,
     market_sample_size = excluded.market_sample_size,
+    typical_raw_sold_total = excluded.typical_raw_sold_total,
+    sold_sample_size = excluded.sold_sample_size,
     source_status = excluded.source_status,
     fetched_at = excluded.fetched_at,
     updated_at = excluded.updated_at
@@ -97,6 +105,8 @@ function mapDiscoveryMarketCacheRow(row: DiscoveryMarketCacheRow): DiscoveryMark
     imageUrl: row.image_url ?? undefined,
     typicalRawAskingTotal: row.typical_raw_asking_total ?? undefined,
     marketSampleSize: row.market_sample_size ?? undefined,
+    typicalRawSoldTotal: row.typical_raw_sold_total ?? undefined,
+    soldSampleSize: row.sold_sample_size ?? undefined,
     sourceStatus: row.source_status ?? undefined,
     fetchedAt: row.fetched_at,
     updatedAt: row.updated_at
@@ -133,6 +143,8 @@ export function upsertDiscoveryMarketCache(input: UpsertDiscoveryMarketCacheInpu
     image_url: input.imageUrl ?? input.listing?.imageUrl ?? input.listing?.thumbnailUrl ?? null,
     typical_raw_asking_total: input.typicalRawAskingTotal ?? null,
     market_sample_size: input.marketSampleSize ?? null,
+    typical_raw_sold_total: input.typicalRawSoldTotal ?? null,
+    sold_sample_size: input.soldSampleSize ?? null,
     source_status: input.sourceStatus ?? null,
     fetched_at: input.fetchedAt ?? now,
     updated_at: now
@@ -145,7 +157,7 @@ export function listingFromDiscoveryMarketCache(entry: DiscoveryMarketCacheEntry
     source: 'EBAY',
     listingId: entry.listingId,
     title: entry.listingTitle,
-    price: entry.typicalRawAskingTotal ?? 0,
+    price: entry.typicalRawAskingTotal ?? entry.typicalRawSoldTotal ?? 0,
     currency: entry.displayCurrency,
     url: entry.listingUrl,
     imageUrl: entry.imageUrl,

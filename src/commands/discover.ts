@@ -28,6 +28,7 @@ import {
   upsertUserDiscoveryState
 } from '../services/chase-store.js';
 import { convertCurrencyAmount, type SupportedCurrency } from '../services/currency.js';
+import { searchEbayListings, searchEbaySoldListings } from '../services/ebay.js';
 import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
 import {
   discoveryMarketCacheKey,
@@ -39,7 +40,6 @@ import {
 import { getOrFetchDiscoveryReferenceImage } from '../services/discovery-reference-cache.js';
 import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
-import { searchEbayListings } from '../services/ebay.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { getPollerState } from '../services/poller-state.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
@@ -51,6 +51,8 @@ export type DiscoveryCandidate = {
   image?: DiscoveryCardImage;
   typicalRawAskingTotal?: number;
   marketSampleSize?: number;
+  typicalRawSoldTotal?: number;
+  soldSampleSize?: number;
   displayCurrency?: SupportedCurrency;
   selectionIndex?: number;
   sourceStatus?: 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR';
@@ -85,19 +87,24 @@ const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DISCOVERY_SOURCE_STATUS_RETRY_MS = 15 * 60 * 1000;
 const MIN_RAW_MARKET_SAMPLE_SIZE = 2;
 const NON_CARD_TERMS = [
+  'acrylic case',
   'booster',
   'box',
   'coin',
   'custom',
   'deck box',
+  'display case',
   'figure',
   'figurine',
   'funko',
   'gold metal',
+  'magnetic case',
+  'magnetic holder',
   'keychain',
   'lot',
   'orica',
   'pack',
+  'protector case',
   'plush',
   'poster',
   'proxy',
@@ -215,7 +222,8 @@ export function discoveryTasteProfileChases(chases: Chase[], tasteMemoryChases: 
 
 function formatMoney(amount: number | undefined, currency: string | undefined): string {
   if (amount === undefined) return 'Unknown';
-  return `${Math.round(amount).toLocaleString('en-CA')} ${currency ?? ''}`.trim();
+  const roundedAmount = amount >= 10 ? Math.round(amount / 10) * 10 : Math.round(amount);
+  return `${roundedAmount.toLocaleString('en-CA')} ${currency ?? ''}`.trim();
 }
 
 function titleCase(value: string): string {
@@ -427,9 +435,9 @@ function looksLikeDiscoveryCardListing(suggestion: DiscoverySuggestion, listing:
   return looksLikeCardListing(listing) || hasCoreSuggestionTokens(suggestion, listing);
 }
 
-function looksLikeRawCardListing(listing: Listing): boolean {
+export function looksLikeRawCardListing(listing: Listing): boolean {
   const text = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
-  return !/\b(ace grading|beckett|bgs|cgc|gma|psa|sgc|tag graded)\b|\bgraded\b|\bslab(?:bed)?\b/.test(text);
+  return !/\b(ace grading|beckett|bgs|cgc|gma|psa|sgc|tag graded)\b|\b(?:bgs|cgc|gma|psa|sgc)\s?-?(?:[0-9](?:\.[0-9])?|10)\b|\bgraded\b|\bslab(?:bed)?\b/.test(text);
 }
 
 function looksLikeBaselineRawMarketListing(listing: Listing): boolean {
@@ -617,17 +625,71 @@ function candidateFromCachedMarket(
   if (!cacheEntry) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
   const listing = listingFromDiscoveryMarketCache(cacheEntry);
   if (listing && isActiveChaseEchoListing(listing, activeChases)) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
-  const sourceStatus = refreshQueued && cacheEntry.sourceStatus ? 'PENDING' : cacheEntry.sourceStatus;
+  const hasMarketSignal =
+    (cacheEntry.typicalRawSoldTotal !== undefined && (cacheEntry.soldSampleSize ?? 0) > 0) ||
+    (cacheEntry.typicalRawAskingTotal !== undefined && (cacheEntry.marketSampleSize ?? 0) > 0);
+  const sourceStatus = refreshQueued && (cacheEntry.sourceStatus || !hasMarketSignal) ? 'PENDING' : cacheEntry.sourceStatus;
   return {
     suggestion,
     selectionIndex,
-    listing,
-    image: cacheEntry.imageUrl ? { name: suggestion.name, url: cacheEntry.imageUrl, sourceName: 'eBay cached market image', sourceKind: 'MARKET_LISTING' } : undefined,
     typicalRawAskingTotal: cacheEntry.typicalRawAskingTotal,
     marketSampleSize: cacheEntry.marketSampleSize,
+    typicalRawSoldTotal: cacheEntry.typicalRawSoldTotal,
+    soldSampleSize: cacheEntry.soldSampleSize,
     displayCurrency: cacheEntry.displayCurrency ?? targetCurrency,
     sourceStatus
   };
+}
+
+export function candidatesFromDiscoveryMarketCache(
+  candidates: DiscoveryCandidate[],
+  context: {
+    userId: string;
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  }
+): DiscoveryCandidate[] {
+  const refreshJobs: DiscoveryMarketRefreshJob[] = [];
+  const marketCandidates = candidates.map((candidate, visibleIndex) => {
+    const selectionIndex = candidate.selectionIndex ?? visibleIndex;
+    const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country);
+    const cacheEntry = getDiscoveryMarketCache(cacheKey);
+    const refreshQueued = shouldRefreshDiscoveryMarketCache(cacheEntry);
+    if (refreshQueued) {
+      refreshJobs.push({
+        cacheKey,
+        suggestion: candidate.suggestion,
+        selectionIndex,
+        userId: context.userId,
+        activeChases: context.activeChases,
+        destination: context.destination,
+        range: context.range,
+        targetCurrency: context.targetCurrency
+      });
+    }
+    const marketCandidate = candidateFromCachedMarket(
+      candidate.suggestion,
+      selectionIndex,
+      cacheEntry,
+      context.targetCurrency,
+      context.activeChases,
+      refreshQueued
+    );
+    return {
+      ...candidate,
+      selectionIndex,
+      typicalRawAskingTotal: marketCandidate.typicalRawAskingTotal,
+      marketSampleSize: marketCandidate.marketSampleSize,
+      typicalRawSoldTotal: marketCandidate.typicalRawSoldTotal,
+      soldSampleSize: marketCandidate.soldSampleSize,
+      displayCurrency: marketCandidate.displayCurrency ?? candidate.displayCurrency,
+      sourceStatus: marketCandidate.sourceStatus
+    };
+  });
+  queueDiscoveryMarketRefreshes(refreshJobs);
+  return marketCandidates;
 }
 
 async function enrichSuggestion(
@@ -668,6 +730,18 @@ async function enrichSuggestion(
 
     const totals = baselineRawListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
     const typicalRawAskingTotal = typicalMarketTotal(totals);
+    let soldTotals: number[] = [];
+    try {
+      const soldListings = await withTimeout(searchEbaySoldListings(discoveryChase, destination), DISCOVERY_SOURCE_TIMEOUT_MS);
+      const usableSoldListings = soldListings
+        .filter((candidate) => !isActiveChaseEchoListing(candidate, activeChases))
+        .filter((candidate) => isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency))
+        .filter((candidate) => looksLikeBaselineRawMarketListing(candidate) && meetsBaselineMarketCeiling(suggestion, candidate, targetCurrency));
+      soldTotals = usableSoldListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
+    } catch {
+      soldTotals = [];
+    }
+    const typicalRawSoldTotal = typicalMarketTotal(soldTotals);
     const imageUrl = imageUrlFromListing(listing);
     return {
       suggestion,
@@ -676,6 +750,8 @@ async function enrichSuggestion(
       image: imageUrl ? { name: suggestion.name, url: imageUrl, sourceName: 'eBay listing image', sourceKind: 'MARKET_LISTING' } : undefined,
       typicalRawAskingTotal,
       marketSampleSize: totals.length,
+      typicalRawSoldTotal,
+      soldSampleSize: soldTotals.length,
       displayCurrency: targetCurrency
     };
   } catch (error) {
@@ -713,10 +789,10 @@ function saveDiscoveryMarketRefreshResult(job: DiscoveryMarketRefreshJob, candid
     suggestionName: job.suggestion.name,
     displayCurrency: job.targetCurrency,
     destinationCountry: job.destination?.country,
-    listing: candidate.listing,
-    imageUrl: candidate.image?.url,
     typicalRawAskingTotal: candidate.typicalRawAskingTotal,
     marketSampleSize: candidate.marketSampleSize,
+    typicalRawSoldTotal: candidate.typicalRawSoldTotal,
+    soldSampleSize: candidate.soldSampleSize,
     sourceStatus: candidate.sourceStatus === 'PENDING' ? undefined : candidate.sourceStatus
   });
 }
@@ -766,13 +842,24 @@ function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshJob[]): void 
 }
 
 function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
-  if (candidate.sourceStatus === 'PENDING') return 'Market refresh queued; Vaultr will attach image and pricing once the source responds.';
+  if (candidate.sourceStatus === 'PENDING') {
+    return candidate.image
+      ? 'Market refresh queued; Vaultr will attach pricing once the source responds.'
+      : 'Market refresh queued; Vaultr will attach image and pricing once the source responds.';
+  }
   if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market refresh is cooling down after an eBay throttle response; Vaultr will retry after backoff.';
   if (candidate.sourceStatus === 'TIMEOUT') return 'eBay did not answer in time; Vaultr will try this path again after backoff.';
-  if (candidate.typicalRawAskingTotal === undefined || candidate.marketSampleSize === undefined || candidate.marketSampleSize === 0) {
+  const currency = candidate.displayCurrency ?? currencyHint;
+  const hasSoldComps = candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) > 0;
+  const hasAskComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0;
+  if (!hasSoldComps && !hasAskComps) {
     return 'Market is thin right now; treat this as a collecting path to watch.';
   }
-  return `${formatMoney(candidate.typicalRawAskingTotal, candidate.displayCurrency ?? currencyHint)} typical raw ask`;
+  if (hasSoldComps && hasAskComps) {
+    return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps); ${formatMoney(candidate.typicalRawAskingTotal, currency)} raw ask`;
+  }
+  if (hasSoldComps) return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps)`;
+  return `${formatMoney(candidate.typicalRawAskingTotal, currency)} typical raw ask`;
 }
 
 async function attachReferenceImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
@@ -794,18 +881,24 @@ async function attachReferenceImages(candidates: DiscoveryCandidate[]): Promise<
 }
 
 function hasEnoughRawMarketData(candidate: DiscoveryCandidate): boolean {
-  return candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE;
+  return (
+    (candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE) ||
+    (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE)
+  );
 }
 
 function hasSomeRawMarketData(candidate: DiscoveryCandidate): boolean {
-  return candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0;
+  return (
+    (candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) > 0) ||
+    (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0)
+  );
 }
 
 function curiosityRankScore(candidate: DiscoveryCandidate): number {
   const curiosity = candidate.suggestion.curiosityScore ?? 0;
-  const marketTotal = candidate.typicalRawAskingTotal ?? 0;
+  const marketTotal = candidate.typicalRawSoldTotal ?? candidate.typicalRawAskingTotal ?? 0;
   const marketSweetSpot = marketTotal >= 35 && marketTotal <= 350 ? 3 : marketTotal > 0 ? 1 : 0;
-  const evidenceDepth = Math.min(3, candidate.marketSampleSize ?? 0);
+  const evidenceDepth = Math.min(3, Math.max(candidate.soldSampleSize ?? 0, candidate.marketSampleSize ?? 0));
   const selectionIndex = candidate.selectionIndex ?? DISCOVERY_CANDIDATE_POOL_SIZE;
   const tasteOrderScore = Math.max(0, DISCOVERY_CANDIDATE_POOL_SIZE - selectionIndex) * 4;
   return tasteOrderScore + curiosity * 3 + marketSweetSpot + evidenceDepth;
@@ -1168,6 +1261,10 @@ export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: Supp
   return embed;
 }
 
+export function discoveryCardEmbeds(candidates: DiscoveryCandidate[], currencyHint: SupportedCurrency, hasFullDiscovery: boolean): EmbedBuilder[] {
+  return candidates.map((candidate, index) => discoveryEmbed(candidate, currencyHint, hasFullDiscovery, index + 1));
+}
+
 function createDiscoveryVaultButtonToken(userId: string, candidate: DiscoveryCandidate): string {
   deleteExpiredDiscoveryVaultActions();
   const token = randomUUID().replaceAll('-', '').slice(0, 12);
@@ -1305,7 +1402,7 @@ export function orderCandidatesFromPersistedState(candidates: DiscoveryCandidate
   for (const candidate of candidates) {
     if (selected.length >= count) break;
     const nameKey = discoveryNameKey(candidate.suggestion.name);
-    if (selectedNames.has(nameKey)) continue;
+    if (selectedNames.has(nameKey) || excludedNameKeys.has(nameKey)) continue;
     selected.push(candidate);
     selectedNames.add(nameKey);
   }
@@ -1359,7 +1456,15 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
     if (hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT && visibleCandidates.length >= visibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
     }
-    const candidates = await attachReferenceImages(visibleCandidates);
+    const marketCandidates = hasFullDiscovery
+      ? candidatesFromDiscoveryMarketCache(visibleCandidates, {
+          userId,
+          activeChases: chases,
+          destination: settings.shippingCountry ? { country: settings.shippingCountry } : undefined,
+          targetCurrency: settings.alertCurrency
+        })
+      : visibleCandidates;
+    const candidates = await attachReferenceImages(marketCandidates);
     return {
       lane: selection.lane,
       candidates
@@ -1425,7 +1530,7 @@ export const discover = {
     await interaction.editReply({
       embeds: [
         overviewEmbed,
-        ...visibleCandidates.map((candidate, index) => discoveryEmbed(candidate, discovery.settings.alertCurrency, false, index + 1))
+        ...discoveryCardEmbeds(visibleCandidates, discovery.settings.alertCurrency, discovery.hasFullDiscovery)
       ],
       components: discoveryActionRows(interaction.user.id, visibleCandidates, discovery.hasFullDiscovery)
     });

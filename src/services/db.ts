@@ -115,6 +115,8 @@ db.exec(`
     image_url TEXT,
     typical_raw_asking_total REAL,
     market_sample_size INTEGER,
+    typical_raw_sold_total REAL,
+    sold_sample_size INTEGER,
     source_status TEXT,
     fetched_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -317,6 +319,16 @@ try {
   db.exec(`ALTER TABLE user_alert_settings DROP COLUMN shipping_postal_code;`);
 } catch {
   // Column is already absent on fresh or upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE discovery_market_cache ADD COLUMN typical_raw_sold_total REAL;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE discovery_market_cache ADD COLUMN sold_sample_size INTEGER;`);
+} catch {
+  // Column already exists on upgraded databases.
 }
 
 const discoveryPreferenceColumns = db.prepare(`PRAGMA table_info(user_discovery_preferences);`).all() as Array<{ name: string; pk: number }>;

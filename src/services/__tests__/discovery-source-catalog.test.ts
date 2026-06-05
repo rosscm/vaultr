@@ -299,6 +299,78 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual(['Pikachu & Zekrom-GX SM Black Star Promos SM168']);
   });
 
+  it('filters off-profile modern promos from generic promo threads', async () => {
+    const pikachuCard = {
+      id: 'svp-101',
+      name: 'Pikachu',
+      number: '101',
+      supertype: 'Pokemon',
+      subtypes: ['Basic'],
+      rarity: 'Promo',
+      types: ['Lightning'],
+      nationalPokedexNumbers: [25],
+      set: { name: 'Scarlet & Violet Black Star Promos', series: 'Scarlet & Violet', releaseDate: '2023/01/01' },
+      images: { small: 'https://images.pokemontcg.io/svp/101.png' }
+    };
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const query = new URL(String(input)).searchParams.get('q') ?? '';
+      const data = query.includes('name:"pikachu"')
+        ? [pikachuCard]
+        : query.includes('name:"mew"')
+          ? [
+              {
+                id: 'swsh12pt5gg-GG10',
+                name: 'Mew',
+                number: 'GG10',
+                supertype: 'Pokemon',
+                subtypes: ['Basic'],
+                rarity: 'Rare Holo',
+                types: ['Psychic'],
+                nationalPokedexNumbers: [151],
+                set: { name: 'Crown Zenith Galarian Gallery', series: 'Sword & Shield', releaseDate: '2023/01/20' },
+                images: { small: 'https://images.pokemontcg.io/swsh12pt5gg/GG10.png' }
+              }
+            ]
+          : /\bname:"/i.test(query)
+            ? []
+            : [
+              {
+                id: 'svp-123',
+                name: 'Teal Mask Ogerpon',
+                number: '123',
+                supertype: 'Pokemon',
+                subtypes: ['Basic'],
+                rarity: 'Promo',
+                types: ['Grass'],
+                nationalPokedexNumbers: [1017],
+                set: { name: 'Scarlet & Violet Black Star Promos', series: 'Scarlet & Violet', releaseDate: '2024/05/24' },
+                images: { small: 'https://images.pokemontcg.io/svp/123.png' }
+              },
+              pikachuCard
+            ];
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Pokemon promo cards',
+        lane: 'Promo Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Pokemon promo cards',
+        requiredEvidenceTokens: ['promo'],
+        sourceTasteTokens: ['promo']
+      },
+      [priorityChase('Pikachu 26/83 Toys R Us promo', 'HIGH'), chase('Mew RC24')],
+      4
+    );
+
+    const names = resolved.suggestions.map((suggestion) => suggestion.name);
+    expect(names).not.toContain('Teal Mask Ogerpon Scarlet & Violet Black Star Promos 123');
+    expect(names.length).toBeGreaterThan(0);
+  });
+
   it('does not treat SIR ex names as permission to recommend ordinary ex cards', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));

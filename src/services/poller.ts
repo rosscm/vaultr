@@ -20,7 +20,7 @@ import {
   markChasesPollChecked,
   markAlertSentWithDetails
 } from './chase-store.js';
-import { searchEbayListings, type ShippingDestination } from './ebay.js';
+import { enrichEbayListingDetails, searchEbayListings, type ShippingDestination } from './ebay.js';
 import { searchTrustedShopifyListings } from './shopify.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
@@ -160,6 +160,33 @@ function formatMoney(amount: number | undefined, currency: string): string {
   return `${amount.toFixed(2)} ${currency}`;
 }
 
+function alertListingEnrichmentTimeoutMs(): number {
+  const value = Number(process.env.ALERT_LISTING_ENRICHMENT_TIMEOUT_MS ?? '5000');
+  return Number.isFinite(value) ? Math.max(500, Math.floor(value)) : 5000;
+}
+
+function normalizeListingCurrency(listing: Listing, targetCurrency: ReturnType<typeof normalizeSupportedCurrency>): Listing {
+  return {
+    ...listing,
+    price: convertCurrencyAmount(listing.price, listing.currency, targetCurrency),
+    currency: targetCurrency,
+    shippingCost:
+      listing.shippingCost === undefined
+        ? undefined
+        : convertCurrencyAmount(listing.shippingCost, listing.shippingCurrency ?? listing.currency, targetCurrency),
+    shippingCurrency: targetCurrency
+  };
+}
+
+async function enrichSelectedAlertListing(listing: Listing, destination?: ShippingDestination): Promise<Listing> {
+  if (listing.source !== 'EBAY' || listing.shippingCost !== undefined) return listing;
+  return withTimeout(
+    enrichEbayListingDetails(listing, destination),
+    alertListingEnrichmentTimeoutMs(),
+    'Alert listing enrichment timeout'
+  ).catch(() => listing);
+}
+
 function formatDealQuality(score: number): string {
   if (score >= 85) return 'strong';
   if (score >= 60) return 'good';
@@ -280,6 +307,7 @@ async function sleep(ms: number): Promise<void> {
 
 const sourceCallTimestamps: number[] = [];
 const throttleNoticeTimestampsByUser = new Map<string, number>();
+const chaseTuningNoticeTimestamps = new Map<string, number>();
 const recentFingerprintTimestamps = new Map<string, number>();
 const lastSourceFetchAtMsByQueryKey = new Map<string, number>();
 let backoffUntilMs = 0;
@@ -300,6 +328,8 @@ type CoverageAccumulator = {
   deferredChases: number;
   rateLimitedGroups: number;
   backoffGroups: number;
+  sourceTimeoutGroups: number;
+  sourceErrorGroups: number;
   oldestDue?: { queryKey: string; chaseCount: number; overdueSeconds: number };
   oldestDeferred?: { queryKey: string; chaseCount: number; overdueSeconds: number; reason?: string };
 };
@@ -362,6 +392,8 @@ function markCoverageDeferred(
   coverage.deferredChases += group.members.length;
   if (reason === 'Rate limit') coverage.rateLimitedGroups += 1;
   if (reason === 'Backoff') coverage.backoffGroups += 1;
+  if (reason === 'Source timeout') coverage.sourceTimeoutGroups += 1;
+  if (reason === 'Source error') coverage.sourceErrorGroups += 1;
   coverage.oldestDeferred = maybeReplaceOldestCoverageGroup(coverage.oldestDeferred, {
     queryKey: groupDisplayName(queryKey),
     chaseCount: group.members.length,
@@ -455,6 +487,17 @@ function sourceModeIncludesTrustedShops(sourceMode: string): boolean {
   return sourceMode === 'SHOPIFY' || sourceMode === 'EBAY_SHOPIFY';
 }
 
+export function alertEbaySearchOptions(): { enrichMissingShipping: false } {
+  return { enrichMissingShipping: false };
+}
+
+export function listingSourceFailureReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/timeout/i.test(message)) return 'Source timeout';
+  if (/429|rate limit|quota|ratelimiter/i.test(message)) return 'Rate limit';
+  return 'Source error';
+}
+
 async function fetchListingsWithRetry(chase: Chase, sourceMode: string, destination?: ShippingDestination): Promise<Listing[]> {
   const maxRequestsPerMinute = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '6');
   const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '900');
@@ -479,7 +522,7 @@ async function fetchListingsWithRetry(chase: Chase, sourceMode: string, destinat
       }
       markSourceCall(nowMs);
       const [ebayListings, shopifyListings] = await Promise.all([
-        withTimeout(searchEbayListings(chase, destination), 30000, 'Listing source timeout'),
+        withTimeout(searchEbayListings(chase, destination, alertEbaySearchOptions()), 30000, 'Listing source timeout'),
         shopifyListingsPromise
       ]);
       markSourceSuccessNow();
@@ -524,6 +567,68 @@ async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAle
   }
 }
 
+export function shouldSendChaseTuningNotice(sentForChaseThisPoll: number, eligibleCandidates: number, maxForChaseThisPoll: number): boolean {
+  return sentForChaseThisPoll >= maxForChaseThisPoll && eligibleCandidates > sentForChaseThisPoll;
+}
+
+export function chaseTuningNoticeLines(
+  chase: Pick<Chase, 'cardName'>,
+  activeTier: ReturnType<typeof activePlanTier>,
+  sentForChaseThisPoll: number,
+  eligibleCandidates: number
+): string[] {
+  const intro = `**${truncateTitle(chase.cardName, 80)}** surfaced ${eligibleCandidates} eligible listings, so Vaultr sent the strongest ${sentForChaseThisPoll} this pass.`;
+  if (activeTier === 'PRO') {
+    return [
+      intro,
+      'If that feels noisy, tighten the chase name, lower the max price, add condition or grade details, or use negative keywords for variants you do not want.',
+      'You can also use `/alerts settings` to raise confidence or lower alert volume.'
+    ];
+  }
+
+  return [
+    intro,
+    'If that feels noisy, tighten the chase name or lower the max price so Vaultr has a clearer target.',
+    'For finer chase controls and deeper alert tuning, `/upgrade` unlocks the Pro toolkit.'
+  ];
+}
+
+async function sendChaseTuningNoticeIfNeeded(
+  client: Client,
+  chase: Chase,
+  sentForChaseThisPoll: number,
+  eligibleCandidates: number,
+  maxForChaseThisPoll: number
+): Promise<void> {
+  if (!shouldSendChaseTuningNotice(sentForChaseThisPoll, eligibleCandidates, maxForChaseThisPoll)) return;
+
+  const nowMs = Date.now();
+  const key = `${chase.userId}:${chase.id}`;
+  const lastNotifiedAt = chaseTuningNoticeTimestamps.get(key) ?? 0;
+  const tuningNoticeCooldownMs = 24 * 60 * 60 * 1000;
+  if (nowMs - lastNotifiedAt < tuningNoticeCooldownMs) return;
+  const activeTier = activePlanTier(getUserPlan(chase.userId));
+
+  try {
+    const user = await client.users.fetch(chase.userId);
+    await withTimeout(
+      user.send({
+        embeds: [
+          warningEmbed(
+            'High-Volume Chase',
+            chaseTuningNoticeLines(chase, activeTier, sentForChaseThisPoll, eligibleCandidates).join('\n')
+          )
+        ]
+      }),
+      10000,
+      'Chase tuning DM send timeout'
+    );
+    chaseTuningNoticeTimestamps.set(key, nowMs);
+  } catch (error) {
+    console.error(`Failed to send chase tuning notice to user ${chase.userId}`, error);
+  }
+}
+
 async function runPoll(client: Client): Promise<void> {
   const startedAt = Date.now();
   const nowMs = Date.now();
@@ -539,7 +644,9 @@ async function runPoll(client: Client): Promise<void> {
       deferredGroups: 0,
       deferredChases: 0,
       rateLimitedGroups: 0,
-      backoffGroups: 0
+      backoffGroups: 0,
+      sourceTimeoutGroups: 0,
+      sourceErrorGroups: 0
     });
     markPollerRunSuccess(Date.now() - startedAt);
     return;
@@ -604,7 +711,9 @@ async function runPoll(client: Client): Promise<void> {
     deferredGroups: 0,
     deferredChases: 0,
     rateLimitedGroups: 0,
-    backoffGroups: 0
+    backoffGroups: 0,
+    sourceTimeoutGroups: 0,
+    sourceErrorGroups: 0
   };
   for (const { queryKey, group } of orderedGroups) {
     coverage.oldestDue = maybeReplaceOldestCoverageGroup(coverage.oldestDue, {
@@ -618,22 +727,31 @@ async function runPoll(client: Client): Promise<void> {
     const representative = group.members[0]?.chase;
     const representativeSettings = group.members[0]?.settings;
     if (!representative || !representativeSettings) continue;
-    const sourceCallsBefore = sourceCallTimestamps.length;
-    const listings = await fetchListingsWithRetry(
-      representative,
-      group.sourceMode,
-      shippingDestinationFromSettings(representativeSettings)
-    );
-    const didFetchListings =
-      group.sourceMode === 'MOCK' || sourceModeIncludesTrustedShops(group.sourceMode) || sourceCallTimestamps.length > sourceCallsBefore;
-    if (didFetchListings) {
-      const checkedAtIso = new Date().toISOString();
-      lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
-      markChasesPollChecked(group.members.map(({ chase }) => chase.id), checkedAtIso);
-      markCoverageChecked(coverage, group);
-    } else {
-      const reason = group.sourceMode !== 'MOCK' && Date.now() < backoffUntilMs ? 'Backoff' : 'Rate limit';
+    let listings: Listing[];
+    try {
+      const sourceCallsBefore = sourceCallTimestamps.length;
+      listings = await fetchListingsWithRetry(
+        representative,
+        group.sourceMode,
+        shippingDestinationFromSettings(representativeSettings)
+      );
+      const didFetchListings =
+        group.sourceMode === 'MOCK' || sourceModeIncludesTrustedShops(group.sourceMode) || sourceCallTimestamps.length > sourceCallsBefore;
+      if (didFetchListings) {
+        const checkedAtIso = new Date().toISOString();
+        lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
+        markChasesPollChecked(group.members.map(({ chase }) => chase.id), checkedAtIso);
+        markCoverageChecked(coverage, group);
+      } else {
+        const reason = group.sourceMode !== 'MOCK' && Date.now() < backoffUntilMs ? 'Backoff' : 'Rate limit';
+        markCoverageDeferred(coverage, queryKey, group, nowMs, reason);
+      }
+    } catch (error) {
+      const reason = listingSourceFailureReason(error);
       markCoverageDeferred(coverage, queryKey, group, nowMs, reason);
+      finishCoverageSnapshot(coverage);
+      console.error(`Listing source group failed for ${groupDisplayName(queryKey)}`, error);
+      continue;
     }
 
 
@@ -651,16 +769,7 @@ async function runPoll(client: Client): Promise<void> {
 
       for (const listing of listings) {
       const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
-      const normalizedListing = {
-        ...listing,
-        price: convertCurrencyAmount(listing.price, listing.currency, targetCurrency),
-        currency: targetCurrency,
-        shippingCost:
-          listing.shippingCost === undefined
-            ? undefined
-            : convertCurrencyAmount(listing.shippingCost, listing.shippingCurrency ?? listing.currency, targetCurrency),
-        shippingCurrency: targetCurrency
-      };
+      const normalizedListing = normalizeListingCurrency(listing, targetCurrency);
 
       const match = matchChaseToListing(chase, normalizedListing);
       if (!match.isMatch) continue;
@@ -709,7 +818,12 @@ async function runPoll(client: Client): Promise<void> {
         break;
       }
 
-      const { listing, normalizedListing, match, targetCurrency, listingFingerprint } = candidate;
+      const targetCurrency = candidate.targetCurrency;
+      const listing = await enrichSelectedAlertListing(candidate.listing, shippingDestinationFromSettings(settings));
+      const normalizedListing = normalizeListingCurrency(listing, targetCurrency);
+      const match = matchChaseToListing(chase, normalizedListing);
+      if (!match.isMatch || match.score < settings.minScore) continue;
+      const listingFingerprint = candidate.listingFingerprint;
       const nowMs = Date.now();
       if (listingFingerprint && wasFingerprintSeenRecently(chase.id, listingFingerprint, nowMs)) {
         markFingerprintSuppression();
@@ -853,6 +967,7 @@ async function runPoll(client: Client): Promise<void> {
         console.error(`Failed to send DM alert to user ${chase.userId}`, error);
       }
     }
+      await sendChaseTuningNoticeIfNeeded(client, chase, sentForChaseThisPoll, orderedCandidates.length, maxForChaseThisPoll);
     }
   }
 

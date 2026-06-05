@@ -14,6 +14,8 @@ export type PollerCoverageSnapshot = {
   deferredChases: number;
   rateLimitedGroups: number;
   backoffGroups: number;
+  sourceTimeoutGroups: number;
+  sourceErrorGroups: number;
   oldestDue?: PollerCoverageGroup;
   oldestDeferred?: PollerCoverageGroup;
 };
@@ -48,7 +50,9 @@ const emptyCoverage: PollerCoverageSnapshot = {
   deferredGroups: 0,
   deferredChases: 0,
   rateLimitedGroups: 0,
-  backoffGroups: 0
+  backoffGroups: 0,
+  sourceTimeoutGroups: 0,
+  sourceErrorGroups: 0
 };
 
 const state: PollerState = {

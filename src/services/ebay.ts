@@ -182,6 +182,10 @@ function mapFindingListingType(raw?: string): 'AUCTION' | 'BUY_IT_NOW' | 'OTHER'
   return 'OTHER';
 }
 
+function findingSellingState(raw?: string): string {
+  return String(raw ?? '').trim().toUpperCase();
+}
+
 function mapBrowseListingType(buyingOptions?: unknown): 'AUCTION' | 'BUY_IT_NOW' | 'OTHER' {
   if (!Array.isArray(buyingOptions)) return 'OTHER';
   const options = buyingOptions.map((option) => String(option).toUpperCase());
@@ -577,6 +581,19 @@ async function enrichListingFromShoppingApi(listing: Listing, appId: string, des
   }
 }
 
+export async function enrichEbayListingDetails(listing: Listing, destination?: ShippingDestination): Promise<Listing> {
+  if (listing.source !== 'EBAY') return listing;
+  try {
+    const token = await getBrowseAccessToken();
+    const appId = process.env.EBAY_APP_ID ?? process.env.EBAY_CLIENT_ID;
+    const browseEnriched = await enrichListingFromBrowseItemApi(listing, token, destination);
+    if (browseEnriched.shippingCost !== undefined || !appId) return browseEnriched;
+    return enrichListingFromShoppingApi(browseEnriched, appId, destination);
+  } catch {
+    return listing;
+  }
+}
+
 async function searchEbayFindingListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {
   const appId = process.env.EBAY_APP_ID;
   if (!appId) return [];
@@ -689,6 +706,95 @@ async function searchEbayFindingListings(chase: Chase, destination?: ShippingDes
   }
 
   return listings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
+}
+
+export async function searchEbaySoldListings(chase: Chase, destination?: ShippingDestination): Promise<Listing[]> {
+  const appId = process.env.EBAY_APP_ID;
+  if (!appId) return [];
+  const endpoint = getEbayFindingEndpoint();
+
+  const gradeTerm = gradeSearchTerm(chase.grade);
+  const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
+
+  const params = new URLSearchParams({
+    'OPERATION-NAME': 'findCompletedItems',
+    'SERVICE-VERSION': '1.13.0',
+    'SECURITY-APPNAME': appId,
+    'RESPONSE-DATA-FORMAT': 'JSON',
+    'REST-PAYLOAD': '',
+    keywords,
+    'paginationInput.entriesPerPage': process.env.EBAY_SOLD_SEARCH_LIMIT ?? process.env.EBAY_SEARCH_LIMIT ?? '50'
+  });
+  params.append('outputSelector', 'SellerInfo');
+  params.append('outputSelector', 'StoreInfo');
+  params.append('itemFilter(0).name', 'SoldItemsOnly');
+  params.append('itemFilter(0).value', 'true');
+  const deliveryPostalCode = getDeliveryPostalCode(destination);
+  if (deliveryPostalCode) params.append('buyerPostalCode', deliveryPostalCode);
+
+  const response = await fetchEbay(`${endpoint}?${params.toString()}`);
+  const json: any = await parseJsonResponse(response);
+  if (isFindingRateLimitError(json)) {
+    throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`);
+  }
+  if (!response.ok) {
+    throw new Error(`eBay sold request failed: ${response.status}`);
+  }
+
+  const items = json?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item ?? [];
+
+  return items
+    .map((item: any) => {
+      const sellingState = findingSellingState(item?.sellingStatus?.[0]?.sellingState?.[0]);
+      if (sellingState && sellingState !== 'ENDEDWITHSALES') return null;
+
+      const listingId = item?.itemId?.[0];
+      const title = item?.title?.[0];
+      const viewItemURL = item?.viewItemURL?.[0];
+      const galleryURL = firstNonEmptyString([item?.galleryURL?.[0], item?.galleryPlusPictureURL?.[0]]);
+      const currentPrice = item?.sellingStatus?.[0]?.currentPrice?.[0];
+      const rawPrice = currentPrice?.__value__;
+      const currency = currentPrice?.['@currencyId'] ?? 'USD';
+      const seller = item?.sellerInfo?.[0]?.sellerUserName?.[0] ?? item?.sellerInfo?.[0]?.sellerUserName;
+      const sellerFeedbackPercent = Number(item?.sellerInfo?.[0]?.positiveFeedbackPercent?.[0]);
+      const sellerFeedbackScore = Number(item?.sellerInfo?.[0]?.feedbackScore?.[0]);
+      const shippingServiceCost = item?.shippingInfo?.[0]?.shippingServiceCost?.[0];
+      const shipToLocations = item?.shippingInfo?.[0]?.shipToLocations;
+      const rawShippingCost = shippingServiceCost?.__value__;
+      const shippingCurrency = shippingServiceCost?.['@currencyId'] ?? currency;
+      const shippingCost = Number(rawShippingCost);
+      const postedAt = item?.listingInfo?.[0]?.endTime?.[0] ?? item?.listingInfo?.[0]?.startTime?.[0];
+      const rawListingType = item?.listingInfo?.[0]?.listingType?.[0];
+      const condition = item?.condition?.[0]?.conditionDisplayName?.[0];
+      const countryCode = item?.country?.[0];
+      const deliveryCountry = getDeliveryCountry(destination);
+      const shippingEligibility = deriveShippingEligibilityFromShipToLocations(shipToLocations, deliveryCountry, deliveryPostalCode);
+      const price = Number(rawPrice);
+
+      if (!listingId || !title || !viewItemURL || Number.isNaN(price)) return null;
+
+      return {
+        source: 'EBAY',
+        listingId,
+        title,
+        price,
+        currency,
+        shippingCost: Number.isNaN(shippingCost) ? undefined : shippingCost,
+        shippingCurrency: Number.isNaN(shippingCost) ? undefined : shippingCurrency,
+        ...shippingEligibility,
+        url: viewItemURL,
+        imageUrl: galleryURL || undefined,
+        thumbnailUrl: galleryURL || undefined,
+        seller,
+        sellerFeedbackPercent: Number.isNaN(sellerFeedbackPercent) ? undefined : sellerFeedbackPercent,
+        sellerFeedbackScore: Number.isNaN(sellerFeedbackScore) ? undefined : sellerFeedbackScore,
+        postedAt,
+        region: mapCountryToRegion(countryCode),
+        condition,
+        listingType: mapFindingListingType(rawListingType)
+      } satisfies Listing;
+    })
+    .filter((listing: Listing | null): listing is Listing => listing !== null);
 }
 
 export async function searchEbayListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {
