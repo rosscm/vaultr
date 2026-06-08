@@ -1,4 +1,4 @@
-import { MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { MessageFlags } from 'discord.js';
 import {
   addChase,
   countUserChases,
@@ -11,7 +11,7 @@ import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
-import { buildGradePreference, CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
+import { buildGradePreference, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
 
@@ -37,65 +37,6 @@ function proControlNames(values: {
 }
 
 export const chaseAdd = {
-  data: new SlashCommandBuilder()
-    .setName('chase-add')
-    .setDescription('Add a card to your Vault')
-    .addStringOption((opt) =>
-      opt
-        .setName('card')
-        .setDescription('Card name or number, e.g. Umbreon VMAX 215/203')
-        .setRequired(true)
-        .setMinLength(3)
-        .setMaxLength(100)
-    )
-    .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price to surface').setMinValue(0.01))
-    .addStringOption((opt) =>
-      opt
-        .setName('grading_type')
-        .setDescription('Slab/raw preference (default: Any)')
-        .addChoices(...GRADING_TYPE_CHOICES)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('grade_value')
-        .setDescription('Numeric grade preference (default: Any)')
-        .addChoices(...GRADE_VALUE_CHOICES)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('condition')
-        .setDescription('Pro: minimum raw condition')
-        .addChoices(...CONDITION_CHOICES)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('listing_type')
-        .setDescription('Pro: auction or Buy It Now preference')
-        .addChoices(
-          { name: 'Any', value: 'ANY' },
-          { name: 'Auction', value: 'AUCTION' },
-          { name: 'Buy It Now', value: 'BUY_IT_NOW' }
-        )
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('negative_keywords')
-        .setDescription('Pro: terms to block from this chase')
-        .setMaxLength(240)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('priority')
-        .setDescription('Pro: chase importance')
-        .addChoices(
-          { name: 'Normal', value: 'NORMAL' },
-          { name: 'High', value: 'HIGH' },
-          { name: 'Grail', value: 'GRAIL' }
-        )
-    )
-    .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Pro: short note for this chase').setMaxLength(120)
-    ),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
     const activeTier = activePlanTier(plan);

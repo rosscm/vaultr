@@ -71,6 +71,12 @@ export const alerts = {
             .addChoices(...SHIPPING_COUNTRY_CHOICES)
             .setMaxLength(3)
         )
+        .addStringOption((opt) =>
+          opt
+            .setName('shipping_postal_code')
+            .setDescription('Postal/ZIP region for eBay shipping; CA stores FSA, US stores ZIP5; use OFF to clear')
+            .setMaxLength(16)
+        )
     )
     .addSubcommand((sub) =>
       sub

@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { getUserAlertSettings, getUserPlan, setUserAlertSettings } from '../services/chase-store.js';
 import { activePlanTier, formatActivePlanAccess, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
@@ -7,26 +7,6 @@ import { OUTPUT_STYLE } from '../ui/style.js';
 import type { ListingSourceModePreference } from '../types.js';
 
 type AlertVolume = 'QUIET' | 'BALANCED' | 'MORE';
-
-const ALERT_VOLUME_CHOICES = [
-  { name: 'Quiet (3/hour)', value: 'QUIET' },
-  { name: 'Balanced (10/hour)', value: 'BALANCED' },
-  { name: 'More (25/hour)', value: 'MORE' }
-] as const;
-
-const SHIPPING_COUNTRY_CHOICES = [
-  { name: 'Off', value: 'OFF' },
-  { name: 'United States (USD)', value: 'US' },
-  { name: 'Canada (CAD)', value: 'CA' },
-  { name: 'United Kingdom (GBP)', value: 'GB' },
-  { name: 'Japan (JPY)', value: 'JP' },
-  { name: 'Germany (EUR)', value: 'DE' },
-  { name: 'France (EUR)', value: 'FR' },
-  { name: 'Italy (EUR)', value: 'IT' },
-  { name: 'Spain (EUR)', value: 'ES' },
-  { name: 'Netherlands (EUR)', value: 'NL' },
-  { name: 'Australia', value: 'AU' }
-] as const;
 
 const ALERTS_SOURCE_PREFIX = 'alerts-source';
 
@@ -47,6 +27,22 @@ function normalizeShippingCountry(value: string | null): string | null | undefin
   const normalized = value.trim().toUpperCase();
   if (normalized === 'OFF' || normalized === 'NONE' || normalized === 'CLEAR') return null;
   return /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
+}
+
+function normalizeShippingPostalCode(value: string | null, shippingCountry?: string): string | null | undefined {
+  if (value === null) return undefined;
+  const normalized = value.trim().toUpperCase().replace(/\s+/g, ' ');
+  if (normalized === 'OFF' || normalized === 'NONE' || normalized === 'CLEAR') return null;
+  if (shippingCountry === 'CA') {
+    const compact = normalized.replace(/[\s-]+/g, '');
+    const match = /^([A-Z]\d[A-Z])(?:\d[A-Z]\d)?$/.exec(compact);
+    return match?.[1];
+  }
+  if (shippingCountry === 'US') {
+    const match = /^(\d{5})(?:[- ]?\d{4})?$/.exec(normalized);
+    return match?.[1];
+  }
+  return undefined;
 }
 
 function displaySourceMode(value: ListingSourceModePreference): string {
@@ -110,7 +106,9 @@ function sourceRows(userId: string, activeTier: 'FREE' | 'PRO', currentSource: L
 
 function settingsFields(plan: ReturnType<typeof getUserPlan>, settings: ReturnType<typeof getUserAlertSettings>) {
   const activeTier = activePlanTier(plan);
-  const shipToLocation = settings.shippingCountry ?? OUTPUT_STYLE.off;
+  const shipToLocation = settings.shippingCountry
+    ? [settings.shippingCountry, settings.shippingPostalCode ? `${settings.shippingPostalCode} region` : undefined].filter(Boolean).join(' ')
+    : OUTPUT_STYLE.off;
   return [
     {
       name: 'Plan',
@@ -133,7 +131,11 @@ function settingsFields(plan: ReturnType<typeof getUserPlan>, settings: ReturnTy
     },
     {
       name: 'Pricing',
-      value: [`**Currency:** ${settings.alertCurrency} (default: USD)`, `**Ship-to:** ${shipToLocation} (default: Off)`].join('\n'),
+      value: [
+        `**Currency:** ${settings.alertCurrency} (default: USD)`,
+        `**Ship-to:** ${shipToLocation} (default: Off)`,
+        '**Privacy:** ship-to country is used for eBay shipping estimates; CA/US postal input is stored only as a region code.'
+      ].join('\n'),
       inline: false
     },
     {
@@ -145,71 +147,39 @@ function settingsFields(plan: ReturnType<typeof getUserPlan>, settings: ReturnTy
 }
 
 export const alertsSettings = {
-  data: new SlashCommandBuilder()
-    .setName('alerts-settings')
-    .setDescription('View or update your Vaultr controls')
-    .addStringOption((opt) =>
-      opt
-        .setName('source')
-        .setDescription('Where Vaultr watches for sightings (default: eBay; shops Pro)')
-        .addChoices(
-          { name: 'eBay', value: 'EBAY' },
-          { name: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY' },
-          { name: 'Trusted Shops Only', value: 'SHOPIFY' }
-        )
-    )
-    .addIntegerOption((opt) =>
-      opt
-        .setName('min_score')
-        .setDescription('Minimum confidence for a DM sighting (0-100; default: 60)')
-        .setMinValue(0)
-        .setMaxValue(100)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('alert_volume')
-        .setDescription('How many sightings Vaultr may DM you (default: Balanced, 10/hour)')
-        .addChoices(...ALERT_VOLUME_CHOICES)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('alert_currency')
-        .setDescription('Currency for listing prices and max comparisons (default: USD)')
-        .addChoices(
-          { name: 'USD', value: 'USD' },
-          { name: 'CAD', value: 'CAD' },
-          { name: 'EUR', value: 'EUR' },
-          { name: 'GBP', value: 'GBP' },
-          { name: 'JPY', value: 'JPY' }
-        )
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('shipping_country')
-        .setDescription('Ship-to country for better shipping estimates (default: Off)')
-        .addChoices(...SHIPPING_COUNTRY_CHOICES)
-        .setMaxLength(3)
-    ),
   async execute(interaction: any) {
+    const currentSettings = getUserAlertSettings(interaction.user.id);
     const plan = getUserPlan(interaction.user.id);
     const activeTier = activePlanTier(plan);
     const minScore = interaction.options.getInteger('min_score');
     const alertVolume = interaction.options.getString('alert_volume') as AlertVolume | null;
     const alertCurrency = interaction.options.getString('alert_currency');
     const shippingCountryInput = interaction.options.getString('shipping_country');
+    const shippingPostalCodeInput = interaction.options.getString('shipping_postal_code');
     const source = interaction.options.getString('source') as ListingSourceModePreference | null;
     const shippingCountry = normalizeShippingCountry(shippingCountryInput);
+    const effectiveShippingCountry = shippingCountry === undefined ? currentSettings.shippingCountry : shippingCountry ?? undefined;
+    const shippingPostalCode = normalizeShippingPostalCode(shippingPostalCodeInput, effectiveShippingCountry);
 
     const noChanges =
       minScore === null &&
       alertVolume === null &&
       alertCurrency === null &&
       shippingCountryInput === null &&
+      shippingPostalCodeInput === null &&
       source === null;
 
     if (shippingCountryInput !== null && shippingCountry === undefined) {
       await interaction.reply({
         embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or `OFF` to clear your ship-to country.')],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    if (shippingPostalCodeInput !== null && shippingPostalCode === undefined) {
+      await interaction.reply({
+        embeds: [warningEmbed('Invalid Postal Code', 'Postal regions are currently supported for `CA` and `US` only. Use a matching value like `M5V`, `M5V 2T6`, or `90210`, or `OFF` to clear it.')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -229,12 +199,13 @@ export const alertsSettings = {
     }
 
     const settings = noChanges
-      ? getUserAlertSettings(interaction.user.id)
+      ? currentSettings
       : setUserAlertSettings(interaction.user.id, {
           minScore: minScore ?? undefined,
           maxAlertsPerHour: alertVolume === null ? undefined : maxAlertsForVolume(alertVolume),
           alertCurrency: (alertCurrency as 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY' | null) ?? undefined,
           shippingCountry,
+          shippingPostalCode,
           listingSourceMode: source ?? undefined
         });
 

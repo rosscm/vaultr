@@ -1,10 +1,10 @@
-import { ActionRowBuilder, MessageFlags, ModalBuilder, SlashCommandBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { ActionRowBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { getUserPlan, listChases, updateChase } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
-import { buildGradePreference, CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES, gradeSelectionWarning, inferGradingTypeFromGrade, normalizeConditionChoice } from './chase-options.js';
+import { buildGradePreference, gradeSelectionWarning, inferGradingTypeFromGrade, normalizeConditionChoice } from './chase-options.js';
 
 const CHASE_EDIT_MODAL_PREFIX = 'chase-edit-modal';
 
@@ -182,67 +182,6 @@ export async function handleChaseEditAutocomplete(interaction: any): Promise<boo
 }
 
 export const chaseEdit = {
-  data: new SlashCommandBuilder()
-    .setName('chase-edit')
-    .setDescription('Refine a Vault chase')
-    .addStringOption((opt) =>
-      opt
-        .setName('chase')
-        .setDescription('Start typing, then pick the chase to edit')
-        .setRequired(true)
-        .setAutocomplete(true)
-    )
-    .addStringOption((opt) =>
-      opt.setName('card').setDescription('New card name or set number').setMinLength(3).setMaxLength(100)
-    )
-    .addNumberOption((opt) => opt.setName('max_price').setDescription('New highest total price to surface').setMinValue(0.01))
-    .addStringOption((opt) =>
-      opt
-        .setName('grading_type')
-        .setDescription('New slab/raw preference')
-        .addChoices(...GRADING_TYPE_CHOICES)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('grade_value')
-        .setDescription('New numeric grade preference')
-        .addChoices(...GRADE_VALUE_CHOICES)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('condition')
-        .setDescription('Pro: new minimum raw condition')
-        .addChoices(...CONDITION_CHOICES)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('listing_type')
-        .setDescription('Pro: new auction or Buy It Now preference')
-        .addChoices(
-          { name: 'Any', value: 'ANY' },
-          { name: 'Auction', value: 'AUCTION' },
-          { name: 'Buy It Now', value: 'BUY_IT_NOW' }
-        )
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('negative_keywords')
-        .setDescription('Pro: new terms to block')
-        .setMaxLength(240)
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('priority')
-        .setDescription('Pro: new chase importance')
-        .addChoices(
-          { name: 'Normal', value: 'NORMAL' },
-          { name: 'High', value: 'HIGH' },
-          { name: 'Grail', value: 'GRAIL' }
-        )
-    )
-    .addStringOption((opt) =>
-      opt.setName('target_note').setDescription('Pro: new note for this chase').setMaxLength(120)
-    ),
   async execute(interaction: any) {
     const chaseId = interaction.options.getString('chase', true);
     const chases = listChases(interaction.user.id);

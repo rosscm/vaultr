@@ -116,9 +116,15 @@ function mapDiscoveryMarketCacheRow(row: DiscoveryMarketCacheRow): DiscoveryMark
 export function discoveryMarketCacheKey(
   suggestionName: string,
   displayCurrency: SupportedCurrency,
-  destinationCountry?: string
+  destinationCountry?: string,
+  destinationPostalCode?: string
 ): string {
-  return [suggestionName.trim().toLowerCase(), displayCurrency, destinationCountry?.trim().toUpperCase() ?? ''].join('|');
+  return [
+    suggestionName.trim().toLowerCase(),
+    displayCurrency,
+    destinationCountry?.trim().toUpperCase() ?? '',
+    destinationPostalCode?.trim().toUpperCase() ?? ''
+  ].join('|');
 }
 
 export function getDiscoveryMarketCache(cacheKey: string): DiscoveryMarketCacheEntry | null {

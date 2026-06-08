@@ -178,13 +178,30 @@ function normalizeListingCurrency(listing: Listing, targetCurrency: ReturnType<t
   };
 }
 
-async function enrichSelectedAlertListing(listing: Listing, destination?: ShippingDestination): Promise<Listing> {
-  if (listing.source !== 'EBAY' || listing.shippingCost !== undefined) return listing;
+export async function enrichSelectedAlertListing(listing: Listing, destination?: ShippingDestination): Promise<Listing> {
+  if (listing.source !== 'EBAY') return listing;
+  if (!destination?.country && listing.shippingCost !== undefined) return listing;
+  const listingForEnrichment = destination?.country
+    ? {
+        ...listing,
+        shippingCost: undefined,
+        shippingCurrency: undefined,
+        shippingDestinationCountry: undefined,
+        shippingDestinationPostalCode: undefined,
+        shippingEligibility: undefined,
+        shippingEligibilityMessage: undefined
+      }
+    : listing;
   return withTimeout(
-    enrichEbayListingDetails(listing, destination),
+    enrichEbayListingDetails(listingForEnrichment, destination),
     alertListingEnrichmentTimeoutMs(),
     'Alert listing enrichment timeout'
-  ).catch(() => listing);
+  ).catch(() => listingForEnrichment);
+}
+
+export function shouldSuppressForDestinationShipping(listing: Listing, destination?: ShippingDestination): boolean {
+  if (!destination?.country) return false;
+  return listing.shippingEligibility === 'MAY_NOT_SHIP';
 }
 
 function formatDealQuality(score: number): string {
@@ -452,10 +469,11 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMes
   }
 }
 
-function shippingDestinationFromSettings(settings: ReturnType<typeof getUserAlertSettings>): ShippingDestination | undefined {
+export function shippingDestinationFromSettings(settings: ReturnType<typeof getUserAlertSettings>): ShippingDestination | undefined {
   if (!settings.shippingCountry) return undefined;
   return {
-    country: settings.shippingCountry
+    country: settings.shippingCountry,
+    postalCode: settings.shippingPostalCode
   };
 }
 
@@ -819,7 +837,9 @@ async function runPoll(client: Client): Promise<void> {
       }
 
       const targetCurrency = candidate.targetCurrency;
-      const listing = await enrichSelectedAlertListing(candidate.listing, shippingDestinationFromSettings(settings));
+      const destination = shippingDestinationFromSettings(settings);
+      const listing = await enrichSelectedAlertListing(candidate.listing, destination);
+      if (shouldSuppressForDestinationShipping(listing, destination)) continue;
       const normalizedListing = normalizeListingCurrency(listing, targetCurrency);
       const match = matchChaseToListing(chase, normalizedListing);
       if (!match.isMatch || match.score < settings.minScore) continue;

@@ -14,7 +14,7 @@
     "dev:webhook": "tsx src/ebay-webhook.ts",
     "smoke": "tsx src/smoke.ts",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",

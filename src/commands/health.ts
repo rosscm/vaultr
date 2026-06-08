@@ -184,7 +184,7 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
   const settings = getUserAlertSettings(chase.userId);
   const listings = await searchEbayListings(
     chase,
-    settings.shippingCountry ? { country: settings.shippingCountry } : undefined
+    settings.shippingCountry ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode } : undefined
   );
   const sourceIndex = listings.findIndex((listing) => listingMatchesItemId(listing, itemId));
   const listing = sourceIndex >= 0 ? listings[sourceIndex] : undefined;

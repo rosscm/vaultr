@@ -63,6 +63,7 @@ export type UserAlertSettings = {
   maxAlertsPerHour: number;
   alertCurrency: 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY';
   shippingCountry?: string;
+  shippingPostalCode?: string;
   listingSourceMode: ListingSourceModePreference;
   updatedAt: string;
 };

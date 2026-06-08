@@ -1,11 +1,8 @@
-import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserAlertSettings } from '../services/chase-store.js';
 import { USE_COMPACT_ALERT_LAYOUT } from '../services/alert-policy.js';
 
 export const previewAlert = {
-  data: new SlashCommandBuilder()
-    .setName('alerts-preview')
-    .setDescription('Preview the DM layout for a chase sighting'),
   async execute(interaction: any) {
     const settings = getUserAlertSettings(interaction.user.id);
     const currency = settings.alertCurrency;

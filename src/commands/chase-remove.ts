@@ -1,4 +1,4 @@
-import { MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { MessageFlags } from 'discord.js';
 import { listChases, removeChase } from '../services/chase-store.js';
 import { errorEmbed, successEmbed } from '../ui/embeds.js';
 import { displayGrade } from '../ui/style.js';
@@ -38,16 +38,6 @@ export async function handleChaseRemoveAutocomplete(interaction: any): Promise<b
 }
 
 export const chaseRemove = {
-  data: new SlashCommandBuilder()
-    .setName('chase-remove')
-    .setDescription('Remove a Vault chase')
-    .addStringOption((opt) =>
-      opt
-        .setName('chase')
-        .setDescription('Start typing, then pick the chase to remove')
-        .setRequired(true)
-        .setAutocomplete(true)
-    ),
   async execute(interaction: any) {
     const chaseId = interaction.options.getString('chase');
     const chases = listChases(interaction.user.id);

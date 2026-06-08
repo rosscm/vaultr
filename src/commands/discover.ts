@@ -654,7 +654,7 @@ export function candidatesFromDiscoveryMarketCache(
   const refreshJobs: DiscoveryMarketRefreshJob[] = [];
   const marketCandidates = candidates.map((candidate, visibleIndex) => {
     const selectionIndex = candidate.selectionIndex ?? visibleIndex;
-    const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country);
+    const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode);
     const cacheEntry = getDiscoveryMarketCache(cacheKey);
     const refreshQueued = shouldRefreshDiscoveryMarketCache(cacheEntry);
     if (refreshQueued) {
@@ -1466,7 +1466,7 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
       ? candidatesFromDiscoveryMarketCache(visibleCandidates, {
           userId,
           activeChases: chases,
-          destination: settings.shippingCountry ? { country: settings.shippingCountry } : undefined,
+          destination: settings.shippingCountry ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode } : undefined,
           targetCurrency: settings.alertCurrency
         })
       : visibleCandidates;

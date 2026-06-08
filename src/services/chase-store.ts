@@ -228,22 +228,38 @@ const upsertUserPlanStmt = db.prepare(`
 `);
 
 const getUserAlertSettingsStmt = db.prepare(`
-  SELECT user_id, min_score, max_alerts_per_hour, alert_currency, shipping_country, listing_source_mode, updated_at
+  SELECT user_id, min_score, max_alerts_per_hour, alert_currency, shipping_country, shipping_postal_code, listing_source_mode, updated_at
   FROM user_alert_settings
   WHERE user_id = ?
 `);
 
 const upsertUserAlertSettingsStmt = db.prepare(`
-  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, alert_currency, shipping_country, listing_source_mode, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, alert_currency, shipping_country, shipping_postal_code, listing_source_mode, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(user_id) DO UPDATE SET
     min_score = excluded.min_score,
     max_alerts_per_hour = excluded.max_alerts_per_hour,
     alert_currency = excluded.alert_currency,
     shipping_country = excluded.shipping_country,
+    shipping_postal_code = excluded.shipping_postal_code,
     listing_source_mode = excluded.listing_source_mode,
     updated_at = excluded.updated_at
 `);
+
+function normalizeStoredShippingPostalCode(value: string | undefined, country: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toUpperCase().replace(/\s+/g, ' ');
+  if (country === 'CA') {
+    const compact = normalized.replace(/[\s-]+/g, '');
+    const match = /^([A-Z]\d[A-Z])(?:\d[A-Z]\d)?$/.exec(compact);
+    return match?.[1];
+  }
+  if (country === 'US') {
+    const match = /^(\d{5})(?:[- ]?\d{4})?$/.exec(normalized);
+    return match?.[1];
+  }
+  return undefined;
+}
 
 const listRecentUserDiscoverySeenStmt = db.prepare(`
   SELECT suggestion_name
@@ -1160,6 +1176,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
         max_alerts_per_hour: number;
         alert_currency: 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY';
         shipping_country: string | null;
+        shipping_postal_code: string | null;
         listing_source_mode: string | null;
         updated_at: string;
       }
@@ -1167,7 +1184,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
 
   if (!row) {
     const now = new Date().toISOString();
-    upsertUserAlertSettingsStmt.run(userId, 60, 10, 'USD', null, 'EBAY', now);
+    upsertUserAlertSettingsStmt.run(userId, 60, 10, 'USD', null, null, 'EBAY', now);
     return {
       userId,
       minScore: 60,
@@ -1184,6 +1201,7 @@ export function getUserAlertSettings(userId: string): UserAlertSettings {
     maxAlertsPerHour: row.max_alerts_per_hour,
     alertCurrency: row.alert_currency ?? 'USD',
     shippingCountry: row.shipping_country ?? undefined,
+    shippingPostalCode: row.shipping_postal_code ?? undefined,
     listingSourceMode: normalizeListingSourceModePreference(row.listing_source_mode),
     updatedAt: row.updated_at
   };
@@ -1199,7 +1217,7 @@ export function setUserAlertSettings(
       | 'alertCurrency'
       | 'listingSourceMode'
     >
-  > & { shippingCountry?: string | null }
+  > & { shippingCountry?: string | null; shippingPostalCode?: string | null }
 ): UserAlertSettings {
   const current = getUserAlertSettings(userId);
   const next: UserAlertSettings = {
@@ -1208,6 +1226,10 @@ export function setUserAlertSettings(
     maxAlertsPerHour: patch.maxAlertsPerHour ?? current.maxAlertsPerHour,
     alertCurrency: patch.alertCurrency ?? current.alertCurrency,
     shippingCountry: patch.shippingCountry === null ? undefined : patch.shippingCountry ?? current.shippingCountry,
+    shippingPostalCode:
+      patch.shippingCountry === null || patch.shippingPostalCode === null
+        ? undefined
+        : normalizeStoredShippingPostalCode(patch.shippingPostalCode ?? current.shippingPostalCode, patch.shippingCountry ?? current.shippingCountry),
     listingSourceMode: patch.listingSourceMode ?? current.listingSourceMode,
     updatedAt: new Date().toISOString()
   };
@@ -1218,6 +1240,7 @@ export function setUserAlertSettings(
     next.maxAlertsPerHour,
     next.alertCurrency,
     next.shippingCountry ?? null,
+    next.shippingPostalCode ?? null,
     next.listingSourceMode,
     next.updatedAt
   );
@@ -1342,7 +1365,7 @@ export function isListingFingerprintIgnored(userId: string, chaseId: string, fin
 
 export function resetUserAlertSettings(userId: string): UserAlertSettings {
   const now = new Date().toISOString();
-  upsertUserAlertSettingsStmt.run(userId, 60, 10, 'USD', null, 'EBAY', now);
+  upsertUserAlertSettingsStmt.run(userId, 60, 10, 'USD', null, null, 'EBAY', now);
   return {
     userId,
     minScore: 60,

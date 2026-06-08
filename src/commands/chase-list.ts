@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { getUserAlertSettings, getUserPlan, listChases } from '../services/chase-store.js';
 import { activePlanChases, activePlanLimits, pausedPlanChases } from '../services/plans.js';
 import { infoEmbed } from '../ui/embeds.js';
@@ -124,7 +124,6 @@ function buildChaseListEmbed(userId: string, page: number) {
 }
 
 export const chaseList = {
-  data: new SlashCommandBuilder().setName('chase-list').setDescription('Show your Vault chases'),
   async execute(interaction: any) {
     const payload = buildChaseListEmbed(interaction.user.id, 0);
     await interaction.reply({

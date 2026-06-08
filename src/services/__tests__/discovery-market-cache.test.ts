@@ -15,6 +15,10 @@ afterEach(() => {
 });
 
 describe('discovery market cache', () => {
+  it('varies cache keys by destination postal code when present', () => {
+    expect(discoveryMarketCacheKey('Mew Southern Islands Promo', 'CAD', 'CA', 'M5V 2T6')).toBe('mew southern islands promo|CAD|CA|M5V 2T6');
+  });
+
   it('round-trips cached listing and market data', () => {
     upsertDiscoveryMarketCache({
       cacheKey,

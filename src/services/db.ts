@@ -64,6 +64,7 @@ db.exec(`
     max_alerts_per_hour INTEGER NOT NULL DEFAULT 20,
     alert_currency TEXT NOT NULL DEFAULT 'USD',
     shipping_country TEXT,
+    shipping_postal_code TEXT,
     listing_source_mode TEXT NOT NULL DEFAULT 'EBAY',
     updated_at TEXT NOT NULL
   );
@@ -285,6 +286,24 @@ try {
   // Column already exists on upgraded databases.
 }
 try {
+  db.exec(`ALTER TABLE user_alert_settings ADD COLUMN shipping_postal_code TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+db.exec(`
+  UPDATE user_alert_settings
+  SET shipping_postal_code = substr(replace(replace(upper(shipping_postal_code), ' ', ''), '-', ''), 1, 3)
+  WHERE shipping_country = 'CA' AND shipping_postal_code IS NOT NULL;
+
+  UPDATE user_alert_settings
+  SET shipping_postal_code = substr(replace(replace(upper(shipping_postal_code), ' ', ''), '-', ''), 1, 5)
+  WHERE shipping_country = 'US' AND shipping_postal_code IS NOT NULL;
+
+  UPDATE user_alert_settings
+  SET shipping_postal_code = NULL
+  WHERE shipping_country NOT IN ('CA', 'US') AND shipping_postal_code IS NOT NULL;
+`);
+try {
   db.exec(`ALTER TABLE user_alert_settings ADD COLUMN listing_source_mode TEXT NOT NULL DEFAULT 'EBAY';`);
 } catch {
   // Column already exists on upgraded databases.
@@ -312,11 +331,6 @@ try {
 }
 try {
   db.exec(`ALTER TABLE user_alert_settings DROP COLUMN compact_mode;`);
-} catch {
-  // Column is already absent on fresh or upgraded databases.
-}
-try {
-  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN shipping_postal_code;`);
 } catch {
   // Column is already absent on fresh or upgraded databases.
 }

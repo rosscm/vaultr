@@ -1,19 +1,43 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Listing } from '../../types.js';
 import {
   buildDailyPulseMessage,
   buildWeeklyReflectionEmbed,
   alertEbaySearchOptions,
   chaseTuningNoticeLines,
+  enrichSelectedAlertListing,
   effectiveListingSourceMode,
   isDueForPollInterval,
   listingSourceFailureReason,
   orderAlertCandidatesForSending,
   shouldSendChaseTuningNotice,
   orderGroupsForRun,
+  shippingDestinationFromSettings,
+  shouldSuppressForDestinationShipping,
   shouldPostDailyPulse
 } from '../poller.js';
+import { getUserAlertSettings, resetUserAlertSettings, setUserAlertSettings } from '../chase-store.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
 import { activePlanChases, activePlanTier, getRuntimePollIntervalSeconds, pausedPlanChases, PLAN_LIMITS } from '../plans.js';
+
+const ORIGINAL_ENV = { ...process.env };
+
+function jsonResponse(body: unknown, ok = true, status = 200): Response {
+  return {
+    ok,
+    status,
+    json: async () => body
+  } as Response;
+}
+
+beforeEach(() => {
+  process.env = { ...ORIGINAL_ENV };
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  process.env = { ...ORIGINAL_ENV };
+});
 
 describe('orderGroupsForRun', () => {
   it('prioritizes groups that have never consumed a source fetch', () => {
@@ -186,6 +210,150 @@ describe('alert eBay search options', () => {
     expect(text).toContain('negative keywords');
     expect(text).toContain('/alerts settings');
     expect(text).not.toContain('/upgrade');
+  });
+});
+
+describe('selected alert shipping enrichment', () => {
+  it('rechecks eBay shipping for the configured destination even when search returned default shipping', async () => {
+    process.env.EBAY_CLIENT_ID = 'client-id';
+    process.env.EBAY_CLIENT_SECRET = 'client-secret';
+    process.env.EBAY_APP_ID = 'app-id';
+    process.env.ALERT_LISTING_ENRICHMENT_TIMEOUT_MS = '5000';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          shippingOptions: [{ shippingCost: { value: '18.50', currency: 'CAD' } }]
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const listing: Listing = {
+      source: 'EBAY',
+      listingId: 'v1|1234567890|0',
+      title: 'Umbreon VMAX Alt Art',
+      price: 100,
+      currency: 'USD',
+      shippingCost: 7.5,
+      shippingCurrency: 'USD',
+      url: 'https://example.com/item/1234567890',
+      region: 'US'
+    };
+
+    const enriched = await enrichSelectedAlertListing(listing, { country: 'CA' });
+    const itemDetailsHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>;
+
+    expect(itemDetailsHeaders['X-EBAY-C-ENDUSERCTX']).toBe('contextualLocation=country=CA');
+    expect(enriched.shippingCost).toBe(18.5);
+    expect(enriched.shippingCurrency).toBe('CAD');
+    expect(enriched.shippingDestinationCountry).toBe('CA');
+  });
+
+  it('does not keep default shipping when destination-specific enrichment cannot confirm it', async () => {
+    process.env.EBAY_CLIENT_ID = 'client-id';
+    process.env.EBAY_CLIENT_SECRET = 'client-secret';
+    process.env.EBAY_APP_ID = 'app-id';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(jsonResponse({ shippingOptions: [] }))
+      .mockResolvedValueOnce(jsonResponse({ Item: {} }));
+    vi.stubGlobal('fetch', fetchMock);
+    const listing: Listing = {
+      source: 'EBAY',
+      listingId: 'v1|1234567890|0',
+      title: 'Umbreon VMAX Alt Art',
+      price: 100,
+      currency: 'USD',
+      shippingCost: 7.5,
+      shippingCurrency: 'USD',
+      url: 'https://example.com/item/1234567890',
+      region: 'US'
+    };
+
+    const enriched = await enrichSelectedAlertListing(listing, { country: 'CA' });
+
+    expect(enriched.shippingCost).toBeUndefined();
+    expect(enriched.shippingCurrency).toBeUndefined();
+  });
+
+  it('suppresses listings that eBay says may not ship to the configured destination', () => {
+    const listing: Listing = {
+      source: 'EBAY',
+      listingId: 'v1|1234567890|0',
+      title: 'Umbreon VMAX Alt Art',
+      price: 100,
+      currency: 'USD',
+      shippingEligibility: 'MAY_NOT_SHIP',
+      shippingEligibilityMessage: 'May not ship to CA',
+      url: 'https://example.com/item/1234567890',
+      region: 'US'
+    };
+
+    expect(shouldSuppressForDestinationShipping(listing, { country: 'CA' })).toBe(true);
+    expect(shouldSuppressForDestinationShipping(listing)).toBe(false);
+  });
+
+  it('keeps destination alerts when shipping is available or unknown', () => {
+    const baseListing: Listing = {
+      source: 'EBAY',
+      listingId: 'v1|1234567890|0',
+      title: 'Umbreon VMAX Alt Art',
+      price: 100,
+      currency: 'USD',
+      url: 'https://example.com/item/1234567890',
+      region: 'US'
+    };
+
+    expect(shouldSuppressForDestinationShipping({ ...baseListing, shippingEligibility: 'AVAILABLE' }, { country: 'CA' })).toBe(false);
+    expect(shouldSuppressForDestinationShipping({ ...baseListing, shippingEligibility: 'UNKNOWN' }, { country: 'CA' })).toBe(false);
+    expect(shouldSuppressForDestinationShipping(baseListing, { country: 'CA' })).toBe(false);
+  });
+});
+
+describe('shipping destination settings', () => {
+  it('stores only postal region and passes it to eBay destinations', () => {
+    const userId = `shipping-postal-${Date.now()}`;
+    resetUserAlertSettings(userId);
+    const settings = setUserAlertSettings(userId, { shippingCountry: 'CA', shippingPostalCode: 'M5V 2T6' });
+
+    expect(getUserAlertSettings(userId).shippingPostalCode).toBe('M5V');
+    expect(shippingDestinationFromSettings(settings)).toEqual({ country: 'CA', postalCode: 'M5V' });
+  });
+
+  it('stores only five-digit US ZIP when ZIP+4 is provided', () => {
+    const userId = `shipping-zip-${Date.now()}`;
+    resetUserAlertSettings(userId);
+    const settings = setUserAlertSettings(userId, { shippingCountry: 'US', shippingPostalCode: '90210-1234' });
+
+    expect(settings.shippingPostalCode).toBe('90210');
+    expect(getUserAlertSettings(userId).shippingPostalCode).toBe('90210');
+  });
+
+  it('clears postal region when it does not match the ship-to country', () => {
+    const userId = `shipping-mismatch-${Date.now()}`;
+    resetUserAlertSettings(userId);
+
+    expect(setUserAlertSettings(userId, { shippingCountry: 'CA', shippingPostalCode: '90210' }).shippingPostalCode).toBeUndefined();
+    expect(setUserAlertSettings(userId, { shippingCountry: 'US', shippingPostalCode: 'M5V' }).shippingPostalCode).toBeUndefined();
+  });
+
+  it('does not retain postal region for unsupported ship-to countries', () => {
+    const userId = `shipping-unsupported-${Date.now()}`;
+    resetUserAlertSettings(userId);
+    const settings = setUserAlertSettings(userId, { shippingCountry: 'GB', shippingPostalCode: 'SW1A 1AA' });
+
+    expect(settings.shippingCountry).toBe('GB');
+    expect(settings.shippingPostalCode).toBeUndefined();
+  });
+
+  it('clears postal code when ship-to country is cleared', () => {
+    const userId = `shipping-clear-${Date.now()}`;
+    resetUserAlertSettings(userId);
+    setUserAlertSettings(userId, { shippingCountry: 'US', shippingPostalCode: '90210' });
+    const settings = setUserAlertSettings(userId, { shippingCountry: null });
+
+    expect(settings.shippingCountry).toBeUndefined();
+    expect(settings.shippingPostalCode).toBeUndefined();
+    expect(shippingDestinationFromSettings(settings)).toBeUndefined();
   });
 });
 

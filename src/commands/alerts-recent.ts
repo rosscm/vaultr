@@ -1,4 +1,4 @@
-import { MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { MessageFlags } from 'discord.js';
 import { getAlertFeedbackInsights, listRecentAlerts, type AlertFeedbackReason } from '../services/chase-store.js';
 import { infoEmbed } from '../ui/embeds.js';
 import { formatTimeWithAge } from '../ui/time.js';
@@ -58,9 +58,6 @@ function formatConfidence(score: number | undefined): string {
 }
 
 export const alertsRecent = {
-  data: new SlashCommandBuilder()
-    .setName('alerts-recent')
-    .setDescription('Review your latest Vaultr settings'),
   async execute(interaction: any) {
     const recent = listRecentAlerts(interaction.user.id, RECENT_ALERT_LIMIT);
 
