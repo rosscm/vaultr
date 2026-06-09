@@ -15,9 +15,9 @@ I am requesting application growth / quota review for Vaultr, a collector compan
 The application is designed to be conservative with eBay traffic:
 
 - User chases are grouped by normalized query so similar saved chases share source calls.
-- Requests are centrally rate-limited across OAuth, Browse search, Browse item detail, Shopping fallback, and Finding fallback paths.
+- Requests are centrally rate-limited across OAuth, Browse search, Browse item detail, and sold-comps requests.
 - Production currently uses `EBAY_MAX_REQUESTS_PER_MINUTE=6`, `EBAY_MIN_REQUEST_GAP_MS=10000`, and `EBAY_BACKOFF_BASE_SECONDS=900`.
-- Browse rate-limit responses trigger backoff and do not immediately fall through into legacy Finding calls.
+- Browse rate-limit responses trigger backoff and are not retried through legacy fallback APIs.
 - Discovery is cache-first and does not depend on live eBay calls to render user-facing recommendations.
 - Market context for Discovery is cached and refreshed in the background only for visible suggestions.
 - Listing alerts are deduplicated by listing/source and capped per chase per poll.
@@ -30,8 +30,8 @@ Thank you for reviewing.
 
 ## App Behavior Details
 
-- Primary API: eBay Browse API.
-- Optional fallback: legacy Finding / Shopping only when configured and not after a Browse rate-limit response.
+- Primary listing API: eBay Browse API.
+- Sold-comps market context uses eBay Finding completed items when configured.
 - Marketplace: usually `EBAY_US`.
 - Search cadence: runtime poll tick is typically 5 minutes; per-user plan intervals control chase eligibility.
 - Free chases: checked no more often than every 30 minutes.

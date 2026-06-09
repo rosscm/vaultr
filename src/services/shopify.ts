@@ -78,6 +78,7 @@ export function listTrustedShopifyShopNames(): string[] {
 
 const SHOPIFY_PAGE_LIMIT = 250;
 const SHOPIFY_MAX_PAGES = 3;
+const SHOPIFY_FETCH_TIMEOUT_MS = 10_000;
 
 function normalize(text: string): string {
   return text
@@ -145,6 +146,24 @@ function conditionFromVariant(variant: ShopifyVariant): string | undefined {
   return condition ? `Raw ${condition}` : 'Raw';
 }
 
+async function fetchShopifyJson<T>(url: URL): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SHOPIFY_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        accept: 'application/json',
+        'user-agent': 'Vaultr trusted shop monitor'
+      }
+    });
+    if (!response.ok) throw new Error(`Shopify request failed: ${response.status}`);
+    return (await response.json()) as T;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function normalizeVariantListing(shop: TrustedShopifyShop, product: ShopifyProduct, variant: ShopifyVariant): Listing | null {
   if (!product.title || !product.handle || !variant.available) return null;
   const price = variantPrice(variant);
@@ -175,14 +194,11 @@ async function fetchProductByHandle(shop: TrustedShopifyShop, handle: string): P
   url.pathname = `/products/${encodeURIComponent(handle)}.js`;
   url.search = '';
 
-  const response = await fetch(url, {
-    headers: {
-      accept: 'application/json',
-      'user-agent': 'Vaultr trusted shop monitor'
-    }
-  });
-  if (!response.ok) return null;
-  return (await response.json()) as ShopifyProduct;
+  try {
+    return await fetchShopifyJson<ShopifyProduct>(url);
+  } catch {
+    return null;
+  }
 }
 
 async function searchShopProducts(shop: TrustedShopifyShop, chase: Chase): Promise<ShopifyProduct[]> {
@@ -193,15 +209,12 @@ async function searchShopProducts(shop: TrustedShopifyShop, chase: Chase): Promi
   url.searchParams.set('resources[type]', 'product');
   url.searchParams.set('resources[limit]', '10');
 
-  const response = await fetch(url, {
-    headers: {
-      accept: 'application/json',
-      'user-agent': 'Vaultr trusted shop monitor'
-    }
-  });
-  if (!response.ok) return [];
-
-  const body = (await response.json()) as ShopifySuggestResponse;
+  let body: ShopifySuggestResponse;
+  try {
+    body = await fetchShopifyJson<ShopifySuggestResponse>(url);
+  } catch {
+    return [];
+  }
   const suggestions = body.resources?.results?.products ?? [];
   const hydrated = await Promise.all(
     suggestions
@@ -219,15 +232,7 @@ async function fetchShopProducts(shop: TrustedShopifyShop): Promise<ShopifyProdu
     url.searchParams.set('limit', String(SHOPIFY_PAGE_LIMIT));
     url.searchParams.set('page', String(page));
 
-    const response = await fetch(url, {
-      headers: {
-        accept: 'application/json',
-        'user-agent': 'Vaultr trusted shop monitor'
-      }
-    });
-    if (!response.ok) throw new Error(`Shopify source ${shop.name} returned ${response.status}`);
-
-    const body = (await response.json()) as ShopifyProductsResponse;
+    const body = await fetchShopifyJson<ShopifyProductsResponse>(url);
     const pageProducts = Array.isArray(body.products) ? body.products : [];
     if (pageProducts.length === 0) break;
     products.push(...pageProducts);

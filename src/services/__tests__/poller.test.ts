@@ -248,14 +248,15 @@ describe('selected alert shipping enrichment', () => {
     expect(enriched.shippingDestinationCountry).toBe('CA');
   });
 
-  it('does not keep default shipping when destination-specific enrichment cannot confirm it', async () => {
+  it('does not keep default shipping when eBay returns no destination shipping options', async () => {
     process.env.EBAY_CLIENT_ID = 'client-id';
     process.env.EBAY_CLIENT_SECRET = 'client-secret';
     process.env.EBAY_APP_ID = 'app-id';
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
-      .mockResolvedValueOnce(jsonResponse({ shippingOptions: [] }))
-      .mockResolvedValueOnce(jsonResponse({ Item: {} }));
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/identity/v1/oauth2/token')) return jsonResponse({ access_token: 'token', expires_in: 7200 });
+      if (url.includes('/buy/browse/v1/item/')) return jsonResponse({ shippingOptions: [] });
+      return jsonResponse({ Item: {} });
+    });
     vi.stubGlobal('fetch', fetchMock);
     const listing: Listing = {
       source: 'EBAY',
@@ -273,6 +274,8 @@ describe('selected alert shipping enrichment', () => {
 
     expect(enriched.shippingCost).toBeUndefined();
     expect(enriched.shippingCurrency).toBeUndefined();
+    expect(enriched.shippingEligibility).toBe('MAY_NOT_SHIP');
+    expect(shouldSuppressForDestinationShipping(enriched, { country: 'CA' })).toBe(true);
   });
 
   it('suppresses listings that eBay says may not ship to the configured destination', () => {
@@ -292,7 +295,7 @@ describe('selected alert shipping enrichment', () => {
     expect(shouldSuppressForDestinationShipping(listing)).toBe(false);
   });
 
-  it('keeps destination alerts when shipping is available or unknown', () => {
+  it('keeps destination alerts when eBay shipping is available', () => {
     const baseListing: Listing = {
       source: 'EBAY',
       listingId: 'v1|1234567890|0',
@@ -304,8 +307,36 @@ describe('selected alert shipping enrichment', () => {
     };
 
     expect(shouldSuppressForDestinationShipping({ ...baseListing, shippingEligibility: 'AVAILABLE' }, { country: 'CA' })).toBe(false);
-    expect(shouldSuppressForDestinationShipping({ ...baseListing, shippingEligibility: 'UNKNOWN' }, { country: 'CA' })).toBe(false);
-    expect(shouldSuppressForDestinationShipping(baseListing, { country: 'CA' })).toBe(false);
+    expect(shouldSuppressForDestinationShipping({ ...baseListing, shippingCost: 12.5, shippingCurrency: 'USD' }, { country: 'CA' })).toBe(false);
+  });
+
+  it('suppresses eBay listings when destination shipping stays unknown after enrichment', () => {
+    const listing: Listing = {
+      source: 'EBAY',
+      listingId: 'v1|1234567890|0',
+      title: 'Umbreon VMAX Alt Art',
+      price: 100,
+      currency: 'USD',
+      url: 'https://example.com/item/1234567890',
+      region: 'US'
+    };
+
+    expect(shouldSuppressForDestinationShipping({ ...listing, shippingEligibility: 'UNKNOWN' }, { country: 'CA' })).toBe(true);
+    expect(shouldSuppressForDestinationShipping(listing, { country: 'CA' })).toBe(true);
+  });
+
+  it('does not suppress non-eBay listings for destination shipping', () => {
+    const listing: Listing = {
+      source: 'SHOPIFY',
+      listingId: 'shop-1',
+      title: 'Umbreon VMAX Alt Art',
+      price: 100,
+      currency: 'USD',
+      url: 'https://example.com/item/shop-1',
+      region: 'US'
+    };
+
+    expect(shouldSuppressForDestinationShipping(listing, { country: 'CA' })).toBe(false);
   });
 });
 

@@ -12,8 +12,6 @@ export type EbaySearchOptions = {
 
 const EBAY_FINDING_ENDPOINT_PROD = 'https://svcs.ebay.com/services/search/FindingService/v1';
 const EBAY_FINDING_ENDPOINT_SANDBOX = 'https://svcs.sandbox.ebay.com/services/search/FindingService/v1';
-const EBAY_SHOPPING_ENDPOINT_PROD = 'https://open.api.ebay.com/shopping';
-const EBAY_SHOPPING_ENDPOINT_SANDBOX = 'https://open.api.sandbox.ebay.com/shopping';
 const EBAY_BROWSE_ENDPOINT_PROD = 'https://api.ebay.com/buy/browse/v1/item_summary/search';
 const EBAY_BROWSE_ENDPOINT_SANDBOX = 'https://api.sandbox.ebay.com/buy/browse/v1/item_summary/search';
 const EBAY_BROWSE_ITEM_ENDPOINT_PROD = 'https://api.ebay.com/buy/browse/v1/item';
@@ -61,10 +59,10 @@ function cloneListings(listings: Listing[]): Listing[] {
   return listings.map((listing) => ({ ...listing }));
 }
 
-function ebaySearchCacheKey(chase: Chase, destination: ShippingDestination | undefined, options: EbaySearchOptions, preferredApi: string): string {
-  return [
+function ebaySearchCacheKey(chase: Chase, destination: ShippingDestination | undefined, options: EbaySearchOptions): string {
+  return JSON.stringify([
     getEbayEnv(),
-    preferredApi,
+    'BROWSE',
     process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US',
     process.env.EBAY_SEARCH_LIMIT ?? '50',
     process.env.EBAY_BROWSE_SORT ?? 'newlyListed',
@@ -73,7 +71,7 @@ function ebaySearchCacheKey(chase: Chase, destination: ShippingDestination | und
     normalizeCountryCode(destination?.country) ?? '',
     destination?.postalCode?.trim().toUpperCase() ?? '',
     options.enrichMissingShipping === false ? 'light' : 'full'
-  ].join('|');
+  ]);
 }
 
 function getCachedEbaySearch(cacheKey: string): Listing[] | null {
@@ -147,10 +145,6 @@ function getEbayFindingEndpoint(): string {
   return getEbayEnv() === 'SANDBOX' ? EBAY_FINDING_ENDPOINT_SANDBOX : EBAY_FINDING_ENDPOINT_PROD;
 }
 
-function getEbayShoppingEndpoint(): string {
-  return getEbayEnv() === 'SANDBOX' ? EBAY_SHOPPING_ENDPOINT_SANDBOX : EBAY_SHOPPING_ENDPOINT_PROD;
-}
-
 function getEbayBrowseEndpoint(): string {
   return getEbayEnv() === 'SANDBOX' ? EBAY_BROWSE_ENDPOINT_SANDBOX : EBAY_BROWSE_ENDPOINT_PROD;
 }
@@ -161,11 +155,6 @@ function getEbayBrowseItemEndpoint(): string {
 
 function getEbayOauthEndpoint(): string {
   return getEbayEnv() === 'SANDBOX' ? EBAY_OAUTH_ENDPOINT_SANDBOX : EBAY_OAUTH_ENDPOINT_PROD;
-}
-
-function getEbaySearchApi(): 'BROWSE' | 'FINDING' {
-  const api = (process.env.EBAY_SEARCH_API ?? 'BROWSE').toUpperCase();
-  return api === 'FINDING' ? 'FINDING' : 'BROWSE';
 }
 
 function mapCountryToRegion(countryCode?: string): 'CA' | 'US' | 'OTHER' {
@@ -209,11 +198,6 @@ function parseNumber(value: unknown): number | undefined {
 function browseShippingOptionWithCost(shippingOptions: unknown): any | undefined {
   if (!Array.isArray(shippingOptions)) return undefined;
   return shippingOptions.find((option) => parseNumber(option?.shippingCost?.value) !== undefined) ?? shippingOptions[0];
-}
-
-function shoppingItemIdFromListingId(listingId: string): string {
-  const browseIdMatch = /^v\d+\|([^|]+)\|/i.exec(listingId);
-  return browseIdMatch?.[1] ?? listingId;
 }
 
 function normalizeCountryCode(value: string | undefined): string | undefined {
@@ -269,6 +253,16 @@ function deriveShippingEligibilityFromOptions(
       shippingDestinationPostalCode: destinationPostalCode,
       shippingEligibility: 'MAY_NOT_SHIP',
       shippingEligibilityMessage: `May not ship to ${destination}`
+    };
+  }
+
+  const shipping = browseShippingOptionWithCost(shippingOptions);
+  if (parseNumber(shipping?.shippingCost?.value) === undefined) {
+    return {
+      shippingDestinationCountry: destinationCountry,
+      shippingDestinationPostalCode: destinationPostalCode,
+      shippingEligibility: 'UNKNOWN',
+      shippingEligibilityMessage: `Shipping availability to ${destination} is unknown`
     };
   }
 
@@ -465,17 +459,13 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
 
   if (options.enrichMissingShipping === false) return listings;
 
-  const appId = process.env.EBAY_APP_ID ?? process.env.EBAY_CLIENT_ID;
   const needsDestinationShipping = getDeliveryCountry(destination) !== undefined;
   const needsEnrichment = listings.filter((listing: Listing) => needsDestinationShipping || listing.shippingCost === undefined);
-  if (!appId || needsEnrichment.length === 0) return listings;
+  if (needsEnrichment.length === 0) return listings;
 
   const enrichedById = new Map<string, Listing>();
   for (const listing of needsEnrichment) {
-    const browseEnriched = await enrichListingFromBrowseItemApi(listing, token, destination);
-    const enriched = browseEnriched.shippingCost === undefined
-      ? await enrichListingFromShoppingApi(browseEnriched, appId, destination)
-      : browseEnriched;
+    const enriched = await enrichListingFromBrowseItemApi(listing, token, destination);
     enrichedById.set(listing.listingId, enriched);
   }
 
@@ -492,14 +482,23 @@ async function enrichListingFromBrowseItemApi(listing: Listing, token: string, d
         ...(endUserContext ? { 'X-EBAY-C-ENDUSERCTX': endUserContext } : {})
       }
     });
-    if (!response.ok) return listing;
     const json: any = await parseJsonResponse(response);
-    const shipping = browseShippingOptionWithCost(json?.shippingOptions);
-    const shippingCost = parseNumber(shipping?.shippingCost?.value);
-    if (shippingCost === undefined) return listing;
-
+    if (isBrowseRateLimitError(response, json)) throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`);
+    if (!response.ok) return listing;
     const destinationCountry = getDeliveryCountry(destination);
     const destinationPostalCode = getDeliveryPostalCode(destination);
+    const shipping = browseShippingOptionWithCost(json?.shippingOptions);
+    const shippingCost = parseNumber(shipping?.shippingCost?.value);
+    if (shippingCost === undefined) {
+      if (destinationCountry && Array.isArray(json?.shippingOptions)) {
+        return {
+          ...listing,
+          ...deriveShippingEligibilityFromOptions(json.shippingOptions, destinationCountry, destinationPostalCode)
+        };
+      }
+      return listing;
+    }
+
     return {
       ...listing,
       shippingCost,
@@ -511,72 +510,11 @@ async function enrichListingFromBrowseItemApi(listing: Listing, token: string, d
         ? `Shipping shown for ${destinationLabel(destinationCountry, destinationPostalCode)}`
         : listing.shippingEligibilityMessage
     };
-  } catch {
-    return listing;
-  }
-}
-
-async function enrichListingFromShoppingApi(listing: Listing, appId: string, destination?: ShippingDestination): Promise<Listing> {
-  const endpoint = getEbayShoppingEndpoint();
-  const destinationCountry = getDeliveryCountry(destination);
-  const destinationPostalCode = getDeliveryPostalCode(destination);
-  const params = new URLSearchParams({
-    callname: 'GetSingleItem',
-    responseencoding: 'JSON',
-    appid: appId,
-    version: '967',
-    siteid: '0',
-    ItemID: shoppingItemIdFromListingId(listing.listingId),
-    IncludeSelector: 'Details,ShippingCosts'
-  });
-  if (destinationCountry) params.set('DestinationCountryCode', destinationCountry);
-  if (destinationPostalCode) params.set('DestinationPostalCode', destinationPostalCode);
-
-  try {
-    const response = await fetchEbay(`${endpoint}?${params.toString()}`);
-    if (!response.ok) return listing;
-    const json: any = await response.json();
-    const item = json?.Item;
-    if (!item) return listing;
-
-    const fallbackSeller = item?.Seller?.UserID;
-    const fallbackSellerFeedbackPercent = Number(item?.Seller?.PositiveFeedbackPercent);
-    const fallbackSellerFeedbackScore = Number(item?.Seller?.FeedbackScore);
-    const fallbackShippingCost = Number(item?.ShippingCostSummary?.ShippingServiceCost?.Value);
-    const fallbackShippingCurrency = item?.ShippingCostSummary?.ShippingServiceCost?.CurrencyID ?? listing.currency;
-    const hasFallbackShippingCost = !Number.isNaN(fallbackShippingCost);
-    const fallbackImageUrl = firstNonEmptyString([
-      item?.PictureURLSuperSize,
-      item?.PictureURL?.[0],
-      item?.PictureURL,
-      item?.GalleryPlusPictureURL?.[0],
-      item?.GalleryPlusPictureURL,
-      item?.GalleryURL
-    ]);
-
-    return {
-      ...listing,
-      seller: listing.seller ?? fallbackSeller ?? listing.seller,
-      sellerFeedbackPercent:
-        listing.sellerFeedbackPercent ??
-        (Number.isNaN(fallbackSellerFeedbackPercent) ? undefined : fallbackSellerFeedbackPercent),
-      sellerFeedbackScore:
-        listing.sellerFeedbackScore ?? (Number.isNaN(fallbackSellerFeedbackScore) ? undefined : fallbackSellerFeedbackScore),
-      shippingCost: hasFallbackShippingCost ? fallbackShippingCost : listing.shippingCost,
-      shippingCurrency:
-        hasFallbackShippingCost ? fallbackShippingCurrency : listing.shippingCurrency,
-      shippingDestinationCountry: hasFallbackShippingCost && destinationCountry ? destinationCountry : listing.shippingDestinationCountry,
-      shippingDestinationPostalCode:
-        hasFallbackShippingCost && destinationPostalCode ? destinationPostalCode : listing.shippingDestinationPostalCode,
-      shippingEligibility: hasFallbackShippingCost && destinationCountry ? 'AVAILABLE' : listing.shippingEligibility,
-      shippingEligibilityMessage:
-        hasFallbackShippingCost && destinationCountry
-          ? `Shipping shown for ${destinationLabel(destinationCountry, destinationPostalCode)}`
-          : listing.shippingEligibilityMessage,
-      imageUrl: listing.imageUrl ?? fallbackImageUrl ?? undefined,
-      thumbnailUrl: listing.thumbnailUrl ?? listing.imageUrl ?? fallbackImageUrl ?? undefined
-    };
-  } catch {
+  } catch (error) {
+    if (isEbayRateLimitError(error)) {
+      rememberEbayRateLimit();
+      throw error;
+    }
     return listing;
   }
 }
@@ -585,127 +523,11 @@ export async function enrichEbayListingDetails(listing: Listing, destination?: S
   if (listing.source !== 'EBAY') return listing;
   try {
     const token = await getBrowseAccessToken();
-    const appId = process.env.EBAY_APP_ID ?? process.env.EBAY_CLIENT_ID;
     const browseEnriched = await enrichListingFromBrowseItemApi(listing, token, destination);
-    if (browseEnriched.shippingCost !== undefined || !appId) return browseEnriched;
-    return enrichListingFromShoppingApi(browseEnriched, appId, destination);
+    return browseEnriched;
   } catch {
     return listing;
   }
-}
-
-async function searchEbayFindingListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {
-  const appId = process.env.EBAY_APP_ID;
-  if (!appId) return [];
-  const endpoint = getEbayFindingEndpoint();
-
-  const gradeTerm = gradeSearchTerm(chase.grade);
-  const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
-
-  const params = new URLSearchParams({
-    'OPERATION-NAME': 'findItemsByKeywords',
-    'SERVICE-VERSION': '1.13.0',
-    'SECURITY-APPNAME': appId,
-    'RESPONSE-DATA-FORMAT': 'JSON',
-    'REST-PAYLOAD': '',
-    keywords,
-    'paginationInput.entriesPerPage': process.env.EBAY_SEARCH_LIMIT ?? '50',
-    sortOrder: 'StartTimeNewest'
-  });
-  params.append('outputSelector', 'SellerInfo');
-  params.append('outputSelector', 'StoreInfo');
-  const deliveryPostalCode = getDeliveryPostalCode(destination);
-  if (deliveryPostalCode) params.append('buyerPostalCode', deliveryPostalCode);
-
-  const response = await fetchEbay(`${endpoint}?${params.toString()}`);
-  const json: any = await parseJsonResponse(response);
-  if (isFindingRateLimitError(json)) {
-    throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`);
-  }
-  if (!response.ok) {
-    throw new Error(`eBay request failed: ${response.status}`);
-  }
-
-  const items = json?.findItemsByKeywordsResponse?.[0]?.searchResult?.[0]?.item ?? [];
-
-  const listings = items
-    .map((item: any) => {
-      const listingId = item?.itemId?.[0];
-      const title = item?.title?.[0];
-      const viewItemURL = item?.viewItemURL?.[0];
-      const galleryURL = firstNonEmptyString([item?.galleryURL?.[0], item?.galleryPlusPictureURL?.[0]]);
-      const currentPrice = item?.sellingStatus?.[0]?.currentPrice?.[0];
-      const rawPrice = currentPrice?.__value__;
-      const currency = currentPrice?.['@currencyId'] ?? 'USD';
-      const seller = item?.sellerInfo?.[0]?.sellerUserName?.[0] ?? item?.sellerInfo?.[0]?.sellerUserName;
-      const sellerFeedbackPercent = Number(item?.sellerInfo?.[0]?.positiveFeedbackPercent?.[0]);
-      const sellerFeedbackScore = Number(item?.sellerInfo?.[0]?.feedbackScore?.[0]);
-      const shippingServiceCost = item?.shippingInfo?.[0]?.shippingServiceCost?.[0];
-      const shipToLocations = item?.shippingInfo?.[0]?.shipToLocations;
-      const rawShippingCost = shippingServiceCost?.__value__;
-      const shippingCurrency = shippingServiceCost?.['@currencyId'] ?? currency;
-      const shippingCost = Number(rawShippingCost);
-      const postedAt = item?.listingInfo?.[0]?.startTime?.[0];
-      const rawListingType = item?.listingInfo?.[0]?.listingType?.[0];
-      const condition = item?.condition?.[0]?.conditionDisplayName?.[0];
-      const countryCode = item?.country?.[0];
-      const deliveryCountry = getDeliveryCountry(destination);
-      const shippingEligibility = deriveShippingEligibilityFromShipToLocations(
-        shipToLocations,
-        deliveryCountry,
-        deliveryPostalCode
-      );
-      const price = Number(rawPrice);
-
-      if (!listingId || !title || !viewItemURL || Number.isNaN(price)) return null;
-
-      const listing: Listing = {
-        source: 'EBAY',
-        listingId,
-        title,
-        price,
-        currency,
-        shippingCost: Number.isNaN(shippingCost) ? undefined : shippingCost,
-        shippingCurrency: Number.isNaN(shippingCost) ? undefined : shippingCurrency,
-        ...shippingEligibility,
-        url: viewItemURL,
-        imageUrl: galleryURL || undefined,
-        thumbnailUrl: galleryURL || undefined,
-        seller,
-        sellerFeedbackPercent: Number.isNaN(sellerFeedbackPercent) ? undefined : sellerFeedbackPercent,
-        sellerFeedbackScore: Number.isNaN(sellerFeedbackScore) ? undefined : sellerFeedbackScore,
-        postedAt,
-        region: mapCountryToRegion(countryCode),
-        condition,
-        listingType: mapFindingListingType(rawListingType)
-      };
-
-      return listing;
-    })
-    .filter((listing: Listing | null): listing is Listing => listing !== null);
-
-  if (options.enrichMissingShipping === false) return listings;
-
-  const needsDestinationShipping = getDeliveryCountry(destination) !== undefined;
-  const needsEnrichment = listings.filter(
-    (listing: Listing) =>
-      needsDestinationShipping ||
-      !listing.seller ||
-      listing.sellerFeedbackPercent === undefined ||
-      listing.sellerFeedbackScore === undefined ||
-      listing.shippingCost === undefined ||
-      !listing.imageUrl
-  );
-
-  if (needsEnrichment.length === 0) return listings;
-
-  const enrichedById = new Map<string, Listing>();
-  for (const listing of needsEnrichment) {
-    const enriched = await enrichListingFromShoppingApi(listing, appId, destination);
-    enrichedById.set(listing.listingId, enriched);
-  }
-
-  return listings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
 }
 
 export async function searchEbaySoldListings(chase: Chase, destination?: ShippingDestination): Promise<Listing[]> {
@@ -798,31 +620,17 @@ export async function searchEbaySoldListings(chase: Chase, destination?: Shippin
 }
 
 export async function searchEbayListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {
-  const preferredApi = getEbaySearchApi();
-  const cacheKey = ebaySearchCacheKey(chase, destination, options, preferredApi);
+  const cacheKey = ebaySearchCacheKey(chase, destination, options);
   const cached = getCachedEbaySearch(cacheKey);
   if (cached) return cached;
 
   try {
-    const listings = preferredApi === 'BROWSE'
-      ? await searchEbayBrowseListings(chase, destination, options)
-      : await searchEbayFindingListings(chase, destination, options);
+    const listings = await searchEbayBrowseListings(chase, destination, options);
     setCachedEbaySearch(cacheKey, listings);
     return cloneListings(listings);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isEbayRateLimitMessage(message)) rememberEbayRateLimit();
-    if (preferredApi === 'BROWSE' && isEbayRateLimitError(error)) throw error;
-    if (preferredApi !== 'BROWSE') throw error;
-
-    try {
-      const listings = await searchEbayFindingListings(chase, destination, options);
-      setCachedEbaySearch(cacheKey, listings);
-      return cloneListings(listings);
-    } catch (fallbackError) {
-      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-      if (isEbayRateLimitMessage(fallbackMessage)) rememberEbayRateLimit();
-      throw fallbackError;
-    }
+    throw error;
   }
 }

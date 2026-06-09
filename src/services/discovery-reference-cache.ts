@@ -189,6 +189,15 @@ function mapDiscoveryReferenceCacheRow(row: DiscoveryReferenceCacheRow): Discove
   };
 }
 
+function isTransientReferenceStatus(status: DiscoveryReferenceStatus | undefined): boolean {
+  return status === 'TIMEOUT' || status === 'ERROR';
+}
+
+function cachedReferenceAgeMs(entry: DiscoveryReferenceCacheEntry): number | undefined {
+  const fetchedAtMs = new Date(entry.fetchedAt).getTime();
+  return Number.isFinite(fetchedAtMs) ? Date.now() - fetchedAtMs : undefined;
+}
+
 export function discoveryReferenceCacheKey(suggestionName: string): string {
   return normalize(suggestionName);
 }
@@ -380,10 +389,10 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
 export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion, ttlMs: number): Promise<DiscoveryReferenceCacheEntry | null> {
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
   const cached = getDiscoveryReferenceCache(cacheKey);
-  const cachedAtMs = cached ? new Date(cached.fetchedAt).getTime() : undefined;
-  if (cached && cachedAtMs !== undefined && Number.isFinite(cachedAtMs) && Date.now() - cachedAtMs < ttlMs) return cached;
+  const ageMs = cached ? cachedReferenceAgeMs(cached) : undefined;
+  if (cached && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) return cached;
 
   const fetched = await fetchDiscoveryReferenceImage(suggestion);
-  upsertDiscoveryReferenceCache(fetched);
+  if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
   return fetched;
 }

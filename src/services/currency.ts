@@ -1,6 +1,7 @@
 const SUPPORTED_CURRENCIES = ['USD', 'CAD', 'EUR', 'GBP', 'JPY'] as const;
 const DEFAULT_REFRESH_MS = 60 * 60 * 1000;
 const FX_API_URL = 'https://open.er-api.com/v6/latest/USD';
+const FX_FETCH_TIMEOUT_MS = 8000;
 
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
 
@@ -61,9 +62,17 @@ function tryBuildDynamicRates(data: unknown): Record<SupportedCurrency, number> 
 }
 
 async function refreshRatesOnce(): Promise<void> {
-  const response = await fetch(FX_API_URL, {
-    headers: { Accept: 'application/json' }
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FX_FETCH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(FX_API_URL, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' }
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     throw new Error(`FX API returned ${response.status}`);
   }

@@ -201,7 +201,10 @@ export async function enrichSelectedAlertListing(listing: Listing, destination?:
 
 export function shouldSuppressForDestinationShipping(listing: Listing, destination?: ShippingDestination): boolean {
   if (!destination?.country) return false;
-  return listing.shippingEligibility === 'MAY_NOT_SHIP';
+  if (listing.source !== 'EBAY') return false;
+  if (listing.shippingEligibility === 'MAY_NOT_SHIP') return true;
+  if (listing.shippingEligibility === 'AVAILABLE' || listing.shippingCost !== undefined) return false;
+  return listing.shippingEligibility === undefined || listing.shippingEligibility === 'UNKNOWN';
 }
 
 function formatDealQuality(score: number): string {

@@ -117,14 +117,13 @@ export function discoveryMarketCacheKey(
   suggestionName: string,
   displayCurrency: SupportedCurrency,
   destinationCountry?: string,
-  destinationPostalCode?: string
+  _destinationPostalCode?: string
 ): string {
-  return [
+  return JSON.stringify([
     suggestionName.trim().toLowerCase(),
     displayCurrency,
-    destinationCountry?.trim().toUpperCase() ?? '',
-    destinationPostalCode?.trim().toUpperCase() ?? ''
-  ].join('|');
+    destinationCountry?.trim().toUpperCase() ?? ''
+  ]);
 }
 
 export function getDiscoveryMarketCache(cacheKey: string): DiscoveryMarketCacheEntry | null {

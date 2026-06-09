@@ -4,6 +4,7 @@ import {
   discoveryReferenceCacheKey,
   fetchDiscoveryReferenceImage,
   getDiscoveryReferenceCache,
+  getOrFetchDiscoveryReferenceImage,
   onePieceCardImageCandidatesForSuggestion,
   pokemonTcgQueriesForSuggestion,
   upsertDiscoveryReferenceCache
@@ -115,5 +116,46 @@ describe('discovery reference cache', () => {
     expect(reference.imageUrl).toBe('https://images.pokemontcg.io/ex11/37_hires.png');
     expect(reference.sourceCardId).toBe('ex11-37');
     expect(reference.sourceName).toBe('Pokemon TCG (EX Delta Species)');
+  });
+
+  it('refetches transient reference-image failures instead of serving them from cache', async () => {
+    upsertDiscoveryReferenceCache({
+      cacheKey,
+      suggestionName: testName,
+      sourceStatus: 'TIMEOUT'
+    });
+
+    const reference = await getOrFetchDiscoveryReferenceImage({
+      name: testName,
+      lane: 'test',
+      laneWhy: 'test',
+      why: 'test',
+      nearby: [],
+      referenceImageUrl: 'https://images.pokemontcg.io/test/refetch.png',
+      referenceSourceName: 'Curated test reference'
+    }, 60 * 60 * 1000);
+
+    expect(reference?.imageUrl).toBe('https://images.pokemontcg.io/test/refetch.png');
+    expect(getDiscoveryReferenceCache(cacheKey)?.sourceStatus).toBeUndefined();
+  });
+
+  it('refetches malformed cached timestamps instead of treating them as fresh', async () => {
+    upsertDiscoveryReferenceCache({
+      cacheKey,
+      suggestionName: testName,
+      sourceStatus: 'NOT_FOUND',
+      fetchedAt: 'not-a-date'
+    });
+
+    const reference = await getOrFetchDiscoveryReferenceImage({
+      name: testName,
+      lane: 'test',
+      laneWhy: 'test',
+      why: 'test',
+      nearby: [],
+      referenceImageUrl: 'https://images.pokemontcg.io/test/fresh.png'
+    }, 60 * 60 * 1000);
+
+    expect(reference?.imageUrl).toBe('https://images.pokemontcg.io/test/fresh.png');
   });
 });

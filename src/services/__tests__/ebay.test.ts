@@ -26,7 +26,6 @@ describe('searchEbayListings Browse shipping', () => {
     vi.stubGlobal('fetch', vi.fn());
     process.env = {
       ...ORIGINAL_ENV,
-      EBAY_SEARCH_API: 'BROWSE',
       EBAY_CLIENT_ID: 'client-id',
       EBAY_CLIENT_SECRET: 'client-secret',
       EBAY_APP_ID: 'app-id',
@@ -110,54 +109,65 @@ describe('searchEbayListings Browse shipping', () => {
     expect(listings[0]?.shippingDestinationCountry).toBe('CA');
   });
 
-  it('falls back to Shopping details using the legacy item id when Browse item details has no shipping', async () => {
+  it('marks destination shipping as unavailable when Browse item details has no shipping options', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
       .mockResolvedValueOnce(
         jsonResponse({
-          itemSummaries: [
-            {
-              itemId: 'v1|1234567890|0',
-              title: 'Umbreon VMAX Alt Art',
-              itemWebUrl: 'https://example.com/item/1234567890',
-              price: { value: '100.00', currency: 'USD' },
-              itemLocation: { country: 'US' },
-              buyingOptions: ['FIXED_PRICE']
-            }
-          ]
-        })
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
           shippingOptions: []
-        })
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          Item: {
-            ShippingCostSummary: {
-              ShippingServiceCost: { Value: '12.34', CurrencyID: 'USD' }
-            }
-          }
         })
       );
 
-    const { searchEbayListings } = await import('../ebay.js');
-    const listings = await searchEbayListings(baseChase(), { country: 'US', postalCode: '90210' });
-    const itemDetailsHeaders = fetchMock.mock.calls[2]?.[1]?.headers as Record<string, string>;
-    const shoppingUrl = String(fetchMock.mock.calls[3]?.[0]);
+    const { enrichEbayListingDetails } = await import('../ebay.js');
+    const listing = await enrichEbayListingDetails({
+      source: 'EBAY',
+      listingId: 'v1|1234567890|0',
+      title: 'Umbreon VMAX Alt Art',
+      price: 100,
+      currency: 'USD',
+      url: 'https://example.com/item/1234567890',
+      region: 'US',
+      listingType: 'BUY_IT_NOW'
+    }, { country: 'CA' });
 
-    expect(listings[0]?.shippingCost).toBe(12.34);
-    expect(listings[0]?.shippingCurrency).toBe('USD');
-    expect(itemDetailsHeaders['X-EBAY-C-ENDUSERCTX']).toBe('contextualLocation=country=US,zip=90210');
-    expect(shoppingUrl).toContain('GetSingleItem');
-    expect(shoppingUrl).toContain('ItemID=1234567890');
-    expect(shoppingUrl).toContain('DestinationCountryCode=US');
-    expect(shoppingUrl).toContain('DestinationPostalCode=90210');
+    expect(listing.shippingCost).toBeUndefined();
+    expect(listing.shippingEligibility).toBe('MAY_NOT_SHIP');
+    expect(listing.shippingEligibilityMessage).toBe('May not ship to CA');
   });
 
-  it('does not call Finding fallback after Browse returns a rate limit', async () => {
+  it('does not treat non-priced Browse shipping options as confirmed destination shipping', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          shippingOptions: [
+            {
+              shippingCostType: 'CALCULATED'
+            }
+          ]
+        })
+      );
+
+    const { enrichEbayListingDetails } = await import('../ebay.js');
+    const listing = await enrichEbayListingDetails({
+      source: 'EBAY',
+      listingId: 'v1|1234567890|0',
+      title: 'Umbreon VMAX Alt Art',
+      price: 100,
+      currency: 'USD',
+      url: 'https://example.com/item/1234567890',
+      region: 'US',
+      listingType: 'BUY_IT_NOW'
+    }, { country: 'CA' });
+
+    expect(listing.shippingCost).toBeUndefined();
+    expect(listing.shippingEligibility).toBe('UNKNOWN');
+    expect(listing.shippingEligibilityMessage).toBe('Shipping availability to CA is unknown');
+  });
+
+  it('does not call a legacy fallback after Browse returns a rate limit', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
@@ -196,6 +206,50 @@ describe('searchEbayListings Browse shipping', () => {
 
     expect(second[0]?.title).toBe('Umbreon VMAX Alt Art');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not collide cache keys when card names contain the delimiter character', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          itemSummaries: [
+            {
+              itemId: 'v1|1111111111|0',
+              title: 'Umbreon Pipe VMAX',
+              itemWebUrl: 'https://example.com/item/1111111111',
+              price: { value: '100.00', currency: 'USD' },
+              shippingOptions: [{ shippingCost: { value: '7.50', currency: 'USD' } }],
+              itemLocation: { country: 'US' },
+              buyingOptions: ['FIXED_PRICE']
+            }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          itemSummaries: [
+            {
+              itemId: 'v1|2222222222|0',
+              title: 'Umbreon Graded VMAX',
+              itemWebUrl: 'https://example.com/item/2222222222',
+              price: { value: '120.00', currency: 'USD' },
+              shippingOptions: [{ shippingCost: { value: '8.50', currency: 'USD' } }],
+              itemLocation: { country: 'US' },
+              buyingOptions: ['FIXED_PRICE']
+            }
+          ]
+        })
+      );
+
+    const { searchEbayListings } = await import('../ebay.js');
+    const first = await searchEbayListings({ ...baseChase(), cardName: 'Umbreon|VMAX' });
+    const second = await searchEbayListings({ ...baseChase(), cardName: 'Umbreon', grade: 'VMAX' });
+
+    expect(first[0]?.listingId).toBe('v1|1111111111|0');
+    expect(second[0]?.listingId).toBe('v1|2222222222|0');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('enriches a selected alert listing without enriching the whole search window', async () => {

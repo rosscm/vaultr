@@ -96,8 +96,8 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
   - `npm install`
 - Env is configured:
   - `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`
-  - `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET` (if `LISTING_SOURCE=EBAY` and `EBAY_SEARCH_API=BROWSE`)
-  - `EBAY_APP_ID` (optional legacy fallback for `EBAY_SEARCH_API=FINDING`)
+   - `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET` (if `LISTING_SOURCE=EBAY`)
+   - `EBAY_APP_ID` (optional; used for sold-comps market context)
   - `LISTING_SOURCE`, `POLL_INTERVAL_SECONDS`
   - `OWNER_USER_ID` (optional, enables owner-only `/health`)
 - Runtime checks pass:
@@ -109,10 +109,10 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 
 ## eBay Polling
 
-- Recommended production search path: `EBAY_SEARCH_API=BROWSE`
+- Production listing search uses the eBay Browse API
 - Set `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` in `.env` (from your eBay production keyset)
 - `EBAY_CLIENT_ID` is the App ID / Client ID shown in the eBay Developer portal
-- Keep `EBAY_APP_ID` only if you want the legacy Finding API fallback with `EBAY_SEARCH_API=FINDING`
+- Set `EBAY_APP_ID` if you want sold-comps market context from eBay Finding completed items
 - Set `EBAY_ENV=SANDBOX` for sandbox testing, or `EBAY_ENV=PRODUCTION` for live eBay
 - Set `EBAY_MARKETPLACE_ID=EBAY_US` unless you intentionally want another eBay marketplace
 - Optional: tune `EBAY_SEARCH_LIMIT` (default `50`) and `EBAY_BROWSE_SORT` (default `newlyListed`)
@@ -132,7 +132,7 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 
 ### eBay Rate Limit Notes
 
-- eBay may return rate-limit errors from Browse or legacy Finding when calls are too frequent
+- eBay may return rate-limit errors from Browse or sold-comps requests when calls are too frequent
 - If that happens, avoid manual `curl` tests for 30-60 minutes because they count against the same limit
 - Use `/health` to check `Rate Limited / Backing Off`, `Backoff Until`, and `Last Source Success`
 - Keep production testing slow until `/health` stays clean for a day

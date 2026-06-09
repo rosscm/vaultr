@@ -30,14 +30,26 @@ function appendAuditLine(filePath: string, line: string): void {
   appendFileSync(filePath, `${line}\n`, { encoding: 'utf-8' });
 }
 
-export function processEbayAccountDeletionNotification(payload: unknown): void {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+export function processEbayAccountDeletionNotification(payload: unknown): boolean {
+  if (!isRecord(payload)) return false;
   const data = payload as DeletionNotification;
   const topic = data?.metadata?.topic;
-  if (topic !== 'MARKETPLACE_ACCOUNT_DELETION') return;
+  if (topic !== 'MARKETPLACE_ACCOUNT_DELETION') return false;
 
-  const notificationId = data?.notification?.notificationId ?? 'unknown';
-  const eventDate = data?.notification?.eventDate ?? new Date().toISOString();
-  const userId = data?.notification?.data?.userId ?? 'unknown';
+  const notification = isRecord(data.notification) ? data.notification : undefined;
+  const notificationData = isRecord(notification?.data) ? notification.data : undefined;
+
+  const notificationId = stringField(notification?.notificationId) ?? 'unknown';
+  const eventDate = stringField(notification?.eventDate) ?? new Date().toISOString();
+  const userId = stringField(notificationData?.userId) ?? 'unknown';
   const maskedUserId = maskValue(userId);
 
   // Vaultr currently stores no personal eBay account data. We still keep an
@@ -54,4 +66,5 @@ export function processEbayAccountDeletionNotification(payload: unknown): void {
   appendAuditLine(deletionAuditPath, auditRecord);
 
   console.log(`[eBay deletion] processed notificationId=${notificationId} userId=${maskedUserId}`);
+  return true;
 }

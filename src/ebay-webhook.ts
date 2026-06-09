@@ -7,6 +7,7 @@ import { processEbayAccountDeletionNotification } from './services/ebay-account-
 const port = Number(process.env.EBAY_WEBHOOK_PORT ?? '8787');
 const endpointUrl = process.env.EBAY_NOTIFICATION_ENDPOINT_URL;
 const verificationToken = process.env.EBAY_NOTIFICATION_VERIFICATION_TOKEN;
+const maxBodyBytes = Number(process.env.EBAY_WEBHOOK_MAX_BODY_BYTES ?? '65536');
 
 if (!endpointUrl || !verificationToken) {
   throw new Error('Missing EBAY_NOTIFICATION_ENDPOINT_URL or EBAY_NOTIFICATION_VERIFICATION_TOKEN in environment');
@@ -44,16 +45,41 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   }
 
   if (req.method === 'POST') {
+    const contentType = req.headers['content-type'];
+    if (contentType && !String(contentType).toLowerCase().includes('application/json')) {
+      sendJson(res, 415, { error: 'unsupported_media_type' });
+      return;
+    }
+
     let body = '';
+    let bodyBytes = 0;
+    let rejected = false;
     req.on('data', (chunk) => {
+      if (rejected) return;
+      bodyBytes += Buffer.byteLength(chunk);
+      if (bodyBytes > maxBodyBytes) {
+        rejected = true;
+        sendJson(res, 413, { error: 'payload_too_large' });
+        req.destroy();
+        return;
+      }
       body += String(chunk);
     });
+    req.on('error', (error) => {
+      if (rejected) return;
+      rejected = true;
+      console.error('[eBay webhook] request stream failed', error);
+      sendJson(res, 400, { error: 'invalid_request' });
+    });
     req.on('end', () => {
+      if (rejected) return;
       try {
         const payload = body.length > 0 ? JSON.parse(body) : {};
         processEbayAccountDeletionNotification(payload);
       } catch (error) {
         console.error('[eBay webhook] invalid JSON payload', error);
+        sendJson(res, 400, { error: 'invalid_json' });
+        return;
       }
       res.writeHead(204);
       res.end();

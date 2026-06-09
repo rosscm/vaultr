@@ -978,6 +978,36 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteDiscoveryMarketCache(cacheKey);
   });
 
+  it('uses country-level cached market values when a postal region is configured', () => {
+    const name = `Mew Postal Cache ${Date.now()}`;
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 52,
+      marketSampleSize: 4,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = candidatesFromDiscoveryMarketCache(
+      [candidate(name, 'mythical display cards', 0)],
+      {
+        userId: 'user-1',
+        activeChases: [],
+        destination: { country: 'CA', postalCode: 'M5V' },
+        targetCurrency: 'CAD'
+      }
+    );
+
+    expect(attached?.typicalRawAskingTotal).toBe(52);
+    expect(attached?.marketSampleSize).toBe(4);
+    expect(attached?.sourceStatus).toBeUndefined();
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
   it('preserves card API image sources when cached eBay market data has a listing image', () => {
     const name = `Pikachu Black Star Promo ${Date.now()}`;
     const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');

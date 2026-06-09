@@ -789,6 +789,8 @@ function saveDiscoveryMarketRefreshResult(job: DiscoveryMarketRefreshJob, candid
     suggestionName: job.suggestion.name,
     displayCurrency: job.targetCurrency,
     destinationCountry: job.destination?.country,
+    listing: candidate.listing,
+    imageUrl: candidate.image?.sourceKind === 'MARKET_LISTING' ? candidate.image.url : undefined,
     typicalRawAskingTotal: candidate.typicalRawAskingTotal,
     marketSampleSize: candidate.marketSampleSize,
     typicalRawSoldTotal: candidate.typicalRawSoldTotal,
@@ -1681,10 +1683,7 @@ export async function handleDiscoveryActionSelect(interaction: any): Promise<boo
 
   const [, ownerUserId] = interaction.customId.split(':');
   const [rawValue] = interaction.values ?? [];
-  const valueParts = String(rawValue ?? '').split(':');
-  const [legacyAction, legacyToken] = valueParts;
-  const isLegacyAction = legacyAction === 'ADD' || legacyAction === 'MORE_LIKE_THIS' || legacyAction === 'NOT_FOR_ME';
-  const token = isLegacyAction ? legacyToken : legacyAction;
+  const token = String(rawValue ?? '');
   if (!ownerUserId || !token) return false;
 
   if (interaction.user.id !== ownerUserId) {
@@ -1696,15 +1695,6 @@ export async function handleDiscoveryActionSelect(interaction: any): Promise<boo
   }
 
   const pick = getDiscoveryVaultAction(interaction.user.id, token);
-  if (isLegacyAction && legacyAction === 'ADD') {
-    await replyToDiscoveryVaultAdd(interaction, pick);
-    return true;
-  }
-  if (isLegacyAction && (legacyAction === 'MORE_LIKE_THIS' || legacyAction === 'NOT_FOR_ME')) {
-    await replyToDiscoveryFeedback(interaction, pick, legacyAction);
-    return true;
-  }
-
   if (!pick) {
     await interaction.reply({
       embeds: [warningEmbed('Discovery Expired', 'Run `/discover` again for fresh card actions.')],
