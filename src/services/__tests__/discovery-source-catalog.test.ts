@@ -1582,6 +1582,90 @@ describe('discovery source catalog', () => {
     expect(names).toEqual(expect.arrayContaining(['Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pikachu VMAX SWSH Black Star Promos SWSH286']));
   });
 
+  it('turns premium source-backed cards into exact card suggestions', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'sv4pt5-232',
+              name: 'Mew ex',
+              number: '232',
+              supertype: 'Pokemon',
+              subtypes: ['Basic', 'ex'],
+              rarity: 'Special Illustration Rare',
+              types: ['Psychic'],
+              nationalPokedexNumbers: [151],
+              set: { name: 'Paldean Fates', series: 'Scarlet & Violet', releaseDate: '2024/01/26' },
+              images: { small: 'https://images.pokemontcg.io/sv4pt5/232.png' }
+            }
+          ]
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    ) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Pokemon illustration rare cards',
+        lane: 'Artwork Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Pokemon illustration rare cards',
+        requiredEvidenceTokens: ['illustration'],
+        sourceTasteTokens: ['illustration']
+      },
+      [],
+      1
+    );
+
+    expect(resolved.suggestions[0]?.name).toBe('Mew ex Paldean Fates 232');
+    expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe('Mew ex Paldean Fates 232 Pokemon card');
+  });
+
+  it('turns ordinary source-backed cards into exact card suggestions', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'base1-58',
+              name: 'Pikachu',
+              number: '58',
+              supertype: 'Pokemon',
+              subtypes: ['Basic'],
+              rarity: 'Common',
+              types: ['Lightning'],
+              nationalPokedexNumbers: [25],
+              set: { name: 'Base', series: 'Base', releaseDate: '1999/01/09' },
+              images: { small: 'https://images.pokemontcg.io/base1/58.png' }
+            }
+          ]
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    ) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'vintage Pokemon cards',
+        lane: 'Vintage Era Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'vintage Pokemon cards',
+        requiredEvidenceTokens: ['vintage'],
+        sourceTasteTokens: ['vintage']
+      },
+      [],
+      1
+    );
+
+    expect(resolved.suggestions[0]?.name).toBe('Pikachu Base 58');
+    expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe('Pikachu Base 58 Pokemon card');
+  });
+
   it('does not return cards already on the active chase list', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(

@@ -48,6 +48,21 @@ describe('discovery reference cache', () => {
     expect(queries).toContain('name:"Mew" number:GG10 set.name:"Crown Zenith"');
   });
 
+  it('builds exact Pokemon TCG queries for Surging Sparks secret rares', () => {
+    const queries = pokemonTcgQueriesForSuggestion({
+      name: 'Pikachu ex Surging Sparks 238',
+      lane: 'modern texture',
+      laneWhy: 'modern chase cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Pikachu ex Surging Sparks 238 Pokemon card',
+      evidenceAliases: ['Pikachu ex Surging Sparks 238'],
+      requiredEvidenceTokens: ['pikachu', 'surging', '238']
+    });
+
+    expect(queries).toContain('name:"Pikachu ex" number:238 set.name:"Surging Sparks"');
+  });
+
   it('does not send One Piece cards to the Pokemon TCG API', () => {
     const queries = pokemonTcgQueriesForSuggestion({
       name: 'Monkey.D.Luffy ST01-001 Leader',

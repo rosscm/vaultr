@@ -65,6 +65,7 @@ const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /deoxys/i, setName: 'Deoxys' },
   { pattern: /undaunted/i, setName: 'Undaunted' },
   { pattern: /hidden fates/i, setName: 'Hidden Fates' },
+  { pattern: /surging sparks/i, setName: 'Surging Sparks' },
   { pattern: /nintendo black star/i, setName: 'Nintendo Black Star Promos' }
 ];
 
@@ -107,6 +108,7 @@ function compactName(value: string): string {
   return value
     .replace(/\bPokemon\b/gi, '')
     .replace(/\b(card|cards|promo|holo|secret rare|illustration rare|art rare|trainer gallery|parallel|leader)\b/gi, '')
+    .replace(/\bsurging sparks\b\s*\d{1,3}\b/gi, '')
     .replace(/\b(?:black star|mcdonald'?s|anniversary|vending series|web series)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -123,6 +125,8 @@ function extractNumber(value: string): string | undefined {
   if (codeNumber) return codeNumber.replace(/\s|-/g, '').toUpperCase();
   const holoNumber = /\bH\d{1,2}\b/i.exec(value)?.[0];
   if (holoNumber) return holoNumber.toUpperCase();
+  const surgingSparksNumber = /\bsurging sparks\b.*\b([1-9]\d{1,2})\b/i.exec(value)?.[1];
+  if (surgingSparksNumber) return surgingSparksNumber;
   const standalone = /\b0\d{2}\b/.exec(value)?.[0];
   return standalone;
 }
@@ -130,7 +134,7 @@ function extractNumber(value: string): string | undefined {
 function leadingName(value: string): string {
   const beforeNumber = value.split(/\b(?:[A-Z]{0,4}\d{1,3}\s*\/\s*\d{1,3}|(?:GG|TG|RC|XY|SM|SWSH|SVP|BW|DP|HGSS)\s?-?\d{1,4}|H\d{1,2}|0\d{2})\b/i)[0];
   return compactName(beforeNumber)
-    .replace(/\b(?:southern islands?|crown zenith|cosmic eclipse|lost origin|pokemon 151|triplet beat|fossil|aquapolis|expedition|neo discovery|neo destiny|gym challenge|gym heroes|deoxys|fates collide|undaunted|hidden fates)\b/gi, '')
+    .replace(/\b(?:southern islands?|crown zenith|cosmic eclipse|lost origin|pokemon 151|triplet beat|fossil|aquapolis|expedition|neo discovery|neo destiny|gym challenge|gym heroes|deoxys|fates collide|undaunted|hidden fates|surging sparks)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

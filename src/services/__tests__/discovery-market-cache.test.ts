@@ -16,7 +16,18 @@ afterEach(() => {
 
 describe('discovery market cache', () => {
   it('uses country-level cache keys so postal regions do not fragment market reads', () => {
-    expect(discoveryMarketCacheKey('Mew Southern Islands Promo', 'CAD', 'CA', 'M5V 2T6')).toBe(JSON.stringify(['mew southern islands promo', 'CAD', 'CA']));
+    expect(discoveryMarketCacheKey('Mew Southern Islands Promo', 'CAD', 'CA', 'M5V 2T6')).toBe(
+      discoveryMarketCacheKey('Mew Southern Islands Promo', 'CAD', 'CA')
+    );
+  });
+
+  it('keeps user price ranges separate in market cache keys', () => {
+    const uncapped = discoveryMarketCacheKey('Mew Southern Islands Promo', 'CAD', 'CA');
+    const budget = discoveryMarketCacheKey('Mew Southern Islands Promo', 'CAD', 'CA', undefined, { min: 0, max: 100 });
+    const biggerBudget = discoveryMarketCacheKey('Mew Southern Islands Promo', 'CAD', 'CA', undefined, { min: 0, max: 300 });
+
+    expect(budget).not.toBe(uncapped);
+    expect(budget).not.toBe(biggerBudget);
   });
 
   it('does not collide cache keys when suggestion names contain delimiter characters', () => {

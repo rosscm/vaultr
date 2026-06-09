@@ -14,7 +14,6 @@ export type DiscoverySuggestion = {
   requiredEvidenceTokens?: string[];
   sourceTasteTokens?: string[];
   minimumExampleTotalCad?: number;
-  maximumBaselineRawTotalCad?: number;
   curiosityScore?: number;
 };
 
@@ -54,7 +53,6 @@ type ThreadTemplate = {
   applies: (profile: ChaseSignalProfile) => boolean;
   score: (profile: ChaseSignalProfile) => number;
   curiosityScore?: number;
-  maximumBaselineRawTotalCad?: number;
 };
 
 type TasteFeatureSuggestion = {
@@ -74,7 +72,6 @@ type TasteFeature = {
   score: number;
   tasteTokens: string[];
   curiosityScore: number;
-  maximumBaselineRawTotalCad?: number;
 };
 
 const STOP_WORDS = new Set([
@@ -324,8 +321,7 @@ const THREAD_TEMPLATES: ThreadTemplate[] = [
     why: () => 'uses your chase as the anchor while market cache decides whether the thread is worth showing',
     applies: () => true,
     score: (profile) => 34 * profile.weight,
-    curiosityScore: 2,
-    maximumBaselineRawTotalCad: 225
+    curiosityScore: 2
   },
   {
     lane: 'adjacent collector thread',
@@ -347,8 +343,7 @@ const THREAD_TEMPLATES: ThreadTemplate[] = [
     why: () => 'keeps Discovery moving when a chase has not exposed stronger release, language, era, or art signals yet',
     applies: () => true,
     score: (profile) => 18 * profile.weight,
-    curiosityScore: 1,
-    maximumBaselineRawTotalCad: 225
+    curiosityScore: 1
   }
 ];
 
@@ -515,7 +510,6 @@ function suggestionFromTemplate(profile: ChaseSignalProfile, template: ThreadTem
     evidenceSearchTerm: name,
     evidenceAliases: evidenceAliases(profile, template, name),
     requiredEvidenceTokens: requiredTokens(profile, template),
-    maximumBaselineRawTotalCad: template.maximumBaselineRawTotalCad,
     curiosityScore: template.curiosityScore
   };
 }
@@ -671,8 +665,7 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
     laneWhy: 'keeps Discovery moving from the overall profile when no narrower shared trait is ready',
     why: 'uses the chase profile as taste context while market evidence supplies the actual card examples',
     tasteTokens: ['collector'],
-    curiosityScore: 2,
-    maximumBaselineRawTotalCad: 225
+    curiosityScore: 2
   });
 
   const tokenSupport = new Map<string, { total: number; remembered: number }>();
@@ -713,10 +706,9 @@ function tasteFeatureSuggestions(profiles: ChaseSignalProfile[]): TasteFeatureSu
       evidenceAliases: [feature.name],
       requiredEvidenceTokens: feature.requiredTerms,
       sourceTasteTokens: feature.tasteTokens,
-      maximumBaselineRawTotalCad: feature.maximumBaselineRawTotalCad,
       curiosityScore: feature.curiosityScore
     },
-    score: feature.score * 100 * (feature.maximumBaselineRawTotalCad ? 1.05 : 1)
+    score: feature.score * 100
   }));
 }
 

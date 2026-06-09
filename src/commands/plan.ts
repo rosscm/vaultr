@@ -31,7 +31,7 @@ function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan') {
   const sourceLine = `**Source:** ${displayEffectiveSourceMode(settings.listingSourceMode, activeTier)}`;
   const shopLine = activeTier === 'PRO' ? `**Shops:** ${trustedShopNames}` : `**Pro Unlocks:** shop sources, faster checks, and deeper Discovery`;
   const nextLine = activeTier === 'PRO' ? '**Source Controls:** use `/alerts settings` to pick a watch mode' : '**Next:** use `/upgrade` to unlock Pro';
-  const embed = infoEmbed(title, activeTier === 'PRO' ? 'Pro access is active.' : 'Free access is active. A tidy starter Vault.');
+  const embed = infoEmbed(title, activeTier === 'PRO' ? 'Pro access is active.' : 'Free access is active. Upgrade anytime for more chases and source controls.');
   embed.addFields(
     {
       name: 'Plan',
@@ -40,7 +40,7 @@ function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan') {
     },
     {
       name: 'Vault Depth',
-      value: activeTier === 'PRO' ? 'full Discovery shelf and Taste Profile memory' : '3-card Discovery preview from active chases',
+      value: activeTier === 'PRO' ? 'Full Discovery recommendations and Taste Profile memory' : 'Discovery preview from active chases',
       inline: false
     },
     {

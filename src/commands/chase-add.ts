@@ -118,7 +118,7 @@ export const chaseAdd = {
     });
 
     const lines = [
-      'Nice pick. Vaultr is watching this chase now.',
+      'Nice pick. Vaultr is keeping watch for listings that fit.',
       '',
       `**Card:** ${chase.cardName}`,
       `**Priority:** ${chase.priority ?? 'NORMAL'}`,
@@ -136,7 +136,7 @@ export const chaseAdd = {
           ]
         : []),
       '',
-      '**Next:** Use `/chase list` to admire the lineup'
+      '**Next:** Use `/chase list` to review active chases'
     ];
 
     await interaction.reply({
@@ -153,7 +153,7 @@ export const chaseAdd = {
         if (channel && 'send' in channel) {
           const displayName = interaction.member?.nickname ?? interaction.user.globalName ?? interaction.user.username;
           await channel.send(
-            `🏁✨ **${displayName}** started their **Vault** with their first chase`
+            `🏁 **${displayName}** started their **Vault** with their first chase`
           );
         }
       }

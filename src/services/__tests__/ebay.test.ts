@@ -341,4 +341,39 @@ describe('searchEbaySoldListings', () => {
     expect(listings[0]?.shippingCost).toBe(8);
     expect(listings[0]?.listingType).toBe('BUY_IT_NOW');
   });
+
+  it('can collect multiple recent completed pages with an override keyword and dedupe repeats', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const soldItem = (id: string, title: string, price: string) => ({
+      itemId: [id],
+      title: [title],
+      viewItemURL: [`https://example.com/sold/${id}`],
+      sellingStatus: [{ currentPrice: [{ __value__: price, '@currencyId': 'USD' }], sellingState: ['EndedWithSales'] }],
+      shippingInfo: [{ shippingServiceCost: [{ __value__: '0.00', '@currencyId': 'USD' }], shipToLocations: ['Worldwide'] }],
+      listingInfo: [{ listingType: ['FixedPrice'], endTime: ['2026-06-01T00:00:00.000Z'] }],
+      country: ['US']
+    });
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          findCompletedItemsResponse: [{ searchResult: [{ item: [soldItem('123', 'Mew ex Paldean Fates 232', '900.00')] }] }]
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          findCompletedItemsResponse: [{ searchResult: [{ item: [soldItem('123', 'Mew ex Paldean Fates 232 duplicate', '900.00'), soldItem('456', 'Mew ex Paldean Fates 232 NM', '875.00')] }] }]
+        })
+      );
+
+    const { searchEbaySoldListings } = await import('../ebay.js');
+    const listings = await searchEbaySoldListings(baseChase(), undefined, { keywords: 'Mew ex Paldean Fates 232', pageCount: 2 });
+    const firstUrl = String(fetchMock.mock.calls[0]?.[0]);
+    const secondUrl = String(fetchMock.mock.calls[1]?.[0]);
+
+    expect(firstUrl).toContain('keywords=Mew+ex+Paldean+Fates+232');
+    expect(firstUrl).toContain('sortOrder=EndTimeSoonest');
+    expect(firstUrl).toContain('paginationInput.pageNumber=1');
+    expect(secondUrl).toContain('paginationInput.pageNumber=2');
+    expect(listings.map((listing) => listing.listingId)).toEqual(['123', '456']);
+  });
 });

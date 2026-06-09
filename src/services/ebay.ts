@@ -10,6 +10,11 @@ export type EbaySearchOptions = {
   enrichMissingShipping?: boolean;
 };
 
+export type EbaySoldSearchOptions = {
+  keywords?: string;
+  pageCount?: number;
+};
+
 const EBAY_FINDING_ENDPOINT_PROD = 'https://svcs.ebay.com/services/search/FindingService/v1';
 const EBAY_FINDING_ENDPOINT_SANDBOX = 'https://svcs.sandbox.ebay.com/services/search/FindingService/v1';
 const EBAY_BROWSE_ENDPOINT_PROD = 'https://api.ebay.com/buy/browse/v1/item_summary/search';
@@ -307,6 +312,29 @@ function gradeSearchTerm(grade: string | undefined): string | undefined {
   return grade;
 }
 
+function ebaySoldSearchPageCount(options: EbaySoldSearchOptions): number {
+  const configured = Number(options.pageCount ?? process.env.EBAY_SOLD_SEARCH_PAGES ?? '1');
+  return Number.isFinite(configured) && configured > 0 ? Math.min(5, Math.floor(configured)) : 1;
+}
+
+function ebaySoldSearchKeywords(chase: Chase, options: EbaySoldSearchOptions): string {
+  const baseKeywords = options.keywords?.trim() || chase.cardName;
+  const gradeTerm = gradeSearchTerm(chase.grade);
+  return gradeTerm ? `${baseKeywords} ${gradeTerm}` : baseKeywords;
+}
+
+function dedupeListingsById(listings: Listing[]): Listing[] {
+  const seen = new Set<string>();
+  const unique: Listing[] = [];
+  for (const listing of listings) {
+    const key = listing.listingId || `${listing.title}|${listing.price}|${listing.currency}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(listing);
+  }
+  return unique;
+}
+
 function collectFindingErrors(json: any): any[] {
   const messages = json?.errorMessage;
   if (!Array.isArray(messages)) return [];
@@ -530,93 +558,102 @@ export async function enrichEbayListingDetails(listing: Listing, destination?: S
   }
 }
 
-export async function searchEbaySoldListings(chase: Chase, destination?: ShippingDestination): Promise<Listing[]> {
+function mapFindingItemToListing(item: any, destination?: ShippingDestination): Listing | null {
+  const sellingState = findingSellingState(item?.sellingStatus?.[0]?.sellingState?.[0]);
+  if (sellingState && sellingState !== 'ENDEDWITHSALES') return null;
+
+  const listingId = item?.itemId?.[0];
+  const title = item?.title?.[0];
+  const viewItemURL = item?.viewItemURL?.[0];
+  const galleryURL = firstNonEmptyString([item?.galleryURL?.[0], item?.galleryPlusPictureURL?.[0]]);
+  const currentPrice = item?.sellingStatus?.[0]?.currentPrice?.[0];
+  const rawPrice = currentPrice?.__value__;
+  const currency = currentPrice?.['@currencyId'] ?? 'USD';
+  const seller = item?.sellerInfo?.[0]?.sellerUserName?.[0] ?? item?.sellerInfo?.[0]?.sellerUserName;
+  const sellerFeedbackPercent = Number(item?.sellerInfo?.[0]?.positiveFeedbackPercent?.[0]);
+  const sellerFeedbackScore = Number(item?.sellerInfo?.[0]?.feedbackScore?.[0]);
+  const shippingServiceCost = item?.shippingInfo?.[0]?.shippingServiceCost?.[0];
+  const shipToLocations = item?.shippingInfo?.[0]?.shipToLocations;
+  const rawShippingCost = shippingServiceCost?.__value__;
+  const shippingCurrency = shippingServiceCost?.['@currencyId'] ?? currency;
+  const shippingCost = Number(rawShippingCost);
+  const postedAt = item?.listingInfo?.[0]?.endTime?.[0] ?? item?.listingInfo?.[0]?.startTime?.[0];
+  const rawListingType = item?.listingInfo?.[0]?.listingType?.[0];
+  const condition = item?.condition?.[0]?.conditionDisplayName?.[0];
+  const countryCode = item?.country?.[0];
+  const deliveryCountry = getDeliveryCountry(destination);
+  const deliveryPostalCode = getDeliveryPostalCode(destination);
+  const shippingEligibility = deriveShippingEligibilityFromShipToLocations(shipToLocations, deliveryCountry, deliveryPostalCode);
+  const price = Number(rawPrice);
+
+  if (!listingId || !title || !viewItemURL || Number.isNaN(price)) return null;
+
+  return {
+    source: 'EBAY',
+    listingId,
+    title,
+    price,
+    currency,
+    shippingCost: Number.isNaN(shippingCost) ? undefined : shippingCost,
+    shippingCurrency: Number.isNaN(shippingCost) ? undefined : shippingCurrency,
+    ...shippingEligibility,
+    url: viewItemURL,
+    imageUrl: galleryURL || undefined,
+    thumbnailUrl: galleryURL || undefined,
+    seller,
+    sellerFeedbackPercent: Number.isNaN(sellerFeedbackPercent) ? undefined : sellerFeedbackPercent,
+    sellerFeedbackScore: Number.isNaN(sellerFeedbackScore) ? undefined : sellerFeedbackScore,
+    postedAt,
+    region: mapCountryToRegion(countryCode),
+    condition,
+    listingType: mapFindingListingType(rawListingType)
+  } satisfies Listing;
+}
+
+export async function searchEbaySoldListings(chase: Chase, destination?: ShippingDestination, options: EbaySoldSearchOptions = {}): Promise<Listing[]> {
   const appId = process.env.EBAY_APP_ID;
   if (!appId) return [];
   const endpoint = getEbayFindingEndpoint();
 
-  const gradeTerm = gradeSearchTerm(chase.grade);
-  const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
+  const keywords = ebaySoldSearchKeywords(chase, options);
+  const pageCount = ebaySoldSearchPageCount(options);
+  const allListings: Listing[] = [];
 
-  const params = new URLSearchParams({
-    'OPERATION-NAME': 'findCompletedItems',
-    'SERVICE-VERSION': '1.13.0',
-    'SECURITY-APPNAME': appId,
-    'RESPONSE-DATA-FORMAT': 'JSON',
-    'REST-PAYLOAD': '',
-    keywords,
-    'paginationInput.entriesPerPage': process.env.EBAY_SOLD_SEARCH_LIMIT ?? process.env.EBAY_SEARCH_LIMIT ?? '50'
-  });
-  params.append('outputSelector', 'SellerInfo');
-  params.append('outputSelector', 'StoreInfo');
-  params.append('itemFilter(0).name', 'SoldItemsOnly');
-  params.append('itemFilter(0).value', 'true');
-  const deliveryPostalCode = getDeliveryPostalCode(destination);
-  if (deliveryPostalCode) params.append('buyerPostalCode', deliveryPostalCode);
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    const params = new URLSearchParams({
+      'OPERATION-NAME': 'findCompletedItems',
+      'SERVICE-VERSION': '1.13.0',
+      'SECURITY-APPNAME': appId,
+      'RESPONSE-DATA-FORMAT': 'JSON',
+      'REST-PAYLOAD': '',
+      keywords,
+      sortOrder: 'EndTimeSoonest',
+      'paginationInput.entriesPerPage': process.env.EBAY_SOLD_SEARCH_LIMIT ?? process.env.EBAY_SEARCH_LIMIT ?? '50',
+      'paginationInput.pageNumber': String(pageNumber)
+    });
+    params.append('outputSelector', 'SellerInfo');
+    params.append('outputSelector', 'StoreInfo');
+    params.append('itemFilter(0).name', 'SoldItemsOnly');
+    params.append('itemFilter(0).value', 'true');
+    const deliveryPostalCode = getDeliveryPostalCode(destination);
+    if (deliveryPostalCode) params.append('buyerPostalCode', deliveryPostalCode);
 
-  const response = await fetchEbay(`${endpoint}?${params.toString()}`);
-  const json: any = await parseJsonResponse(response);
-  if (isFindingRateLimitError(json)) {
-    throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`);
+    const response = await fetchEbay(`${endpoint}?${params.toString()}`);
+    const json: any = await parseJsonResponse(response);
+    if (isFindingRateLimitError(json)) {
+      throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`);
+    }
+    if (!response.ok) {
+      throw new Error(`eBay sold request failed: ${response.status}`);
+    }
+
+    const items = json?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item ?? [];
+    const listings = items.map((item: any) => mapFindingItemToListing(item, destination)).filter((listing: Listing | null): listing is Listing => listing !== null);
+    allListings.push(...listings);
+    if (items.length === 0) break;
   }
-  if (!response.ok) {
-    throw new Error(`eBay sold request failed: ${response.status}`);
-  }
 
-  const items = json?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item ?? [];
-
-  return items
-    .map((item: any) => {
-      const sellingState = findingSellingState(item?.sellingStatus?.[0]?.sellingState?.[0]);
-      if (sellingState && sellingState !== 'ENDEDWITHSALES') return null;
-
-      const listingId = item?.itemId?.[0];
-      const title = item?.title?.[0];
-      const viewItemURL = item?.viewItemURL?.[0];
-      const galleryURL = firstNonEmptyString([item?.galleryURL?.[0], item?.galleryPlusPictureURL?.[0]]);
-      const currentPrice = item?.sellingStatus?.[0]?.currentPrice?.[0];
-      const rawPrice = currentPrice?.__value__;
-      const currency = currentPrice?.['@currencyId'] ?? 'USD';
-      const seller = item?.sellerInfo?.[0]?.sellerUserName?.[0] ?? item?.sellerInfo?.[0]?.sellerUserName;
-      const sellerFeedbackPercent = Number(item?.sellerInfo?.[0]?.positiveFeedbackPercent?.[0]);
-      const sellerFeedbackScore = Number(item?.sellerInfo?.[0]?.feedbackScore?.[0]);
-      const shippingServiceCost = item?.shippingInfo?.[0]?.shippingServiceCost?.[0];
-      const shipToLocations = item?.shippingInfo?.[0]?.shipToLocations;
-      const rawShippingCost = shippingServiceCost?.__value__;
-      const shippingCurrency = shippingServiceCost?.['@currencyId'] ?? currency;
-      const shippingCost = Number(rawShippingCost);
-      const postedAt = item?.listingInfo?.[0]?.endTime?.[0] ?? item?.listingInfo?.[0]?.startTime?.[0];
-      const rawListingType = item?.listingInfo?.[0]?.listingType?.[0];
-      const condition = item?.condition?.[0]?.conditionDisplayName?.[0];
-      const countryCode = item?.country?.[0];
-      const deliveryCountry = getDeliveryCountry(destination);
-      const shippingEligibility = deriveShippingEligibilityFromShipToLocations(shipToLocations, deliveryCountry, deliveryPostalCode);
-      const price = Number(rawPrice);
-
-      if (!listingId || !title || !viewItemURL || Number.isNaN(price)) return null;
-
-      return {
-        source: 'EBAY',
-        listingId,
-        title,
-        price,
-        currency,
-        shippingCost: Number.isNaN(shippingCost) ? undefined : shippingCost,
-        shippingCurrency: Number.isNaN(shippingCost) ? undefined : shippingCurrency,
-        ...shippingEligibility,
-        url: viewItemURL,
-        imageUrl: galleryURL || undefined,
-        thumbnailUrl: galleryURL || undefined,
-        seller,
-        sellerFeedbackPercent: Number.isNaN(sellerFeedbackPercent) ? undefined : sellerFeedbackPercent,
-        sellerFeedbackScore: Number.isNaN(sellerFeedbackScore) ? undefined : sellerFeedbackScore,
-        postedAt,
-        region: mapCountryToRegion(countryCode),
-        condition,
-        listingType: mapFindingListingType(rawListingType)
-      } satisfies Listing;
-    })
-    .filter((listing: Listing | null): listing is Listing => listing !== null);
+  return dedupeListingsById(allListings);
 }
 
 export async function searchEbayListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {

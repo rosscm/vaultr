@@ -10,7 +10,7 @@ describe('alerts command', () => {
     expect(settings?.options?.map((option: any) => option.name)).toContain('shipping_postal_code');
   });
 
-  it('keeps recent fixed to the default sighting count', () => {
+  it('keeps recent fixed to the default alert count', () => {
     const recent = alerts.data
       .toJSON()
       .options?.find((option: any) => option.name === 'recent') as any;

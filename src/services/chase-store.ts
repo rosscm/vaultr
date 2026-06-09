@@ -803,7 +803,7 @@ export function getGuildCommunityStatsToday(guildId: string): {
     grailsSurfaced: Number(grailsRow?.count ?? 0),
     topTrackedFamily: inferFamilyFromText(collectorText, 2) ?? 'Mixed collections',
     topTrackedTheme: inferThemeFromText(collectorText) ?? 'Varied styles',
-    hiddenDiscovery: alertTitles[0] ?? 'A quiet spotlight. Chases are still watching.'
+    hiddenDiscovery: alertTitles[0] ?? 'Quiet spotlight: chases are still watching'
   };
 }
 

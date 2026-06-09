@@ -20,7 +20,7 @@ const SHIPPING_COUNTRY_CHOICES = [
 export const alerts = {
   data: new SlashCommandBuilder()
     .setName('alerts')
-    .setDescription('Tune how Vaultr sends your chase sightings')
+    .setDescription('Manage how Vaultr sends chase alerts')
     .addSubcommand((sub) =>
       sub
         .setName('settings')
@@ -28,7 +28,7 @@ export const alerts = {
         .addStringOption((opt) =>
           opt
             .setName('source')
-            .setDescription('Where Vaultr watches for sightings (default: eBay; shops Pro)')
+            .setDescription('Where Vaultr watches for listings (default: eBay; shops Pro)')
             .addChoices(
               { name: 'eBay', value: 'EBAY' },
               { name: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY' },
@@ -38,14 +38,14 @@ export const alerts = {
         .addIntegerOption((opt) =>
           opt
             .setName('min_score')
-            .setDescription('Minimum confidence for a DM sighting (0-100; default: 60)')
+            .setDescription('Minimum confidence for a DM alert (0-100; default: 60)')
             .setMinValue(0)
             .setMaxValue(100)
         )
         .addStringOption((opt) =>
           opt
             .setName('alert_volume')
-            .setDescription('How many sightings Vaultr may DM you (default: Balanced, 10/hour)')
+            .setDescription('How many alerts Vaultr may DM you (default: Balanced, 10/hour)')
             .addChoices(
               { name: 'Quiet (3/hour)', value: 'QUIET' },
               { name: 'Balanced (10/hour)', value: 'BALANCED' },
@@ -81,12 +81,12 @@ export const alerts = {
     .addSubcommand((sub) =>
       sub
         .setName('recent')
-        .setDescription('Review your latest Vaultr settings')
+        .setDescription('Review your latest Vaultr alerts')
     )
     .addSubcommand((sub) =>
       sub
         .setName('preview')
-        .setDescription('Preview the DM layout for a chase sighting')
+        .setDescription('Preview the DM layout for a chase alert')
     ),
   async execute(interaction: any) {
     const subcommand = interaction.options.getSubcommand();

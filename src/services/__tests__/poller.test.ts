@@ -453,21 +453,21 @@ describe('buildWeeklyReflectionEmbed', () => {
     const data = embed.toJSON();
 
     expect(data.title).toBe('📬 Vaultr Weekly');
-    expect(data.description).toContain('4 sightings');
+    expect(data.description).toContain('4 alerts');
     expect(data.description).toContain('1 grail');
     expect(data.fields?.map((field) => field.name)).toEqual([
-      '👁️ Sightings',
+      '📨 Alerts',
       '💎 Grails',
       '➕ New Chases',
       '🧭 Current Read',
       '🎯 Next Step'
     ]);
-    expect(data.fields?.[0].value).toBe('**4**\nalerts sent');
+    expect(data.fields?.[0].value).toBe('**4**\nsent');
     expect(data.fields?.[0].inline).toBe(true);
     expect(data.fields?.[1].value).toBe('**1**\nhigh-priority hits');
     expect(data.fields?.[2].value).toBe('**2**\nadded taste');
     expect(data.fields?.[3].value).toBe('moonlit alt art around Eeveelution cards');
-    expect(data.fields?.[4].value).toContain('new chases are now part of Discovery');
+    expect(data.fields?.[4].value).toContain('new chases now shape future Discovery recommendations');
     expect(data.footer?.text).toBe('Vaultr • Weekly');
   });
 
@@ -482,8 +482,8 @@ describe('buildWeeklyReflectionEmbed', () => {
     });
     const data = embed.toJSON();
 
-    expect(data.description).toBe('**36 sightings surfaced** this week, including 7 grails.');
-    expect(data.fields?.[0].value).toBe('**36**\nalerts sent');
+    expect(data.description).toBe('**36 alerts sent** this week, including 7 grails.');
+    expect(data.fields?.[0].value).toBe('**36**\nsent');
     expect(data.fields?.[1].value).toBe('**7**\nhigh-priority hits');
     expect(data.fields?.[4].value).toContain('If this felt noisy');
     expect(data.fields?.[4].value).toContain('negative keywords');
@@ -500,7 +500,7 @@ describe('buildDailyPulseMessage', () => {
         grailsSurfaced: 0,
         topTrackedFamily: 'Mixed collections',
         topTrackedTheme: 'Varied styles',
-        hiddenDiscovery: 'A quiet spotlight. Chases are still watching.'
+        hiddenDiscovery: 'Quiet spotlight: chases are still watching'
       })
     ).toBe(false);
     expect(
@@ -511,7 +511,7 @@ describe('buildDailyPulseMessage', () => {
         grailsSurfaced: 0,
         topTrackedFamily: 'Mixed collections',
         topTrackedTheme: 'Varied styles',
-        hiddenDiscovery: 'A sighting moved through the Vault.'
+        hiddenDiscovery: 'A listing moved through the Vault'
       })
     ).toBe(true);
   });
@@ -528,19 +528,21 @@ describe('buildDailyPulseMessage', () => {
     });
 
     expect(message).toContain('📡 **Vault Pulse**');
-    expect(message).toContain('2 collectors started a Vault');
-    expect(message).toContain('3 collectors got a chase ping');
-    expect(message).toContain('A grail made an appearance, with moonlit alt art still drawing eyes.');
-    expect(message).toContain('**Today’s Chase Board**');
-    expect(message).toContain('• New Vaults: 2 collectors');
-    expect(message).toContain("• Chase pings: 5 listings caught 3 collectors' attention");
-    expect(message).toContain('• Grail watch: 1 grail peeked out');
-    expect(message).toContain('1 grail peeked out');
-    expect(message).toContain('**What Collectors Are Circling**');
-    expect(message).toContain('• moonlit alt art around Eeveelution cards');
-    expect(message).toContain('**Worth a Look**');
-    expect(message).toContain('Umbreon VMAX Alt Art PSA 10');
+    expect(message).toContain('2 new Vaults opened');
+    expect(message).toContain('3 collectors received chase alerts');
+    expect(message).toContain('1 grail surfaced');
+    expect(message).toContain("The day's sharpest movement centered on moonlit alt art");
+    expect(message).toContain('**Today’s Activity**');
+    expect(message).toContain('• New Vaults: 2 collectors joined');
+    expect(message).toContain('• Chase alerts: 5 listings reached 3 collectors');
+    expect(message).toContain('• Grail watch: 1 grail surfaced');
+    expect(message).toContain('**Collector Interest**');
+    expect(message).toContain('• moonlit alt art across Eeveelution cards');
+    expect(message).toContain('**Notable Find**');
+    expect(message).toContain('• Umbreon VMAX Alt Art PSA 10');
     expect(message).not.toContain('received a match');
+    expect(message).not.toContain('peeked out');
+    expect(message).not.toContain('pings');
   });
 
   it('keeps quiet days calm and collector-first', () => {
@@ -551,12 +553,28 @@ describe('buildDailyPulseMessage', () => {
       grailsSurfaced: 0,
       topTrackedFamily: 'Mixed collections',
       topTrackedTheme: 'Varied styles',
-      hiddenDiscovery: 'A quiet spotlight. Chases are still watching.'
+      hiddenDiscovery: 'Quiet spotlight: chases are still watching'
     });
 
-    expect(message).toContain('Quiet day. The chases stayed tucked in and kept watch.');
-    expect(message).toContain('Nothing loud today, but the watch list kept doing its quiet collector math.');
-    expect(message).toContain('• Chases stayed on watch in the background');
-    expect(message).toContain('• A little bit of everything today; no single collecting path ran away with it.');
+    expect(message).toContain('Quiet day: active chases kept watching');
+    expect(message).toContain('No major movement today, but active chases kept watch');
+    expect(message).toContain('• Active chases stayed on watch');
+    expect(message).toContain('• Mixed collector interest today; no single path led the board');
+  });
+
+  it('does not frame broad tracked families as today-specific alert activity', () => {
+    const message = buildDailyPulseMessage({
+      newVaultrs: 0,
+      usersAlerted: 1,
+      matches: 1,
+      grailsSurfaced: 0,
+      topTrackedFamily: 'Mew line',
+      topTrackedTheme: 'Japanese exclusives',
+      hiddenDiscovery: 'A listing moved through the Vault'
+    });
+
+    expect(message).toContain('1 collector received a chase alert');
+    expect(message).toContain('1 collector had a listing to review');
+    expect(message).not.toContain('Mew line collectors had something to inspect today.');
   });
 });

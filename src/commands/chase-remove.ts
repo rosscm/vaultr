@@ -78,7 +78,7 @@ export const chaseRemove = {
 
     await interaction.reply({
       embeds: [
-        successEmbed('Chase Removed', `Removed **${target.cardName}**\n\n**Next:** Use \`/chase list\` to tidy the lineup`).setTitle('✅ Chase Removed')
+        successEmbed('Chase Removed', `Removed **${target.cardName}**\n\n**Next:** Use \`/chase list\` to review active chases`).setTitle('✅ Chase Removed')
       ],
       flags: MessageFlags.Ephemeral
     });

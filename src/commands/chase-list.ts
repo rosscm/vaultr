@@ -45,7 +45,7 @@ function buildChaseListEmbed(userId: string, page: number) {
   if (total === 0) {
     return {
       empty: true as const,
-      embeds: [infoEmbed('📭 No Active Chases', 'Clean slate. Use `/chase add` to start the Vault; your chases shape what `/discover` finds next.')],
+      embeds: [infoEmbed('📭 No Active Chases', 'Use `/chase add` to start your Vault; active chases shape alerts and Discovery recommendations.')],
       components: []
     };
   }
@@ -113,7 +113,7 @@ function buildChaseListEmbed(userId: string, page: number) {
     '**Next Actions**',
     '✏️ Refine with `/chase edit`',
     '🗑️ Remove with `/chase remove`',
-    '✨ Explore a side quest with `/discover`'
+    '✨ Find related recommendations with `/discover`'
   ].join('\n');
 
   return {

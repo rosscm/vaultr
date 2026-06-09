@@ -117,12 +117,14 @@ export function discoveryMarketCacheKey(
   suggestionName: string,
   displayCurrency: SupportedCurrency,
   destinationCountry?: string,
-  _destinationPostalCode?: string
+  _destinationPostalCode?: string,
+  range?: { min: number; max: number }
 ): string {
   return JSON.stringify([
     suggestionName.trim().toLowerCase(),
     displayCurrency,
-    destinationCountry?.trim().toUpperCase() ?? ''
+    destinationCountry?.trim().toUpperCase() ?? '',
+    range ? [Math.max(0, Math.round(range.min)), Math.max(0, Math.round(range.max))] : []
   ]);
 }
 

@@ -35,7 +35,7 @@ function formatLearningNote(userId: string): string | undefined {
   const topChase = insights.topChases.find((row) => row.reason === topReason.reason && row.count >= 2);
   const scope = topChase ? ` on **${topChase.chaseName}**` : '';
   return [
-    `**Vaultr noticed:** ${topReason.count} recent Tune Outs were for ${reasonLabels[topReason.reason]}${scope}.`,
+    `**Vaultr noticed:** ${topReason.count} recent tune-outs were for ${reasonLabels[topReason.reason]}${scope}.`,
     `Try to ${reasonSuggestions[topReason.reason]}.`
   ].join(' ');
 }
@@ -65,8 +65,8 @@ export const alertsRecent = {
       await interaction.reply({
         embeds: [
           infoEmbed(
-            '📨 Vaultr Sightings',
-            'No sightings yet. Keep your Vault active; fitting cards will land here after Vaultr sends them by DM.'
+            '📨 Recent Alerts',
+            'No alerts yet. Keep your chases active; matching listings will appear here after Vaultr sends them by DM.'
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -74,14 +74,14 @@ export const alertsRecent = {
       return;
     }
 
-    const embed = infoEmbed('📨 Vaultr Sightings', `Latest ${recent.length} Vaultr sighting${recent.length === 1 ? '' : 's'} from your DMs.`);
+    const embed = infoEmbed('📨 Recent Alerts', `Latest ${recent.length} chase alert${recent.length === 1 ? '' : 's'} from your DMs.`);
 
     embed.addFields(
       recent.map((alert, index) => {
         const title = truncate(alert.listingTitle ?? alert.listingId, MAX_LISTING_TITLE_LENGTH);
         const listingLink = alert.listingUrl ? `\n[Open Listing](${alert.listingUrl})` : '';
         return {
-          name: `${index + 1}. ${truncate(alert.chaseName ?? 'Chase sighting', MAX_FIELD_TITLE_LENGTH)}`,
+          name: `${index + 1}. ${truncate(alert.chaseName ?? 'Chase alert', MAX_FIELD_TITLE_LENGTH)}`,
           value: [
             `**Listing:** ${title}`,
             `**Price:** ${formatPrice(alert.listingPrice, alert.listingCurrency)}`,
@@ -96,7 +96,7 @@ export const alertsRecent = {
     const learningNote = formatLearningNote(interaction.user.id);
     if (learningNote) {
       embed.addFields({
-        name: '🧠 Vaultr Noticed',
+        name: 'Alert Tuning',
         value: learningNote.replace('**Vaultr noticed:** ', ''),
         inline: false
       });

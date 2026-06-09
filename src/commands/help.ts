@@ -5,8 +5,8 @@ export const help = {
   data: new SlashCommandBuilder().setName('help').setDescription('Show the Vaultr collector guide'),
   async execute(interaction: any) {
     const lines = [
-      'Build your Vault with cards you care about, then let Vaultr keep watch for fitting moments.',
-      'Your chases shape grail alerts, Discovery paths, and the little collector sparks in between.',
+      'Build your Vault around the cards you love, then let Vaultr keep watch for matching listings.',
+      'Grails, promos, favorite artists, tiny set details; your chases shape alerts, Discovery paths, and weekly recaps.',
       '',
       '**Chase Basics**',
       '- `card`: 3-100 chars (required)',
@@ -20,7 +20,7 @@ export const help = {
       '**Collector Tip**',
       '- Casing does not matter',
       '- For cleaner matches, include card number when relevant',
-      '- The sharper the chase, the cleaner the sightings',
+      '- Tiny details make cleaner alerts',
       '',
       '**Commands**',
       '- Start: `/start`',
@@ -37,11 +37,11 @@ export const help = {
       '**Troubleshooting**',
       '- If your Vault feels quiet, lower `min_score` or broaden the chase',
       '- If too much is surfacing, add set/card detail or raise `min_score`',
-      '- Duplicate sightings are quietly suppressed',
+      '- Duplicate alerts are suppressed automatically',
       '',
       '**Glossary**',
       '- `confidence`: how strongly a listing fits your chase',
-      '- `cues`: the main reasons a sighting surfaced'
+      '- `cues`: the main reasons an alert surfaced'
     ];
 
     await interaction.reply({

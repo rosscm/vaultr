@@ -21,13 +21,13 @@ export const start = {
     const limits = activePlanLimits(plan);
 
     const lines = [
-      '**Build your Vault. Chase your grails. Discover what you love next.**',
-      'Pick the cards that matter; Vaultr will keep watch in the background.',
+      '**Build a sharper Vault around the cards you love.**',
+      'Add your grails, promos, and favorite finds; Vaultr keeps watch for listings that fit.',
       '',
       '**Step 1:** Add a card you are chasing with `/chase add`',
       '**Step 2:** View or update your Vaultr controls with `/alerts settings`',
-      '**Step 3:** Use `/discover` when you want Vaultr to surface a new collecting path',
-      '**Step 4:** Watch your DMs for chase sightings and weekly recaps',
+      '**Step 3:** Use `/discover` to explore related collecting paths',
+      '**Step 4:** Watch your DMs for chase alerts and weekly recaps',
       '',
       `**Plan:** ${formatActivePlanAccess(plan)}`,
       `**Active Chases:** ${activeChases.length}/${limits.maxActiveChases}`,
@@ -35,7 +35,7 @@ export const start = {
       `**Minimum Confidence:** ${settings.minScore}`,
       `**Price Currency:** ${settings.alertCurrency}`,
       '',
-      '**Tip:** Add the card number when it matters; tiny details make better sightings'
+      '**Tip:** Add the card number when it matters; tiny details make cleaner alerts'
     ];
 
     await interaction.reply({

@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  attachReferenceImages,
+  backfillSourceBackedDiscoverySuggestions,
   candidatesFromDiscoveryMarketCache,
+  concreteDiscoveryFallbackSuggestions,
   discover,
   discoveryActionRows,
   discoveryCardEmbeds,
   discoveryEmbed,
+  discoveryMarketRangeFromChases,
   discoveryTasteProfileChases,
   discoveryVisibleCountForPlan,
   isUsableDiscoveryExample,
@@ -13,6 +17,7 @@ import {
   looksLikeRawCardListing,
   looksLikeVisualDiscoveryListing,
   mergeFreshDiscoveryCandidates,
+  orderConcreteDiscoveryFallbackSuggestionsForMarket,
   orderCandidatesFromPersistedState,
   preserveLanguageSignalFallbackSuggestions,
   selectVisibleCandidates,
@@ -20,6 +25,7 @@ import {
   type DiscoveryCandidate
 } from '../discover.js';
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
+import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import type { Chase, Listing } from '../../types.js';
 
@@ -434,6 +440,7 @@ describe('preserveLanguageSignalFallbackSuggestions', () => {
       referenceSourceName: 'TCGdex Japanese (S12a)',
       requiredEvidenceTokens: ['mew-s12a-052', 'japanese']
     };
+
     const englishSuggestion = {
       name: 'Pikachu Scarlet & Violet Black Star Promos 101',
       lane: 'Promo Trail',
@@ -459,6 +466,113 @@ describe('preserveLanguageSignalFallbackSuggestions', () => {
     );
 
     expect(preserved.map((suggestion) => suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Pikachu Scarlet & Violet Black Star Promos 101']);
+  });
+});
+
+describe('backfillSourceBackedDiscoverySuggestions', () => {
+  it('keeps a first-use Pro shelf full when source-backed resolution returns only a few cards', () => {
+    const sourceBacked = [
+      sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 0).suggestion,
+      sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 1).suggestion
+    ];
+    const fallback = [
+      sourceBacked[0],
+      sourceBacked[1],
+      candidate('Pokemon promo cards', 'promo trail', 2).suggestion,
+      candidate('Pikachu Skyridge 84', 'e-reader atmosphere', 3).suggestion,
+      candidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'promo trail', 4).suggestion,
+      candidate('Articuno Skyridge H3', 'legendary birds', 5).suggestion,
+      candidate('Moltres Skyridge H20', 'legendary birds', 6).suggestion,
+      candidate('Mew ex Paldean Fates 232', 'modern texture', 7).suggestion
+    ];
+
+    const backfilled = backfillSourceBackedDiscoverySuggestions(sourceBacked, fallback, 7);
+
+    expect(backfilled.map((suggestion) => suggestion.name)).toEqual([
+      'Mew Japanese S12a 052',
+      'Squirtle Expedition Base Set 132',
+      'Pikachu Skyridge 84',
+      'Special Delivery Pikachu SWSH Black Star Promos SWSH074',
+      'Articuno Skyridge H3',
+      'Moltres Skyridge H20',
+      'Mew ex Paldean Fates 232'
+    ]);
+  });
+
+  it('builds concrete fallbacks from seen card names without keeping generic Discovery titles', () => {
+    const fallbacks = concreteDiscoveryFallbackSuggestions([
+      'Pokemon special release cards',
+      'vintage Pokemon cards',
+      'Pikachu Skyridge raw card',
+      'Pikachu Skyridge 84',
+      'Mew ex Paldean Fates 232',
+      'Lt. Surge\'s Pikachu Gym Challenge 84'
+    ], ["Lt. Surge's Pikachu Gym Challenge 84"]);
+
+    expect(fallbacks.map((suggestion) => suggestion.name)).toEqual(['Pikachu Skyridge 84', 'Mew ex Paldean Fates 232']);
+  });
+
+  it('can rebuild a stable shelf from concrete history before using fresh random source cards', () => {
+    const historical = concreteDiscoveryFallbackSuggestions([
+      'Mew Japanese S12a 052',
+      'Articuno Skyridge H3',
+      'Squirtle Expedition Base Set 132',
+      'Pikachu Skyridge 84',
+      'Mew ex Paldean Fates 232',
+      'Moltres Skyridge H20',
+      'Zapdos Aquapolis 44'
+    ]);
+    const freshRandom = [
+      sourceCandidate('Ledian Skyridge H14', 'Pokemon TCG (Skyridge)', 0).suggestion,
+      sourceCandidate('Xatu Skyridge H32', 'Pokemon TCG (Skyridge)', 1).suggestion
+    ];
+
+    const rebuilt = backfillSourceBackedDiscoverySuggestions(historical, freshRandom, 7);
+
+    expect(rebuilt.map((suggestion) => suggestion.name)).toEqual([
+      'Mew Japanese S12a 052',
+      'Articuno Skyridge H3',
+      'Squirtle Expedition Base Set 132',
+      'Pikachu Skyridge 84',
+      'Mew ex Paldean Fates 232',
+      'Moltres Skyridge H20',
+      'Zapdos Aquapolis 44'
+    ]);
+  });
+
+  it('orders concrete history with market-ready cards before timeout rows', () => {
+    const timedOutName = `Mew Japanese S12a 183 ${Date.now()}`;
+    const marketReadyName = `Moltres Skyridge H20 ${Date.now()}`;
+    const timedOutCacheKey = discoveryMarketCacheKey(timedOutName, 'CAD', 'CA');
+    const marketReadyCacheKey = discoveryMarketCacheKey(marketReadyName, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(timedOutCacheKey);
+    deleteDiscoveryMarketCache(marketReadyCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: timedOutCacheKey,
+      suggestionName: timedOutName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      sourceStatus: 'TIMEOUT',
+      fetchedAt: new Date().toISOString()
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: marketReadyCacheKey,
+      suggestionName: marketReadyName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 305,
+      marketSampleSize: 3,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const ordered = orderConcreteDiscoveryFallbackSuggestionsForMarket(
+      concreteDiscoveryFallbackSuggestions([timedOutName, marketReadyName]),
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' }
+    );
+
+    expect(ordered.map((suggestion) => suggestion.name)).toEqual([marketReadyName, timedOutName]);
+    deleteDiscoveryMarketCache(timedOutCacheKey);
+    deleteDiscoveryMarketCache(marketReadyCacheKey);
   });
 });
 
@@ -497,6 +611,70 @@ describe('Discovery listing enrichment eligibility', () => {
     expect(looksLikeVisualDiscoveryListing(paldeanMewSuggestion, caseListing)).toBe(false);
   });
 
+  it('rejects extended art case accessories from Paldean Fates market samples', () => {
+    const paldeanMewSuggestion = {
+      name: 'Mew ex Paldean Fates 232',
+      lane: 'Collector Compass',
+      laneWhy: 'specific card source match',
+      why: 'specific card source match',
+      nearby: [],
+      evidenceSearchTerm: 'Mew ex Paldean Fates 232 Pokemon card',
+      evidenceAliases: ['Mew ex Paldean Fates 232'],
+      requiredEvidenceTokens: ['mew', 'paldean', '232']
+    };
+    const caseListing = listing({
+      title: 'Pokemon TCG EXTENDED ART CASE Mew ex 232 SIR Paldean Fates CCG Card Game',
+      price: 108.1,
+      imageUrl: 'https://i.ebayimg.example/mew-case.jpg'
+    });
+
+    expect(isUsableDiscoveryExample(paldeanMewSuggestion, caseListing, undefined, 'CAD')).toBe(false);
+    expect(looksLikeVisualDiscoveryListing(paldeanMewSuggestion, caseListing)).toBe(false);
+  });
+
+  it('rejects merchandise and custom art listings that borrow exact card identifiers', () => {
+    const paldeanMewSuggestion = {
+      name: 'Mew ex Paldean Fates 232',
+      lane: 'Collector Compass',
+      laneWhy: 'specific card source match',
+      why: 'specific card source match',
+      nearby: [],
+      evidenceSearchTerm: 'Mew ex Paldean Fates 232 Pokemon card',
+      evidenceAliases: ['Mew ex Paldean Fates 232'],
+      requiredEvidenceTokens: ['mew', 'paldean', '232']
+    };
+    const noisyListings = [
+      listing({ title: 'Bubble Mew EX 232/091 Card Rug 24x36 Pokemon Paldean Fates Anime Room Carpet', price: 101.9 }),
+      listing({ title: 'Mew Ex 232/091 SIR Bubble Mew Paldean Fates Pokemon Tcg Card Blanket 50x60', price: 75 }),
+      listing({ title: 'Mew ex 232/091 Pokemon Paldean Fates Holo Hand Drawn Art Card Sketch Full Art', price: 80 })
+    ];
+
+    for (const noisyListing of noisyListings) {
+      expect(isUsableDiscoveryExample(paldeanMewSuggestion, noisyListing, undefined, 'CAD')).toBe(false);
+      expect(looksLikeVisualDiscoveryListing(paldeanMewSuggestion, noisyListing)).toBe(false);
+    }
+  });
+
+  it('rejects gold foil promo lookalikes from raw market samples', () => {
+    const specialDeliverySuggestion = {
+      name: 'Special Delivery Pikachu SWSH Black Star Promos SWSH074',
+      lane: 'Promo Trail',
+      laneWhy: 'specific card source match',
+      why: 'specific card source match',
+      nearby: [],
+      evidenceSearchTerm: 'Special Delivery Pikachu SWSH Black Star Promos SWSH074 Pokemon card',
+      evidenceAliases: ['Special Delivery Pikachu SWSH074'],
+      requiredEvidenceTokens: ['special', 'delivery', 'pikachu', 'swsh074']
+    };
+    const goldFoilListing = listing({
+      title: 'Pikachu Special Delivery Gold Foil Card SWSH074 Black Star Promos',
+      price: 20
+    });
+
+    expect(isUsableDiscoveryExample(specialDeliverySuggestion, goldFoilListing, undefined, 'CAD')).toBe(false);
+    expect(looksLikeVisualDiscoveryListing(specialDeliverySuggestion, goldFoilListing)).toBe(false);
+  });
+
   it('rejects compact graded labels from raw market samples', () => {
     const gradedListing = listing({
       title: 'Pokemon Card PSA10 Mew s12a 183/172 AR 2022 Japanese',
@@ -519,6 +697,13 @@ describe('Discovery listing enrichment eligibility', () => {
     };
 
     expect(isUsableDiscoveryExample(broadSuggestion, listing({ title: 'Pokemon Radiant Collection RC24 Card Raw' }), undefined, 'CAD')).toBe(true);
+  });
+
+  it('uses the user market range to reject listings above the selected max price', () => {
+    const matchingListing = listing({ title: 'Mew Southern Islands 1999 Holo No.151 Japanese Pokemon', price: 125 });
+
+    expect(isUsableDiscoveryExample(southernIslandsSuggestion, matchingListing, { min: 0, max: 150 }, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryExample(southernIslandsSuggestion, matchingListing, { min: 0, max: 100 }, 'CAD')).toBe(false);
   });
 
   it('does not mistake Toys R Us promo cards for toy merchandise', () => {
@@ -653,13 +838,13 @@ describe('discoveryEmbed', () => {
   it('hides market read for limited Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false).toJSON();
 
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why This Card', 'Taste Cue']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue']);
   });
 
   it('shows market read for full Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', true).toJSON();
 
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why This Card', 'Taste Cue', 'Market Read']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue', 'Market Snapshot']);
   });
 
   it('prefers sold comps in full Discovery market read', () => {
@@ -674,7 +859,7 @@ describe('discoveryEmbed', () => {
       true
     ).toJSON();
 
-    const marketRead = embed.fields?.find((field) => field.name === 'Market Read')?.value;
+    const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
     expect(marketRead).toContain('40 CAD recent raw sold (5 comps)');
     expect(marketRead).toContain('50 CAD raw ask');
   });
@@ -693,7 +878,7 @@ describe('discoveryEmbed', () => {
       true
     ).toJSON();
 
-    const marketRead = embed.fields?.find((field) => field.name === 'Market Read')?.value;
+    const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
     expect(marketRead).toContain('460 CAD recent raw sold (5 comps)');
     expect(marketRead).toContain('330 CAD raw ask');
   });
@@ -714,8 +899,8 @@ describe('discoveryEmbed', () => {
       true
     ).toJSON();
 
-    const marketRead = embed.fields?.find((field) => field.name === 'Market Read')?.value;
-    expect(marketRead).toBe('Market refresh queued; Vaultr will attach pricing once the source responds.');
+    const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
+    expect(marketRead).toBe('Market data is updating; pricing will appear once the source responds.');
   });
 
   it('mentions image attachment only when pending market cards have no image yet', () => {
@@ -728,8 +913,8 @@ describe('discoveryEmbed', () => {
       true
     ).toJSON();
 
-    const marketRead = embed.fields?.find((field) => field.name === 'Market Read')?.value;
-    expect(marketRead).toBe('Market refresh queued; Vaultr will attach image and pricing once the source responds.');
+    const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
+    expect(marketRead).toBe('Market data is updating; image and pricing will appear once the source responds.');
   });
 
   it('explains concrete profile signals instead of internal source details', () => {
@@ -748,7 +933,7 @@ describe('discoveryEmbed', () => {
       false
     ).toJSON();
 
-    const why = embed.fields?.find((field) => field.name === 'Why This Card')?.value;
+    const why = embed.fields?.find((field) => field.name === 'Why It Fits')?.value;
     expect(why).toContain('concrete early-2000s set identity');
     expect(why).toContain('clearer collecting shape');
     expect(why).not.toContain('appears in your taste profile');
@@ -769,8 +954,8 @@ describe('discoveryEmbed', () => {
       false
     ).toJSON();
 
-    const why = embed.fields?.find((field) => field.name === 'Why This Card')?.value;
-    const signal = embed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    const why = embed.fields?.find((field) => field.name === 'Why It Fits')?.value;
+    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
     expect(why).toContain('collector milestone');
     expect(signal).toContain('Promo Releases');
     expect(signal).not.toContain('Special Delivery Pikachu interest');
@@ -804,8 +989,8 @@ describe('discoveryEmbed', () => {
       false
     ).toJSON();
 
-    const why = embed.fields?.find((field) => field.name === 'Why This Card')?.value;
-    const signal = embed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    const why = embed.fields?.find((field) => field.name === 'Why It Fits')?.value;
+    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
     expect(why).toContain('nearby card to compare');
     expect(why).toContain('artwork, set feel, and release story');
     expect(why).not.toContain('source-backed');
@@ -829,7 +1014,7 @@ describe('discoveryEmbed', () => {
       false
     ).toJSON();
 
-    const signal = embed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
     expect(signal).toContain('Mew Family');
     expect(signal).toContain('Promo Releases');
     expect(signal).toContain('GX/Tag Team Format');
@@ -852,7 +1037,7 @@ describe('discoveryEmbed', () => {
       false
     ).toJSON();
 
-    const signal = embed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
     expect(signal).toBe('E-Reader Era');
     expect(signal).not.toContain('Mew Thread');
     expect(signal).not.toContain('Promo Releases');
@@ -884,15 +1069,15 @@ describe('discoveryEmbed', () => {
       false
     ).toJSON();
 
-    const englishSignal = englishEmbed.fields?.find((field) => field.name === 'Taste Cue')?.value;
-    const englishWhy = englishEmbed.fields?.find((field) => field.name === 'Why This Card')?.value;
-    const japaneseSignal = japaneseEmbed.fields?.find((field) => field.name === 'Taste Cue')?.value;
+    const englishSignal = englishEmbed.fields?.find((field) => field.name === 'Collector Cue')?.value;
+    const englishWhy = englishEmbed.fields?.find((field) => field.name === 'Why It Fits')?.value;
+    const japaneseSignal = japaneseEmbed.fields?.find((field) => field.name === 'Collector Cue')?.value;
     expect(englishSignal).not.toContain('Japanese Prints');
     expect(englishWhy).not.toContain('Japanese print path');
     expect(japaneseSignal).toContain('Japanese Prints');
   });
 
-  it('uses cooldown language for active eBay throttle states', () => {
+  it('uses product-facing retry language for active eBay throttle states', () => {
     const embed = discoveryEmbed(
       {
         ...candidate('Mew Southern Islands Promo', 'mythical display cards', 0),
@@ -902,8 +1087,8 @@ describe('discoveryEmbed', () => {
       true
     ).toJSON();
 
-    const marketRead = embed.fields?.find((field) => field.name === 'Market Read')?.value;
-    expect(marketRead).toContain('cooling down');
+    const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
+    expect(marketRead).toBe('Market data is temporarily limited by eBay; Vaultr will retry automatically.');
   });
 
   it('can number visible cards for feedback buttons', () => {
@@ -1045,6 +1230,162 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(attached?.listing).toBeUndefined();
     deleteDiscoveryMarketCache(cacheKey);
   });
+
+  it('ignores stale cached accessory listings when attaching market data', () => {
+    const name = 'Mew ex Paldean Fates 232';
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      listing: listing({
+        listingId: 'case-1',
+        title: 'Pokemon TCG EXTENDED ART CASE Mew ex 232 SIR Paldean Fates CCG Card Game',
+        price: 108.1,
+        url: 'https://example.com/case-1'
+      }),
+      typicalRawAskingTotal: 108.1,
+      marketSampleSize: 4,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = candidatesFromDiscoveryMarketCache(
+      [
+        {
+          suggestion: {
+            name,
+            lane: 'Collector Compass',
+            laneWhy: 'specific card source match',
+            why: 'specific card source match',
+            nearby: [],
+            evidenceSearchTerm: 'Mew ex Paldean Fates 232 Pokemon card',
+            evidenceAliases: ['Mew ex Paldean Fates 232'],
+            requiredEvidenceTokens: ['mew', 'paldean', '232']
+          },
+          selectionIndex: 0
+        }
+      ],
+      { userId: 'user-1', activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' }
+    );
+
+    expect(attached?.typicalRawAskingTotal).toBeUndefined();
+    expect(attached?.marketSampleSize).toBeUndefined();
+    expect(attached?.sourceStatus).toBe('PENDING');
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('keeps market cache entries separate for different user price ranges', () => {
+    const name = `Mew Budget Cache ${Date.now()}`;
+    const lowRange = { min: 0, max: 75 };
+    const highRange = { min: 0, max: 250 };
+    const lowCacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA', undefined, lowRange);
+    const highCacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA', undefined, highRange);
+    deleteDiscoveryMarketCache(lowCacheKey);
+    deleteDiscoveryMarketCache(highCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: lowCacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 70,
+      marketSampleSize: 3,
+      fetchedAt: new Date().toISOString()
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: highCacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 220,
+      marketSampleSize: 3,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [lowAttached] = candidatesFromDiscoveryMarketCache([candidate(name, 'mythical display cards', 0)], {
+      userId: 'user-1',
+      activeChases: [],
+      destination: { country: 'CA' },
+      targetCurrency: 'CAD',
+      range: lowRange
+    });
+    const [highAttached] = candidatesFromDiscoveryMarketCache([candidate(name, 'mythical display cards', 0)], {
+      userId: 'user-1',
+      activeChases: [],
+      destination: { country: 'CA' },
+      targetCurrency: 'CAD',
+      range: highRange
+    });
+
+    expect(lowCacheKey).not.toBe(highCacheKey);
+    expect(lowAttached?.typicalRawAskingTotal).toBe(70);
+    expect(highAttached?.typicalRawAskingTotal).toBe(220);
+    deleteDiscoveryMarketCache(lowCacheKey);
+    deleteDiscoveryMarketCache(highCacheKey);
+  });
+
+  it('retries old zero-sample market cache rows instead of treating thin data as settled', () => {
+    const name = `Special Delivery Pikachu Thin Cache ${Date.now()}`;
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: 0,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: 0,
+      fetchedAt: new Date(Date.now() - 16 * 60 * 1000).toISOString()
+    });
+
+    const [attached] = candidatesFromDiscoveryMarketCache([candidate(name, 'promo trail', 0)], {
+      userId: 'user-1',
+      activeChases: [],
+      destination: { country: 'CA' },
+      targetCurrency: 'CAD'
+    });
+
+    expect(attached?.marketSampleSize).toBe(0);
+    expect(attached?.soldSampleSize).toBe(0);
+    expect(attached?.sourceStatus).toBe('PENDING');
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+});
+
+describe('attachReferenceImages', () => {
+  it('replaces eBay listing thumbnails with clean card reference images when available', async () => {
+    const name = `Pikachu ex Surging Sparks 238 ${Date.now()}`;
+    const referenceCacheKey = discoveryReferenceCacheKey(name);
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+    upsertDiscoveryReferenceCache({
+      cacheKey: referenceCacheKey,
+      suggestionName: name,
+      imageUrl: 'https://images.pokemontcg.io/sv8/238_hires.png',
+      sourceName: 'Pokemon TCG (Surging Sparks)',
+      sourceCardId: 'sv8-238',
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = await attachReferenceImages([
+      {
+        ...candidate(name, 'modern texture', 0, 4),
+        image: {
+          name,
+          url: 'https://i.ebayimg.com/images/g/hand-photo/s-l225.jpg',
+          sourceName: 'eBay listing image',
+          sourceKind: 'MARKET_LISTING'
+        }
+      }
+    ]);
+
+    expect(attached?.image?.url).toBe('https://images.pokemontcg.io/sv8/238_hires.png');
+    expect(attached?.image?.sourceName).toBe('Pokemon TCG (Surging Sparks)');
+    expect(attached?.image?.sourceKind).toBe('CARD_REFERENCE');
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+  });
 });
 
 describe('discoveryActionRows', () => {
@@ -1096,6 +1437,20 @@ describe('Discovery plan scaling', () => {
     expect(discoveryTasteProfileChases(activeChases, tasteMemory, false).map((chase) => chase.cardName)).toEqual(['Pikachu 26/83 promo', 'Mew RC24']);
     expect(discoveryTasteProfileChases(activeChases, tasteMemory, true).map((chase) => chase.cardName)).toEqual(['Pikachu 26/83 promo', 'Mew RC24', 'Corocoro Shining Mew']);
   });
+
+  it('builds a dynamic market range from saved max prices', () => {
+    const chases: Chase[] = [
+      { id: 'c1', userId: 'u1', cardName: 'Mew RC24', maxPrice: 80, createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c2', userId: 'u1', cardName: 'Bubble Mew', maxPrice: 300, createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c3', userId: 'u1', cardName: 'Pikachu', createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+
+    expect(discoveryMarketRangeFromChases(chases)).toEqual({ min: 0, max: 300 });
+  });
+
+  it('leaves market data uncapped when no max price has been selected', () => {
+    expect(discoveryMarketRangeFromChases([{ id: 'c1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-06-03T00:00:00.000Z' }])).toBeUndefined();
+  });
 });
 
 describe('discover command', () => {
@@ -1105,13 +1460,13 @@ describe('discover command', () => {
     expect(options).toEqual([]);
   });
 
-  it('shows Market Read on Pro response cards and hides it for Free response cards', () => {
+  it('shows Market Snapshot on Pro response cards and hides it for Free response cards', () => {
     const candidates = [candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2)];
 
     const freeCard = discoveryCardEmbeds(candidates, 'CAD', false)[0]?.toJSON();
     const proCard = discoveryCardEmbeds(candidates, 'CAD', true)[0]?.toJSON();
 
-    expect(freeCard?.fields?.map((field) => field.name)).toEqual(['Why This Card', 'Taste Cue']);
-    expect(proCard?.fields?.map((field) => field.name)).toEqual(['Why This Card', 'Taste Cue', 'Market Read']);
+    expect(freeCard?.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue']);
+    expect(proCard?.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue', 'Market Snapshot']);
   });
 });

@@ -142,14 +142,13 @@ describe('selectDiscoverySuggestions', () => {
     expectDistinctLanes(cooled);
   });
 
-  it('blends remembered card and value-aware paths in one ambient profile stream', () => {
+  it('blends remembered card and ambient paths in one profile stream', () => {
     const chases = [chase({ cardName: 'Mew RC24', priority: 'HIGH', tasteSource: 'GOOD_ALERT' })];
     const selection = selectDiscoverySuggestions(null, chases, 8);
     const sourceBacked = selection.suggestions.find((suggestion) => suggestion.lane === 'source-backed matches');
-    const valueAware = selection.suggestions.find((suggestion) => suggestion.maximumBaselineRawTotalCad !== undefined);
 
     expect(sourceBacked?.name).toBe('Mew RC24 trading card');
-    expect(valueAware?.maximumBaselineRawTotalCad).toBe(225);
+    expect(selection.suggestions.length).toBeGreaterThan(1);
   });
 
   it('infers promo and special-release leaning from repeated generic signals', () => {

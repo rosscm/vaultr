@@ -88,12 +88,12 @@ function splitReasons(reasons: string[]): { positive: string; risk: string } {
 function sightingPresentation(priority: Chase['priority']): { icon: string; label: string } {
   switch (priority ?? 'NORMAL') {
     case 'GRAIL':
-      return { icon: '🏆', label: 'Grail Sighting' };
+      return { icon: '🏆', label: 'Grail Alert' };
     case 'HIGH':
-      return { icon: '🔥', label: 'Priority Sighting' };
+      return { icon: '🔥', label: 'Priority Alert' };
     case 'NORMAL':
     default:
-      return { icon: '🚨', label: 'Chase Sighting' };
+      return { icon: '🚨', label: 'Chase Alert' };
   }
 }
 
@@ -575,7 +575,7 @@ async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAle
         embeds: [
           warningEmbed(
             'Alerts Temporarily Throttled',
-            `Your Vault surfaced ${maxAlertsPerHour} sightings in the last hour. To quiet the signal, add card details, raise \`min_score\`, or tighten available chase filters.`
+            `Vaultr sent ${maxAlertsPerHour} alerts in the last hour. To reduce volume, add card details, raise \`min_score\`, or tighten available chase filters.`
           )
         ]
       }),
@@ -1034,37 +1034,37 @@ function truncateForEmbed(value: string, maxLength = 200): string {
 
 function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   const parts: string[] = [];
-  if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'collector')} started a Vault`);
-  if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} got a chase ping`);
-  if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} peeked out`);
-  if (parts.length === 0) return 'Quiet day. The chases stayed tucked in and kept watch.';
+  if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'new Vault')} opened`);
+  if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received ${stats.usersAlerted === 1 ? 'a chase alert' : 'chase alerts'}`);
+  if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
+  if (parts.length === 0) return 'Quiet day: active chases kept watching';
   return parts.join(' • ');
 }
 
 function dailyPulseMood(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
-  if (stats.grailsSurfaced > 0) return `A grail made an appearance, with ${stats.topTrackedTheme.toLowerCase()} still drawing eyes.`;
-  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'Fresh Vaults, fresh pings, and a few new tabs worth opening.';
-  if (stats.usersAlerted > 0) return `${stats.topTrackedFamily} collectors had something to inspect today.`;
-  if (stats.newVaultrs > 0) return 'A few new Vaults joined the chase board today.';
-  return 'Nothing loud today, but the watch list kept doing its quiet collector math.';
+  if (stats.grailsSurfaced > 0) return `The day's sharpest movement centered on ${stats.topTrackedTheme.toLowerCase()}`;
+  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'New Vaults opened while alerts brought listings back into focus';
+  if (stats.usersAlerted > 0) return `${pluralize(stats.usersAlerted, 'collector')} had a listing to review`;
+  if (stats.newVaultrs > 0) return 'New collectors joined the chase board today';
+  return 'No major movement today, but active chases kept watch';
 }
 
 function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStatsToday>): string[] {
   const lines: string[] = [];
-  if (stats.newVaultrs > 0) lines.push(`• New Vaults: ${pluralize(stats.newVaultrs, 'collector')}`);
+  if (stats.newVaultrs > 0) lines.push(`• New Vaults: ${pluralize(stats.newVaultrs, 'collector')} joined`);
   if (stats.usersAlerted > 0) {
-    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} caught ${pluralize(stats.usersAlerted, 'collector')}' attention` : `${pluralize(stats.usersAlerted, 'collector')} got a chase ping`;
-    lines.push(`• Chase pings: ${sightingDetail}`);
+    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} reached ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')} received a chase alert`;
+    lines.push(`• Chase alerts: ${sightingDetail}`);
   }
-  if (stats.grailsSurfaced > 0) lines.push(`• Grail watch: ${pluralize(stats.grailsSurfaced, 'grail')} peeked out`);
-  return lines.length > 0 ? lines : ['• Chases stayed on watch in the background'];
+  if (stats.grailsSurfaced > 0) lines.push(`• Grail watch: ${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
+  return lines.length > 0 ? lines : ['• Active chases stayed on watch'];
 }
 
 function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   if (stats.topTrackedFamily === 'Mixed collections' && stats.topTrackedTheme === 'Varied styles') {
-    return 'A little bit of everything today; no single collecting path ran away with it.';
+    return 'Mixed collector interest today; no single path led the board';
   }
-  return `${stats.topTrackedTheme} around ${stats.topTrackedFamily}`;
+  return `${stats.topTrackedTheme} across ${stats.topTrackedFamily}`;
 }
 
 export function buildDailyPulseMessage(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
@@ -1073,14 +1073,14 @@ export function buildDailyPulseMessage(stats: ReturnType<typeof getGuildCommunit
     dailyPulseLine(stats),
     dailyPulseMood(stats),
     '',
-    '**Today’s Chase Board**',
+    '**Today’s Activity**',
     ...dailyPulseActivityLines(stats),
     '',
-    '**What Collectors Are Circling**',
+    '**Collector Interest**',
     `• ${dailyPulseCollectorCurrent(stats)}`,
     '',
-    '**Worth a Look**',
-    `• ${truncateForEmbed(stats.hiddenDiscovery, 180)}`
+    '**Notable Find**',
+    `• ${truncateForEmbed(stats.hiddenDiscovery, 180).replace(/\.+$/, '')}`
   ].join('\n');
 }
 
@@ -1093,13 +1093,13 @@ function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectio
     return '**Quiet week.** Vaultr kept your chases warm in the background.';
   }
   const grailNote = summary.grailsSurfaced > 0 ? `, including ${pluralize(summary.grailsSurfaced, 'grail')}` : '';
-  return `**${pluralize(summary.alertsReceived, 'sighting')} surfaced** this week${grailNote}.`;
+  return `**${pluralize(summary.alertsReceived, 'alert')} sent** this week${grailNote}.`;
 }
 
 function weeklyNextStep(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
   if (summary.alertsReceived >= 25) return 'If this felt noisy, tighten max price, condition, or negative keywords on the chases that fired most.';
-  if (summary.newChasesAdded > 0) return 'Your new chases are now part of Discovery, shaping the next collecting path Vaultr explores.';
-  if (summary.alertsReceived === 0) return 'Refresh a chase or add another grail if you want Discovery to explore a new collecting path next week.';
+  if (summary.newChasesAdded > 0) return 'Your new chases now shape future Discovery recommendations.';
+  if (summary.alertsReceived === 0) return 'Refresh a chase or add another card if you want Discovery to broaden next week.';
   return 'Keep useful chases active and tune out listings that do not match your collecting intent.';
 }
 
@@ -1124,7 +1124,7 @@ export function buildWeeklyReflectionEmbed(summary: ReturnType<typeof getUserWee
     .setTitle('📬 Vaultr Weekly')
     .setDescription(weeklyReflectionIntro(summary))
     .addFields(
-      weeklyMetricField('👁️ Sightings', summary.alertsReceived, 'alerts sent'),
+      weeklyMetricField('📨 Alerts', summary.alertsReceived, 'sent'),
       weeklyMetricField('💎 Grails', summary.grailsSurfaced, 'high-priority hits'),
       weeklyMetricField('➕ New Chases', summary.newChasesAdded, 'added taste'),
       keyValue('🧭 Current Read', `${summary.topTasteTheme} around ${summary.topTasteFamily}`),

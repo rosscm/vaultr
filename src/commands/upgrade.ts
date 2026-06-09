@@ -10,11 +10,11 @@ export const upgrade = {
 
     if (plan.tier === 'PRO' && plan.status === 'ACTIVE') {
       const lines = [
-        'The crown fits. Your Vault has the full Pro toolkit unlocked.',
+        'Your Vault has the full Pro toolkit unlocked and ready to work.',
         '',
-        `**Chase Room:** ${PLAN_LIMITS.PRO.maxActiveChases} active chases`,
+        `**Active Chases:** ${PLAN_LIMITS.PRO.maxActiveChases}`,
         `**Listing Checks:** every ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
-        '**Discovery:** deeper Taste Profile shelf with remembered cues'
+        '**Discovery:** deeper recommendations with Taste Profile memory'
       ];
       await interaction.reply({
         embeds: [successEmbed('You Are Pro', lines.join('\n')).setTitle('👑 You Are Pro')],
@@ -24,7 +24,7 @@ export const upgrade = {
     }
 
     const lines = [
-      'Pro is built for collectors with more grails to track, more specific taste, and more places worth watching.',
+      'Pro is built for collectors with more grails to track, sharper preferences, and more sources worth watching.',
       '',
       '**Your Free Vault**',
       `• ${PLAN_LIMITS.FREE.maxActiveChases} active chases`,
@@ -33,12 +33,12 @@ export const upgrade = {
       '',
       '**Pro Unlocks**',
       `• ${PLAN_LIMITS.PRO.maxActiveChases} active chases and faster checks every ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
-      '• deeper Discovery with a Taste Profile shelf that remembers cues and keeps learning from your Vault',
+      '• deeper Discovery with Taste Profile memory that keeps learning from your Vault',
       '• trusted shop sources alongside eBay, including shop-only restock signals',
       '• precision controls for condition, listing type, blocked terms, priority, and chase notes',
       '',
       '**Status**',
-      'Stripe checkout is coming soon; Pro access can be tested before launch.'
+      'Checkout is coming soon; Pro access is currently available by request.'
     ];
 
     await interaction.reply({
