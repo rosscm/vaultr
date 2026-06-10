@@ -42,7 +42,7 @@ function weeklyDropAnnouncementEmbed(periodKey: string, preparedCount: number): 
   const shelfLabel = preparedCount === 1 ? 'private shelf' : 'private shelves';
   return new EmbedBuilder()
     .setColor(0x8b5cf6)
-    .setTitle('✨ Weekly Shelf drop is live')
+    .setTitle('✨ Vaultr weekly discovery is live')
     .setDescription([
       'Fresh collector picks are on the table',
       'Pro gets the full shelf, Free gets the preview cut',
