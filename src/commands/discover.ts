@@ -1093,7 +1093,7 @@ function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: Supported
     return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps); ${formatMoney(candidate.typicalRawAskingTotal, currency)} raw ask`;
   }
   if (hasSoldComps) return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps)`;
-  if (!hasReliableAskOnlyComps) return 'Market data is still being gathered; Vaultr will keep checking.';
+  if (!hasReliableAskOnlyComps) return `Low recent comps data: only ${candidate.marketSampleSize ?? 0} active ask comps found, so Vaultr is not showing a price yet.`;
   return `${formatMoney(candidate.typicalRawAskingTotal, currency)} typical raw ask`;
 }
 

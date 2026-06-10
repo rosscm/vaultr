@@ -1025,7 +1025,7 @@ describe('discoveryEmbed', () => {
     ).toJSON();
 
     const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
-    expect(marketRead).toBe('Market data is still being gathered; Vaultr will keep checking.');
+    expect(marketRead).toBe('Low recent comps data: only 2 active ask comps found, so Vaultr is not showing a price yet.');
   });
 
   it('does not mention attaching images when pending market cards already have one', () => {
