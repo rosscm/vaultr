@@ -548,6 +548,81 @@ describe('backfillSourceBackedDiscoverySuggestions', () => {
     ]);
   });
 
+  it('uses concrete history as backfill instead of letting stale random cards lead a fresh shelf', () => {
+    const sourceBacked = [
+      sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 0).suggestion,
+      sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 1).suggestion,
+      sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 2).suggestion,
+      sourceCandidate('Moltres XY Black Star Promos XY127', 'Pokemon TCG (XY Black Star Promos)', 3).suggestion,
+      sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 4).suggestion,
+      sourceCandidate('Pikachu XY Black Star Promos XY202', 'Pokemon TCG (XY Black Star Promos)', 5).suggestion,
+      sourceCandidate('Mew ex Paldean Fates 232', 'Pokemon TCG (Paldean Fates)', 6).suggestion
+    ];
+    const staleHistory = concreteDiscoveryFallbackSuggestions([
+      'Xatu Skyridge H32',
+      'Ledian Skyridge H14',
+      'Articuno Skyridge H3'
+    ]);
+
+    const rebuilt = backfillSourceBackedDiscoverySuggestions(sourceBacked, staleHistory, 7);
+
+    expect(rebuilt.map((suggestion) => suggestion.name)).toEqual(sourceBacked.map((suggestion) => suggestion.name));
+  });
+
+  it('keeps stale concrete-history fallback cards behind profile-connected source cards', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Xatu Skyridge H32', 'Pokemon TCG (Skyridge)', 0),
+        sourceCandidate('Ledian Skyridge H14', 'Pokemon TCG (Skyridge)', 1),
+        sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 2),
+        sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 3),
+        sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 4)
+      ].map((item, index) => {
+        if (item.suggestion.name.includes('Xatu')) {
+          return {
+            ...item,
+            selectionIndex: index,
+            suggestion: {
+              ...item.suggestion,
+              lane: 'Collector Compass',
+              why: 'A concrete card Vaultr has already connected to this profile, kept as a fallback while fresh sources resolve.'
+            }
+          };
+        }
+        if (item.suggestion.name.includes('Ledian')) {
+          return {
+            ...item,
+            selectionIndex: index,
+            suggestion: {
+              ...item.suggestion,
+              lane: 'Collector Compass',
+              why: 'A concrete card Vaultr has already connected to this profile, kept as a fallback while fresh sources resolve.'
+            }
+          };
+        }
+        return {
+          ...item,
+          selectionIndex: index,
+          suggestion: {
+            ...item.suggestion,
+            sourceTasteTokens: ['mew', 'pikachu', 'promo', 'e-reader']
+          }
+        };
+      }),
+      [
+        { id: 'c1', userId: 'u1', cardName: 'Mew Japanese Promo', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' },
+        { id: 'c2', userId: 'u1', cardName: 'Pikachu Skyridge 84', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' }
+      ],
+      3
+    );
+
+    expect(visible.map((candidate) => candidate.suggestion.name)).toEqual([
+      'Mew Japanese S12a 052',
+      'Pikachu Skyridge 84',
+      'Squirtle Expedition Base Set 132'
+    ]);
+  });
+
   it('orders concrete history with market-ready cards before timeout rows', () => {
     const timedOutName = `Mew Japanese S12a 183 ${Date.now()}`;
     const marketReadyName = `Moltres Skyridge H20 ${Date.now()}`;

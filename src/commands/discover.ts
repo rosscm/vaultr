@@ -1145,7 +1145,12 @@ function sourcePreferenceRankScore(candidate: DiscoveryCandidate, chases: Chase[
   const isEnglishBlackStar = /\bblack star promos?\b/i.test([candidate.suggestion.name, sourceName].join(' '));
   const japaneseBoost = hasJapaneseSource ? Math.round(80 + japaneseAffinity * 80 + (priorityJapanese ? 80 : 0)) : 0;
   const blackStarPenalty = (japaneseAffinity >= 0.35 || priorityJapanese) && isEnglishBlackStar ? 90 : 0;
-  return japaneseBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty;
+  const historyFallbackPenalty = isConcreteHistoryFallbackCandidate(candidate) ? 160 : 0;
+  return japaneseBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty - historyFallbackPenalty;
+}
+
+function isConcreteHistoryFallbackCandidate(candidate: DiscoveryCandidate): boolean {
+  return candidate.suggestion.lane === 'Collector Compass' && /already connected to this profile/i.test(candidate.suggestion.why);
 }
 
 function profileSubjectTokens(value: string): string[] {
@@ -1483,6 +1488,8 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
   const hasSubjectBalancedAlternative = (): boolean =>
     candidates.some((candidate) => !seenNames.has(discoveryNameKey(candidate.suggestion.name)) && candidateSubjectIsUnderLimit(candidate) && (!isJapaneseDiscoveryCandidate(candidate) || japaneseCount < japaneseLimit));
   const canUseCandidateSubject = (candidate: DiscoveryCandidate): boolean => candidateSubjectIsUnderLimit(candidate) || !hasSubjectBalancedAlternative();
+  const hasNonHistoryFallbackAlternative = (): boolean =>
+    candidates.some((candidate) => !seenNames.has(discoveryNameKey(candidate.suggestion.name)) && !isConcreteHistoryFallbackCandidate(candidate) && candidateSubjectIsUnderLimit(candidate) && (!isJapaneseDiscoveryCandidate(candidate) || japaneseCount < japaneseLimit));
   const pushCandidate = (candidate: DiscoveryCandidate): void => {
     const nameKey = discoveryNameKey(candidate.suggestion.name);
     const trailLabel = discoveryCandidateTrailLabel(candidate);
@@ -1497,6 +1504,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     const subjectKeys = candidateSubjectKeys(candidate);
     const trailLabel = discoveryCandidateTrailLabel(candidate);
     if (seenThemes.has(theme)) continue;
+    if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
     if (subjectKeys.some((subjectKey) => seenSubjects.has(subjectKey))) continue;
     if (selectedTrailLabels.has(trailLabel)) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
@@ -1512,6 +1520,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     const nameKey = discoveryNameKey(candidate.suggestion.name);
     const trailLabel = discoveryCandidateTrailLabel(candidate);
     if (seenNames.has(nameKey) || selectedTrailLabels.has(trailLabel)) continue;
+    if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
     if (!canUseCandidateSubject(candidate)) continue;
     pushCandidate(candidate);
@@ -1522,6 +1531,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     const nameKey = discoveryNameKey(candidate.suggestion.name);
     const trailLabel = discoveryCandidateTrailLabel(candidate);
     if (seenNames.has(nameKey)) continue;
+    if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
     if ((trailCounts.get(trailLabel) ?? 0) >= trailLimit && candidates.some((other) => !seenNames.has(discoveryNameKey(other.suggestion.name)) && (trailCounts.get(discoveryCandidateTrailLabel(other)) ?? 0) < trailLimit)) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
     if (!canUseCandidateSubject(candidate)) continue;
@@ -1531,6 +1541,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     if (selected.length >= count) break;
     const nameKey = discoveryNameKey(candidate.suggestion.name);
     if (seenNames.has(nameKey)) continue;
+    if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
     if (!canUseCandidateSubject(candidate)) continue;
     pushCandidate(candidate);
@@ -1539,6 +1550,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     if (selected.length >= count) break;
     const nameKey = discoveryNameKey(candidate.suggestion.name);
     if (seenNames.has(nameKey)) continue;
+    if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
     pushCandidate(candidate);
   }
@@ -1840,7 +1852,7 @@ export function orderCandidatesFromPersistedState(
 async function discoverCandidatesForUser(
   userId: string,
   count: number,
-  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean } = {}
+  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean } = {}
 ): Promise<{
   chases: Chase[];
   tasteProfileChases: Chase[];
@@ -1854,6 +1866,7 @@ async function discoverCandidatesForUser(
   const requireScheduledDrop = options.requireScheduledDrop ?? false;
   const shouldSaveScheduledDrop = options.saveScheduledDrop ?? true;
   const hydrateScheduledMarketInline = options.hydrateScheduledMarketInline ?? true;
+  const usePersistedState = options.usePersistedState ?? true;
   const storedChases = listChases(userId);
   const settings = getUserAlertSettings(userId);
   const plan = getUserPlan(userId);
@@ -1911,7 +1924,7 @@ async function discoverCandidatesForUser(
   const selectAndEnrich = async () => {
     const combinedExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
     const combinedSourceExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
-    const persistedState = hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT ? getUserDiscoveryState(userId, stateKey) : null;
+    const persistedState = usePersistedState && hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT ? getUserDiscoveryState(userId, stateKey) : null;
     const selection = selectDiscoverySuggestionsForFocuses([], tasteProfileChases, DISCOVERY_CANDIDATE_POOL_SIZE, {
       excludedNames: combinedExcludedNames,
       excludeLanesForExcludedNames: combinedExcludedNames.length > 0
@@ -1933,8 +1946,8 @@ async function discoverCandidatesForUser(
     );
     const sourceBackedFreshSuggestions = sourceBackedSuggestions.filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)));
     const freshSourceBackedSuggestions = backfillSourceBackedDiscoverySuggestions(
-      concreteFallbackSuggestions.length >= visibleCount ? concreteFallbackSuggestions : sourceBackedFreshSuggestions,
-      concreteFallbackSuggestions.length >= visibleCount ? sourceBackedFreshSuggestions : concreteFallbackSuggestions,
+      sourceBackedFreshSuggestions,
+      concreteFallbackSuggestions,
       discoverySelectionCount
     );
     const enriched = freshSourceBackedSuggestions.map((suggestion, index) => tasteOnlyCandidate(suggestion, index));
@@ -1949,11 +1962,12 @@ async function discoverCandidatesForUser(
         hardExcludedNames: rejectedNames,
         softAvoidNames: hasFullDiscovery ? [] : recentlySeenNames
       });
-    const marketCandidates = hasFullDiscovery
-      ? await hydratePendingDiscoveryMarketCandidates(candidatesFromDiscoveryMarketCache(discoveryCandidatePool, marketContext), marketContext)
-      : discoveryCandidatePool;
+    const cacheCandidates = candidatesFromDiscoveryMarketCache(discoveryCandidatePool, marketContext);
+    const marketCandidates = hasFullDiscovery && hydrateScheduledMarketInline
+      ? await hydratePendingDiscoveryMarketCandidates(cacheCandidates, marketContext)
+      : cacheCandidates;
     let visibleCandidates = hasFullDiscovery && !persistedCandidates ? selectVisibleCandidatesForCount(marketCandidates, tasteProfileChases, visibleCount) : marketCandidates.slice(0, visibleCount);
-    if (hasFullDiscovery) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
+    if (hasFullDiscovery && hydrateScheduledMarketInline) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
     if (hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT && visibleCandidates.length >= visibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
     }
@@ -2059,7 +2073,7 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
   itemCount: number;
   hasFullDiscovery: boolean;
 }> {
-  const discovery = await discoverCandidatesForUser(userId, DISCOVERY_WEEKLY_DROP_SIZE, { preferScheduledDrop: false, saveScheduledDrop: true, scheduledDate: date });
+  const discovery = await discoverCandidatesForUser(userId, DISCOVERY_WEEKLY_DROP_SIZE, { preferScheduledDrop: false, saveScheduledDrop: true, scheduledDate: date, hydrateScheduledMarketInline: false, usePersistedState: false });
   return {
     prepared: discovery.candidates.length > 0 && discovery.hasFullDiscovery,
     itemCount: discovery.candidates.length,
