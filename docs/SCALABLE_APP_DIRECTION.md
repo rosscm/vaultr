@@ -10,6 +10,12 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
 - Discovery refresh requests now have a durable `discovery_market_refresh_jobs` table, so refresh work can survive restarts and be claimed by a worker process.
 - `src/discovery-market-worker.ts` can claim durable Discovery market jobs and run refreshes outside the Discord bot process.
 - `src/services/prepared-discovery.ts` exposes a network-free read model for existing persisted Discovery shelves, prepared market snapshots, and reference images.
+- `src/services/scheduled-discovery-drops.ts` stores weekly/radar/release-style Discovery drops as durable shelf releases, with normalized item rows for Discord and future app reads.
+- The Discovery renderer reads the current prepared Weekly Discovery drop for Pro users; Free users get a lightweight preview from active Vault signals.
+- `src/services/discovery-drop-scheduler.ts` prepares Pro Weekly Shelves in small batches, up to 20 cards per Discord release, and posts one configured-channel announcement per guild/period.
+- Scheduled drop buttons open the clicker's personalized shelf ephemerally, avoiding DM spam and repeated public messages.
+- Pro scheduled shelf opens and pagination render from persisted shelf rows only; market refresh work stays in background workers so Discord interactions stay quick.
+- Discovery feedback is release-training input: More Like / Not For Me affects future shelves, and feedback confirmations support Undo.
 
 ## Target Shape
 
@@ -17,6 +23,7 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
    - Returns prepared shelves quickly.
    - Enqueues refresh jobs when data is missing, stale, or thin.
    - Avoids doing full marketplace research inline except for limited beta/admin paths.
+   - Treats Discord as a ritual/open surface: scheduled channel posts announce drops, while buttons open personalized shelves ephemerally.
 
 2. **Worker layer**
    - Claims `discovery_market_refresh_jobs` rows.
@@ -38,7 +45,7 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
 ## Near-Term Steps
 
 - Run and monitor the `discovery-market-worker` systemd unit in staging/beta.
-- Change `/discover` to prefer cached snapshots and enqueue missing work, with foreground hydration behind a tighter timeout budget.
-- Expand the app-facing read model from persisted Discovery shelves into refresh statuses and taste-profile summaries.
+- Extend the scheduler to prepare Market Radar before Friday availability and Release Watch around new-set windows.
+- Expand scheduled drops into taste-profile summaries and refresh statuses.
 - Add per-user and global refresh cooldowns so public traffic cannot stampede eBay.
 - Add operational views for queued/running/failed jobs before public beta.

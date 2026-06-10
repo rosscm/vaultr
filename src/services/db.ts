@@ -160,6 +160,62 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS discovery_scheduled_drops (
+    user_id TEXT NOT NULL,
+    drop_type TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PREPARING',
+    title TEXT NOT NULL,
+    summary TEXT,
+    currency TEXT NOT NULL,
+    available_at TEXT NOT NULL,
+    expires_at TEXT,
+    generated_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    source_state_updated_at TEXT,
+    market_ready_count INTEGER NOT NULL DEFAULT 0,
+    image_ready_count INTEGER NOT NULL DEFAULT 0,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, drop_type, period_key)
+  );
+
+  CREATE TABLE IF NOT EXISTS discovery_scheduled_drop_items (
+    user_id TEXT NOT NULL,
+    drop_type TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    suggestion_name TEXT NOT NULL,
+    suggestion_json TEXT NOT NULL,
+    image_url TEXT,
+    image_source_name TEXT,
+    market_status TEXT NOT NULL,
+    market_currency TEXT NOT NULL,
+    asking_total REAL,
+    asking_sample_size INTEGER,
+    sold_total REAL,
+    sold_sample_size INTEGER,
+    listing_id TEXT,
+    listing_title TEXT,
+    listing_url TEXT,
+    market_updated_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, drop_type, period_key, position),
+    FOREIGN KEY (user_id, drop_type, period_key)
+      REFERENCES discovery_scheduled_drops(user_id, drop_type, period_key)
+      ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS discovery_scheduled_drop_announcements (
+    guild_id TEXT NOT NULL,
+    drop_type TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    message_id TEXT,
+    posted_at TEXT NOT NULL,
+    PRIMARY KEY (guild_id, drop_type, period_key)
+  );
+
   CREATE TABLE IF NOT EXISTS guild_community_feed (
     guild_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 0,
@@ -447,6 +503,9 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_user_discovery_seen_user_last_seen ON us
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_discovery_feedback_user_feedback ON user_discovery_feedback(user_id, feedback, last_interacted_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_market_cache_suggestion ON discovery_market_cache(suggestion_name, fetched_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_reference_cache_suggestion ON discovery_reference_cache(suggestion_name, fetched_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_scheduled_drops_user_available ON discovery_scheduled_drops(user_id, drop_type, available_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_scheduled_drops_status_available ON discovery_scheduled_drops(drop_type, status, available_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_scheduled_drop_items_lookup ON discovery_scheduled_drop_items(user_id, drop_type, period_key, position);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_user ON discovery_vault_actions(user_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_expires ON discovery_vault_actions(expires_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_feedback_user_time ON alert_feedback(user_id, created_at);`);

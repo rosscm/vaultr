@@ -26,7 +26,7 @@ export const start = {
       '',
       '**Step 1:** Add a card you are chasing with `/chase add`',
       '**Step 2:** View or update your Vaultr controls with `/alerts settings`',
-      '**Step 3:** Use `/discover` to explore related collecting paths',
+      '**Step 3:** Open Weekly Discovery drops from the server channel when they land',
       '**Step 4:** Watch your DMs for chase alerts and weekly recaps',
       '',
       `**Plan:** ${formatActivePlanAccess(plan)}`,

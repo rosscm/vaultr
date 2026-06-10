@@ -113,7 +113,7 @@ function buildChaseListEmbed(userId: string, page: number) {
     '**Next Actions**',
     '✏️ Refine with `/chase edit`',
     '🗑️ Remove with `/chase remove`',
-    '✨ Find related recommendations with `/discover`'
+    '✨ Watch for the next Weekly Discovery drop in your server channel'
   ].join('\n');
 
   return {

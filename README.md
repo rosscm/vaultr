@@ -2,7 +2,7 @@
 
 Build your Vault. Chase your grails. Discover what you love next.
 
-Vaultr is a Discord-native collector companion for card chases, grail sightings, and ambient discovery. It keeps the command surface small, sends meaningful moments by DM, and lets a collector's active chases shape what Vaultr surfaces over time.
+Vaultr is a Discord-native collector companion for card chases, grail sightings, and ambient discovery. It keeps the command surface small, sends chase alerts privately, and lets a collector's active chases shape what Vaultr surfaces over time.
 
 ## Product Focus
 
@@ -10,7 +10,8 @@ Vaultr is a Discord-native collector companion for card chases, grail sightings,
 - Persistent chase criteria and collector context per user
 - Source adapters for eBay and trusted shop sources
 - DM-first grail sightings with dedupe and fit scoring
-- Lightweight discovery shaped by the user's active chases
+- Prepared Discovery shelves shaped by the user's active chases and taste memory
+- Scheduled Discovery drop announcements that open personalized shelves ephemerally instead of spamming DMs
 - Optional community heartbeat for shared collector activity
 
 ## Tech Stack
@@ -43,7 +44,6 @@ Vaultr is a Discord-native collector companion for card chases, grail sightings,
 - `/alerts recent`
 - `/alerts preview`
 - `/feed` (admin toggle)
-- `/discover`
 - `/help`
 - `/health` (owner only)
 - `/plan view`
@@ -102,6 +102,8 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
   - `OWNER_USER_ID` (optional, enables owner-only `/health`)
 - Runtime checks pass:
   - `npm run smoke`
+- Optional Discovery drops are tuned:
+   - `DISCOVERY_DROP_SCHEDULER_ENABLED`, `DISCOVERY_DROP_ANNOUNCEMENTS_ENABLED`, `DISCOVERY_DROP_PREPARE_BATCH_SIZE`
 - Commands are registered:
   - `npm run register:commands`
 - Service is restarted:
@@ -129,6 +131,24 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 - Similar active chases share source queries so eBay requests do not scale one-to-one with users
 - Successful eBay search results are cached briefly and rate-limit responses are never cached
 - `MAX_ALERTS_PER_CHASE_PER_POLL` caps how many distinct sightings one chase can send from a single source check (default `3`)
+
+## Scheduled Discovery Drops
+
+- The bot prepares Pro Weekly Discovery shelves in the background and stores them in SQLite.
+- Pro Weekly Shelves prepare up to 20 cards by default and open ephemerally in 10-card pages.
+- Free users can open the same announcement button for a three-card Weekly Shelf preview based on active Vault signals.
+- If a Pro shelf has fewer than 20 cards, Vaultr tells the user their Vault is still light and needs more taste signals.
+- Each configured server command channel gets at most one public Weekly Discovery announcement per period.
+- The announcement button opens the clicker's own shelf or preview ephemerally, so Discovery drops avoid DM spam and channel clutter.
+- Shelf feedback trains the next Discovery release; it does not reshuffle the current release on demand.
+- Feedback confirmations include Undo so accidental More Like / Not For Me taps can be reverted.
+- Discovery is opened from scheduled drop announcements; the slash command is intentionally not registered for users.
+- Runtime controls:
+   - `DISCOVERY_DROP_SCHEDULER_ENABLED=true` enables background preparation.
+   - `DISCOVERY_DROP_ANNOUNCEMENTS_ENABLED=true` enables configured-channel announcements.
+   - `DISCOVERY_WEEKLY_DROP_SIZE=20` controls Pro shelf depth, capped at 20 for Discord.
+   - `DISCOVERY_DROP_PREPARE_BATCH_SIZE=3` limits how many user shelves one scheduler tick prepares.
+   - `DISCOVERY_DROP_SCHEDULER_INTERVAL_SECONDS=900` controls how often the scheduler wakes up.
 
 ### eBay Rate Limit Notes
 

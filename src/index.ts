@@ -6,9 +6,10 @@ import { handleAlertSourceButtons } from './commands/alerts-settings.js';
 import { handleChaseEditAutocomplete, handleChaseEditModal } from './commands/chase-edit.js';
 import { handleChaseListPagination } from './commands/chase-list.js';
 import { handleChaseRemoveAutocomplete } from './commands/chase-remove.js';
-import { handleDiscoveryActionSelect, handleDiscoveryFeedback, handleDiscoveryVaultAdd } from './commands/discover.js';
+import { handleDiscoveryActionSelect, handleDiscoveryDropOpen, handleDiscoveryDropPage, handleDiscoveryFeedback, handleDiscoveryFeedbackUndo, handleDiscoveryVaultAdd } from './commands/discover.js';
 import { initializeCurrencyRates } from './services/currency.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
+import { startDiscoveryDropScheduler } from './services/discovery-drop-scheduler.js';
 import { startPoller } from './services/poller.js';
 import { errorEmbed, warningEmbed } from './ui/embeds.js';
 
@@ -56,6 +57,7 @@ await initializeCurrencyRates();
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}`);
   startPoller(client);
+  startDiscoveryDropScheduler(client);
 });
 
 client.on(Events.Error, (error) => {
@@ -74,7 +76,10 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
     if (await handleChaseListPagination(interaction)) return;
     if (await handleAlertFeedback(interaction)) return;
     if (await handleAlertSourceButtons(interaction)) return;
+    if (await handleDiscoveryDropOpen(interaction)) return;
+    if (await handleDiscoveryDropPage(interaction)) return;
     if (await handleDiscoveryActionSelect(interaction)) return;
+    if (await handleDiscoveryFeedbackUndo(interaction)) return;
     if (await handleDiscoveryFeedback(interaction)) return;
     if (await handleDiscoveryVaultAdd(interaction)) return;
     if (!interaction.isChatInputCommand()) return;

@@ -53,7 +53,7 @@ type UserTasteMemoryRow = {
   last_interacted_at: string;
 };
 
-type UserDiscoveryFeedback = 'MORE_LIKE_THIS' | 'NOT_FOR_ME';
+export type UserDiscoveryFeedback = 'MORE_LIKE_THIS' | 'NOT_FOR_ME';
 
 type UserDiscoveryFeedbackRow = {
   suggestion_name: string;
@@ -293,6 +293,18 @@ const listRecentUserDiscoveryFeedbackStmt = db.prepare(`
   WHERE user_id = ? AND feedback = ?
   ORDER BY last_interacted_at DESC
   LIMIT ?
+`);
+
+const getUserDiscoveryFeedbackStmt = db.prepare(`
+  SELECT suggestion_name, lane, feedback, interaction_count, last_interacted_at
+  FROM user_discovery_feedback
+  WHERE user_id = ? AND suggestion_name = ?
+  LIMIT 1
+`);
+
+const deleteUserDiscoveryFeedbackStmt = db.prepare(`
+  DELETE FROM user_discovery_feedback
+  WHERE user_id = ? AND suggestion_name = ?
 `);
 
 const getUserDiscoveryStateStmt = db.prepare(`
@@ -564,6 +576,11 @@ const listUserTasteMemoryStmt = db.prepare(`
   LIMIT ?
 `);
 
+const deleteUserTasteMemoryStmt = db.prepare(`
+  DELETE FROM user_taste_memory
+  WHERE user_id = ? AND signal_id = ? AND source = ?
+`);
+
 function mapDiscoveryVaultAction(row: DiscoveryVaultActionRow): DiscoveryVaultAction {
   return {
     token: row.token,
@@ -613,6 +630,10 @@ function rememberTasteSignal(input: {
     now,
     now
   );
+}
+
+function discoveryTasteSignalId(cardName: string): string {
+  return cardName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 function currentChaseForTaste(userId: string, chaseId: string): Chase | undefined {
@@ -709,7 +730,7 @@ export function listUserTasteMemoryChases(userId: string, limit = 24): Chase[] {
 export function recordDiscoveryAddTaste(userId: string, cardName: string, maxPrice?: number): void {
   rememberTasteSignal({
     userId,
-    signalId: cardName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+    signalId: discoveryTasteSignalId(cardName),
     source: 'DISCOVERY_ADD',
     cardName,
     maxPrice
@@ -728,12 +749,36 @@ export function recordDiscoveryFeedback(input: {
   if (input.feedback === 'MORE_LIKE_THIS') {
     rememberTasteSignal({
       userId: input.userId,
-      signalId: input.cardName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+      signalId: discoveryTasteSignalId(input.cardName),
       source: 'DISCOVERY_LIKE',
       cardName: input.cardName,
       maxPrice: input.maxPrice
     });
+  } else {
+    deleteUserTasteMemoryStmt.run(input.userId, discoveryTasteSignalId(input.cardName), 'DISCOVERY_LIKE');
   }
+}
+
+export function undoDiscoveryFeedback(input: {
+  userId: string;
+  cardName: string;
+}): { suggestionName: string; lane: string; feedback: UserDiscoveryFeedback; interactionCount: number; lastInteractedAt: string } | null {
+  const undo = db.transaction(() => {
+    const row = getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow | undefined;
+    if (!row) return null;
+    deleteUserDiscoveryFeedbackStmt.run(input.userId, input.cardName);
+    if (row.feedback === 'MORE_LIKE_THIS') {
+      deleteUserTasteMemoryStmt.run(input.userId, discoveryTasteSignalId(input.cardName), 'DISCOVERY_LIKE');
+    }
+    return {
+      suggestionName: row.suggestion_name,
+      lane: row.lane,
+      feedback: row.feedback,
+      interactionCount: row.interaction_count,
+      lastInteractedAt: row.last_interacted_at
+    };
+  });
+  return undo();
 }
 
 export function listRecentUserDiscoveryFeedback(

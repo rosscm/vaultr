@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chase } from '../chase.js';
-import { addChase, listChases, removeAllChases, setUserPlan } from '../../services/chase-store.js';
+import {
+  addChase,
+  listChases,
+  listRecentUserDiscoveryFeedback,
+  listUserTasteMemoryChases,
+  recordDiscoveryFeedback,
+  removeAllChases,
+  setUserPlan,
+  undoDiscoveryFeedback
+} from '../../services/chase-store.js';
 import { db } from '../../services/db.js';
 
 const testUserIds = new Set<string>();
@@ -35,6 +44,8 @@ function mockInteraction(userId: string, subcommand: string, values: Record<stri
 afterEach(() => {
   for (const userId of testUserIds) {
     removeAllChases(userId);
+    db.prepare('DELETE FROM user_discovery_feedback WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
   }
   testUserIds.clear();
@@ -157,5 +168,32 @@ describe('chase command', () => {
     const remaining = listChases(userId);
     expect(remaining.map((item) => item.id)).toEqual([keep.id]);
     expect(interaction.reply).toHaveBeenCalledOnce();
+  });
+
+  it('undoes Discovery feedback and removes More Like taste memory', () => {
+    const userId = testUserId('discovery-feedback-undo');
+    const cardName = 'Mew ex Paldean Fates 232';
+
+    recordDiscoveryFeedback({ userId, cardName, lane: 'Collector Compass', feedback: 'MORE_LIKE_THIS', maxPrice: 1200 });
+    expect(listRecentUserDiscoveryFeedback(userId, 'MORE_LIKE_THIS').map((item) => item.suggestionName)).toEqual([cardName]);
+    expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).toContain(cardName);
+
+    const undone = undoDiscoveryFeedback({ userId, cardName });
+
+    expect(undone?.feedback).toBe('MORE_LIKE_THIS');
+    expect(listRecentUserDiscoveryFeedback(userId, 'MORE_LIKE_THIS')).toEqual([]);
+    expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).not.toContain(cardName);
+  });
+
+  it('switching Discovery feedback to Not For Me removes prior More Like taste memory', () => {
+    const userId = testUserId('discovery-feedback-switch');
+    const cardName = 'Gardevoir ex Paldean Fates 233';
+
+    recordDiscoveryFeedback({ userId, cardName, lane: 'Collector Compass', feedback: 'MORE_LIKE_THIS', maxPrice: 900 });
+    recordDiscoveryFeedback({ userId, cardName, lane: 'Collector Compass', feedback: 'NOT_FOR_ME', maxPrice: 900 });
+
+    expect(listRecentUserDiscoveryFeedback(userId, 'MORE_LIKE_THIS')).toEqual([]);
+    expect(listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME').map((item) => item.suggestionName)).toEqual([cardName]);
+    expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).not.toContain(cardName);
   });
 });

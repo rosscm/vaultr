@@ -32,7 +32,7 @@ export const help = {
       '- Plan: `/plan view` · `/upgrade`',
       '- Setup (Admin): `/setup channel` · `/feed`',
       '  default for `/feed`: `On`',
-      '- Discovery: `/discover`',
+      '- Discovery drops: open the scheduled server drop button for a private shelf',
       '',
       '**Troubleshooting**',
       '- If your Vault feels quiet, lower `min_score` or broaden the chase',

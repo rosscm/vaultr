@@ -4,7 +4,6 @@ import {
   backfillSourceBackedDiscoverySuggestions,
   candidatesFromDiscoveryMarketCache,
   concreteDiscoveryFallbackSuggestions,
-  discover,
   discoveryActionRows,
   discoveryCardEmbeds,
   discoveryEmbed,
@@ -23,6 +22,7 @@ import {
   preserveLanguageSignalFallbackSuggestions,
   selectVisibleCandidates,
   selectVisibleCandidatesForCount,
+  weeklyDiscoveryShelfSizeForPlan,
   type DiscoveryCandidate
 } from '../discover.js';
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
@@ -95,6 +95,13 @@ const southernIslandsSuggestion = {
 };
 
 describe('selectVisibleCandidates', () => {
+  it('keeps Discord pages compact while preparing a Spotify-sized Pro shelf', () => {
+    expect(discoveryVisibleCountForPlan('FREE')).toBe(3);
+    expect(discoveryVisibleCountForPlan('PRO')).toBe(7);
+    expect(weeklyDiscoveryShelfSizeForPlan('FREE')).toBe(3);
+    expect(weeklyDiscoveryShelfSizeForPlan('PRO')).toBe(20);
+  });
+
   it('falls back to taste-ranked candidates when market enrichment is thin', () => {
     const visible = selectVisibleCandidates(
       [
@@ -243,7 +250,7 @@ describe('selectVisibleCandidates', () => {
     expect(new Set(visible.map((item) => item.suggestion.name)).size).toBe(4);
   });
 
-  it('balances the seven-card shelf across production-facing trails when alternatives exist', () => {
+  it('balances visible Discovery cards across production-facing trails when alternatives exist', () => {
     const visible = selectVisibleCandidatesForCount(
       [
         sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 0),
@@ -1494,6 +1501,17 @@ describe('discoveryActionRows', () => {
     expect(json.components[0].label).toBe('Add 1 to Vault');
   });
 
+  it('keeps action numbering aligned with the full shelf offset', () => {
+    const rows = discoveryActionRows('user-1', [
+      candidate('Pikachu Skyridge 84', 'e-reader atmosphere', 7),
+      candidate('Zapdos Aquapolis 44', 'legendary bird thread', 8)
+    ], true, 7);
+    const json = rows[0]?.toJSON() as any;
+
+    expect(json.components[0].options[0].label).toBe('8. Pikachu Skyridge 84');
+    expect(json.components[0].options[1].label).toBe('9. Zapdos Aquapolis 44');
+  });
+
   it('uses one compact card picker for Pro Discovery actions', () => {
     const rows = discoveryActionRows('user-1', [
       candidate('Mew Southern Islands Promo', 'mythical display cards', 0),
@@ -1514,7 +1532,7 @@ describe('discoveryActionRows', () => {
 });
 
 describe('Discovery plan scaling', () => {
-  it('uses a three-card Free preview and a seven-card Pro shelf', () => {
+  it('keeps Free previews smaller than Pro Discovery pages', () => {
     expect(discoveryVisibleCountForPlan('FREE')).toBe(3);
     expect(discoveryVisibleCountForPlan('PRO')).toBe(7);
   });
@@ -1545,13 +1563,7 @@ describe('Discovery plan scaling', () => {
   });
 });
 
-describe('discover command', () => {
-  it('does not expose mode or focus options', () => {
-    const options = discover.data.toJSON().options ?? [];
-
-    expect(options).toEqual([]);
-  });
-
+describe('Discovery response cards', () => {
   it('shows Market Snapshot on Pro response cards and hides it for Free response cards', () => {
     const candidates = [candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2)];
 
@@ -1560,5 +1572,15 @@ describe('discover command', () => {
 
     expect(freeCard?.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue']);
     expect(proCard?.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue', 'Market Snapshot']);
+  });
+
+  it('keeps card numbering aligned with the full shelf offset', () => {
+    const cards = discoveryCardEmbeds([
+      candidate('Pikachu Skyridge 84', 'e-reader atmosphere', 7),
+      candidate('Zapdos Aquapolis 44', 'legendary bird thread', 8)
+    ], 'CAD', true, 7).map((embed) => embed.toJSON());
+
+    expect(cards[0].title).toBe('8. Pikachu Skyridge 84');
+    expect(cards[1].title).toBe('9. Zapdos Aquapolis 44');
   });
 });

@@ -5,7 +5,6 @@ import {
   ButtonStyle,
   EmbedBuilder,
   MessageFlags,
-  SlashCommandBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder
 } from 'discord.js';
@@ -25,6 +24,7 @@ import {
   markUserDiscoverySuggestionsSeen,
   recordDiscoveryFeedback,
   recordDiscoveryAddTaste,
+  undoDiscoveryFeedback,
   upsertUserDiscoveryState
 } from '../services/chase-store.js';
 import { convertCurrencyAmount, type SupportedCurrency } from '../services/currency.js';
@@ -44,6 +44,15 @@ import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { getPollerState } from '../services/poller-state.js';
 import { PREPARED_DISCOVERY_SELECTION_VERSION, preparedDiscoveryStateKey } from '../services/prepared-discovery.js';
+import {
+  getLatestAvailableScheduledDiscoveryDrop,
+  scheduledDiscoveryAvailability,
+  scheduledDiscoveryPeriodKey,
+  upsertScheduledDiscoveryDrop,
+  type ScheduledDiscoveryDrop,
+  type ScheduledDiscoveryDropType,
+  type ScheduledDiscoveryDropItem
+} from '../services/scheduled-discovery-drops.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import type { Chase, Listing, PlanTier } from '../types.js';
 
@@ -80,7 +89,9 @@ type DiscoveryFeedbackAction = 'MORE_LIKE_THIS' | 'NOT_FOR_ME';
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
 const VISIBLE_DISCOVERY_COUNT = 7;
-const DISCOVERY_CANDIDATE_POOL_SIZE = 24;
+const DISCOVERY_SHELF_PAGE_SIZE = 10;
+const DISCOVERY_WEEKLY_DROP_SIZE = Math.max(DISCOVERY_SHELF_PAGE_SIZE, Math.min(20, Math.floor(Number(process.env.DISCOVERY_WEEKLY_DROP_SIZE ?? '20'))));
+const DISCOVERY_CANDIDATE_POOL_SIZE = Math.max(36, DISCOVERY_WEEKLY_DROP_SIZE + 6);
 const DISCOVERY_ENRICHMENT_CONCURRENCY = 4;
 const DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY = 1;
 const DISCOVERY_SOURCE_TIMEOUT_MS = 30000;
@@ -129,7 +140,10 @@ const DISCOVERY_LANE_COLOR = 0x0e7490;
 const DISCOVERY_SELECTION_VERSION = PREPARED_DISCOVERY_SELECTION_VERSION;
 const DISCOVERY_VAULT_PREFIX = 'discover-vault';
 const DISCOVERY_FEEDBACK_PREFIX = 'discover-feedback';
+const DISCOVERY_FEEDBACK_UNDO_PREFIX = 'discover-feedback-undo';
 const DISCOVERY_SELECT_PREFIX = 'discover-action';
+const DISCOVERY_DROP_OPEN_PREFIX = 'discover-drop-open';
+const DISCOVERY_DROP_PAGE_PREFIX = 'discover-drop-page';
 const DISCOVERY_VAULT_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
 const PROFILE_SUBJECT_STOP_WORDS = new Set([
@@ -220,6 +234,10 @@ function learningSignal(
 
 export function discoveryVisibleCountForPlan(tier: PlanTier): number {
   return getEntitlementsForTier(tier).discoveryVisibleCards;
+}
+
+export function weeklyDiscoveryShelfSizeForPlan(tier: PlanTier): number {
+  return tier === 'PRO' ? DISCOVERY_WEEKLY_DROP_SIZE : getEntitlementsForTier(tier).discoveryVisibleCards;
 }
 
 export function discoveryTasteProfileChases(chases: Chase[], tasteMemoryChases: Chase[], hasFullDiscovery: boolean): Chase[] {
@@ -698,6 +716,7 @@ export function candidatesFromDiscoveryMarketCache(
     destination?: { country?: string; postalCode?: string };
     targetCurrency: SupportedCurrency;
     range?: { min: number; max: number };
+    forceRefreshMissingSignal?: boolean;
   }
 ): DiscoveryCandidate[] {
   const refreshJobs: DiscoveryMarketRefreshWork[] = [];
@@ -708,7 +727,7 @@ export function candidatesFromDiscoveryMarketCache(
     const cachedListing = cacheEntry ? listingFromDiscoveryMarketCache(cacheEntry) : undefined;
     const hasInvalidCachedListing = !!cachedListing && !isUsableDiscoveryExample(candidate.suggestion, cachedListing, context.range, context.targetCurrency);
     const effectiveCacheEntry = hasInvalidCachedListing ? null : cacheEntry;
-    const refreshQueued = hasInvalidCachedListing || shouldRefreshDiscoveryMarketCache(cacheEntry);
+    const refreshQueued = hasInvalidCachedListing || shouldRefreshDiscoveryMarketCache(cacheEntry) || (!!cacheEntry && context.forceRefreshMissingSignal === true && !discoveryMarketCacheHasSignal(cacheEntry));
     if (refreshQueued) {
       refreshJobs.push({
         cacheKey,
@@ -989,6 +1008,9 @@ export async function processDiscoveryMarketRefreshWork(job: DiscoveryMarketRefr
       saveDiscoveryMarketRefreshResult(job, askCandidate);
     });
     saveDiscoveryMarketRefreshResult(job, candidate);
+    if (candidate.sourceStatus && !hasMarketSignal(candidate)) {
+      throw new Error(`Discovery market refresh returned ${candidate.sourceStatus}`);
+    }
   } catch (error) {
     saveDiscoveryMarketRefreshResult(job, { suggestion: job.suggestion, selectionIndex: job.selectionIndex ?? 0, sourceStatus: discoverySourceStatus(error) });
     throw error;
@@ -1559,8 +1581,8 @@ export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: Supp
   return embed;
 }
 
-export function discoveryCardEmbeds(candidates: DiscoveryCandidate[], currencyHint: SupportedCurrency, hasFullDiscovery: boolean): EmbedBuilder[] {
-  return candidates.map((candidate, index) => discoveryEmbed(candidate, currencyHint, hasFullDiscovery, index + 1));
+export function discoveryCardEmbeds(candidates: DiscoveryCandidate[], currencyHint: SupportedCurrency, hasFullDiscovery: boolean, startIndex = 0): EmbedBuilder[] {
+  return candidates.map((candidate, index) => discoveryEmbed(candidate, currencyHint, hasFullDiscovery, startIndex + index + 1));
 }
 
 function createDiscoveryVaultButtonToken(userId: string, candidate: DiscoveryCandidate): string {
@@ -1577,8 +1599,8 @@ function createDiscoveryVaultButtonToken(userId: string, candidate: DiscoveryCan
   return token;
 }
 
-function createDiscoveryActionItems(userId: string, candidates: DiscoveryCandidate[]): DiscoveryActionItem[] {
-  return candidates.map((candidate, index) => ({ candidate, token: createDiscoveryVaultButtonToken(userId, candidate), index: index + 1 }));
+function createDiscoveryActionItems(userId: string, candidates: DiscoveryCandidate[], startIndex = 0): DiscoveryActionItem[] {
+  return candidates.map((candidate, index) => ({ candidate, token: createDiscoveryVaultButtonToken(userId, candidate), index: startIndex + index + 1 }));
 }
 
 function discoveryVaultButtons(userId: string, actionItems: DiscoveryActionItem[]): ActionRowBuilder<ButtonBuilder>[] {
@@ -1616,8 +1638,8 @@ function discoverySelectedActionRows(userId: string, token: string, includeFeedb
   return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
 }
 
-export function discoveryActionRows(userId: string, candidates: DiscoveryCandidate[], includeFeedbackActions = false): DiscoveryActionRow[] {
-  const actionItems = createDiscoveryActionItems(userId, candidates);
+export function discoveryActionRows(userId: string, candidates: DiscoveryCandidate[], includeFeedbackActions = false, startIndex = 0): DiscoveryActionRow[] {
+  const actionItems = createDiscoveryActionItems(userId, candidates, startIndex);
   if (actionItems.length === 0) return [];
 
   if (!includeFeedbackActions) return discoveryVaultButtons(userId, actionItems);
@@ -1639,6 +1661,24 @@ export function discoveryActionRows(userId: string, candidates: DiscoveryCandida
   return [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)];
 }
 
+function discoveryShelfPageRows(userId: string, page: number, totalPages: number): ActionRowBuilder<ButtonBuilder>[] {
+  if (totalPages <= 1) return [];
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`${DISCOVERY_DROP_PAGE_PREFIX}:${userId}:${Math.max(0, page - 1)}`)
+        .setLabel('Previous')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page <= 0),
+      new ButtonBuilder()
+        .setCustomId(`${DISCOVERY_DROP_PAGE_PREFIX}:${userId}:${Math.min(totalPages - 1, page + 1)}`)
+        .setLabel('Next')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page >= totalPages - 1)
+    )
+  ];
+}
+
 export function mergeFreshDiscoveryCandidates(candidates: DiscoveryCandidate[], fallbackCandidates: DiscoveryCandidate[], recentlySeenNames: string[], count: number): DiscoveryCandidate[] {
   const candidateNames = new Set(candidates.map((candidate) => discoveryNameKey(candidate.suggestion.name)));
   const recentlySeenNameKeys = new Set(recentlySeenNames.map(discoveryNameKey));
@@ -1655,6 +1695,83 @@ export function mergeFreshDiscoveryCandidates(candidates: DiscoveryCandidate[], 
 
 function discoveryStateKey(tier: PlanTier, visibleCount: number): string {
   return preparedDiscoveryStateKey(tier, visibleCount);
+}
+
+function sourceStatusFromScheduledMarketStatus(status: string): DiscoveryCandidate['sourceStatus'] | undefined {
+  if (status === 'RATE_LIMITED' || status === 'TIMEOUT' || status === 'ERROR') return status;
+  if (status === 'PENDING' || status === 'MISSING') return 'PENDING';
+  return undefined;
+}
+
+function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): DiscoveryCandidate[] {
+  return drop.items.map((item) => ({
+    suggestion: item.suggestion,
+    selectionIndex: item.position - 1,
+    image: item.imageUrl
+      ? {
+          name: item.suggestion.name,
+          url: item.imageUrl,
+          sourceName: item.imageSourceName,
+          sourceKind: 'CARD_REFERENCE' as const
+        }
+      : undefined,
+    typicalRawAskingTotal: item.market.askingTotal,
+    marketSampleSize: item.market.askingSampleSize,
+    typicalRawSoldTotal: item.market.soldTotal,
+    soldSampleSize: item.market.soldSampleSize,
+    displayCurrency: item.market.currency,
+    sourceStatus: sourceStatusFromScheduledMarketStatus(item.market.status)
+  }));
+}
+
+function scheduledMarketStatusFromCandidate(candidate: DiscoveryCandidate): string {
+  if (hasMarketSignal(candidate)) return 'READY';
+  return candidate.sourceStatus ?? 'PENDING';
+}
+
+function scheduledDropItemsFromCandidates(candidates: DiscoveryCandidate[], currency: SupportedCurrency): ScheduledDiscoveryDropItem[] {
+  return candidates.map((candidate, index) => ({
+    position: index + 1,
+    suggestion: candidate.suggestion,
+    imageUrl: candidate.image?.url,
+    imageSourceName: candidate.image?.sourceName,
+    market: {
+      status: scheduledMarketStatusFromCandidate(candidate),
+      currency: candidate.displayCurrency ?? currency,
+      askingTotal: candidate.typicalRawAskingTotal,
+      askingSampleSize: candidate.marketSampleSize,
+      soldTotal: candidate.typicalRawSoldTotal,
+      soldSampleSize: candidate.soldSampleSize,
+      listing: candidate.listing
+        ? {
+            id: candidate.listing.listingId,
+            title: candidate.listing.title,
+            url: candidate.listing.url
+          }
+        : undefined
+    }
+  }));
+}
+
+function saveWeeklyDiscoveryDrop(userId: string, candidates: DiscoveryCandidate[], currency: SupportedCurrency, sourceStateUpdatedAt?: string, date = new Date()): void {
+  if (candidates.length === 0) return;
+  const items = scheduledDropItemsFromCandidates(candidates, currency);
+  const readyCount = items.filter((item) => item.market.status === 'READY').length;
+  const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
+  const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
+  upsertScheduledDiscoveryDrop({
+    userId,
+    dropType: 'WEEKLY_DISCOVERY',
+    periodKey,
+    status: readyCount === items.length ? 'READY' : 'PARTIAL',
+    title: 'Weekly Shelf',
+    summary: 'A collector shelf tuned from your Vault and recent taste signals.',
+    currency,
+    availableAt: availability.availableAt,
+    expiresAt: availability.expiresAt,
+    sourceStateUpdatedAt,
+    items
+  });
 }
 
 function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames: string[], tier: PlanTier, visibleCount: number): string {
@@ -1675,6 +1792,13 @@ function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames:
     rejectedNames: rejectedNames.map(discoveryNameKey).sort()
   };
   return createHash('sha256').update(JSON.stringify(profileInput)).digest('hex');
+}
+
+function clampDiscoveryShelfPage(page: number, totalItems: number): { page: number; totalPages: number; start: number; end: number } {
+  const totalPages = Math.max(1, Math.ceil(totalItems / DISCOVERY_SHELF_PAGE_SIZE));
+  const safePage = Math.min(totalPages - 1, Math.max(0, Math.floor(page)));
+  const start = safePage * DISCOVERY_SHELF_PAGE_SIZE;
+  return { page: safePage, totalPages, start, end: start + DISCOVERY_SHELF_PAGE_SIZE };
 }
 
 export function orderCandidatesFromPersistedState(
@@ -1713,7 +1837,11 @@ export function orderCandidatesFromPersistedState(
   return selected;
 }
 
-async function discoverCandidatesForUser(userId: string, count: number): Promise<{
+async function discoverCandidatesForUser(
+  userId: string,
+  count: number,
+  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean } = {}
+): Promise<{
   chases: Chase[];
   tasteProfileChases: Chase[];
   settings: ReturnType<typeof getUserAlertSettings>;
@@ -1722,6 +1850,10 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
   lane: string;
   candidates: DiscoveryCandidate[];
 }> {
+  const preferScheduledDrop = options.preferScheduledDrop ?? true;
+  const requireScheduledDrop = options.requireScheduledDrop ?? false;
+  const shouldSaveScheduledDrop = options.saveScheduledDrop ?? true;
+  const hydrateScheduledMarketInline = options.hydrateScheduledMarketInline ?? true;
   const storedChases = listChases(userId);
   const settings = getUserAlertSettings(userId);
   const plan = getUserPlan(userId);
@@ -1729,7 +1861,7 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
   const activeTier = activePlanTier(plan);
   const entitlements = getEntitlementsForTier(activeTier);
   const hasFullDiscovery = entitlements.discoveryDepth === 'full';
-  const visibleCount = Math.min(count, discoveryVisibleCountForPlan(activeTier));
+  const visibleCount = Math.min(count, weeklyDiscoveryShelfSizeForPlan(activeTier));
   const tasteMemoryChases = hasFullDiscovery ? listUserTasteMemoryChases(userId) : [];
   const tasteProfileChases = discoveryTasteProfileChases(chases, tasteMemoryChases, hasFullDiscovery);
   const hasLearnedProfile = hasFullDiscovery && tasteProfileChases.length >= MIN_LEARNED_PROFILE_CHASES;
@@ -1738,6 +1870,44 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
   const recentlySeenNames = listRecentUserDiscoverySeenNames(userId);
   const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames, activeTier, visibleCount);
   const stateKey = discoveryStateKey(activeTier, visibleCount);
+  const latestDrop = hasFullDiscovery && preferScheduledDrop ? getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY') : null;
+  if (latestDrop && latestDrop.items.length > 0) {
+    const scheduledCandidates = candidatesFromScheduledDiscoveryDrop(latestDrop).slice(0, visibleCount);
+    const scheduledMarketContext = {
+      userId,
+      activeChases: chases,
+      destination: settings.shippingCountry ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode } : undefined,
+      targetCurrency: settings.alertCurrency,
+      range: discoveryMarketRangeFromChases(tasteProfileChases),
+      forceRefreshMissingSignal: true
+    };
+    const candidates = hydrateScheduledMarketInline
+      ? await settlePendingDiscoveryMarketCandidates(await hydratePendingDiscoveryMarketCandidates(candidatesFromDiscoveryMarketCache(scheduledCandidates, scheduledMarketContext), scheduledMarketContext), scheduledMarketContext)
+      : scheduledCandidates;
+    if (hydrateScheduledMarketInline && shouldSaveScheduledDrop && candidates.some(hasMarketSignal)) {
+      saveWeeklyDiscoveryDrop(userId, candidates, settings.alertCurrency, latestDrop.sourceStateUpdatedAt);
+    }
+    return {
+      chases,
+      tasteProfileChases,
+      settings,
+      hasFullDiscovery,
+      hasLearnedProfile,
+      lane: 'weekly discovery',
+      candidates
+    };
+  }
+  if (requireScheduledDrop) {
+    return {
+      chases,
+      tasteProfileChases,
+      settings,
+      hasFullDiscovery,
+      hasLearnedProfile,
+      lane: 'weekly discovery',
+      candidates: []
+    };
+  }
   const selectAndEnrich = async () => {
     const combinedExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
     const combinedSourceExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
@@ -1788,6 +1958,9 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
     }
     const candidates = await attachReferenceImages(visibleCandidates);
+    if (hasFullDiscovery && shouldSaveScheduledDrop && visibleCount >= VISIBLE_DISCOVERY_COUNT) {
+      saveWeeklyDiscoveryDrop(userId, candidates, settings.alertCurrency, persistedState?.updatedAt, options.scheduledDate);
+    }
     return {
       lane: selection.lane,
       candidates
@@ -1807,6 +1980,93 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
   };
 }
 
+function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>>, requestedPage = 0): {
+  content?: string;
+  embeds: EmbedBuilder[];
+  components: DiscoveryActionRow[];
+  candidateNames: string[];
+} {
+  if (discovery.candidates.length === 0) {
+    const lines = discovery.hasFullDiscovery
+      ? [
+          '🧺 Your Weekly Shelf is still being packed',
+          'Recent Vault adds and taste taps will shape the next drop'
+        ]
+      : [
+          '🎬 Your preview cut needs a few Vault signals',
+          'Add a chase or two so Vaultr has a trail to follow'
+        ];
+    return {
+      embeds: [infoEmbed('Weekly Shelf', lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Weekly Shelf' })],
+      components: [],
+      candidateNames: []
+    };
+  }
+  const pageState = clampDiscoveryShelfPage(requestedPage, discovery.candidates.length);
+  const visibleCandidates = discovery.candidates.slice(pageState.start, pageState.end);
+  const visiblePaths = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => discoveryCandidateTrailLabel(candidate)));
+  const title = discovery.hasFullDiscovery ? 'Weekly Shelf' : 'Weekly Shelf Preview';
+  const shelfPickLabel = discovery.candidates.length === 1 ? 'collector pick' : 'collector picks';
+  const pathSummary = visiblePaths.length > 0 ? visiblePaths.join(', ') : 'No fresh Discovery matches right now';
+  const lines = [
+    discovery.hasFullDiscovery
+      ? `**🧺 Shelf Drop:** ${discovery.candidates.length} ${shelfPickLabel} on your binder radar`
+      : `**🎬 Preview Cut:** ${discovery.candidates.length} ${shelfPickLabel} from your Vault signals`,
+    `**🔎 Collector Profile:** ${learningSignal(
+      discovery.chases,
+      discovery.tasteProfileChases,
+      discovery.lane,
+      discovery.hasFullDiscovery,
+      discovery.hasLearnedProfile
+    )}`,
+    `**🧵 Collecting Paths:** ${pathSummary}`
+  ];
+  if (discovery.hasFullDiscovery && discovery.candidates.length < weeklyDiscoveryShelfSizeForPlan('PRO')) {
+    lines.push('', '**🫧 Light Vault:** this drop is keeping the shelf tight until Vaultr has more taste signals');
+  }
+  if (!discovery.hasFullDiscovery) {
+    lines.push('', '**✨ Full Shelf:** Pro unlocks the full drop, Taste Profile memory, and more controls for what Vaultr learns next');
+  }
+  const actionRows = discoveryActionRows(userId, visibleCandidates, discovery.hasFullDiscovery, pageState.start);
+  return {
+    content: [`**${title}**`, ...lines].join('\n'),
+    embeds: discoveryCardEmbeds(visibleCandidates, discovery.settings.alertCurrency, discovery.hasFullDiscovery, pageState.start),
+    components: [...actionRows, ...discoveryShelfPageRows(userId, pageState.page, pageState.totalPages)],
+    candidateNames: visibleCandidates.map((candidate) => candidate.suggestion.name)
+  };
+}
+
+export async function buildDiscoveryShelfPayload(userId: string, page = 0): Promise<{
+  content?: string;
+  embeds: EmbedBuilder[];
+  components: DiscoveryActionRow[];
+  candidateNames: string[];
+}> {
+  const activeTier = activePlanTier(getUserPlan(userId));
+  const discovery = await discoverCandidatesForUser(userId, weeklyDiscoveryShelfSizeForPlan(activeTier), {
+    preferScheduledDrop: activeTier === 'PRO',
+    requireScheduledDrop: activeTier === 'PRO',
+    saveScheduledDrop: false,
+    hydrateScheduledMarketInline: false
+  });
+  const payload = discoveryShelfPayload(userId, discovery, page);
+  markUserDiscoverySuggestionsSeen(userId, payload.candidateNames);
+  return payload;
+}
+
+export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = new Date()): Promise<{
+  prepared: boolean;
+  itemCount: number;
+  hasFullDiscovery: boolean;
+}> {
+  const discovery = await discoverCandidatesForUser(userId, DISCOVERY_WEEKLY_DROP_SIZE, { preferScheduledDrop: false, saveScheduledDrop: true, scheduledDate: date });
+  return {
+    prepared: discovery.candidates.length > 0 && discovery.hasFullDiscovery,
+    itemCount: discovery.candidates.length,
+    hasFullDiscovery: discovery.hasFullDiscovery
+  };
+}
+
 export async function buildWeeklyDiscoveryPathPayload(userId: string): Promise<{
   embeds: EmbedBuilder[];
   components: DiscoveryActionRow[];
@@ -1822,43 +2082,48 @@ export async function buildWeeklyDiscoveryPathPayload(userId: string): Promise<{
   };
 }
 
-export const discover = {
-  data: new SlashCommandBuilder()
-    .setName('discover')
-    .setDescription('Discover cards shaped by your Vault'),
-  async execute(interaction: any) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+export async function handleDiscoveryDropOpen(interaction: any): Promise<boolean> {
+  if (!interaction.isButton()) return false;
+  if (!interaction.customId.startsWith(`${DISCOVERY_DROP_OPEN_PREFIX}:`)) return false;
 
-    const discovery = await discoverCandidatesForUser(interaction.user.id, VISIBLE_DISCOVERY_COUNT);
-    const visibleCandidates = discovery.candidates;
-    markUserDiscoverySuggestionsSeen(interaction.user.id, visibleCandidates.map((candidate) => candidate.suggestion.name));
-    const visiblePaths = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => discoveryCandidateTrailLabel(candidate)));
-    const title = '✨ Vaultr Discovery';
-    const pathSummary = visiblePaths.length > 0 ? visiblePaths.join(', ') : 'No fresh Discovery matches right now';
-    const lines = [
-      `**Collector Profile:** ${learningSignal(
-        discovery.chases,
-        discovery.tasteProfileChases,
-        discovery.lane,
-        discovery.hasFullDiscovery,
-        discovery.hasLearnedProfile
-      )}`,
-      `**Collecting Paths:** ${pathSummary}`
-    ];
-    if (!discovery.hasFullDiscovery) {
-      lines.push('', '**Pro Discovery:** unlock deeper recommendations, Taste Profile memory, and controls for what Vaultr learns next');
-    }
-    const overviewEmbed = infoEmbed(title, lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Discovery Profile' });
-
-    await interaction.editReply({
-      embeds: [
-        overviewEmbed,
-        ...discoveryCardEmbeds(visibleCandidates, discovery.settings.alertCurrency, discovery.hasFullDiscovery)
-      ],
-      components: discoveryActionRows(interaction.user.id, visibleCandidates, discovery.hasFullDiscovery)
-    });
+  const [, dropType] = interaction.customId.split(':') as [string, ScheduledDiscoveryDropType | undefined, string | undefined];
+  if (dropType !== 'WEEKLY_DISCOVERY') {
+    await interaction.reply({ embeds: [warningEmbed('Drop Unavailable', 'That Weekly Shelf is not ready yet.')], flags: MessageFlags.Ephemeral });
+    return true;
   }
-};
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const payload = await buildDiscoveryShelfPayload(interaction.user.id);
+  await interaction.editReply(payload);
+  return true;
+}
+
+export async function handleDiscoveryDropPage(interaction: any): Promise<boolean> {
+  if (!interaction.isButton()) return false;
+  if (!interaction.customId.startsWith(`${DISCOVERY_DROP_PAGE_PREFIX}:`)) return false;
+
+  const [, ownerUserId, rawPage] = interaction.customId.split(':');
+  if (!ownerUserId || rawPage === undefined) return false;
+  if (interaction.user.id !== ownerUserId) {
+    await interaction.reply({ content: 'Only the original requester can page through this Discovery shelf.', flags: MessageFlags.Ephemeral });
+    return true;
+  }
+
+  const page = Number.parseInt(rawPage, 10);
+  await interaction.deferUpdate();
+  const payload = await buildDiscoveryShelfPayload(interaction.user.id, Number.isFinite(page) ? page : 0);
+  await interaction.editReply(payload);
+  return true;
+}
+
+export function discoveryDropOpenButton(dropType: ScheduledDiscoveryDropType, periodKey: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${DISCOVERY_DROP_OPEN_PREFIX}:${dropType}:${periodKey}`)
+      .setLabel('Open My Shelf')
+      .setStyle(ButtonStyle.Primary)
+  );
+}
 
 export async function handleDiscoveryVaultAdd(interaction: any): Promise<boolean> {
   if (!interaction.isButton()) return false;
@@ -1883,7 +2148,7 @@ export async function handleDiscoveryVaultAdd(interaction: any): Promise<boolean
 async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | null): Promise<void> {
   if (!pick) {
     await interaction.reply({
-      embeds: [warningEmbed('Discovery Expired', 'Run `/discover` again for fresh cards to add to your Vault.')],
+      embeds: [warningEmbed('Shelf Action Expired', 'Open the latest Weekly Shelf again for fresh cards to add to your Vault.')],
       flags: MessageFlags.Ephemeral
     });
     return;
@@ -1966,7 +2231,7 @@ export async function handleDiscoveryFeedback(interaction: any): Promise<boolean
 async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | null, feedback: DiscoveryFeedbackAction): Promise<void> {
   if (!pick) {
     await interaction.reply({
-      embeds: [warningEmbed('Discovery Expired', 'Run `/discover` again for fresh cards to tune.')],
+      embeds: [warningEmbed('Shelf Action Expired', 'Open the latest Weekly Shelf again for fresh cards to tune.')],
       flags: MessageFlags.Ephemeral
     });
     return;
@@ -1983,13 +2248,55 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
   const title = feedback === 'MORE_LIKE_THIS' ? 'Taste Saved' : 'Discovery Tuned';
   const message =
     feedback === 'MORE_LIKE_THIS'
-      ? `Vaultr will treat **${pick.cardName}** as a stronger preference signal.`
-      : `Vaultr will reduce recommendations like **${pick.cardName}** for now.`;
+      ? `Vaultr will treat **${pick.cardName}** as a stronger preference signal for your next Discovery release.`
+      : `Vaultr will reduce recommendations like **${pick.cardName}** in your next Discovery release.`;
+  const undoRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:${interaction.user.id}:${pick.token}`)
+      .setLabel('Undo')
+      .setStyle(ButtonStyle.Secondary)
+  );
 
   await interaction.reply({
     embeds: [successEmbed(title, message)],
+    components: [undoRow],
     flags: MessageFlags.Ephemeral
   });
+}
+
+export async function handleDiscoveryFeedbackUndo(interaction: any): Promise<boolean> {
+  if (!interaction.isButton()) return false;
+  if (!interaction.customId.startsWith(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:`)) return false;
+
+  const [, ownerUserId, token] = interaction.customId.split(':');
+  if (!ownerUserId || !token) return false;
+
+  if (interaction.user.id !== ownerUserId) {
+    await interaction.reply({
+      content: 'Only the original requester can undo this Discovery feedback.',
+      flags: MessageFlags.Ephemeral
+    });
+    return true;
+  }
+
+  const pick = getDiscoveryVaultAction(interaction.user.id, token);
+  if (!pick) {
+    await interaction.reply({
+      embeds: [warningEmbed('Undo Expired', 'Open the latest Weekly Shelf again to tune fresh cards.')],
+      flags: MessageFlags.Ephemeral
+    });
+    return true;
+  }
+
+  const undone = undoDiscoveryFeedback({ userId: interaction.user.id, cardName: pick.cardName });
+  const description = undone
+    ? `Removed your feedback for **${pick.cardName}**. Your next Discovery release will ignore that tap.`
+    : `No active Discovery feedback was found for **${pick.cardName}**.`;
+  await interaction.update({
+    embeds: [successEmbed('Feedback Undone', description)],
+    components: []
+  });
+  return true;
 }
 
 export async function handleDiscoveryActionSelect(interaction: any): Promise<boolean> {
@@ -2012,7 +2319,7 @@ export async function handleDiscoveryActionSelect(interaction: any): Promise<boo
   const pick = getDiscoveryVaultAction(interaction.user.id, token);
   if (!pick) {
     await interaction.reply({
-      embeds: [warningEmbed('Discovery Expired', 'Run `/discover` again for fresh card actions.')],
+      embeds: [warningEmbed('Shelf Action Expired', 'Open the latest Weekly Shelf again for fresh card actions.')],
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -2021,7 +2328,7 @@ export async function handleDiscoveryActionSelect(interaction: any): Promise<boo
   const activeTier = activePlanTier(getUserPlan(interaction.user.id));
   const includeFeedbackActions = activeTier === 'PRO';
   const lines = [
-    'Choose an action for this Discovery card.',
+    'Choose an action for this shelf card.',
     '',
     `**Card:** ${pick.cardName}`,
     `**Path:** ${discoveryTrailLabel(pick.lane)}`,
