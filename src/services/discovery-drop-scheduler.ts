@@ -38,18 +38,15 @@ function weeklyPreparationTargetDate(now: Date): Date {
   return now.getUTCDay() === 0 ? addDays(now, 1) : now;
 }
 
-function weeklyDropAnnouncementEmbed(periodKey: string, preparedCount: number): EmbedBuilder {
-  const shelfLabel = preparedCount === 1 ? 'private shelf' : 'private shelves';
+function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x8b5cf6)
     .setTitle('✨ Vaultr weekly discovery is live')
     .setDescription([
-      'Fresh collector picks are on the table',
-      'Pro gets the full shelf, Free gets the preview cut',
-      'Tap below for a private pull when you have a minute',
+      'Fresh collector picks are ready to browse',
+      'Pro members get the full weekly shelf, Free members get a preview cut',
       '',
-      `**🗓️ Drop:** ${periodKey}`,
-      `**🧺 Shelves packed:** ${preparedCount} ${shelfLabel}`
+      '**🧺 Open privately:** tap below when you have a minute'
     ].join('\n'))
     .setFooter({ text: 'Vaultr • Weekly Shelf' })
     .setTimestamp();
