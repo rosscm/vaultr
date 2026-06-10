@@ -12,6 +12,7 @@ import {
   discoveryTasteProfileChases,
   discoveryVisibleCountForPlan,
   isUsableDiscoveryExample,
+  isUsableDiscoveryMarketSample,
   isActiveChaseEchoSuggestion,
   isActiveChaseEchoText,
   looksLikeRawCardListing,
@@ -632,6 +633,28 @@ describe('Discovery listing enrichment eligibility', () => {
     expect(looksLikeVisualDiscoveryListing(paldeanMewSuggestion, caseListing)).toBe(false);
   });
 
+  it('allows Bubble Mew raw market samples when eBay returns zero seller metadata', () => {
+    const paldeanMewSuggestion = {
+      name: 'Mew ex Paldean Fates 232',
+      lane: 'Collector Compass',
+      laneWhy: 'specific card source match',
+      why: 'specific card source match',
+      nearby: [],
+      evidenceSearchTerm: 'Mew ex Paldean Fates 232 Pokemon card',
+      evidenceAliases: ['Mew ex Paldean Fates 232'],
+      requiredEvidenceTokens: ['mew', 'paldean']
+    };
+    const rawListing = listing({
+      title: 'Mew ex - 232/091 - Pokemon Paldean Fates Special Illustration Rare Card NM',
+      price: 110,
+      sellerFeedbackPercent: 0,
+      sellerFeedbackScore: 0,
+      condition: 'Ungraded'
+    });
+
+    expect(isUsableDiscoveryExample(paldeanMewSuggestion, rawListing, { min: 0, max: 1200 }, 'CAD')).toBe(true);
+  });
+
   it('rejects merchandise and custom art listings that borrow exact card identifiers', () => {
     const paldeanMewSuggestion = {
       name: 'Mew ex Paldean Fates 232',
@@ -704,6 +727,29 @@ describe('Discovery listing enrichment eligibility', () => {
 
     expect(isUsableDiscoveryExample(southernIslandsSuggestion, matchingListing, { min: 0, max: 150 }, 'CAD')).toBe(true);
     expect(isUsableDiscoveryExample(southernIslandsSuggestion, matchingListing, { min: 0, max: 100 }, 'CAD')).toBe(false);
+  });
+
+  it('keeps above-range Bubble Mew raw listings as market comps for valuation', () => {
+    const paldeanMewSuggestion = {
+      name: 'Mew ex Paldean Fates 232',
+      lane: 'Collector Compass',
+      laneWhy: 'specific card source match',
+      why: 'specific card source match',
+      nearby: [],
+      evidenceSearchTerm: 'Mew ex Paldean Fates 232 Pokemon card',
+      evidenceAliases: ['Mew ex Paldean Fates 232'],
+      requiredEvidenceTokens: ['mew', 'paldean']
+    };
+    const rawListing = listing({
+      title: 'Mew ex - 232/091 - Pokemon Paldean Fates Special Illustration Rare Card NM',
+      price: 1306,
+      sellerFeedbackPercent: 99.3,
+      sellerFeedbackScore: 41237,
+      condition: 'Ungraded'
+    });
+
+    expect(isUsableDiscoveryExample(paldeanMewSuggestion, rawListing, { min: 0, max: 1200 }, 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(paldeanMewSuggestion, rawListing, 'CAD')).toBe(true);
   });
 
   it('does not mistake Toys R Us promo cards for toy merchandise', () => {
@@ -915,6 +961,23 @@ describe('discoveryEmbed', () => {
 
     const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
     expect(marketRead).toBe('Market data is updating; image and pricing will appear once the source responds.');
+  });
+
+  it('does not describe no-sample popular cards as thin market data', () => {
+    const embed = discoveryEmbed(
+      {
+        ...candidate('Mew ex Paldean Fates 232', 'modern texture', 0),
+        typicalRawAskingTotal: undefined,
+        marketSampleSize: 0,
+        typicalRawSoldTotal: undefined,
+        soldSampleSize: 0
+      },
+      'CAD',
+      true
+    ).toJSON();
+
+    const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
+    expect(marketRead).toBe('Market data is still being gathered; Vaultr will keep checking.');
   });
 
   it('explains concrete profile signals instead of internal source details', () => {
@@ -1342,6 +1405,35 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     });
 
     const [attached] = candidatesFromDiscoveryMarketCache([candidate(name, 'promo trail', 0)], {
+      userId: 'user-1',
+      activeChases: [],
+      destination: { country: 'CA' },
+      targetCurrency: 'CAD'
+    });
+
+    expect(attached?.marketSampleSize).toBe(0);
+    expect(attached?.soldSampleSize).toBe(0);
+    expect(attached?.sourceStatus).toBe('PENDING');
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('treats fresh zero-sample Bubble Mew cache rows as updating instead of thin', () => {
+    const name = `Mew ex Paldean Fates 232 Bubble Mew ${Date.now()}`;
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: 0,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: 0,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = candidatesFromDiscoveryMarketCache([candidate(name, 'modern texture', 0)], {
       userId: 'user-1',
       activeChases: [],
       destination: { country: 'CA' },

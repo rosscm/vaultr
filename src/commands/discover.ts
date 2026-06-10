@@ -37,11 +37,13 @@ import {
   upsertDiscoveryMarketCache,
   type DiscoveryMarketCacheEntry
 } from '../services/discovery-market-cache.js';
+import { completeDiscoveryMarketRefreshJob, enqueueDiscoveryMarketRefreshJobs } from '../services/discovery-market-jobs.js';
 import { getOrFetchDiscoveryReferenceImage } from '../services/discovery-reference-cache.js';
 import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { getPollerState } from '../services/poller-state.js';
+import { PREPARED_DISCOVERY_SELECTION_VERSION, preparedDiscoveryStateKey } from '../services/prepared-discovery.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import type { Chase, Listing, PlanTier } from '../types.js';
 
@@ -82,6 +84,7 @@ const DISCOVERY_CANDIDATE_POOL_SIZE = 24;
 const DISCOVERY_ENRICHMENT_CONCURRENCY = 4;
 const DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY = 1;
 const DISCOVERY_SOURCE_TIMEOUT_MS = 30000;
+const DISCOVERY_MARKET_FIRST_RESPONSE_WAIT_MS = Math.max(0, Math.min(20000, Math.floor(Number(process.env.DISCOVERY_MARKET_FIRST_RESPONSE_WAIT_MS ?? '12000'))));
 const DISCOVERY_MARKET_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DISCOVERY_SOURCE_STATUS_RETRY_MS = 15 * 60 * 1000;
@@ -123,8 +126,7 @@ const CARD_TERMS = ['card', 'cards', 'tcg', 'pokemon', 'psa', 'bgs', 'cgc', 'sgc
 
 const DISCOVERY_OVERVIEW_COLOR = 0x8b5cf6;
 const DISCOVERY_LANE_COLOR = 0x0e7490;
-const DISCOVERY_SELECTION_VERSION = 4;
-const DISCOVERY_STATE_BASE_KEY = 'ambient';
+const DISCOVERY_SELECTION_VERSION = PREPARED_DISCOVERY_SELECTION_VERSION;
 const DISCOVERY_VAULT_PREFIX = 'discover-vault';
 const DISCOVERY_FEEDBACK_PREFIX = 'discover-feedback';
 const DISCOVERY_SELECT_PREFIX = 'discover-action';
@@ -497,8 +499,8 @@ function typicalMarketTotal(totals: number[]): number | undefined {
 function hasReliableSeller(listing: Listing): boolean {
   const feedbackScore = listing.sellerFeedbackScore;
   const feedbackPercent = listing.sellerFeedbackPercent;
-  if (feedbackScore !== undefined && feedbackScore < 10) return false;
-  if (feedbackPercent !== undefined && feedbackPercent < 95) return false;
+  if (feedbackScore !== undefined && feedbackScore > 0 && feedbackScore < 10) return false;
+  if (feedbackPercent !== undefined && feedbackPercent > 0 && feedbackPercent < 95) return false;
   return true;
 }
 
@@ -525,6 +527,14 @@ export function isUsableDiscoveryExample(
     meetsPremiumFloor(suggestion, listing, targetCurrency) &&
     isListingInRange(listing, range, targetCurrency)
   );
+}
+
+export function isUsableDiscoveryMarketSample(
+  suggestion: DiscoverySuggestion,
+  listing: Listing,
+  targetCurrency: SupportedCurrency
+): boolean {
+  return isUsableDiscoveryExample(suggestion, listing, undefined, targetCurrency);
 }
 
 function imageUrlFromListing(listing: Listing | undefined): string | undefined {
@@ -660,7 +670,7 @@ function candidateFromCachedMarket(
   const listing = listingFromDiscoveryMarketCache(cacheEntry);
   if (listing && isActiveChaseEchoListing(listing, activeChases)) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
   const hasMarketSignal = discoveryMarketCacheHasSignal(cacheEntry);
-  const sourceStatus = refreshQueued && (cacheEntry.sourceStatus || !hasMarketSignal) ? 'PENDING' : cacheEntry.sourceStatus;
+  const sourceStatus = !hasMarketSignal || (refreshQueued && cacheEntry.sourceStatus) ? 'PENDING' : cacheEntry.sourceStatus;
   return {
     suggestion,
     selectionIndex,
@@ -690,7 +700,7 @@ export function candidatesFromDiscoveryMarketCache(
     range?: { min: number; max: number };
   }
 ): DiscoveryCandidate[] {
-  const refreshJobs: DiscoveryMarketRefreshJob[] = [];
+  const refreshJobs: DiscoveryMarketRefreshWork[] = [];
   const marketCandidates = candidates.map((candidate, visibleIndex) => {
     const selectionIndex = candidate.selectionIndex ?? visibleIndex;
     const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
@@ -798,6 +808,52 @@ async function hydratePendingDiscoveryMarketCandidates(
   return candidates.map((candidate, index) => hydratedByIndex.get(index) ?? candidate);
 }
 
+function candidateWithFreshMarketCache(
+  candidate: DiscoveryCandidate,
+  context: {
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  }
+): DiscoveryCandidate {
+  if (candidate.sourceStatus !== 'PENDING' || hasMarketSignal(candidate)) return candidate;
+  const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+  const cacheEntry = getDiscoveryMarketCache(cacheKey);
+  if (!cacheEntry || !discoveryMarketCacheHasSignal(cacheEntry)) return candidate;
+  const marketCandidate = candidateFromCachedMarket(candidate.suggestion, candidate.selectionIndex ?? 0, cacheEntry, context.targetCurrency, context.activeChases, false);
+  return {
+    ...candidate,
+    typicalRawAskingTotal: marketCandidate.typicalRawAskingTotal,
+    marketSampleSize: marketCandidate.marketSampleSize,
+    typicalRawSoldTotal: marketCandidate.typicalRawSoldTotal,
+    soldSampleSize: marketCandidate.soldSampleSize,
+    displayCurrency: marketCandidate.displayCurrency ?? candidate.displayCurrency,
+    sourceStatus: marketCandidate.sourceStatus
+  };
+}
+
+async function settlePendingDiscoveryMarketCandidates(
+  candidates: DiscoveryCandidate[],
+  context: {
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  },
+  maxWaitMs = DISCOVERY_MARKET_FIRST_RESPONSE_WAIT_MS
+): Promise<DiscoveryCandidate[]> {
+  if (maxWaitMs <= 0 || !candidates.some((candidate) => candidate.sourceStatus === 'PENDING' && !hasMarketSignal(candidate))) return candidates;
+  const deadlineMs = Date.now() + maxWaitMs;
+  let settled = candidates;
+  while (Date.now() < deadlineMs) {
+    settled = settled.map((candidate) => candidateWithFreshMarketCache(candidate, context));
+    if (!settled.some((candidate) => candidate.sourceStatus === 'PENDING' && !hasMarketSignal(candidate))) return settled;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(500, Math.max(0, deadlineMs - Date.now()))));
+  }
+  return settled.map((candidate) => candidateWithFreshMarketCache(candidate, context));
+}
+
 async function enrichSuggestion(
   suggestion: DiscoverySuggestion,
   selectionIndex: number,
@@ -819,7 +875,7 @@ async function enrichSuggestion(
   const usableBaselineListings = (candidates: Listing[]) =>
     candidates
       .filter((candidate) => !isActiveChaseEchoListing(candidate, activeChases))
-      .filter((candidate) => isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency))
+      .filter((candidate) => isUsableDiscoveryMarketSample(suggestion, candidate, targetCurrency))
       .filter(looksLikeBaselineRawMarketListing);
 
   try {
@@ -831,13 +887,17 @@ async function enrichSuggestion(
     }
     const nonActiveListings = listings.filter((candidate) => !isActiveChaseEchoListing(candidate, activeChases));
     const usableListings = nonActiveListings.filter((candidate) => isUsableDiscoveryExample(suggestion, candidate, range, targetCurrency));
+    const marketSampleListings = nonActiveListings.filter((candidate) => isUsableDiscoveryMarketSample(suggestion, candidate, targetCurrency));
     const rawListings = usableListings.filter(looksLikeRawCardListing);
-    const baselineRawListings = usableListings.filter(looksLikeBaselineRawMarketListing);
+    const baselineInRangeRawListings = usableListings.filter(looksLikeBaselineRawMarketListing);
+    const baselineRawListings = marketSampleListings.filter(looksLikeBaselineRawMarketListing);
     const marketListing =
-      baselineRawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
+      baselineInRangeRawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
       rawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
-      baselineRawListings[0] ??
-      rawListings[0];
+      baselineRawListings.find((candidate) => candidate.imageUrl || candidate.thumbnailUrl) ??
+      baselineInRangeRawListings[0] ??
+      rawListings[0] ??
+      baselineRawListings[0];
     const visualListing = nonActiveListings.find((candidate) => looksLikeVisualDiscoveryListing(suggestion, candidate));
     const listing = marketListing ?? visualListing;
     if (!listing) return { suggestion, selectionIndex };
@@ -883,18 +943,18 @@ async function enrichSuggestion(
   }
 }
 
-type DiscoveryMarketRefreshJob = {
+export type DiscoveryMarketRefreshWork = {
   cacheKey: string;
   suggestion: DiscoverySuggestion;
-  selectionIndex: number;
+  selectionIndex?: number;
   userId: string;
   activeChases: Chase[];
-  destination: { country?: string; postalCode?: string } | undefined;
-  range: { min: number; max: number } | undefined;
+  destination?: { country?: string; postalCode?: string };
+  range?: { min: number; max: number };
   targetCurrency: SupportedCurrency;
 };
 
-const discoveryMarketRefreshQueue: DiscoveryMarketRefreshJob[] = [];
+const discoveryMarketRefreshQueue: DiscoveryMarketRefreshWork[] = [];
 const queuedDiscoveryMarketRefreshKeys = new Set<string>();
 let isDiscoveryMarketRefreshRunning = false;
 let scheduledDiscoveryMarketRefreshTimer: NodeJS.Timeout | undefined;
@@ -907,7 +967,7 @@ function nextDiscoveryMarketRefreshDelayMs(): number {
   return Math.max(0, backoffUntilMs - Date.now());
 }
 
-function saveDiscoveryMarketRefreshResult(job: DiscoveryMarketRefreshJob, candidate: DiscoveryCandidate): void {
+function saveDiscoveryMarketRefreshResult(job: DiscoveryMarketRefreshWork, candidate: DiscoveryCandidate): void {
   upsertDiscoveryMarketCache({
     cacheKey: job.cacheKey,
     suggestionName: job.suggestion.name,
@@ -921,6 +981,18 @@ function saveDiscoveryMarketRefreshResult(job: DiscoveryMarketRefreshJob, candid
     soldSampleSize: candidate.soldSampleSize,
     sourceStatus: candidate.sourceStatus === 'PENDING' ? undefined : candidate.sourceStatus
   });
+}
+
+export async function processDiscoveryMarketRefreshWork(job: DiscoveryMarketRefreshWork): Promise<void> {
+  try {
+    const candidate = await enrichSuggestion(job.suggestion, job.selectionIndex ?? 0, job.userId, job.activeChases, job.destination, job.range, job.targetCurrency, (askCandidate) => {
+      saveDiscoveryMarketRefreshResult(job, askCandidate);
+    });
+    saveDiscoveryMarketRefreshResult(job, candidate);
+  } catch (error) {
+    saveDiscoveryMarketRefreshResult(job, { suggestion: job.suggestion, selectionIndex: job.selectionIndex ?? 0, sourceStatus: discoverySourceStatus(error) });
+    throw error;
+  }
 }
 
 function scheduleDiscoveryMarketRefreshQueue(): void {
@@ -944,12 +1016,10 @@ async function runDiscoveryMarketRefreshQueue(): Promise<void> {
   try {
     await mapWithConcurrency(discoveryMarketRefreshQueue.splice(0), DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY, async (job) => {
       try {
-        const candidate = await enrichSuggestion(job.suggestion, job.selectionIndex, job.userId, job.activeChases, job.destination, job.range, job.targetCurrency, (askCandidate) => {
-          saveDiscoveryMarketRefreshResult(job, askCandidate);
-        });
-        saveDiscoveryMarketRefreshResult(job, candidate);
-      } catch (error) {
-        saveDiscoveryMarketRefreshResult(job, { suggestion: job.suggestion, selectionIndex: job.selectionIndex, sourceStatus: discoverySourceStatus(error) });
+        await processDiscoveryMarketRefreshWork(job);
+        completeDiscoveryMarketRefreshJob(job.cacheKey);
+      } catch {
+        // The durable worker path owns retry accounting; this in-process queue is best-effort.
       } finally {
         queuedDiscoveryMarketRefreshKeys.delete(job.cacheKey);
       }
@@ -960,7 +1030,19 @@ async function runDiscoveryMarketRefreshQueue(): Promise<void> {
   }
 }
 
-function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshJob[]): void {
+function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshWork[]): void {
+  enqueueDiscoveryMarketRefreshJobs(
+    jobs.map((job) => ({
+      cacheKey: job.cacheKey,
+      suggestion: job.suggestion,
+      userId: job.userId,
+      activeChases: job.activeChases,
+      destination: job.destination,
+      range: job.range,
+      targetCurrency: job.targetCurrency,
+      priority: hasPriorityJapaneseChase(job.activeChases) ? 2 : 1
+    }))
+  );
   for (const job of jobs) {
     if (queuedDiscoveryMarketRefreshKeys.has(job.cacheKey)) continue;
     queuedDiscoveryMarketRefreshKeys.add(job.cacheKey);
@@ -981,7 +1063,7 @@ function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: Supported
   const hasSoldComps = candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) > 0;
   const hasAskComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0;
   if (!hasSoldComps && !hasAskComps) {
-    return 'Market data is thin right now; still a collector path worth watching.';
+    return 'Market data is still being gathered; Vaultr will keep checking.';
   }
   if (hasSoldComps && hasAskComps) {
     return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps); ${formatMoney(candidate.typicalRawAskingTotal, currency)} raw ask`;
@@ -1572,7 +1654,7 @@ export function mergeFreshDiscoveryCandidates(candidates: DiscoveryCandidate[], 
 }
 
 function discoveryStateKey(tier: PlanTier, visibleCount: number): string {
-  return `${DISCOVERY_STATE_BASE_KEY}:v${DISCOVERY_SELECTION_VERSION}:${tier.toLowerCase()}:${visibleCount}`;
+  return preparedDiscoveryStateKey(tier, visibleCount);
 }
 
 function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames: string[], tier: PlanTier, visibleCount: number): string {
@@ -1700,7 +1782,8 @@ async function discoverCandidatesForUser(userId: string, count: number): Promise
     const marketCandidates = hasFullDiscovery
       ? await hydratePendingDiscoveryMarketCandidates(candidatesFromDiscoveryMarketCache(discoveryCandidatePool, marketContext), marketContext)
       : discoveryCandidatePool;
-    const visibleCandidates = hasFullDiscovery && !persistedCandidates ? selectVisibleCandidatesForCount(marketCandidates, tasteProfileChases, visibleCount) : marketCandidates.slice(0, visibleCount);
+    let visibleCandidates = hasFullDiscovery && !persistedCandidates ? selectVisibleCandidatesForCount(marketCandidates, tasteProfileChases, visibleCount) : marketCandidates.slice(0, visibleCount);
+    if (hasFullDiscovery) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
     if (hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT && visibleCandidates.length >= visibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
     }

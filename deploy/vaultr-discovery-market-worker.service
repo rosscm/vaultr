@@ -1,0 +1,28 @@
+[Unit]
+Description=Vaultr Discovery market worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Documents/GitHub/vaultr
+EnvironmentFile=/home/pi/Documents/GitHub/vaultr/.env
+Environment=EBAY_MAX_REQUESTS_PER_MINUTE=6
+Environment=EBAY_MIN_REQUEST_GAP_MS=10000
+Environment=EBAY_SEARCH_CACHE_TTL_SECONDS=120
+Environment=EBAY_BACKOFF_BASE_SECONDS=900
+Environment=DISCOVERY_MARKET_WORKER_BATCH_SIZE=1
+Environment=DISCOVERY_MARKET_WORKER_POLL_MS=5000
+ExecStartPre=/usr/bin/mkdir -p /home/pi/Documents/GitHub/vaultr/data/logs
+ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr/dist/discovery-market-worker.js
+Restart=always
+RestartSec=5
+MemoryAccounting=yes
+MemoryHigh=250M
+MemoryMax=400M
+StandardOutput=append:/home/pi/Documents/GitHub/vaultr/data/logs/discovery-market-worker.log
+StandardError=append:/home/pi/Documents/GitHub/vaultr/data/logs/discovery-market-worker.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Client, Events, GatewayIntentBits, MessageFlags } from 'discord.js';
+import { Client, Events, GatewayIntentBits, MessageFlags, type ChatInputCommandInteraction, type Interaction, type InteractionReplyOptions } from 'discord.js';
 import { commands } from './commands/index.js';
 import { handleAlertFeedback } from './commands/alert-feedback.js';
 import { handleAlertSourceButtons } from './commands/alerts-settings.js';
@@ -21,6 +21,36 @@ if (!token) {
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const commandMap = new Map(commands.map((c) => [c.data.name, c]));
 
+function isUnknownInteractionError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; rawError?: { code?: unknown }; message?: unknown } | undefined;
+  return candidate?.code === 10062 || candidate?.rawError?.code === 10062 || /Unknown interaction/i.test(String(candidate?.message ?? ''));
+}
+
+async function safeReply(interaction: ChatInputCommandInteraction, options: InteractionReplyOptions): Promise<void> {
+  try {
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp(options);
+    } else {
+      await interaction.reply(options);
+    }
+  } catch (error) {
+    if (isUnknownInteractionError(error)) {
+      console.warn(`[Discord] Dropped response for expired interaction ${interaction.commandName}`);
+      return;
+    }
+    throw error;
+  }
+}
+
+async function handleCommandError(interaction: ChatInputCommandInteraction, error: unknown): Promise<void> {
+  if (isUnknownInteractionError(error)) {
+    console.warn(`[Discord] Interaction expired before ${interaction.commandName} could be acknowledged`);
+    return;
+  }
+  console.error(error);
+  await safeReply(interaction, { embeds: [errorEmbed('Request Failed', 'Something went wrong')], flags: MessageFlags.Ephemeral });
+}
+
 await initializeCurrencyRates();
 
 client.once(Events.ClientReady, (readyClient) => {
@@ -28,59 +58,67 @@ client.once(Events.ClientReady, (readyClient) => {
   startPoller(client);
 });
 
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (await handleChaseEditAutocomplete(interaction)) return;
-  if (await handleChaseRemoveAutocomplete(interaction)) return;
-  if (await handleChaseEditModal(interaction)) return;
-  if (await handleChaseListPagination(interaction)) return;
-  if (await handleAlertFeedback(interaction)) return;
-  if (await handleAlertSourceButtons(interaction)) return;
-  if (await handleDiscoveryActionSelect(interaction)) return;
-  if (await handleDiscoveryFeedback(interaction)) return;
-  if (await handleDiscoveryVaultAdd(interaction)) return;
-  if (!interaction.isChatInputCommand()) return;
+client.on(Events.Error, (error) => {
+  if (isUnknownInteractionError(error)) {
+    console.warn('[Discord] Ignored expired interaction error emitted by client');
+    return;
+  }
+  console.error('[Discord] Client error', error);
+});
 
-  const command = commandMap.get(interaction.commandName);
-  if (!command) return;
+client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+  try {
+    if (await handleChaseEditAutocomplete(interaction)) return;
+    if (await handleChaseRemoveAutocomplete(interaction)) return;
+    if (await handleChaseEditModal(interaction)) return;
+    if (await handleChaseListPagination(interaction)) return;
+    if (await handleAlertFeedback(interaction)) return;
+    if (await handleAlertSourceButtons(interaction)) return;
+    if (await handleDiscoveryActionSelect(interaction)) return;
+    if (await handleDiscoveryFeedback(interaction)) return;
+    if (await handleDiscoveryVaultAdd(interaction)) return;
+    if (!interaction.isChatInputCommand()) return;
 
-  if (!interaction.guildId) {
-      await interaction.reply({
+    const command = commandMap.get(interaction.commandName);
+    if (!command) return;
+
+    if (!interaction.guildId) {
+      await safeReply(interaction, {
         embeds: [warningEmbed('Server Command Channel Required', 'Vaultr commands must be used in your server command channel')],
         flags: MessageFlags.Ephemeral
       });
-    return;
-  }
+      return;
+    }
 
-  const setupCommandName = 'setup';
-  const channelExemptCommands = new Set([setupCommandName, 'health']);
-  if (!channelExemptCommands.has(interaction.commandName)) {
-    const configuredChannelId = getGuildCommandChannel(interaction.guildId);
-    if (!configuredChannelId) {
-        await interaction.reply({
+    const setupCommandName = 'setup';
+    const channelExemptCommands = new Set([setupCommandName, 'health']);
+    if (!channelExemptCommands.has(interaction.commandName)) {
+      const configuredChannelId = getGuildCommandChannel(interaction.guildId);
+      if (!configuredChannelId) {
+        await safeReply(interaction, {
           embeds: [warningEmbed('Setup Required', `An admin must run \`/${setupCommandName} channel\` first to set the Vaultr command channel`)],
           flags: MessageFlags.Ephemeral
         });
-      return;
-    }
+        return;
+      }
 
-    if (interaction.channelId !== configuredChannelId) {
-        await interaction.reply({
+      if (interaction.channelId !== configuredChannelId) {
+        await safeReply(interaction, {
           embeds: [warningEmbed('Wrong Channel', `Please use Vaultr commands in <#${configuredChannelId}>`)],
           flags: MessageFlags.Ephemeral
         });
-      return;
+        return;
+      }
     }
-  }
 
-  try {
     await command.execute(interaction);
   } catch (error) {
-    console.error(error);
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ embeds: [errorEmbed('Request Failed', 'Something went wrong')], flags: MessageFlags.Ephemeral });
-    } else {
-      await interaction.reply({ embeds: [errorEmbed('Request Failed', 'Something went wrong')], flags: MessageFlags.Ephemeral });
+    if (interaction.isChatInputCommand()) {
+      await handleCommandError(interaction, error);
+      return;
     }
+    if (isUnknownInteractionError(error)) return;
+    console.error(error);
   }
 });
 

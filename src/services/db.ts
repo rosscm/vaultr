@@ -123,6 +123,32 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS discovery_market_refresh_jobs (
+    cache_key TEXT PRIMARY KEY,
+    suggestion_name TEXT NOT NULL,
+    suggestion_json TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    active_chases_json TEXT NOT NULL,
+    destination_json TEXT,
+    range_json TEXT,
+    target_currency TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'QUEUED',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    run_after TEXT NOT NULL,
+    locked_by TEXT,
+    locked_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_discovery_market_refresh_jobs_status_run_after
+    ON discovery_market_refresh_jobs(status, run_after, priority, created_at);
+
+  CREATE INDEX IF NOT EXISTS idx_discovery_market_refresh_jobs_locked_by
+    ON discovery_market_refresh_jobs(locked_by, locked_at);
+
   CREATE TABLE IF NOT EXISTS discovery_reference_cache (
     cache_key TEXT PRIMARY KEY,
     suggestion_name TEXT NOT NULL,
