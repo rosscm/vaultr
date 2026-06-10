@@ -100,6 +100,7 @@ const DISCOVERY_MARKET_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DISCOVERY_SOURCE_STATUS_RETRY_MS = 15 * 60 * 1000;
 const MIN_RAW_MARKET_SAMPLE_SIZE = 2;
+const MIN_ASK_ONLY_MARKET_SAMPLE_SIZE = 4;
 const NON_CARD_TERMS = [
   'acrylic case',
   'blanket',
@@ -1084,6 +1085,7 @@ function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: Supported
   const currency = candidate.displayCurrency ?? currencyHint;
   const hasSoldComps = candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) > 0;
   const hasAskComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0;
+  const hasReliableAskOnlyComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE;
   if (!hasSoldComps && !hasAskComps) {
     return 'Market data is still being gathered; Vaultr will keep checking.';
   }
@@ -1091,6 +1093,7 @@ function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: Supported
     return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps); ${formatMoney(candidate.typicalRawAskingTotal, currency)} raw ask`;
   }
   if (hasSoldComps) return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps)`;
+  if (!hasReliableAskOnlyComps) return 'Market data is still being gathered; Vaultr will keep checking.';
   return `${formatMoney(candidate.typicalRawAskingTotal, currency)} typical raw ask`;
 }
 

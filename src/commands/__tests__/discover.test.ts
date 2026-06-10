@@ -1011,6 +1011,23 @@ describe('discoveryEmbed', () => {
     expect(marketRead).toContain('330 CAD raw ask');
   });
 
+  it('does not present thin asking-only comps as a reliable market read', () => {
+    const embed = discoveryEmbed(
+      {
+        ...candidate('Articuno Wizards Black Star Promos 48', 'Special Release Trail', 0),
+        typicalRawAskingTotal: 433.95,
+        marketSampleSize: 2,
+        soldSampleSize: 0,
+        displayCurrency: 'CAD'
+      },
+      'CAD',
+      true
+    ).toJSON();
+
+    const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
+    expect(marketRead).toBe('Market data is still being gathered; Vaultr will keep checking.');
+  });
+
   it('does not mention attaching images when pending market cards already have one', () => {
     const embed = discoveryEmbed(
       {
