@@ -130,6 +130,23 @@ async function announceWeeklyDrop(client: Client, now: Date): Promise<{ periodKe
   return { periodKey, announced, skipped };
 }
 
+export async function sendWeeklyDropTestAnnouncement(channel: { type: ChannelType; send: (options: { embeds: EmbedBuilder[]; components: ReturnType<typeof discoveryDropOpenButton>[] }) => Promise<{ id: string }> }, now = new Date()): Promise<{
+  periodKey: string;
+  preparedCount: number;
+  messageId: string;
+}> {
+  if (channel.type !== ChannelType.GuildText) {
+    throw new Error('Weekly Shelf test announcements can only be posted in text channels');
+  }
+  const periodKey = scheduledDiscoveryPeriodKey(WEEKLY_DROP_TYPE, now);
+  const preparedCount = countPreparedScheduledDiscoveryDrops(WEEKLY_DROP_TYPE, periodKey);
+  const message = await channel.send({
+    embeds: [weeklyDropAnnouncementEmbed(periodKey, preparedCount)],
+    components: [discoveryDropOpenButton(WEEKLY_DROP_TYPE, periodKey)]
+  });
+  return { periodKey, preparedCount, messageId: message.id };
+}
+
 export async function runDiscoveryDropSchedulerOnce(client: Client, now = new Date()): Promise<void> {
   if (schedulerRunning) return;
   schedulerRunning = true;
