@@ -4,6 +4,7 @@ import {
   backfillSourceBackedDiscoverySuggestions,
   candidatesFromDiscoveryMarketCache,
   concreteDiscoveryFallbackSuggestions,
+  discoveryCandidateSelectionCount,
   discoveryActionRows,
   discoveryCardEmbeds,
   discoveryEmbed,
@@ -15,13 +16,17 @@ import {
   isActiveChaseEchoSuggestion,
   isActiveChaseEchoText,
   looksLikeRawCardListing,
+  looksLikeBaselineRawMarketListing,
   looksLikeVisualDiscoveryListing,
+  marketReadyShelfCandidates,
   mergeFreshDiscoveryCandidates,
   orderConcreteDiscoveryFallbackSuggestionsForMarket,
+  orderCandidatesForMarketConfidence,
   orderCandidatesFromPersistedState,
   preserveLanguageSignalFallbackSuggestions,
   selectVisibleCandidates,
   selectVisibleCandidatesForCount,
+  typicalMarketTotal,
   weeklyDiscoveryShelfSizeForPlan,
   type DiscoveryCandidate
 } from '../discover.js';
@@ -100,6 +105,7 @@ describe('selectVisibleCandidates', () => {
     expect(discoveryVisibleCountForPlan('PRO')).toBe(7);
     expect(weeklyDiscoveryShelfSizeForPlan('FREE')).toBe(3);
     expect(weeklyDiscoveryShelfSizeForPlan('PRO')).toBe(20);
+    expect(discoveryCandidateSelectionCount(true, weeklyDiscoveryShelfSizeForPlan('PRO'))).toBeGreaterThanOrEqual(60);
   });
 
   it('falls back to taste-ranked candidates when market enrichment is thin', () => {
@@ -132,6 +138,117 @@ describe('selectVisibleCandidates', () => {
       'Mew Southern Islands Promo',
       'Houndoom Aquapolis H11/H32'
     ]);
+  });
+
+  it('does not treat three asking-only comps as strong market data', () => {
+    const visible = selectVisibleCandidates(
+      [
+        candidate('Pikachu ex Surging Sparks 238', 'modern chase texture', 0, 3),
+        candidate('Mew Southern Islands Promo', 'mythical display cards', 1, 4),
+        candidate('Totodile McDonalds Promo', 'starter promo side paths', 2)
+      ]
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Mew Southern Islands Promo',
+      'Pikachu ex Surging Sparks 238',
+      'Totodile McDonalds Promo'
+    ]);
+  });
+
+  it('does not treat a single sold comp as strong market data', () => {
+    const visible = selectVisibleCandidates(
+      [
+        {
+          ...candidate('Pikachu ex Surging Sparks 238', 'modern chase texture', 0),
+          typicalRawSoldTotal: 460,
+          soldSampleSize: 1
+        },
+        candidate('Mew Southern Islands Promo', 'mythical display cards', 1, 4),
+        candidate('Totodile McDonalds Promo', 'starter promo side paths', 2)
+      ]
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Mew Southern Islands Promo',
+      'Pikachu ex Surging Sparks 238',
+      'Totodile McDonalds Promo'
+    ]);
+  });
+
+  it('orders current shelf candidates by market confidence before low-comp exploration', () => {
+    const ordered = orderCandidatesForMarketConfidence([
+      candidate('Mew Japanese S12a 052', 'Special Release Trail', 0, 3),
+      {
+        ...candidate('Pikachu ex Surging Sparks 238', 'Collector Compass', 1, 12),
+        typicalRawAskingTotal: 469.225
+      },
+      {
+        ...candidate('Mew Southern Islands Promo', 'mythical display cards', 2),
+        typicalRawSoldTotal: 120,
+        soldSampleSize: 3
+      },
+      candidate('Totodile McDonalds Promo', 'starter promo side paths', 3)
+    ]);
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual([
+      'Mew Southern Islands Promo',
+      'Pikachu ex Surging Sparks 238',
+      'Mew Japanese S12a 052',
+      'Totodile McDonalds Promo'
+    ]);
+  });
+
+  it('hides sparse low-data trailing shelf pages until enough picks are market-ready', () => {
+    const readyCandidates = Array.from({ length: 12 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const lowDataCandidates = Array.from({ length: 8 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 12, index % 3));
+
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true);
+
+    expect(visible).toHaveLength(10);
+    expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.slice(0, 10).map((item) => item.suggestion.name));
+  });
+
+  it('allows a second shelf page once enough market-ready picks exist', () => {
+    const readyCandidates = Array.from({ length: 17 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const lowDataCandidates = Array.from({ length: 3 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 17, index));
+
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true);
+
+    expect(visible).toHaveLength(17);
+    expect(visible.at(-1)?.suggestion.name).toBe('Ready Pick 17');
+  });
+
+  it('does not cap a healthy shelf at ten when a market-ready extras page exists', () => {
+    const readyCandidates = Array.from({ length: 14 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const lowDataCandidates = Array.from({ length: 6 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 14, index % 3));
+
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true);
+
+    expect(visible).toHaveLength(14);
+    expect(visible.at(-1)?.suggestion.name).toBe('Ready Pick 14');
+  });
+
+  it('exposes the full prepared shelf when the collector profile has enough signal', () => {
+    const readyCandidates = Array.from({ length: 12 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const lowDataCandidates = Array.from({ length: 8 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 12, index % 3));
+
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true, true);
+
+    expect(visible).toHaveLength(20);
+    expect(visible.at(-1)?.suggestion.name).toBe('Low Data Pick 8');
+  });
+
+  it('fills a full Pro shelf from deeper market-ready alternatives', () => {
+    const lowDataCandidates = Array.from({ length: 20 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index, index % 3));
+    const readyCandidates = Array.from({ length: 20 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index + 20, 4));
+
+    const selected = selectVisibleCandidatesForCount([...lowDataCandidates, ...readyCandidates], [], 20);
+    const visible = marketReadyShelfCandidates(selected, true);
+
+    expect(selected).toHaveLength(20);
+    expect(visible).toHaveLength(20);
+    expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
   });
 
   it('prioritizes Japanese source cards over English Black Star promos for Japanese-weighted grails', () => {
@@ -789,6 +906,22 @@ describe('Discovery listing enrichment eligibility', () => {
     expect(looksLikeRawCardListing(gradedListing)).toBe(false);
   });
 
+  it('rejects damaged raw condition outliers from baseline market samples', () => {
+    const damagedListing = listing({
+      title: 'Pikachu ex 238/191 Surging Sparks SIR Pokemon Card Damaged Creased',
+      price: 85,
+      condition: 'Damaged'
+    });
+
+    expect(looksLikeRawCardListing(damagedListing)).toBe(true);
+    expect(looksLikeBaselineRawMarketListing(damagedListing)).toBe(false);
+  });
+
+  it('uses a robust median that ignores extreme raw market outliers', () => {
+    expect(typicalMarketTotal([440, 450, 455, 460, 465, 470, 1200])).toBe(457.5);
+    expect(typicalMarketTotal([0, Number.NaN, 110, 115, 120, 125, 600])).toBe(120);
+  });
+
   it('allows broad discovery trait threads to become raw-market ready from required evidence tokens', () => {
     const broadSuggestion = {
       name: 'RC era Pokemon cards',
@@ -1028,6 +1161,23 @@ describe('discoveryEmbed', () => {
     expect(marketRead).toBe('Low recent comps data: only 2 active ask comps found, so Vaultr is not showing a price yet.');
   });
 
+  it('labels asking-only market reads as active asks', () => {
+    const embed = discoveryEmbed(
+      {
+        ...candidate('Pikachu ex Surging Sparks 238', 'Collector Compass', 0),
+        typicalRawAskingTotal: 469.225,
+        marketSampleSize: 12,
+        soldSampleSize: 0,
+        displayCurrency: 'CAD'
+      },
+      'CAD',
+      true
+    ).toJSON();
+
+    const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
+    expect(marketRead).toBe('470 CAD active raw ask');
+  });
+
   it('does not mention attaching images when pending market cards already have one', () => {
     const embed = discoveryEmbed(
       {
@@ -1123,6 +1273,27 @@ describe('discoveryEmbed', () => {
     expect(signal).not.toContain('Special Delivery Pikachu interest');
     expect(signal).not.toContain('appears in your taste profile');
     expect(signal).not.toContain('Japanese Prints');
+  });
+
+  it('keeps promo format fit copy compact', () => {
+    const embed = discoveryEmbed(
+      {
+        ...sourceCandidate('Pikachu VMAX SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 0),
+        suggestion: {
+          ...sourceCandidate('Pikachu VMAX SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 0).suggestion,
+          evidenceSearchTerm: 'Pikachu VMAX SWSH Black Star Promos SWSH286 Pokemon card',
+          sourceTasteTokens: ['promo', 'vmax']
+        }
+      },
+      'CAD',
+      true
+    ).toJSON();
+
+    const why = embed.fields?.find((field) => field.name === 'Why It Fits')?.value ?? '';
+    expect(why).toContain('named promo release');
+    expect(why).toContain('side-collection appeal');
+    expect(why).not.toContain('\n');
+    expect(why.length).toBeLessThan(120);
   });
 
   it('uses collector-facing fallback copy instead of internal resolver language', () => {

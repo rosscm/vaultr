@@ -66,6 +66,7 @@ const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /undaunted/i, setName: 'Undaunted' },
   { pattern: /hidden fates/i, setName: 'Hidden Fates' },
   { pattern: /surging sparks/i, setName: 'Surging Sparks' },
+  { pattern: /swsh black star|sword & shield black star/i, setName: 'SWSH Black Star Promos' },
   { pattern: /nintendo black star/i, setName: 'Nintendo Black Star Promos' }
 ];
 
@@ -109,7 +110,7 @@ function compactName(value: string): string {
     .replace(/\bPokemon\b/gi, '')
     .replace(/\b(card|cards|promo|holo|secret rare|illustration rare|art rare|trainer gallery|parallel|leader)\b/gi, '')
     .replace(/\bsurging sparks\b\s*\d{1,3}\b/gi, '')
-    .replace(/\b(?:black star|mcdonald'?s|anniversary|vending series|web series)\b/gi, '')
+    .replace(/\b(?:sword & shield black star promos?|swsh black star promos?|black star promos?|black star|mcdonald'?s|anniversary|vending series|web series)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -393,6 +394,11 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
 export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion, ttlMs: number): Promise<DiscoveryReferenceCacheEntry | null> {
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
   const cached = getDiscoveryReferenceCache(cacheKey);
+  if (suggestion.referenceImageUrl && !cached?.imageUrl) {
+    const fetched = await fetchDiscoveryReferenceImage(suggestion);
+    upsertDiscoveryReferenceCache(fetched);
+    return fetched;
+  }
   const ageMs = cached ? cachedReferenceAgeMs(cached) : undefined;
   if (cached && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) return cached;
 

@@ -63,6 +63,20 @@ describe('discovery reference cache', () => {
     expect(queries).toContain('name:"Pikachu ex" number:238 set.name:"Surging Sparks"');
   });
 
+  it('builds exact Pokemon TCG queries for SWSH Black Star promos', () => {
+    const queries = pokemonTcgQueriesForSuggestion({
+      name: 'Pikachu VMAX SWSH Black Star Promos SWSH286',
+      lane: 'promo cards',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Pikachu VMAX SWSH Black Star Promos SWSH286 Pokemon card',
+      requiredEvidenceTokens: ['pikachu', 'swsh']
+    });
+
+    expect(queries).toContain('name:"Pikachu VMAX" number:SWSH286 set.name:"SWSH Black Star Promos"');
+  });
+
   it('does not send One Piece cards to the Pokemon TCG API', () => {
     const queries = pokemonTcgQueriesForSuggestion({
       name: 'Monkey.D.Luffy ST01-001 Leader',
