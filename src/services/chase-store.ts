@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { makeAlertFeedbackToken } from './alert-feedback-token.js';
 import { normalizePlanTier } from './plans.js';
-import type { Chase, ListingSource, ListingSourceModePreference, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
+import type { Chase, Listing, ListingSource, ListingSourceModePreference, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
 
 type TasteMemorySource = NonNullable<Chase['tasteSource']>;
 
@@ -63,6 +63,64 @@ type UserDiscoveryFeedbackRow = {
   last_interacted_at: string;
 };
 
+export type SourceObservation = {
+  chaseId: string;
+  userId: string;
+  listingId: string;
+  source: ListingSource;
+  sourceMode: string;
+  queryKey: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sourceRank?: number;
+  listingTitle?: string;
+  listingPrice?: number;
+  listingCurrency?: string;
+  listingPostedAt?: string;
+};
+
+export type SentAlertDetails = SentAlert & {
+  listingPostedAt?: string;
+  alertLatencySeconds?: number;
+  sourceFirstSeenAt?: string;
+  sourceLastSeenAt?: string;
+  sourceRank?: number;
+};
+
+type SourceObservationRow = {
+  chase_id: string;
+  user_id: string;
+  listing_id: string;
+  source: ListingSource;
+  source_mode: string;
+  query_key: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  source_rank: number | null;
+  listing_title: string | null;
+  listing_price: number | null;
+  listing_currency: string | null;
+  listing_posted_at: string | null;
+};
+
+type SentAlertDetailsRow = {
+  chase_id: string;
+  user_id: string;
+  listing_id: string;
+  source: ListingSource;
+  sent_at: string;
+  listing_title: string | null;
+  listing_price: number | null;
+  listing_currency: string | null;
+  listing_url: string | null;
+  match_score: number | null;
+  listing_posted_at: string | null;
+  alert_latency_seconds: number | null;
+  source_first_seen_at: string | null;
+  source_last_seen_at: string | null;
+  source_rank: number | null;
+};
+
 export type UserDiscoveryState = {
   userId: string;
   mode: string;
@@ -98,6 +156,44 @@ function mapRow(row: ChaseRow): Chase {
           .filter(Boolean)
       : undefined,
     createdAt: row.created_at
+  };
+}
+
+function mapSourceObservation(row: SourceObservationRow): SourceObservation {
+  return {
+    chaseId: row.chase_id,
+    userId: row.user_id,
+    listingId: row.listing_id,
+    source: row.source,
+    sourceMode: row.source_mode,
+    queryKey: row.query_key,
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+    sourceRank: row.source_rank ?? undefined,
+    listingTitle: row.listing_title ?? undefined,
+    listingPrice: row.listing_price ?? undefined,
+    listingCurrency: row.listing_currency ?? undefined,
+    listingPostedAt: row.listing_posted_at ?? undefined
+  };
+}
+
+function mapSentAlertDetails(row: SentAlertDetailsRow): SentAlertDetails {
+  return {
+    chaseId: row.chase_id,
+    userId: row.user_id,
+    listingId: row.listing_id,
+    source: row.source,
+    sentAt: row.sent_at,
+    listingTitle: row.listing_title ?? undefined,
+    listingPrice: row.listing_price ?? undefined,
+    listingCurrency: row.listing_currency ?? undefined,
+    listingUrl: row.listing_url ?? undefined,
+    matchScore: row.match_score ?? undefined,
+    listingPostedAt: row.listing_posted_at ?? undefined,
+    alertLatencySeconds: row.alert_latency_seconds ?? undefined,
+    sourceFirstSeenAt: row.source_first_seen_at ?? undefined,
+    sourceLastSeenAt: row.source_last_seen_at ?? undefined,
+    sourceRank: row.source_rank ?? undefined
   };
 }
 
@@ -149,8 +245,12 @@ const updateChaseStmt = db.prepare(`
 `);
 
 const insertSentAlertStmt = db.prepare(`
-  INSERT INTO sent_alerts (chase_id, listing_id, source, sent_at, user_id, guild_id, listing_title, listing_price, listing_currency, price_delta, listing_url, match_score)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO sent_alerts (
+    chase_id, listing_id, source, sent_at, user_id, guild_id, listing_title, listing_price, listing_currency,
+    price_delta, listing_url, match_score, listing_posted_at, alert_latency_seconds, source_first_seen_at,
+    source_last_seen_at, source_rank
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const hasSentAlertStmt = db.prepare(`
@@ -158,6 +258,46 @@ const hasSentAlertStmt = db.prepare(`
   FROM sent_alerts
   WHERE chase_id = ? AND listing_id = ? AND source = ?
   LIMIT 1
+`);
+
+const getSentAlertForItemStmt = db.prepare(`
+  SELECT chase_id, user_id, listing_id, source, sent_at, listing_title, listing_price, listing_currency, listing_url, match_score,
+    listing_posted_at, alert_latency_seconds, source_first_seen_at, source_last_seen_at, source_rank
+  FROM sent_alerts
+  WHERE chase_id = ? AND (listing_id = ? OR listing_id LIKE '%' || ? || '%')
+  ORDER BY sent_at DESC
+  LIMIT 1
+`);
+
+const upsertSourceObservationStmt = db.prepare(`
+  INSERT INTO source_observations (
+    chase_id, user_id, listing_id, source, source_mode, query_key, first_seen_at, last_seen_at, source_rank,
+    listing_title, listing_price, listing_currency, listing_posted_at
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(chase_id, listing_id, source) DO UPDATE SET
+    source_mode = excluded.source_mode,
+    query_key = excluded.query_key,
+    last_seen_at = excluded.last_seen_at,
+    source_rank = excluded.source_rank,
+    listing_title = excluded.listing_title,
+    listing_price = excluded.listing_price,
+    listing_currency = excluded.listing_currency,
+    listing_posted_at = COALESCE(excluded.listing_posted_at, source_observations.listing_posted_at)
+`);
+
+const getSourceObservationForItemStmt = db.prepare(`
+  SELECT chase_id, user_id, listing_id, source, source_mode, query_key, first_seen_at, last_seen_at, source_rank,
+    listing_title, listing_price, listing_currency, listing_posted_at
+  FROM source_observations
+  WHERE chase_id = ? AND (listing_id = ? OR listing_id LIKE '%' || ? || '%')
+  ORDER BY last_seen_at DESC
+  LIMIT 1
+`);
+
+const pruneSourceObservationsStmt = db.prepare(`
+  DELETE FROM source_observations
+  WHERE last_seen_at < ?
 `);
 
 const upsertGuildAlertChannelStmt = db.prepare(`
@@ -1011,6 +1151,58 @@ export function hasAlertBeenSent(chaseId: string, listingId: string, source: Lis
   return !!row;
 }
 
+export function getSentAlertForItem(chaseId: string, itemId: string): SentAlertDetails | null {
+  const needle = itemId.trim();
+  if (!needle) return null;
+  const row = getSentAlertForItemStmt.get(chaseId, needle, needle) as SentAlertDetailsRow | undefined;
+  return row ? mapSentAlertDetails(row) : null;
+}
+
+export function recordSourceObservations(input: {
+  chaseId: string;
+  userId: string;
+  sourceMode: string;
+  queryKey: string;
+  listings: Listing[];
+  observedAt?: string;
+}): void {
+  if (input.listings.length === 0) return;
+  const observedAt = input.observedAt ?? new Date().toISOString();
+  const persist = db.transaction((listings: Listing[]) => {
+    listings.forEach((listing, index) => {
+      upsertSourceObservationStmt.run(
+        input.chaseId,
+        input.userId,
+        listing.listingId,
+        listing.source,
+        input.sourceMode,
+        input.queryKey,
+        observedAt,
+        observedAt,
+        index + 1,
+        listing.title,
+        listing.price,
+        listing.currency,
+        listing.postedAt ?? null
+      );
+    });
+  });
+  persist(input.listings);
+}
+
+export function getSourceObservationForItem(chaseId: string, itemId: string): SourceObservation | null {
+  const needle = itemId.trim();
+  if (!needle) return null;
+  const row = getSourceObservationForItemStmt.get(chaseId, needle, needle) as SourceObservationRow | undefined;
+  return row ? mapSourceObservation(row) : null;
+}
+
+export function pruneSourceObservations(retentionDays = 14): number {
+  const days = Number.isFinite(retentionDays) ? Math.max(1, Math.floor(retentionDays)) : 14;
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  return pruneSourceObservationsStmt.run(cutoff).changes;
+}
+
 export function markAlertSent(chaseId: string, userId: string, listingId: string, source: ListingSource): boolean {
   return markAlertSentWithDetails(chaseId, userId, listingId, source, {});
 }
@@ -1028,6 +1220,11 @@ export function markAlertSentWithDetails(
     priceDelta?: number;
     listingUrl?: string;
     matchScore?: number;
+    listingPostedAt?: string;
+    alertLatencySeconds?: number;
+    sourceFirstSeenAt?: string;
+    sourceLastSeenAt?: string;
+    sourceRank?: number;
   }
 ): boolean {
   try {
@@ -1043,7 +1240,12 @@ export function markAlertSentWithDetails(
       details.listingCurrency ?? null,
       details.priceDelta ?? null,
       details.listingUrl ?? null,
-      details.matchScore ?? null
+      details.matchScore ?? null,
+      details.listingPostedAt ?? null,
+      details.alertLatencySeconds ?? null,
+      details.sourceFirstSeenAt ?? null,
+      details.sourceLastSeenAt ?? null,
+      details.sourceRank ?? null
     );
     return true;
   } catch {

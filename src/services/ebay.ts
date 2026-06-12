@@ -8,6 +8,8 @@ export type ShippingDestination = {
 
 export type EbaySearchOptions = {
   enrichMissingShipping?: boolean;
+  maxPrice?: number;
+  maxPriceCurrency?: string;
 };
 
 export type EbaySoldSearchOptions = {
@@ -68,9 +70,10 @@ function ebaySearchCacheKey(chase: Chase, destination: ShippingDestination | und
   return JSON.stringify([
     getEbayEnv(),
     'BROWSE',
-    process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US',
+    getEbayBrowseMarketplaceId(destination),
     process.env.EBAY_SEARCH_LIMIT ?? '50',
     process.env.EBAY_BROWSE_SORT ?? 'newlyListed',
+    searchMaxPriceFilter(options) ?? '',
     chase.cardName.trim().toLowerCase(),
     chase.grade?.trim().toLowerCase() ?? '',
     normalizeCountryCode(destination?.country) ?? '',
@@ -158,6 +161,13 @@ function getEbayBrowseItemEndpoint(): string {
   return getEbayEnv() === 'SANDBOX' ? EBAY_BROWSE_ITEM_ENDPOINT_SANDBOX : EBAY_BROWSE_ITEM_ENDPOINT_PROD;
 }
 
+function getEbayBrowseMarketplaceId(destination?: ShippingDestination): string {
+  const destinationCountry = getDeliveryCountry(destination);
+  if (destinationCountry === 'CA') return 'EBAY_CA';
+  if (destinationCountry === 'US') return 'EBAY_US';
+  return process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US';
+}
+
 function getEbayOauthEndpoint(): string {
   return getEbayEnv() === 'SANDBOX' ? EBAY_OAUTH_ENDPOINT_SANDBOX : EBAY_OAUTH_ENDPOINT_PROD;
 }
@@ -222,9 +232,9 @@ function getDeliveryPostalCode(destination: ShippingDestination | undefined): st
 function getBrowseEndUserContext(destination: ShippingDestination | undefined): string | undefined {
   const country = getDeliveryCountry(destination);
   const postalCode = getDeliveryPostalCode(destination);
-  if (!country || !postalCode) return undefined;
+  if (!country) return undefined;
 
-  return `contextualLocation=country=${country},zip=${postalCode}`;
+  return postalCode ? `contextualLocation=country=${country},zip=${postalCode}` : `contextualLocation=country=${country}`;
 }
 
 function getBrowseItemEndUserContext(destination: ShippingDestination | undefined): string | undefined {
@@ -310,6 +320,13 @@ function gradeSearchTerm(grade: string | undefined): string | undefined {
   const normalized = (grade ?? '').trim().toLowerCase();
   if (normalized === 'ungraded' || normalized === 'raw') return undefined;
   return grade;
+}
+
+function searchMaxPriceFilter(options: EbaySearchOptions): string | undefined {
+  const maxPrice = Number(options.maxPrice);
+  const currency = options.maxPriceCurrency?.trim().toUpperCase();
+  if (!Number.isFinite(maxPrice) || maxPrice <= 0 || !currency || !/^[A-Z]{3}$/.test(currency)) return undefined;
+  return `price:[..${maxPrice.toFixed(2)}],priceCurrency:${currency}`;
 }
 
 function ebaySoldSearchPageCount(options: EbaySoldSearchOptions): number {
@@ -462,13 +479,16 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
     limit: process.env.EBAY_SEARCH_LIMIT ?? '50',
     sort: process.env.EBAY_BROWSE_SORT ?? 'newlyListed'
   });
+  const maxPriceFilter = searchMaxPriceFilter(options);
+  if (maxPriceFilter) params.append('filter', maxPriceFilter);
 
   const endUserContext = getBrowseEndUserContext(destination);
   const contextualDestination = endUserContext ? destination : undefined;
+  const marketplaceId = getEbayBrowseMarketplaceId(destination);
   const response = await fetchEbay(`${getEbayBrowseEndpoint()}?${params.toString()}`, {
     headers: {
       Authorization: `Bearer ${token}`,
-      'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US',
+      'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
       ...(endUserContext ? { 'X-EBAY-C-ENDUSERCTX': endUserContext } : {})
     }
   });
@@ -506,7 +526,7 @@ async function enrichListingFromBrowseItemApi(listing: Listing, token: string, d
     const response = await fetchEbay(`${getEbayBrowseItemEndpoint()}/${encodeURIComponent(listing.listingId)}`, {
       headers: {
         Authorization: `Bearer ${token}`,
-        'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US',
+        'X-EBAY-C-MARKETPLACE-ID': getEbayBrowseMarketplaceId(destination),
         ...(endUserContext ? { 'X-EBAY-C-ENDUSERCTX': endUserContext } : {})
       }
     });

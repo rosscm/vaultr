@@ -3,6 +3,8 @@ import {
   countChaseAlertsWithinMinutes,
   countUserAlertsInLastHour,
   getChaseLastPollCheckAt,
+  getSentAlertForItem,
+  getSourceObservationForItem,
   getUserAlertSettings,
   getUserPlan,
   hasAlertBeenSent,
@@ -11,6 +13,7 @@ import {
 import { convertCurrencyAmount, normalizeSupportedCurrency } from '../services/currency.js';
 import { searchEbayListings } from '../services/ebay.js';
 import { matchChaseToListing } from '../services/matcher.js';
+import { alertEbaySearchOptions } from '../services/poller.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { CHASE_ALERT_COOLDOWN_MINUTES } from '../services/alert-policy.js';
 import { getPollerState } from '../services/poller-state.js';
@@ -46,6 +49,14 @@ function listingMatchesItemId(listing: Listing, itemId: string): boolean {
 function formatMoney(amount: number | undefined, currency: string): string {
   if (amount === undefined || Number.isNaN(amount)) return 'Unknown';
   return `${amount.toFixed(2)} ${currency}`;
+}
+
+function formatOptionalTime(value: string | undefined): string {
+  return value ? formatTimeWithAge(value) : 'Unknown';
+}
+
+function formatOptionalDuration(seconds: number | undefined): string {
+  return seconds === undefined ? 'Unknown' : formatDuration(seconds);
 }
 
 function formatListingDebug(listing: Listing | undefined, rank: number | null): string[] {
@@ -183,12 +194,17 @@ function normalizeListingCurrency(listing: Listing, targetCurrency: ReturnType<t
 
 async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<string[]> {
   const settings = getUserAlertSettings(chase.userId);
+  const destination = settings.shippingCountry ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode } : undefined;
+  const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
   const listings = await searchEbayListings(
     chase,
-    settings.shippingCountry ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode } : undefined
+    destination,
+    alertEbaySearchOptions(chase, settings.alertCurrency)
   );
   const sourceIndex = listings.findIndex((listing) => listingMatchesItemId(listing, itemId));
   const listing = sourceIndex >= 0 ? listings[sourceIndex] : undefined;
+  const observation = getSourceObservationForItem(chase.id, itemId);
+  const sentAlert = getSentAlertForItem(chase.id, itemId);
 
   const lines = [
     `**Chase:** ${chase.cardName}`,
@@ -196,6 +212,13 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
     `**User ID:** ${chase.userId}`,
     `**Settings:** min score ${settings.minScore}, cooldown ${CHASE_ALERT_COOLDOWN_MINUTES}m, max/hour ${settings.maxAlertsPerHour}, currency ${settings.alertCurrency}`,
     `**Fetched Listings:** ${listings.length}`,
+    `**Observed Before:** ${observation ? 'Yes' : 'No'}`,
+    `**First Seen By Source:** ${formatOptionalTime(observation?.firstSeenAt)}`,
+    `**Last Seen By Source:** ${formatOptionalTime(observation?.lastSeenAt)}`,
+    `**Last Source Rank:** ${observation?.sourceRank ?? 'Unknown'}`,
+    `**Already Sent At:** ${formatOptionalTime(sentAlert?.sentAt)}`,
+    `**Stored Alert Latency:** ${formatOptionalDuration(sentAlert?.alertLatencySeconds)}`,
+    `**Stored Posted At:** ${formatOptionalTime(sentAlert?.listingPostedAt)}`,
     ...formatListingDebug(listing, sourceIndex >= 0 ? sourceIndex + 1 : null)
   ];
 
@@ -205,7 +228,6 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
     return lines;
   }
 
-  const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
   const normalizedListing = normalizeListingCurrency(listing, targetCurrency);
   const match = matchChaseToListing(chase, normalizedListing);
   const recentForChase = countChaseAlertsWithinMinutes(chase.userId, chase.id, CHASE_ALERT_COOLDOWN_MINUTES);

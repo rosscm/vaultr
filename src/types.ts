@@ -80,4 +80,9 @@ export type SentAlert = {
   listingCurrency?: string;
   listingUrl?: string;
   matchScore?: number;
+  listingPostedAt?: string;
+  alertLatencySeconds?: number;
+  sourceFirstSeenAt?: string;
+  sourceLastSeenAt?: string;
+  sourceRank?: number;
 };

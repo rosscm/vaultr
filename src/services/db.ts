@@ -42,6 +42,28 @@ db.exec(`
     price_delta REAL,
     listing_url TEXT,
     match_score INTEGER,
+    listing_posted_at TEXT,
+    alert_latency_seconds INTEGER,
+    source_first_seen_at TEXT,
+    source_last_seen_at TEXT,
+    source_rank INTEGER,
+    PRIMARY KEY (chase_id, listing_id, source)
+  );
+
+  CREATE TABLE IF NOT EXISTS source_observations (
+    chase_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    listing_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_mode TEXT NOT NULL,
+    query_key TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    source_rank INTEGER,
+    listing_title TEXT,
+    listing_price REAL,
+    listing_currency TEXT,
+    listing_posted_at TEXT,
     PRIMARY KEY (chase_id, listing_id, source)
   );
 
@@ -358,6 +380,31 @@ try {
   // Column already exists on upgraded databases.
 }
 try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN listing_posted_at TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN alert_latency_seconds INTEGER;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN source_first_seen_at TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN source_last_seen_at TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE sent_alerts ADD COLUMN source_rank INTEGER;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
   db.exec(`ALTER TABLE user_alert_settings ADD COLUMN alert_currency TEXT NOT NULL DEFAULT 'USD';`);
 } catch {
   // Column already exists on upgraded databases.
@@ -495,6 +542,11 @@ try {
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_user_time ON sent_alerts(user_id, sent_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_guild_time ON sent_alerts(guild_id, sent_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_listing_lookup ON sent_alerts(chase_id, listing_id, source);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_latency ON sent_alerts(alert_latency_seconds);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_user_seen ON source_observations(user_id, last_seen_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_listing ON source_observations(listing_id, source);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_last_seen ON source_observations(last_seen_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_ignored_listing_fingerprints_user_chase ON ignored_listing_fingerprints(user_id, chase_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_guild_started_users_guild_time ON guild_started_users(guild_id, started_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_weekly_reflection_posts_user_week ON user_weekly_reflection_posts(user_id, week_key);`);

@@ -15,10 +15,13 @@ import {
   listUsersWithChases,
   listAllChases,
   isListingFingerprintIgnored,
+  getSourceObservationForItem,
   markPostedGuildDailyStats,
   markPostedUserWeeklyReflection,
   markChasesPollChecked,
-  markAlertSentWithDetails
+  markAlertSentWithDetails,
+  pruneSourceObservations,
+  recordSourceObservations
 } from './chase-store.js';
 import { enrichEbayListingDetails, searchEbayListings, type ShippingDestination } from './ebay.js';
 import { searchTrustedShopifyListings } from './shopify.js';
@@ -115,6 +118,18 @@ function formatPostedAge(postedAt: string | undefined): string {
   if (minutes < 60) return `${minutes}m ago`;
   if (hours < 24) return `${hours}h ago`;
   return `${days}d ago`;
+}
+
+function alertLatencySeconds(listingPostedAt: string | undefined, sentAtMs = Date.now()): number | undefined {
+  if (!listingPostedAt) return undefined;
+  const postedAtMs = new Date(listingPostedAt).getTime();
+  if (!Number.isFinite(postedAtMs)) return undefined;
+  return Math.max(0, Math.floor((sentAtMs - postedAtMs) / 1000));
+}
+
+function sourceObservationRetentionDays(): number {
+  const value = Number(process.env.SOURCE_OBSERVATION_RETENTION_DAYS ?? '14');
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 14;
 }
 
 function postedAgeSeconds(postedAt: string | undefined): number | null {
@@ -508,8 +523,10 @@ function sourceModeIncludesTrustedShops(sourceMode: string): boolean {
   return sourceMode === 'SHOPIFY' || sourceMode === 'EBAY_SHOPIFY';
 }
 
-export function alertEbaySearchOptions(): { enrichMissingShipping: false } {
-  return { enrichMissingShipping: false };
+export function alertEbaySearchOptions(chase?: Chase, alertCurrency?: string): { enrichMissingShipping: false; maxPrice?: number; maxPriceCurrency?: string } {
+  const maxPrice = Number(chase?.maxPrice);
+  if (!Number.isFinite(maxPrice) || maxPrice <= 0) return { enrichMissingShipping: false };
+  return { enrichMissingShipping: false, maxPrice, maxPriceCurrency: normalizeSupportedCurrency(alertCurrency) };
 }
 
 export function listingSourceFailureReason(error: unknown): string {
@@ -519,7 +536,12 @@ export function listingSourceFailureReason(error: unknown): string {
   return 'Source error';
 }
 
-async function fetchListingsWithRetry(chase: Chase, sourceMode: string, destination?: ShippingDestination): Promise<Listing[]> {
+async function fetchListingsWithRetry(
+  chase: Chase,
+  sourceMode: string,
+  destination?: ShippingDestination,
+  alertCurrency?: string
+): Promise<Listing[]> {
   const maxRequestsPerMinute = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '6');
   const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '900');
   const attempts = 2;
@@ -543,7 +565,7 @@ async function fetchListingsWithRetry(chase: Chase, sourceMode: string, destinat
       }
       markSourceCall(nowMs);
       const [ebayListings, shopifyListings] = await Promise.all([
-        withTimeout(searchEbayListings(chase, destination, alertEbaySearchOptions()), 30000, 'Listing source timeout'),
+        withTimeout(searchEbayListings(chase, destination, alertEbaySearchOptions(chase, alertCurrency)), 30000, 'Listing source timeout'),
         shopifyListingsPromise
       ]);
       markSourceSuccessNow();
@@ -754,7 +776,8 @@ async function runPoll(client: Client): Promise<void> {
       listings = await fetchListingsWithRetry(
         representative,
         group.sourceMode,
-        shippingDestinationFromSettings(representativeSettings)
+        shippingDestinationFromSettings(representativeSettings),
+        representativeSettings.alertCurrency
       );
       const didFetchListings =
         group.sourceMode === 'MOCK' || sourceModeIncludesTrustedShops(group.sourceMode) || sourceCallTimestamps.length > sourceCallsBefore;
@@ -762,6 +785,16 @@ async function runPoll(client: Client): Promise<void> {
         const checkedAtIso = new Date().toISOString();
         lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
         markChasesPollChecked(group.members.map(({ chase }) => chase.id), checkedAtIso);
+        for (const { chase } of group.members) {
+          recordSourceObservations({
+            chaseId: chase.id,
+            userId: chase.userId,
+            sourceMode: group.sourceMode,
+            queryKey,
+            listings,
+            observedAt: checkedAtIso
+          });
+        }
         markCoverageChecked(coverage, group);
       } else {
         const reason = group.sourceMode !== 'MOCK' && Date.now() < backoffUntilMs ? 'Backoff' : 'Rate limit';
@@ -970,6 +1003,8 @@ async function runPoll(client: Client): Promise<void> {
           10000,
           'DM send timeout'
         );
+        const sourceObservation = getSourceObservationForItem(chase.id, listing.listingId);
+        const sentAtMs = Date.now();
         markAlertSentWithDetails(chase.id, chase.userId, listing.listingId, listing.source, {
           guildId: chase.guildId,
           listingTitle: listing.title,
@@ -981,7 +1016,12 @@ async function runPoll(client: Client): Promise<void> {
               ? Number((chase.maxPrice - comparablePrice(normalizedListing.price, normalizedListing.shippingCost)).toFixed(2))
               : undefined,
           listingUrl: listing.url,
-          matchScore: match.score
+          matchScore: match.score,
+          listingPostedAt: listing.postedAt,
+          alertLatencySeconds: alertLatencySeconds(listing.postedAt, sentAtMs),
+          sourceFirstSeenAt: sourceObservation?.firstSeenAt,
+          sourceLastSeenAt: sourceObservation?.lastSeenAt,
+          sourceRank: sourceObservation?.sourceRank
         });
         if (listingFingerprint) markFingerprintSeen(chase.id, listingFingerprint, nowMs);
         sentForChaseThisPoll += 1;
@@ -995,6 +1035,7 @@ async function runPoll(client: Client): Promise<void> {
   }
 
   markPollerRunSuccess(Date.now() - startedAt);
+  pruneSourceObservations(sourceObservationRetentionDays());
 }
 
 function currentDayKeyLocal(now = new Date()): string {

@@ -180,6 +180,14 @@ describe('alert eBay search options', () => {
     expect(alertEbaySearchOptions()).toEqual({ enrichMissingShipping: false });
   });
 
+  it('passes chase max price into poller eBay searches when available', () => {
+    expect(alertEbaySearchOptions({ maxPrice: 550 } as never, 'CAD')).toEqual({
+      enrichMissingShipping: false,
+      maxPrice: 550,
+      maxPriceCurrency: 'CAD'
+    });
+  });
+
   it('classifies source failures for poller coverage without failing the whole run', () => {
     expect(listingSourceFailureReason(new Error('Listing source timeout'))).toBe('Source timeout');
     expect(listingSourceFailureReason(new Error('eBay rate limit exceeded: 429'))).toBe('Rate limit');

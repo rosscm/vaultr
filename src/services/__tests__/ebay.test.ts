@@ -65,7 +65,7 @@ describe('searchEbayListings Browse shipping', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('uses Browse item details for country-only destination shipping instead of Browse search defaults', async () => {
+  it('uses the destination marketplace and context for country-only destination searches', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
@@ -101,7 +101,8 @@ describe('searchEbayListings Browse shipping', () => {
     const itemDetailsUrl = String(fetchMock.mock.calls[2]?.[0]);
     const itemDetailsHeaders = fetchMock.mock.calls[2]?.[1]?.headers as Record<string, string>;
 
-    expect(browseHeaders['X-EBAY-C-ENDUSERCTX']).toBeUndefined();
+    expect(browseHeaders['X-EBAY-C-MARKETPLACE-ID']).toBe('EBAY_CA');
+    expect(browseHeaders['X-EBAY-C-ENDUSERCTX']).toBe('contextualLocation=country=CA');
     expect(itemDetailsUrl).toContain('/buy/browse/v1/item/v1%7C1234567890%7C0');
     expect(itemDetailsHeaders['X-EBAY-C-ENDUSERCTX']).toBe('contextualLocation=country=CA');
     expect(listings[0]?.shippingCost).toBe(18.5);
@@ -177,6 +178,41 @@ describe('searchEbayListings Browse shipping', () => {
     await expect(searchEbayListings(baseChase())).rejects.toThrow(/rate limit/i);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('adds a max price filter to Browse searches when alert options include a ceiling', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          itemSummaries: [
+            {
+              itemId: 'v1|317978401186|0',
+              title: 'Umbreon ex SAR 217/187 Terastal Festival sv8a 2024 Pokemon Card Japanese',
+              itemWebUrl: 'https://example.com/item/317978401186',
+              price: { value: '536.37', currency: 'CAD' },
+              shippingOptions: [{ shippingCost: { value: '0.00', currency: 'CAD' } }],
+              itemLocation: { country: 'CA' },
+              condition: 'Ungraded',
+              buyingOptions: ['FIXED_PRICE']
+            }
+          ]
+        })
+      );
+
+    const { searchEbayListings } = await import('../ebay.js');
+    const listings = await searchEbayListings({ ...baseChase(), cardName: 'Umbreon 217/187', maxPrice: 550 }, { country: 'CA' }, {
+      enrichMissingShipping: false,
+      maxPrice: 550,
+      maxPriceCurrency: 'CAD'
+    });
+    const url = String(fetchMock.mock.calls[1]?.[0]);
+    const browseHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>;
+
+    expect(decodeURIComponent(url)).toContain('filter=price:[..550.00],priceCurrency:CAD');
+    expect(browseHeaders['X-EBAY-C-MARKETPLACE-ID']).toBe('EBAY_CA');
+    expect(listings[0]?.listingId).toBe('v1|317978401186|0');
   });
 
   it('reuses recent successful eBay searches from cache', async () => {
