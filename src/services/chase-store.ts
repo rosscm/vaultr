@@ -1501,6 +1501,11 @@ export function countUserAlertsInLastHour(userId: string): number {
   return Number(row.count);
 }
 
+export function countUserAlertsSince(userId: string, sinceIso: string): number {
+  const row = countRecentAlertsByUserStmt.get(userId, sinceIso) as { count: number };
+  return Number(row.count);
+}
+
 export function countChaseAlertsWithinMinutes(userId: string, chaseId: string, minutes: number): number {
   const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString();
   const row = countRecentAlertsByChaseStmt.get(userId, chaseId, cutoff) as { count: number };

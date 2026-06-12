@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { alertsRecent } from './alerts-recent.js';
 import { alertsSettings } from './alerts-settings.js';
+import { alertsStatus } from './alerts-status.js';
 import { previewAlert } from './alerts-preview.js';
 
 const SHIPPING_COUNTRY_CHOICES = [
@@ -85,6 +86,11 @@ export const alerts = {
     )
     .addSubcommand((sub) =>
       sub
+        .setName('status')
+        .setDescription('Check that Vaultr is watching your active chases')
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName('preview')
         .setDescription('Preview the DM layout for a chase alert')
     ),
@@ -92,6 +98,7 @@ export const alerts = {
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === 'settings') return alertsSettings.execute(interaction);
     if (subcommand === 'recent') return alertsRecent.execute(interaction);
+    if (subcommand === 'status') return alertsStatus.execute(interaction);
     if (subcommand === 'preview') return previewAlert.execute(interaction);
   }
 };

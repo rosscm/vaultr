@@ -17,4 +17,13 @@ describe('alerts command', () => {
 
     expect(recent?.options ?? []).toEqual([]);
   });
+
+  it('exposes user-facing watch status', () => {
+    const status = alerts.data
+      .toJSON()
+      .options?.find((option: any) => option.name === 'status') as any;
+
+    expect(status?.description).toContain('watching');
+    expect(status?.options ?? []).toEqual([]);
+  });
 });
