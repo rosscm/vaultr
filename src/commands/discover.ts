@@ -86,8 +86,33 @@ type DiscoveryActionItem = {
 type DiscoveryActionRow = ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>;
 type DiscoveryPick = NonNullable<ReturnType<typeof getDiscoveryVaultAction>>;
 type DiscoveryFeedbackAction = 'MORE_LIKE_THIS' | 'NOT_FOR_ME';
+export type DiscoveryRejectedFeedback = ReturnType<typeof listRecentUserDiscoveryFeedback>[number];
+export type DiscoveryNegativeProfile = {
+  subjectTokens: Set<string>;
+  weakTraitCounts: Map<string, number>;
+  protectedTraits: Set<string>;
+};
+type DiscoveryShelfPayload = {
+  content?: string;
+  headerEmbeds?: EmbedBuilder[];
+  embeds: EmbedBuilder[];
+  components: DiscoveryActionRow[];
+  candidateNames: string[];
+  hasFullDiscovery: boolean;
+};
+type DiscoveryProfileConfidenceTier = 'SEED' | 'EMERGING' | 'USABLE' | 'STRONG';
+type DiscoveryProfileConfidence = {
+  tier: DiscoveryProfileConfidenceTier;
+  signalCount: number;
+  subjectCount: number;
+  releaseTypeCount: number;
+  eraCount: number;
+  minShelfSize: number;
+  maxShelfSize: number;
+};
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
+const MIN_STRONG_PROFILE_CHASES = 10;
 const VISIBLE_DISCOVERY_COUNT = 7;
 const DISCOVERY_SHELF_PAGE_SIZE = 10;
 const DISCOVERY_WEEKLY_DROP_SIZE = Math.max(DISCOVERY_SHELF_PAGE_SIZE, Math.min(20, Math.floor(Number(process.env.DISCOVERY_WEEKLY_DROP_SIZE ?? '20'))));
@@ -221,18 +246,18 @@ function learningSignal(
 ): string {
   const rememberedTasteCount = Math.max(0, tasteProfileChases.length - activeChases.length);
   if (activeChases.length === 0 && rememberedTasteCount > 0) {
-    return `Discovery is remembering cards you interacted with; active chases will sharpen the current hunt`;
+    return `remembered taste; add active chases to sharpen it`;
   }
   if (activeChases.length === 0) return 'add a few chases to shape Discovery';
-  const promoSignal = hasPromoLeaningDiscoveryProfile(tasteProfileChases) ? '; promo and special-release signal emerging' : '';
-  const memoryNote = rememberedTasteCount > 0 ? ' plus remembered interactions' : '';
+  const promoSignal = hasPromoLeaningDiscoveryProfile(tasteProfileChases) ? '; promos emerging' : '';
+  const memoryNote = rememberedTasteCount > 0 ? ' + taste memory' : '';
   if (hasLearnedProfile) {
     const signals = tasteSignalsFromChases(tasteProfileChases, lane).filter((signal) => signal !== lane);
     const signalNote = signals.length > 0 ? `; ${signals.join(', ')}` : '';
-    return `Discovery is blending your active chases${memoryNote} with recent finds${signalNote}`;
+    return `active chases${memoryNote}${signalNote}`;
   }
-  if (hasFullDiscovery) return `your Discovery profile is taking shape from active chases${memoryNote}${promoSignal}`;
-  return `early read from your active chases${memoryNote}${promoSignal}`;
+  if (hasFullDiscovery) return `taking shape from active chases${memoryNote}${promoSignal}`;
+  return `early read from active chases${memoryNote}${promoSignal}`;
 }
 
 export function discoveryVisibleCountForPlan(tier: PlanTier): number {
@@ -1164,22 +1189,38 @@ function hasReliableMarketEstimate(candidate: DiscoveryCandidate): boolean {
   return marketEvidenceRank(candidate) >= 2;
 }
 
-export function marketReadyShelfCandidates(candidates: DiscoveryCandidate[], hasFullDiscovery: boolean, hasLearnedProfile = false): DiscoveryCandidate[] {
-  if (!hasFullDiscovery || candidates.length <= DISCOVERY_SHELF_PAGE_SIZE) return candidates;
-  if (hasLearnedProfile && candidates.length >= DISCOVERY_WEEKLY_DROP_SIZE) return candidates.slice(0, DISCOVERY_WEEKLY_DROP_SIZE);
-  const readyCandidates = candidates.filter(hasReliableMarketEstimate);
-  if (readyCandidates.length < DISCOVERY_SHELF_PAGE_SIZE) return candidates.slice(0, DISCOVERY_SHELF_PAGE_SIZE);
-  const completePages = Math.floor(readyCandidates.length / DISCOVERY_SHELF_PAGE_SIZE);
-  const remainder = readyCandidates.length % DISCOVERY_SHELF_PAGE_SIZE;
-  const visibleCount = completePages * DISCOVERY_SHELF_PAGE_SIZE + (remainder >= MIN_READY_SHELF_PAGE_SIZE ? remainder : 0);
-  return readyCandidates.slice(0, Math.max(DISCOVERY_SHELF_PAGE_SIZE, visibleCount));
+function pagePolishedReadyCount(readyCount: number, maxShelfSize: number): number {
+  const cappedReadyCount = Math.min(readyCount, maxShelfSize);
+  if (cappedReadyCount <= DISCOVERY_SHELF_PAGE_SIZE) return cappedReadyCount;
+  const completePages = Math.floor(cappedReadyCount / DISCOVERY_SHELF_PAGE_SIZE);
+  const remainder = cappedReadyCount % DISCOVERY_SHELF_PAGE_SIZE;
+  if (remainder === 0) return cappedReadyCount;
+  return completePages * DISCOVERY_SHELF_PAGE_SIZE + (remainder >= MIN_READY_SHELF_PAGE_SIZE ? remainder : 0);
 }
 
-export function orderCandidatesForMarketConfidence(candidates: DiscoveryCandidate[], chases: Chase[] = []): DiscoveryCandidate[] {
+export function marketReadyShelfCandidates(candidates: DiscoveryCandidate[], hasFullDiscovery: boolean, profileConfidence: DiscoveryProfileConfidence = discoveryProfileConfidence([])): DiscoveryCandidate[] {
+  if (!hasFullDiscovery || candidates.length <= DISCOVERY_SHELF_PAGE_SIZE) return candidates;
+  if (profileConfidence.tier === 'STRONG' && candidates.length >= DISCOVERY_WEEKLY_DROP_SIZE) return candidates.slice(0, DISCOVERY_WEEKLY_DROP_SIZE);
+  const readyCandidates = candidates.filter(hasReliableMarketEstimate);
+  const visibleReadyCount = pagePolishedReadyCount(readyCandidates.length, profileConfidence.maxShelfSize);
+  const targetCount = Math.min(profileConfidence.maxShelfSize, candidates.length, Math.max(profileConfidence.minShelfSize, visibleReadyCount));
+  const selected = readyCandidates.slice(0, Math.min(visibleReadyCount, targetCount));
+  const selectedNameKeys = new Set(selected.map((candidate) => discoveryNameKey(candidate.suggestion.name)));
+  for (const candidate of candidates) {
+    if (selected.length >= targetCount) break;
+    const nameKey = discoveryNameKey(candidate.suggestion.name);
+    if (selectedNameKeys.has(nameKey)) continue;
+    selected.push(candidate);
+    selectedNameKeys.add(nameKey);
+  }
+  return selected;
+}
+
+export function orderCandidatesForMarketConfidence(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {
   return [...candidates].sort((left, right) => {
     const evidenceDelta = marketEvidenceRank(right) - marketEvidenceRank(left);
     if (evidenceDelta !== 0) return evidenceDelta;
-    const sourceDelta = sourcePreferenceRankScore(right, chases) - sourcePreferenceRankScore(left, chases);
+    const sourceDelta = sourcePreferenceRankScore(right, chases, negativeProfile) - sourcePreferenceRankScore(left, chases, negativeProfile);
     if (sourceDelta !== 0) return sourceDelta;
     return curiosityRankScore(right) - curiosityRankScore(left);
   });
@@ -1195,7 +1236,7 @@ function curiosityRankScore(candidate: DiscoveryCandidate): number {
   return tasteOrderScore + curiosity * 3 + marketSweetSpot + evidenceDepth;
 }
 
-function sourcePreferenceRankScore(candidate: DiscoveryCandidate, chases: Chase[] = []): number {
+function sourcePreferenceRankScore(candidate: DiscoveryCandidate, chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): number {
   const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName ?? '';
   const suggestionText = [candidate.suggestion.name, candidate.suggestion.lane, candidate.suggestion.evidenceSearchTerm, ...(candidate.suggestion.requiredEvidenceTokens ?? [])].join(' ');
   const japaneseAffinity = japaneseSignalWeightRatio(chases);
@@ -1205,7 +1246,27 @@ function sourcePreferenceRankScore(candidate: DiscoveryCandidate, chases: Chase[
   const japaneseBoost = hasJapaneseSource ? Math.round(80 + japaneseAffinity * 80 + (priorityJapanese ? 80 : 0)) : 0;
   const blackStarPenalty = (japaneseAffinity >= 0.35 || priorityJapanese) && isEnglishBlackStar ? 90 : 0;
   const historyFallbackPenalty = isConcreteHistoryFallbackCandidate(candidate) ? 160 : 0;
-  return japaneseBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty - historyFallbackPenalty;
+  return japaneseBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty - historyFallbackPenalty - negativeProfileRankPenalty(candidate, negativeProfile);
+}
+
+function hasVmaxGxFormatSignal(value: string): boolean {
+  return /\b(?:vmax|tag team|gx)\b/i.test(value);
+}
+
+function profileHasVmaxGxAffinity(chases: Chase[] = []): boolean {
+  return chases.some((chase) => hasVmaxGxFormatSignal([chase.cardName, chase.targetNote].filter(Boolean).join(' ')));
+}
+
+function candidateNeedsVmaxGxAffinity(candidate: DiscoveryCandidate): boolean {
+  return hasVmaxGxFormatSignal(sourceCardText(candidate));
+}
+
+function preferProfileFormatAffinity(candidates: DiscoveryCandidate[], chases: Chase[], count: number): DiscoveryCandidate[] {
+  if (profileHasVmaxGxAffinity(chases)) return candidates;
+  const preferred = candidates.filter((candidate) => !candidateNeedsVmaxGxAffinity(candidate));
+  if (preferred.length >= count) return preferred;
+  const preferredNameKeys = new Set(preferred.map((candidate) => discoveryNameKey(candidate.suggestion.name)));
+  return [...preferred, ...candidates.filter((candidate) => !preferredNameKeys.has(discoveryNameKey(candidate.suggestion.name)))];
 }
 
 function isConcreteHistoryFallbackCandidate(candidate: DiscoveryCandidate): boolean {
@@ -1218,6 +1279,94 @@ function profileSubjectTokens(value: string): string[] {
     .split(/\s+/)
     .map((token) => token.trim())
     .filter((token) => token.length >= 3 && !PROFILE_SUBJECT_STOP_WORDS.has(token) && !/^\d+$/.test(token));
+}
+
+function profileReleaseTypeKeys(value: string): string[] {
+  const text = normalize(value);
+  const keys: string[] = [];
+  if (/\bpromo|black star|special delivery|futsal|celebrations|classic collection\b/.test(text)) keys.push('promo');
+  if (/\bjapanese|tcgdex|coro\s?coro|vending|masaki|munch|poncho\b/.test(text)) keys.push('japanese');
+  if (/\billustration|art rare|gallery|full art|sar|\bar\b/.test(text)) keys.push('art');
+  if (/\btag team\b|\bgx\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(text)) keys.push('format');
+  if (/\bex\b/.test(text)) keys.push('ex');
+  return keys;
+}
+
+function profileEraKeys(value: string): string[] {
+  const text = normalize(value);
+  const keys: string[] = [];
+  if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(text)) keys.push('e-reader');
+  if (/\bbase set\b|\bteam rocket\b|\bgym heroes\b|\bgym challenge\b|\bneo\b|\bwizards\b/.test(text)) keys.push('wotc');
+  if (/\bxy\b|\bsm\b|\bswsh\b|\bsv\b|\bscarlet\b|\bviolet\b|\bsurging sparks\b|\bpaldean\b/.test(text)) keys.push('modern');
+  return keys;
+}
+
+function distinctProfileKeys(chases: Chase[], keyFn: (value: string) => string[]): Set<string> {
+  const keys = new Set<string>();
+  for (const chase of chases) {
+    const text = [chase.cardName, chase.targetNote].filter(Boolean).join(' ');
+    for (const key of keyFn(text)) keys.add(key);
+  }
+  return keys;
+}
+
+function profileTraitKeys(value: string): string[] {
+  return [...profileReleaseTypeKeys(value), ...profileEraKeys(value)];
+}
+
+function candidateTraitKeys(candidate: DiscoveryCandidate): string[] {
+  const cardText = sourceCardText(candidate);
+  return [...profileTraitKeys(cardText), discoveryCandidateTrailLabel(candidate)];
+}
+
+export function discoveryNegativeProfile(rejectedFeedback: DiscoveryRejectedFeedback[], positiveChases: Chase[]): DiscoveryNegativeProfile {
+  const subjectTokens = new Set<string>();
+  const weakTraitCounts = new Map<string, number>();
+  const protectedTraits = distinctProfileKeys(positiveChases, profileTraitKeys);
+  for (const feedback of rejectedFeedback) {
+    for (const token of profileSubjectTokens(feedback.suggestionName).slice(0, 2)) subjectTokens.add(token);
+    for (const trait of [...profileTraitKeys([feedback.suggestionName, feedback.lane].join(' ')), discoveryTrailLabel(feedback.lane)]) {
+      weakTraitCounts.set(trait, (weakTraitCounts.get(trait) ?? 0) + Math.max(1, feedback.interactionCount));
+    }
+  }
+  return { subjectTokens, weakTraitCounts, protectedTraits };
+}
+
+function negativeProfileRankPenalty(candidate: DiscoveryCandidate, negativeProfile?: DiscoveryNegativeProfile): number {
+  if (!negativeProfile) return 0;
+  const candidateSubjects = new Set(candidateSubjectBalanceKeys(candidate));
+  let penalty = 0;
+  for (const token of negativeProfile.subjectTokens) {
+    if (candidateSubjects.has(token)) penalty += 90;
+  }
+  for (const trait of candidateTraitKeys(candidate)) {
+    const count = negativeProfile.weakTraitCounts.get(trait) ?? 0;
+    if (count < 2 || negativeProfile.protectedTraits.has(trait)) continue;
+    penalty += Math.min(36, count * 12);
+  }
+  return penalty;
+}
+
+export function discoveryProfileConfidence(chases: Chase[]): DiscoveryProfileConfidence {
+  const signalCount = chases.length;
+  const subjectCount = distinctProfileKeys(chases, (value) => profileSubjectTokens(value).slice(0, 2)).size;
+  const releaseTypeCount = distinctProfileKeys(chases, profileReleaseTypeKeys).size;
+  const eraCount = distinctProfileKeys(chases, profileEraKeys).size;
+  const diversityScore = [subjectCount >= 2, releaseTypeCount >= 2, eraCount >= 2].filter(Boolean).length;
+  if (signalCount >= MIN_STRONG_PROFILE_CHASES && diversityScore >= 2) {
+    return { tier: 'STRONG', signalCount, subjectCount, releaseTypeCount, eraCount, minShelfSize: DISCOVERY_WEEKLY_DROP_SIZE, maxShelfSize: DISCOVERY_WEEKLY_DROP_SIZE };
+  }
+  if (signalCount >= MIN_LEARNED_PROFILE_CHASES) return { tier: 'USABLE', signalCount, subjectCount, releaseTypeCount, eraCount, minShelfSize: 14, maxShelfSize: DISCOVERY_WEEKLY_DROP_SIZE };
+  if (signalCount >= 3) return { tier: 'EMERGING', signalCount, subjectCount, releaseTypeCount, eraCount, minShelfSize: DISCOVERY_SHELF_PAGE_SIZE, maxShelfSize: 14 };
+  return { tier: 'SEED', signalCount, subjectCount, releaseTypeCount, eraCount, minShelfSize: 5, maxShelfSize: DISCOVERY_SHELF_PAGE_SIZE };
+}
+
+export function discoveryShelfTighteningNote(): string {
+  return '🔮 **Reading:** a smaller shelf for now while Vaultr continues to learn from your chases, feedback, and collector patterns';
+}
+
+export function shouldShowDiscoveryShelfTighteningNote(hasFullDiscovery: boolean, shelfSize: number, proShelfSize = weeklyDiscoveryShelfSizeForPlan('PRO')): boolean {
+  return hasFullDiscovery && shelfSize < proShelfSize - 1;
 }
 
 function subjectProfileRankScore(candidate: DiscoveryCandidate, chases: Chase[] = []): number {
@@ -1247,9 +1396,9 @@ function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]): DiscoveryCan
   return [...candidates].sort((left, right) => curiosityRankScore(right) - curiosityRankScore(left));
 }
 
-function rankDiscoveryCandidatesForProfile(candidates: DiscoveryCandidate[], chases: Chase[] = []): DiscoveryCandidate[] {
+function rankDiscoveryCandidatesForProfile(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {
   return [...candidates].sort((left, right) => {
-    const sourceDelta = sourcePreferenceRankScore(right, chases) - sourcePreferenceRankScore(left, chases);
+    const sourceDelta = sourcePreferenceRankScore(right, chases, negativeProfile) - sourcePreferenceRankScore(left, chases, negativeProfile);
     return sourceDelta || curiosityRankScore(right) - curiosityRankScore(left);
   });
 }
@@ -1376,6 +1525,24 @@ export function backfillSourceBackedDiscoverySuggestions(sourceBackedSuggestions
   return mergedSuggestions;
 }
 
+export function backfillDiscoverySuggestions(sourceBackedSuggestions: DiscoverySuggestion[], catalogSuggestions: DiscoverySuggestion[], fallbackSuggestions: DiscoverySuggestion[], targetCount: number): DiscoverySuggestion[] {
+  const mergedSuggestions = [...sourceBackedSuggestions];
+  const seenNameKeys = new Set(mergedSuggestions.map((suggestion) => discoveryNameKey(suggestion.name)));
+  const pushSuggestions = (suggestions: DiscoverySuggestion[], requireConcrete: boolean): void => {
+    for (const suggestion of suggestions) {
+      if (mergedSuggestions.length >= targetCount) break;
+      if (requireConcrete && !isConcreteDiscoverySuggestion(suggestion)) continue;
+      const nameKey = discoveryNameKey(suggestion.name);
+      if (seenNameKeys.has(nameKey)) continue;
+      mergedSuggestions.push(suggestion);
+      seenNameKeys.add(nameKey);
+    }
+  };
+  pushSuggestions(catalogSuggestions, false);
+  pushSuggestions(fallbackSuggestions, true);
+  return mergedSuggestions;
+}
+
 function discoveryVisualTone(lane: string): { icon: string; color: number; path: string } {
   const normalizedLane = normalize(lane);
   if (/japanese|vending|oddit/.test(normalizedLane)) return { icon: '🗾', color: DISCOVERY_LANE_COLOR, path: 'Hidden release path' };
@@ -1384,6 +1551,36 @@ function discoveryVisualTone(lane: string): { icon: string; color: number; path:
   if (/gallery|character/.test(normalizedLane)) return { icon: '◆', color: DISCOVERY_LANE_COLOR, path: 'Character gallery' };
   if (/mythical|mew/.test(normalizedLane)) return { icon: '✧', color: DISCOVERY_LANE_COLOR, path: 'Mythical path' };
   return { icon: '◇', color: DISCOVERY_LANE_COLOR, path: 'Discovery path' };
+}
+
+function discoveryPathThreadSummary(pathLabels: string[]): string {
+  const labels = uniqueValuesPreservingOrder(pathLabels.filter(Boolean));
+  if (labels.length === 0) return 'No fresh Discovery threads right now';
+  const explain = (label: string): string => {
+    if (label === 'E-Reader Era Trail') return 'E-reader era';
+    if (label === 'Collector Compass') return 'Profile-adjacent picks';
+    if (label === 'Japanese Collector Trail') return 'Japanese variants';
+    if (label === 'Vintage Era Trail') return 'Vintage binder era';
+    if (label === 'Special Release Trail') return 'Event and limited drops';
+    if (label === 'Promo Trail') return 'Promo releases';
+    if (label === 'Artwork Trail') return 'Artwork-led picks';
+    if (label === 'Format Trail') return 'Format threads';
+    if (label === 'Value Watch') return 'Market-aware picks';
+    return label;
+  };
+  return labels.map(explain).join(', ');
+}
+
+export function compactDiscoveryPathSummary(pathLabels: string[]): string {
+  return discoveryPathThreadSummary(pathLabels);
+}
+
+function discoveryShelfHeaderEmbed(title: string, lines: string[]): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(lines.join('\n'))
+    .setColor(DISCOVERY_OVERVIEW_COLOR)
+    .setFooter({ text: 'Vaultr • Weekly Shelf' });
 }
 
 function sourceSetLabel(candidate: DiscoveryCandidate): string | undefined {
@@ -1619,10 +1816,11 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
   return selected;
 }
 
-export function selectVisibleCandidates(candidates: DiscoveryCandidate[], chases: Chase[] = []): DiscoveryCandidate[] {
-  const strongRawData = rankDiscoveryCandidatesForProfile(candidates.filter(hasEnoughRawMarketData), chases);
-  const partialRawData = rankDiscoveryCandidatesForProfile(candidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases);
-  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(candidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases);
+export function selectVisibleCandidates(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {
+  const profileAlignedCandidates = preferProfileFormatAffinity(candidates, chases, VISIBLE_DISCOVERY_COUNT);
+  const strongRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter(hasEnoughRawMarketData), chases, negativeProfile);
+  const partialRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases, negativeProfile);
+  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases, negativeProfile);
   const strongSelection = takeDistinctThemes(strongRawData, chases);
   if (strongSelection.length >= VISIBLE_DISCOVERY_COUNT) return strongSelection;
   const selectedNameKeys = new Set(strongSelection.map((candidate) => discoveryNameKey(candidate.suggestion.name)));
@@ -1630,10 +1828,11 @@ export function selectVisibleCandidates(candidates: DiscoveryCandidate[], chases
   return takeDistinctThemes([...strongSelection, ...remainingCandidates], chases);
 }
 
-export function selectVisibleCandidatesForCount(candidates: DiscoveryCandidate[], chases: Chase[] = [], count = VISIBLE_DISCOVERY_COUNT): DiscoveryCandidate[] {
-  const strongRawData = rankDiscoveryCandidatesForProfile(candidates.filter(hasEnoughRawMarketData), chases);
-  const partialRawData = rankDiscoveryCandidatesForProfile(candidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases);
-  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(candidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases);
+export function selectVisibleCandidatesForCount(candidates: DiscoveryCandidate[], chases: Chase[] = [], count = VISIBLE_DISCOVERY_COUNT, negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {
+  const profileAlignedCandidates = preferProfileFormatAffinity(candidates, chases, count);
+  const strongRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter(hasEnoughRawMarketData), chases, negativeProfile);
+  const partialRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases, negativeProfile);
+  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases, negativeProfile);
   const strongSelection = takeDistinctThemes(strongRawData, chases, count);
   if (strongSelection.length >= count) return strongSelection;
   const selectedNameKeys = new Set(strongSelection.map((candidate) => discoveryNameKey(candidate.suggestion.name)));
@@ -1929,6 +2128,7 @@ async function discoverCandidatesForUser(
   settings: ReturnType<typeof getUserAlertSettings>;
   hasFullDiscovery: boolean;
   hasLearnedProfile: boolean;
+  profileConfidence: DiscoveryProfileConfidence;
   lane: string;
   candidates: DiscoveryCandidate[];
 }> {
@@ -1947,15 +2147,20 @@ async function discoverCandidatesForUser(
   const visibleCount = Math.min(count, weeklyDiscoveryShelfSizeForPlan(activeTier));
   const tasteMemoryChases = hasFullDiscovery ? listUserTasteMemoryChases(userId) : [];
   const tasteProfileChases = discoveryTasteProfileChases(chases, tasteMemoryChases, hasFullDiscovery);
-  const hasLearnedProfile = hasFullDiscovery && tasteProfileChases.length >= MIN_LEARNED_PROFILE_CHASES;
+  const profileConfidence = discoveryProfileConfidence(tasteProfileChases);
+  const hasLearnedProfile = hasFullDiscovery && (profileConfidence.tier === 'USABLE' || profileConfidence.tier === 'STRONG');
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const rejectedNames = recentlyRejected.map((item) => item.suggestionName);
+  const negativeProfile = discoveryNegativeProfile(recentlyRejected, tasteProfileChases);
   const recentlySeenNames = listRecentUserDiscoverySeenNames(userId);
   const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames, activeTier, visibleCount);
   const stateKey = discoveryStateKey(activeTier, visibleCount);
   const latestDrop = hasFullDiscovery && preferScheduledDrop ? getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY') : null;
   if (latestDrop && latestDrop.items.length > 0) {
-    const scheduledCandidates = candidatesFromScheduledDiscoveryDrop(latestDrop).slice(0, visibleCount);
+    const rejectedNameKeys = new Set(rejectedNames.map(discoveryNameKey));
+    const scheduledCandidates = candidatesFromScheduledDiscoveryDrop(latestDrop)
+      .filter((candidate) => !rejectedNameKeys.has(discoveryNameKey(candidate.suggestion.name)))
+      .slice(0, visibleCount);
     const scheduledMarketContext = {
       userId,
       activeChases: chases,
@@ -1969,7 +2174,8 @@ async function discoverCandidatesForUser(
       hydrateScheduledMarketInline
         ? await settlePendingDiscoveryMarketCandidates(await hydratePendingDiscoveryMarketCandidates(cachedScheduledCandidates, scheduledMarketContext), scheduledMarketContext)
         : cachedScheduledCandidates,
-      tasteProfileChases
+      tasteProfileChases,
+      negativeProfile
     );
     if (hydrateScheduledMarketInline && shouldSaveScheduledDrop && candidates.some(hasMarketSignal)) {
       saveWeeklyDiscoveryDrop(userId, candidates, settings.alertCurrency, latestDrop.sourceStateUpdatedAt);
@@ -1980,6 +2186,7 @@ async function discoverCandidatesForUser(
       settings,
       hasFullDiscovery,
       hasLearnedProfile,
+      profileConfidence,
       lane: 'weekly discovery',
       candidates
     };
@@ -1991,6 +2198,7 @@ async function discoverCandidatesForUser(
       settings,
       hasFullDiscovery,
       hasLearnedProfile,
+      profileConfidence,
       lane: 'weekly discovery',
       candidates: []
     };
@@ -2019,13 +2227,14 @@ async function discoverCandidatesForUser(
       marketContext
     );
     const sourceBackedFreshSuggestions = sourceBackedSuggestions.filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)));
-    const freshSourceBackedSuggestions = backfillSourceBackedDiscoverySuggestions(
+    const freshSourceBackedSuggestions = backfillDiscoverySuggestions(
       sourceBackedFreshSuggestions,
+      activeSafeSuggestions.filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name))),
       concreteFallbackSuggestions,
       discoverySelectionCount
     );
     const enriched = freshSourceBackedSuggestions.map((suggestion, index) => tasteOnlyCandidate(suggestion, index));
-    const rankedCandidates = selectVisibleCandidatesForCount(enriched, tasteProfileChases, discoverySelectionCount);
+    const rankedCandidates = selectVisibleCandidatesForCount(enriched, tasteProfileChases, discoverySelectionCount, negativeProfile);
     const persistedCandidates =
       persistedState?.profileFingerprint === profileFingerprint && persistedState.suggestionNames.length >= visibleCount
         ? orderCandidatesFromPersistedState(rankedCandidates, persistedState.suggestionNames, visibleCount, { hardExcludedNames: rejectedNames })
@@ -2040,7 +2249,7 @@ async function discoverCandidatesForUser(
     const marketCandidates = hasFullDiscovery && hydrateScheduledMarketInline
       ? await hydratePendingDiscoveryMarketCandidates(cacheCandidates, marketContext)
       : cacheCandidates;
-    let visibleCandidates = hasFullDiscovery && !persistedCandidates ? selectVisibleCandidatesForCount(marketCandidates, tasteProfileChases, visibleCount) : marketCandidates.slice(0, visibleCount);
+    let visibleCandidates = hasFullDiscovery && !persistedCandidates ? selectVisibleCandidatesForCount(marketCandidates, tasteProfileChases, visibleCount, negativeProfile) : marketCandidates.slice(0, visibleCount);
     if (hasFullDiscovery && hydrateScheduledMarketInline) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
     if (hasFullDiscovery && visibleCount >= VISIBLE_DISCOVERY_COUNT && visibleCandidates.length >= visibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
@@ -2063,77 +2272,75 @@ async function discoverCandidatesForUser(
     settings,
     hasFullDiscovery,
     hasLearnedProfile,
+    profileConfidence,
     lane,
     candidates
   };
 }
 
-function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>>, requestedPage = 0): {
-  content?: string;
-  embeds: EmbedBuilder[];
-  components: DiscoveryActionRow[];
-  candidateNames: string[];
-} {
+function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>>, requestedPage = 0): DiscoveryShelfPayload {
   if (discovery.candidates.length === 0) {
     const lines = discovery.hasFullDiscovery
       ? [
-          '🧺 Your Weekly Shelf is still being packed',
-          'Recent Vault adds and taste taps will shape the next drop'
+          '🔮 Your Weekly Shelf is still being curated',
+          'Add a few more chases or save feedback so Vaultr has more collector patterns to follow'
         ]
       : [
-          '🎬 Your preview cut needs a few Vault signals',
+          '🎬 Your preview needs a few Vault signals',
           'Add a chase or two so Vaultr has a trail to follow'
         ];
     return {
       embeds: [infoEmbed('Weekly Shelf', lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Weekly Shelf' })],
       components: [],
-      candidateNames: []
+      candidateNames: [],
+      hasFullDiscovery: discovery.hasFullDiscovery
     };
   }
-  const shelfCandidates = marketReadyShelfCandidates(discovery.candidates, discovery.hasFullDiscovery, discovery.hasLearnedProfile);
+  const shelfCandidates = marketReadyShelfCandidates(discovery.candidates, discovery.hasFullDiscovery, discovery.profileConfidence);
   const hiddenCandidateCount = Math.max(0, discovery.candidates.length - shelfCandidates.length);
   const pageState = clampDiscoveryShelfPage(requestedPage, shelfCandidates.length);
   const visibleCandidates = shelfCandidates.slice(pageState.start, pageState.end);
   const visiblePaths = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => discoveryCandidateTrailLabel(candidate)));
-  const title = discovery.hasFullDiscovery ? 'Weekly Shelf' : 'Weekly Shelf Preview';
-  const shelfPickLabel = shelfCandidates.length === 1 ? 'collector pick' : 'collector picks';
-  const pathSummary = visiblePaths.length > 0 ? visiblePaths.join(', ') : 'No fresh Discovery matches right now';
+  const title = discovery.hasFullDiscovery ? '💫 Vaultr Weekly Discovery Shelf' : '✨ Weekly Shelf Preview';
+  const shelfPickLabel = shelfCandidates.length === 1 ? 'pick' : 'picks';
+  const pathSummary = compactDiscoveryPathSummary(visiblePaths);
+  const profileSummary = learningSignal(
+    discovery.chases,
+    discovery.tasteProfileChases,
+    discovery.lane,
+    discovery.hasFullDiscovery,
+    discovery.hasLearnedProfile
+  );
+  const marketCheckedProfileSummary = profileSummary.includes('; ')
+    ? profileSummary.replace('; ', ' with live market checks; ')
+    : `${profileSummary} with live market checks`;
   const lines = [
     discovery.hasFullDiscovery
-      ? `**🧺 Shelf Drop:** ${shelfCandidates.length} ${shelfPickLabel} on your binder radar`
-      : `**🎬 Preview Cut:** ${shelfCandidates.length} ${shelfPickLabel} from your Vault signals`,
-    `**🔎 Collector Profile:** ${learningSignal(
-      discovery.chases,
-      discovery.tasteProfileChases,
-      discovery.lane,
-      discovery.hasFullDiscovery,
-      discovery.hasLearnedProfile
-    )}`,
-    `**🧵 Collecting Paths:** ${pathSummary}`
+      ? `🪄 **Personal Picks:** ${shelfCandidates.length} new ${shelfCandidates.length === 1 ? 'find' : 'finds'} shaped by ${marketCheckedProfileSummary}`
+      : `🎬 **Preview:** ${shelfCandidates.length} ${shelfPickLabel} shaped by ${profileSummary}`,
+    `🧵 **Threads:** ${pathSummary}`
   ];
   if (discovery.hasFullDiscovery && hiddenCandidateCount > 0) {
-    lines.push('', '**🫧 Shelf Polish:** more picks are getting market checks before they appear');
-  } else if (discovery.hasFullDiscovery && shelfCandidates.length < weeklyDiscoveryShelfSizeForPlan('PRO')) {
-    lines.push('', '**🫧 Light Vault:** this drop is keeping the shelf tight until Vaultr has more taste signals');
+    lines.push('', '🧪 **Market Polish:** extra picks are packed, but waiting on cleaner market checks');
+  } else if (shouldShowDiscoveryShelfTighteningNote(discovery.hasFullDiscovery, shelfCandidates.length)) {
+    lines.push(discoveryShelfTighteningNote());
   }
   if (!discovery.hasFullDiscovery) {
-    lines.push('', '**✨ Full Shelf:** Pro unlocks the full drop, Taste Profile memory, and more controls for what Vaultr learns next');
+    lines.push('Just a heads up... Pro members get the full Weekly Shelf with feedback-powered taste memory, live market reads on every card, and tuning controls for future drops');
   }
   const actionRows = discoveryActionRows(userId, visibleCandidates, discovery.hasFullDiscovery, pageState.start);
+  const headerEmbed = discoveryShelfHeaderEmbed(title, lines);
+  const cardEmbeds = discoveryCardEmbeds(visibleCandidates, discovery.settings.alertCurrency, discovery.hasFullDiscovery, pageState.start);
   return {
-    content: [`**${title}**`, ...lines].join('\n'),
-    embeds: discoveryCardEmbeds(visibleCandidates, discovery.settings.alertCurrency, discovery.hasFullDiscovery, pageState.start),
+    headerEmbeds: [headerEmbed],
+    embeds: discovery.hasFullDiscovery ? cardEmbeds : [headerEmbed, ...cardEmbeds],
     components: [...actionRows, ...discoveryShelfPageRows(userId, pageState.page, pageState.totalPages)],
-    candidateNames: visibleCandidates.map((candidate) => candidate.suggestion.name)
+    candidateNames: visibleCandidates.map((candidate) => candidate.suggestion.name),
+    hasFullDiscovery: discovery.hasFullDiscovery
   };
 }
 
-export async function buildDiscoveryShelfPayload(userId: string, page = 0): Promise<{
-  content?: string;
-  embeds: EmbedBuilder[];
-  components: DiscoveryActionRow[];
-  candidateNames: string[];
-}> {
+export async function buildDiscoveryShelfPayload(userId: string, page = 0): Promise<DiscoveryShelfPayload> {
   const activeTier = activePlanTier(getUserPlan(userId));
   const discovery = await discoverCandidatesForUser(userId, weeklyDiscoveryShelfSizeForPlan(activeTier), {
     preferScheduledDrop: activeTier === 'PRO',
@@ -2144,6 +2351,21 @@ export async function buildDiscoveryShelfPayload(userId: string, page = 0): Prom
   const payload = discoveryShelfPayload(userId, discovery, page);
   markUserDiscoverySuggestionsSeen(userId, payload.candidateNames);
   return payload;
+}
+
+function discoveryReplyPayload(payload: DiscoveryShelfPayload): { content?: string; embeds: EmbedBuilder[]; components: DiscoveryActionRow[] } {
+  return {
+    content: payload.content,
+    embeds: payload.embeds,
+    components: payload.components
+  };
+}
+
+function discoveryHeaderReplyPayload(payload: DiscoveryShelfPayload): { content?: string; embeds: EmbedBuilder[]; components: DiscoveryActionRow[] } {
+  return {
+    embeds: payload.headerEmbeds ?? payload.embeds,
+    components: []
+  };
 }
 
 export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = new Date()): Promise<{
@@ -2186,7 +2408,12 @@ export async function handleDiscoveryDropOpen(interaction: any): Promise<boolean
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const payload = await buildDiscoveryShelfPayload(interaction.user.id);
-  await interaction.editReply(payload);
+  if (payload.hasFullDiscovery && payload.headerEmbeds && payload.embeds.length > 0) {
+    await interaction.editReply(discoveryHeaderReplyPayload(payload));
+    await interaction.followUp({ ...discoveryReplyPayload(payload), flags: MessageFlags.Ephemeral });
+  } else {
+    await interaction.editReply(discoveryReplyPayload(payload));
+  }
   return true;
 }
 
@@ -2204,7 +2431,7 @@ export async function handleDiscoveryDropPage(interaction: any): Promise<boolean
   const page = Number.parseInt(rawPage, 10);
   await interaction.deferUpdate();
   const payload = await buildDiscoveryShelfPayload(interaction.user.id, Number.isFinite(page) ? page : 0);
-  await interaction.editReply(payload);
+  await interaction.editReply(discoveryReplyPayload(payload));
   return true;
 }
 
@@ -2342,7 +2569,7 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
   const message =
     feedback === 'MORE_LIKE_THIS'
       ? `Vaultr will treat **${pick.cardName}** as a stronger preference signal for your next Discovery release.`
-      : `Vaultr will reduce recommendations like **${pick.cardName}** in your next Discovery release.`;
+      : `Vaultr will avoid **${pick.cardName}** and gently downrank close subject matches when they do not conflict with your Vault.`;
   const undoRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:${interaction.user.id}:${pick.token}`)
@@ -2383,7 +2610,7 @@ export async function handleDiscoveryFeedbackUndo(interaction: any): Promise<boo
 
   const undone = undoDiscoveryFeedback({ userId: interaction.user.id, cardName: pick.cardName });
   const description = undone
-    ? `Removed your feedback for **${pick.cardName}**. Your next Discovery release will ignore that tap.`
+    ? `Removed your feedback for **${pick.cardName}**. Your next Discovery release will ignore that signal.`
     : `No active Discovery feedback was found for **${pick.cardName}**.`;
   await interaction.update({
     embeds: [successEmbed('Feedback Undone', description)],

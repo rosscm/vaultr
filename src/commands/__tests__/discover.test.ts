@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   attachReferenceImages,
+  backfillDiscoverySuggestions,
   backfillSourceBackedDiscoverySuggestions,
   candidatesFromDiscoveryMarketCache,
+  compactDiscoveryPathSummary,
   concreteDiscoveryFallbackSuggestions,
   discoveryCandidateSelectionCount,
   discoveryActionRows,
   discoveryCardEmbeds,
   discoveryEmbed,
   discoveryMarketRangeFromChases,
+  discoveryNegativeProfile,
+  discoveryProfileConfidence,
+  discoveryShelfTighteningNote,
   discoveryTasteProfileChases,
   discoveryVisibleCountForPlan,
   isUsableDiscoveryExample,
@@ -26,6 +31,7 @@ import {
   preserveLanguageSignalFallbackSuggestions,
   selectVisibleCandidates,
   selectVisibleCandidatesForCount,
+  shouldShowDiscoveryShelfTighteningNote,
   typicalMarketTotal,
   weeklyDiscoveryShelfSizeForPlan,
   type DiscoveryCandidate
@@ -49,6 +55,32 @@ function candidate(name: string, lane: string, selectionIndex: number, marketSam
     marketSampleSize
   };
 }
+
+function chase(cardName: string, index: number): Chase {
+  return { id: `c${index}`, userId: 'u1', cardName, priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' };
+}
+
+const usableProfileConfidence = discoveryProfileConfidence([
+  'Pikachu Skyridge 84',
+  'Mew Expedition Base Set 55',
+  'Articuno Skyridge H3',
+  'Special Delivery Pikachu SWSH Black Star Promos SWSH074',
+  'Mew Japanese S12a 052',
+  'Squirtle Expedition Base Set 132'
+].map(chase));
+
+const strongProfileConfidence = discoveryProfileConfidence([
+  'Pikachu Skyridge 84',
+  'Mew Expedition Base Set 55',
+  'Articuno Skyridge H3',
+  'Special Delivery Pikachu SWSH Black Star Promos SWSH074',
+  'Mew Japanese S12a 052',
+  'Squirtle Expedition Base Set 132',
+  'Mew ex Paldean Fates 232',
+  'Zapdos Aquapolis 44',
+  'Pikachu ex Surging Sparks 238',
+  'Moltres XY Black Star Promos XY127'
+].map(chase));
 
 function sourceCandidate(name: string, sourceName: string, selectionIndex: number): DiscoveryCandidate {
   return {
@@ -199,6 +231,11 @@ describe('selectVisibleCandidates', () => {
     ]);
   });
 
+  it('explains Discovery path summaries for shelf headers', () => {
+    expect(compactDiscoveryPathSummary(['Japanese Collector Trail', 'E-Reader Era Trail', 'Collector Compass'])).toBe('Japanese variants, E-reader era, Profile-adjacent picks');
+    expect(compactDiscoveryPathSummary([])).toBe('No fresh Discovery threads right now');
+  });
+
   it('hides sparse low-data trailing shelf pages until enough picks are market-ready', () => {
     const readyCandidates = Array.from({ length: 12 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
     const lowDataCandidates = Array.from({ length: 8 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 12, index % 3));
@@ -209,11 +246,43 @@ describe('selectVisibleCandidates', () => {
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.slice(0, 10).map((item) => item.suggestion.name));
   });
 
+  it('uses statistically bounded profile confidence tiers for Pro shelf exposure', () => {
+    const seed = discoveryProfileConfidence(['Gardevoir ex Scarlet & Violet 245'].map(chase));
+    const emerging = discoveryProfileConfidence(['Gardevoir ex Scarlet & Violet 245', 'Mew RC24', 'Pikachu 151 173'].map(chase));
+
+    expect(seed).toMatchObject({ tier: 'SEED', minShelfSize: 5, maxShelfSize: 10 });
+    expect(emerging).toMatchObject({ tier: 'EMERGING', minShelfSize: 10, maxShelfSize: 14 });
+    expect(usableProfileConfidence).toMatchObject({ tier: 'USABLE', minShelfSize: 14, maxShelfSize: 20 });
+    expect(strongProfileConfidence).toMatchObject({ tier: 'STRONG', minShelfSize: 20, maxShelfSize: 20 });
+  });
+
+  it('uses curation copy for tighter Pro shelves without calling usable profiles light', () => {
+    expect(discoveryShelfTighteningNote()).toBe('🔮 **Reading:** a smaller shelf for now while Vaultr continues to learn from your chases, feedback, and collector patterns');
+    expect(discoveryShelfTighteningNote()).not.toContain('Light Vault');
+  });
+
+  it('does not explain near-full Pro shelves as smaller shelves', () => {
+    expect(shouldShowDiscoveryShelfTighteningNote(true, 18, 20)).toBe(true);
+    expect(shouldShowDiscoveryShelfTighteningNote(true, 19, 20)).toBe(false);
+    expect(shouldShowDiscoveryShelfTighteningNote(false, 3, 20)).toBe(false);
+  });
+
+  it('keeps a one-card Pro seed profile broader than one nearby card but capped to one page', () => {
+    const seedProfileConfidence = discoveryProfileConfidence(['Gardevoir ex Scarlet & Violet 245'].map(chase));
+    const readyCandidates = Array.from({ length: 2 }, (_, index) => candidate(`Gardevoir Pick ${index + 1}`, 'market ready path', index, 4));
+    const lowDataCandidates = Array.from({ length: 8 }, (_, index) => candidate(`Safe Nearby Pick ${index + 1}`, 'exploration path', index + 2, index % 2));
+
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true, seedProfileConfidence);
+
+    expect(visible).toHaveLength(10);
+    expect(visible.map((item) => item.suggestion.name)).toEqual([...readyCandidates, ...lowDataCandidates].map((item) => item.suggestion.name));
+  });
+
   it('allows a second shelf page once enough market-ready picks exist', () => {
     const readyCandidates = Array.from({ length: 17 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
     const lowDataCandidates = Array.from({ length: 3 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 17, index));
 
-    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true);
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true, usableProfileConfidence);
 
     expect(visible).toHaveLength(17);
     expect(visible.at(-1)?.suggestion.name).toBe('Ready Pick 17');
@@ -223,7 +292,7 @@ describe('selectVisibleCandidates', () => {
     const readyCandidates = Array.from({ length: 14 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
     const lowDataCandidates = Array.from({ length: 6 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 14, index % 3));
 
-    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true);
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true, usableProfileConfidence);
 
     expect(visible).toHaveLength(14);
     expect(visible.at(-1)?.suggestion.name).toBe('Ready Pick 14');
@@ -233,7 +302,7 @@ describe('selectVisibleCandidates', () => {
     const readyCandidates = Array.from({ length: 12 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
     const lowDataCandidates = Array.from({ length: 8 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 12, index % 3));
 
-    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true, true);
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true, strongProfileConfidence);
 
     expect(visible).toHaveLength(20);
     expect(visible.at(-1)?.suggestion.name).toBe('Low Data Pick 8');
@@ -244,11 +313,87 @@ describe('selectVisibleCandidates', () => {
     const readyCandidates = Array.from({ length: 20 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index + 20, 4));
 
     const selected = selectVisibleCandidatesForCount([...lowDataCandidates, ...readyCandidates], [], 20);
-    const visible = marketReadyShelfCandidates(selected, true);
+    const visible = marketReadyShelfCandidates(selected, true, strongProfileConfidence);
 
     expect(selected).toHaveLength(20);
     expect(visible).toHaveLength(20);
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
+  });
+
+  it('holds back VMAX and GX cards when the profile has no format affinity', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Pikachu VMAX SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 0),
+        sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 1),
+        sourceCandidate('Pikachu-GX SM Black Star Promos SM232', 'Pokemon TCG (SM Black Star Promos)', 2),
+        sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 3),
+        sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 4),
+        sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 5),
+        sourceCandidate('Mew Wizards Black Star Promos 8', 'Pokemon TCG (Wizards Black Star Promos)', 6)
+      ],
+      [
+        { id: 'c1', userId: 'u1', cardName: 'Mew RC24', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' },
+        { id: 'c2', userId: 'u1', cardName: 'Pikachu 26/83 promo', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' }
+      ],
+      4
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Mew Expedition Base Set 55',
+      'Special Delivery Pikachu SWSH Black Star Promos SWSH074',
+      'Mew Wizards Black Star Promos 8',
+      'Zapdos Aquapolis 44'
+    ]);
+  });
+
+  it('allows VMAX and GX cards when the profile shows format affinity', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Pikachu VMAX SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 0),
+        sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 1),
+        sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 2)
+      ],
+      [{ id: 'c1', userId: 'u1', cardName: 'Umbreon VMAX Evolving Skies 215', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' }],
+      2
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Pikachu VMAX SWSH Black Star Promos SWSH286',
+      'Mewtwo & Mew-GX SM Black Star Promos SM191'
+    ]);
+  });
+
+  it('downranks rejected subjects without suppressing positively supported shared eras', () => {
+    const chases = [chase('Pikachu Skyridge 84', 1), chase('Zapdos Aquapolis 44', 2)];
+    const negativeProfile = discoveryNegativeProfile(
+      [
+        {
+          suggestionName: 'Ledian Skyridge H14',
+          lane: 'Collector Compass',
+          feedback: 'NOT_FOR_ME',
+          interactionCount: 1,
+          lastInteractedAt: '2026-06-11T21:00:21.489Z'
+        }
+      ],
+      chases
+    );
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Ledian Skyridge H14', 'Pokemon TCG (Skyridge)', 0),
+        sourceCandidate('Articuno Skyridge H3', 'Pokemon TCG (Skyridge)', 1),
+        sourceCandidate('Moltres Skyridge H20', 'Pokemon TCG (Skyridge)', 2),
+        sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 3)
+      ],
+      chases,
+      3,
+      negativeProfile
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Zapdos Aquapolis 44',
+      'Articuno Skyridge H3',
+      'Moltres Skyridge H20'
+    ]);
   });
 
   it('prioritizes Japanese source cards over English Black Star promos for Japanese-weighted grails', () => {
@@ -377,7 +522,7 @@ describe('selectVisibleCandidates', () => {
         sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 4),
         sourceCandidate('Moltres XY Black Star Promos XY127', 'Pokemon TCG (XY Black Star Promos)', 5),
         sourceCandidate('Mew ex Paldean Fates 232', 'Pokemon TCG (Paldean Fates)', 6),
-        sourceCandidate('Charizard VMAX SWSH Black Star Promos SWSH261', 'Pokemon TCG (SWSH Black Star Promos)', 7)
+        sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 7)
       ].map((item) => ({
         ...item,
         suggestion: {
@@ -595,6 +740,27 @@ describe('preserveLanguageSignalFallbackSuggestions', () => {
 });
 
 describe('backfillSourceBackedDiscoverySuggestions', () => {
+  it('fills a one-card seed shelf from safe catalog suggestions when source-backed resolution is sparse', () => {
+    const sourceBacked = [sourceCandidate('Gardevoir ex Scarlet & Violet 245', 'Pokemon TCG (Scarlet & Violet)', 0).suggestion];
+    const catalogSuggestions = [
+      candidate('Gardevoir illustration rare cards', 'illustration rare path', 1).suggestion,
+      candidate('Kirlia illustration rare cards', 'evolution line path', 2).suggestion,
+      candidate('Ralts illustration rare cards', 'evolution line path', 3).suggestion,
+      candidate('Psychic type full art cards', 'psychic collection path', 4).suggestion,
+      candidate('Scarlet & Violet special illustration cards', 'modern texture path', 5).suggestion,
+      candidate('Trainer gallery psychic cards', 'art gallery path', 6).suggestion,
+      candidate('Mew illustration rare cards', 'mythical art path', 7).suggestion,
+      candidate('Mimikyu illustration rare cards', 'ghost psychic path', 8).suggestion,
+      candidate('Sylveon full art cards', 'soft color path', 9).suggestion
+    ];
+
+    const backfilled = backfillDiscoverySuggestions(sourceBacked, catalogSuggestions, [], 10);
+
+    expect(backfilled).toHaveLength(10);
+    expect(backfilled.at(0)?.name).toBe('Gardevoir ex Scarlet & Violet 245');
+    expect(backfilled.at(-1)?.name).toBe('Sylveon full art cards');
+  });
+
   it('keeps a first-use Pro shelf full when source-backed resolution returns only a few cards', () => {
     const sourceBacked = [
       sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 0).suggestion,
