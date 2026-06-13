@@ -136,7 +136,6 @@ const SPECIAL_RELEASE_PATTERNS = [
 const JAPANESE_PROMO_CODE_PATTERN = /\b(?:\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3})\b/i;
 const JAPANESE_SCRIPT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff]/;
 const JAPANESE_RELEASE_MARKER_PATTERN = /\b(?:coro\s?coro|masaki|munch|poncho|battle\s*festa|players?\s+club|fan\s+club|trainers?\s+magazine|yu\s?nagaba|precious\s+collector|kanazawa|yokohama|sapporo|pokemon\s+center)\b/i;
-const BARE_COLLECTOR_NUMBER_PATTERN = /\b(\d{1,3})\s*\/\s*(\d{1,3})\b/;
 const NUMBER_PATTERN = /\b(?:[A-Z]{0,4}\d{1,3}\s*\/\s*\d{1,3}|\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3}|(?:GG|TG|RC|XY|SM|SWSH|SVP|BW|DP|HGSS)\s?-?\d{1,4}|H\d{1,2}|\d{1,3})\b/i;
 
 const RETAIL_RELEASE_PATTERN = /\b(mcdonald'?s|toys\s*r\s*us|pokemon center|game\s?stop|best buy|target|walmart)\b/i;

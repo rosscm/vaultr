@@ -523,6 +523,11 @@ function sourceModeIncludesTrustedShops(sourceMode: string): boolean {
   return sourceMode === 'SHOPIFY' || sourceMode === 'EBAY_SHOPIFY';
 }
 
+export function didFetchRequiredListingSource(sourceMode: string, sourceCallsBefore: number, sourceCallsAfter: number): boolean {
+  if (sourceMode === 'MOCK' || sourceMode === 'SHOPIFY') return true;
+  return sourceCallsAfter > sourceCallsBefore;
+}
+
 export function alertEbaySearchOptions(chase?: Chase, alertCurrency?: string): { enrichMissingShipping: false; maxPrice?: number; maxPriceCurrency?: string } {
   const maxPrice = Number(chase?.maxPrice);
   if (!Number.isFinite(maxPrice) || maxPrice <= 0) return { enrichMissingShipping: false };
@@ -779,8 +784,7 @@ async function runPoll(client: Client): Promise<void> {
         shippingDestinationFromSettings(representativeSettings),
         representativeSettings.alertCurrency
       );
-      const didFetchListings =
-        group.sourceMode === 'MOCK' || sourceModeIncludesTrustedShops(group.sourceMode) || sourceCallTimestamps.length > sourceCallsBefore;
+      const didFetchListings = didFetchRequiredListingSource(group.sourceMode, sourceCallsBefore, sourceCallTimestamps.length);
       if (didFetchListings) {
         const checkedAtIso = new Date().toISOString();
         lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());

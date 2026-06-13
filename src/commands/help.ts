@@ -15,7 +15,7 @@ export const help = {
       '- Free Vaults can keep 3 active chases; Pro expands that to 50',
       '- Pro precision controls: condition thresholds, `listing_type`, `negative_keywords`, `priority`, `target_note`',
       '  Free submissions still save; Pro-only modifiers are ignored until upgraded',
-      '  default blocked terms still apply automatically: proxy, custom, reprint, lot, orica, replica',
+      '  default blocked terms still apply automatically: proxy, custom, reprint, lot, orica, replica, fan art, novelty, keychain, extended art, acrylic case, magnetic case',
       '',
       '**Collector Tip**',
       '- Casing does not matter',

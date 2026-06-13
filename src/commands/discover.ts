@@ -173,7 +173,7 @@ const DISCOVERY_SELECT_PREFIX = 'discover-action';
 const DISCOVERY_DROP_OPEN_PREFIX = 'discover-drop-open';
 const DISCOVERY_DROP_PAGE_PREFIX = 'discover-drop-page';
 const DISCOVERY_VAULT_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
+const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case'];
 const PROFILE_SUBJECT_STOP_WORDS = new Set([
   'black',
   'card',
@@ -1390,10 +1390,6 @@ function subjectProfileRankScore(candidate: DiscoveryCandidate, chases: Chase[] 
     score += stat.weight * 18 + Math.max(0, stat.support - 1) * 18;
   }
   return Math.min(140, Math.round(score));
-}
-
-function rankDiscoveryCandidates(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
-  return [...candidates].sort((left, right) => curiosityRankScore(right) - curiosityRankScore(left));
 }
 
 function rankDiscoveryCandidatesForProfile(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {

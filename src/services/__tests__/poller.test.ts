@@ -5,6 +5,7 @@ import {
   buildWeeklyReflectionEmbed,
   alertEbaySearchOptions,
   chaseTuningNoticeLines,
+  didFetchRequiredListingSource,
   enrichSelectedAlertListing,
   effectiveListingSourceMode,
   isDueForPollInterval,
@@ -176,6 +177,14 @@ describe('orderAlertCandidatesForSending', () => {
 });
 
 describe('alert eBay search options', () => {
+  it('does not count eBay plus shops as checked when the eBay source was skipped', () => {
+    expect(didFetchRequiredListingSource('EBAY_SHOPIFY', 2, 2)).toBe(false);
+    expect(didFetchRequiredListingSource('EBAY_SHOPIFY', 2, 3)).toBe(true);
+    expect(didFetchRequiredListingSource('EBAY', 2, 2)).toBe(false);
+    expect(didFetchRequiredListingSource('SHOPIFY', 2, 2)).toBe(true);
+    expect(didFetchRequiredListingSource('MOCK', 2, 2)).toBe(true);
+  });
+
   it('keeps poller eBay searches lightweight so broad chases do not block alert delivery on shipping enrichment', () => {
     expect(alertEbaySearchOptions()).toEqual({ enrichMissingShipping: false });
   });

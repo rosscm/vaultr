@@ -102,6 +102,48 @@ function comparablePrice(listing: Listing): number {
   return listing.shippingCost === undefined ? listing.price : listing.price + listing.shippingCost;
 }
 
+type LanguageVariant = 'japanese' | 'korean' | 'chinese' | 'indonesian' | 'thai';
+
+function languageVariants(text: string): Set<LanguageVariant> {
+  const normalized = normalize(text);
+  const variants = new Set<LanguageVariant>();
+  if (/\b(japanese|japan)\b/.test(normalized)) variants.add('japanese');
+  if (/\b(korean|kr)\b/.test(normalized)) variants.add('korean');
+  if (/\b(t[-\s]?chinese|traditional chinese|simplified chinese|chinese)\b/.test(normalized)) variants.add('chinese');
+  if (/\b(indonesian|indonesia)\b/.test(normalized)) variants.add('indonesian');
+  if (/\b(thai|thailand)\b/.test(normalized)) variants.add('thai');
+  return variants;
+}
+
+function unintendedLanguageVariants(chase: Chase, listing: Listing): LanguageVariant[] {
+  const chaseVariants = languageVariants(`${chase.cardName} ${chase.targetNote ?? ''}`);
+  const listingVariants = languageVariants(listing.title);
+  return [...listingVariants].filter((variant) => !chaseVariants.has(variant) && (chaseVariants.size > 0 || variant !== 'japanese'));
+}
+
+const DEFAULT_EXCLUDED_TITLE_PATTERNS: Array<{ term: string; pattern: RegExp }> = [
+  { term: 'proxy', pattern: /\bproxy\b/ },
+  { term: 'custom', pattern: /\bcustom\b/ },
+  { term: 'reprint', pattern: /\breprints?\b/ },
+  { term: 'replica', pattern: /\breplicas?\b/ },
+  { term: 'orica', pattern: /\borica\b/ },
+  { term: 'fan art', pattern: /\bfan\s*art\b|\bfanart\b/ },
+  { term: 'novelty', pattern: /\bnovelty\b/ },
+  { term: 'keychain', pattern: /\bkey\s*chains?\b|\bkeychains?\b/ },
+  { term: 'extended art', pattern: /\bextended\s+art(?:work)?\b/ },
+  { term: 'acrylic case', pattern: /\bacrylic\s+(?:case|card|display|holder)\b/ },
+  { term: 'magnetic case', pattern: /\bmagnetic\s+(?:case|card|display|holder)\b/ },
+  { term: 'card case', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+case\b|\bcase\s+card\b|\bart\s+case\b/ },
+  { term: 'card holder', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+holder\b/ },
+  { term: 'display accessory', pattern: /\b(?:display|protector)\s+case\b|\bcase\s+(?:for|only)\b|\bslab\s+stand\b/ },
+  { term: 'handmade art', pattern: /\bhand[ -]?drawn\b|\bsketch\s+card\b/ }
+];
+
+function defaultExcludedTitleTerm(title: string): string | undefined {
+  const normalized = normalize(title).replace(/\btoys\s*r\s*us\b/g, 'retail promo');
+  return DEFAULT_EXCLUDED_TITLE_PATTERNS.find(({ pattern }) => pattern.test(normalized))?.term;
+}
+
 export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult {
   const reasons: string[] = [];
   let score = 0;
@@ -112,6 +154,11 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
   const titleTokens = toTokens(listing.title);
   const chaseCardNumbers = extractCardNumbers(chase.cardName);
   const listingCardNumbers = extractCardNumbers(listing.title);
+
+  const defaultBlocked = defaultExcludedTitleTerm(listing.title);
+  if (defaultBlocked) {
+    return { isMatch: false, score: 0, reasons: ['default_exclusion_block', `default_exclusion:${defaultBlocked}`] };
+  }
 
   const blocked = (chase.negativeKeywords ?? [])
     .map((k) => normalize(k))
@@ -188,6 +235,13 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     }
   }
 
+  const languageMismatches = unintendedLanguageVariants(chase, listing);
+  if (languageMismatches.length > 0) {
+    score -= 30;
+    reasons.push('language_variant_mismatch');
+    reasons.push(`language_variants:${languageMismatches.join(',')}`);
+  }
+
   if (cardTokens.length >= 3) {
     const overlap = tokenOverlapRatio(cardTokens, titleTokens);
     if (overlap < 0.85) {
@@ -220,7 +274,7 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
   }
 
   // Suspicious keywords reduce confidence but do not hard-fail.
-  const suspiciousTerms = ['proxy', 'custom', 'reprint', 'fan art', 'fanart', 'replica', 'orica', 'lot'];
+  const suspiciousTerms = ['lot'];
   const suspiciousHits = suspiciousTerms.filter((term) => title.includes(term));
   if (suspiciousHits.length > 0) {
     score -= 10;

@@ -13,7 +13,7 @@ import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
 
-const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica'];
+const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case'];
 
 function displayAny(value: string | undefined): string {
   if (!value || value === 'ANY') return OUTPUT_STYLE.any;

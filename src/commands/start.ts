@@ -4,7 +4,7 @@ import {
   getUserPlan,
   listChases
 } from '../services/chase-store.js';
-import { activePlanChases, activePlanLimits, activePlanTier, formatActivePlanAccess, pausedPlanChases } from '../services/plans.js';
+import { activePlanChases, activePlanLimits, formatActivePlanAccess, pausedPlanChases } from '../services/plans.js';
 import { infoEmbed } from '../ui/embeds.js';
 
 export const start = {
@@ -17,7 +17,6 @@ export const start = {
     const storedChases = listChases(interaction.user.id);
     const activeChases = activePlanChases(storedChases, plan);
     const pausedChases = pausedPlanChases(storedChases, plan);
-    const activeTier = activePlanTier(plan);
     const limits = activePlanLimits(plan);
 
     const lines = [

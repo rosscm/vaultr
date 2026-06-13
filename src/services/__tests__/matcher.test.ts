@@ -170,9 +170,48 @@ describe('matchChaseToListing', () => {
     expect(result.reasons).toEqual(['listing_type_miss']);
   });
 
-  it('keeps suspicious terms as risk signals instead of hard failing when not blocked', () => {
+  it('blocks default non-card listing types even without chase-specific negative keywords', () => {
+    const examples: Array<{ cardName: string; title: string; term: string }> = [
+      {
+        cardName: 'Corocoro Shining Mew',
+        title: '**SIGNED** Pokederp Meow (HOLO) - CoroCoro Shining Mew Fan Art Derpy Card',
+        term: 'fan art'
+      },
+      {
+        cardName: 'Moltres Zapdos Articuno SM210',
+        title: 'POKEMON TCG EXTENDED ART ACRYLIC CASE CARD MOLTRES & ZAPDOS & ARTICUNO SM210 L28',
+        term: 'extended art'
+      },
+      {
+        cardName: 'Moltres Zapdos Articuno SM210',
+        title: 'Moltres, Zapdos & Articuno GX Promo SM210 Pokemon Card TCG Novelty Keychain',
+        term: 'novelty'
+      },
+      {
+        cardName: 'Moltres Zapdos Articuno SM210',
+        title: 'Pokemon Moltres Zapdos Articuno GX SM210 Hidden Fate Promo Extended Artwork Case',
+        term: 'extended art'
+      },
+      {
+        cardName: 'Mega Gardevoir EX SAR 087/063 Mega Symphonia',
+        title: 'Mega Gardevoir EX SAR 087/063 Mega Symphonia Magnetic Extended Art Case',
+        term: 'extended art'
+      }
+    ];
+
+    for (const example of examples) {
+      const chase = baseChase({ cardName: example.cardName, negativeKeywords: [] });
+      const listing = baseListing({ title: example.title });
+      const result = matchChaseToListing(chase, listing);
+
+      expect(result.isMatch).toBe(false);
+      expect(result.reasons).toEqual(['default_exclusion_block', `default_exclusion:${example.term}`]);
+    }
+  });
+
+  it('keeps low-risk suspicious terms as risk signals instead of hard failing when not blocked', () => {
     const chase = baseChase({ negativeKeywords: [] });
-    const listing = baseListing({ title: 'Squirtle PSA 10 custom art card' });
+    const listing = baseListing({ title: 'Squirtle PSA 10 small collection lot' });
     const result = matchChaseToListing(chase, listing);
 
     expect(result.isMatch).toBe(true);
@@ -202,5 +241,30 @@ describe('matchChaseToListing', () => {
     expect(result.isMatch).toBe(true);
     expect(result.reasons).toContain('low_seller_feedback_count_penalty');
     expect(result.reasons).not.toContain('seller_quality_boost');
+  });
+
+  it('penalizes non-Japanese regional variants unless the chase asks for them', () => {
+    const chase = baseChase({ cardName: 'Umbreon 217/187', grade: 'UNGRADED', maxPrice: 550 });
+    const korean = baseListing({ title: 'Pokemon Card Umbreon ex SAR 217/187 sv8a Terastal Festival Korean NM', price: 335, condition: 'Ungraded' });
+    const japanese = baseListing({ title: 'Umbreon ex SAR 217/187 Terastal Festival sv8a Pokemon Card Japanese', price: 537, condition: 'Ungraded' });
+
+    const koreanResult = matchChaseToListing(chase, korean);
+    const japaneseResult = matchChaseToListing(chase, japanese);
+
+    expect(koreanResult.isMatch).toBe(true);
+    expect(koreanResult.reasons).toContain('language_variant_mismatch');
+    expect(koreanResult.reasons).toContain('language_variants:korean');
+    expect(japaneseResult.isMatch).toBe(true);
+    expect(japaneseResult.reasons).not.toContain('language_variant_mismatch');
+    expect(japaneseResult.score).toBeGreaterThan(koreanResult.score);
+  });
+
+  it('does not penalize a regional variant when the chase requests it', () => {
+    const chase = baseChase({ cardName: 'Umbreon 217/187 Korean', grade: 'UNGRADED', maxPrice: 550 });
+    const listing = baseListing({ title: 'Pokemon Card Umbreon ex SAR 217/187 sv8a Terastal Festival Korean NM', price: 335, condition: 'Ungraded' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).not.toContain('language_variant_mismatch');
   });
 });

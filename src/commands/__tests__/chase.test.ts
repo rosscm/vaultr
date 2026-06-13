@@ -103,7 +103,7 @@ describe('chase command', () => {
     expect(saved.listingType).toBe('ANY');
     expect(saved.priority).toBe('NORMAL');
     expect(saved.targetNote).toBeUndefined();
-    expect(saved.negativeKeywords).toEqual(['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica']);
+    expect(saved.negativeKeywords).toEqual(['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case']);
     expect(interaction.reply).toHaveBeenCalledOnce();
   });
 
