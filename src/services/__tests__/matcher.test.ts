@@ -196,6 +196,11 @@ describe('matchChaseToListing', () => {
         cardName: 'Mega Gardevoir EX SAR 087/063 Mega Symphonia',
         title: 'Mega Gardevoir EX SAR 087/063 Mega Symphonia Magnetic Extended Art Case',
         term: 'extended art'
+      },
+      {
+        cardName: 'Mew RC24/RC25',
+        title: 'Pokémon TCG Mew EX RC24/RC25 Legendary Treasures Novelty Keychain ',
+        term: 'novelty'
       }
     ];
 

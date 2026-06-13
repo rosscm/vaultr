@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chase } from '../chase.js';
+import { buildChaseListEmbed } from '../chase-list.js';
 import {
   addChase,
   listChases,
@@ -168,6 +169,34 @@ describe('chase command', () => {
     const remaining = listChases(userId);
     expect(remaining.map((item) => item.id)).toEqual([keep.id]);
     expect(interaction.reply).toHaveBeenCalledOnce();
+  });
+
+  it('lists default blocked terms once while showing chase-specific tuning inline', () => {
+    const userId = testUserId('list-default-exclusions');
+    setUserPlan(userId, 'PRO');
+    addChase({
+      userId,
+      cardName: 'Umbreon 217/187',
+      maxPrice: 550,
+      grade: 'UNGRADED',
+      priority: 'GRAIL',
+      negativeKeywords: ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case']
+    });
+    addChase({
+      userId,
+      cardName: 'Pikachu 26/83 Toys R Us promo',
+      priority: 'HIGH',
+      negativeKeywords: ['proxy', 'custom', 'korean']
+    });
+
+    const payload = buildChaseListEmbed(userId, 0);
+    const data = payload.embeds[0].toJSON();
+    const text = [data.description, ...(data.fields ?? []).map((field) => `${field.name}\n${field.value}`)].join('\n');
+
+    expect(data.fields?.map((field) => field.name)).toContain('Default Exclusions');
+    expect(text.match(/proxy, custom/g)).toHaveLength(1);
+    expect(text).toContain('Tuning: korean');
+    expect(text).not.toContain('Blocked:');
   });
 
   it('undoes Discovery feedback and removes More Like taste memory', () => {

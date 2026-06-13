@@ -253,6 +253,28 @@ const insertSentAlertStmt = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
+const updateSentAlertDetailsStmt = db.prepare(`
+  UPDATE sent_alerts
+  SET guild_id = ?,
+      listing_title = ?,
+      listing_price = ?,
+      listing_currency = ?,
+      price_delta = ?,
+      listing_url = ?,
+      match_score = ?,
+      listing_posted_at = ?,
+      alert_latency_seconds = ?,
+      source_first_seen_at = ?,
+      source_last_seen_at = ?,
+      source_rank = ?
+  WHERE chase_id = ? AND listing_id = ? AND source = ?
+`);
+
+const deleteSentAlertStmt = db.prepare(`
+  DELETE FROM sent_alerts
+  WHERE chase_id = ? AND listing_id = ? AND source = ?
+`);
+
 const hasSentAlertStmt = db.prepare(`
   SELECT 1
   FROM sent_alerts
@@ -643,6 +665,26 @@ const listTopFeedbackChasesSinceStmt = db.prepare(`
   LIMIT ?
 `);
 
+const listRecentChaseTuneOutAlertsSinceStmt = db.prepare(`
+  SELECT af.feedback_reason, af.created_at, sa.listing_title
+  FROM alert_feedback af
+  LEFT JOIN sent_alerts sa ON sa.user_id = af.user_id AND sa.chase_id = af.chase_id AND sa.listing_id = af.listing_id
+  WHERE af.user_id = ?
+    AND af.chase_id = ?
+    AND af.created_at >= ?
+    AND af.feedback = 'TUNE_OUT'
+    AND sa.listing_title IS NOT NULL
+  ORDER BY af.created_at DESC
+  LIMIT ?
+`);
+
+const getChaseByIdStmt = db.prepare(`
+  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  FROM chases
+  WHERE user_id = ? AND id = ?
+  LIMIT 1
+`);
+
 const getChasePollStateStmt = db.prepare(`
   SELECT last_checked_at
   FROM chase_poll_state
@@ -678,6 +720,21 @@ const hasIgnoredFingerprintStmt = db.prepare(`
   FROM ignored_listing_fingerprints
   WHERE user_id = ? AND chase_id = ? AND fingerprint = ?
   LIMIT 1
+`);
+
+const pruneAlertFingerprintClaimsStmt = db.prepare(`
+  DELETE FROM alert_fingerprint_claims
+  WHERE claimed_at < ?
+`);
+
+const insertAlertFingerprintClaimStmt = db.prepare(`
+  INSERT INTO alert_fingerprint_claims (user_id, chase_id, fingerprint, listing_id, source, claimed_at)
+  VALUES (?, ?, ?, ?, ?, ?)
+`);
+
+const deleteAlertFingerprintClaimStmt = db.prepare(`
+  DELETE FROM alert_fingerprint_claims
+  WHERE user_id = ? AND chase_id = ? AND fingerprint = ? AND listing_id = ? AND source = ?
 `);
 
 const insertDiscoveryVaultActionStmt = db.prepare(`
@@ -860,6 +917,11 @@ export function deleteExpiredDiscoveryVaultActions(): number {
 export function listChases(userId: string): Chase[] {
   const rows = listChasesStmt.all(userId) as ChaseRow[];
   return rows.map(mapRow);
+}
+
+export function getChase(userId: string, chaseId: string): Chase | null {
+  const row = getChaseByIdStmt.get(userId, chaseId) as ChaseRow | undefined;
+  return row ? mapRow(row) : null;
 }
 
 export function listUserTasteMemoryChases(userId: string, limit = 24): Chase[] {
@@ -1207,6 +1269,62 @@ export function markAlertSent(chaseId: string, userId: string, listingId: string
   return markAlertSentWithDetails(chaseId, userId, listingId, source, {});
 }
 
+export function claimAlertForSending(chaseId: string, userId: string, listingId: string, source: ListingSource): boolean {
+  try {
+    insertSentAlertStmt.run(
+      chaseId,
+      listingId,
+      source,
+      new Date().toISOString(),
+      userId,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function claimAlertFingerprintForSending(
+  userId: string,
+  chaseId: string,
+  fingerprint: string,
+  listingId: string,
+  source: ListingSource,
+  ttlMs = 6 * 60 * 60 * 1000
+): boolean {
+  const now = Date.now();
+  const cutoff = new Date(now - ttlMs).toISOString();
+  pruneAlertFingerprintClaimsStmt.run(cutoff);
+  try {
+    insertAlertFingerprintClaimStmt.run(userId, chaseId, fingerprint, listingId, source, new Date(now).toISOString());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function releaseAlertFingerprintSendClaim(
+  userId: string,
+  chaseId: string,
+  fingerprint: string,
+  listingId: string,
+  source: ListingSource
+): void {
+  deleteAlertFingerprintClaimStmt.run(userId, chaseId, fingerprint, listingId, source);
+}
+
 export function markAlertSentWithDetails(
   chaseId: string,
   userId: string,
@@ -1249,8 +1367,57 @@ export function markAlertSentWithDetails(
     );
     return true;
   } catch {
-    return false;
+    const result = updateSentAlertDetailsStmt.run(
+      details.guildId ?? null,
+      details.listingTitle ?? null,
+      details.listingPrice ?? null,
+      details.listingCurrency ?? null,
+      details.priceDelta ?? null,
+      details.listingUrl ?? null,
+      details.matchScore ?? null,
+      details.listingPostedAt ?? null,
+      details.alertLatencySeconds ?? null,
+      details.sourceFirstSeenAt ?? null,
+      details.sourceLastSeenAt ?? null,
+      details.sourceRank ?? null,
+      chaseId,
+      listingId,
+      source
+    );
+    return result.changes > 0;
   }
+}
+
+export function updateSentAlertDetails(
+  chaseId: string,
+  listingId: string,
+  source: ListingSource,
+  details: Parameters<typeof markAlertSentWithDetails>[4]
+): boolean {
+  const result = updateSentAlertDetailsStmt.run(
+    details.guildId ?? null,
+    details.listingTitle ?? null,
+    details.listingPrice ?? null,
+    details.listingCurrency ?? null,
+    details.priceDelta ?? null,
+    details.listingUrl ?? null,
+    details.matchScore ?? null,
+    details.listingPostedAt ?? null,
+    details.alertLatencySeconds ?? null,
+    details.sourceFirstSeenAt ?? null,
+    details.sourceLastSeenAt ?? null,
+    details.sourceRank ?? null,
+    chaseId,
+    listingId,
+    source
+  );
+  return result.changes > 0;
+}
+
+export function releaseIncompleteAlertSendClaim(chaseId: string, listingId: string, source: ListingSource): void {
+  const row = hasSentAlertStmt.get(chaseId, listingId, source) as { 1: number } | undefined;
+  if (!row) return;
+  deleteSentAlertStmt.run(chaseId, listingId, source);
 }
 
 export function recordAlertFeedback(
@@ -1336,6 +1503,25 @@ export function getAlertFeedbackInsights(userId: string, days = 30): AlertFeedba
       count: Number(row.count)
     }))
   };
+}
+
+export function listRecentChaseTuneOutAlerts(
+  userId: string,
+  chaseId: string,
+  days = 30,
+  limit = 12
+): Array<{ feedbackReason: AlertFeedbackReason | null; listingTitle: string; createdAt: string }> {
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const rows = listRecentChaseTuneOutAlertsSinceStmt.all(userId, chaseId, sinceIso, limit) as Array<{
+    feedback_reason: AlertFeedbackReason | null;
+    listing_title: string;
+    created_at: string;
+  }>;
+  return rows.map((row) => ({
+    feedbackReason: row.feedback_reason,
+    listingTitle: row.listing_title,
+    createdAt: row.created_at
+  }));
 }
 
 export function setGuildAlertChannel(guildId: string, channelId: string): void {

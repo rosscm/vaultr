@@ -16,10 +16,14 @@ import {
   listAllChases,
   isListingFingerprintIgnored,
   getSourceObservationForItem,
+  claimAlertFingerprintForSending,
+  claimAlertForSending,
   markPostedGuildDailyStats,
   markPostedUserWeeklyReflection,
   markChasesPollChecked,
-  markAlertSentWithDetails,
+  releaseAlertFingerprintSendClaim,
+  releaseIncompleteAlertSendClaim,
+  updateSentAlertDetails,
   pruneSourceObservations,
   recordSourceObservations
 } from './chase-store.js';
@@ -889,6 +893,19 @@ async function runPoll(client: Client): Promise<void> {
         markFingerprintSuppression();
         continue;
       }
+      if (!claimAlertForSending(chase.id, chase.userId, listing.listingId, listing.source)) {
+        markFingerprintSuppression();
+        continue;
+      }
+      if (
+        listingFingerprint &&
+        !claimAlertFingerprintForSending(chase.userId, chase.id, listingFingerprint, listing.listingId, listing.source)
+      ) {
+        releaseIncompleteAlertSendClaim(chase.id, listing.listingId, listing.source);
+        markFingerprintSuppression();
+        continue;
+      }
+      if (listingFingerprint) markFingerprintSeen(chase.id, listingFingerprint, nowMs);
 
       const sourceLabel = listing.source === 'EBAY' ? 'eBay' : listing.seller ?? 'Trusted shop';
       const { icon: sightingIcon, label: sightingLabel } = sightingPresentation(chase.priority);
@@ -1009,7 +1026,7 @@ async function runPoll(client: Client): Promise<void> {
         );
         const sourceObservation = getSourceObservationForItem(chase.id, listing.listingId);
         const sentAtMs = Date.now();
-        markAlertSentWithDetails(chase.id, chase.userId, listing.listingId, listing.source, {
+        updateSentAlertDetails(chase.id, listing.listingId, listing.source, {
           guildId: chase.guildId,
           listingTitle: listing.title,
           listingPrice: normalizedListing.price,
@@ -1027,10 +1044,13 @@ async function runPoll(client: Client): Promise<void> {
           sourceLastSeenAt: sourceObservation?.lastSeenAt,
           sourceRank: sourceObservation?.sourceRank
         });
-        if (listingFingerprint) markFingerprintSeen(chase.id, listingFingerprint, nowMs);
         sentForChaseThisPoll += 1;
         markPollerMatchSent();
       } catch (error) {
+        releaseIncompleteAlertSendClaim(chase.id, listing.listingId, listing.source);
+        if (listingFingerprint) {
+          releaseAlertFingerprintSendClaim(chase.userId, chase.id, listingFingerprint, listing.listingId, listing.source);
+        }
         console.error(`Failed to send DM alert to user ${chase.userId}`, error);
       }
     }

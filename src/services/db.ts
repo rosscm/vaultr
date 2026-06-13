@@ -253,6 +253,19 @@ db.exec(`
     PRIMARY KEY (user_id, chase_id, fingerprint)
   );
 
+  CREATE TABLE IF NOT EXISTS alert_fingerprint_claims (
+    user_id TEXT NOT NULL,
+    chase_id TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    listing_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    claimed_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, chase_id, fingerprint)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_alert_fingerprint_claims_claimed_at
+    ON alert_fingerprint_claims(claimed_at);
+
   CREATE TABLE IF NOT EXISTS guild_started_users (
     guild_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
