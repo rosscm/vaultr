@@ -16,13 +16,13 @@ import {
   listAllChases,
   isListingFingerprintIgnored,
   getSourceObservationForItem,
-  claimAlertFingerprintForSending,
   claimAlertForSending,
+  claimUserAlertFingerprintForSending,
   markPostedGuildDailyStats,
   markPostedUserWeeklyReflection,
   markChasesPollChecked,
-  releaseAlertFingerprintSendClaim,
   releaseIncompleteAlertSendClaim,
+  releaseUserAlertFingerprintSendClaim,
   updateSentAlertDetails,
   pruneSourceObservations,
   recordSourceObservations
@@ -633,7 +633,7 @@ export function chaseTuningNoticeLines(
   if (activeTier === 'PRO') {
     return [
       intro,
-      'If that feels noisy, tighten the chase name, lower the max price, add condition or grade details, or use negative keywords for variants you do not want.',
+      'If that feels noisy, tighten the chase name, lower the max price, add condition or grade details, or use tune-out terms for variants you do not want.',
       'You can also use `/alerts settings` to raise confidence or lower alert volume.'
     ];
   }
@@ -641,7 +641,7 @@ export function chaseTuningNoticeLines(
   return [
     intro,
     'If that feels noisy, tighten the chase name or lower the max price so Vaultr has a clearer target.',
-    'For finer chase controls and deeper alert tuning, `/upgrade` unlocks the Pro toolkit.'
+    'For finer chase controls and deeper alert tune-outs, `/upgrade` unlocks the Pro toolkit.'
   ];
 }
 
@@ -899,7 +899,7 @@ async function runPoll(client: Client): Promise<void> {
       }
       if (
         listingFingerprint &&
-        !claimAlertFingerprintForSending(chase.userId, chase.id, listingFingerprint, listing.listingId, listing.source)
+        !claimUserAlertFingerprintForSending(chase.userId, listingFingerprint, listing.listingId, listing.source)
       ) {
         releaseIncompleteAlertSendClaim(chase.id, listing.listingId, listing.source);
         markFingerprintSuppression();
@@ -1049,7 +1049,7 @@ async function runPoll(client: Client): Promise<void> {
       } catch (error) {
         releaseIncompleteAlertSendClaim(chase.id, listing.listingId, listing.source);
         if (listingFingerprint) {
-          releaseAlertFingerprintSendClaim(chase.userId, chase.id, listingFingerprint, listing.listingId, listing.source);
+          releaseUserAlertFingerprintSendClaim(chase.userId, listingFingerprint, listing.listingId, listing.source);
         }
         console.error(`Failed to send DM alert to user ${chase.userId}`, error);
       }
@@ -1162,7 +1162,7 @@ function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectio
 }
 
 function weeklyNextStep(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
-  if (summary.alertsReceived >= 25) return 'If this felt noisy, tighten max price, condition, or negative keywords on the chases that fired most.';
+  if (summary.alertsReceived >= 25) return 'If this felt noisy, tighten max price, condition, or tune-out terms on the chases that fired most.';
   if (summary.newChasesAdded > 0) return 'Your new chases now shape future Discovery recommendations.';
   if (summary.alertsReceived === 0) return 'Refresh a chase or add another card if you want Discovery to broaden next week.';
   return 'Keep useful chases active and tune out listings that do not match your collecting intent.';

@@ -5,6 +5,7 @@ import {
   getGuildCommunityFeedMode,
   getUserPlan,
   getGuildCommandChannel,
+  listChases,
   markGuildUserStarted
 } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
@@ -14,6 +15,10 @@ import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/styl
 import { buildGradePreference, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case'];
+
+function normalizeChaseName(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
 
 function displayAny(value: string | undefined): string {
   if (!value || value === 'ANY') return OUTPUT_STYLE.any;
@@ -32,7 +37,7 @@ function proControlNames(values: {
     values.listingTypeRaw !== null && values.listingTypeRaw !== 'ANY' ? 'listing type' : undefined,
     values.priorityRaw !== null && values.priorityRaw !== 'NORMAL' ? 'priority' : undefined,
     values.targetNote !== undefined ? 'note' : undefined,
-    values.hasCustomNegativeKeywords ? 'blocked terms' : undefined
+    values.hasCustomNegativeKeywords ? 'tune-out terms' : undefined
   ].filter((value): value is string => Boolean(value));
 }
 
@@ -57,6 +62,15 @@ export const chaseAdd = {
     }
 
     const cardName = interaction.options.getString('card', true);
+    const existingDuplicate = listChases(interaction.user.id).find((chase) => normalizeChaseName(chase.cardName) === normalizeChaseName(cardName));
+    if (existingDuplicate) {
+      await interaction.reply({
+        embeds: [warningEmbed('Already In Vault', `**${existingDuplicate.cardName}** is already an active chase.`)],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
     const gradingType = interaction.options.getString('grading_type') as Parameters<typeof buildGradePreference>[0];
     const gradeValue = interaction.options.getString('grade_value') as Parameters<typeof buildGradePreference>[1];
@@ -74,10 +88,10 @@ export const chaseAdd = {
     const listingTypeRaw = interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null;
     const priorityRaw = interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null;
     const targetNote = interaction.options.getString('target_note') ?? undefined;
-    const negativeKeywordsRaw = interaction.options.getString('negative_keywords');
+    const tuningTermsRaw = interaction.options.getString('tune_out_terms') ?? interaction.options.getString('tuning_terms') ?? interaction.options.getString('negative_keywords');
     const hasCustomNegativeKeywords =
-      negativeKeywordsRaw !== null &&
-      negativeKeywordsRaw
+      tuningTermsRaw !== null &&
+      tuningTermsRaw
         .split(',')
         .map((k: string) => k.trim())
         .filter(Boolean).length > 0;
@@ -89,16 +103,16 @@ export const chaseAdd = {
     const listingType = canUsePrecisionControls ? listingTypeRaw ?? 'ANY' : 'ANY';
     const priority = canUsePrecisionControls ? priorityRaw ?? 'NORMAL' : 'NORMAL';
     const appliedTargetNote = canUsePrecisionControls ? targetNote : undefined;
-    const negativeKeywords = canUsePrecisionControls
-      ? negativeKeywordsRaw
+    const tuningTerms = canUsePrecisionControls
+      ? tuningTermsRaw
           ?.split(',')
           .map((k: string) => k.trim())
           .filter(Boolean)
       : undefined;
 
-    if (negativeKeywords && negativeKeywords.length > 15) {
+    if (tuningTerms && tuningTerms.length > 15) {
       await interaction.reply({
-        embeds: [warningEmbed('Too Many Blocked Terms', 'Use at most 15 comma-separated blocked terms.')],
+        embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms.')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -114,7 +128,7 @@ export const chaseAdd = {
       grade,
       condition: appliedCondition,
       listingType,
-      negativeKeywords: negativeKeywords && negativeKeywords.length > 0 ? negativeKeywords : DEFAULT_NEGATIVE_KEYWORDS
+      negativeKeywords: tuningTerms && tuningTerms.length > 0 ? tuningTerms : undefined
     });
 
     const lines = [
@@ -127,7 +141,8 @@ export const chaseAdd = {
       `**Grade:** ${displayGrade(chase.grade)}`,
       `**Condition:** ${displayCondition(chase.condition)}`,
       `**Listing Type:** ${displayAny(chase.listingType)}`,
-      `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
+      `**Tune-Out Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
+      `**Default Exclusions:** ${DEFAULT_NEGATIVE_KEYWORDS.join(', ')}`,
       ...(blockedProControls.length > 0
         ? [
             '',

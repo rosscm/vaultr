@@ -202,6 +202,14 @@ const insertChaseStmt = db.prepare(`
   VALUES (@id, @user_id, @guild_id, @card_name, @priority, @target_note, @max_price, @grade, @condition, @listing_type, @negative_keywords, @created_at)
 `);
 
+const getChaseByUserAndNormalizedNameStmt = db.prepare(`
+  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  FROM chases
+  WHERE user_id = ? AND lower(trim(card_name)) = lower(trim(?))
+  ORDER BY created_at ASC
+  LIMIT 1
+`);
+
 const listChasesStmt = db.prepare(`
   SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
@@ -737,6 +745,8 @@ const deleteAlertFingerprintClaimStmt = db.prepare(`
   WHERE user_id = ? AND chase_id = ? AND fingerprint = ? AND listing_id = ? AND source = ?
 `);
 
+const USER_ALERT_FINGERPRINT_CLAIM_CHASE_ID = '__user__';
+
 const insertDiscoveryVaultActionStmt = db.prepare(`
   INSERT INTO discovery_vault_actions (token, user_id, card_name, lane, max_price, created_at, expires_at)
   VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -851,26 +861,35 @@ function mapTasteMemoryRow(row: UserTasteMemoryRow): Chase {
 }
 
 export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
+  const existing = getChaseByUserAndNormalizedNameStmt.get(input.userId, input.cardName) as ChaseRow | undefined;
+  if (existing) return mapRow(existing);
+
   const chase: Chase = {
     ...input,
     id: randomUUID(),
     createdAt: new Date().toISOString()
   };
 
-  insertChaseStmt.run({
-    id: chase.id,
-    user_id: chase.userId,
-    guild_id: chase.guildId ?? null,
-    card_name: chase.cardName,
-    priority: chase.priority ?? 'NORMAL',
-    target_note: chase.targetNote ?? null,
-    max_price: chase.maxPrice ?? null,
-    grade: chase.grade ?? null,
-    condition: chase.condition ?? null,
-    listing_type: chase.listingType ?? 'ANY',
-    negative_keywords: chase.negativeKeywords?.join(',') ?? null,
-    created_at: chase.createdAt
-  });
+  try {
+    insertChaseStmt.run({
+      id: chase.id,
+      user_id: chase.userId,
+      guild_id: chase.guildId ?? null,
+      card_name: chase.cardName,
+      priority: chase.priority ?? 'NORMAL',
+      target_note: chase.targetNote ?? null,
+      max_price: chase.maxPrice ?? null,
+      grade: chase.grade ?? null,
+      condition: chase.condition ?? null,
+      listing_type: chase.listingType ?? 'ANY',
+      negative_keywords: chase.negativeKeywords?.join(',') ?? null,
+      created_at: chase.createdAt
+    });
+  } catch (error) {
+    const duplicate = getChaseByUserAndNormalizedNameStmt.get(input.userId, input.cardName) as ChaseRow | undefined;
+    if (duplicate) return mapRow(duplicate);
+    throw error;
+  }
 
   return chase;
 }
@@ -1323,6 +1342,25 @@ export function releaseAlertFingerprintSendClaim(
   source: ListingSource
 ): void {
   deleteAlertFingerprintClaimStmt.run(userId, chaseId, fingerprint, listingId, source);
+}
+
+export function claimUserAlertFingerprintForSending(
+  userId: string,
+  fingerprint: string,
+  listingId: string,
+  source: ListingSource,
+  ttlMs = 6 * 60 * 60 * 1000
+): boolean {
+  return claimAlertFingerprintForSending(userId, USER_ALERT_FINGERPRINT_CLAIM_CHASE_ID, fingerprint, listingId, source, ttlMs);
+}
+
+export function releaseUserAlertFingerprintSendClaim(
+  userId: string,
+  fingerprint: string,
+  listingId: string,
+  source: ListingSource
+): void {
+  releaseAlertFingerprintSendClaim(userId, USER_ALERT_FINGERPRINT_CLAIM_CHASE_ID, fingerprint, listingId, source);
 }
 
 export function markAlertSentWithDetails(

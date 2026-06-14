@@ -52,8 +52,8 @@ export const chase = {
         )
         .addStringOption((opt) =>
           opt
-            .setName('negative_keywords')
-            .setDescription('Pro: terms to block from this chase')
+            .setName('tune_out_terms')
+            .setDescription('Pro: extra terms to exclude, added to default exclusions')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
@@ -118,8 +118,8 @@ export const chase = {
         )
         .addStringOption((opt) =>
           opt
-            .setName('negative_keywords')
-            .setDescription('Pro: new terms to block')
+            .setName('tune_out_terms')
+            .setDescription('Pro: new extra terms to exclude')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>

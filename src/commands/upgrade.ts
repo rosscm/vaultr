@@ -35,7 +35,7 @@ export const upgrade = {
       `• ${PLAN_LIMITS.PRO.maxActiveChases} active chases and faster checks every ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
       '• deeper Discovery with Taste Profile memory that keeps learning from your Vault',
       '• trusted shop sources alongside eBay, including shop-only restock signals',
-      '• feedback-powered chase tuning plus precision controls for condition, listing type, blocked terms, priority, and chase notes',
+      '• feedback-powered tune-out rules plus precision controls for condition, listing type, tune-out terms, priority, and chase notes',
       '',
       '**Status**',
       'Checkout is coming soon; Pro access is currently available by request.'

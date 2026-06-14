@@ -18,7 +18,7 @@ const reasonLabels: Record<AlertFeedbackReason, string> = {
 };
 
 const reasonSuggestions: Record<AlertFeedbackReason, string> = {
-  WRONG_CARD: 'tighten the chase name or add negative keywords for variants you do not want',
+  WRONG_CARD: 'tighten the chase name or add tune-out terms for variants you do not want',
   WRONG_GRADE_TYPE: 'set grading type and grade value for the slab or raw status you want',
   CONDITION_ISSUE: 'set a condition threshold if surface quality is the deciding factor',
   PRICE_SHIPPING: 'review max price and ship-to country so total cost lines up with your range',
@@ -96,7 +96,7 @@ export const alertsRecent = {
     const learningNote = formatLearningNote(interaction.user.id);
     if (learningNote) {
       embed.addFields({
-        name: 'Alert Tuning',
+        name: 'Alert Tune-Outs',
         value: learningNote.replace('**Vaultr noticed:** ', ''),
         inline: false
       });

@@ -203,7 +203,7 @@ describe('alert eBay search options', () => {
     expect(listingSourceFailureReason(new Error('socket hang up'))).toBe('Source error');
   });
 
-  it('nudges chase tuning only when one chase has more eligible alerts than the per-poll cap', () => {
+  it('nudges chase tune-outs only when one chase has more eligible alerts than the per-poll cap', () => {
     expect(shouldSendChaseTuningNotice(3, 8, 3)).toBe(true);
     expect(shouldSendChaseTuningNotice(2, 8, 3)).toBe(false);
     expect(shouldSendChaseTuningNotice(3, 3, 3)).toBe(false);
@@ -220,11 +220,11 @@ describe('alert eBay search options', () => {
     expect(text).not.toContain('condition or grade');
   });
 
-  it('keeps Pro high-volume chase guidance focused on advanced tuning controls', () => {
+  it('keeps Pro high-volume chase guidance focused on advanced tune-out controls', () => {
     const text = chaseTuningNoticeLines({ cardName: 'blastoise 002' }, 'PRO', 3, 8).join('\n');
 
     expect(text).toContain('condition or grade');
-    expect(text).toContain('negative keywords');
+    expect(text).toContain('tune-out terms');
     expect(text).toContain('/alerts settings');
     expect(text).not.toContain('/upgrade');
   });
@@ -488,7 +488,7 @@ describe('buildWeeklyReflectionEmbed', () => {
     expect(data.footer?.text).toBe('Vaultr • Weekly');
   });
 
-  it('nudges noisy weeks toward chase tuning', () => {
+  it('nudges noisy weeks toward chase tune-outs', () => {
     const embed = buildWeeklyReflectionEmbed({
       alertsReceived: 36,
       grailsSurfaced: 7,
@@ -503,7 +503,7 @@ describe('buildWeeklyReflectionEmbed', () => {
     expect(data.fields?.[0].value).toBe('**36**\nsent');
     expect(data.fields?.[1].value).toBe('**7**\nhigh-priority hits');
     expect(data.fields?.[4].value).toContain('If this felt noisy');
-    expect(data.fields?.[4].value).toContain('negative keywords');
+    expect(data.fields?.[4].value).toContain('tune-out terms');
   });
 });
 

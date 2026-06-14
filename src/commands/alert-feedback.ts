@@ -124,13 +124,13 @@ async function handleApplyTuning(interaction: any): Promise<boolean> {
   const alert = chaseId && feedbackToken ? getSentAlertByFeedbackToken(interaction.user.id, chaseId, feedbackToken) : null;
   const chase = chaseId ? getChase(interaction.user.id, chaseId) : null;
   if (!chaseId || !feedbackToken || !alert || !chase) {
-    await interaction.update({ content: 'Could not apply that tuning rule.', components: [] });
+    await interaction.update({ content: 'Could not apply that tune-out rule.', components: [] });
     return true;
   }
 
   if (activePlanTier(getUserPlan(interaction.user.id)) !== 'PRO') {
     await interaction.update({
-      content: `Vaultr can spot this pattern, but persistent chase tuning is Pro. Use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and feedback-powered tuning.`,
+      content: `Vaultr can spot this pattern, but persistent tune-out rules are Pro. Use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and feedback-powered tune-outs.`,
       components: []
     });
     return true;
@@ -138,7 +138,7 @@ async function handleApplyTuning(interaction: any): Promise<boolean> {
 
   const suggestion = suggestionForChase(interaction.user.id, chaseId);
   if (!suggestion) {
-    await interaction.update({ content: 'That tuning pattern is already applied or no longer has enough recent signal.', components: [] });
+    await interaction.update({ content: 'That tune-out pattern is already applied or no longer has enough recent signal.', components: [] });
     return true;
   }
 
@@ -167,7 +167,7 @@ async function handleTuneOutReason(interaction: any): Promise<boolean> {
 
   recordAlertFeedback(interaction.user.id, chaseId, alert.listingId, 'TUNE_OUT', reason);
 
-  let followUp = 'Noted. This helps tune future alerts.';
+  let followUp = 'Noted. This helps tune out future misses.';
   let components: ActionRowBuilder<ButtonBuilder>[] = [];
   if (reason === 'ALREADY_SEEN_BOUGHT') {
     const fingerprint = alert?.listingTitle ? makeListingFingerprint(alert.listingTitle) : '';
@@ -181,7 +181,7 @@ async function handleTuneOutReason(interaction: any): Promise<boolean> {
   if (suggestion) {
     const intro = formatTuningSuggestion(suggestion);
     if (activePlanTier(getUserPlan(interaction.user.id)) === 'PRO') {
-      followUp = `${intro} Apply a chase rule to exclude these going forward?`;
+      followUp = `${intro} Apply a tune-out rule to exclude these going forward?`;
       components = [tuningApplyRow(chaseId, feedbackToken, suggestion)];
     } else {
       followUp = `${intro} Pro can turn that into an automatic chase rule.`;
@@ -212,7 +212,7 @@ export async function handleAlertFeedback(interaction: any): Promise<boolean> {
   if (feedback === 'GOOD_ALERT') {
     recordAlertFeedback(interaction.user.id, chaseId, alert.listingId, feedback);
     await interaction.reply({
-      content: 'Noted. This helps tune future alerts.',
+      content: 'Noted. This helps future alerts stay on target.',
       flags: MessageFlags.Ephemeral
     });
     return true;

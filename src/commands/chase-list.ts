@@ -1,17 +1,12 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { getUserAlertSettings, getUserPlan, listChases } from '../services/chase-store.js';
 import { activePlanChases, activePlanLimits, pausedPlanChases } from '../services/plans.js';
-import { infoEmbed, keyValue } from '../ui/embeds.js';
+import { infoEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE = 10;
 const PAGE_ID_PREFIX = 'chase-list';
 const DEFAULT_BLOCKED_TERMS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case'];
-const FIELD_VALUE_LIMIT = 1000;
-
-function truncate(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
-}
 
 function normalizedTerm(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -78,30 +73,30 @@ export function buildChaseListEmbed(userId: string, page: number) {
     return 'Normal';
   };
 
-  const renderGroup = (title: string, items: Array<(typeof pageItems)[number]>, options: { includePriority?: boolean; paused?: boolean } = {}) => {
-    if (items.length === 0) return null;
+  const renderGroup = (title: string, items: Array<(typeof pageItems)[number]>, options: { includePriority?: boolean; paused?: boolean } = {}): string => {
+    if (items.length === 0) return '';
     const { includePriority = false, paused = false } = options;
     const rows = items.map((c) => {
       const absoluteIndex = entryById.get(c.id) ?? 0;
-      const titleLine = `**#${absoluteIndex}** · **${truncate(c.cardName, 72)}**`;
       const summary = [
-        c.maxPrice !== undefined ? `${c.maxPrice} ${currency} max` : `${OUTPUT_STYLE.any} price`,
-        displayGrade(c.grade),
-        displayCondition(c.condition),
-        displayAny(c.listingType)
-      ].join(' · ');
+        `**#${absoluteIndex} — ${c.cardName}**`,
+        ...(includePriority ? [`Priority: ${priorityLabel(c.priority)}`] : []),
+        `Max: ${c.maxPrice !== undefined ? `${c.maxPrice} ${currency}` : OUTPUT_STYLE.any}`,
+        `Grade: ${displayGrade(c.grade)}`,
+        `Condition: ${displayCondition(c.condition)}`,
+        `Listing: ${displayAny(c.listingType)}`
+      ].join(' | ');
 
       const extras: string[] = [];
-      if (includePriority) extras.push(`Priority: ${priorityLabel(c.priority)}`);
       if (c.targetNote) extras.push(`Note: ${orNone(c.targetNote)}`);
       const customBlockedTerms = chaseSpecificBlockedTerms(c.negativeKeywords);
-      if (customBlockedTerms.length > 0) extras.push(`Tuning: ${customBlockedTerms.join(', ')}`);
+      if (customBlockedTerms.length > 0) extras.push(`Tune Out: ${customBlockedTerms.join(', ')}`);
       if (paused) extras.push('Status: Paused until Pro');
 
-      return extras.length > 0 ? `${titleLine}\n${summary}\n${extras.join(' · ')}` : `${titleLine}\n${summary}`;
+      return extras.length > 0 ? `${summary}\n${extras.join(' | ')}` : summary;
     });
 
-    return keyValue(title, truncate(rows.join('\n\n'), FIELD_VALUE_LIMIT));
+    return `**${title}**\n${rows.join('\n')}`;
   };
 
   const activePageItems = pageItems.filter((chase) => activeChaseIds.has(chase.id));
@@ -115,24 +110,29 @@ export function buildChaseListEmbed(userId: string, page: number) {
     renderGroup('🔥 High Priority', activeHigh),
     renderGroup('🟢 Normal', activeNormal),
     renderGroup('⏸️ Paused Until Pro', pausedPageItems, { includePriority: true, paused: true })
-  ].filter((field): field is { name: string; value: string; inline: false } => field !== null);
+  ].filter(Boolean);
 
   const description = [
-    `**${activeChaseIds.size}/${limits.maxActiveChases} active** · **${total} saved** · **Page ${currentPage + 1}/${totalPages}**`,
+    `**Active Chases:** ${activeChaseIds.size}/${limits.maxActiveChases}`,
     ...(pausedCount > 0 ? [`**Paused Chases:** ${pausedCount} saved, not checked while on Free`] : []),
-    'Active order follows priority, then oldest chase first.'
+    `**Page:** ${currentPage + 1}/${totalPages}`,
+    '',
+    groupedSections.join('\n\n'),
+    '',
+    '---',
+    '**Default Exclusions**',
+    DEFAULT_BLOCKED_TERMS.join(', '),
+    '',
+    '---',
+    '**Next Actions**',
+    '✏️ Refine with `/chase edit`',
+    '🗑️ Remove with `/chase remove`',
+    '✨ Watch for the next Weekly Discovery drop in your server channel'
   ].join('\n');
-
-  const embed = infoEmbed('📚 Vault Chases', description);
-  embed.addFields(
-    ...groupedSections,
-    keyValue('Default Exclusions', DEFAULT_BLOCKED_TERMS.join(', ')),
-    keyValue('Next Actions', 'Refine with `/chase edit` · Remove with `/chase remove` · Discovery uses active chases as taste signals')
-  );
 
   return {
     empty: false as const,
-    embeds: [embed],
+    embeds: [infoEmbed('📚 Vault Chases', description)],
     components: [makePaginationRow(userId, currentPage, totalPages)]
   };
 }

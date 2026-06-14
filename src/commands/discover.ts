@@ -173,7 +173,6 @@ const DISCOVERY_SELECT_PREFIX = 'discover-action';
 const DISCOVERY_DROP_OPEN_PREFIX = 'discover-drop-open';
 const DISCOVERY_DROP_PAGE_PREFIX = 'discover-drop-page';
 const DISCOVERY_VAULT_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case'];
 const PROFILE_SUBJECT_STOP_WORDS = new Set([
   'black',
   'card',
@@ -2322,7 +2321,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     lines.push(discoveryShelfTighteningNote());
   }
   if (!discovery.hasFullDiscovery) {
-    lines.push('Just a heads up... Pro members get the full Weekly Shelf with feedback-powered taste memory, live market reads on every card, and tuning controls for future drops');
+    lines.push('Just a heads up... Pro members get the full Weekly Shelf with feedback-powered taste memory, live market reads on every card, and tune-out controls for future drops');
   }
   const actionRows = discoveryActionRows(userId, visibleCandidates, discovery.hasFullDiscovery, pageState.start);
   const headerEmbed = discoveryShelfHeaderEmbed(title, lines);
@@ -2501,8 +2500,7 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
     priority: 'NORMAL',
     maxPrice: pick.maxPrice,
     grade: 'UNGRADED',
-    listingType: 'ANY',
-    negativeKeywords: DEFAULT_NEGATIVE_KEYWORDS
+    listingType: 'ANY'
   });
   recordDiscoveryAddTaste(interaction.user.id, chase.cardName, chase.maxPrice);
 

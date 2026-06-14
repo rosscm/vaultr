@@ -91,7 +91,7 @@ describe('chase command', () => {
       listing_type: 'AUCTION',
       priority: 'GRAIL',
       target_note: 'Moonbreon grail',
-      negative_keywords: 'digital, jumbo'
+      tune_out_terms: 'digital, jumbo'
     });
 
     await chase.execute(interaction);
@@ -104,8 +104,46 @@ describe('chase command', () => {
     expect(saved.listingType).toBe('ANY');
     expect(saved.priority).toBe('NORMAL');
     expect(saved.targetNote).toBeUndefined();
-    expect(saved.negativeKeywords).toEqual(['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case']);
+    expect(saved.negativeKeywords).toBeUndefined();
     expect(interaction.reply).toHaveBeenCalledOnce();
+  });
+
+  it('does not add the same chase twice from repeated submissions', async () => {
+    const userId = testUserId('duplicate-add');
+    setUserPlan(userId, 'PRO');
+
+    await chase.execute(mockInteraction(userId, 'add', { card: 'Umbreon 217/187 Japanese', max_price: 550 }));
+    const duplicateInteraction = mockInteraction(userId, 'add', { card: '  umbreon   217/187 japanese  ', max_price: 550 });
+    await chase.execute(duplicateInteraction);
+
+    expect(listChases(userId).map((item) => item.cardName)).toEqual(['Umbreon 217/187 Japanese']);
+    expect(duplicateInteraction.reply).toHaveBeenCalledWith(expect.objectContaining({
+      embeds: expect.arrayContaining([expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('Already In Vault') }) })])
+    }));
+  });
+
+  it('stores Pro tune-out terms as chase-specific extras', async () => {
+    const userId = testUserId('pro-tune-out-add');
+    setUserPlan(userId, 'PRO');
+
+    await chase.execute(mockInteraction(userId, 'add', {
+      card: 'Umbreon 217/187 Japanese',
+      max_price: 550,
+      tune_out_terms: 'korean, chinese'
+    }));
+
+    const saved = listChases(userId)[0];
+    expect(saved.negativeKeywords).toEqual(['korean', 'chinese']);
+  });
+
+  it('keeps store-level chase creation idempotent for bot retries', () => {
+    const userId = testUserId('store-duplicate-add');
+
+    const first = addChase({ userId, cardName: 'Umbreon 217/187 Japanese', maxPrice: 550 });
+    const second = addChase({ userId, cardName: 'Umbreon 217/187 Japanese', maxPrice: 550 });
+
+    expect(second.id).toBe(first.id);
+    expect(listChases(userId).map((item) => item.cardName)).toEqual(['Umbreon 217/187 Japanese']);
   });
 
   it('applies Free edit fields while ignoring Pro-only modifiers', async () => {
@@ -128,7 +166,7 @@ describe('chase command', () => {
       listing_type: 'BUY_IT_NOW',
       priority: 'HIGH',
       target_note: 'Binder copy',
-      negative_keywords: 'creased'
+      tune_out_terms: 'creased'
     });
 
     await chase.execute(interaction);
@@ -171,7 +209,7 @@ describe('chase command', () => {
     expect(interaction.reply).toHaveBeenCalledOnce();
   });
 
-  it('lists default blocked terms once while showing chase-specific tuning inline', () => {
+  it('lists default blocked terms once while showing chase-specific tune-outs inline', () => {
     const userId = testUserId('list-default-exclusions');
     setUserPlan(userId, 'PRO');
     addChase({
@@ -193,9 +231,12 @@ describe('chase command', () => {
     const data = payload.embeds[0].toJSON();
     const text = [data.description, ...(data.fields ?? []).map((field) => `${field.name}\n${field.value}`)].join('\n');
 
-    expect(data.fields?.map((field) => field.name)).toContain('Default Exclusions');
+    expect(data.description).toContain('**Default Exclusions**');
+    expect(data.description).toContain('Max: 550 USD | Grade: Ungraded | Condition: Any | Listing: Any');
+    expect(data.description).toContain('**Next Actions**\n✏️ Refine with `/chase edit`');
+    expect(data.description).toContain('**Default Exclusions**\nproxy, custom, reprint, lot, orica, replica, fan art, novelty, keychain, extended art, acrylic case, magnetic case\n\n---\n**Next Actions**');
     expect(text.match(/proxy, custom/g)).toHaveLength(1);
-    expect(text).toContain('Tuning: korean');
+    expect(text).toContain('Tune Out: korean');
     expect(text).not.toContain('Blocked:');
   });
 

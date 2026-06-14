@@ -30,6 +30,9 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_chases_user_id ON chases(user_id);
 
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_chases_user_normalized_card_name
+    ON chases(user_id, lower(trim(card_name)));
+
   CREATE TABLE IF NOT EXISTS sent_alerts (
     chase_id TEXT NOT NULL,
     listing_id TEXT NOT NULL,

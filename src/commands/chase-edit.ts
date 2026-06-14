@@ -22,7 +22,7 @@ function chaseDetailLines(chase: ReturnType<typeof listChases>[number]): string[
     `**Grade:** ${displayGrade(chase.grade)}`,
     `**Condition:** ${displayCondition(chase.condition)}`,
     `**Listing Type:** ${displayAny(chase.listingType)}`,
-    `**Blocked Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`
+    `**Tune-Out Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`
   ];
 }
 
@@ -60,7 +60,7 @@ function proControlNames(values: {
     values.listingType !== undefined && values.listingType !== 'ANY' ? 'listing type' : undefined,
     values.priority !== undefined && values.priority !== 'NORMAL' ? 'priority' : undefined,
     values.targetNoteRaw !== null ? 'note' : undefined,
-    values.negativeKeywordsRaw !== null ? 'blocked terms' : undefined
+    values.negativeKeywordsRaw !== null ? 'tune-out terms' : undefined
   ].filter((value): value is string => Boolean(value));
 }
 
@@ -112,12 +112,12 @@ function chaseEditModal(userId: string, chase: ReturnType<typeof listChases>[num
     );
     const negativeKeywords = addOptionalValue(
       new TextInputBuilder()
-        .setCustomId('negative_keywords')
-        .setLabel('Blocked terms')
+        .setCustomId('tune_out_terms')
+        .setLabel('Tune-out terms')
         .setStyle(TextInputStyle.Paragraph)
         .setMaxLength(240)
         .setRequired(false)
-        .setPlaceholder('Comma-separated terms to block'),
+        .setPlaceholder('Extra comma-separated terms to exclude'),
       chase.negativeKeywords?.join(', ')
     );
     components.push(
@@ -217,7 +217,7 @@ export const chaseEdit = {
     const priority = (interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null) ?? undefined;
     const targetNoteRaw = interaction.options.getString('target_note');
     const targetNote = targetNoteRaw === null ? undefined : targetNoteRaw;
-    const negativeKeywordsRaw = interaction.options.getString('negative_keywords');
+    const negativeKeywordsRaw = interaction.options.getString('tune_out_terms') ?? interaction.options.getString('tuning_terms') ?? interaction.options.getString('negative_keywords');
     const plan = getUserPlan(interaction.user.id);
     const activeTier = activePlanTier(plan);
     const entitlements = getEntitlementsForTier(activeTier);
@@ -234,7 +234,7 @@ export const chaseEdit = {
 
     if (negativeKeywords && negativeKeywords.length > 15) {
       await interaction.reply({
-        embeds: [warningEmbed('Too Many Blocked Terms', 'Use at most 15 comma-separated blocked terms.')],
+        embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms.')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -329,7 +329,7 @@ export async function handleChaseEditModal(interaction: any): Promise<boolean> {
   const maxPrice = parseModalMaxPrice(interaction.fields.getTextInputValue('max_price'));
   const grade = normalizeModalGrade(interaction.fields.getTextInputValue('grade'));
   const targetNoteRaw = optionalTextInputValue(interaction, 'target_note');
-  const negativeKeywordsRaw = optionalTextInputValue(interaction, 'negative_keywords');
+  const negativeKeywordsRaw = optionalTextInputValue(interaction, 'tune_out_terms') ?? optionalTextInputValue(interaction, 'tuning_terms') ?? optionalTextInputValue(interaction, 'negative_keywords');
   const targetNoteValue = targetNoteRaw?.trim();
   const targetNote = targetNoteValue === undefined ? undefined : targetNoteValue.length > 0 ? targetNoteValue : null;
   const negativeKeywords = negativeKeywordsRaw === undefined ? undefined : parseModalNegativeKeywords(negativeKeywordsRaw);
@@ -343,7 +343,7 @@ export async function handleChaseEditModal(interaction: any): Promise<boolean> {
     return true;
   }
   if (negativeKeywords && negativeKeywords.length > 15) {
-    await interaction.reply({ embeds: [warningEmbed('Too Many Blocked Terms', 'Use at most 15 comma-separated blocked terms.')], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms.')], flags: MessageFlags.Ephemeral });
     return true;
   }
 
@@ -353,10 +353,10 @@ export async function handleChaseEditModal(interaction: any): Promise<boolean> {
   const changedProFields =
     (targetNote !== undefined && targetNote !== (match.targetNote ?? null)) ||
     (negativeKeywords !== undefined && (negativeKeywords?.join(',') ?? null) !== (match.negativeKeywords?.join(',') ?? null));
-  const blockedProControls = changedProFields && !entitlements.advancedFiltering ? ['note or blocked terms'] : [];
+  const blockedProControls = changedProFields && !entitlements.advancedFiltering ? ['note or tune-out terms'] : [];
   if (blockedProControls.length > 0 && cardName === match.cardName && maxPrice === (match.maxPrice ?? null) && grade === (match.grade ?? null)) {
     await interaction.reply({
-      embeds: [warningEmbed('Pro Controls Not Applied', `Free Vaults cannot change note or blocked terms.\n\n**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`)],
+      embeds: [warningEmbed('Pro Controls Not Applied', `Free Vaults cannot change note or tune-out terms.\n\n**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`)],
       flags: MessageFlags.Ephemeral
     });
     return true;

@@ -4,11 +4,13 @@ import {
   addChase,
   claimAlertFingerprintForSending,
   claimAlertForSending,
+  claimUserAlertFingerprintForSending,
   getChase,
   markAlertSentWithDetails,
   recordAlertFeedback,
   releaseAlertFingerprintSendClaim,
   releaseIncompleteAlertSendClaim,
+  releaseUserAlertFingerprintSendClaim,
   removeAllChases,
   setUserPlan
 } from '../../services/chase-store.js';
@@ -69,8 +71,8 @@ afterEach(() => {
   testUserIds.clear();
 });
 
-describe('alert feedback tuning', () => {
-  it('infers chase tuning only after repeated title patterns', () => {
+describe('alert feedback tune-outs', () => {
+  it('infers chase tune-outs only after repeated title patterns', () => {
     expect(
       inferAlertTuningSuggestion([
         { listingTitle: 'Pokemon Card Umbreon ex SAR 217/187 sv8a Terastal Festival Korean NM' }
@@ -112,7 +114,7 @@ describe('alert feedback tuning', () => {
     expect(getChase(userId, chase.id)?.negativeKeywords).toEqual(['proxy', 'korean']);
   });
 
-  it('shows Free users the learned pattern without applying persistent chase tuning', async () => {
+  it('shows Free users the learned pattern without applying persistent tune-outs', async () => {
     const userId = testUserId('free-pattern');
     setUserPlan(userId, 'FREE');
     const chase = addChase({ userId, cardName: 'Umbreon 217/187', negativeKeywords: ['proxy'] });
@@ -151,5 +153,18 @@ describe('alert feedback tuning', () => {
 
     releaseAlertFingerprintSendClaim(userId, chase.id, fingerprint, 'v1|168356809748|467862061788', 'EBAY');
     expect(claimAlertFingerprintForSending(userId, chase.id, fingerprint, 'v1|168356809748|0', 'EBAY')).toBe(true);
+  });
+
+  it('claims a user alert fingerprint across matching chases', () => {
+    const userId = testUserId('user-fingerprint-claim');
+    addChase({ userId, cardName: 'Umbreon 217/187' });
+    addChase({ userId, cardName: 'Umbreon 217/187 Japanese' });
+    const fingerprint = 'umbreon sar 217/187 terastal festival sv8a 2024';
+
+    expect(claimUserAlertFingerprintForSending(userId, fingerprint, 'v1|317978401186|0', 'EBAY')).toBe(true);
+    expect(claimUserAlertFingerprintForSending(userId, fingerprint, 'v1|317978401186|0', 'EBAY')).toBe(false);
+
+    releaseUserAlertFingerprintSendClaim(userId, fingerprint, 'v1|317978401186|0', 'EBAY');
+    expect(claimUserAlertFingerprintForSending(userId, fingerprint, 'v1|317978401186|0', 'EBAY')).toBe(true);
   });
 });
