@@ -14,6 +14,7 @@ import {
   discoveryMarketRangeFromChases,
   discoveryNegativeProfile,
   discoveryProfileConfidence,
+  discoveryShelfMarketCheckNote,
   discoveryShelfTighteningNote,
   discoveryTasteProfileChases,
   discoveryVisibleCountForPlan,
@@ -272,6 +273,14 @@ describe('selectVisibleCandidates', () => {
   it('uses curation copy for tighter Pro shelves without calling usable profiles light', () => {
     expect(discoveryShelfTighteningNote()).toBe('🔮 **Reading:** a smaller shelf for now while Vaultr continues to learn from your chases, feedback, and collector patterns');
     expect(discoveryShelfTighteningNote()).not.toContain('Light Vault');
+  });
+
+  it('explains hidden low-comp shelf rows without implying repeated opens will unlock packed picks', () => {
+    const note = discoveryShelfMarketCheckNote(12);
+
+    expect(note).toBe('🧪 **Market Check:** showing 12 picks with cleaner live market checks; thinner comp rows will keep refreshing automatically');
+    expect(note).not.toContain('extra picks are packed');
+    expect(note).not.toContain('waiting on cleaner market checks');
   });
 
   it('does not explain near-full Pro shelves as smaller shelves', () => {

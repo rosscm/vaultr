@@ -1394,6 +1394,10 @@ export function discoveryShelfTighteningNote(): string {
   return '🔮 **Reading:** a smaller shelf for now while Vaultr continues to learn from your chases, feedback, and collector patterns';
 }
 
+export function discoveryShelfMarketCheckNote(shelfSize: number): string {
+  return `🧪 **Market Check:** showing ${shelfSize} picks with cleaner live market checks; thinner comp rows will keep refreshing automatically`;
+}
+
 export function shouldShowDiscoveryShelfTighteningNote(hasFullDiscovery: boolean, shelfSize: number, proShelfSize = weeklyDiscoveryShelfSizeForPlan('PRO')): boolean {
   return hasFullDiscovery && shelfSize < proShelfSize - 1;
 }
@@ -2433,7 +2437,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     `🧵 **Threads:** ${pathSummary}`
   ];
   if (discovery.hasFullDiscovery && hiddenCandidateCount > 0) {
-    lines.push('', '🧪 **Market Polish:** extra picks are packed, but waiting on cleaner market checks');
+    lines.push('', discoveryShelfMarketCheckNote(shelfCandidates.length));
   } else if (shouldShowDiscoveryShelfTighteningNote(discovery.hasFullDiscovery, shelfCandidates.length)) {
     lines.push(discoveryShelfTighteningNote());
   }
