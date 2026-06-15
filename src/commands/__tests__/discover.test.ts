@@ -298,14 +298,52 @@ describe('selectVisibleCandidates', () => {
     expect(visible.at(-1)?.suggestion.name).toBe('Ready Pick 14');
   });
 
-  it('exposes the full prepared shelf when the collector profile has enough signal', () => {
+  it('keeps strong profiles at a full shelf with concrete cards while market data catches up', () => {
     const readyCandidates = Array.from({ length: 12 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
     const lowDataCandidates = Array.from({ length: 8 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 12, index % 3));
 
     const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true, strongProfileConfidence);
 
     expect(visible).toHaveLength(20);
-    expect(visible.at(-1)?.suggestion.name).toBe('Low Data Pick 8');
+    expect(visible.map((item) => item.suggestion.name)).toEqual([...readyCandidates, ...lowDataCandidates].map((item) => item.suggestion.name));
+  });
+
+  it('fills a Pro shelf with concrete cards when clean market data is still catching up', () => {
+    const readyCandidates = Array.from({ length: 5 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const concretePendingCandidates = Array.from({ length: 15 }, (_, index) => candidate(`Concrete Pick ${index + 1} SWSH${100 + index}`, 'exploration path', index + 5, index % 2));
+
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...concretePendingCandidates], true, strongProfileConfidence);
+
+    expect(visible).toHaveLength(20);
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      ...readyCandidates.map((item) => item.suggestion.name),
+      ...concretePendingCandidates.map((item) => item.suggestion.name)
+    ]);
+  });
+
+  it('does not show broad Discovery category titles as finished shelf cards', () => {
+    const readyCandidates = Array.from({ length: 6 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const broadCandidates = [
+      candidate('Pokemon promo cards', 'Promo Trail', 6, 4),
+      candidate('Pokemon collector cards', 'Collector Compass', 7, 4),
+      candidate('Pikachu Skyridge illustration rare cards', 'Artwork Trail', 8, 4),
+      candidate('Pokemon special release cards', 'Special Release Trail', 9, 4),
+      candidate('EX Pokemon cards', 'Format Trail', 10, 4)
+    ];
+
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...broadCandidates], true, strongProfileConfidence);
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
+  });
+
+  it('does not show duplicate card picks that only differ by generic card suffixes', () => {
+    const visible = marketReadyShelfCandidates(
+      [candidate('Pikachu Skyridge 84', 'E-Reader Era Trail', 0, 4), candidate('Pikachu Skyridge 84 trading card', 'Collector Compass', 1, 4)],
+      true,
+      strongProfileConfidence
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual(['Pikachu Skyridge 84']);
   });
 
   it('fills a full Pro shelf from deeper market-ready alternatives', () => {
@@ -1518,6 +1556,26 @@ describe('discoveryEmbed', () => {
     expect(signal).toContain('Promo Releases');
     expect(signal).toContain('GX/Tag Team Format');
     expect(signal).not.toContain('Mewtwo & Mew-GX adjacency');
+  });
+
+  it('does not label modern Team Rocket named cards as Vintage Era', () => {
+    const embed = discoveryEmbed(
+      {
+        ...sourceCandidate("Team Rocket's Mewtwo ex Ascended Heroes 281", 'Pokemon TCG (Ascended Heroes)', 0),
+        suggestion: {
+          ...sourceCandidate("Team Rocket's Mewtwo ex Ascended Heroes 281", 'Pokemon TCG (Ascended Heroes)', 0).suggestion,
+          lane: 'visual-format discovery',
+          evidenceSearchTerm: "Team Rocket's Mewtwo ex Ascended Heroes 281 Pokemon card",
+          requiredEvidenceTokens: ['team', 'rocket', '281']
+        }
+      },
+      'CAD',
+      false
+    ).toJSON();
+
+    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
+    expect(signal).toContain('Card Format');
+    expect(signal).not.toContain('Vintage Era');
   });
 
   it('does not repeat broad profile chips on unrelated source-backed cards', () => {

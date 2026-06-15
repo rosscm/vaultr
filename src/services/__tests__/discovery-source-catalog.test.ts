@@ -1624,6 +1624,75 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe('Mew ex Paldean Fates 232 Pokemon card');
   });
 
+  it('keeps visual-format discovery anchored to the source profile subject', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.tcgdex.net') {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const query = url.searchParams.get('q') ?? '';
+      const data = query.includes('name:"mew"')
+        ? [
+            {
+              id: 'swsh11tg-TG30',
+              name: 'Mew VMAX',
+              number: 'TG30',
+              supertype: 'Pokemon',
+              subtypes: ['VMAX'],
+              rarity: 'Rare Secret',
+              types: ['Psychic'],
+              nationalPokedexNumbers: [151],
+              set: { name: 'Lost Origin Trainer Gallery', series: 'Sword & Shield', releaseDate: '2022/09/09' }
+            }
+          ]
+        : [
+            {
+              id: 'sv4pt5-232',
+              name: 'Mew ex',
+              number: '232',
+              supertype: 'Pokemon',
+              subtypes: ['Basic', 'ex'],
+              rarity: 'Special Illustration Rare',
+              types: ['Psychic'],
+              nationalPokedexNumbers: [151],
+              set: { name: 'Paldean Fates', series: 'Scarlet & Violet', releaseDate: '2024/01/26' },
+              images: { small: 'https://images.pokemontcg.io/sv4pt5/232.png' }
+            },
+            {
+              id: 'me2pt5-281',
+              name: "Team Rocket's Mewtwo ex",
+              number: '281',
+              supertype: 'Pokemon',
+              subtypes: ['Basic', 'ex'],
+              rarity: 'Special Illustration Rare',
+              types: ['Psychic'],
+              nationalPokedexNumbers: [150],
+              set: { name: 'Ascended Heroes', series: 'Mega Evolution', releaseDate: '2026/01/30' },
+              images: { small: 'https://images.scrydex.com/pokemon/me2pt5-281/small' }
+            }
+          ];
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Pokemon illustration rare cards',
+        lane: 'visual-format discovery',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Pokemon illustration rare cards',
+        requiredEvidenceTokens: ['illustration', 'rare'],
+        sourceTasteTokens: ['illustration', 'rare']
+      },
+      [chase('Mew RC24/RC25')],
+      4
+    );
+
+    expect(resolved.sourceStatus).toBe('NOT_FOUND');
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain("Team Rocket's Mewtwo ex Ascended Heroes 281");
+  });
+
   it('turns ordinary source-backed cards into exact card suggestions', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(

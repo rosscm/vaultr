@@ -18,6 +18,14 @@ afterEach(() => {
 });
 
 describe('discovery reference cache', () => {
+  it('builds exact Pokemon TCG queries for set-number reference names', () => {
+    const suggestion = (name: string) => ({ name, lane: 'test', laneWhy: 'test', why: 'test', nearby: [], evidenceSearchTerm: `${name} Pokemon card` });
+
+    expect(pokemonTcgQueriesForSuggestion(suggestion('Mew Expedition Base Set 55'))[0]).toBe('name:"Mew" number:55 set.name:"Expedition Base Set"');
+    expect(pokemonTcgQueriesForSuggestion(suggestion('Umbreon XY Black Star Promos XY96'))[0]).toBe('name:"Umbreon" number:XY96');
+    expect(pokemonTcgQueriesForSuggestion(suggestion('Pikachu Skyridge 84 trading card'))[0]).toBe('name:"Pikachu" number:84 set.name:"Skyridge"');
+  });
+
   it('round-trips non-market reference image data', () => {
     upsertDiscoveryReferenceCache({
       cacheKey,

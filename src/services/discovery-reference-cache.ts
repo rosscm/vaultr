@@ -45,7 +45,7 @@ type UpsertDiscoveryReferenceCacheInput = {
 
 const POKEMON_TCG_ENDPOINT = 'https://api.pokemontcg.io/v2/cards';
 const ONE_PIECE_CARD_IMAGE_BASE_URL = 'https://en.onepiece-cardgame.com/images/cardlist/card';
-const REFERENCE_FETCH_TIMEOUT_MS = 8000;
+const REFERENCE_FETCH_TIMEOUT_MS = 12000;
 
 const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /southern islands?/i, setName: 'Southern Islands' },
@@ -58,6 +58,7 @@ const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /supreme victors/i, setName: 'Supreme Victors' },
   { pattern: /aquapolis/i, setName: 'Aquapolis' },
   { pattern: /expedition/i, setName: 'Expedition Base Set' },
+  { pattern: /skyridge/i, setName: 'Skyridge' },
   { pattern: /neo discovery/i, setName: 'Neo Discovery' },
   { pattern: /neo destiny/i, setName: 'Neo Destiny' },
   { pattern: /gym challenge/i, setName: 'Gym Challenge' },
@@ -108,9 +109,9 @@ function normalize(value: string): string {
 function compactName(value: string): string {
   return value
     .replace(/\bPokemon\b/gi, '')
-    .replace(/\b(card|cards|promo|holo|secret rare|illustration rare|art rare|trainer gallery|parallel|leader)\b/gi, '')
+    .replace(/\b(card|cards|promo|holo|secret rare|illustration rare|art rare|trainer gallery|parallel|leader|trading)\b/gi, '')
     .replace(/\bsurging sparks\b\s*\d{1,3}\b/gi, '')
-    .replace(/\b(?:sword & shield black star promos?|swsh black star promos?|black star promos?|black star|mcdonald'?s|anniversary|vending series|web series)\b/gi, '')
+    .replace(/\b(?:sword & shield black star promos?|swsh black star promos?|xy black star promos?|bw black star promos?|black star promos?|black star|mcdonald'?s|anniversary|vending series|web series)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -128,6 +129,8 @@ function extractNumber(value: string): string | undefined {
   if (holoNumber) return holoNumber.toUpperCase();
   const surgingSparksNumber = /\bsurging sparks\b.*\b([1-9]\d{1,2})\b/i.exec(value)?.[1];
   if (surgingSparksNumber) return surgingSparksNumber;
+  const setNumber = /\b(?:base set|expedition|aquapolis|skyridge|gym heroes|gym challenge|neo discovery|neo destiny|fossil|jungle|team rocket|xy black star promos?|bw black star promos?|swsh black star promos?)\b.*\b([1-9]\d{0,2})\b/i.exec(value)?.[1];
+  if (setNumber) return setNumber;
   const standalone = /\b0\d{2}\b/.exec(value)?.[0];
   return standalone;
 }
@@ -136,6 +139,8 @@ function leadingName(value: string): string {
   const beforeNumber = value.split(/\b(?:[A-Z]{0,4}\d{1,3}\s*\/\s*\d{1,3}|(?:GG|TG|RC|XY|SM|SWSH|SVP|BW|DP|HGSS)\s?-?\d{1,4}|H\d{1,2}|0\d{2})\b/i)[0];
   return compactName(beforeNumber)
     .replace(/\b(?:southern islands?|crown zenith|cosmic eclipse|lost origin|pokemon 151|triplet beat|fossil|aquapolis|expedition|neo discovery|neo destiny|gym challenge|gym heroes|deoxys|fates collide|undaunted|hidden fates|surging sparks)\b/gi, '')
+    .replace(/\b(?:base set|skyridge|xy|bw|swsh)\b/gi, '')
+    .replace(/\b[1-9]\d{0,2}\b\s*$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

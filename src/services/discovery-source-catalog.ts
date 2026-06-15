@@ -65,7 +65,7 @@ const TCGDEX_SOURCE_CATALOG_PAGE_SIZE = 18;
 const TCGDEX_MAX_DEX_SUMMARY_MATCHES = 60;
 const SOURCE_API_CACHE_TTL_MS = 15 * 60 * 1000;
 const SOURCE_PROFILE_TIMEOUT_MS = 6000;
-const SOURCE_PROFILE_CHASE_LIMIT = 4;
+const SOURCE_PROFILE_CHASE_LIMIT = 9;
 const SOURCE_PROFILE_PRIMARY_TERM_LIMIT = 2;
 const SOURCE_PROFILE_FALLBACK_TERM_LIMIT = 2;
 const TCGDEX_PROFILE_CHASE_LIMIT = 4;
@@ -390,7 +390,20 @@ async function fetchTcgDexJapaneseCard(id: string): Promise<TcgDexCard | null> {
 
 async function fetchDexNumbersForIdentityTerm(term: string): Promise<number[]> {
   const cards = await fetchPokemonCards(`name:${quoted(term)}`, 5).catch(() => []);
-  return [...new Set(cards.flatMap((card) => card.nationalPokedexNumbers ?? []).filter((dex) => Number.isFinite(dex)))];
+  return [...new Set(cards.filter((card) => cardMatchesIdentityTerm(card, term)).flatMap((card) => card.nationalPokedexNumbers ?? []).filter((dex) => Number.isFinite(dex)))];
+}
+
+function cardIdentityName(card: PokemonTcgCard): string {
+  return normalizeSearchText(card.name ?? '')
+    .replace(/\b(?:ex|gx|v|max|vmax|vstar|radiant|tag team)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cardMatchesIdentityTerm(card: PokemonTcgCard, term: string): boolean {
+  const identity = cardIdentityName(card);
+  const normalizedTerm = normalizeSearchText(term);
+  return !!identity && identity === normalizedTerm;
 }
 
 async function resolveActiveChaseSourceCards(activeChases: Chase[]): Promise<PokemonTcgCard[]> {
@@ -414,7 +427,7 @@ async function resolveActiveChaseSourceCards(activeChases: Chase[]): Promise<Pok
     if (resolvedChase) continue;
     for (const term of activeChaseSearchTerms(chase).filter(isUsefulIdentityTerm).slice(0, SOURCE_PROFILE_FALLBACK_TERM_LIMIT)) {
       const results = await fetchPokemonCards(`name:${quoted(term.name)}`, 5).catch(() => []);
-      const card = results.find((candidate) => normalize(candidate.supertype ?? '') === 'pokemon' && (candidate.nationalPokedexNumbers?.length ?? 0) > 0);
+      const card = results.find((candidate) => normalize(candidate.supertype ?? '') === 'pokemon' && cardMatchesIdentityTerm(candidate, term.name) && (candidate.nationalPokedexNumbers?.length ?? 0) > 0);
       if (!card?.id || seenIds.has(card.id)) continue;
       cards.push(card);
       seenIds.add(card.id);
@@ -574,7 +587,7 @@ function expandedQueriesForProfile(baseQueries: string[], profile: SourceTastePr
     if (targetTerms.length > 0 && targetedBases.length > 0) {
       const nonEReaderQueries = queries.filter((query) => !eReaderBases.includes(query));
       queries.length = 0;
-      queries.push(...nonEReaderQueries, ...targetedBases);
+      queries.push(...nonEReaderQueries);
     }
     for (const term of targetTerms) {
       for (const base of targetedBases.length > 0 ? targetedBases : eReaderBases) queries.push(`${base} name:${quoted(term)}`);
@@ -784,10 +797,36 @@ function hasExactPokemonProfileAnchor(card: PokemonTcgCard, profile: SourceTaste
   return (card.nationalPokedexNumbers ?? []).some((dex) => profile.dexNumbers.has(dex));
 }
 
+function isTraitDiscoverySuggestion(suggestion: DiscoverySuggestion): boolean {
+  const text = normalizeSearchText([sourceText(suggestion), ...(suggestion.sourceTasteTokens ?? []), ...(suggestion.requiredEvidenceTokens ?? [])].join(' '));
+  return (
+    /\bdiscovery\b/i.test(suggestion.lane) ||
+    /\bbroad source-backed card backfill\b/i.test(suggestion.laneWhy) ||
+    /\b(?:artwork|illustration rare|visual format)\b/.test(text)
+  );
+}
+
 function matchesPokemonTcgProfileAnchor(card: PokemonTcgCard, suggestion: DiscoverySuggestion, profile: SourceTasteProfile): boolean {
   if (isBroadCollectorSuggestion(suggestion) && profile.dexNumbers.size === 0) return false;
   if (hasExactPokemonProfileAnchor(card, profile)) return true;
+  if (isTraitDiscoverySuggestion(suggestion) && profile.dexNumbers.size > 0) return false;
   return !isBroadCollectorSuggestion(suggestion);
+}
+
+function matchesActivePokemonIdentityTerm(card: PokemonTcgCard, activeChases: Chase[]): boolean {
+  const cardTokens = new Set(activeCardTokens(card.name ?? ''));
+  if (cardTokens.size === 0) return false;
+  return activeChases.some((chase) =>
+    activeChaseSearchTerms(chase)
+      .filter((term) => isUsefulIdentityTerm(term))
+      .some((term) => activeCardTokens(term.name).some((token) => cardTokens.has(token)))
+  );
+}
+
+function matchesTraitDiscoverySubject(card: PokemonTcgCard, suggestion: DiscoverySuggestion, profile: SourceTasteProfile, activeChases: Chase[]): boolean {
+  if (!isTraitDiscoverySuggestion(suggestion) || activeChases.length === 0) return true;
+  if (profile.dexNumbers.size > 0 && hasExactPokemonProfileAnchor(card, profile)) return true;
+  return matchesActivePokemonIdentityTerm(card, activeChases);
 }
 
 function matchesVintageProfileEvidence(card: PokemonTcgCard, suggestion: DiscoverySuggestion, profile: SourceTasteProfile, hasAnchoredQuery: boolean): boolean {
@@ -961,11 +1000,13 @@ export async function resolveSourceBackedDiscoveryCards(
     const japaneseSeed = japaneseSuggestions.slice(0, japaneseSuggestionCap(suggestion, profile, limit));
     const suggestions: DiscoverySuggestion[] = [...japaneseSeed];
     const seenNames = new Set(japaneseSeed.map((sourceSuggestion) => normalizeSearchText(sourceSuggestion.name)));
-    const seenPokemonSubjects = new Set<string>();
+    const seenPokemonSubjects = new Map<string, number>();
+    const pokemonSubjectLimit = profile.signalCount >= 6 ? 2 : 1;
     for (const card of rankedCards) {
       const hasAnchoredQuery = anchoredQueryCardScores.has(card.id ?? '');
       if (
         !matchesPokemonTcgProfileAnchor(card, suggestion, profile) ||
+        !matchesTraitDiscoverySubject(card, suggestion, profile, tasteProfileChases) ||
         !matchesVintageProfileEvidence(card, suggestion, profile, hasAnchoredQuery) ||
         !matchesCardFormatProfile(card, suggestion, profile) ||
         !matchesCollectorQualityProfile(card, suggestion, profile, hasAnchoredQuery)
@@ -975,12 +1016,12 @@ export async function resolveSourceBackedDiscoveryCards(
       if (!sourceSuggestion) continue;
       if (isActiveChaseEchoText(sourceSuggestion.name, activeChases) || isActiveChaseEchoText(sourceSuggestion.evidenceSearchTerm ?? '', activeChases)) continue;
       const subjectKey = normalizeSearchText(card.name ?? '');
-      if (subjectKey && seenPokemonSubjects.has(subjectKey)) continue;
+      if (subjectKey && (seenPokemonSubjects.get(subjectKey) ?? 0) >= pokemonSubjectLimit) continue;
       const key = normalizeSearchText(sourceSuggestion.name);
       if (seenNames.has(key)) continue;
       suggestions.push(sourceSuggestion);
       seenNames.add(key);
-      if (subjectKey) seenPokemonSubjects.add(subjectKey);
+      if (subjectKey) seenPokemonSubjects.set(subjectKey, (seenPokemonSubjects.get(subjectKey) ?? 0) + 1);
       if (suggestions.length >= limit) break;
     }
 
