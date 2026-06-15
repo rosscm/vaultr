@@ -1,5 +1,5 @@
 import { ChannelType, Client, EmbedBuilder } from 'discord.js';
-import { discoveryDropOpenButton, prepareWeeklyDiscoveryDropForUser, weeklyDiscoveryShelfSizeForPlan } from '../commands/discover.js';
+import { discoveryDropOpenButton, prepareWeeklyDiscoveryDropForUser } from '../commands/discover.js';
 import { getUserPlan, listGuildCommandChannels, listUsersWithChases } from './chase-store.js';
 import { activePlanTier } from './plans.js';
 import {
@@ -65,14 +65,14 @@ async function prepareWeeklyDrops(now: Date): Promise<{ periodKey: string; prepa
 
   for (const userId of proUsersWithChases()) {
     const existing = getScheduledDiscoveryDrop(userId, WEEKLY_DROP_TYPE, periodKey);
-    if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount >= weeklyDiscoveryShelfSizeForPlan('PRO')) {
+    if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0) {
       skipped += 1;
       continue;
     }
     if (prepared >= batchSize) break;
 
     try {
-      const result = await prepareWeeklyDiscoveryDropForUser(userId, targetDate, { force: true });
+      const result = await prepareWeeklyDiscoveryDropForUser(userId, targetDate);
       if (result.prepared && result.itemCount > 0) prepared += 1;
       else skipped += 1;
     } catch (error) {
