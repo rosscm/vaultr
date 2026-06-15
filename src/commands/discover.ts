@@ -278,6 +278,10 @@ export function discoveryTasteProfileChases(chases: Chase[], tasteMemoryChases: 
   return hasFullDiscovery ? mergeActiveAndTasteMemoryChases(chases, tasteMemoryChases) : chases;
 }
 
+function removedTasteMemoryChases(tasteMemoryChases: Chase[]): Chase[] {
+  return tasteMemoryChases.filter((chase) => chase.tasteSource === 'REMOVED_CHASE');
+}
+
 function formatMoney(amount: number | undefined, currency: string | undefined): string {
   if (amount === undefined) return 'Unknown';
   const roundedAmount = amount >= 10 ? Math.round(amount / 10) * 10 : Math.round(amount);
@@ -2062,14 +2066,15 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
   }));
 }
 
-export function backfillScheduledDiscoveryShelfCandidates(candidates: DiscoveryCandidate[], fallbackDrop: ScheduledDiscoveryDrop | null, targetCount: number): DiscoveryCandidate[] {
-  if (!fallbackDrop || candidates.length >= targetCount) return candidates;
-  const merged = [...candidates];
+export function backfillScheduledDiscoveryShelfCandidates(candidates: DiscoveryCandidate[], fallbackDrop: ScheduledDiscoveryDrop | null, targetCount: number, repeatGuardChases: Chase[] = []): DiscoveryCandidate[] {
+  const merged = candidates.filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases));
+  if (!fallbackDrop || merged.length >= targetCount) return merged;
   const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
   const seenVariantFamilies = new Set(merged.map(candidateVariantFamilyKey).filter((key): key is string => !!key));
   for (const candidate of candidatesFromScheduledDiscoveryDrop(fallbackDrop)) {
     if (merged.length >= targetCount) break;
     if (!isDisplayableDiscoveryCandidate(candidate) || !hasMarketSignal(candidate)) continue;
+    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     const variantKey = candidateVariantFamilyKey(candidate);
     if (seenNames.has(nameKey) || (variantKey && seenVariantFamilies.has(variantKey))) continue;
@@ -2222,6 +2227,7 @@ async function discoverCandidatesForUser(
   const visibleCount = Math.min(count, weeklyDiscoveryShelfSizeForPlan(activeTier));
   const tasteMemoryChases = hasFullDiscovery ? listUserTasteMemoryChases(userId) : [];
   const tasteProfileChases = discoveryTasteProfileChases(chases, tasteMemoryChases, hasFullDiscovery);
+  const repeatGuardChases = [...storedChases, ...removedTasteMemoryChases(tasteMemoryChases)];
   const profileConfidence = discoveryProfileConfidence(tasteProfileChases);
   const targetVisibleCount = hasFullDiscovery ? Math.min(visibleCount, profileConfidence.maxShelfSize) : visibleCount;
   const hasLearnedProfile = hasFullDiscovery && (profileConfidence.tier === 'USABLE' || profileConfidence.tier === 'STRONG');
@@ -2236,6 +2242,7 @@ async function discoverCandidatesForUser(
     const rejectedNameKeys = new Set(rejectedNames.map(discoveryNameKey));
     const scheduledCandidates = candidatesFromScheduledDiscoveryDrop(latestDrop)
       .filter((candidate) => !rejectedNameKeys.has(discoveryNameKey(candidate.suggestion.name)))
+      .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
       .filter(isDisplayableDiscoveryCandidate)
       .slice(0, targetVisibleCount);
     const scheduledMarketContext = {
@@ -2289,8 +2296,8 @@ async function discoverCandidatesForUser(
       excludeLanesForExcludedNames: combinedExcludedNames.length > 0
     });
     const discoverySelectionCount = discoveryCandidateSelectionCount(hasFullDiscovery, targetVisibleCount);
-    const activeSafeSuggestions = selection.suggestions.filter((suggestion) => !isActiveChaseEchoSuggestion(suggestion, storedChases));
-    const sourceBackedSuggestions = await expandSourceBackedSuggestions(activeSafeSuggestions, chases, tasteProfileChases, discoverySelectionCount, storedChases);
+    const activeSafeSuggestions = selection.suggestions.filter((suggestion) => !isActiveChaseEchoSuggestion(suggestion, repeatGuardChases));
+    const sourceBackedSuggestions = await expandSourceBackedSuggestions(activeSafeSuggestions, chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases);
     const excludedSourceNameKeys = new Set(combinedSourceExcludedNames.map(discoveryNameKey));
     const marketContext = {
       userId,
@@ -2303,17 +2310,17 @@ async function discoverCandidatesForUser(
       concreteDiscoveryFallbackSuggestions([...(persistedState?.suggestionNames ?? []), ...recentlySeenNames], combinedSourceExcludedNames),
       marketContext
     );
-    const sourceBackedFreshSuggestions = sourceBackedSuggestions.filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)));
+    const sourceBackedFreshSuggestions = sourceBackedSuggestions.filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)) && !isActiveChaseEchoSuggestion(suggestion, repeatGuardChases));
     let concreteSourceBackedSuggestions = sourceBackedFreshSuggestions;
     if (concreteSourceBackedSuggestions.length < discoverySelectionCount) {
       const starterSelection = selectDiscoverySuggestionsForFocuses([], [], DISCOVERY_CANDIDATE_POOL_SIZE, {
         excludedNames: [...combinedSourceExcludedNames, ...concreteSourceBackedSuggestions.map((suggestion) => suggestion.name)]
       });
-      const starterSourceBackedSuggestions = await expandSourceBackedSuggestions(starterSelection.suggestions, chases, tasteProfileChases, discoverySelectionCount, storedChases);
+      const starterSourceBackedSuggestions = await expandSourceBackedSuggestions(starterSelection.suggestions, chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases);
       concreteSourceBackedSuggestions = backfillSourceBackedDiscoverySuggestions(concreteSourceBackedSuggestions, starterSourceBackedSuggestions, discoverySelectionCount);
     }
     if (hasLearnedProfile && concreteSourceBackedSuggestions.length < discoverySelectionCount) {
-      const broadSourceBackedSuggestions = await expandSourceBackedSuggestions(broadSourceBackfillParents(), chases, tasteProfileChases, discoverySelectionCount, storedChases);
+      const broadSourceBackedSuggestions = await expandSourceBackedSuggestions(broadSourceBackfillParents(), chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases);
       concreteSourceBackedSuggestions = backfillSourceBackedDiscoverySuggestions(concreteSourceBackedSuggestions, broadSourceBackedSuggestions, discoverySelectionCount);
     }
     const freshSourceBackedSuggestions = backfillDiscoverySuggestions(
@@ -2343,7 +2350,9 @@ async function discoverCandidatesForUser(
     if (hasFullDiscovery && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT && visibleCandidates.length >= targetVisibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
     }
-    const candidates = (await attachReferenceImages(visibleCandidates)).filter(isDisplayableDiscoveryCandidate);
+    const candidates = (await attachReferenceImages(visibleCandidates))
+      .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
+      .filter(isDisplayableDiscoveryCandidate);
     if (hasFullDiscovery && shouldSaveScheduledDrop && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT) {
       saveWeeklyDiscoveryDrop(userId, candidates, settings.alertCurrency, persistedState?.updatedAt, options.scheduledDate);
     }
@@ -2475,7 +2484,7 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
   }
   const discovery = await discoverCandidatesForUser(userId, DISCOVERY_WEEKLY_DROP_SIZE, { preferScheduledDrop: false, saveScheduledDrop: true, scheduledDate: date, hydrateScheduledMarketInline: false, usePersistedState: false });
   const targetCount = discovery.hasFullDiscovery ? Math.min(DISCOVERY_WEEKLY_DROP_SIZE, discovery.profileConfidence.maxShelfSize) : discovery.candidates.length;
-  const candidates = backfillScheduledDiscoveryShelfCandidates(discovery.candidates, fallbackDrop, targetCount);
+  const candidates = backfillScheduledDiscoveryShelfCandidates(discovery.candidates, fallbackDrop, targetCount, removedTasteMemoryChases(listUserTasteMemoryChases(userId)));
   if (candidates.length > discovery.candidates.length) saveWeeklyDiscoveryDrop(userId, candidates, discovery.settings.alertCurrency, undefined, date);
   return {
     prepared: candidates.length > 0 && discovery.hasFullDiscovery,

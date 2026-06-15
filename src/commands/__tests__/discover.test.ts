@@ -701,11 +701,19 @@ describe('selectVisibleCandidates', () => {
           }
         ]
       },
-      4
+      4,
+      [{ id: 'taste:removed-zapdos', userId: 'u1', cardName: 'Zapdos Aquapolis H32', createdAt: '2026-06-03T00:00:00.000Z', tasteSource: 'REMOVED_CHASE' }]
     );
     const names = backfilled.map((candidate) => candidate.suggestion.name);
 
     expect(names).toEqual(['Zapdos Aquapolis 44', 'Mew Expedition Base Set 55', 'Articuno Skyridge 4', 'Mew XY Black Star Promos XY110']);
+  });
+
+  it('treats removed chase taste memory as an exact-repeat guard', () => {
+    const removedChases: Chase[] = [{ id: 'taste:removed-meowth', userId: 'u1', cardName: 'Meowth 18/53', createdAt: '2026-06-14T02:26:37.266Z', tasteSource: 'REMOVED_CHASE' }];
+
+    expect(isActiveChaseEchoText('Meowth 18/53 trading card', removedChases)).toBe(true);
+    expect(isActiveChaseEchoText('Meowth character collection', removedChases)).toBe(false);
   });
 });
 
