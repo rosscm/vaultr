@@ -377,6 +377,10 @@ export function orderGroupsForRun(
   groups: ReadonlyArray<{ queryKey: string; group: ActiveGroup; lastSourceFetchAtMs?: number }>
 ): Array<{ queryKey: string; group: ActiveGroup; lastSourceFetchAtMs?: number }> {
   return [...groups].sort((left, right) => {
+    if (left.group.oldestDueAtMs !== right.group.oldestDueAtMs) {
+      return left.group.oldestDueAtMs - right.group.oldestDueAtMs;
+    }
+
     if (left.lastSourceFetchAtMs === undefined && right.lastSourceFetchAtMs !== undefined) return -1;
     if (left.lastSourceFetchAtMs !== undefined && right.lastSourceFetchAtMs === undefined) return 1;
     if (left.lastSourceFetchAtMs !== undefined && right.lastSourceFetchAtMs !== undefined) {

@@ -41,6 +41,23 @@ afterEach(() => {
 });
 
 describe('orderGroupsForRun', () => {
+  it('prioritizes the most overdue group before process-local source history', () => {
+    const ordered = orderGroupsForRun([
+      {
+        queryKey: 'squirtle',
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-24T20:59:39.622Z', oldestDueAtMs: 1_000 },
+        lastSourceFetchAtMs: 100
+      },
+      {
+        queryKey: 'mew',
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-28T04:12:00.729Z', oldestDueAtMs: 100 },
+        lastSourceFetchAtMs: 200
+      }
+    ]);
+
+    expect(ordered.map((entry) => entry.queryKey)).toEqual(['mew', 'squirtle']);
+  });
+
   it('prioritizes groups that have never consumed a source fetch', () => {
     const ordered = orderGroupsForRun([
       {

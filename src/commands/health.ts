@@ -394,15 +394,18 @@ export const health = {
       `**Last Error:** ${state.lastError ?? 'None'}`
     ];
 
+    const coverageHeading = state.isRunning ? '**Current Run Coverage:**' : '**Last Run Coverage:**';
+    const coverageSuffix = state.isRunning ? ' So Far' : '';
+
     lines.push(
       '',
-      '**Last Run Coverage:**',
-      `**Due Groups This Run:** ${coverage.dueGroups} (${coverage.dueChases} chase${coverage.dueChases === 1 ? '' : 's'})`,
-      `**Checked Groups This Run:** ${coverage.checkedGroups} (${coverage.checkedChases} chase${coverage.checkedChases === 1 ? '' : 's'})`,
-      `**Deferred Groups This Run:** ${coverage.deferredGroups} (${coverage.deferredChases} chase${coverage.deferredChases === 1 ? '' : 's'})`,
+      coverageHeading,
+      `**Due Groups${coverageSuffix}:** ${coverage.dueGroups} (${coverage.dueChases} chase${coverage.dueChases === 1 ? '' : 's'})`,
+      `**Checked Groups${coverageSuffix}:** ${coverage.checkedGroups} (${coverage.checkedChases} chase${coverage.checkedChases === 1 ? '' : 's'})`,
+      `**Deferred Groups${coverageSuffix}:** ${coverage.deferredGroups} (${coverage.deferredChases} chase${coverage.deferredChases === 1 ? '' : 's'})`,
       `**Deferred Reasons:** ${coverage.rateLimitedGroups} rate limit, ${coverage.backoffGroups} backoff, ${coverage.sourceTimeoutGroups} source timeout, ${coverage.sourceErrorGroups} source error`,
-      `**Oldest Due This Run:** ${formatCoverageGroup(coverage.oldestDue)}`,
-      `**Oldest Deferred This Run:** ${formatCoverageGroup(coverage.oldestDeferred)}`
+      `**Oldest Due${coverageSuffix}:** ${formatCoverageGroup(coverage.oldestDue)}`,
+      `**Oldest Deferred${coverageSuffix}:** ${formatCoverageGroup(coverage.oldestDeferred)}`
     );
 
     lines.push('', ...buildEligibilityLines(chases, nowMs));
