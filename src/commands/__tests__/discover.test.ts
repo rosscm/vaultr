@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   attachReferenceImages,
+  backfillMarketReadyDiscoveryCandidates,
   backfillScheduledDiscoveryShelfCandidates,
   backfillDiscoverySuggestions,
   backfillSourceBackedDiscoverySuggestions,
@@ -1806,6 +1807,64 @@ describe('discoveryEmbed', () => {
 });
 
 describe('candidatesFromDiscoveryMarketCache', () => {
+  it('backfills shelves from reliable market cache without same-set variants', () => {
+    const suffix = Date.now();
+    const current = sourceCandidate(`Zapdos Aquapolis 44 Cache Backfill ${suffix}`, 'Pokemon TCG (Aquapolis)', 0);
+    const variantName = `Zapdos Aquapolis H32 Cache Backfill ${suffix}`;
+    const rejectedName = `Ledian Skyridge H14 Cache Backfill ${suffix}`;
+    const replacementName = `Mew Expedition Base Set 55 Cache Backfill ${suffix}`;
+    const variantCacheKey = discoveryMarketCacheKey(variantName, 'CAD', 'CA');
+    const rejectedCacheKey = discoveryMarketCacheKey(rejectedName, 'CAD', 'CA');
+    const replacementCacheKey = discoveryMarketCacheKey(replacementName, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(variantCacheKey);
+    deleteDiscoveryMarketCache(rejectedCacheKey);
+    deleteDiscoveryMarketCache(replacementCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: variantCacheKey,
+      suggestionName: variantName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 650,
+      marketSampleSize: 6,
+      soldSampleSize: 0
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: rejectedCacheKey,
+      suggestionName: rejectedName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 80,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: replacementCacheKey,
+      suggestionName: replacementName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 150,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [{ ...current, typicalRawAskingTotal: 175, marketSampleSize: 12, displayCurrency: 'CAD' }],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      2,
+      ['Zapdos Aquapolis 44', 'Mew Expedition Base Set 55'].map(chase),
+      undefined,
+      undefined,
+      [],
+      [rejectedName]
+    );
+    const visible = marketReadyShelfCandidates(backfilled, true, strongProfileConfidence);
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([current.suggestion.name, replacementName]);
+    deleteDiscoveryMarketCache(variantCacheKey);
+    deleteDiscoveryMarketCache(rejectedCacheKey);
+    deleteDiscoveryMarketCache(replacementCacheKey);
+  });
+
   it('attaches cached market values to visible Discovery cards', () => {
     const name = `Mew Southern Islands Promo ${Date.now()}`;
     const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');

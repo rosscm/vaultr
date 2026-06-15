@@ -93,6 +93,21 @@ const deleteDiscoveryMarketCacheStmt = db.prepare(`
   WHERE cache_key = ?
 `);
 
+const listReliableDiscoveryMarketCacheStmt = db.prepare(`
+  SELECT cache_key, suggestion_name, display_currency, destination_country, listing_id, listing_title, listing_url, image_url,
+         typical_raw_asking_total, market_sample_size, typical_raw_sold_total, sold_sample_size, source_status, fetched_at, updated_at
+  FROM discovery_market_cache
+  WHERE display_currency = @display_currency
+    AND (@destination_country IS NULL OR destination_country IS NULL OR destination_country = @destination_country)
+    AND source_status IS NULL
+    AND (
+      (typical_raw_sold_total IS NOT NULL AND COALESCE(sold_sample_size, 0) >= 2)
+      OR (typical_raw_asking_total IS NOT NULL AND COALESCE(market_sample_size, 0) >= 4)
+    )
+  ORDER BY updated_at DESC
+  LIMIT @limit
+`);
+
 function mapDiscoveryMarketCacheRow(row: DiscoveryMarketCacheRow): DiscoveryMarketCacheEntry {
   return {
     cacheKey: row.cache_key,
@@ -135,6 +150,15 @@ export function getDiscoveryMarketCache(cacheKey: string): DiscoveryMarketCacheE
 
 export function deleteDiscoveryMarketCache(cacheKey: string): void {
   deleteDiscoveryMarketCacheStmt.run(cacheKey);
+}
+
+export function listReliableDiscoveryMarketCacheEntries(input: { displayCurrency: SupportedCurrency; destinationCountry?: string; limit?: number }): DiscoveryMarketCacheEntry[] {
+  const rows = listReliableDiscoveryMarketCacheStmt.all({
+    display_currency: input.displayCurrency,
+    destination_country: input.destinationCountry?.trim().toUpperCase() ?? null,
+    limit: Math.max(1, Math.min(300, Math.floor(input.limit ?? 120)))
+  }) as DiscoveryMarketCacheRow[];
+  return rows.map(mapDiscoveryMarketCacheRow);
 }
 
 export function upsertDiscoveryMarketCache(input: UpsertDiscoveryMarketCacheInput): void {

@@ -33,6 +33,7 @@ import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, 
 import {
   discoveryMarketCacheKey,
   getDiscoveryMarketCache,
+  listReliableDiscoveryMarketCacheEntries,
   listingFromDiscoveryMarketCache,
   upsertDiscoveryMarketCache,
   type DiscoveryMarketCacheEntry
@@ -1255,6 +1256,72 @@ export function orderCandidatesForMarketConfidence(candidates: DiscoveryCandidat
   });
 }
 
+function marketEstimateTotal(candidate: DiscoveryCandidate): number | undefined {
+  return candidate.typicalRawSoldTotal ?? candidate.typicalRawAskingTotal;
+}
+
+function isMarketEstimateInRange(candidate: DiscoveryCandidate, range?: { min: number; max: number }): boolean {
+  if (!range) return true;
+  const total = marketEstimateTotal(candidate);
+  return total === undefined || (total >= range.min && total <= range.max);
+}
+
+export function backfillMarketReadyDiscoveryCandidates(
+  candidates: DiscoveryCandidate[],
+  context: {
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  },
+  targetCount: number,
+  tasteProfileChases: Chase[] = [],
+  profileConfidence: DiscoveryProfileConfidence = discoveryProfileConfidence(tasteProfileChases),
+  negativeProfile?: DiscoveryNegativeProfile,
+  repeatGuardChases: Chase[] = context.activeChases,
+  excludedNames: string[] = []
+): DiscoveryCandidate[] {
+  const readyShelfCount = (items: DiscoveryCandidate[]): number => marketReadyShelfCandidates(items, true, profileConfidence).length;
+  if (readyShelfCount(candidates) >= targetCount) return candidates;
+  const merged = [...candidates];
+  const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
+  const seenVariantFamilies = new Set(merged.map(candidateVariantFamilyKey).filter((key): key is string => !!key));
+  const excludedNameKeys = new Set(excludedNames.map(discoveryNameKey));
+  const cacheEntries = listReliableDiscoveryMarketCacheEntries({
+    displayCurrency: context.targetCurrency,
+    destinationCountry: context.destination?.country,
+    limit: 240
+  });
+  for (const entry of cacheEntries) {
+    if (readyShelfCount(merged) >= targetCount) break;
+    const suggestion = fallbackSuggestionFromCardName(entry.suggestionName);
+    if (excludedNameKeys.has(discoveryNameKey(suggestion.name))) continue;
+    const candidate = {
+      ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
+      listing: listingFromDiscoveryMarketCache(entry),
+      image: entry.imageUrl
+        ? {
+            name: suggestion.name,
+            url: entry.imageUrl,
+            sourceName: 'eBay listing image',
+            sourceKind: 'MARKET_LISTING' as const
+          }
+        : undefined
+    } satisfies DiscoveryCandidate;
+    if (!isDisplayableDiscoveryCandidate(candidate) || !isConcreteDiscoverySuggestion(candidate.suggestion)) continue;
+    if (!hasReliableMarketEstimate(candidate) || !isMarketEstimateInRange(candidate, context.range)) continue;
+    if (subjectProfileRankScore(candidate, tasteProfileChases) <= 0) continue;
+    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const variantKey = candidateVariantFamilyKey(candidate);
+    if (seenNames.has(nameKey) || (variantKey && seenVariantFamilies.has(variantKey))) continue;
+    merged.push(candidate);
+    seenNames.add(nameKey);
+    if (variantKey) seenVariantFamilies.add(variantKey);
+  }
+  return orderCandidatesForMarketConfidence(merged, tasteProfileChases, negativeProfile);
+}
+
 function curiosityRankScore(candidate: DiscoveryCandidate): number {
   const curiosity = candidate.suggestion.curiosityScore ?? 0;
   const marketTotal = candidate.typicalRawSoldTotal ?? candidate.typicalRawAskingTotal ?? 0;
@@ -1642,7 +1709,10 @@ function discoveryShelfHeaderEmbed(title: string, lines: string[]): EmbedBuilder
 function sourceSetLabel(candidate: DiscoveryCandidate): string | undefined {
   const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
   const match = /\(([^)]+)\)/.exec(sourceName ?? '');
-  return match?.[1];
+  if (match?.[1]) return match[1];
+  const text = candidate.suggestion.name;
+  const knownSetMatch = /\b(Expedition Base Set|Aquapolis|Skyridge|Wizards Black Star Promos|XY Black Star Promos|BW Black Star Promos|SWSH Black Star Promos|SM Black Star Promos|Surging Sparks|Paldean Fates|Legendary Treasures|151)\b/i.exec(text);
+  return knownSetMatch?.[1];
 }
 
 function sourceCardSubject(candidate: DiscoveryCandidate, setLabel: string | undefined): string {
@@ -2363,7 +2433,18 @@ async function discoverCandidatesForUser(
     const marketCandidates = hasFullDiscovery && hydrateScheduledMarketInline
       ? await hydratePendingDiscoveryMarketCandidates(cacheCandidates, marketContext)
       : cacheCandidates;
-    let visibleCandidates = hasFullDiscovery && !persistedCandidates ? selectVisibleCandidatesForCount(marketCandidates, tasteProfileChases, targetVisibleCount, negativeProfile) : marketCandidates.slice(0, targetVisibleCount);
+    const selectionPool = hasFullDiscovery && hydrateScheduledMarketInline
+      ? backfillMarketReadyDiscoveryCandidates(marketCandidates, marketContext, targetVisibleCount, tasteProfileChases, profileConfidence, negativeProfile, repeatGuardChases, rejectedNames)
+      : marketCandidates;
+    const reliableSelectionPool = selectionPool.filter(hasReliableMarketEstimate);
+    const reliableCandidates = hasFullDiscovery && hydrateScheduledMarketInline && !persistedCandidates
+      ? selectVisibleCandidatesForCount(reliableSelectionPool, tasteProfileChases, targetVisibleCount, negativeProfile)
+      : [];
+    let visibleCandidates = hasFullDiscovery && !persistedCandidates
+      ? reliableCandidates.length >= targetVisibleCount
+        ? reliableCandidates
+        : selectVisibleCandidatesForCount(selectionPool, tasteProfileChases, targetVisibleCount, negativeProfile)
+      : selectionPool.slice(0, targetVisibleCount);
     if (hasFullDiscovery && hydrateScheduledMarketInline) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
     if (hasFullDiscovery && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT && visibleCandidates.length >= targetVisibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
