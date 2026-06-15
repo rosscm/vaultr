@@ -508,15 +508,17 @@ describe('selectVisibleCandidates', () => {
       ]
     );
 
-    expect(visible.map((item) => item.suggestion.name)).toEqual(
+    const visibleNames = visible.map((item) => item.suggestion.name);
+
+    expect(visibleNames).toEqual(
       expect.arrayContaining([
         'Mew Japanese S12a 052',
         'Pikachu Japanese SV2a 025',
-        'Mew Japanese S12a 183',
         'Mewtwo & Mew-GX SM Black Star Promos SM191',
         'Pikachu-GX SM Black Star Promos SM232'
       ])
     );
+    expect(visibleNames.filter((name) => /^Mew Japanese S12a/i.test(name))).toHaveLength(1);
     expect(visible.some((item) => !/japanese|tcgdex japanese/i.test([item.suggestion.name, item.suggestion.referenceSourceName].filter(Boolean).join(' ')))).toBe(true);
   });
 
@@ -620,6 +622,24 @@ describe('selectVisibleCandidates', () => {
 
     expect(mewFamilyCount).toBeLessThanOrEqual(2);
     expect(visibleNames).toEqual(expect.arrayContaining(['Squirtle Expedition Base Set 132', 'Special Delivery Pikachu SWSH Black Star Promos SWSH074']));
+  });
+
+  it('does not show same-subject same-set source variants together', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0),
+        sourceCandidate('Zapdos Aquapolis H32', 'Pokemon TCG (Aquapolis)', 1),
+        sourceCandidate('Articuno Skyridge 4', 'Pokemon TCG (Skyridge)', 2),
+        sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 3)
+      ],
+      [],
+      3
+    );
+    const visibleNames = visible.map((item) => item.suggestion.name);
+
+    expect(visibleNames).toHaveLength(3);
+    expect(visibleNames.filter((name) => /^Zapdos Aquapolis/i.test(name))).toHaveLength(1);
+    expect(visibleNames).toEqual(expect.arrayContaining(['Articuno Skyridge 4', 'Mew Expedition Base Set 55']));
   });
 });
 

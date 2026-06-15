@@ -46,6 +46,7 @@ import { getPollerState } from '../services/poller-state.js';
 import { PREPARED_DISCOVERY_SELECTION_VERSION, preparedDiscoveryStateKey } from '../services/prepared-discovery.js';
 import {
   getLatestAvailableScheduledDiscoveryDrop,
+  getScheduledDiscoveryDrop,
   scheduledDiscoveryAvailability,
   scheduledDiscoveryPeriodKey,
   upsertScheduledDiscoveryDrop,
@@ -1753,6 +1754,15 @@ function candidateSubjectBalanceKeys(candidate: DiscoveryCandidate): string[] {
   return profileSubjectTokens(subject).slice(0, 3);
 }
 
+function candidateVariantFamilyKey(candidate: DiscoveryCandidate): string | undefined {
+  const setLabel = sourceSetLabel(candidate);
+  if (!setLabel) return undefined;
+  const subjectKey = discoveryNameKey(sourceCardSubject(candidate, setLabel));
+  const setKey = discoveryNameKey(setLabel);
+  if (!subjectKey || !setKey) return undefined;
+  return `${subjectKey}|${setKey}`;
+}
+
 function isJapaneseDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
   return /\bjapanese\b|\btcgdex japanese\b/i.test(
     [candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
@@ -1766,6 +1776,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
   const seenThemes = new Set<string>();
   const seenSubjects = new Set<string>();
   const seenNames = new Set<string>();
+  const seenVariantFamilies = new Set<string>();
   const selectedTrailLabels = new Set<string>();
   const trailCounts = new Map<string, number>();
   const subjectCounts = new Map<string, number>();
@@ -1779,16 +1790,22 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     const subjectKeys = candidateSubjectBalanceKeys(candidate);
     return subjectKeys.length === 0 || subjectKeys.every((subjectKey) => (subjectCounts.get(subjectKey) ?? 0) < subjectLimit);
   };
+  const candidateVariantIsFresh = (candidate: DiscoveryCandidate): boolean => {
+    const variantKey = candidateVariantFamilyKey(candidate);
+    return !variantKey || !seenVariantFamilies.has(variantKey);
+  };
   const hasSubjectBalancedAlternative = (): boolean =>
-    candidates.some((candidate) => !seenNames.has(discoveryDisplayNameKey(candidate.suggestion.name)) && candidateSubjectIsUnderLimit(candidate) && (!isJapaneseDiscoveryCandidate(candidate) || japaneseCount < japaneseLimit));
+    candidates.some((candidate) => !seenNames.has(discoveryDisplayNameKey(candidate.suggestion.name)) && candidateVariantIsFresh(candidate) && candidateSubjectIsUnderLimit(candidate) && (!isJapaneseDiscoveryCandidate(candidate) || japaneseCount < japaneseLimit));
   const canUseCandidateSubject = (candidate: DiscoveryCandidate): boolean => candidateSubjectIsUnderLimit(candidate) || !hasSubjectBalancedAlternative();
   const hasNonHistoryFallbackAlternative = (): boolean =>
-    candidates.some((candidate) => !seenNames.has(discoveryDisplayNameKey(candidate.suggestion.name)) && !isConcreteHistoryFallbackCandidate(candidate) && candidateSubjectIsUnderLimit(candidate) && (!isJapaneseDiscoveryCandidate(candidate) || japaneseCount < japaneseLimit));
+    candidates.some((candidate) => !seenNames.has(discoveryDisplayNameKey(candidate.suggestion.name)) && candidateVariantIsFresh(candidate) && !isConcreteHistoryFallbackCandidate(candidate) && candidateSubjectIsUnderLimit(candidate) && (!isJapaneseDiscoveryCandidate(candidate) || japaneseCount < japaneseLimit));
   const pushCandidate = (candidate: DiscoveryCandidate): void => {
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const variantKey = candidateVariantFamilyKey(candidate);
     const trailLabel = discoveryCandidateTrailLabel(candidate);
     selected.push(candidate);
     seenNames.add(nameKey);
+    if (variantKey) seenVariantFamilies.add(variantKey);
     trailCounts.set(trailLabel, (trailCounts.get(trailLabel) ?? 0) + 1);
     for (const subjectKey of candidateSubjectBalanceKeys(candidate)) subjectCounts.set(subjectKey, (subjectCounts.get(subjectKey) ?? 0) + 1);
     if (isJapaneseDiscoveryCandidate(candidate)) japaneseCount += 1;
@@ -1798,6 +1815,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     const subjectKeys = candidateSubjectKeys(candidate);
     const trailLabel = discoveryCandidateTrailLabel(candidate);
     if (seenThemes.has(theme)) continue;
+    if (!candidateVariantIsFresh(candidate)) continue;
     if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
     if (subjectKeys.some((subjectKey) => seenSubjects.has(subjectKey))) continue;
     if (selectedTrailLabels.has(trailLabel)) continue;
@@ -1814,6 +1832,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     const trailLabel = discoveryCandidateTrailLabel(candidate);
     if (seenNames.has(nameKey) || selectedTrailLabels.has(trailLabel)) continue;
+    if (!candidateVariantIsFresh(candidate)) continue;
     if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
     if (!canUseCandidateSubject(candidate)) continue;
@@ -1825,8 +1844,9 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     const trailLabel = discoveryCandidateTrailLabel(candidate);
     if (seenNames.has(nameKey)) continue;
+    if (!candidateVariantIsFresh(candidate)) continue;
     if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
-    if ((trailCounts.get(trailLabel) ?? 0) >= trailLimit && candidates.some((other) => !seenNames.has(discoveryDisplayNameKey(other.suggestion.name)) && (trailCounts.get(discoveryCandidateTrailLabel(other)) ?? 0) < trailLimit)) continue;
+    if ((trailCounts.get(trailLabel) ?? 0) >= trailLimit && candidates.some((other) => !seenNames.has(discoveryDisplayNameKey(other.suggestion.name)) && candidateVariantIsFresh(other) && (trailCounts.get(discoveryCandidateTrailLabel(other)) ?? 0) < trailLimit)) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
     if (!canUseCandidateSubject(candidate)) continue;
     pushCandidate(candidate);
@@ -1835,6 +1855,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     if (selected.length >= count) break;
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     if (seenNames.has(nameKey)) continue;
+    if (!candidateVariantIsFresh(candidate)) continue;
     if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
     if (!canUseCandidateSubject(candidate)) continue;
@@ -1844,6 +1865,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     if (selected.length >= count) break;
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     if (seenNames.has(nameKey)) continue;
+    if (!candidateVariantIsFresh(candidate)) continue;
     if (isConcreteHistoryFallbackCandidate(candidate) && hasNonHistoryFallbackAlternative()) continue;
     if (isJapaneseDiscoveryCandidate(candidate) && japaneseCount >= japaneseLimit) continue;
     pushCandidate(candidate);
@@ -2417,11 +2439,19 @@ function discoveryHeaderReplyPayload(payload: DiscoveryShelfPayload): { content?
   };
 }
 
-export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = new Date()): Promise<{
+export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = new Date(), options: { force?: boolean } = {}): Promise<{
   prepared: boolean;
   itemCount: number;
   hasFullDiscovery: boolean;
 }> {
+  const existing = !options.force ? getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date)) : null;
+  if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0) {
+    return {
+      prepared: true,
+      itemCount: existing.itemCount,
+      hasFullDiscovery: getEntitlementsForTier(activePlanTier(getUserPlan(userId))).discoveryDepth === 'full'
+    };
+  }
   const discovery = await discoverCandidatesForUser(userId, DISCOVERY_WEEKLY_DROP_SIZE, { preferScheduledDrop: false, saveScheduledDrop: true, scheduledDate: date, hydrateScheduledMarketInline: false, usePersistedState: false });
   return {
     prepared: discovery.candidates.length > 0 && discovery.hasFullDiscovery,

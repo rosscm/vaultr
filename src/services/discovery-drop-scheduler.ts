@@ -72,7 +72,7 @@ async function prepareWeeklyDrops(now: Date): Promise<{ periodKey: string; prepa
     if (prepared >= batchSize) break;
 
     try {
-      const result = await prepareWeeklyDiscoveryDropForUser(userId, targetDate);
+      const result = await prepareWeeklyDiscoveryDropForUser(userId, targetDate, { force: true });
       if (result.prepared && result.itemCount > 0) prepared += 1;
       else skipped += 1;
     } catch (error) {
