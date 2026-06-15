@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   attachReferenceImages,
+  backfillScheduledDiscoveryShelfCandidates,
   backfillDiscoverySuggestions,
   backfillSourceBackedDiscoverySuggestions,
   candidatesFromDiscoveryMarketCache,
@@ -249,9 +250,21 @@ describe('selectVisibleCandidates', () => {
   it('uses statistically bounded profile confidence tiers for Pro shelf exposure', () => {
     const seed = discoveryProfileConfidence(['Gardevoir ex Scarlet & Violet 245'].map(chase));
     const emerging = discoveryProfileConfidence(['Gardevoir ex Scarlet & Violet 245', 'Mew RC24', 'Pikachu 151 173'].map(chase));
+    const diverseNineCardVault = discoveryProfileConfidence([
+      'Squirtle 007/018',
+      'Moltres Zapdos Articuno SM210',
+      'Corocoro Shining Mew',
+      'Mew RC24/RC25',
+      'Mew 347/190',
+      'Mega Gardevoir 087/063',
+      'Pikachu 26/83 Toys R Us promo',
+      'Umbreon 217/187 Japanese',
+      'Pikachu xy95'
+    ].map(chase));
 
     expect(seed).toMatchObject({ tier: 'SEED', minShelfSize: 5, maxShelfSize: 10 });
     expect(emerging).toMatchObject({ tier: 'EMERGING', minShelfSize: 10, maxShelfSize: 14 });
+    expect(diverseNineCardVault).toMatchObject({ tier: 'STRONG', minShelfSize: 20, maxShelfSize: 20 });
     expect(usableProfileConfidence).toMatchObject({ tier: 'USABLE', minShelfSize: 14, maxShelfSize: 20 });
     expect(strongProfileConfidence).toMatchObject({ tier: 'STRONG', minShelfSize: 20, maxShelfSize: 20 });
   });
@@ -640,6 +653,59 @@ describe('selectVisibleCandidates', () => {
     expect(visibleNames).toHaveLength(3);
     expect(visibleNames.filter((name) => /^Zapdos Aquapolis/i.test(name))).toHaveLength(1);
     expect(visibleNames).toEqual(expect.arrayContaining(['Articuno Skyridge 4', 'Mew Expedition Base Set 55']));
+  });
+
+  it('backfills a short strong shelf from prior ready weekly cards without same-set variants', () => {
+    const current = [
+      sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0),
+      sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 1)
+    ];
+    const backfilled = backfillScheduledDiscoveryShelfCandidates(
+      current,
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W24',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-06-08T00:00:00.000Z',
+        expiresAt: '2026-06-15T00:00:00.000Z',
+        generatedAt: '2026-06-10T00:00:00.000Z',
+        updatedAt: '2026-06-10T00:00:00.000Z',
+        sourceStateUpdatedAt: '2026-06-10T00:00:00.000Z',
+        itemCount: 3,
+        imageReadyCount: 3,
+        marketReadyCount: 3,
+        items: [
+          {
+            position: 1,
+            suggestion: sourceCandidate('Zapdos Aquapolis H32', 'Pokemon TCG (Aquapolis)', 2).suggestion,
+            imageUrl: 'https://images.example/zapdos-h32.png',
+            imageSourceName: 'Pokemon TCG (Aquapolis)',
+            market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 }
+          },
+          {
+            position: 2,
+            suggestion: sourceCandidate('Articuno Skyridge 4', 'Pokemon TCG (Skyridge)', 3).suggestion,
+            imageUrl: 'https://images.example/articuno.png',
+            imageSourceName: 'Pokemon TCG (Skyridge)',
+            market: { status: 'READY', currency: 'CAD', askingTotal: 90, askingSampleSize: 4 }
+          },
+          {
+            position: 3,
+            suggestion: sourceCandidate('Mew XY Black Star Promos XY110', 'Pokemon TCG (XY Black Star Promos)', 4).suggestion,
+            imageUrl: 'https://images.example/mew-xy110.png',
+            imageSourceName: 'Pokemon TCG (XY Black Star Promos)',
+            market: { status: 'READY', currency: 'CAD', askingTotal: 80, askingSampleSize: 4 }
+          }
+        ]
+      },
+      4
+    );
+    const names = backfilled.map((candidate) => candidate.suggestion.name);
+
+    expect(names).toEqual(['Zapdos Aquapolis 44', 'Mew Expedition Base Set 55', 'Articuno Skyridge 4', 'Mew XY Black Star Promos XY110']);
   });
 });
 

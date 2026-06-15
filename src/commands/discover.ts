@@ -113,7 +113,7 @@ type DiscoveryProfileConfidence = {
 };
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
-const MIN_STRONG_PROFILE_CHASES = 10;
+const MIN_STRONG_PROFILE_CHASES = 9;
 const VISIBLE_DISCOVERY_COUNT = 7;
 const DISCOVERY_SHELF_PAGE_SIZE = 10;
 const DISCOVERY_WEEKLY_DROP_SIZE = Math.max(DISCOVERY_SHELF_PAGE_SIZE, Math.min(20, Math.floor(Number(process.env.DISCOVERY_WEEKLY_DROP_SIZE ?? '20'))));
@@ -2062,6 +2062,24 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
   }));
 }
 
+export function backfillScheduledDiscoveryShelfCandidates(candidates: DiscoveryCandidate[], fallbackDrop: ScheduledDiscoveryDrop | null, targetCount: number): DiscoveryCandidate[] {
+  if (!fallbackDrop || candidates.length >= targetCount) return candidates;
+  const merged = [...candidates];
+  const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
+  const seenVariantFamilies = new Set(merged.map(candidateVariantFamilyKey).filter((key): key is string => !!key));
+  for (const candidate of candidatesFromScheduledDiscoveryDrop(fallbackDrop)) {
+    if (merged.length >= targetCount) break;
+    if (!isDisplayableDiscoveryCandidate(candidate) || !hasMarketSignal(candidate)) continue;
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const variantKey = candidateVariantFamilyKey(candidate);
+    if (seenNames.has(nameKey) || (variantKey && seenVariantFamilies.has(variantKey))) continue;
+    merged.push(candidate);
+    seenNames.add(nameKey);
+    if (variantKey) seenVariantFamilies.add(variantKey);
+  }
+  return merged;
+}
+
 function scheduledMarketStatusFromCandidate(candidate: DiscoveryCandidate): string {
   if (hasMarketSignal(candidate)) return 'READY';
   return candidate.sourceStatus ?? 'PENDING';
@@ -2444,6 +2462,9 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
   itemCount: number;
   hasFullDiscovery: boolean;
 }> {
+  const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
+  const previousDropLookupDate = new Date(Date.parse(availability.availableAt) - 1);
+  const fallbackDrop = getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', previousDropLookupDate.toISOString());
   const existing = !options.force ? getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date)) : null;
   if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0) {
     return {
@@ -2453,9 +2474,12 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     };
   }
   const discovery = await discoverCandidatesForUser(userId, DISCOVERY_WEEKLY_DROP_SIZE, { preferScheduledDrop: false, saveScheduledDrop: true, scheduledDate: date, hydrateScheduledMarketInline: false, usePersistedState: false });
+  const targetCount = discovery.hasFullDiscovery ? Math.min(DISCOVERY_WEEKLY_DROP_SIZE, discovery.profileConfidence.maxShelfSize) : discovery.candidates.length;
+  const candidates = backfillScheduledDiscoveryShelfCandidates(discovery.candidates, fallbackDrop, targetCount);
+  if (candidates.length > discovery.candidates.length) saveWeeklyDiscoveryDrop(userId, candidates, discovery.settings.alertCurrency, undefined, date);
   return {
-    prepared: discovery.candidates.length > 0 && discovery.hasFullDiscovery,
-    itemCount: discovery.candidates.length,
+    prepared: candidates.length > 0 && discovery.hasFullDiscovery,
+    itemCount: candidates.length,
     hasFullDiscovery: discovery.hasFullDiscovery
   };
 }
