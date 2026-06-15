@@ -313,17 +313,17 @@ describe('selectVisibleCandidates', () => {
 
   it('keeps strong profiles at a full shelf with concrete cards while market data catches up', () => {
     const readyCandidates = Array.from({ length: 12 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
-    const lowDataCandidates = Array.from({ length: 8 }, (_, index) => candidate(`Low Data Pick ${index + 1}`, 'exploration path', index + 12, index % 3));
+    const pendingCandidates = Array.from({ length: 8 }, (_, index) => candidate(`Pending Pick ${index + 1} SWSH${200 + index}`, 'exploration path', index + 12));
 
-    const visible = marketReadyShelfCandidates([...readyCandidates, ...lowDataCandidates], true, strongProfileConfidence);
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...pendingCandidates], true, strongProfileConfidence);
 
     expect(visible).toHaveLength(20);
-    expect(visible.map((item) => item.suggestion.name)).toEqual([...readyCandidates, ...lowDataCandidates].map((item) => item.suggestion.name));
+    expect(visible.map((item) => item.suggestion.name)).toEqual([...readyCandidates, ...pendingCandidates].map((item) => item.suggestion.name));
   });
 
   it('fills a Pro shelf with concrete cards when clean market data is still catching up', () => {
     const readyCandidates = Array.from({ length: 5 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
-    const concretePendingCandidates = Array.from({ length: 15 }, (_, index) => candidate(`Concrete Pick ${index + 1} SWSH${100 + index}`, 'exploration path', index + 5, index % 2));
+    const concretePendingCandidates = Array.from({ length: 15 }, (_, index) => candidate(`Concrete Pick ${index + 1} SWSH${100 + index}`, 'exploration path', index + 5));
 
     const visible = marketReadyShelfCandidates([...readyCandidates, ...concretePendingCandidates], true, strongProfileConfidence);
 
@@ -332,6 +332,23 @@ describe('selectVisibleCandidates', () => {
       ...readyCandidates.map((item) => item.suggestion.name),
       ...concretePendingCandidates.map((item) => item.suggestion.name)
     ]);
+  });
+
+  it('does not fill strong shelves with thin low-comp market estimates', () => {
+    const readyCandidates = Array.from({ length: 13 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const thinCandidates = [
+      candidate('Thin Ask Pick 1', 'exploration path', 13, 1),
+      {
+        ...candidate('Thin Ask Pick 2', 'exploration path', 14),
+        marketSampleSize: 2,
+        sourceStatus: 'PENDING' as const
+      }
+    ];
+
+    const visible = marketReadyShelfCandidates([...readyCandidates, ...thinCandidates], true, strongProfileConfidence);
+
+    expect(visible).toHaveLength(13);
+    expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
   });
 
   it('does not show broad Discovery category titles as finished shelf cards', () => {
@@ -2001,6 +2018,36 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(attached?.marketSampleSize).toBe(0);
     expect(attached?.soldSampleSize).toBe(0);
+    expect(attached?.sourceStatus).toBe('PENDING');
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('retries thin ask-only market cache rows when scheduled hydration requests reliable comps', () => {
+    const name = `Articuno Skyridge H3 Thin Ask Cache ${Date.now()}`;
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 790,
+      marketSampleSize: 3,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: 0,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = candidatesFromDiscoveryMarketCache([candidate(name, 'e-reader trail', 0)], {
+      userId: 'user-1',
+      activeChases: [],
+      destination: { country: 'CA' },
+      targetCurrency: 'CAD',
+      forceRefreshThinSignal: true
+    });
+
+    expect(attached?.typicalRawAskingTotal).toBe(790);
+    expect(attached?.marketSampleSize).toBe(3);
     expect(attached?.sourceStatus).toBe('PENDING');
     deleteDiscoveryMarketCache(cacheKey);
   });
