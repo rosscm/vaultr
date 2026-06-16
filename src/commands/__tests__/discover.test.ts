@@ -31,6 +31,7 @@ import {
   orderConcreteDiscoveryFallbackSuggestionsForMarket,
   orderCandidatesForMarketConfidence,
   orderCandidatesFromPersistedState,
+  profileSubjectMatchedReliableDiscoveryCandidates,
   preserveLanguageSignalFallbackSuggestions,
   selectVisibleCandidates,
   selectVisibleCandidatesForCount,
@@ -359,6 +360,41 @@ describe('selectVisibleCandidates', () => {
 
     expect(visible).toHaveLength(13);
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
+  });
+
+  it('prefers reliable cards tied to concrete chase subjects over era-only reliable filler', () => {
+    const concreteSubjectCandidates = Array.from({ length: 10 }, (_, index) =>
+      candidate(`Mew Profile Match ${index + 1}`, 'market ready path', index, 12)
+    );
+    const eraOnlyCandidates = [
+      candidate('Xatu Skyridge H32', 'market ready path', 20, 12),
+      candidate('Zubat Skyridge 117', 'market ready path', 21, 12),
+      candidate('Magneton Skyridge H19', 'market ready path', 22, 12)
+    ];
+
+    const pool = profileSubjectMatchedReliableDiscoveryCandidates(
+      [...eraOnlyCandidates, ...concreteSubjectCandidates],
+      ['Mew RC24/RC25'].map(chase),
+      20
+    );
+    const selected = selectVisibleCandidatesForCount(pool, ['Mew RC24/RC25'].map(chase), 20);
+
+    expect(selected.map((item) => item.suggestion.name)).toEqual(concreteSubjectCandidates.map((item) => item.suggestion.name));
+  });
+
+  it('does not use removed chases as positive subjects for reliable filler', () => {
+    const activeMatches = Array.from({ length: 10 }, (_, index) => candidate(`Mew Profile Match ${index + 1}`, 'market ready path', index, 12));
+    const removedSubjectCandidate = candidate('Meowth VMAX SWSH Black Star Promos SWSH005', 'market ready path', 20, 12);
+    const removedMeowth = { ...chase('Meowth 18/53', 1), tasteSource: 'REMOVED_CHASE' as const };
+
+    const pool = profileSubjectMatchedReliableDiscoveryCandidates(
+      [removedSubjectCandidate, ...activeMatches],
+      [chase('Mew RC24/RC25', 0), removedMeowth],
+      20
+    );
+    const selected = selectVisibleCandidatesForCount(pool, [chase('Mew RC24/RC25', 0), removedMeowth], 20);
+
+    expect(selected.map((item) => item.suggestion.name)).toEqual(activeMatches.map((item) => item.suggestion.name));
   });
 
   it('does not show broad Discovery category titles as finished shelf cards', () => {
@@ -1811,12 +1847,15 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const suffix = Date.now();
     const current = sourceCandidate(`Zapdos Aquapolis 44 Cache Backfill ${suffix}`, 'Pokemon TCG (Aquapolis)', 0);
     const variantName = `Zapdos Aquapolis H32 Cache Backfill ${suffix}`;
+    const unrelatedEraName = `Xatu Skyridge H32 Cache Backfill ${suffix}`;
     const rejectedName = `Ledian Skyridge H14 Cache Backfill ${suffix}`;
     const replacementName = `Mew Expedition Base Set 55 Cache Backfill ${suffix}`;
     const variantCacheKey = discoveryMarketCacheKey(variantName, 'CAD', 'CA');
+    const unrelatedEraCacheKey = discoveryMarketCacheKey(unrelatedEraName, 'CAD', 'CA');
     const rejectedCacheKey = discoveryMarketCacheKey(rejectedName, 'CAD', 'CA');
     const replacementCacheKey = discoveryMarketCacheKey(replacementName, 'CAD', 'CA');
     deleteDiscoveryMarketCache(variantCacheKey);
+    deleteDiscoveryMarketCache(unrelatedEraCacheKey);
     deleteDiscoveryMarketCache(rejectedCacheKey);
     deleteDiscoveryMarketCache(replacementCacheKey);
     upsertDiscoveryMarketCache({
@@ -1826,6 +1865,15 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       destinationCountry: 'CA',
       typicalRawAskingTotal: 650,
       marketSampleSize: 6,
+      soldSampleSize: 0
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: unrelatedEraCacheKey,
+      suggestionName: unrelatedEraName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 90,
+      marketSampleSize: 12,
       soldSampleSize: 0
     });
     upsertDiscoveryMarketCache({
@@ -1861,6 +1909,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(visible.map((item) => item.suggestion.name)).toEqual([current.suggestion.name, replacementName]);
     deleteDiscoveryMarketCache(variantCacheKey);
+    deleteDiscoveryMarketCache(unrelatedEraCacheKey);
     deleteDiscoveryMarketCache(rejectedCacheKey);
     deleteDiscoveryMarketCache(replacementCacheKey);
   });

@@ -283,6 +283,10 @@ function removedTasteMemoryChases(tasteMemoryChases: Chase[]): Chase[] {
   return tasteMemoryChases.filter((chase) => chase.tasteSource === 'REMOVED_CHASE');
 }
 
+function positiveTasteSubjectChases(chases: Chase[]): Chase[] {
+  return chases.filter((chase) => chase.tasteSource !== 'REMOVED_CHASE');
+}
+
 function formatMoney(amount: number | undefined, currency: string | undefined): string {
   if (amount === undefined) return 'Unknown';
   const roundedAmount = amount >= 10 ? Math.round(amount / 10) * 10 : Math.round(amount);
@@ -1266,6 +1270,49 @@ function isMarketEstimateInRange(candidate: DiscoveryCandidate, range?: { min: n
   return total === undefined || (total >= range.min && total <= range.max);
 }
 
+const CACHE_BACKFILL_SUBJECT_STOP_WORDS = new Set([
+  'aquapolis',
+  'ascended',
+  'base',
+  'black',
+  'bw',
+  'card',
+  'cards',
+  'collection',
+  'collector',
+  'expedition',
+  'ex',
+  'gx',
+  'heroes',
+  'japanese',
+  'legendary',
+  'promo',
+  'promos',
+  'raw',
+  'set',
+  'skyridge',
+  'sm',
+  'star',
+  'surging',
+  'swsh',
+  'trading',
+  'treasures',
+  'vmax',
+  'wizards',
+  'xy'
+]);
+
+function cacheBackfillSubjectTokens(value: string): string[] {
+  return profileSubjectTokens(value).filter((token) => !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token) && !/^[a-z]{1,4}\d+$/i.test(token));
+}
+
+function hasConcreteProfileSubjectMatch(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  const profileTokens = new Set(chases.flatMap((chase) => cacheBackfillSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' '))));
+  if (profileTokens.size === 0) return false;
+  const candidateTokens = cacheBackfillSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' '));
+  return candidateTokens.some((token) => profileTokens.has(token));
+}
+
 export function backfillMarketReadyDiscoveryCandidates(
   candidates: DiscoveryCandidate[],
   context: {
@@ -1282,7 +1329,16 @@ export function backfillMarketReadyDiscoveryCandidates(
   excludedNames: string[] = []
 ): DiscoveryCandidate[] {
   const readyShelfCount = (items: DiscoveryCandidate[]): number => marketReadyShelfCandidates(items, true, profileConfidence).length;
-  if (readyShelfCount(candidates) >= targetCount) return candidates;
+  const positiveSubjectChases = positiveTasteSubjectChases(tasteProfileChases);
+  const profileMatchedReadyShelfCount = (items: DiscoveryCandidate[]): number =>
+    selectVisibleCandidatesForCount(
+      marketReadyShelfCandidates(items, true, profileConfidence).filter((candidate) => hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases)),
+      positiveSubjectChases,
+      targetCount,
+      negativeProfile
+    ).length;
+  const hasConcreteProfileSignals = positiveSubjectChases.some((chase) => cacheBackfillSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).length > 0);
+  if (readyShelfCount(candidates) >= targetCount && (!hasConcreteProfileSignals || profileMatchedReadyShelfCount(candidates) >= targetCount)) return candidates;
   const merged = [...candidates];
   const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
   const seenVariantFamilies = new Set(merged.map(candidateVariantFamilyKey).filter((key): key is string => !!key));
@@ -1293,7 +1349,7 @@ export function backfillMarketReadyDiscoveryCandidates(
     limit: 240
   });
   for (const entry of cacheEntries) {
-    if (readyShelfCount(merged) >= targetCount) break;
+    if ((!hasConcreteProfileSignals && readyShelfCount(merged) >= targetCount) || (hasConcreteProfileSignals && profileMatchedReadyShelfCount(merged) >= targetCount)) break;
     const suggestion = fallbackSuggestionFromCardName(entry.suggestionName);
     if (excludedNameKeys.has(discoveryNameKey(suggestion.name))) continue;
     const candidate = {
@@ -1310,7 +1366,7 @@ export function backfillMarketReadyDiscoveryCandidates(
     } satisfies DiscoveryCandidate;
     if (!isDisplayableDiscoveryCandidate(candidate) || !isConcreteDiscoverySuggestion(candidate.suggestion)) continue;
     if (!hasReliableMarketEstimate(candidate) || !isMarketEstimateInRange(candidate, context.range)) continue;
-    if (subjectProfileRankScore(candidate, tasteProfileChases) <= 0) continue;
+    if (!hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases)) continue;
     if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     const variantKey = candidateVariantFamilyKey(candidate);
@@ -1320,6 +1376,19 @@ export function backfillMarketReadyDiscoveryCandidates(
     if (variantKey) seenVariantFamilies.add(variantKey);
   }
   return orderCandidatesForMarketConfidence(merged, tasteProfileChases, negativeProfile);
+}
+
+export function profileSubjectMatchedReliableDiscoveryCandidates(
+  candidates: DiscoveryCandidate[],
+  chases: Chase[],
+  targetCount: number,
+  negativeProfile?: DiscoveryNegativeProfile
+): DiscoveryCandidate[] {
+  const reliableCandidates = candidates.filter(hasReliableMarketEstimate);
+  const positiveSubjectChases = positiveTasteSubjectChases(chases);
+  const profileMatchedCandidates = reliableCandidates.filter((candidate) => hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases));
+  const selectedProfileMatchedCandidates = selectVisibleCandidatesForCount(profileMatchedCandidates, positiveSubjectChases, targetCount, negativeProfile);
+  return selectedProfileMatchedCandidates.length >= Math.min(targetCount, DISCOVERY_SHELF_PAGE_SIZE) ? profileMatchedCandidates : reliableCandidates;
 }
 
 function curiosityRankScore(candidate: DiscoveryCandidate): number {
@@ -2436,12 +2505,12 @@ async function discoverCandidatesForUser(
     const selectionPool = hasFullDiscovery && hydrateScheduledMarketInline
       ? backfillMarketReadyDiscoveryCandidates(marketCandidates, marketContext, targetVisibleCount, tasteProfileChases, profileConfidence, negativeProfile, repeatGuardChases, rejectedNames)
       : marketCandidates;
-    const reliableSelectionPool = selectionPool.filter(hasReliableMarketEstimate);
+    const reliableSelectionPool = profileSubjectMatchedReliableDiscoveryCandidates(selectionPool, tasteProfileChases, targetVisibleCount, negativeProfile);
     const reliableCandidates = hasFullDiscovery && hydrateScheduledMarketInline && !persistedCandidates
       ? selectVisibleCandidatesForCount(reliableSelectionPool, tasteProfileChases, targetVisibleCount, negativeProfile)
       : [];
     let visibleCandidates = hasFullDiscovery && !persistedCandidates
-      ? reliableCandidates.length >= targetVisibleCount
+      ? reliableCandidates.length >= Math.min(targetVisibleCount, DISCOVERY_SHELF_PAGE_SIZE)
         ? reliableCandidates
         : selectVisibleCandidatesForCount(selectionPool, tasteProfileChases, targetVisibleCount, negativeProfile)
       : selectionPool.slice(0, targetVisibleCount);
