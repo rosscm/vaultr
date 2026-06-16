@@ -4,6 +4,7 @@ import {
   completeDiscoveryMarketRefreshJob,
   deleteDiscoveryMarketRefreshJob,
   enqueueDiscoveryMarketRefreshJob,
+  getDiscoveryMarketRefreshQueueStats,
   getDiscoveryMarketRefreshJob,
   requeueStaleDiscoveryMarketRefreshJobs,
   retryDiscoveryMarketRefreshJob
@@ -108,5 +109,32 @@ describe('discovery market refresh jobs', () => {
     expect(job?.status).toBe('RETRY');
     expect(job?.lastError).toBe('stale worker lock');
     expect(job?.lockedBy).toBeUndefined();
+  });
+
+  it('summarizes queue health for operations views', () => {
+    const readyKey = `job-stats-ready-${Date.now()}`;
+    const runningKey = `job-stats-running-${Date.now()}`;
+    const failedKey = `job-stats-failed-${Date.now()}`;
+    const now = new Date('2026-06-10T00:20:00.000Z').getTime();
+    const before = getDiscoveryMarketRefreshQueueStats(10 * 60 * 1000, now);
+
+    enqueueJob(readyKey, 1);
+    enqueueJob(runningKey, 5);
+    enqueueJob(failedKey, 4);
+    claimDiscoveryMarketRefreshJobs('worker-stats', 1, '2026-06-10T00:01:00.000Z');
+    claimDiscoveryMarketRefreshJobs('worker-failed', 1, '2026-06-10T00:02:00.000Z');
+    retryDiscoveryMarketRefreshJob(failedKey, 'eBay quota exhausted', '2026-06-10T00:30:00.000Z', 1, '2026-06-10T00:03:00.000Z');
+
+    const after = getDiscoveryMarketRefreshQueueStats(10 * 60 * 1000, now);
+
+    expect(after.queuedReady).toBe(before.queuedReady + 1);
+    expect(after.running).toBe(before.running + 1);
+    expect(after.staleRunning).toBe(before.staleRunning + 1);
+    expect(after.failed).toBe(before.failed + 1);
+    expect(after.activeWorkers).toBeGreaterThanOrEqual(before.activeWorkers + 1);
+    expect(after.oldestReadyAt).toBeTruthy();
+    expect(after.oldestRunningLockedAt).toBe('2026-06-10T00:01:00.000Z');
+    expect(after.lastFailedAt).toBe('2026-06-10T00:03:00.000Z');
+    expect(after.lastError).toBe('eBay quota exhausted');
   });
 });

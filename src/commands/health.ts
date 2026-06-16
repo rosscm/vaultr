@@ -18,6 +18,7 @@ import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { CHASE_ALERT_COOLDOWN_MINUTES } from '../services/alert-policy.js';
 import { getPollerState } from '../services/poller-state.js';
 import { sendWeeklyDropTestAnnouncement } from '../services/discovery-drop-scheduler.js';
+import { getDiscoveryMarketRefreshQueueStats } from '../services/discovery-market-jobs.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatTimeWithAge } from '../ui/time.js';
 import type { Chase, Listing } from '../types.js';
@@ -34,6 +35,10 @@ function maxAlertsPerChasePerPoll(): number {
 function positiveIntegerEnv(key: string, fallback: number): number | undefined {
   const value = Number(process.env[key] ?? String(fallback));
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : undefined;
+}
+
+function discoveryWorkerLockTimeoutMs(): number {
+  return Math.max(60_000, Math.floor(Number(process.env.DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS ?? `${10 * 60 * 1000}`)));
 }
 
 function formatOptionalSeconds(value: number | undefined): string {
@@ -53,6 +58,10 @@ function formatMoney(amount: number | undefined, currency: string): string {
 
 function formatOptionalTime(value: string | undefined): string {
   return value ? formatTimeWithAge(value) : 'Unknown';
+}
+
+function formatQueueTime(value: string | undefined): string {
+  return value ? formatTimeWithAge(value) : 'None';
 }
 
 function formatOptionalDuration(seconds: number | undefined): string {
@@ -375,6 +384,9 @@ export const health = {
     const chases = listAllChases();
     const backoffUntilMs = state.backoffUntil ? new Date(state.backoffUntil).getTime() : undefined;
     const isBackoffActive = backoffUntilMs !== undefined && Number.isFinite(backoffUntilMs) && backoffUntilMs > nowMs;
+    const discoveryQueue = getDiscoveryMarketRefreshQueueStats(discoveryWorkerLockTimeoutMs(), nowMs);
+    const discoveryReady = discoveryQueue.queuedReady + discoveryQueue.retryReady;
+    const discoveryScheduled = discoveryQueue.queuedScheduled + discoveryQueue.retryScheduled;
     const lines = [
       `**Source:** ${state.sourceMode}`,
       `**Poller Wake:** every ${formatDuration(state.pollIntervalSeconds)}`,
@@ -406,6 +418,21 @@ export const health = {
       `**Deferred Reasons:** ${coverage.rateLimitedGroups} rate limit, ${coverage.backoffGroups} backoff, ${coverage.sourceTimeoutGroups} source timeout, ${coverage.sourceErrorGroups} source error`,
       `**Oldest Due${coverageSuffix}:** ${formatCoverageGroup(coverage.oldestDue)}`,
       `**Oldest Deferred${coverageSuffix}:** ${formatCoverageGroup(coverage.oldestDeferred)}`
+    );
+
+    lines.push(
+      '',
+      '**Discovery Worker Queue:**',
+      `**Ready:** ${discoveryReady} (${discoveryQueue.queuedReady} new, ${discoveryQueue.retryReady} retry)`,
+      `**Scheduled:** ${discoveryScheduled} (${discoveryQueue.queuedScheduled} queued, ${discoveryQueue.retryScheduled} retry)`,
+      `**Running:** ${discoveryQueue.running} (${discoveryQueue.activeWorkers} worker${discoveryQueue.activeWorkers === 1 ? '' : 's'}, ${discoveryQueue.staleRunning} stale)`,
+      `**Done / Failed:** ${discoveryQueue.done} / ${discoveryQueue.failed}`,
+      `**Oldest Ready:** ${formatQueueTime(discoveryQueue.oldestReadyAt)}`,
+      `**Oldest Running:** ${formatQueueTime(discoveryQueue.oldestRunningLockedAt)}`,
+      `**Next Scheduled:** ${formatQueueTime(discoveryQueue.nextScheduledRunAt)}`,
+      `**Last Done:** ${formatQueueTime(discoveryQueue.lastCompletedAt)}`,
+      `**Last Failed:** ${formatQueueTime(discoveryQueue.lastFailedAt)}`,
+      `**Last Queue Error:** ${discoveryQueue.lastError ?? 'None'}`
     );
 
     lines.push('', ...buildEligibilityLines(chases, nowMs));

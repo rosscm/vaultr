@@ -29,6 +29,24 @@ export type DiscoveryMarketRefreshJob = DiscoveryMarketRefreshJobInput & {
   updatedAt: string;
 };
 
+export type DiscoveryMarketRefreshQueueStats = {
+  queuedReady: number;
+  queuedScheduled: number;
+  retryReady: number;
+  retryScheduled: number;
+  running: number;
+  staleRunning: number;
+  failed: number;
+  done: number;
+  activeWorkers: number;
+  oldestReadyAt?: string;
+  oldestRunningLockedAt?: string;
+  nextScheduledRunAt?: string;
+  lastCompletedAt?: string;
+  lastFailedAt?: string;
+  lastError?: string;
+};
+
 type DiscoveryMarketRefreshJobRow = {
   cache_key: string;
   suggestion_name: string;
@@ -148,6 +166,34 @@ const getDiscoveryMarketRefreshJobStmt = db.prepare(`
   WHERE cache_key = ?
 `);
 
+const getDiscoveryMarketRefreshQueueStatsStmt = db.prepare(`
+  SELECT
+    SUM(CASE WHEN status = 'QUEUED' AND run_after <= @now THEN 1 ELSE 0 END) AS queued_ready,
+    SUM(CASE WHEN status = 'QUEUED' AND run_after > @now THEN 1 ELSE 0 END) AS queued_scheduled,
+    SUM(CASE WHEN status = 'RETRY' AND run_after <= @now THEN 1 ELSE 0 END) AS retry_ready,
+    SUM(CASE WHEN status = 'RETRY' AND run_after > @now THEN 1 ELSE 0 END) AS retry_scheduled,
+    SUM(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END) AS running,
+    SUM(CASE WHEN status = 'RUNNING' AND locked_at IS NOT NULL AND locked_at < @stale_before THEN 1 ELSE 0 END) AS stale_running,
+    SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) AS failed,
+    SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) AS done,
+    COUNT(DISTINCT CASE WHEN status = 'RUNNING' THEN locked_by ELSE NULL END) AS active_workers,
+    MIN(CASE WHEN status IN ('QUEUED', 'RETRY') AND run_after <= @now THEN created_at ELSE NULL END) AS oldest_ready_at,
+    MIN(CASE WHEN status = 'RUNNING' THEN locked_at ELSE NULL END) AS oldest_running_locked_at,
+    MIN(CASE WHEN status IN ('QUEUED', 'RETRY') AND run_after > @now THEN run_after ELSE NULL END) AS next_scheduled_run_at,
+    MAX(CASE WHEN status = 'DONE' THEN updated_at ELSE NULL END) AS last_completed_at,
+    MAX(CASE WHEN status = 'FAILED' THEN updated_at ELSE NULL END) AS last_failed_at
+  FROM discovery_market_refresh_jobs
+`);
+
+const getLatestDiscoveryMarketRefreshJobErrorStmt = db.prepare(`
+  SELECT last_error
+  FROM discovery_market_refresh_jobs
+  WHERE last_error IS NOT NULL
+    AND status IN ('RETRY', 'FAILED')
+  ORDER BY updated_at DESC
+  LIMIT 1
+`);
+
 function parseJson<T>(value: string | null): T | undefined {
   if (!value) return undefined;
   return JSON.parse(value) as T;
@@ -245,4 +291,43 @@ export function deleteDiscoveryMarketRefreshJob(cacheKey: string): void {
 export function getDiscoveryMarketRefreshJob(cacheKey: string): DiscoveryMarketRefreshJob | null {
   const row = getDiscoveryMarketRefreshJobStmt.get(cacheKey) as DiscoveryMarketRefreshJobRow | undefined;
   return row ? mapDiscoveryMarketRefreshJob(row) : null;
+}
+
+export function getDiscoveryMarketRefreshQueueStats(lockTimeoutMs: number, nowMs = Date.now()): DiscoveryMarketRefreshQueueStats {
+  const now = new Date(nowMs).toISOString();
+  const staleBefore = new Date(nowMs - lockTimeoutMs).toISOString();
+  const row = getDiscoveryMarketRefreshQueueStatsStmt.get({ now, stale_before: staleBefore }) as {
+    queued_ready: number | null;
+    queued_scheduled: number | null;
+    retry_ready: number | null;
+    retry_scheduled: number | null;
+    running: number | null;
+    stale_running: number | null;
+    failed: number | null;
+    done: number | null;
+    active_workers: number | null;
+    oldest_ready_at: string | null;
+    oldest_running_locked_at: string | null;
+    next_scheduled_run_at: string | null;
+    last_completed_at: string | null;
+    last_failed_at: string | null;
+  };
+  const latestError = getLatestDiscoveryMarketRefreshJobErrorStmt.get() as { last_error: string | null } | undefined;
+  return {
+    queuedReady: row.queued_ready ?? 0,
+    queuedScheduled: row.queued_scheduled ?? 0,
+    retryReady: row.retry_ready ?? 0,
+    retryScheduled: row.retry_scheduled ?? 0,
+    running: row.running ?? 0,
+    staleRunning: row.stale_running ?? 0,
+    failed: row.failed ?? 0,
+    done: row.done ?? 0,
+    activeWorkers: row.active_workers ?? 0,
+    oldestReadyAt: row.oldest_ready_at ?? undefined,
+    oldestRunningLockedAt: row.oldest_running_locked_at ?? undefined,
+    nextScheduledRunAt: row.next_scheduled_run_at ?? undefined,
+    lastCompletedAt: row.last_completed_at ?? undefined,
+    lastFailedAt: row.last_failed_at ?? undefined,
+    lastError: latestError?.last_error ?? undefined
+  };
 }
