@@ -106,6 +106,29 @@ npm run backup
 
 Backups are written to `VAULTR_BACKUP_DIR` (default `./data/backups`) and are ignored by git with the rest of `data/*`. The command uses SQLite's backup API, so the bot and worker do not need to be stopped for routine backups.
 
+For a restore drill on the Pi:
+
+1. Stop writers:
+   - `sudo systemctl stop vaultr vaultr-discovery-market-worker vaultr-ebay-webhook`
+2. Preserve the current database before replacing it:
+   - `cp data/vaultr.db "data/vaultr.pre-restore.$(date -u +%Y%m%dT%H%M%SZ).db"`
+3. Restore the selected backup:
+   - `cp data/backups/<backup-file>.db data/vaultr.db`
+4. Restart and verify:
+   - `sudo systemctl start vaultr vaultr-discovery-market-worker vaultr-ebay-webhook`
+   - `npm run smoke`
+   - `npm run ops:check`
+
+### Operational Health Checks
+
+Run this from cron, a systemd timer, or an external command monitor after each deploy:
+
+```sh
+npm run ops:check
+```
+
+The check verifies configured systemd services are active, the SQLite database exists, and a recent backup is present. Tune `VAULTR_OPS_SERVICES` if the webhook is not installed in an environment, and tune `VAULTR_BACKUP_MAX_AGE_HOURS` for the maximum allowed backup age.
+
 ### Pi Deploy Checklist
 
 - Repo is up to date:
@@ -122,6 +145,8 @@ Backups are written to `VAULTR_BACKUP_DIR` (default `./data/backups`) and are ig
   - `npm run smoke`
 - A fresh SQLite backup exists:
    - `npm run backup`
+- Operational checks pass:
+   - `npm run ops:check`
 - Optional Discovery drops are tuned:
    - `DISCOVERY_DROP_SCHEDULER_ENABLED`, `DISCOVERY_DROP_ANNOUNCEMENTS_ENABLED`, `DISCOVERY_DROP_PREPARE_BATCH_SIZE`
    - `DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_SECONDS`, `DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS`
@@ -309,9 +334,18 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 - `WEEKLY_REFLECTION_HOUR_LOCAL` (default `11`)
 - `WEEKLY_REFLECTION_MINUTE_LOCAL` (default `0`)
 
+## Public Beta Discord Checklist
+
+- Use Discord OAuth scopes `bot` and `applications.commands`.
+- Avoid `Administrator`; grant only the channel permissions Vaultr needs: View Channel, Send Messages, Embed Links, Read Message History, and Use External Emojis/Stickers if your server styling needs them.
+- Confirm the bot can DM users for chase sightings and weekly reflections; Discovery shelves open privately from the server channel and do not require DMs.
+- Require admins to run `/setup channel` after install so command usage stays in one visible server channel.
+- Add support and privacy links in the Discord Developer Portal before broad invites; keep the same links in public docs or the invite page.
+- Test the invite in a throwaway server with a non-owner user before sharing publicly.
+
 ## Production Notes
 
 - Consider Postgres once Vaultr outgrows a single Pi/host deployment
 - Discovery market refreshes already use a durable SQLite queue plus worker; source polling and sighting fanout still run in the bot process
 - Keep the bot, Discovery worker, and optional eBay webhook as separate systemd units so each can restart independently
-- Add observability (structured logs, metrics, alerts)
+- Use `npm run ops:check` from cron, a systemd timer, or an external command monitor until structured metrics and alerts exist

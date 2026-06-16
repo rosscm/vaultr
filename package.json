@@ -14,6 +14,8 @@
     "register:commands": "tsx src/register-commands.ts",
     "backup": "tsx src/backup.ts",
     "backup:dist": "node dist/backup.js",
+    "ops:check": "tsx src/ops-check.ts",
+    "ops:check:dist": "node dist/ops-check.js",
     "dev:discovery-worker": "tsx src/discovery-market-worker.ts",
     "dev:webhook": "tsx src/ebay-webhook.ts",
     "smoke": "tsx src/smoke.ts",
