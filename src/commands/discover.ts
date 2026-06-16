@@ -2833,11 +2833,11 @@ export async function handleDiscoveryDropOpen(interaction: any): Promise<boolean
     return true;
   }
 
-  await interaction.deferReply();
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const payload = await buildDiscoveryShelfPayload(interaction.user.id);
   if (payload.hasFullDiscovery && payload.headerEmbeds && payload.embeds.length > 0) {
     await interaction.editReply(discoveryHeaderReplyPayload(payload));
-    await interaction.followUp(discoveryReplyPayload(payload));
+    await interaction.followUp({ ...discoveryReplyPayload(payload), flags: MessageFlags.Ephemeral });
   } else {
     await interaction.editReply(discoveryReplyPayload(payload));
   }

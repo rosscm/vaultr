@@ -21,7 +21,7 @@ export const help = {
       '**Commands**',
       '- Vault: `/chase add` · `/chase list` · `/chase edit` · `/chase remove`',
       '- Alerts: `/alerts status` · `/alerts settings` · `/alerts recent`',
-      '- Discovery: open the weekly server drop in-channel',
+      '- Discovery: open the weekly server drop for a private shelf',
       '- Plan: `/plan view` · `/upgrade`',
       '',
       '**When It Feels Quiet**',
