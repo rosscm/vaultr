@@ -67,23 +67,31 @@ Use the included bot and worker unit files:
 
 - [deploy/vaultr.service](deploy/vaultr.service)
 - [deploy/vaultr-discovery-market-worker.service](deploy/vaultr-discovery-market-worker.service)
+- [deploy/vaultr-ops-check.service](deploy/vaultr-ops-check.service)
+- [deploy/vaultr-ops-check.timer](deploy/vaultr-ops-check.timer)
 
 1. Build once:
    - `npm run build`
 2. Copy services:
    - `sudo cp deploy/vaultr.service /etc/systemd/system/vaultr.service`
    - `sudo cp deploy/vaultr-discovery-market-worker.service /etc/systemd/system/vaultr-discovery-market-worker.service`
+   - `sudo cp deploy/vaultr-ops-check.service /etc/systemd/system/vaultr-ops-check.service`
+   - `sudo cp deploy/vaultr-ops-check.timer /etc/systemd/system/vaultr-ops-check.timer`
 3. Reload and enable:
    - `sudo systemctl daemon-reload`
    - `sudo systemctl enable vaultr`
    - `sudo systemctl enable vaultr-discovery-market-worker`
+   - `sudo systemctl enable vaultr-ops-check.timer`
    - `sudo systemctl start vaultr`
    - `sudo systemctl start vaultr-discovery-market-worker`
+   - `sudo systemctl start vaultr-ops-check.timer`
 4. Check status/logs:
    - `sudo systemctl status vaultr`
    - `sudo systemctl status vaultr-discovery-market-worker`
+   - `sudo systemctl status vaultr-ops-check.timer`
    - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/vaultr.log`
    - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/discovery-market-worker.log`
+   - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/ops-check.log`
 
 ### Log Rotation
 
@@ -121,13 +129,20 @@ For a restore drill on the Pi:
 
 ### Operational Health Checks
 
-Run this from cron, a systemd timer, or an external command monitor after each deploy:
+Run this manually after each deploy:
 
 ```sh
 npm run ops:check
 ```
 
 The check verifies configured systemd services are active, the SQLite database exists, and a recent backup is present. Tune `VAULTR_OPS_SERVICES` if the webhook is not installed in an environment, and tune `VAULTR_BACKUP_MAX_AGE_HOURS` for the maximum allowed backup age.
+
+For continuous Pi monitoring, install [deploy/vaultr-ops-check.service](deploy/vaultr-ops-check.service) and [deploy/vaultr-ops-check.timer](deploy/vaultr-ops-check.timer). The timer runs every 10 minutes, writes to `data/logs/ops-check.log`, and can be watched with:
+
+```sh
+systemctl list-timers vaultr-ops-check.timer
+sudo journalctl -u vaultr-ops-check.service -n 50
+```
 
 ### Pi Deploy Checklist
 
@@ -147,6 +162,9 @@ The check verifies configured systemd services are active, the SQLite database e
    - `npm run backup`
 - Operational checks pass:
    - `npm run ops:check`
+- Ops timer is enabled:
+   - `systemctl is-enabled vaultr-ops-check.timer`
+   - `systemctl list-timers vaultr-ops-check.timer`
 - Optional Discovery drops are tuned:
    - `DISCOVERY_DROP_SCHEDULER_ENABLED`, `DISCOVERY_DROP_ANNOUNCEMENTS_ENABLED`, `DISCOVERY_DROP_PREPARE_BATCH_SIZE`
    - `DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_SECONDS`, `DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS`

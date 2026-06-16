@@ -37,6 +37,7 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
    - Reads user shelves, market snapshots, chase health, and taste profile state from prepared tables.
    - Shows refresh state separately from card recommendations.
    - Lets users tune recommendations without requiring Discord interactions.
+   - Integrates Stripe for plan entitlement state, billing portal links, and webhook-driven subscription updates.
 
 4. **Production data layer**
    - SQLite is acceptable for private alpha and early beta.
@@ -50,3 +51,4 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
 - Expand scheduled drops into taste-profile summaries and refresh statuses.
 - Tune Discovery refresh cooldowns and active-job caps from beta traffic.
 - Add operational views for queued/running/failed jobs before public beta.
+- Wire Stripe subscription lifecycle into `user_plans` before selling Pro outside manual/admin testing.

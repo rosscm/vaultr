@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Vaultr operational health checks
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=vaultr-ops-check.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Vaultr operational health check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/Documents/GitHub/vaultr
+EnvironmentFile=/home/pi/Documents/GitHub/vaultr/.env
+ExecStartPre=/usr/bin/mkdir -p /home/pi/Documents/GitHub/vaultr/data/logs
+ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr/dist/ops-check.js
+StandardOutput=append:/home/pi/Documents/GitHub/vaultr/data/logs/ops-check.log
+StandardError=append:/home/pi/Documents/GitHub/vaultr/data/logs/ops-check.log
