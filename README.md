@@ -137,6 +137,8 @@ npm run ops:check
 
 The check verifies configured systemd services are active, the SQLite database exists, and a recent backup is present. Tune `VAULTR_OPS_SERVICES` if the webhook is not installed in an environment, and tune `VAULTR_BACKUP_MAX_AGE_HOURS` for the maximum allowed backup age.
 
+If any check fails, `ops:check` can DM the owner through Discord. By default it uses `OWNER_USER_ID`; set `VAULTR_OPS_ALERT_USER_ID` to override the recipient. Duplicate alerts for the same failure are suppressed for `VAULTR_OPS_ALERT_COOLDOWN_MINUTES` and tracked in `VAULTR_OPS_ALERT_STATE_PATH`. Set `VAULTR_OPS_ALERT_DRY_RUN=true` to test alert formatting without sending a DM.
+
 For continuous Pi monitoring, install [deploy/vaultr-ops-check.service](deploy/vaultr-ops-check.service) and [deploy/vaultr-ops-check.timer](deploy/vaultr-ops-check.timer). The timer runs every 10 minutes, writes to `data/logs/ops-check.log`, and can be watched with:
 
 ```sh

@@ -1,8 +1,10 @@
 import 'dotenv/config';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { Client, GatewayIntentBits } from 'discord.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -12,9 +14,110 @@ type CheckResult = {
   details: string;
 };
 
+type AlertState = {
+  lastFailureFingerprint?: string;
+  lastAlertedAt?: string;
+  lastRecoveryFingerprint?: string;
+};
+
 function envValue(key: string): string | undefined {
   const value = process.env[key]?.trim();
   return value ? value : undefined;
+}
+
+function positiveNumberEnv(key: string, fallback: number): number {
+  const value = Number(envValue(key) ?? String(fallback));
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function alertStatePath(): string {
+  return path.resolve(envValue('VAULTR_OPS_ALERT_STATE_PATH') ?? './data/ops-check-state.json');
+}
+
+function readAlertState(): AlertState {
+  const statePath = alertStatePath();
+  if (!fs.existsSync(statePath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(statePath, 'utf8')) as AlertState;
+  } catch {
+    return {};
+  }
+}
+
+function writeAlertState(state: AlertState): void {
+  const statePath = alertStatePath();
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+function failureFingerprint(failures: CheckResult[]): string {
+  const payload = failures.map((failure) => ({ name: failure.name, details: failure.details }));
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function alertBody(failures: CheckResult[], fingerprint: string): string {
+  const lines = [
+    '**Vaultr ops check failed**',
+    `Failure fingerprint: \`${fingerprint.slice(0, 12)}\``,
+    ...failures.map((failure) => `- ${failure.name}: ${failure.details}`)
+  ];
+  return lines.join('\n').slice(0, 1900);
+}
+
+async function sendDiscordAlert(message: string): Promise<boolean> {
+  const dryRun = (envValue('VAULTR_OPS_ALERT_DRY_RUN') ?? 'false').toLowerCase() === 'true';
+  const alertUserId = envValue('VAULTR_OPS_ALERT_USER_ID') ?? envValue('OWNER_USER_ID');
+  if (dryRun) {
+    console.log(`[DRY RUN] Would send ops alert to ${alertUserId ?? 'no configured user'}:\n${message}`);
+    return true;
+  }
+  if (!alertUserId) {
+    console.warn('[ops-alert] Skipping Discord alert: VAULTR_OPS_ALERT_USER_ID or OWNER_USER_ID is not configured');
+    return false;
+  }
+  const token = envValue('DISCORD_TOKEN');
+  if (!token) {
+    console.warn('[ops-alert] Skipping Discord alert: DISCORD_TOKEN is not configured');
+    return false;
+  }
+
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  try {
+    await client.login(token);
+    const user = await client.users.fetch(alertUserId);
+    await user.send(message);
+    return true;
+  } finally {
+    client.destroy();
+  }
+}
+
+async function alertOnFailures(failures: CheckResult[]): Promise<void> {
+  if (failures.length === 0) {
+    const state = readAlertState();
+    if (state.lastFailureFingerprint) {
+      writeAlertState({ ...state, lastFailureFingerprint: undefined, lastRecoveryFingerprint: state.lastFailureFingerprint });
+    }
+    return;
+  }
+
+  const fingerprint = failureFingerprint(failures);
+  const state = readAlertState();
+  const cooldownMs = positiveNumberEnv('VAULTR_OPS_ALERT_COOLDOWN_MINUTES', 60) * 60 * 1000;
+  const lastAlertedAtMs = state.lastAlertedAt ? new Date(state.lastAlertedAt).getTime() : 0;
+  const stillCoolingDown = state.lastFailureFingerprint === fingerprint && Number.isFinite(lastAlertedAtMs) && Date.now() - lastAlertedAtMs < cooldownMs;
+  if (stillCoolingDown) {
+    console.log(`[ops-alert] Suppressed duplicate alert for ${fingerprint.slice(0, 12)}`);
+    return;
+  }
+
+  try {
+    const delivered = await sendDiscordAlert(alertBody(failures, fingerprint));
+    if (delivered) writeAlertState({ lastFailureFingerprint: fingerprint, lastAlertedAt: new Date().toISOString() });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[ops-alert] Failed to send Discord alert: ${message}`);
+  }
 }
 
 async function checkSystemdService(serviceName: string): Promise<CheckResult> {
@@ -83,6 +186,9 @@ for (const check of checks) {
   console.log(`[${label}] ${check.name}: ${check.details}`);
 }
 
-if (checks.some((check) => !check.ok)) {
+const failures = checks.filter((check) => !check.ok);
+await alertOnFailures(failures);
+
+if (failures.length > 0) {
   process.exit(1);
 }

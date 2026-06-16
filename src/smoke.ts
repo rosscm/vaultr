@@ -79,6 +79,8 @@ function checkNumericEnv(): CheckResult {
     { key: 'EBAY_SEARCH_CACHE_TTL_SECONDS', min: 0 },
     { key: 'EBAY_BACKOFF_BASE_SECONDS', min: 1 },
     { key: 'FX_REFRESH_MINUTES', min: 1 },
+    { key: 'VAULTR_BACKUP_MAX_AGE_HOURS', min: 1 },
+    { key: 'VAULTR_OPS_ALERT_COOLDOWN_MINUTES', min: 0 },
     { key: 'EBAY_WEBHOOK_PORT', min: 1 },
     { key: 'EBAY_WEBHOOK_MAX_BODY_BYTES', min: 1024 }
   ];
