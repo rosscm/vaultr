@@ -12,6 +12,8 @@
     "start:discovery-worker": "node dist/discovery-market-worker.js",
     "start:webhook": "node dist/ebay-webhook.js",
     "register:commands": "tsx src/register-commands.ts",
+    "backup": "tsx src/backup.ts",
+    "backup:dist": "node dist/backup.js",
     "dev:discovery-worker": "tsx src/discovery-market-worker.ts",
     "dev:webhook": "tsx src/ebay-webhook.ts",
     "smoke": "tsx src/smoke.ts",

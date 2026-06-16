@@ -96,6 +96,16 @@ sudo logrotate -d /etc/logrotate.d/vaultr
 
 The default keeps 8 weekly compressed rotations and uses `copytruncate` so the running services do not need to restart during rotation.
 
+### SQLite Backups
+
+Vaultr's live state is stored in SQLite at `DATABASE_PATH`. Use the included online backup command before public deploys and before risky maintenance:
+
+```sh
+npm run backup
+```
+
+Backups are written to `VAULTR_BACKUP_DIR` (default `./data/backups`) and are ignored by git with the rest of `data/*`. The command uses SQLite's backup API, so the bot and worker do not need to be stopped for routine backups.
+
 ### Pi Deploy Checklist
 
 - Repo is up to date:
@@ -110,6 +120,8 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
   - `OWNER_USER_ID` (optional, enables owner-only `/health`)
 - Runtime checks pass:
   - `npm run smoke`
+- A fresh SQLite backup exists:
+   - `npm run backup`
 - Optional Discovery drops are tuned:
    - `DISCOVERY_DROP_SCHEDULER_ENABLED`, `DISCOVERY_DROP_ANNOUNCEMENTS_ENABLED`, `DISCOVERY_DROP_PREPARE_BATCH_SIZE`
    - `DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_SECONDS`, `DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS`
