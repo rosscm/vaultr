@@ -191,7 +191,7 @@ export const chaseEdit = {
 
     if (!match) {
       await interaction.reply({
-        embeds: [errorEmbed('Chase Not Found', 'That saved chase could not be found. Try the `chase` picker again.')],
+        embeds: [errorEmbed('Chase Not Found', 'That saved chase could not be found. Try the `chase` picker again')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -234,7 +234,7 @@ export const chaseEdit = {
 
     if (negativeKeywords && negativeKeywords.length > 15) {
       await interaction.reply({
-        embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms.')],
+        embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -284,7 +284,7 @@ export const chaseEdit = {
     });
 
     if (!updated) {
-      await interaction.reply({ embeds: [errorEmbed('Update Failed', 'Unable to update chase.')], flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [errorEmbed('Update Failed', 'Unable to update chase')], flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -313,7 +313,7 @@ export async function handleChaseEditModal(interaction: any): Promise<boolean> {
   if (!interaction.customId.startsWith(`${CHASE_EDIT_MODAL_PREFIX}:`)) return false;
   const [, ownerUserId, chaseId] = interaction.customId.split(':');
   if (interaction.user.id !== ownerUserId) {
-    await interaction.reply({ embeds: [warningEmbed('Edit Belongs Elsewhere', 'Only the original requester can update this chase.')], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [warningEmbed('Edit Belongs Elsewhere', 'Only the original requester can update this chase')], flags: MessageFlags.Ephemeral });
     return true;
   }
 
@@ -321,7 +321,7 @@ export async function handleChaseEditModal(interaction: any): Promise<boolean> {
   const entryById = new Map(chases.map((chase, index) => [chase.id, index + 1]));
   const match = chases.find((chase) => chase.id === chaseId);
   if (!match) {
-    await interaction.reply({ embeds: [errorEmbed('Chase Not Found', 'That saved chase could not be found. Try `/chase edit` again.')], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [errorEmbed('Chase Not Found', 'That saved chase could not be found. Try `/chase edit` again')], flags: MessageFlags.Ephemeral });
     return true;
   }
 
@@ -335,15 +335,15 @@ export async function handleChaseEditModal(interaction: any): Promise<boolean> {
   const negativeKeywords = negativeKeywordsRaw === undefined ? undefined : parseModalNegativeKeywords(negativeKeywordsRaw);
 
   if (cardName.length < 3) {
-    await interaction.reply({ embeds: [warningEmbed('Card Name Too Short', 'Use at least 3 characters for the card name.')], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [warningEmbed('Card Name Too Short', 'Use at least 3 characters for the card name')], flags: MessageFlags.Ephemeral });
     return true;
   }
   if (maxPrice === undefined) {
-    await interaction.reply({ embeds: [warningEmbed('Invalid Max Price', 'Use a number greater than 0, or leave max price blank for Any.')], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [warningEmbed('Invalid Max Price', 'Use a number greater than 0, or leave max price blank for Any')], flags: MessageFlags.Ephemeral });
     return true;
   }
   if (negativeKeywords && negativeKeywords.length > 15) {
-    await interaction.reply({ embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms.')], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms')], flags: MessageFlags.Ephemeral });
     return true;
   }
 
@@ -371,7 +371,7 @@ export async function handleChaseEditModal(interaction: any): Promise<boolean> {
   });
 
   if (!updated) {
-    await interaction.reply({ embeds: [errorEmbed('Update Failed', 'Unable to update chase.')], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [errorEmbed('Update Failed', 'Unable to update chase')], flags: MessageFlags.Ephemeral });
     return true;
   }
 

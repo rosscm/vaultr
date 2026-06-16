@@ -2,14 +2,13 @@ import { MessageFlags } from 'discord.js';
 import {
   countUserAlertsSince,
   getChaseLastPollCheckAt,
-  getUserAlertSettings,
   getUserPlan,
   listChases
 } from '../services/chase-store.js';
-import { activePlanChases, activePlanTier, formatActivePlanAccess, pausedPlanChases, PLAN_LIMITS } from '../services/plans.js';
+import { activePlanChases, activePlanTier, pausedPlanChases, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatTimeWithAge } from '../ui/time.js';
-import type { Chase, ListingSourceModePreference, UserAlertSettings } from '../types.js';
+import type { Chase } from '../types.js';
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${Math.max(0, seconds)}s`;
@@ -18,18 +17,6 @@ function formatDuration(seconds: number): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-}
-
-function displaySourceMode(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
-  if (activeTier === 'FREE' && (value === 'EBAY_SHOPIFY' || value === 'SHOPIFY')) return 'eBay';
-  if (value === 'EBAY_SHOPIFY') return 'eBay + trusted shops';
-  if (value === 'SHOPIFY') return 'trusted shops';
-  return 'eBay';
-}
-
-function displayShipTo(settings: UserAlertSettings): string {
-  if (!settings.shippingCountry) return 'not set';
-  return [settings.shippingCountry, settings.shippingPostalCode ? `${settings.shippingPostalCode} region` : undefined].filter(Boolean).join(' ');
 }
 
 function lastSweepAt(activeChases: Chase[]): string | undefined {
@@ -52,18 +39,17 @@ function nextSweepSeconds(activeChases: Chase[], intervalSeconds: number, nowMs:
   return Math.max(0, Math.min(...dueSeconds));
 }
 
-function quietRead(activeCount: number, alerts24h: number, alerts7d: number, pausedCount: number): string {
-  if (activeCount === 0) return 'Add a chase and Vaultr will start watching for matching listings.';
-  if (alerts24h > 0) return 'Vaultr is watching and has surfaced fresh matches recently.';
-  if (alerts7d > 0) return 'Vaultr is watching; your latest matches are older, so current listings have not cleared your filters yet.';
-  if (pausedCount > 0) return 'Vaultr is watching your active chases; some extra chases are paused by your plan limit.';
-  return 'Vaultr is watching, but nothing new has cleared your price, grade, seller, and shipping filters yet.';
+function watchSummary(activeCount: number, alerts24h: number, alerts7d: number, pausedCount: number): string {
+  if (activeCount === 0) return 'Add a chase to start the watch rotation';
+  if (alerts24h > 0) return 'Watching now; fresh matches surfaced today';
+  if (alerts7d > 0) return 'Watching now; recent listings have been quiet';
+  if (pausedCount > 0) return 'Watching active chases; extras are paused by plan limit';
+  return 'Watching now; no listings have cleared your filters yet';
 }
 
 export function buildAlertsStatusEmbed(userId: string, now = new Date()) {
   const plan = getUserPlan(userId);
   const activeTier = activePlanTier(plan);
-  const settings = getUserAlertSettings(userId);
   const chases = listChases(userId);
   const activeChases = activePlanChases(chases, plan);
   const pausedChases = pausedPlanChases(chases, plan);
@@ -75,51 +61,35 @@ export function buildAlertsStatusEmbed(userId: string, now = new Date()) {
   const alerts7d = countUserAlertsSince(userId, new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString());
 
   const embed = activeChases.length > 0
-    ? infoEmbed('🟢 Vaultr Watch Status', 'Your active chases are in the watch rotation.')
-    : warningEmbed('Vaultr Watch Status', 'No active chases are currently being watched.');
+    ? infoEmbed('🟢 Vaultr Watch Status', watchSummary(activeChases.length, alerts24h, alerts7d, pausedChases.length))
+    : warningEmbed('Vaultr Watch Status', watchSummary(activeChases.length, alerts24h, alerts7d, pausedChases.length));
 
   embed.addFields(
     {
       name: 'Watching',
       value: [
-        `**Active Chases:** ${activeChases.length}/${PLAN_LIMITS[activeTier].maxActiveChases}`,
-        `**Paused Chases:** ${pausedChases.length}`,
-        `**Access:** ${formatActivePlanAccess(plan)}`
+        `**Active:** ${activeChases.length}/${PLAN_LIMITS[activeTier].maxActiveChases}`,
+        `**Paused:** ${pausedChases.length}`
       ].join('\n'),
       inline: false
     },
     {
-      name: 'Sweep Rhythm',
+      name: 'Sweeps',
       value: [
-        `**Last Sweep:** ${lastSweep ? formatTimeWithAge(lastSweep) : 'Not yet checked'}`,
-        `**Next Sweep:** ${nextSweep === undefined ? 'Add a chase to start watching' : nextSweep <= 0 ? 'due now' : `about ${formatDuration(nextSweep)}`}`,
-        `**Watch Speed:** about every ${formatDuration(intervalSeconds)} per active chase`
+        `**Last:** ${lastSweep ? formatTimeWithAge(lastSweep) : 'Not yet checked'}`,
+        `**Next:** ${nextSweep === undefined ? 'Add a chase first' : nextSweep <= 0 ? 'due now' : `about ${formatDuration(nextSweep)}`}`,
+        `**Pace:** ~${formatDuration(intervalSeconds)} per chase`
       ].join('\n'),
       inline: false
     },
     {
-      name: 'Recent Finds',
+      name: 'Finds',
       value: [`**Last 24h:** ${alerts24h}`, `**Last 7d:** ${alerts7d}`].join('\n'),
-      inline: false
-    },
-    {
-      name: 'Quiet Read',
-      value: quietRead(activeChases.length, alerts24h, alerts7d, pausedChases.length),
-      inline: false
-    },
-    {
-      name: 'Alert Rules',
-      value: [
-        `**Currency:** ${settings.alertCurrency}`,
-        `**Ship-to:** ${displayShipTo(settings)}`,
-        `**Source:** ${displaySourceMode(settings.listingSourceMode, activeTier)}`,
-        `**Confidence:** ${settings.minScore}+`
-      ].join('\n'),
       inline: false
     }
   );
 
-  embed.setFooter({ text: 'Vaultr • quiet stretches are normal for precise chases' });
+  embed.setFooter({ text: 'Vaultr • Alerts' });
   return embed;
 }
 

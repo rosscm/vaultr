@@ -11,7 +11,7 @@ Vaultr is a Discord-native collector companion for card chases, grail sightings,
 - Source adapters for eBay and trusted shop sources
 - DM-first grail sightings with dedupe and fit scoring
 - Prepared Discovery shelves shaped by the user's active chases and taste memory
-- Scheduled Discovery drop announcements that open personalized shelves ephemerally instead of spamming DMs
+- Scheduled Discovery drop announcements that open personalized shelves in-channel instead of spamming DMs
 - Optional community heartbeat for shared collector activity
 
 ## Tech Stack
@@ -136,11 +136,11 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 ## Scheduled Discovery Drops
 
 - The bot prepares Pro Weekly Discovery shelves in the background and stores them in SQLite.
-- Pro Weekly Shelves prepare up to 20 cards by default and open ephemerally in 10-card pages.
+- Pro Weekly Shelves prepare up to 20 cards by default and open in-channel in 10-card pages.
 - Free users can open the same announcement button for a three-card Weekly Shelf preview based on active Vault signals.
 - If a Pro shelf has fewer than 20 cards, Vaultr tells the user their Vault is still light and needs more taste signals.
 - Each configured server command channel gets at most one public Weekly Discovery announcement per period.
-- The announcement button opens the clicker's own shelf or preview ephemerally, so Discovery drops avoid DM spam and channel clutter.
+- The announcement button opens the clicker's own shelf or preview in-channel, so Discovery drops avoid DM spam while keeping the interaction visible.
 - Shelf feedback trains the next Discovery release; it does not reshuffle the current release on demand.
 - Feedback confirmations include Undo so accidental More Like / Not For Me taps can be reverted.
 - Discovery is opened from scheduled drop announcements; the slash command is intentionally not registered for users.

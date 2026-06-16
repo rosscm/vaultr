@@ -126,7 +126,7 @@ describe('alert feedback tune-outs', () => {
     await handleAlertFeedback(reasonInteraction);
 
     expect(reasonInteraction.update).toHaveBeenCalledWith({
-      content: expect.stringContaining('Pro can turn that into an automatic chase rule.'),
+      content: expect.stringContaining('Pro can turn that into an automatic chase rule'),
       components: []
     });
     expect(getChase(userId, chase.id)?.negativeKeywords).toEqual(['proxy']);

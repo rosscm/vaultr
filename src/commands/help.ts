@@ -2,50 +2,40 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { infoEmbed } from '../ui/embeds.js';
 
 export const help = {
-  data: new SlashCommandBuilder().setName('help').setDescription('Show the Vaultr collector guide'),
+  data: new SlashCommandBuilder().setName('help').setDescription('Show the Vaultr quick start'),
   async execute(interaction: any) {
     const lines = [
-      'Build your Vault around the cards you love, then let Vaultr keep watch for matching listings.',
-      'Grails, promos, favorite artists, tiny set details; your chases shape alerts, Discovery paths, and weekly recaps.',
+      'Vaultr watches eBay for cards you care about and sends matching listings by DM',
+      'Start with one specific chase; you can tune from there',
       '',
-      '**Chase Basics**',
-      '- `card`: 3-100 chars (required)',
-      '- `max_price`: > 0 (optional; default: no max)',
-      '- `grading_type` and `grade_value`: choose graded, raw, or any grade preference',
-      '- Free Vaults can keep 3 active chases; Pro expands that to 50',
-      '- Pro precision controls: condition thresholds, `listing_type`, `tune_out_terms`, `priority`, `target_note`',
-      '  Free submissions still save; Pro-only modifiers are ignored until upgraded',
-      '  default exclusions still apply automatically; `tune_out_terms` are extra per-chase exclusions added on top',
+      '**First Steps**',
+      '- Add a chase: `/chase add card:Pikachu 151 173`',
+      '- Check what Vaultr is watching: `/alerts status`',
+      '- Review matches already sent: `/alerts recent`',
       '',
-      '**Collector Tip**',
-      '- Casing does not matter',
-      '- For cleaner matches, include card number when relevant',
-      '- Tiny details make cleaner alerts',
+      '**Good Chase Names**',
+      '- Include the card number when you know it',
+      '- Add a max price if you only want realistic listings',
+      '- Keep names concrete: card, set, number, variant',
       '',
       '**Commands**',
-      '- Start: `/start`',
-      '- Chases: `/chase add` · `/chase list` · `/chase edit` (picker) · `/chase remove` (picker)',
-      '- Alerts: `/alerts settings` · `/alerts status` · `/alerts recent` · `/alerts preview`',
-      '  defaults in `/alerts settings`: `source=eBay`, `min_score=60`, `alert_volume=BALANCED` (10/hour), `alert_currency=USD`, `shipping=OFF`',
-      '  trusted shop sources are Pro: useful for raw singles, promos, and shop restocks',
-      '  confidence meaning: higher confidence means a stronger fit with your chase',
+      '- Vault: `/chase add` · `/chase list` · `/chase edit` · `/chase remove`',
+      '- Alerts: `/alerts status` · `/alerts settings` · `/alerts recent`',
+      '- Discovery: open the weekly server drop in-channel',
       '- Plan: `/plan view` · `/upgrade`',
-      '- Setup (Admin): `/setup channel` · `/feed`',
-      '  default for `/feed`: `On`',
-      '- Discovery drops: open the scheduled server drop button for a private shelf',
       '',
-      '**Troubleshooting**',
-      '- If your Vault feels quiet, use `/alerts status` to confirm Vaultr is watching, then lower `min_score` or broaden the chase',
-      '- If too much is surfacing, add set/card detail or raise `min_score`',
-      '- Duplicate alerts are suppressed automatically',
+      '**When It Feels Quiet**',
+      '- Use `/alerts status` first',
+      '- Quiet stretches are normal for precise chases',
+      '- Broaden the chase or lower confidence in `/alerts settings` if needed',
       '',
-      '**Glossary**',
-      '- `confidence`: how strongly a listing fits your chase',
-      '- `cues`: the main reasons an alert surfaced'
+      '**Free vs Pro**',
+      '- Free keeps 3 active chases',
+      '- Pro expands to 50, faster checks, deeper Discovery, and trusted shop sources'
     ];
 
     await interaction.reply({
-      embeds: [infoEmbed('🧭 Vaultr Guide', lines.join('\n'))],
+      embeds: [infoEmbed('🧭 Vaultr Quick Start', lines.join('\n')).setFooter({ text: 'Vaultr • Help' })],
       flags: MessageFlags.Ephemeral
     });
   }

@@ -44,7 +44,7 @@ export const chaseRemove = {
 
     if (chases.length === 0) {
       await interaction.reply({
-        embeds: [errorEmbed('No Active Chases', 'There are no active chases to remove.')],
+        embeds: [errorEmbed('No Active Chases', 'There are no active chases to remove')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -52,7 +52,7 @@ export const chaseRemove = {
 
     if (!chaseId) {
       await interaction.reply({
-        embeds: [errorEmbed('Chase Required', 'Pick a current chase from `/chase remove` and try again.')],
+        embeds: [errorEmbed('Chase Required', 'Pick a current chase from `/chase remove` and try again')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -61,7 +61,7 @@ export const chaseRemove = {
     const target = chases.find((chase) => chase.id === chaseId);
     if (!target) {
       await interaction.reply({
-        embeds: [errorEmbed('Chase Not Found', 'Pick a current chase from `/chase remove` and try again.')],
+        embeds: [errorEmbed('Chase Not Found', 'Pick a current chase from `/chase remove` and try again')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -70,7 +70,7 @@ export const chaseRemove = {
     const removed = removeChase(interaction.user.id, target.id);
     if (!removed) {
       await interaction.reply({
-        embeds: [errorEmbed('Remove Failed', 'No chase was removed.')],
+        embeds: [errorEmbed('Remove Failed', 'No chase was removed')],
         flags: MessageFlags.Ephemeral
       });
       return;

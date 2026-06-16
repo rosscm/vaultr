@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildAlertsStatusEmbed } from '../alerts-status.js';
-import {
-  addChase,
-  markAlertSentWithDetails,
-  markChasesPollChecked,
-  removeAllChases,
-  resetUserAlertSettings,
-  setUserAlertSettings,
-  setUserPlan
-} from '../../services/chase-store.js';
+import { addChase, markAlertSentWithDetails, markChasesPollChecked, removeAllChases, resetUserAlertSettings, setUserAlertSettings, setUserPlan } from '../../services/chase-store.js';
 
 function embedFieldValue(embed: ReturnType<typeof buildAlertsStatusEmbed>, name: string): string {
   const json = embed.toJSON();
@@ -35,10 +27,13 @@ describe('buildAlertsStatusEmbed', () => {
     const embed = buildAlertsStatusEmbed(userId, new Date('2026-06-12T19:00:00.000Z'));
 
     expect(embed.toJSON().title).toBe('🟢 Vaultr Watch Status');
-    expect(embedFieldValue(embed, 'Watching')).toContain('**Active Chases:** 1/50');
-    expect(embedFieldValue(embed, 'Sweep Rhythm')).toContain('**Next Sweep:** about 10m');
-    expect(embedFieldValue(embed, 'Recent Finds')).toContain('**Last 24h:** 1');
-    expect(embedFieldValue(embed, 'Alert Rules')).toContain('**Source:** eBay + trusted shops');
+    expect(embed.toJSON().description).toBe('Watching now; fresh matches surfaced today');
+    expect(embedFieldValue(embed, 'Watching')).toContain('**Active:** 1/50');
+    expect(embedFieldValue(embed, 'Sweeps')).toContain('**Next:** about 10m');
+    expect(embedFieldValue(embed, 'Finds')).toContain('**Last 24h:** 1');
+    expect(embed.toJSON().fields?.some((field) => field.name === 'Rules')).toBe(false);
+    expect(JSON.stringify(embed.toJSON().fields)).not.toContain('eBay + trusted shops');
+    expect(JSON.stringify(embed.toJSON().fields)).not.toContain('CAD');
   });
 
   it('frames paused chases calmly for Free users', () => {
@@ -52,8 +47,10 @@ describe('buildAlertsStatusEmbed', () => {
 
     const embed = buildAlertsStatusEmbed(userId, new Date('2026-06-12T19:00:00.000Z'));
 
-    expect(embedFieldValue(embed, 'Watching')).toContain('**Active Chases:** 3/3');
-    expect(embedFieldValue(embed, 'Watching')).toContain('**Paused Chases:** 1');
-    expect(embedFieldValue(embed, 'Quiet Read')).toContain('some extra chases are paused');
+    expect(embed.toJSON().description).toBe('Watching active chases; extras are paused by plan limit');
+    expect(embedFieldValue(embed, 'Watching')).toContain('**Active:** 3/3');
+    expect(embedFieldValue(embed, 'Watching')).toContain('**Paused:** 1');
+    expect(embed.toJSON().fields?.some((field) => field.name === 'Quiet Read')).toBe(false);
+    expect(embed.toJSON().fields?.some((field) => field.name === 'Rules')).toBe(false);
   });
 });

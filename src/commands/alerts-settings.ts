@@ -134,7 +134,7 @@ function settingsFields(plan: ReturnType<typeof getUserPlan>, settings: ReturnTy
       value: [
         `**Currency:** ${settings.alertCurrency} (default: USD)`,
         `**Ship-to:** ${shipToLocation} (default: Off)`,
-        '**Privacy:** ship-to country is used for eBay shipping estimates; CA/US postal input is stored only as a region code.'
+        '**Privacy:** ship-to country is used for eBay shipping estimates; CA/US postal input is stored only as a region code'
       ].join('\n'),
       inline: false
     },
@@ -171,7 +171,7 @@ export const alertsSettings = {
 
     if (shippingCountryInput !== null && shippingCountry === undefined) {
       await interaction.reply({
-        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or `OFF` to clear your ship-to country.')],
+        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or `OFF` to clear your ship-to country')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -179,7 +179,7 @@ export const alertsSettings = {
 
     if (shippingPostalCodeInput !== null && shippingPostalCode === undefined) {
       await interaction.reply({
-        embeds: [warningEmbed('Invalid Postal Code', 'Postal regions are currently supported for `CA` and `US` only. Use a matching value like `M5V`, `M5V 2T6`, or `90210`, or `OFF` to clear it.')],
+        embeds: [warningEmbed('Invalid Postal Code', 'Postal regions are currently supported for `CA` and `US` only. Use a matching value like `M5V`, `M5V 2T6`, or `90210`, or `OFF` to clear it')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -210,8 +210,8 @@ export const alertsSettings = {
         });
 
     const embed = noChanges
-      ? infoEmbed('🔔 Vaultr Settings', 'Your alert rules and source settings.')
-      : successEmbed('Vaultr Settings Updated', 'Your alert rules are updated.').setTitle('✅ Vaultr Settings Updated');
+      ? infoEmbed('🔔 Vaultr Settings', 'Your alert rules and source settings')
+      : successEmbed('Vaultr Settings Updated', 'Your alert rules are updated').setTitle('✅ Vaultr Settings Updated');
 
     embed.addFields(...settingsFields(plan, settings));
 
@@ -230,7 +230,7 @@ export async function handleAlertSourceButtons(interaction: any): Promise<boolea
   const [, ownerUserId, sourceRaw] = interaction.customId.split(':');
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({
-      embeds: [warningEmbed('Settings Belong Elsewhere', 'Only the original requester can update these source controls.')],
+      embeds: [warningEmbed('Settings Belong Elsewhere', 'Only the original requester can update these source controls')],
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -243,14 +243,14 @@ export async function handleAlertSourceButtons(interaction: any): Promise<boolea
   const activeTier = activePlanTier(plan);
   if (activeTier !== 'PRO') {
     await interaction.reply({
-      embeds: [warningEmbed('Shop Sources Are Pro', 'Trusted shop source controls are available on Pro.')],
+      embeds: [warningEmbed('Shop Sources Are Pro', 'Trusted shop source controls are available on Pro')],
       flags: MessageFlags.Ephemeral
     });
     return true;
   }
 
   const settings = setUserAlertSettings(interaction.user.id, { listingSourceMode: source });
-  const embed = successEmbed('Vaultr Settings Updated', 'Watch mode updated.').setTitle('✅ Vaultr Settings Updated');
+  const embed = successEmbed('Vaultr Settings Updated', 'Watch mode updated').setTitle('✅ Vaultr Settings Updated');
   embed.addFields(...settingsFields(plan, settings));
   await interaction.update({ embeds: [embed], components: sourceRows(interaction.user.id, activeTier, settings.listingSourceMode) });
   return true;

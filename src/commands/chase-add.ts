@@ -52,8 +52,8 @@ export const chaseAdd = {
     if (currentCount >= maxChases) {
       const message =
         activeTier === 'PRO'
-          ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another.`
-          : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, deeper Discovery, and trusted shop sources. Remove one with /chase remove or run /upgrade.`;
+          ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another`
+          : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, deeper Discovery, and trusted shop sources. Remove one with /chase remove or run /upgrade`;
       await interaction.reply({
         embeds: [warningEmbed('Vault Limit Reached', message)],
         flags: MessageFlags.Ephemeral
@@ -65,7 +65,7 @@ export const chaseAdd = {
     const existingDuplicate = listChases(interaction.user.id).find((chase) => normalizeChaseName(chase.cardName) === normalizeChaseName(cardName));
     if (existingDuplicate) {
       await interaction.reply({
-        embeds: [warningEmbed('Already In Vault', `**${existingDuplicate.cardName}** is already an active chase.`)],
+        embeds: [warningEmbed('Already In Vault', `**${existingDuplicate.cardName}** is already an active chase`)],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -112,7 +112,7 @@ export const chaseAdd = {
 
     if (tuningTerms && tuningTerms.length > 15) {
       await interaction.reply({
-        embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms.')],
+        embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -132,7 +132,7 @@ export const chaseAdd = {
     });
 
     const lines = [
-      'Nice pick. Vaultr is keeping watch for listings that fit.',
+      'Nice pick. Vaultr is keeping watch for listings that fit',
       '',
       `**Card:** ${chase.cardName}`,
       `**Priority:** ${chase.priority ?? 'NORMAL'}`,

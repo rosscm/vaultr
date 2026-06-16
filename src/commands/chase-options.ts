@@ -51,13 +51,13 @@ export function buildGradePreference(gradingType: GradingType | null, value: Gra
 
 export function gradeSelectionWarning(gradingType: GradingType | null, value: GradeValue | null): string | undefined {
   if (value !== null && value !== 'ANY' && gradingType === null) {
-    return 'Choose a grading type before choosing a grade value.';
+    return 'Choose a grading type before choosing a grade value';
   }
   if (value !== null && value !== 'ANY' && gradingType === 'ANY') {
-    return 'Choose a grading type before choosing a grade value.';
+    return 'Choose a grading type before choosing a grade value';
   }
   if (value !== null && value !== 'ANY' && gradingType === 'RAW') {
-    return 'Raw / Ungraded cannot be combined with a numeric grade value.';
+    return 'Raw / Ungraded cannot be combined with a numeric grade value';
   }
   return undefined;
 }

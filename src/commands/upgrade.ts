@@ -10,7 +10,7 @@ export const upgrade = {
 
     if (plan.tier === 'PRO' && plan.status === 'ACTIVE') {
       const lines = [
-        'Your Vault has the full Pro toolkit unlocked and ready to work.',
+        'Your Vault has the full Pro toolkit unlocked and ready to work',
         '',
         `**Active Chases:** ${PLAN_LIMITS.PRO.maxActiveChases}`,
         `**Listing Checks:** every ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
@@ -24,7 +24,7 @@ export const upgrade = {
     }
 
     const lines = [
-      'Pro is built for collectors with more grails to track, sharper preferences, and more sources worth watching.',
+      'Pro is built for collectors with more grails to track, sharper preferences, and more sources worth watching',
       '',
       '**Your Free Vault**',
       `• ${PLAN_LIMITS.FREE.maxActiveChases} active chases`,
@@ -38,7 +38,7 @@ export const upgrade = {
       '• feedback-powered tune-out rules plus precision controls for condition, listing type, tune-out terms, priority, and chase notes',
       '',
       '**Status**',
-      'Checkout is coming soon; Pro access is currently available by request.'
+      'Checkout is coming soon; Pro access is currently available by request'
     ];
 
     await interaction.reply({

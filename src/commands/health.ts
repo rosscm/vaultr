@@ -343,7 +343,7 @@ export const health = {
     if (chaseId || itemId) {
       if (!chaseId || !itemId) {
         await interaction.reply({
-          embeds: [warningEmbed('Missing Debug Input', 'Provide both `chase_id` and `item_id` to inspect a listing.')],
+          embeds: [warningEmbed('Missing Debug Input', 'Provide both `chase_id` and `item_id` to inspect a listing')],
           flags: MessageFlags.Ephemeral
         });
         return;
@@ -352,7 +352,7 @@ export const health = {
       const chase = listAllChases().find((c) => c.id === chaseId);
       if (!chase) {
         await interaction.reply({
-          embeds: [warningEmbed('Chase Not Found', `No active chase found for \`${chaseId}\`.`)],
+          embeds: [warningEmbed('Chase Not Found', `No active chase found for \`${chaseId}\``)],
           flags: MessageFlags.Ephemeral
         });
         return;

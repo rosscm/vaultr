@@ -1149,23 +1149,23 @@ function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshWork[]): void
 function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
   if (candidate.sourceStatus === 'PENDING') {
     return candidate.image
-      ? 'Market data is updating; pricing will appear once the source responds.'
-      : 'Market data is updating; image and pricing will appear once the source responds.';
+        ? 'Market data is updating; pricing will appear once the source responds'
+        : 'Market data is updating; image and pricing will appear once the source responds';
   }
-  if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay; Vaultr will retry automatically.';
-  if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time; Vaultr will retry automatically.';
+      if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay; Vaultr will retry automatically';
+      if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time; Vaultr will retry automatically';
   const currency = candidate.displayCurrency ?? currencyHint;
   const hasSoldComps = candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE;
   const hasAskComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0;
   const hasReliableAskOnlyComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE;
   if (!hasSoldComps && !hasAskComps) {
-    return 'Market data is still being gathered; Vaultr will keep checking.';
+    return 'Market data is still being gathered; Vaultr will keep checking';
   }
   if (hasSoldComps && hasAskComps) {
     return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps); ${formatMoney(candidate.typicalRawAskingTotal, currency)} raw ask`;
   }
   if (hasSoldComps) return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps)`;
-  if (!hasReliableAskOnlyComps) return `Low recent comps data: only ${candidate.marketSampleSize ?? 0} active ask comps found, so Vaultr is not showing a price yet.`;
+  if (!hasReliableAskOnlyComps) return `Low recent comps data: only ${candidate.marketSampleSize ?? 0} active ask comps found, so Vaultr is not showing a price yet`;
   return `${formatMoney(candidate.typicalRawAskingTotal, currency)} active raw ask`;
 }
 
@@ -1658,7 +1658,7 @@ function fallbackSuggestionFromCardName(name: string): DiscoverySuggestion {
     name,
     lane: 'Collector Compass',
     laneWhy: 'previously surfaced card from this collector profile',
-    why: 'A concrete card Vaultr has already connected to this profile, kept as a fallback while fresh sources resolve.',
+    why: 'A concrete card Vaultr has already connected to this profile, kept as a fallback while fresh sources resolve',
     nearby: [],
     evidenceSearchTerm: `${name} Pokemon card`,
     evidenceAliases: [name],
@@ -1890,18 +1890,18 @@ function resonanceText(candidate: DiscoveryCandidate): string {
   const hasPromoSignal = /\bpromo|black star|special release\b/.test(normalizedCardText);
   const hasFormatSignal = /\btag team\b|\bgx\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(normalizedCardText);
   const reasons: string[] = [];
-  if (/\bspecial delivery\b/.test(normalizedCardText)) reasons.push(`A promo with a real release story: ${candidate.suggestion.name.split(/\s+SWSH Black Star/i)[0]} feels more like a collector milestone than a standard set filler.`);
-  else if (/\bfelt hat\b/.test(normalizedCardText)) reasons.push(`A memorable promo story: the Felt Hat release gives ${subject} crossover appeal beyond the base promo set.`);
-  else if (hasJapaneseCardEvidence(normalizedCardText)) reasons.push(`${sourceContext} gives ${subject} a regional print to compare against English runs instead of another generic copy.`);
-  else if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalizedCardText)) reasons.push(`${sourceContext} gives ${subject} a concrete early-2000s set identity, so the card has a clearer collecting shape than a broad vintage search.`);
-  else if (hasPromoSignal && hasFormatSignal) reasons.push(`${sourceContext} gives ${subject} a named promo release with side-collection appeal.`);
-  else if (hasPromoSignal) reasons.push(`${sourceContext} gives ${subject} a named release to track instead of a generic main-set copy.`);
-  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(normalizedCardText)) reasons.push(`${subject} has art-led treatment that can stand on its own visually in a binder page.`);
-  if (hasFormatSignal && !(hasPromoSignal && reasons.length > 0)) reasons.push(`${subject} fits a recognizable side-collection format with a different collecting shape than your current Vault.`);
-  if (reasons.length === 0 && /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push('This gives your Vault an early-2000s print to compare by set texture, artwork, and binder feel.');
+  if (/\bspecial delivery\b/.test(normalizedCardText)) reasons.push(`A promo with a real release story: ${candidate.suggestion.name.split(/\s+SWSH Black Star/i)[0]} feels more like a collector milestone than a standard set filler`);
+  else if (/\bfelt hat\b/.test(normalizedCardText)) reasons.push(`A memorable promo story: the Felt Hat release gives ${subject} crossover appeal beyond the base promo set`);
+  else if (hasJapaneseCardEvidence(normalizedCardText)) reasons.push(`${sourceContext} gives ${subject} a regional print to compare against English runs instead of another generic copy`);
+  else if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalizedCardText)) reasons.push(`${sourceContext} gives ${subject} a concrete early-2000s set identity, so the card has a clearer collecting shape than a broad vintage search`);
+  else if (hasPromoSignal && hasFormatSignal) reasons.push(`${sourceContext} gives ${subject} a named promo release with side-collection appeal`);
+  else if (hasPromoSignal) reasons.push(`${sourceContext} gives ${subject} a named release to track instead of a generic main-set copy`);
+  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(normalizedCardText)) reasons.push(`${subject} has art-led treatment that can stand on its own visually in a binder page`);
+  if (hasFormatSignal && !(hasPromoSignal && reasons.length > 0)) reasons.push(`${subject} fits a recognizable side-collection format with a different collecting shape than your current Vault`);
+  if (reasons.length === 0 && /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push('This gives your Vault an early-2000s print to compare by set texture, artwork, and binder feel');
 
   const uniqueReasons = uniqueValuesPreservingOrder(reasons).slice(0, 2);
-  if (uniqueReasons.length === 0) return `${subject} gives your Vault a nearby card to compare by artwork, set feel, and release story without being another copy of the same chase.`;
+  if (uniqueReasons.length === 0) return `${subject} gives your Vault a nearby card to compare by artwork, set feel, and release story without being another copy of the same chase`;
   return uniqueReasons.join(' ');
 }
 
@@ -2343,7 +2343,7 @@ function saveWeeklyDiscoveryDrop(userId: string, candidates: DiscoveryCandidate[
     periodKey,
     status: readyCount === items.length ? 'READY' : 'PARTIAL',
     title: 'Weekly Shelf',
-    summary: 'A collector shelf tuned from your Vault and recent taste signals.',
+    summary: 'A collector shelf tuned from your Vault and recent taste signals',
     currency,
     availableAt: availability.availableAt,
     expiresAt: availability.expiresAt,
@@ -2743,15 +2743,15 @@ export async function handleDiscoveryDropOpen(interaction: any): Promise<boolean
 
   const [, dropType] = interaction.customId.split(':') as [string, ScheduledDiscoveryDropType | undefined, string | undefined];
   if (dropType !== 'WEEKLY_DISCOVERY') {
-    await interaction.reply({ embeds: [warningEmbed('Drop Unavailable', 'That Weekly Shelf is not ready yet.')], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [warningEmbed('Drop Unavailable', 'That Weekly Shelf is not ready yet')], flags: MessageFlags.Ephemeral });
     return true;
   }
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferReply();
   const payload = await buildDiscoveryShelfPayload(interaction.user.id);
   if (payload.hasFullDiscovery && payload.headerEmbeds && payload.embeds.length > 0) {
     await interaction.editReply(discoveryHeaderReplyPayload(payload));
-    await interaction.followUp({ ...discoveryReplyPayload(payload), flags: MessageFlags.Ephemeral });
+    await interaction.followUp(discoveryReplyPayload(payload));
   } else {
     await interaction.editReply(discoveryReplyPayload(payload));
   }
@@ -2765,7 +2765,7 @@ export async function handleDiscoveryDropPage(interaction: any): Promise<boolean
   const [, ownerUserId, rawPage] = interaction.customId.split(':');
   if (!ownerUserId || rawPage === undefined) return false;
   if (interaction.user.id !== ownerUserId) {
-    await interaction.reply({ content: 'Only the original requester can page through this Discovery shelf.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: 'Only the original requester can page through this Discovery shelf', flags: MessageFlags.Ephemeral });
     return true;
   }
 
@@ -2780,7 +2780,7 @@ export function discoveryDropOpenButton(dropType: ScheduledDiscoveryDropType, pe
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${DISCOVERY_DROP_OPEN_PREFIX}:${dropType}:${periodKey}`)
-      .setLabel('Open My Shelf')
+      .setLabel('Open Shelf')
       .setStyle(ButtonStyle.Primary)
   );
 }
@@ -2794,7 +2794,7 @@ export async function handleDiscoveryVaultAdd(interaction: any): Promise<boolean
 
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({
-      content: 'Only the original requester can add this discovery to their Vault.',
+      content: 'Only the original requester can add this discovery to their Vault',
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -2808,7 +2808,7 @@ export async function handleDiscoveryVaultAdd(interaction: any): Promise<boolean
 async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | null): Promise<void> {
   if (!pick) {
     await interaction.reply({
-      embeds: [warningEmbed('Shelf Action Expired', 'Open the latest Weekly Shelf again for fresh cards to add to your Vault.')],
+      embeds: [warningEmbed('Shelf Action Expired', 'Open the latest Weekly Shelf again for fresh cards to add to your Vault')],
       flags: MessageFlags.Ephemeral
     });
     return;
@@ -2817,7 +2817,7 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
   const existingChases = listChases(interaction.user.id);
   if (existingChases.some((chase) => normalize(chase.cardName) === normalize(pick.cardName))) {
     await interaction.reply({
-      embeds: [warningEmbed('Already In Vault', `**${pick.cardName}** is already an active chase.`)],
+      embeds: [warningEmbed('Already In Vault', `**${pick.cardName}** is already an active chase`)],
       flags: MessageFlags.Ephemeral
     });
     return;
@@ -2830,8 +2830,8 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
   if (currentCount >= maxChases) {
     const message =
       activeTier === 'PRO'
-        ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another.`
-        : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, deeper Discovery, and trusted shop sources. Remove one with /chase remove or run /upgrade.`;
+        ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another`
+        : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, deeper Discovery, and trusted shop sources. Remove one with /chase remove or run /upgrade`;
     await interaction.reply({
       embeds: [warningEmbed('Vault Limit Reached', message)],
       flags: MessageFlags.Ephemeral
@@ -2851,8 +2851,8 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
   recordDiscoveryAddTaste(interaction.user.id, chase.cardName, chase.maxPrice);
 
   const lines = [
-    'Nice find. Added to your Vault, and Vaultr will keep watch.',
-    'It will shape future Weekly Shelves once the next drop is packed.',
+    'Nice find. Added to your Vault, and Vaultr will keep watch',
+    'It will shape future Weekly Shelves once the next drop is packed',
     '',
     `**Card:** ${chase.cardName}`,
     `**Path:** ${discoveryTrailLabel(pick.lane)}`,
@@ -2877,7 +2877,7 @@ export async function handleDiscoveryFeedback(interaction: any): Promise<boolean
 
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({
-      content: 'Only the original requester can tune this Discovery path.',
+      content: 'Only the original requester can tune this Discovery path',
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -2891,7 +2891,7 @@ export async function handleDiscoveryFeedback(interaction: any): Promise<boolean
 async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | null, feedback: DiscoveryFeedbackAction): Promise<void> {
   if (!pick) {
     await interaction.reply({
-      embeds: [warningEmbed('Shelf Action Expired', 'Open the latest Weekly Shelf again for fresh cards to tune.')],
+      embeds: [warningEmbed('Shelf Action Expired', 'Open the latest Weekly Shelf again for fresh cards to tune')],
       flags: MessageFlags.Ephemeral
     });
     return;
@@ -2908,8 +2908,8 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
   const title = feedback === 'MORE_LIKE_THIS' ? 'Taste Saved' : 'Discovery Tuned';
   const message =
     feedback === 'MORE_LIKE_THIS'
-      ? `Vaultr will treat **${pick.cardName}** as a stronger preference signal for your next Discovery release.`
-      : `Vaultr will avoid **${pick.cardName}** and gently downrank close subject matches when they do not conflict with your Vault.`;
+      ? `Vaultr will treat **${pick.cardName}** as a stronger preference signal for your next Discovery release`
+      : `Vaultr will avoid **${pick.cardName}** and gently downrank close subject matches when they do not conflict with your Vault`;
   const undoRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:${interaction.user.id}:${pick.token}`)
@@ -2933,7 +2933,7 @@ export async function handleDiscoveryFeedbackUndo(interaction: any): Promise<boo
 
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({
-      content: 'Only the original requester can undo this Discovery feedback.',
+      content: 'Only the original requester can undo this Discovery feedback',
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -2942,7 +2942,7 @@ export async function handleDiscoveryFeedbackUndo(interaction: any): Promise<boo
   const pick = getDiscoveryVaultAction(interaction.user.id, token);
   if (!pick) {
     await interaction.reply({
-      embeds: [warningEmbed('Undo Expired', 'Open the latest Weekly Shelf again to tune fresh cards.')],
+      embeds: [warningEmbed('Undo Expired', 'Open the latest Weekly Shelf again to tune fresh cards')],
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -2950,8 +2950,8 @@ export async function handleDiscoveryFeedbackUndo(interaction: any): Promise<boo
 
   const undone = undoDiscoveryFeedback({ userId: interaction.user.id, cardName: pick.cardName });
   const description = undone
-    ? `Removed your feedback for **${pick.cardName}**. Your next Discovery release will ignore that signal.`
-    : `No active Discovery feedback was found for **${pick.cardName}**.`;
+    ? `Removed your feedback for **${pick.cardName}**. Your next Discovery release will ignore that signal`
+    : `No active Discovery feedback was found for **${pick.cardName}**`;
   await interaction.update({
     embeds: [successEmbed('Feedback Undone', description)],
     components: []
@@ -2970,7 +2970,7 @@ export async function handleDiscoveryActionSelect(interaction: any): Promise<boo
 
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({
-      content: 'Only the original requester can use this Discovery menu.',
+      content: 'Only the original requester can use this Discovery menu',
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -2979,7 +2979,7 @@ export async function handleDiscoveryActionSelect(interaction: any): Promise<boo
   const pick = getDiscoveryVaultAction(interaction.user.id, token);
   if (!pick) {
     await interaction.reply({
-      embeds: [warningEmbed('Shelf Action Expired', 'Open the latest Weekly Shelf again for fresh card actions.')],
+      embeds: [warningEmbed('Shelf Action Expired', 'Open the latest Weekly Shelf again for fresh card actions')],
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -2988,7 +2988,7 @@ export async function handleDiscoveryActionSelect(interaction: any): Promise<boo
   const activeTier = activePlanTier(getUserPlan(interaction.user.id));
   const includeFeedbackActions = activeTier === 'PRO';
   const lines = [
-    'Choose an action for this shelf card.',
+    'Choose an action for this shelf card',
     '',
     `**Card:** ${pick.cardName}`,
     `**Path:** ${discoveryTrailLabel(pick.lane)}`,

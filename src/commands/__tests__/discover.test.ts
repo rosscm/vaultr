@@ -1573,7 +1573,7 @@ describe('discoveryEmbed', () => {
     ).toJSON();
 
     const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
-    expect(marketRead).toBe('Low recent comps data: only 2 active ask comps found, so Vaultr is not showing a price yet.');
+    expect(marketRead).toBe('Low recent comps data: only 2 active ask comps found, so Vaultr is not showing a price yet');
   });
 
   it('labels asking-only market reads as active asks', () => {
@@ -1610,7 +1610,7 @@ describe('discoveryEmbed', () => {
     ).toJSON();
 
     const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
-    expect(marketRead).toBe('Market data is updating; pricing will appear once the source responds.');
+    expect(marketRead).toBe('Market data is updating; pricing will appear once the source responds');
   });
 
   it('mentions image attachment only when pending market cards have no image yet', () => {
@@ -1624,7 +1624,7 @@ describe('discoveryEmbed', () => {
     ).toJSON();
 
     const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
-    expect(marketRead).toBe('Market data is updating; image and pricing will appear once the source responds.');
+    expect(marketRead).toBe('Market data is updating; image and pricing will appear once the source responds');
   });
 
   it('does not describe no-sample popular cards as thin market data', () => {
@@ -1641,7 +1641,7 @@ describe('discoveryEmbed', () => {
     ).toJSON();
 
     const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
-    expect(marketRead).toBe('Market data is still being gathered; Vaultr will keep checking.');
+    expect(marketRead).toBe('Market data is still being gathered; Vaultr will keep checking');
   });
 
   it('explains concrete profile signals instead of internal source details', () => {
@@ -1856,7 +1856,7 @@ describe('discoveryEmbed', () => {
     ).toJSON();
 
     const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
-    expect(marketRead).toBe('Market data is temporarily limited by eBay; Vaultr will retry automatically.');
+    expect(marketRead).toBe('Market data is temporarily limited by eBay; Vaultr will retry automatically');
   });
 
   it('can number visible cards for feedback buttons', () => {

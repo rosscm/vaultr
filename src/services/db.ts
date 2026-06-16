@@ -453,32 +453,6 @@ try {
 } catch {
   // Column already exists on upgraded databases.
 }
-db.exec(`UPDATE user_alert_settings SET listing_source_mode = 'EBAY' WHERE listing_source_mode = 'DEFAULT';`);
-try {
-  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN quiet_hours_start;`);
-} catch {
-  // Column is already absent on fresh or upgraded databases.
-}
-try {
-  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN quiet_hours_end;`);
-} catch {
-  // Column is already absent on fresh or upgraded databases.
-}
-try {
-  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN chase_cooldown_minutes;`);
-} catch {
-  // Column is already absent on fresh or upgraded databases.
-}
-try {
-  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN show_images;`);
-} catch {
-  // Column is already absent on fresh or upgraded databases.
-}
-try {
-  db.exec(`ALTER TABLE user_alert_settings DROP COLUMN compact_mode;`);
-} catch {
-  // Column is already absent on fresh or upgraded databases.
-}
 try {
   db.exec(`ALTER TABLE discovery_market_cache ADD COLUMN typical_raw_sold_total REAL;`);
 } catch {
@@ -502,28 +476,6 @@ db.exec(`
   SET cache_key = substr(cache_key, 1, length(cache_key) - 1)
   WHERE cache_key LIKE '%|%|%|';
 `);
-
-const legacyDiscoveryMarketCacheRows = db.prepare(`
-  SELECT cache_key, suggestion_name, display_currency, destination_country
-  FROM discovery_market_cache
-  WHERE cache_key NOT LIKE '[%'
-`).all() as Array<{ cache_key: string; suggestion_name: string; display_currency: string; destination_country: string | null }>;
-const discoveryMarketCacheKeyExistsStmt = db.prepare(`SELECT 1 FROM discovery_market_cache WHERE cache_key = ?`);
-const updateDiscoveryMarketCacheKeyStmt = db.prepare(`UPDATE discovery_market_cache SET cache_key = ? WHERE cache_key = ?`);
-const deleteDiscoveryMarketCacheKeyStmt = db.prepare(`DELETE FROM discovery_market_cache WHERE cache_key = ?`);
-for (const row of legacyDiscoveryMarketCacheRows) {
-  const structuredKey = JSON.stringify([
-    row.suggestion_name.trim().toLowerCase(),
-    row.display_currency,
-    row.destination_country?.trim().toUpperCase() ?? ''
-  ]);
-  if (structuredKey === row.cache_key) continue;
-  if (discoveryMarketCacheKeyExistsStmt.get(structuredKey)) {
-    deleteDiscoveryMarketCacheKeyStmt.run(row.cache_key);
-  } else {
-    updateDiscoveryMarketCacheKeyStmt.run(structuredKey, row.cache_key);
-  }
-}
 
 const discoveryPreferenceColumns = db.prepare(`PRAGMA table_info(user_discovery_preferences);`).all() as Array<{ name: string; pk: number }>;
 const hasMultiFocusDiscoveryPreferenceKey = discoveryPreferenceColumns.some((column) => column.name === 'user_id' && column.pk === 1) && discoveryPreferenceColumns.some((column) => column.name === 'focus' && column.pk === 2);

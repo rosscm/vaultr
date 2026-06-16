@@ -23,7 +23,7 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
    - Returns prepared shelves quickly.
    - Enqueues refresh jobs when data is missing, stale, or thin.
    - Avoids doing full marketplace research inline except for limited beta/admin paths.
-   - Treats Discord as a ritual/open surface: scheduled channel posts announce drops, while buttons open personalized shelves ephemerally.
+   - Treats Discord as a ritual/open surface: scheduled channel posts announce drops, while buttons open personalized shelves in-channel.
 
 2. **Worker layer**
    - Claims `discovery_market_refresh_jobs` rows.

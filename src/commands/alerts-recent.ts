@@ -35,8 +35,8 @@ function formatLearningNote(userId: string): string | undefined {
   const topChase = insights.topChases.find((row) => row.reason === topReason.reason && row.count >= 2);
   const scope = topChase ? ` on **${topChase.chaseName}**` : '';
   return [
-    `**Vaultr noticed:** ${topReason.count} recent tune-outs were for ${reasonLabels[topReason.reason]}${scope}.`,
-    `Try to ${reasonSuggestions[topReason.reason]}.`
+    `**Vaultr noticed:** ${topReason.count} recent tune-outs were for ${reasonLabels[topReason.reason]}${scope}`,
+    `Try to ${reasonSuggestions[topReason.reason]}`
   ].join(' ');
 }
 
@@ -66,7 +66,7 @@ export const alertsRecent = {
         embeds: [
           infoEmbed(
             '📨 Recent Alerts',
-            'No alerts yet. Keep your chases active; matching listings will appear here after Vaultr sends them by DM.'
+            'No alerts yet. Keep your chases active; matching listings will appear here after Vaultr sends them by DM'
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -74,7 +74,7 @@ export const alertsRecent = {
       return;
     }
 
-    const embed = infoEmbed('📨 Recent Alerts', `Latest ${recent.length} chase alert${recent.length === 1 ? '' : 's'} from your DMs.`);
+    const embed = infoEmbed('📨 Recent Alerts', `Latest ${recent.length} chase alert${recent.length === 1 ? '' : 's'} from your DMs`);
 
     embed.addFields(
       recent.map((alert, index) => {

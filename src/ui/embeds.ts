@@ -13,7 +13,7 @@ function baseEmbed(color: number, title: string, description?: string): EmbedBui
     .setColor(color)
     .setTitle(title)
     .setDescription(description ?? null)
-    .setFooter({ text: 'Vaultr' })
+    .setFooter({ text: 'Vaultr • Commands' })
     .setTimestamp();
 }
 
