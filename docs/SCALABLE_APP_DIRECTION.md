@@ -13,7 +13,7 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
 - `src/services/scheduled-discovery-drops.ts` stores weekly/radar/release-style Discovery drops as durable shelf releases, with normalized item rows for Discord and future app reads.
 - The Discovery renderer reads the current prepared Weekly Discovery drop for Pro users; Free users get a lightweight preview from active Vault signals.
 - `src/services/discovery-drop-scheduler.ts` prepares Pro Weekly Shelves in small batches, up to 20 cards per Discord release, and posts one configured-channel announcement per guild/period.
-- Scheduled drop buttons open the clicker's personalized shelf ephemerally, avoiding DM spam and repeated public messages.
+- Scheduled drop buttons open the clicker's personalized shelf in-channel, avoiding DM spam while keeping the weekly ritual visible.
 - Pro scheduled shelf opens and pagination render from persisted shelf rows only; market refresh work stays in background workers so Discord interactions stay quick.
 - Discovery feedback is release-training input: More Like / Not For Me affects future shelves, and feedback confirmations support Undo.
 
