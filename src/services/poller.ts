@@ -1104,7 +1104,8 @@ function truncateForEmbed(value: string, maxLength = 200): string {
 function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   const parts: string[] = [];
   if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'new Vault')} opened`);
-  if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received ${stats.usersAlerted === 1 ? 'a chase alert' : 'chase alerts'}`);
+  if (stats.matches > 0) parts.push(`${pluralize(stats.matches, 'chase alert')} reached ${pluralize(stats.usersAlerted, 'collector')}`);
+  else if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received chase alerts`);
   if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
   if (parts.length === 0) return 'Quiet day: active chases kept watching';
   return parts.join(' • ');
@@ -1112,8 +1113,8 @@ function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): 
 
 function dailyPulseMood(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   if (stats.grailsSurfaced > 0) return `The day's sharpest movement centered on ${stats.topTrackedTheme.toLowerCase()}`;
-  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'New Vaults opened while alerts brought listings back into focus';
-  if (stats.usersAlerted > 0) return `${pluralize(stats.usersAlerted, 'collector')} had a listing to review`;
+  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'New Vaults joined while active chases found fresh listings';
+  if (stats.usersAlerted > 0) return 'Fresh listings moved through the watchlist';
   if (stats.newVaultrs > 0) return 'New collectors joined the chase board today';
   return 'No major movement today, but active chases kept watch';
 }
@@ -1123,9 +1124,10 @@ function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStats
   if (stats.newVaultrs > 0) lines.push(`• New Vaults: ${pluralize(stats.newVaultrs, 'collector')} joined`);
   if (stats.usersAlerted > 0) {
     const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} reached ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')} received a chase alert`;
-    lines.push(`• Chase alerts: ${sightingDetail}`);
+    lines.push(`• Alerts delivered: ${sightingDetail}`);
   }
   if (stats.grailsSurfaced > 0) lines.push(`• Grail watch: ${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
+  if (stats.activeVaults > 0 || stats.activeChases > 0) lines.push(`• Active watchlist: ${pluralize(stats.activeChases, 'chase', 'chases')} across ${pluralize(stats.activeVaults, 'Vault')}`);
   return lines.length > 0 ? lines : ['• Active chases stayed on watch'];
 }
 
@@ -1138,17 +1140,17 @@ function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunitySt
 
 export function buildDailyPulseMessage(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   return [
-    '📡 **Vault Pulse**',
+    '💓 **Vault Pulse**',
     dailyPulseLine(stats),
     dailyPulseMood(stats),
     '',
-    '**Today’s Activity**',
+    '**Today’s Movement**',
     ...dailyPulseActivityLines(stats),
     '',
-    '**Collector Interest**',
+    '**Collector Signal**',
     `• ${dailyPulseCollectorCurrent(stats)}`,
     '',
-    '**Notable Find**',
+    '**Spotlight**',
     `• ${truncateForEmbed(stats.hiddenDiscovery, 180).replace(/\.+$/, '')}`
   ].join('\n');
 }

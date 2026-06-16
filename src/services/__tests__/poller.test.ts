@@ -532,6 +532,8 @@ describe('buildDailyPulseMessage', () => {
         usersAlerted: 0,
         matches: 0,
         grailsSurfaced: 0,
+        activeVaults: 0,
+        activeChases: 0,
         topTrackedFamily: 'Mixed collections',
         topTrackedTheme: 'Varied styles',
         hiddenDiscovery: 'Quiet spotlight: chases are still watching'
@@ -543,6 +545,8 @@ describe('buildDailyPulseMessage', () => {
         usersAlerted: 1,
         matches: 1,
         grailsSurfaced: 0,
+        activeVaults: 1,
+        activeChases: 3,
         topTrackedFamily: 'Mixed collections',
         topTrackedTheme: 'Varied styles',
         hiddenDiscovery: 'A listing moved through the Vault'
@@ -556,24 +560,28 @@ describe('buildDailyPulseMessage', () => {
       usersAlerted: 3,
       matches: 5,
       grailsSurfaced: 1,
+      activeVaults: 4,
+      activeChases: 18,
       topTrackedFamily: 'Eeveelution cards',
       topTrackedTheme: 'moonlit alt art',
       hiddenDiscovery: 'Umbreon VMAX Alt Art PSA 10'
     });
 
-    expect(message).toContain('📡 **Vault Pulse**');
+    expect(message).toContain('💓 **Vault Pulse**');
     expect(message).toContain('2 new Vaults opened');
-    expect(message).toContain('3 collectors received chase alerts');
+    expect(message).toContain('5 chase alerts reached 3 collectors');
     expect(message).toContain('1 grail surfaced');
     expect(message).toContain("The day's sharpest movement centered on moonlit alt art");
-    expect(message).toContain('**Today’s Activity**');
+    expect(message).toContain('**Today’s Movement**');
     expect(message).toContain('• New Vaults: 2 collectors joined');
-    expect(message).toContain('• Chase alerts: 5 listings reached 3 collectors');
+    expect(message).toContain('• Alerts delivered: 5 listings reached 3 collectors');
     expect(message).toContain('• Grail watch: 1 grail surfaced');
-    expect(message).toContain('**Collector Interest**');
+    expect(message).toContain('• Active watchlist: 18 chases across 4 Vaults');
+    expect(message).toContain('**Collector Signal**');
     expect(message).toContain('• moonlit alt art across Eeveelution cards');
-    expect(message).toContain('**Notable Find**');
+    expect(message).toContain('**Spotlight**');
     expect(message).toContain('• Umbreon VMAX Alt Art PSA 10');
+    expect(message).not.toContain('📡');
     expect(message).not.toContain('received a match');
     expect(message).not.toContain('peeked out');
     expect(message).not.toContain('pings');
@@ -585,6 +593,8 @@ describe('buildDailyPulseMessage', () => {
       usersAlerted: 0,
       matches: 0,
       grailsSurfaced: 0,
+      activeVaults: 3,
+      activeChases: 11,
       topTrackedFamily: 'Mixed collections',
       topTrackedTheme: 'Varied styles',
       hiddenDiscovery: 'Quiet spotlight: chases are still watching'
@@ -592,7 +602,7 @@ describe('buildDailyPulseMessage', () => {
 
     expect(message).toContain('Quiet day: active chases kept watching');
     expect(message).toContain('No major movement today, but active chases kept watch');
-    expect(message).toContain('• Active chases stayed on watch');
+    expect(message).toContain('• Active watchlist: 11 chases across 3 Vaults');
     expect(message).toContain('• Mixed collector interest today; no single path led the board');
   });
 
@@ -602,13 +612,16 @@ describe('buildDailyPulseMessage', () => {
       usersAlerted: 1,
       matches: 1,
       grailsSurfaced: 0,
+      activeVaults: 1,
+      activeChases: 4,
       topTrackedFamily: 'Mew line',
       topTrackedTheme: 'Japanese exclusives',
       hiddenDiscovery: 'A listing moved through the Vault'
     });
 
-    expect(message).toContain('1 collector received a chase alert');
-    expect(message).toContain('1 collector had a listing to review');
+    expect(message).toContain('1 chase alert reached 1 collector');
+    expect(message).toContain('Fresh listings moved through the watchlist');
+    expect(message).toContain('• Active watchlist: 4 chases across 1 Vault');
     expect(message).not.toContain('Mew line collectors had something to inspect today.');
   });
 });

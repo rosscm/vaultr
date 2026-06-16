@@ -598,10 +598,24 @@ const listGuildChaseNamesStmt = db.prepare(`
   WHERE guild_id = ?
 `);
 
+const countGuildActiveVaultsStmt = db.prepare(`
+  SELECT COUNT(DISTINCT user_id) AS count
+  FROM chases
+  WHERE guild_id = ?
+`);
+
+const countGuildActiveChasesStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM chases
+  WHERE guild_id = ?
+`);
+
 const listGuildRecentAlertTitlesStmt = db.prepare(`
   SELECT listing_title
   FROM sent_alerts
   WHERE guild_id = ? AND sent_at >= ? AND listing_title IS NOT NULL
+  ORDER BY sent_at DESC
+  LIMIT 25
 `);
 
 const countGuildGrailAlertsTodayStmt = db.prepare(`
@@ -1046,6 +1060,8 @@ export function getGuildCommunityStatsToday(guildId: string): {
   usersAlerted: number;
   matches: number;
   grailsSurfaced: number;
+  activeVaults: number;
+  activeChases: number;
   topTrackedFamily: string;
   topTrackedTheme: string;
   hiddenDiscovery: string;
@@ -1056,6 +1072,8 @@ export function getGuildCommunityStatsToday(guildId: string): {
   const usersRow = countGuildUsersAlertedTodayStmt.get(guildId, localDayStart) as { count: number };
   const matchesRow = countGuildAlertsTodayStmt.get(guildId, localDayStart) as { count: number };
   const grailsRow = countGuildGrailAlertsTodayStmt.get(guildId, localDayStart) as { count: number };
+  const activeVaultsRow = countGuildActiveVaultsStmt.get(guildId) as { count: number };
+  const activeChasesRow = countGuildActiveChasesStmt.get(guildId) as { count: number };
   const chaseNames = (listGuildChaseNamesStmt.all(guildId) as Array<{ card_name: string }>).map((row) => row.card_name);
   const alertTitles = (
     listGuildRecentAlertTitlesStmt.all(guildId, localDayStart) as Array<{ listing_title: string }>
@@ -1067,6 +1085,8 @@ export function getGuildCommunityStatsToday(guildId: string): {
     usersAlerted: Number(usersRow?.count ?? 0),
     matches: Number(matchesRow?.count ?? 0),
     grailsSurfaced: Number(grailsRow?.count ?? 0),
+    activeVaults: Number(activeVaultsRow?.count ?? 0),
+    activeChases: Number(activeChasesRow?.count ?? 0),
     topTrackedFamily: inferFamilyFromText(collectorText, 2) ?? 'Mixed collections',
     topTrackedTheme: inferThemeFromText(collectorText) ?? 'Varied styles',
     hiddenDiscovery: alertTitles[0] ?? 'Quiet spotlight: chases are still watching'
