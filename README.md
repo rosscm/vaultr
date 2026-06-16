@@ -61,21 +61,29 @@ Vaultr is a Discord-native collector companion for card chases, grail sightings,
 - `/plan view` shows the user's current tier and limits
 - `/plan set` lets server admins set a user's tier/status for testing
 
-## Run As A Service (Raspberry Pi)
+## Run As Services (Raspberry Pi)
 
-Use the included unit file: [deploy/vaultr.service](deploy/vaultr.service)
+Use the included bot and worker unit files:
+
+- [deploy/vaultr.service](deploy/vaultr.service)
+- [deploy/vaultr-discovery-market-worker.service](deploy/vaultr-discovery-market-worker.service)
 
 1. Build once:
    - `npm run build`
-2. Copy service:
+2. Copy services:
    - `sudo cp deploy/vaultr.service /etc/systemd/system/vaultr.service`
+   - `sudo cp deploy/vaultr-discovery-market-worker.service /etc/systemd/system/vaultr-discovery-market-worker.service`
 3. Reload and enable:
    - `sudo systemctl daemon-reload`
    - `sudo systemctl enable vaultr`
+   - `sudo systemctl enable vaultr-discovery-market-worker`
    - `sudo systemctl start vaultr`
+   - `sudo systemctl start vaultr-discovery-market-worker`
 4. Check status/logs:
    - `sudo systemctl status vaultr`
+   - `sudo systemctl status vaultr-discovery-market-worker`
    - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/vaultr.log`
+   - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/discovery-market-worker.log`
 
 ### Log Rotation
 
@@ -104,10 +112,13 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
   - `npm run smoke`
 - Optional Discovery drops are tuned:
    - `DISCOVERY_DROP_SCHEDULER_ENABLED`, `DISCOVERY_DROP_ANNOUNCEMENTS_ENABLED`, `DISCOVERY_DROP_PREPARE_BATCH_SIZE`
+   - `DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_SECONDS`, `DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS`
+   - `DISCOVERY_MARKET_WORKER_BATCH_SIZE`, `DISCOVERY_MARKET_WORKER_POLL_MS`, `DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS`
 - Commands are registered:
   - `npm run register:commands`
-- Service is restarted:
+- Services are restarted:
   - `sudo systemctl restart vaultr`
+   - `sudo systemctl restart vaultr-discovery-market-worker`
 
 ## eBay Polling
 
@@ -150,6 +161,10 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
    - `DISCOVERY_WEEKLY_DROP_SIZE=20` controls Pro shelf depth, capped at 20 for Discord.
    - `DISCOVERY_DROP_PREPARE_BATCH_SIZE=3` limits how many user shelves one scheduler tick prepares.
    - `DISCOVERY_DROP_SCHEDULER_INTERVAL_SECONDS=900` controls how often the scheduler wakes up.
+   - `DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_SECONDS=300` limits repeated refresh enqueue bursts per user.
+   - `DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS=250` caps queued/running Discovery market refresh work.
+   - `DISCOVERY_MARKET_WORKER_BATCH_SIZE=1` and `DISCOVERY_MARKET_WORKER_POLL_MS=5000` keep worker source usage steady.
+   - `DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS=600000` lets the worker recover stale running jobs after crashes.
 
 ### eBay Rate Limit Notes
 
@@ -285,5 +300,6 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 ## Production Notes
 
 - Consider Postgres once Vaultr outgrows a single Pi/host deployment
-- Add queue + worker for source polling and sighting fanout
+- Discovery market refreshes already use a durable SQLite queue plus worker; source polling and sighting fanout still run in the bot process
+- Keep the bot, Discovery worker, and optional eBay webhook as separate systemd units so each can restart independently
 - Add observability (structured logs, metrics, alerts)
