@@ -119,6 +119,7 @@ The default keeps 8 weekly compressed rotations and uses `copytruncate` so the r
 - Set `EBAY_MARKETPLACE_ID=EBAY_US` unless you intentionally want another eBay marketplace
 - Optional: tune `EBAY_SEARCH_LIMIT` (default `50`) and `EBAY_BROWSE_SORT` (default `newlyListed`)
 - Optional: tune `EBAY_SEARCH_CACHE_TTL_SECONDS` (default `120`) to reuse recent successful eBay searches across alerts, debug, and Discovery market refreshes
+- Optional: set `EBAY_AFFILIATE_CAMPAIGN_ID` after eBay Partner Network approval to decorate Discovery card click URLs; `EBAY_AFFILIATE_CUSTOM_ID`, `EBAY_AFFILIATE_MARKETPLACE_ID`, and `EBAY_AFFILIATE_TOOL_ID` can override the defaults.
 - Recommended production runtime tick: `POLL_INTERVAL_SECONDS=300`
 - Plan intervals still control chase eligibility: Free every 30 minutes, Pro every 15 minutes
 - Recommended production source budget: `EBAY_MAX_REQUESTS_PER_MINUTE=10`

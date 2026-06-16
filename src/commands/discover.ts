@@ -756,9 +756,12 @@ function candidateFromCachedMarket(
   if (listing && isActiveChaseEchoListing(listing, activeChases)) return { suggestion, selectionIndex, sourceStatus: 'PENDING' };
   const hasMarketSignal = discoveryMarketCacheHasSignal(cacheEntry);
   const sourceStatus = !hasMarketSignal || (refreshQueued && !discoveryMarketCacheHasReliableEstimate(cacheEntry)) || (refreshQueued && cacheEntry.sourceStatus) ? 'PENDING' : cacheEntry.sourceStatus;
+  const imageUrl = cacheEntry.imageUrl ?? imageUrlFromListing(listing);
   return {
     suggestion,
     selectionIndex,
+    listing,
+    image: imageUrl ? { name: suggestion.name, url: imageUrl, sourceName: 'eBay listing image', sourceKind: 'MARKET_LISTING' } : undefined,
     typicalRawAskingTotal: cacheEntry.typicalRawAskingTotal,
     marketSampleSize: cacheEntry.marketSampleSize,
     typicalRawSoldTotal: cacheEntry.typicalRawSoldTotal,
@@ -824,6 +827,8 @@ export function candidatesFromDiscoveryMarketCache(
       typicalRawSoldTotal: marketCandidate.typicalRawSoldTotal,
       soldSampleSize: marketCandidate.soldSampleSize,
       displayCurrency: marketCandidate.displayCurrency ?? candidate.displayCurrency,
+      listing: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.listing : marketCandidate.listing ?? candidate.listing,
+      image: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.image : marketCandidate.image ?? candidate.image,
       sourceStatus: marketCandidate.sourceStatus
     };
   });
@@ -1931,6 +1936,37 @@ function isJapaneseDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
   );
 }
 
+function ebaySearchHost(currencyHint: SupportedCurrency): string {
+  return currencyHint === 'CAD' ? 'www.ebay.ca' : 'www.ebay.com';
+}
+
+function ebaySearchKeywords(candidate: DiscoveryCandidate): string {
+  return (candidate.suggestion.evidenceSearchTerm ?? `${candidate.suggestion.name} Pokemon card`).trim();
+}
+
+function applyEbayAffiliateParams(rawUrl: string, customId: string): string {
+  const campaignId = process.env.EBAY_AFFILIATE_CAMPAIGN_ID?.trim();
+  if (!campaignId) return rawUrl;
+  try {
+    const url = new URL(rawUrl);
+    url.searchParams.set('mkevt', '1');
+    url.searchParams.set('mkcid', '1');
+    url.searchParams.set('mkrid', process.env.EBAY_AFFILIATE_MARKETPLACE_ID?.trim() || '711-53200-19255-0');
+    url.searchParams.set('campid', campaignId);
+    url.searchParams.set('toolid', process.env.EBAY_AFFILIATE_TOOL_ID?.trim() || '10001');
+    url.searchParams.set('customid', process.env.EBAY_AFFILIATE_CUSTOM_ID?.trim() || customId);
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+export function discoveryCardClickUrl(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency, displayIndex?: number): string {
+  const rawUrl = `https://${ebaySearchHost(currencyHint)}/sch/i.html?_nkw=${encodeURIComponent(ebaySearchKeywords(candidate))}`;
+  const customId = ['discovery', displayIndex, discoveryDisplayNameKey(candidate.suggestion.name)].filter((value) => value !== undefined && value !== '').join('-').slice(0, 64);
+  return applyEbayAffiliateParams(rawUrl, customId || 'discovery');
+}
+
 function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = [], count = VISIBLE_DISCOVERY_COUNT): DiscoveryCandidate[] {
   const selected: DiscoveryCandidate[] = [];
   const seenThemes = new Set<string>();
@@ -2069,7 +2105,7 @@ export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: Supp
   ];
 
   if (candidate.image) embed.setThumbnail(candidate.image.url);
-  if (candidate.listing?.url) embed.setURL(candidate.listing.url);
+  embed.setURL(discoveryCardClickUrl(candidate, currencyHint, displayIndex));
 
   embed
     .setDescription(threadLabel)
@@ -2201,16 +2237,33 @@ function sourceStatusFromScheduledMarketStatus(status: string): DiscoveryCandida
   return undefined;
 }
 
+function listingFromScheduledDiscoveryDropItem(item: ScheduledDiscoveryDrop['items'][number]): Listing | undefined {
+  if (!item.market.listing) return undefined;
+  return {
+    source: 'EBAY',
+    listingId: item.market.listing.id,
+    title: item.market.listing.title,
+    price: item.market.askingTotal ?? item.market.soldTotal ?? 0,
+    currency: item.market.currency,
+    url: item.market.listing.url,
+    imageUrl: item.imageUrl,
+    thumbnailUrl: item.imageUrl,
+    region: 'OTHER',
+    listingType: 'OTHER'
+  };
+}
+
 function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): DiscoveryCandidate[] {
   return drop.items.map((item) => ({
     suggestion: item.suggestion,
     selectionIndex: item.position - 1,
+    listing: listingFromScheduledDiscoveryDropItem(item),
     image: item.imageUrl
       ? {
           name: item.suggestion.name,
           url: item.imageUrl,
           sourceName: item.imageSourceName,
-          sourceKind: 'CARD_REFERENCE' as const
+          sourceKind: item.imageSourceName === 'eBay listing image' ? 'MARKET_LISTING' as const : 'CARD_REFERENCE' as const
         }
       : undefined,
     typicalRawAskingTotal: item.market.askingTotal,
@@ -2220,6 +2273,14 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
     displayCurrency: item.market.currency,
     sourceStatus: sourceStatusFromScheduledMarketStatus(item.market.status)
   }));
+}
+
+export async function repairScheduledDiscoveryShelfImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
+  const repaired = await attachReferenceImages(candidates);
+  return repaired.map((candidate, index) => {
+    if (candidate.image || !candidates[index]?.image) return candidate;
+    return { ...candidate, image: candidates[index]?.image };
+  });
 }
 
 export function backfillScheduledDiscoveryShelfCandidates(candidates: DiscoveryCandidate[], fallbackDrop: ScheduledDiscoveryDrop | null, targetCount: number, repeatGuardChases: Chase[] = []): DiscoveryCandidate[] {
@@ -2411,13 +2472,13 @@ async function discoverCandidatesForUser(
       forceRefreshThinSignal: true
     };
     const cachedScheduledCandidates = candidatesFromDiscoveryMarketCache(scheduledCandidates, scheduledMarketContext);
-    const candidates = orderCandidatesForMarketConfidence(
+    const candidates = await repairScheduledDiscoveryShelfImages(orderCandidatesForMarketConfidence(
       hydrateScheduledMarketInline
         ? await settlePendingDiscoveryMarketCandidates(await hydratePendingDiscoveryMarketCandidates(cachedScheduledCandidates, scheduledMarketContext), scheduledMarketContext)
         : cachedScheduledCandidates,
       tasteProfileChases,
       negativeProfile
-    );
+    ));
     if (hydrateScheduledMarketInline && shouldSaveScheduledDrop && candidates.some(hasMarketSignal)) {
       saveWeeklyDiscoveryDrop(userId, candidates, settings.alertCurrency, latestDrop.sourceStateUpdatedAt);
     }

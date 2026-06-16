@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   attachReferenceImages,
   backfillMarketReadyDiscoveryCandidates,
@@ -11,6 +11,7 @@ import {
   discoveryCandidateSelectionCount,
   discoveryActionRows,
   discoveryCardEmbeds,
+  discoveryCardClickUrl,
   discoveryEmbed,
   discoveryMarketRangeFromChases,
   discoveryNegativeProfile,
@@ -33,6 +34,7 @@ import {
   orderCandidatesFromPersistedState,
   profileSubjectMatchedReliableDiscoveryCandidates,
   preserveLanguageSignalFallbackSuggestions,
+  repairScheduledDiscoveryShelfImages,
   selectVisibleCandidates,
   selectVisibleCandidatesForCount,
   shouldShowDiscoveryShelfTighteningNote,
@@ -753,7 +755,13 @@ describe('selectVisibleCandidates', () => {
             suggestion: sourceCandidate('Articuno Skyridge 4', 'Pokemon TCG (Skyridge)', 3).suggestion,
             imageUrl: 'https://images.example/articuno.png',
             imageSourceName: 'Pokemon TCG (Skyridge)',
-            market: { status: 'READY', currency: 'CAD', askingTotal: 90, askingSampleSize: 4 }
+            market: {
+              status: 'READY',
+              currency: 'CAD',
+              askingTotal: 90,
+              askingSampleSize: 4,
+              listing: { id: 'articuno-listing', title: 'Articuno Skyridge 4 raw card', url: 'https://www.ebay.ca/itm/articuno-listing' }
+            }
           },
           {
             position: 3,
@@ -770,6 +778,7 @@ describe('selectVisibleCandidates', () => {
     const names = backfilled.map((candidate) => candidate.suggestion.name);
 
     expect(names).toEqual(['Zapdos Aquapolis 44', 'Mew Expedition Base Set 55', 'Articuno Skyridge 4', 'Mew XY Black Star Promos XY110']);
+    expect(backfilled[2]?.listing?.url).toBe('https://www.ebay.ca/itm/articuno-listing');
   });
 
   it('treats removed chase taste memory as an exact-repeat guard', () => {
@@ -1457,10 +1466,55 @@ describe('active chase echo guard', () => {
 });
 
 describe('discoveryEmbed', () => {
+  const originalAffiliateCampaignId = process.env.EBAY_AFFILIATE_CAMPAIGN_ID;
+  const originalAffiliateCustomId = process.env.EBAY_AFFILIATE_CUSTOM_ID;
+  const restoreAffiliateEnv = () => {
+    if (originalAffiliateCampaignId === undefined) delete process.env.EBAY_AFFILIATE_CAMPAIGN_ID;
+    else process.env.EBAY_AFFILIATE_CAMPAIGN_ID = originalAffiliateCampaignId;
+    if (originalAffiliateCustomId === undefined) delete process.env.EBAY_AFFILIATE_CUSTOM_ID;
+    else process.env.EBAY_AFFILIATE_CUSTOM_ID = originalAffiliateCustomId;
+  };
+
+  afterEach(restoreAffiliateEnv);
+
   it('hides market read for limited Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false).toJSON();
 
     expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue']);
+  });
+
+  it('links every shelf card title to an eBay search when no listing is attached', () => {
+    delete process.env.EBAY_AFFILIATE_CAMPAIGN_ID;
+    const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false, 19).toJSON();
+
+    expect(embed.url).toBe('https://www.ebay.ca/sch/i.html?_nkw=Mew%20Southern%20Islands%20Promo%20Pokemon%20card');
+  });
+
+  it('uses an eBay search URL even when a specific listing is attached', () => {
+    delete process.env.EBAY_AFFILIATE_CAMPAIGN_ID;
+    const embed = discoveryEmbed(
+      {
+        ...candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 4),
+        listing: listing({ url: 'https://www.ebay.ca/itm/1234567890' })
+      },
+      'CAD',
+      true,
+      1
+    ).toJSON();
+
+    expect(embed.url).toBe('https://www.ebay.ca/sch/i.html?_nkw=Mew%20Southern%20Islands%20Promo%20Pokemon%20card');
+  });
+
+  it('can decorate Discovery eBay URLs with affiliate parameters when configured', () => {
+    process.env.EBAY_AFFILIATE_CAMPAIGN_ID = 'campaign-123';
+    process.env.EBAY_AFFILIATE_CUSTOM_ID = 'vaultr-discovery';
+
+    const url = new URL(discoveryCardClickUrl(candidate('Pikachu 151 173', 'Collector Compass', 0, 4), 'USD', 3));
+
+    expect(url.hostname).toBe('www.ebay.com');
+    expect(url.searchParams.get('campid')).toBe('campaign-123');
+    expect(url.searchParams.get('customid')).toBe('vaultr-discovery');
+    expect(url.searchParams.get('mkevt')).toBe('1');
   });
 
   it('shows market read for full Discovery', () => {
@@ -2016,6 +2070,43 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteDiscoveryMarketCache(cacheKey);
   });
 
+  it('restores cached market images when a shelf candidate has no image', () => {
+    const name = `Umbreon Darkrai GX Promo ${Date.now()}`;
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      listing: listing({
+        listingId: 'ebay-missing-image-repair',
+        title: `${name} raw card`,
+        imageUrl: 'https://i.ebayimg.example/market-repair.jpg'
+      }),
+      imageUrl: 'https://i.ebayimg.example/cached-market-repair.jpg',
+      typicalRawAskingTotal: 72,
+      marketSampleSize: 8,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = candidatesFromDiscoveryMarketCache(
+      [candidate(name, 'tag team trail', 18, 8)],
+      {
+        userId: 'user-1',
+        activeChases: [],
+        destination: { country: 'CA' },
+        targetCurrency: 'CAD'
+      }
+    );
+
+    expect(attached?.image?.url).toBe('https://i.ebayimg.example/cached-market-repair.jpg');
+    expect(attached?.image?.sourceName).toBe('eBay listing image');
+    expect(attached?.image?.sourceKind).toBe('MARKET_LISTING');
+    expect(attached?.listing?.listingId).toBe('ebay-missing-image-repair');
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
   it('ignores stale cached accessory listings when attaching market data', () => {
     const name = 'Mew ex Paldean Fates 232';
     const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
@@ -2228,6 +2319,32 @@ describe('attachReferenceImages', () => {
     expect(attached?.image?.url).toBe('https://images.pokemontcg.io/sv8/238_hires.png');
     expect(attached?.image?.sourceName).toBe('Pokemon TCG (Surging Sparks)');
     expect(attached?.image?.sourceKind).toBe('CARD_REFERENCE');
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+  });
+
+  it('repairs missing images on saved scheduled shelf cards', async () => {
+    const name = `Umbreon & Darkrai-GX SM Black Star Promos SM241 ${Date.now()}`;
+    const referenceCacheKey = discoveryReferenceCacheKey(name);
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+    upsertDiscoveryReferenceCache({
+      cacheKey: referenceCacheKey,
+      suggestionName: name,
+      imageUrl: 'https://images.pokemontcg.io/smp/SM241_hires.png',
+      sourceName: 'Pokemon TCG (SM Black Star Promos)',
+      sourceCardId: 'smp-SM241',
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [repaired] = await repairScheduledDiscoveryShelfImages([
+      {
+        ...candidate(name, 'market ready path', 18, 12),
+        image: undefined
+      }
+    ]);
+
+    expect(repaired?.image?.url).toBe('https://images.pokemontcg.io/smp/SM241_hires.png');
+    expect(repaired?.image?.sourceName).toBe('Pokemon TCG (SM Black Star Promos)');
+    expect(repaired?.image?.sourceKind).toBe('CARD_REFERENCE');
     deleteDiscoveryReferenceCache(referenceCacheKey);
   });
 });
