@@ -1132,10 +1132,19 @@ function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStats
 }
 
 function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
+  const hasAlertsToday = stats.matches > 0 || stats.usersAlerted > 0 || stats.grailsSurfaced > 0;
+  if (hasAlertsToday) {
+    const alertSignal = stats.todayAlertFamily === 'Mixed finds'
+      ? stats.todayAlertTheme
+      : `${stats.todayAlertTheme} in ${stats.todayAlertFamily}`;
+    if (stats.activeTrackedFamily !== 'Mixed collections') return `Today's alerts leaned ${alertSignal}; active watchlist centers on ${stats.activeTrackedFamily}`;
+    return `Today's alerts leaned ${alertSignal}; active watchlist stayed broad`;
+  }
+  if (stats.activeTrackedFamily !== 'Mixed collections') return `Active watchlist centers on ${stats.activeTrackedFamily}`;
   if (stats.topTrackedFamily === 'Mixed collections' && stats.topTrackedTheme === 'Varied styles') {
     return 'Mixed collector interest today; no single path led the board';
   }
-  return `${stats.topTrackedTheme} across ${stats.topTrackedFamily}`;
+  return `Watchlist leans ${stats.topTrackedTheme} in ${stats.topTrackedFamily}`;
 }
 
 export function buildDailyPulseMessage(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {

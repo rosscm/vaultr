@@ -1064,6 +1064,9 @@ export function getGuildCommunityStatsToday(guildId: string): {
   activeChases: number;
   topTrackedFamily: string;
   topTrackedTheme: string;
+  activeTrackedFamily: string;
+  todayAlertFamily: string;
+  todayAlertTheme: string;
   hiddenDiscovery: string;
 } {
   const now = new Date();
@@ -1089,6 +1092,9 @@ export function getGuildCommunityStatsToday(guildId: string): {
     activeChases: Number(activeChasesRow?.count ?? 0),
     topTrackedFamily: inferFamilyFromText(collectorText, 2) ?? 'Mixed collections',
     topTrackedTheme: inferThemeFromText(collectorText) ?? 'Varied styles',
+    activeTrackedFamily: inferFamilyFromText(chaseNames, 2) ?? inferFamilyFromText(chaseNames) ?? 'Mixed collections',
+    todayAlertFamily: inferFamilyFromText(alertTitles) ?? 'Mixed finds',
+    todayAlertTheme: inferThemeFromText(alertTitles) ?? 'Fresh listings',
     hiddenDiscovery: alertTitles[0] ?? 'Quiet spotlight: chases are still watching'
   };
 }
@@ -1926,11 +1932,11 @@ function inferThemeFromText(values: string[]): string | null {
   const text = values.join(' ').toLowerCase();
   const themes: Array<{ label: string; keywords: string[] }> = [
     { label: 'dark atmospheric artwork', keywords: ['dark', 'night', 'moon', 'shadow'] },
-    { label: 'vintage-era cards', keywords: ['vintage', '1st edition', 'wotc', 'neo', 'ex', 'base set', 'fossil'] },
+    { label: 'vintage and WotC-era cards', keywords: ['vintage', '1st edition', 'wotc', 'neo', 'ex', 'fossil'] },
+    { label: 'Base Set / starter-era cards', keywords: ['squirtle', 'bulbasaur', 'charmander', 'pikachu', 'base set'] },
     { label: 'Japanese exclusives', keywords: ['japanese', 'jp', 'promo', 'poncho', 'vending', 'web series'] },
     { label: 'full-art chase cards', keywords: ['alt art', 'full art', 'illustration', 'special art', 'sar', 'sir'] },
-    { label: 'graded slab targets', keywords: ['psa', 'bgs', 'cgc', 'gem mint', 'mint 10'] },
-    { label: 'starter-era nostalgia', keywords: ['squirtle', 'bulbasaur', 'charmander', 'pikachu', 'base set'] }
+    { label: 'graded slab targets', keywords: ['psa', 'bgs', 'cgc', 'gem mint', 'mint 10'] }
   ];
   let best: { label: string; count: number } | null = null;
   for (const theme of themes) {

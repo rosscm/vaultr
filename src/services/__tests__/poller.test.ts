@@ -536,6 +536,9 @@ describe('buildDailyPulseMessage', () => {
         activeChases: 0,
         topTrackedFamily: 'Mixed collections',
         topTrackedTheme: 'Varied styles',
+        activeTrackedFamily: 'Mixed collections',
+        todayAlertFamily: 'Mixed finds',
+        todayAlertTheme: 'Fresh listings',
         hiddenDiscovery: 'Quiet spotlight: chases are still watching'
       })
     ).toBe(false);
@@ -549,6 +552,9 @@ describe('buildDailyPulseMessage', () => {
         activeChases: 3,
         topTrackedFamily: 'Mixed collections',
         topTrackedTheme: 'Varied styles',
+        activeTrackedFamily: 'Mixed collections',
+        todayAlertFamily: 'Mixed finds',
+        todayAlertTheme: 'Fresh listings',
         hiddenDiscovery: 'A listing moved through the Vault'
       })
     ).toBe(true);
@@ -564,6 +570,9 @@ describe('buildDailyPulseMessage', () => {
       activeChases: 18,
       topTrackedFamily: 'Eeveelution cards',
       topTrackedTheme: 'moonlit alt art',
+      activeTrackedFamily: 'Eeveelution cards',
+      todayAlertFamily: 'Umbreon line',
+      todayAlertTheme: 'moonlit alt art',
       hiddenDiscovery: 'Umbreon VMAX Alt Art PSA 10'
     });
 
@@ -578,7 +587,7 @@ describe('buildDailyPulseMessage', () => {
     expect(message).toContain('• Grail watch: 1 grail surfaced');
     expect(message).toContain('• Active watchlist: 18 chases across 4 Vaults');
     expect(message).toContain('**Collector Signal**');
-    expect(message).toContain('• moonlit alt art across Eeveelution cards');
+    expect(message).toContain("• Today's alerts leaned moonlit alt art in Umbreon line; active watchlist centers on Eeveelution cards");
     expect(message).toContain('**Spotlight**');
     expect(message).toContain('• Umbreon VMAX Alt Art PSA 10');
     expect(message).not.toContain('📡');
@@ -597,6 +606,9 @@ describe('buildDailyPulseMessage', () => {
       activeChases: 11,
       topTrackedFamily: 'Mixed collections',
       topTrackedTheme: 'Varied styles',
+      activeTrackedFamily: 'Mixed collections',
+      todayAlertFamily: 'Mixed finds',
+      todayAlertTheme: 'Fresh listings',
       hiddenDiscovery: 'Quiet spotlight: chases are still watching'
     });
 
@@ -616,12 +628,17 @@ describe('buildDailyPulseMessage', () => {
       activeChases: 4,
       topTrackedFamily: 'Mew line',
       topTrackedTheme: 'Japanese exclusives',
+      activeTrackedFamily: 'Mew line',
+      todayAlertFamily: 'Blastoise line',
+      todayAlertTheme: 'Base Set / starter-era cards',
       hiddenDiscovery: 'A listing moved through the Vault'
     });
 
     expect(message).toContain('1 chase alert reached 1 collector');
     expect(message).toContain('Fresh listings moved through the watchlist');
     expect(message).toContain('• Active watchlist: 4 chases across 1 Vault');
+    expect(message).toContain("• Today's alerts leaned Base Set / starter-era cards in Blastoise line; active watchlist centers on Mew line");
+    expect(message).not.toContain('starter-era nostalgia across Mew line');
     expect(message).not.toContain('Mew line collectors had something to inspect today.');
   });
 });
