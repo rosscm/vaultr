@@ -19,6 +19,7 @@ import { CHASE_ALERT_COOLDOWN_MINUTES } from '../services/alert-policy.js';
 import { getPollerState } from '../services/poller-state.js';
 import { sendWeeklyDropTestAnnouncement } from '../services/discovery-drop-scheduler.js';
 import { getDiscoveryMarketRefreshQueueStats } from '../services/discovery-market-jobs.js';
+import { getDiscoveryMarketRefreshThrottleState } from './discover.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatTimeWithAge } from '../ui/time.js';
 import type { Chase, Listing } from '../types.js';
@@ -385,6 +386,7 @@ export const health = {
     const backoffUntilMs = state.backoffUntil ? new Date(state.backoffUntil).getTime() : undefined;
     const isBackoffActive = backoffUntilMs !== undefined && Number.isFinite(backoffUntilMs) && backoffUntilMs > nowMs;
     const discoveryQueue = getDiscoveryMarketRefreshQueueStats(discoveryWorkerLockTimeoutMs(), nowMs);
+    const discoveryThrottle = getDiscoveryMarketRefreshThrottleState();
     const discoveryReady = discoveryQueue.queuedReady + discoveryQueue.retryReady;
     const discoveryScheduled = discoveryQueue.queuedScheduled + discoveryQueue.retryScheduled;
     const lines = [
@@ -432,7 +434,11 @@ export const health = {
       `**Next Scheduled:** ${formatQueueTime(discoveryQueue.nextScheduledRunAt)}`,
       `**Last Done:** ${formatQueueTime(discoveryQueue.lastCompletedAt)}`,
       `**Last Failed:** ${formatQueueTime(discoveryQueue.lastFailedAt)}`,
-      `**Last Queue Error:** ${discoveryQueue.lastError ?? 'None'}`
+      `**Last Queue Error:** ${discoveryQueue.lastError ?? 'None'}`,
+      `**Enqueue Guard:** ${discoveryThrottle.skippedByUserCooldown} user cooldown, ${discoveryThrottle.skippedByQueuePressure} queue pressure`,
+      `**Guard Limits:** ${discoveryThrottle.userCooldownSeconds}s/user, ${discoveryThrottle.maxActiveJobs} active jobs`,
+      `**Last Guard Skip:** user ${formatQueueTime(discoveryThrottle.lastUserCooldownSkipAt)}, pressure ${formatQueueTime(discoveryThrottle.lastQueuePressureSkipAt)}`,
+      `**Last Pressure Depth:** ${discoveryThrottle.lastQueuePressureActiveJobs ?? 'None'}`
     );
 
     lines.push('', ...buildEligibilityLines(chases, nowMs));

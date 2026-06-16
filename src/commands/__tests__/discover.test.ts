@@ -14,6 +14,7 @@ import {
   discoveryCardClickUrl,
   discoveryEmbed,
   discoveryMarketRangeFromChases,
+  getDiscoveryMarketRefreshThrottleState,
   discoveryNegativeProfile,
   discoveryProfileConfidence,
   discoveryShelfMarketCheckNote,
@@ -35,6 +36,7 @@ import {
   profileSubjectMatchedReliableDiscoveryCandidates,
   preserveLanguageSignalFallbackSuggestions,
   repairScheduledDiscoveryShelfImages,
+  resetDiscoveryMarketRefreshThrottleState,
   selectVisibleCandidates,
   selectVisibleCandidatesForCount,
   shouldShowDiscoveryShelfTighteningNote,
@@ -45,7 +47,12 @@ import {
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
 import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
+import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import type { Chase, Listing } from '../../types.js';
+
+afterEach(() => {
+  resetDiscoveryMarketRefreshThrottleState();
+});
 
 function candidate(name: string, lane: string, selectionIndex: number, marketSampleSize?: number): DiscoveryCandidate {
   return {
@@ -85,7 +92,6 @@ const strongProfileConfidence = discoveryProfileConfidence([
   'Mew ex Paldean Fates 232',
   'Zapdos Aquapolis 44',
   'Pikachu ex Surging Sparks 238',
-  'Moltres XY Black Star Promos XY127'
 ].map(chase));
 
 function sourceCandidate(name: string, sourceName: string, selectionIndex: number): DiscoveryCandidate {
@@ -2150,6 +2156,39 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(attached?.marketSampleSize).toBeUndefined();
     expect(attached?.sourceStatus).toBe('PENDING');
     deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('skips repeated refresh enqueue pressure for the same user during cooldown', () => {
+    const suffix = Date.now();
+    const firstName = `Mew Cooldown One ${suffix}`;
+    const secondName = `Mew Cooldown Two ${suffix}`;
+    const firstCacheKey = discoveryMarketCacheKey(firstName, 'CAD', 'CA');
+    const secondCacheKey = discoveryMarketCacheKey(secondName, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(firstCacheKey);
+    deleteDiscoveryMarketCache(secondCacheKey);
+    deleteDiscoveryMarketRefreshJob(firstCacheKey);
+    deleteDiscoveryMarketRefreshJob(secondCacheKey);
+
+    const [first] = candidatesFromDiscoveryMarketCache(
+      [candidate(firstName, 'mythical display cards', 0)],
+      { userId: 'cooldown-user', activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' }
+    );
+    const [second] = candidatesFromDiscoveryMarketCache(
+      [candidate(secondName, 'mythical display cards', 1)],
+      { userId: 'cooldown-user', activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' }
+    );
+    const throttle = getDiscoveryMarketRefreshThrottleState();
+
+    expect(first?.sourceStatus).toBe('PENDING');
+    expect(getDiscoveryMarketRefreshJob(firstCacheKey)?.status).toBe('QUEUED');
+    expect(second?.sourceStatus).toBeUndefined();
+    expect(getDiscoveryMarketRefreshJob(secondCacheKey)).toBeNull();
+    expect(throttle.skippedByUserCooldown).toBe(1);
+
+    deleteDiscoveryMarketCache(firstCacheKey);
+    deleteDiscoveryMarketCache(secondCacheKey);
+    deleteDiscoveryMarketRefreshJob(firstCacheKey);
+    deleteDiscoveryMarketRefreshJob(secondCacheKey);
   });
 
   it('keeps market cache entries separate for different user price ranges', () => {

@@ -38,7 +38,7 @@ import {
   upsertDiscoveryMarketCache,
   type DiscoveryMarketCacheEntry
 } from '../services/discovery-market-cache.js';
-import { completeDiscoveryMarketRefreshJob, enqueueDiscoveryMarketRefreshJobs } from '../services/discovery-market-jobs.js';
+import { completeDiscoveryMarketRefreshJob, enqueueDiscoveryMarketRefreshJobs, getDiscoveryMarketRefreshQueueStats } from '../services/discovery-market-jobs.js';
 import { getOrFetchDiscoveryReferenceImage } from '../services/discovery-reference-cache.js';
 import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
@@ -126,6 +126,9 @@ const DISCOVERY_MARKET_FIRST_RESPONSE_WAIT_MS = Math.max(0, Math.min(20000, Math
 const DISCOVERY_MARKET_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DISCOVERY_SOURCE_STATUS_RETRY_MS = 15 * 60 * 1000;
+const DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_MS = Math.max(0, Math.floor(Number(process.env.DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_SECONDS ?? '300')) * 1000);
+const DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS = Math.max(1, Math.floor(Number(process.env.DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS ?? '250')));
+const DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS = Math.max(60_000, Math.floor(Number(process.env.DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS ?? `${10 * 60 * 1000}`)));
 const MIN_RAW_MARKET_SAMPLE_SIZE = 2;
 const MIN_ASK_ONLY_MARKET_SAMPLE_SIZE = 4;
 const TARGET_RAW_MARKET_SAMPLE_SIZE = 12;
@@ -791,7 +794,7 @@ export function candidatesFromDiscoveryMarketCache(
   }
 ): DiscoveryCandidate[] {
   const refreshJobs: DiscoveryMarketRefreshWork[] = [];
-  const marketCandidates = candidates.map((candidate, visibleIndex) => {
+  const marketCandidateRows = candidates.map((candidate, visibleIndex) => {
     const selectionIndex = candidate.selectionIndex ?? visibleIndex;
     const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
     const cacheEntry = getDiscoveryMarketCache(cacheKey);
@@ -820,20 +823,27 @@ export function candidatesFromDiscoveryMarketCache(
       refreshQueued
     );
     return {
-      ...candidate,
-      selectionIndex,
-      typicalRawAskingTotal: marketCandidate.typicalRawAskingTotal,
-      marketSampleSize: marketCandidate.marketSampleSize,
-      typicalRawSoldTotal: marketCandidate.typicalRawSoldTotal,
-      soldSampleSize: marketCandidate.soldSampleSize,
-      displayCurrency: marketCandidate.displayCurrency ?? candidate.displayCurrency,
-      listing: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.listing : marketCandidate.listing ?? candidate.listing,
-      image: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.image : marketCandidate.image ?? candidate.image,
-      sourceStatus: marketCandidate.sourceStatus
+      cacheKey,
+      refreshQueued,
+      candidate: {
+        ...candidate,
+        selectionIndex,
+        typicalRawAskingTotal: marketCandidate.typicalRawAskingTotal,
+        marketSampleSize: marketCandidate.marketSampleSize,
+        typicalRawSoldTotal: marketCandidate.typicalRawSoldTotal,
+        soldSampleSize: marketCandidate.soldSampleSize,
+        displayCurrency: marketCandidate.displayCurrency ?? candidate.displayCurrency,
+        listing: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.listing : marketCandidate.listing ?? candidate.listing,
+        image: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.image : marketCandidate.image ?? candidate.image,
+        sourceStatus: marketCandidate.sourceStatus
+      }
     };
   });
-  queueDiscoveryMarketRefreshes(refreshJobs);
-  return marketCandidates;
+  const acceptedRefreshKeys = queueDiscoveryMarketRefreshes(refreshJobs);
+  return marketCandidateRows.map((row) => {
+    if (!row.refreshQueued || acceptedRefreshKeys.has(row.cacheKey) || row.candidate.sourceStatus !== 'PENDING') return row.candidate;
+    return { ...row.candidate, sourceStatus: undefined };
+  });
 }
 
 async function hydratePendingDiscoveryMarketCandidates(
@@ -1046,10 +1056,40 @@ export type DiscoveryMarketRefreshWork = {
   targetCurrency: SupportedCurrency;
 };
 
+export type DiscoveryMarketRefreshThrottleState = {
+  userCooldownSeconds: number;
+  maxActiveJobs: number;
+  skippedByUserCooldown: number;
+  skippedByQueuePressure: number;
+  lastUserCooldownSkipAt?: string;
+  lastQueuePressureSkipAt?: string;
+  lastQueuePressureActiveJobs?: number;
+};
+
 const discoveryMarketRefreshQueue: DiscoveryMarketRefreshWork[] = [];
 const queuedDiscoveryMarketRefreshKeys = new Set<string>();
+const discoveryMarketRefreshUserCooldowns = new Map<string, number>();
+const discoveryMarketRefreshThrottleState: DiscoveryMarketRefreshThrottleState = {
+  userCooldownSeconds: Math.floor(DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_MS / 1000),
+  maxActiveJobs: DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS,
+  skippedByUserCooldown: 0,
+  skippedByQueuePressure: 0
+};
 let isDiscoveryMarketRefreshRunning = false;
 let scheduledDiscoveryMarketRefreshTimer: NodeJS.Timeout | undefined;
+
+export function getDiscoveryMarketRefreshThrottleState(): DiscoveryMarketRefreshThrottleState {
+  return { ...discoveryMarketRefreshThrottleState };
+}
+
+export function resetDiscoveryMarketRefreshThrottleState(): void {
+  discoveryMarketRefreshUserCooldowns.clear();
+  discoveryMarketRefreshThrottleState.skippedByUserCooldown = 0;
+  discoveryMarketRefreshThrottleState.skippedByQueuePressure = 0;
+  delete discoveryMarketRefreshThrottleState.lastUserCooldownSkipAt;
+  delete discoveryMarketRefreshThrottleState.lastQueuePressureSkipAt;
+  delete discoveryMarketRefreshThrottleState.lastQueuePressureActiveJobs;
+}
 
 function nextDiscoveryMarketRefreshDelayMs(): number {
   const backoffUntil = getPollerState().backoffUntil;
@@ -1125,9 +1165,54 @@ async function runDiscoveryMarketRefreshQueue(): Promise<void> {
   }
 }
 
-function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshWork[]): void {
+function activeDiscoveryMarketRefreshJobCount(): number {
+  const stats = getDiscoveryMarketRefreshQueueStats(DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS);
+  return stats.queuedReady + stats.queuedScheduled + stats.retryReady + stats.retryScheduled + stats.running;
+}
+
+function isDiscoveryRefreshUserCoolingDown(userId: string, nowMs: number): boolean {
+  if (DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_MS <= 0) return false;
+  const lastQueuedAt = discoveryMarketRefreshUserCooldowns.get(userId) ?? 0;
+  return lastQueuedAt > 0 && nowMs - lastQueuedAt < DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_MS;
+}
+
+function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshWork[]): Set<string> {
+  if (jobs.length === 0) return new Set();
+  const nowMs = Date.now();
+  const activeJobs = activeDiscoveryMarketRefreshJobCount();
+  const availableSlots = Math.max(0, DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS - activeJobs);
+  const acceptedJobs: DiscoveryMarketRefreshWork[] = [];
+  const acceptedUsers = new Set<string>();
+  let cooldownSkipped = 0;
+  let pressureSkipped = 0;
+
+  for (const job of jobs) {
+    if (isDiscoveryRefreshUserCoolingDown(job.userId, nowMs)) {
+      cooldownSkipped += 1;
+      continue;
+    }
+    if (acceptedJobs.length >= availableSlots) {
+      pressureSkipped += 1;
+      continue;
+    }
+    acceptedJobs.push(job);
+    acceptedUsers.add(job.userId);
+  }
+
+  if (cooldownSkipped > 0) {
+    discoveryMarketRefreshThrottleState.skippedByUserCooldown += cooldownSkipped;
+    discoveryMarketRefreshThrottleState.lastUserCooldownSkipAt = new Date(nowMs).toISOString();
+  }
+  if (pressureSkipped > 0) {
+    discoveryMarketRefreshThrottleState.skippedByQueuePressure += pressureSkipped;
+    discoveryMarketRefreshThrottleState.lastQueuePressureSkipAt = new Date(nowMs).toISOString();
+    discoveryMarketRefreshThrottleState.lastQueuePressureActiveJobs = activeJobs;
+  }
+  if (acceptedJobs.length === 0) return new Set();
+  for (const userId of acceptedUsers) discoveryMarketRefreshUserCooldowns.set(userId, nowMs);
+
   enqueueDiscoveryMarketRefreshJobs(
-    jobs.map((job) => ({
+    acceptedJobs.map((job) => ({
       cacheKey: job.cacheKey,
       suggestion: job.suggestion,
       userId: job.userId,
@@ -1138,12 +1223,13 @@ function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshWork[]): void
       priority: hasPriorityJapaneseChase(job.activeChases) ? 2 : 1
     }))
   );
-  for (const job of jobs) {
+  for (const job of acceptedJobs) {
     if (queuedDiscoveryMarketRefreshKeys.has(job.cacheKey)) continue;
     queuedDiscoveryMarketRefreshKeys.add(job.cacheKey);
     discoveryMarketRefreshQueue.push(job);
   }
   scheduleDiscoveryMarketRefreshQueue();
+  return new Set(acceptedJobs.map((job) => job.cacheKey));
 }
 
 function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
