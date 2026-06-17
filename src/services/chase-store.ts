@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { makeAlertFeedbackToken } from './alert-feedback-token.js';
+import { convertCurrencyAmount } from './currency.js';
 import { normalizePlanTier } from './plans.js';
 import type { Chase, Listing, ListingSource, ListingSourceModePreference, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
 
@@ -250,6 +251,24 @@ const updateChaseStmt = db.prepare(`
       listing_type = @listing_type,
       negative_keywords = @negative_keywords
   WHERE user_id = @user_id AND id = @id
+`);
+
+const updateChaseMaxPriceStmt = db.prepare(`
+  UPDATE chases
+  SET max_price = @max_price
+  WHERE user_id = @user_id AND id = @id
+`);
+
+const listUserTasteMemoryMaxPricesStmt = db.prepare(`
+  SELECT signal_id, source, max_price
+  FROM user_taste_memory
+  WHERE user_id = ? AND max_price IS NOT NULL
+`);
+
+const updateUserTasteMemoryMaxPriceStmt = db.prepare(`
+  UPDATE user_taste_memory
+  SET max_price = @max_price
+  WHERE user_id = @user_id AND signal_id = @signal_id AND source = @source
 `);
 
 const insertSentAlertStmt = db.prepare(`
@@ -1717,6 +1736,7 @@ export function setUserAlertSettings(
   > & { shippingCountry?: string | null; shippingPostalCode?: string | null }
 ): UserAlertSettings {
   const current = getUserAlertSettings(userId);
+  const currencyChanged = patch.alertCurrency !== undefined && patch.alertCurrency !== current.alertCurrency;
   const next: UserAlertSettings = {
     userId,
     minScore: patch.minScore ?? current.minScore,
@@ -1731,16 +1751,39 @@ export function setUserAlertSettings(
     updatedAt: new Date().toISOString()
   };
 
-  upsertUserAlertSettingsStmt.run(
-    userId,
-    next.minScore,
-    next.maxAlertsPerHour,
-    next.alertCurrency,
-    next.shippingCountry ?? null,
-    next.shippingPostalCode ?? null,
-    next.listingSourceMode,
-    next.updatedAt
-  );
+  const persistSettings = db.transaction(() => {
+    if (currencyChanged) {
+      for (const chase of listChases(userId)) {
+        if (chase.maxPrice === undefined) continue;
+        updateChaseMaxPriceStmt.run({
+          user_id: userId,
+          id: chase.id,
+          max_price: convertCurrencyAmount(chase.maxPrice, current.alertCurrency, next.alertCurrency)
+        });
+      }
+      const tasteRows = listUserTasteMemoryMaxPricesStmt.all(userId) as { signal_id: string; source: string; max_price: number }[];
+      for (const row of tasteRows) {
+        updateUserTasteMemoryMaxPriceStmt.run({
+          user_id: userId,
+          signal_id: row.signal_id,
+          source: row.source,
+          max_price: convertCurrencyAmount(row.max_price, current.alertCurrency, next.alertCurrency)
+        });
+      }
+    }
+
+    upsertUserAlertSettingsStmt.run(
+      userId,
+      next.minScore,
+      next.maxAlertsPerHour,
+      next.alertCurrency,
+      next.shippingCountry ?? null,
+      next.shippingPostalCode ?? null,
+      next.listingSourceMode,
+      next.updatedAt
+    );
+  });
+  persistSettings();
 
   return next;
 }
