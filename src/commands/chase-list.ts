@@ -20,6 +20,8 @@ function chaseSpecificBlockedTerms(terms: string[] | undefined): string[] {
 
 function displayAny(value: string | undefined): string {
   if (!value || value === 'ANY') return OUTPUT_STYLE.any;
+  if (value === 'BUY_IT_NOW') return 'Buy Now';
+  if (value === 'AUCTION') return 'Auction';
   return value;
 }
 
@@ -99,7 +101,7 @@ export function buildChaseListEmbed(userId: string, page: number) {
       return [`**${chaseIndexBadge(absoluteIndex)}  ${c.cardName}**`, `↳ ${details}`, ...(extras.length > 0 ? [`↳ ${extras.join(' | ')}`] : [])].join('\n');
     });
 
-    return `**${title}**\n${rows.join('\n\n')}`;
+    return `**${title}**\n${rows.join('\n')}`;
   };
 
   const activePageItems = pageItems.filter((chase) => activeChaseIds.has(chase.id));

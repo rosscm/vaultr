@@ -218,6 +218,7 @@ describe('chase command', () => {
       maxPrice: 550,
       grade: 'UNGRADED',
       priority: 'GRAIL',
+      listingType: 'BUY_IT_NOW',
       negativeKeywords: ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case']
     });
     addChase({
@@ -232,7 +233,9 @@ describe('chase command', () => {
     const text = [data.description, ...(data.fields ?? []).map((field) => `${field.name}\n${field.value}`)].join('\n');
 
     expect(data.description).toContain('**Default Exclusions**');
-    expect(data.description).toContain('**#01  Umbreon 217/187**\n↳ Max: 550 USD | Grade: Ungraded | Condition: Any | Listing: Any');
+    expect(data.description).toContain('**#01  Umbreon 217/187**\n↳ Max: 550 USD | Grade: Ungraded | Condition: Any | Listing: Buy Now');
+    expect(data.description).toContain('Listing: Buy Now');
+    expect(data.description).not.toContain('BUY_IT_NOW');
     expect(data.description).toContain('**Next Actions**\n✏️ Refine with `/chase edit`');
     expect(data.description).toContain('**Default Exclusions**\nproxy, custom, reprint, lot, orica, replica, fan art, novelty, keychain, extended art, acrylic case, magnetic case\n\n---\n**Next Actions**');
     expect(text.match(/proxy, custom/g)).toHaveLength(1);
