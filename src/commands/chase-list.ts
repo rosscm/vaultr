@@ -23,6 +23,10 @@ function displayAny(value: string | undefined): string {
   return value;
 }
 
+function chaseIndexBadge(index: number): string {
+  return `#${String(index).padStart(2, '0')}`;
+}
+
 function clampPage(page: number, totalPages: number): number {
   return Math.max(0, Math.min(page, totalPages - 1));
 }
@@ -78,8 +82,7 @@ export function buildChaseListEmbed(userId: string, page: number) {
     const { includePriority = false, paused = false } = options;
     const rows = items.map((c) => {
       const absoluteIndex = entryById.get(c.id) ?? 0;
-      const summary = [
-        `**#${absoluteIndex} — ${c.cardName}**`,
+      const details = [
         ...(includePriority ? [`Priority: ${priorityLabel(c.priority)}`] : []),
         `Max: ${c.maxPrice !== undefined ? `${c.maxPrice} ${currency}` : OUTPUT_STYLE.any}`,
         `Grade: ${displayGrade(c.grade)}`,
@@ -93,10 +96,10 @@ export function buildChaseListEmbed(userId: string, page: number) {
       if (customBlockedTerms.length > 0) extras.push(`Tune Out: ${customBlockedTerms.join(', ')}`);
       if (paused) extras.push('Status: Paused until Pro');
 
-      return extras.length > 0 ? `${summary}\n${extras.join(' | ')}` : summary;
+      return [`**${chaseIndexBadge(absoluteIndex)}  ${c.cardName}**`, `↳ ${details}`, ...(extras.length > 0 ? [`↳ ${extras.join(' | ')}`] : [])].join('\n');
     });
 
-    return `**${title}**\n${rows.join('\n')}`;
+    return `**${title}**\n${rows.join('\n\n')}`;
   };
 
   const activePageItems = pageItems.filter((chase) => activeChaseIds.has(chase.id));
