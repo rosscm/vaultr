@@ -78,6 +78,26 @@ describe('chase command', () => {
     expect(chaseOption?.required).toBe(true);
   });
 
+  it('shows defaults in chase add helper text', () => {
+    const add = chase.data
+      .toJSON()
+      .options?.find((option: any) => option.name === 'add') as any;
+    const options = new Map((add.options ?? []).map((option: any) => [option.name, option.description]));
+
+    expect(options.get('max_price')).toContain('default: Any');
+    expect(options.get('grading_type')).toContain('default: Any');
+    expect(options.get('grade_value')).toContain('default: Any');
+    expect(options.get('condition')).toContain('default: Any');
+    expect(options.get('listing_type')).toContain('default: Any');
+    expect(options.get('listing_type')).toContain('Auction');
+    expect(options.get('tune_out_terms')).toContain('default: None');
+    expect(options.get('priority')).toContain('default: Casual');
+    expect(options.get('target_note')).toContain('default: None');
+    for (const name of ['condition', 'listing_type', 'tune_out_terms', 'priority', 'target_note']) {
+      expect(options.get(name)).toContain('[PRO ONLY]');
+    }
+  });
+
   it('saves Free add submissions while ignoring Pro-only modifiers', async () => {
     const userId = testUserId('free-add');
     setUserPlan(userId, 'FREE');
@@ -241,6 +261,25 @@ describe('chase command', () => {
     expect(text.match(/proxy, custom/g)).toHaveLength(1);
     expect(text).toContain('Tune Out: korean');
     expect(text).not.toContain('Blocked:');
+  });
+
+  it('keeps paused chase rows compact without active alert filters', () => {
+    const userId = testUserId('list-paused-compact');
+    setUserPlan(userId, 'FREE');
+    for (let index = 1; index <= 4; index += 1) {
+      addChase({ userId, cardName: `Paused Test Card ${index}`, priority: index === 4 ? 'NORMAL' : 'HIGH', maxPrice: 100 + index, grade: 'UNGRADED', listingType: 'BUY_IT_NOW', negativeKeywords: ['korean'] });
+    }
+
+    const payload = buildChaseListEmbed(userId, 0);
+    const data = payload.embeds[0].toJSON();
+    const pausedSection = data.description?.split('**⏸️ Paused Until Pro**')[1]?.split('\n\n---')[0] ?? '';
+
+    expect(pausedSection).toContain('Priority: Casual | Max: 104 USD');
+    expect(pausedSection).not.toContain('Grade:');
+    expect(pausedSection).not.toContain('Condition:');
+    expect(pausedSection).not.toContain('Listing:');
+    expect(pausedSection).not.toContain('Status: Paused until Pro');
+    expect(pausedSection).not.toContain('Tune Out:');
   });
 
   it('undoes Discovery feedback and removes More Like taste memory', () => {

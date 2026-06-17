@@ -9,7 +9,8 @@ import {
   updateChase
 } from '../services/chase-store.js';
 import { makeListingFingerprint } from '../services/listing-fingerprint.js';
-import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
+import { activePlanTier } from '../services/plans.js';
+import { proControlsNextLine } from './pro-copy.js';
 
 const FEEDBACK_PREFIX = 'alert-feedback';
 const REASON_PREFIX = 'alert-feedback-reason';
@@ -130,7 +131,7 @@ async function handleApplyTuning(interaction: any): Promise<boolean> {
 
   if (activePlanTier(getUserPlan(interaction.user.id)) !== 'PRO') {
     await interaction.update({
-      content: `Vaultr can spot this pattern, but persistent tune-out rules are Pro. Use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and feedback-powered tune-outs`,
+      content: `Vaultr can spot this pattern, but persistent tune-out rules are part of the Full Vault.\n\n${proControlsNextLine()}`,
       components: []
     });
     return true;

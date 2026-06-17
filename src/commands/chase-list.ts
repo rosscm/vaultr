@@ -76,7 +76,7 @@ export function buildChaseListEmbed(userId: string, page: number) {
   const priorityLabel = (priority: string | undefined): string => {
     if (priority === 'GRAIL') return 'Grail';
     if (priority === 'HIGH') return 'High';
-    return 'Normal';
+    return 'Casual';
   };
 
   const renderGroup = (title: string, items: Array<(typeof pageItems)[number]>, options: { includePriority?: boolean; paused?: boolean } = {}): string => {
@@ -84,19 +84,21 @@ export function buildChaseListEmbed(userId: string, page: number) {
     const { includePriority = false, paused = false } = options;
     const rows = items.map((c) => {
       const absoluteIndex = entryById.get(c.id) ?? 0;
-      const details = [
-        ...(includePriority ? [`Priority: ${priorityLabel(c.priority)}`] : []),
-        `Max: ${c.maxPrice !== undefined ? `${c.maxPrice} ${currency}` : OUTPUT_STYLE.any}`,
-        `Grade: ${displayGrade(c.grade)}`,
-        `Condition: ${displayCondition(c.condition)}`,
-        `Listing: ${displayAny(c.listingType)}`
-      ].join(' | ');
+      const maxPrice = `Max: ${c.maxPrice !== undefined ? `${c.maxPrice} ${currency}` : OUTPUT_STYLE.any}`;
+      const details = paused
+        ? [`Priority: ${priorityLabel(c.priority)}`, maxPrice].join(' | ')
+        : [
+            ...(includePriority ? [`Priority: ${priorityLabel(c.priority)}`] : []),
+            maxPrice,
+            `Grade: ${displayGrade(c.grade)}`,
+            `Condition: ${displayCondition(c.condition)}`,
+            `Listing: ${displayAny(c.listingType)}`
+          ].join(' | ');
 
       const extras: string[] = [];
-      if (c.targetNote) extras.push(`Note: ${orNone(c.targetNote)}`);
+      if (!paused && c.targetNote) extras.push(`Note: ${orNone(c.targetNote)}`);
       const customBlockedTerms = chaseSpecificBlockedTerms(c.negativeKeywords);
-      if (customBlockedTerms.length > 0) extras.push(`Tune Out: ${customBlockedTerms.join(', ')}`);
-      if (paused) extras.push('Status: Paused until Pro');
+      if (!paused && customBlockedTerms.length > 0) extras.push(`Tune Out: ${customBlockedTerms.join(', ')}`);
 
       return [`**${chaseIndexBadge(absoluteIndex)}  ${c.cardName}**`, `↳ ${details}`, ...(extras.length > 0 ? [`↳ ${extras.join(' | ')}`] : [])].join('\n');
     });
@@ -112,8 +114,8 @@ export function buildChaseListEmbed(userId: string, page: number) {
 
   const groupedSections = [
     renderGroup('🏆 Grail', activeGrail),
-    renderGroup('🔥 High Priority', activeHigh),
-    renderGroup('🟢 Normal', activeNormal),
+    renderGroup('🔥 High', activeHigh),
+    renderGroup('🟢 Casual', activeNormal),
     renderGroup('⏸️ Paused Until Pro', pausedPageItems, { includePriority: true, paused: true })
   ].filter(Boolean);
 

@@ -5,6 +5,7 @@ import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, gradeSelectionWarning, inferGradingTypeFromGrade, normalizeConditionChoice } from './chase-options.js';
+import { proControlsNextLine } from './pro-copy.js';
 
 const CHASE_EDIT_MODAL_PREFIX = 'chase-edit-modal';
 
@@ -264,7 +265,7 @@ export const chaseEdit = {
         embeds: [
           warningEmbed(
             'Pro Controls Not Applied',
-            `Free Vaults cannot change ${blockedProControls.join(', ')}.\n\n**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`
+            `Free Vaults cannot change ${blockedProControls.join(', ')}.\n\n${proControlsNextLine()}`
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -294,7 +295,7 @@ export const chaseEdit = {
         ? [
             '',
             `**Pro Controls Not Applied:** ${blockedProControls.join(', ')}`,
-            `**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`
+            proControlsNextLine()
           ]
         : []),
       '',
@@ -356,7 +357,7 @@ export async function handleChaseEditModal(interaction: any): Promise<boolean> {
   const blockedProControls = changedProFields && !entitlements.advancedFiltering ? ['note or tune-out terms'] : [];
   if (blockedProControls.length > 0 && cardName === match.cardName && maxPrice === (match.maxPrice ?? null) && grade === (match.grade ?? null)) {
     await interaction.reply({
-      embeds: [warningEmbed('Pro Controls Not Applied', `Free Vaults cannot change note or tune-out terms.\n\n**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`)],
+      embeds: [warningEmbed('Pro Controls Not Applied', `Free Vaults cannot change note or tune-out terms.\n\n${proControlsNextLine()}`)],
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -382,7 +383,7 @@ export async function handleChaseEditModal(interaction: any): Promise<boolean> {
       ? [
           '',
           `**Pro Controls Not Applied:** ${blockedProControls.join(', ')}`,
-          `**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`
+          proControlsNextLine()
         ]
       : []),
     '',

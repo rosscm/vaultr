@@ -645,7 +645,7 @@ export function chaseTuningNoticeLines(
   return [
     intro,
     'If that feels noisy, tighten the chase name or lower the max price so Vaultr has a clearer target.',
-    'For finer chase controls and deeper alert tune-outs, `/upgrade` unlocks the Pro toolkit.'
+    'For precision controls and persistent tune-outs, `/upgrade` opens the Full Vault.'
   ];
 }
 

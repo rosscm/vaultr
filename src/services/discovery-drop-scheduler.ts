@@ -43,9 +43,9 @@ function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number)
     .setColor(0x8b5cf6)
     .setTitle('✨ Vaultr Weekly Discovery is live')
     .setDescription([
-      'Fresh collector picks are ready to browse! Pro gets a deeper Weekly Shelf shaped by your Vault and taste memory, while Free gets a tasty little appetizer',
+      'Collector picks are freshly brewed and ready to browse! Full Vault gets a deeper Weekly Shelf shaped by your Vault and taste memory, while Free gets a tasty appetizer ☕',
       '',
-      'Tap below ↓ to open yours'
+      '◇ Tap below to open yours and discover something new to love'
     ].join('\n'))
     .setFooter({ text: 'Vaultr • Weekly Shelf' })
     .setTimestamp();

@@ -6,6 +6,7 @@ import { listTrustedShopifyShopNames } from '../services/shopify.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { executePlanSet } from './plan-set.js';
+import { fullVaultLines } from './pro-copy.js';
 import type { ListingSourceModePreference } from '../types.js';
 
 function displaySourceMode(value: ListingSourceModePreference): string {
@@ -21,34 +22,48 @@ export function displayEffectiveSourceMode(value: ListingSourceModePreference, a
   return displaySourceMode(value);
 }
 
-function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan') {
+function displayPlanAccess(userPlan: ReturnType<typeof getUserPlan>): string {
+  const access = formatActivePlanAccess(userPlan);
+  if (access === 'FREE') return 'Free';
+  if (access === 'PRO') return 'Pro';
+  return access.replaceAll('FREE', 'Free').replaceAll('PRO', 'Pro');
+}
+
+export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan') {
   const userPlan = getUserPlan(userId);
   const settings = getUserAlertSettings(userId);
   const activeTier = activePlanTier(userPlan);
   const limits = PLAN_LIMITS[activeTier];
   const trustedShopNames = listTrustedShopifyShopNames().join(', ');
-  const activeAccessLine = formatActivePlanAccess(userPlan);
-  const sourceLine = `**Source:** ${displayEffectiveSourceMode(settings.listingSourceMode, activeTier)}`;
-  const shopLine = activeTier === 'PRO' ? `**Shops:** ${trustedShopNames}` : `**Pro Unlocks:** shop sources, faster checks, and deeper Discovery`;
-  const nextLine = activeTier === 'PRO' ? '**Source Controls:** use `/alerts settings` to pick a watch mode' : '**Next:** use `/upgrade` to unlock Pro';
-  const embed = infoEmbed(title, activeTier === 'PRO' ? 'Pro access is active' : 'Free access is active. Upgrade anytime for more chases and source controls');
+  const activeAccessLine = displayPlanAccess(userPlan);
+  const sourceLine = `**Watching:** ${displayEffectiveSourceMode(settings.listingSourceMode, activeTier)}`;
+  const sourceLines = activeTier === 'PRO' ? [sourceLine, `**Trusted Shops:** ${trustedShopNames}`, '**Source Controls:** use `/alerts settings` to pick a watch mode'] : [sourceLine];
+  const embed = infoEmbed(title, activeTier === 'PRO' ? 'Pro Vault is active' : 'Free Vault is live');
   embed.addFields(
     {
       name: 'Plan',
-      value: [`**Access:** ${activeAccessLine}`, `**Chases:** ${limits.maxActiveChases} active`, `**Checks:** Every ${formatPollInterval(limits.pollIntervalSeconds)}`].join('\n'),
+      value: [`**Access:** ${activeAccessLine}`, `**Active Chases:** ${limits.maxActiveChases}`, `**Watch Cadence:** every ${formatPollInterval(limits.pollIntervalSeconds)}`].join('\n'),
       inline: false
     },
     {
       name: 'Vault Depth',
-      value: activeTier === 'PRO' ? 'Full Discovery recommendations and Taste Profile memory' : 'Discovery preview from active chases',
+      value: activeTier === 'PRO' ? 'Deeper Weekly Shelf recommendations with Taste Profile memory' : 'Weekly Discovery previews shaped by your active chases',
       inline: false
     },
     {
       name: 'Sources',
-      value: [sourceLine, shopLine, nextLine, `**Updated:** ${formatLocalDateTime(userPlan.updatedAt)}`].join('\n'),
+      value: [...sourceLines, `**Updated:** ${formatLocalDateTime(userPlan.updatedAt)}`].join('\n'),
       inline: false
     }
   );
+
+  if (activeTier === 'FREE') {
+    embed.addFields({
+      name: 'Full Vault',
+      value: fullVaultLines().join('\n'),
+      inline: false
+    });
+  }
 
   return {
     embeds: [embed],
@@ -61,7 +76,7 @@ export const plan = {
   data: new SlashCommandBuilder()
     .setName('plan')
     .setDescription('View your Vaultr plan')
-    .addSubcommand((sub) => sub.setName('view').setDescription('Show your plan, limits, and Pro access'))
+    .addSubcommand((sub) => sub.setName('view').setDescription('View your current Vaultr plan'))
     .addSubcommand((sub) =>
       sub
         .setName('set')

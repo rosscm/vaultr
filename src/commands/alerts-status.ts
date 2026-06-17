@@ -40,10 +40,10 @@ function nextSweepSeconds(activeChases: Chase[], intervalSeconds: number, nowMs:
 }
 
 function watchSummary(activeCount: number, alerts24h: number, alerts7d: number, pausedCount: number): string {
-  if (activeCount === 0) return 'Add a chase to start the watch rotation';
+  if (activeCount === 0) return 'Add a chase to start your Vault watch';
   if (alerts24h > 0) return 'Watching now; fresh matches surfaced today';
-  if (alerts7d > 0) return 'Watching now; recent listings have been quiet';
-  if (pausedCount > 0) return 'Watching active chases; extras are paused by plan limit';
+  if (alerts7d > 0) return 'Watching now; the latest listings have been quiet';
+  if (pausedCount > 0) return 'Watching active chases; extra saved chases are paused by plan limit';
   return 'Watching now; no listings have cleared your filters yet';
 }
 
@@ -78,7 +78,7 @@ export function buildAlertsStatusEmbed(userId: string, now = new Date()) {
       value: [
         `**Last:** ${lastSweep ? formatTimeWithAge(lastSweep) : 'Not yet checked'}`,
         `**Next:** ${nextSweep === undefined ? 'Add a chase first' : nextSweep <= 0 ? 'due now' : `about ${formatDuration(nextSweep)}`}`,
-        `**Pace:** ~${formatDuration(intervalSeconds)} per chase`
+        `**Cadence:** ~${formatDuration(intervalSeconds)} per chase`
       ].join('\n'),
       inline: false
     },

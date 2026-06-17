@@ -1,12 +1,13 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { infoEmbed } from '../ui/embeds.js';
+import { FULL_VAULT_SUMMARY } from './pro-copy.js';
 
 export const help = {
   data: new SlashCommandBuilder().setName('help').setDescription('Show the Vaultr quick start'),
   async execute(interaction: any) {
     const lines = [
-      'Vaultr watches eBay for cards you care about and sends matching listings by DM',
-      'Start with one specific chase; you can tune from there',
+      'Vaultr keeps watch for the cards you care about and sends matching listings by DM',
+      'Start with one specific chase; the Vault gets sharper from there',
       '',
       '**First Steps**',
       '- Add a chase: `/chase add card:Pikachu 151 173`',
@@ -16,22 +17,22 @@ export const help = {
       '**Good Chase Names**',
       '- Include the card number when you know it',
       '- Add a max price if you only want realistic listings',
-      '- Keep names concrete: card, set, number, variant',
+      '- Keep names concrete: card, set, number, variant, or promo stamp',
       '',
       '**Commands**',
       '- Vault: `/chase add` · `/chase list` · `/chase edit` · `/chase remove`',
       '- Alerts: `/alerts status` · `/alerts settings` · `/alerts recent`',
-      '- Discovery: open the weekly server drop for a private shelf',
+      '- Discovery: peek inside the weekly server drop for your private shelf',
       '- Plan: `/plan view` · `/upgrade`',
       '',
       '**When It Feels Quiet**',
       '- Use `/alerts status` first',
-      '- Quiet stretches are normal for precise chases',
+      '- Quiet stretches are normal for precise grails',
       '- Broaden the chase or lower confidence in `/alerts settings` if needed',
       '',
       '**Free vs Pro**',
       '- Free keeps 3 active chases',
-      '- Pro expands to 50, faster checks, deeper Discovery, and trusted shop sources'
+      `- Full Vault: ${FULL_VAULT_SUMMARY}`
     ];
 
     await interaction.reply({

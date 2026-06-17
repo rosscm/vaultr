@@ -22,7 +22,7 @@ const reasonSuggestions: Record<AlertFeedbackReason, string> = {
   WRONG_GRADE_TYPE: 'set grading type and grade value for the slab or raw status you want',
   CONDITION_ISSUE: 'set a condition threshold if surface quality is the deciding factor',
   PRICE_SHIPPING: 'review max price and ship-to country so total cost lines up with your range',
-  SELLER_CONCERN: 'keep seller feedback visible and tune out sellers or listings that feel off',
+  SELLER_CONCERN: 'keep seller feedback visible and tune out listings that feel off',
   ALREADY_SEEN_BOUGHT: 'similar title repeats are being suppressed for that chase',
   JUST_NOT_INTERESTED: 'make the chase more specific or add a short target note'
 };
@@ -66,7 +66,7 @@ export const alertsRecent = {
         embeds: [
           infoEmbed(
             '📨 Recent Alerts',
-            'No alerts yet. Keep your chases active; matching listings will appear here after Vaultr sends them by DM'
+            'No alerts yet. Keep your chases active; matching listings will appear here after Vaultr sends a DM'
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -74,7 +74,7 @@ export const alertsRecent = {
       return;
     }
 
-    const embed = infoEmbed('📨 Recent Alerts', `Latest ${recent.length} chase alert${recent.length === 1 ? '' : 's'} from your DMs`);
+    const embed = infoEmbed('📨 Recent Alerts', `Latest ${recent.length} Vault match${recent.length === 1 ? '' : 'es'} sent by DM`);
 
     embed.addFields(
       recent.map((alert, index) => {

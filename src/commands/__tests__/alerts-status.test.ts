@@ -47,7 +47,7 @@ describe('buildAlertsStatusEmbed', () => {
 
     const embed = buildAlertsStatusEmbed(userId, new Date('2026-06-12T19:00:00.000Z'));
 
-    expect(embed.toJSON().description).toBe('Watching active chases; extras are paused by plan limit');
+    expect(embed.toJSON().description).toBe('Watching active chases; extra saved chases are paused by plan limit');
     expect(embedFieldValue(embed, 'Watching')).toContain('**Active:** 3/3');
     expect(embedFieldValue(embed, 'Watching')).toContain('**Paused:** 1');
     expect(embed.toJSON().fields?.some((field) => field.name === 'Quiet Read')).toBe(false);

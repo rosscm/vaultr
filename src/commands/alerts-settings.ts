@@ -4,6 +4,7 @@ import { activePlanTier, formatActivePlanAccess, PLAN_LIMITS } from '../services
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { OUTPUT_STYLE } from '../ui/style.js';
+import { FULL_VAULT_SUMMARY, proControlsNextLine } from './pro-copy.js';
 import type { ListingSourceModePreference } from '../types.js';
 
 type AlertVolume = 'QUIET' | 'BALANCED' | 'MORE';
@@ -64,8 +65,8 @@ function displayListingSourceSetting(value: ListingSourceModePreference, activeT
 function displayTrustedShopAccess(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
   if (activeTier === 'FREE') {
     return isStorefrontSourceMode(value)
-      ? `Paused until Pro (${PLAN_LIMITS.PRO.maxActiveChases} active chases + shop sources)`
-      : `Unlock with Pro (${PLAN_LIMITS.PRO.maxActiveChases} active chases + shop sources)`;
+      ? `Paused until Full Vault (${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops)`
+      : `Full Vault brings ${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops`;
   }
   if (value === 'EBAY_SHOPIFY') return 'Enabled with eBay';
   if (value === 'SHOPIFY') return 'Enabled, trusted shops only';
@@ -189,8 +190,8 @@ export const alertsSettings = {
       await interaction.reply({
         embeds: [
           warningEmbed(
-            'Shop Sources Are Pro',
-            `Pro watches trusted card shops alongside eBay, useful for raw singles, promos, and restocks.\n\n**Free:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Pro:** eBay + Trusted Shops, Trusted Shops Only, faster checks, and ${PLAN_LIMITS.PRO.maxActiveChases} active chases\n**Next:** use \`/upgrade\` to unlock`
+            'Trusted Shops Are Full Vault',
+            `Trusted shops live inside the Full Vault, useful for raw singles, promos, and restocks.\n\n**Free Vault:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Full Vault:** ${FULL_VAULT_SUMMARY}\n${proControlsNextLine()}`
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -243,7 +244,7 @@ export async function handleAlertSourceButtons(interaction: any): Promise<boolea
   const activeTier = activePlanTier(plan);
   if (activeTier !== 'PRO') {
     await interaction.reply({
-      embeds: [warningEmbed('Shop Sources Are Pro', 'Trusted shop source controls are available on Pro')],
+      embeds: [warningEmbed('Trusted Shops Are Full Vault', `Trusted shop source controls live inside the Full Vault.\n\n${proControlsNextLine()}`)],
       flags: MessageFlags.Ephemeral
     });
     return true;

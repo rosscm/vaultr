@@ -21,7 +21,7 @@ export const chase = {
             .setMinLength(3)
             .setMaxLength(100)
         )
-        .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price to surface').setMinValue(0.01))
+        .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price to surface (default: Any)').setMinValue(0.01))
         .addStringOption((opt) =>
           opt
             .setName('grading_type')
@@ -37,13 +37,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Pro: minimum raw condition')
+            .setDescription('[PRO ONLY] Minimum raw condition (default: Any)')
             .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('listing_type')
-            .setDescription('Pro: auction or Buy It Now preference')
+            .setDescription('[PRO ONLY] Auction or Buy It Now preference (default: Any)')
             .addChoices(
               { name: 'Any', value: 'ANY' },
               { name: 'Auction', value: 'AUCTION' },
@@ -53,21 +53,21 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('tune_out_terms')
-            .setDescription('Pro: extra terms to exclude, added to default exclusions')
+            .setDescription('[PRO ONLY] Extra terms to exclude (default: None)')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
           opt
             .setName('priority')
-            .setDescription('Pro: chase importance')
+            .setDescription('[PRO ONLY] Chase importance (default: Casual)')
             .addChoices(
-              { name: 'Normal', value: 'NORMAL' },
+              { name: 'Casual', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
               { name: 'Grail', value: 'GRAIL' }
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Pro: short note for this chase').setMaxLength(120)
+          opt.setName('target_note').setDescription('[PRO ONLY] Short note for this chase (default: None)').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>
@@ -103,13 +103,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('Pro: new minimum raw condition')
+            .setDescription('[PRO ONLY] New minimum raw condition')
             .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('listing_type')
-            .setDescription('Pro: new auction or Buy It Now preference')
+            .setDescription('[PRO ONLY] New Auction or Buy It Now preference')
             .addChoices(
               { name: 'Any', value: 'ANY' },
               { name: 'Auction', value: 'AUCTION' },
@@ -119,21 +119,21 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('tune_out_terms')
-            .setDescription('Pro: new extra terms to exclude')
+            .setDescription('[PRO ONLY] New extra terms to exclude')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
           opt
             .setName('priority')
-            .setDescription('Pro: new chase importance')
+            .setDescription('[PRO ONLY] New chase importance')
             .addChoices(
-              { name: 'Normal', value: 'NORMAL' },
+              { name: 'Casual', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
               { name: 'Grail', value: 'GRAIL' }
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('Pro: new note for this chase').setMaxLength(120)
+          opt.setName('target_note').setDescription('[PRO ONLY] New note for this chase').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>

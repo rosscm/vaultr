@@ -56,6 +56,7 @@ import {
   type ScheduledDiscoveryDropItem
 } from '../services/scheduled-discovery-drops.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
+import { freeVaultLimitMessage } from './pro-copy.js';
 import type { Chase, Listing, PlanTier } from '../types.js';
 
 export type DiscoveryCandidate = {
@@ -2761,7 +2762,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     lines.push(discoveryShelfTighteningNote());
   }
   if (!discovery.hasFullDiscovery) {
-    lines.push('Just a heads up... Pro members get the full Weekly Shelf with feedback-powered taste memory, live market reads on every card, and tune-out controls for future drops');
+    lines.push('A quick peek: Full Vault gets the deeper Weekly Shelf with feedback-powered taste memory, live market reads on every card, and tune-out controls for future drops');
   }
   const actionRows = discoveryActionRows(userId, visibleCandidates, discovery.hasFullDiscovery, pageState.start);
   const headerEmbed = discoveryShelfHeaderEmbed(title, lines);
@@ -2888,7 +2889,7 @@ export function discoveryDropOpenButton(dropType: ScheduledDiscoveryDropType, pe
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${DISCOVERY_DROP_OPEN_PREFIX}:${dropType}:${periodKey}`)
-      .setLabel('Open Shelf')
+      .setLabel('Peek Inside')
       .setStyle(ButtonStyle.Primary)
   );
 }
@@ -2939,7 +2940,7 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
     const message =
       activeTier === 'PRO'
         ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another`
-        : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, deeper Discovery, and trusted shop sources. Remove one with /chase remove or run /upgrade`;
+        : freeVaultLimitMessage('Remove one with `/chase remove` or run `/upgrade`');
     await interaction.reply({
       embeds: [warningEmbed('Vault Limit Reached', message)],
       flags: MessageFlags.Ephemeral

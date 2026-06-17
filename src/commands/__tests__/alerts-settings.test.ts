@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { alertsSettings } from '../alerts-settings.js';
-import { addChase, getUserAlertSettings, listChases, listUserTasteMemoryChases, recordDiscoveryFeedback, removeAllChases, resetUserAlertSettings, setUserAlertSettings } from '../../services/chase-store.js';
+import { addChase, getUserAlertSettings, listChases, listUserTasteMemoryChases, recordDiscoveryFeedback, removeAllChases, resetUserAlertSettings, setUserAlertSettings, setUserPlan } from '../../services/chase-store.js';
 
 function mockInteraction(userId: string, strings: Record<string, string | null>) {
   const reply = vi.fn(async (_payload: any) => undefined);
@@ -84,5 +84,20 @@ describe('alerts-settings shipping postal validation', () => {
     expect(interaction.reply.mock.calls[0]?.[0]?.embeds?.[0]?.data?.title).toContain('Invalid Postal Code');
     expect(settings.shippingCountry).toBeUndefined();
     expect(settings.shippingPostalCode).toBeUndefined();
+  });
+
+  it('frames trusted shop source controls as part of the Full Vault for Free users', async () => {
+    const userId = `settings-shop-source-${Date.now()}`;
+    resetUserAlertSettings(userId);
+    setUserPlan(userId, 'FREE');
+    const interaction = mockInteraction(userId, { source: 'SHOPIFY' });
+
+    await alertsSettings.execute(interaction);
+
+    const embed = interaction.reply.mock.calls[0]?.[0]?.embeds?.[0];
+    const text = [embed?.data?.title, embed?.data?.description].join('\n');
+    expect(text).toContain('Trusted shops live inside the Full Vault');
+    expect(text).toContain('More room for grails, faster checks, trusted shops, precision controls, and the full Weekly Shelf');
+    expect(text).toContain('`/upgrade` opens the Full Vault');
   });
 });

@@ -13,6 +13,7 @@ import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
+import { freeVaultLimitMessage, proControlsNextLine } from './pro-copy.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case'];
 
@@ -53,7 +54,7 @@ export const chaseAdd = {
       const message =
         activeTier === 'PRO'
           ? `You have reached your Pro limit of ${maxChases} active chases. Remove one with /chase remove before adding another`
-          : `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Pro expands your Vault to ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, deeper Discovery, and trusted shop sources. Remove one with /chase remove or run /upgrade`;
+          : freeVaultLimitMessage('Remove one with `/chase remove` or run `/upgrade`');
       await interaction.reply({
         embeds: [warningEmbed('Vault Limit Reached', message)],
         flags: MessageFlags.Ephemeral
@@ -147,7 +148,7 @@ export const chaseAdd = {
         ? [
             '',
             `**Pro Controls Not Applied:** ${blockedProControls.join(', ')}`,
-            `**Next:** use \`/upgrade\` to unlock ${PLAN_LIMITS.PRO.maxActiveChases} active chases and precision controls`
+            proControlsNextLine()
           ]
         : []),
       '',
