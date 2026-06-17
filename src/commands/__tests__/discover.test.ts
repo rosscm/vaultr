@@ -1903,6 +1903,48 @@ describe('discoveryEmbed', () => {
 });
 
 describe('candidatesFromDiscoveryMarketCache', () => {
+  it('keeps prepared market data visible after a currency switch while refreshing the new currency', () => {
+    const name = `Mew Southern Islands Currency Switch ${Date.now()}`;
+    const usdCacheKey = discoveryMarketCacheKey(name, 'USD', 'CA');
+    deleteDiscoveryMarketCache(usdCacheKey);
+    deleteDiscoveryMarketRefreshJob(usdCacheKey);
+
+    const [attached] = candidatesFromDiscoveryMarketCache(
+      [
+        {
+          ...candidate(name, 'mythical display cards', 0),
+          listing: listing({ listingId: 'currency-switch-listing', title: `${name} raw card`, price: 135, currency: 'CAD' }),
+          typicalRawAskingTotal: 135,
+          marketSampleSize: 5,
+          typicalRawSoldTotal: 120,
+          soldSampleSize: 3,
+          displayCurrency: 'CAD'
+        }
+      ],
+      {
+        userId: 'currency-switch-user',
+        activeChases: [],
+        destination: { country: 'CA' },
+        targetCurrency: 'USD',
+        forceRefreshMissingSignal: true,
+        forceRefreshThinSignal: true
+      }
+    );
+
+    expect(attached?.displayCurrency).toBe('USD');
+    expect(attached?.typicalRawAskingTotal).toBeGreaterThan(0);
+    expect(attached?.typicalRawAskingTotal).not.toBe(135);
+    expect(attached?.marketSampleSize).toBe(5);
+    expect(attached?.typicalRawSoldTotal).toBeGreaterThan(0);
+    expect(attached?.soldSampleSize).toBe(3);
+    expect(attached?.sourceStatus).toBeUndefined();
+    expect(attached?.listing?.currency).toBe('USD');
+    expect(getDiscoveryMarketRefreshJob(usdCacheKey)?.targetCurrency).toBe('USD');
+
+    deleteDiscoveryMarketRefreshJob(usdCacheKey);
+    deleteDiscoveryMarketCache(usdCacheKey);
+  });
+
   it('backfills shelves from reliable market cache without same-set variants', () => {
     const suffix = Date.now();
     const current = sourceCandidate(`Zapdos Aquapolis 44 Cache Backfill ${suffix}`, 'Pokemon TCG (Aquapolis)', 0);

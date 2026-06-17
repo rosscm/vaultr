@@ -781,6 +781,26 @@ function hasMarketSignal(candidate: DiscoveryCandidate): boolean {
   );
 }
 
+function convertDiscoveryCandidateMarketCurrency(candidate: DiscoveryCandidate, targetCurrency: SupportedCurrency): DiscoveryCandidate {
+  const sourceCurrency = candidate.displayCurrency ?? candidate.listing?.currency;
+  if (!sourceCurrency || sourceCurrency === targetCurrency) return candidate;
+  return {
+    ...candidate,
+    typicalRawAskingTotal: candidate.typicalRawAskingTotal === undefined ? undefined : convertCurrencyAmount(candidate.typicalRawAskingTotal, sourceCurrency, targetCurrency),
+    typicalRawSoldTotal: candidate.typicalRawSoldTotal === undefined ? undefined : convertCurrencyAmount(candidate.typicalRawSoldTotal, sourceCurrency, targetCurrency),
+    displayCurrency: targetCurrency,
+    listing: candidate.listing
+      ? {
+          ...candidate.listing,
+          price: convertCurrencyAmount(candidate.listing.price, candidate.listing.currency, targetCurrency),
+          currency: targetCurrency,
+          shippingCost: candidate.listing.shippingCost === undefined ? undefined : convertCurrencyAmount(candidate.listing.shippingCost, candidate.listing.shippingCurrency ?? candidate.listing.currency, targetCurrency),
+          shippingCurrency: candidate.listing.shippingCost === undefined ? candidate.listing.shippingCurrency : targetCurrency
+        }
+      : candidate.listing
+  };
+}
+
 export function candidatesFromDiscoveryMarketCache(
   candidates: DiscoveryCandidate[],
   context: {
@@ -822,20 +842,22 @@ export function candidatesFromDiscoveryMarketCache(
       context.activeChases,
       refreshQueued
     );
+    const shouldPreserveExistingMarketSignal = hasMarketSignal(candidate) && !hasMarketSignal(marketCandidate);
+    const displayCandidate = shouldPreserveExistingMarketSignal ? convertDiscoveryCandidateMarketCurrency(candidate, context.targetCurrency) : candidate;
     return {
       cacheKey,
       refreshQueued,
       candidate: {
-        ...candidate,
+        ...displayCandidate,
         selectionIndex,
-        typicalRawAskingTotal: marketCandidate.typicalRawAskingTotal,
-        marketSampleSize: marketCandidate.marketSampleSize,
-        typicalRawSoldTotal: marketCandidate.typicalRawSoldTotal,
-        soldSampleSize: marketCandidate.soldSampleSize,
-        displayCurrency: marketCandidate.displayCurrency ?? candidate.displayCurrency,
-        listing: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.listing : marketCandidate.listing ?? candidate.listing,
-        image: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.image : marketCandidate.image ?? candidate.image,
-        sourceStatus: marketCandidate.sourceStatus
+        typicalRawAskingTotal: shouldPreserveExistingMarketSignal ? displayCandidate.typicalRawAskingTotal : marketCandidate.typicalRawAskingTotal,
+        marketSampleSize: shouldPreserveExistingMarketSignal ? displayCandidate.marketSampleSize : marketCandidate.marketSampleSize,
+        typicalRawSoldTotal: shouldPreserveExistingMarketSignal ? displayCandidate.typicalRawSoldTotal : marketCandidate.typicalRawSoldTotal,
+        soldSampleSize: shouldPreserveExistingMarketSignal ? displayCandidate.soldSampleSize : marketCandidate.soldSampleSize,
+        displayCurrency: shouldPreserveExistingMarketSignal ? displayCandidate.displayCurrency : marketCandidate.displayCurrency ?? displayCandidate.displayCurrency,
+        listing: displayCandidate.image?.sourceKind === 'CARD_REFERENCE' ? displayCandidate.listing : marketCandidate.listing ?? displayCandidate.listing,
+        image: displayCandidate.image?.sourceKind === 'CARD_REFERENCE' ? displayCandidate.image : marketCandidate.image ?? displayCandidate.image,
+        sourceStatus: shouldPreserveExistingMarketSignal ? displayCandidate.sourceStatus : marketCandidate.sourceStatus
       }
     };
   });
