@@ -21,12 +21,15 @@ describe('alerts-settings shipping postal validation', () => {
     removeAllChases(userId);
     setUserAlertSettings(userId, { alertCurrency: 'CAD' });
     addChase({ userId, cardName: 'Legendary Birds Stained Glass Promo', priority: 'GRAIL', maxPrice: 200 });
+    addChase({ userId, cardName: 'Mew XY Black Star Promos XY192', priority: 'NORMAL', maxPrice: 127 });
     recordDiscoveryFeedback({ userId, cardName: 'Mew Southern Islands Promo', lane: 'mythical display cards', feedback: 'MORE_LIKE_THIS', maxPrice: 137 });
 
     setUserAlertSettings(userId, { alertCurrency: 'USD' });
 
+    const chases = listChases(userId);
     expect(getUserAlertSettings(userId).alertCurrency).toBe('USD');
-    expect(listChases(userId)[0]?.maxPrice).toBeCloseTo(145.99, 2);
+    expect(chases.find((chase) => chase.cardName === 'Legendary Birds Stained Glass Promo')?.maxPrice).toBe(150);
+    expect(chases.find((chase) => chase.cardName === 'Mew XY Black Star Promos XY192')?.maxPrice).toBe(90);
     expect(listUserTasteMemoryChases(userId)[0]?.maxPrice).toBeCloseTo(100, 2);
     removeAllChases(userId);
     resetUserAlertSettings(userId);

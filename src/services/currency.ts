@@ -141,3 +141,9 @@ export function convertCurrencyAmount(amount: number, from: string, to: Supporte
   const converted = amountInUsd * rates[to];
   return Math.round(converted * 100) / 100;
 }
+
+export function roundConvertedMaxPrice(amount: number): number {
+  if (!Number.isFinite(amount)) return amount;
+  if (amount < 10) return Math.max(1, Math.round(amount));
+  return Math.max(10, Math.round(amount / 10) * 10);
+}

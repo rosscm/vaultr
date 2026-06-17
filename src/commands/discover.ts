@@ -27,7 +27,7 @@ import {
   undoDiscoveryFeedback,
   upsertUserDiscoveryState
 } from '../services/chase-store.js';
-import { convertCurrencyAmount, type SupportedCurrency } from '../services/currency.js';
+import { convertCurrencyAmount, roundConvertedMaxPrice, type SupportedCurrency } from '../services/currency.js';
 import { searchEbayListings, searchEbaySoldListings } from '../services/ebay.js';
 import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
 import {
@@ -2235,7 +2235,7 @@ function createDiscoveryVaultButtonToken(userId: string, candidate: DiscoveryCan
     userId,
     cardName: candidate.suggestion.name,
     lane: candidate.suggestion.lane,
-    maxPrice: candidate.typicalRawAskingTotal === undefined ? undefined : Math.max(1, Math.round(candidate.typicalRawAskingTotal)),
+    maxPrice: candidate.typicalRawAskingTotal === undefined ? undefined : roundConvertedMaxPrice(candidate.typicalRawAskingTotal),
     expiresAt: new Date(Date.now() + DISCOVERY_VAULT_ACTION_TTL_MS).toISOString()
   });
   return token;

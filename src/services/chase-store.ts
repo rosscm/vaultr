@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { makeAlertFeedbackToken } from './alert-feedback-token.js';
-import { convertCurrencyAmount } from './currency.js';
+import { convertCurrencyAmount, roundConvertedMaxPrice } from './currency.js';
 import { normalizePlanTier } from './plans.js';
 import type { Chase, Listing, ListingSource, ListingSourceModePreference, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
 
@@ -1758,7 +1758,7 @@ export function setUserAlertSettings(
         updateChaseMaxPriceStmt.run({
           user_id: userId,
           id: chase.id,
-          max_price: convertCurrencyAmount(chase.maxPrice, current.alertCurrency, next.alertCurrency)
+          max_price: roundConvertedMaxPrice(convertCurrencyAmount(chase.maxPrice, current.alertCurrency, next.alertCurrency))
         });
       }
       const tasteRows = listUserTasteMemoryMaxPricesStmt.all(userId) as { signal_id: string; source: string; max_price: number }[];
@@ -1767,7 +1767,7 @@ export function setUserAlertSettings(
           user_id: userId,
           signal_id: row.signal_id,
           source: row.source,
-          max_price: convertCurrencyAmount(row.max_price, current.alertCurrency, next.alertCurrency)
+          max_price: roundConvertedMaxPrice(convertCurrencyAmount(row.max_price, current.alertCurrency, next.alertCurrency))
         });
       }
     }
