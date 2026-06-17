@@ -1641,7 +1641,7 @@ export function discoveryProfileConfidence(chases: Chase[]): DiscoveryProfileCon
 }
 
 export function discoveryShelfTighteningNote(): string {
-  return '🔮 **Reading:** a smaller shelf for now while Vaultr continues to learn from your chases, feedback, and collector patterns';
+  return '🔮 **Reading:** Vaultr is still learning from your chases, feedback, and collector patterns';
 }
 
 export function discoveryShelfMarketCheckNote(shelfSize: number): string {
@@ -1649,7 +1649,7 @@ export function discoveryShelfMarketCheckNote(shelfSize: number): string {
 }
 
 export function shouldShowDiscoveryShelfTighteningNote(hasFullDiscovery: boolean, shelfSize: number, proShelfSize = weeklyDiscoveryShelfSizeForPlan('PRO')): boolean {
-  return hasFullDiscovery && shelfSize < proShelfSize - 1;
+  return hasFullDiscovery && shelfSize < Math.ceil(proShelfSize * 0.75);
 }
 
 function subjectProfileRankScore(candidate: DiscoveryCandidate, chases: Chase[] = []): number {

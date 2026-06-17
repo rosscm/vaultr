@@ -281,7 +281,8 @@ describe('selectVisibleCandidates', () => {
   });
 
   it('uses curation copy for tighter Pro shelves without calling usable profiles light', () => {
-    expect(discoveryShelfTighteningNote()).toBe('🔮 **Reading:** a smaller shelf for now while Vaultr continues to learn from your chases, feedback, and collector patterns');
+    expect(discoveryShelfTighteningNote()).toBe('🔮 **Reading:** Vaultr is still learning from your chases, feedback, and collector patterns');
+    expect(discoveryShelfTighteningNote()).not.toContain('smaller shelf');
     expect(discoveryShelfTighteningNote()).not.toContain('Light Vault');
   });
 
@@ -294,7 +295,9 @@ describe('selectVisibleCandidates', () => {
   });
 
   it('does not explain near-full Pro shelves as smaller shelves', () => {
-    expect(shouldShowDiscoveryShelfTighteningNote(true, 18, 20)).toBe(true);
+    expect(shouldShowDiscoveryShelfTighteningNote(true, 14, 20)).toBe(true);
+    expect(shouldShowDiscoveryShelfTighteningNote(true, 15, 20)).toBe(false);
+    expect(shouldShowDiscoveryShelfTighteningNote(true, 18, 20)).toBe(false);
     expect(shouldShowDiscoveryShelfTighteningNote(true, 19, 20)).toBe(false);
     expect(shouldShowDiscoveryShelfTighteningNote(false, 3, 20)).toBe(false);
   });
