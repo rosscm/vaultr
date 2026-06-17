@@ -41,11 +41,11 @@ function weeklyPreparationTargetDate(now: Date): Date {
 function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x8b5cf6)
-    .setTitle('🧭 Vaultr Weekly Discovery is ready')
+    .setTitle('✨ Vaultr Weekly Discovery is live')
     .setDescription([
-      'Your Weekly Shelf is ready to browse. Pro members get a deeper shelf shaped by Vault history and taste memory; Free members get a curated preview.',
+      'Fresh collector picks are ready to browse! Pro gets a deeper Weekly Shelf shaped by your Vault and taste memory, while Free gets a tasty little appetizer',
       '',
-      'Open your shelf below.'
+      'Tap below ↓ to open yours'
     ].join('\n'))
     .setFooter({ text: 'Vaultr • Weekly Shelf' })
     .setTimestamp();
