@@ -1147,21 +1147,18 @@ function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunitySt
   return `Watchlist leans ${stats.topTrackedTheme} in ${stats.topTrackedFamily}`;
 }
 
-export function buildDailyPulseMessage(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
-  return [
-    '💓 **Vault Pulse**',
-    dailyPulseLine(stats),
-    dailyPulseMood(stats),
-    '',
-    '**Today’s Movement**',
-    ...dailyPulseActivityLines(stats),
-    '',
-    '**Collector Signal**',
-    `• ${dailyPulseCollectorCurrent(stats)}`,
-    '',
-    '**Spotlight**',
-    `• ${truncateForEmbed(stats.hiddenDiscovery, 180).replace(/\.+$/, '')}`
-  ].join('\n');
+export function buildDailyPulseEmbed(stats: ReturnType<typeof getGuildCommunityStatsToday>): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0xe11d48)
+    .setTitle('💓 Vault Pulse')
+    .setDescription([dailyPulseLine(stats), dailyPulseMood(stats)].join('\n'))
+    .addFields(
+      keyValue('Today’s Movement', dailyPulseActivityLines(stats).join('\n')),
+      keyValue('Collector Signal', dailyPulseCollectorCurrent(stats)),
+      keyValue('Spotlight', truncateForEmbed(stats.hiddenDiscovery, 180).replace(/\.+$/, ''))
+    )
+    .setFooter({ text: 'Vaultr • Pulse' })
+    .setTimestamp();
 }
 
 export function shouldPostDailyPulse(stats: ReturnType<typeof getGuildCommunityStatsToday>): boolean {
@@ -1236,7 +1233,7 @@ async function maybePostDailyCommunityStats(client: Client): Promise<void> {
 
     const stats = getGuildCommunityStatsToday(guildId);
     if (!shouldPostDailyPulse(stats)) continue;
-    await channel.send(buildDailyPulseMessage(stats));
+    await channel.send({ embeds: [buildDailyPulseEmbed(stats)] });
 
     markPostedGuildDailyStats(guildId, dayKey);
   }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Listing } from '../../types.js';
 import {
-  buildDailyPulseMessage,
+  buildDailyPulseEmbed,
   buildWeeklyReflectionEmbed,
   alertEbaySearchOptions,
   chaseTuningNoticeLines,
@@ -524,7 +524,7 @@ describe('buildWeeklyReflectionEmbed', () => {
   });
 });
 
-describe('buildDailyPulseMessage', () => {
+describe('buildDailyPulseEmbed', () => {
   it('posts only when the daily pulse has real activity', () => {
     expect(
       shouldPostDailyPulse({
@@ -561,7 +561,7 @@ describe('buildDailyPulseMessage', () => {
   });
 
   it('formats an active community day as a collector heartbeat', () => {
-    const message = buildDailyPulseMessage({
+    const data = buildDailyPulseEmbed({
       newVaultrs: 2,
       usersAlerted: 3,
       matches: 5,
@@ -574,30 +574,30 @@ describe('buildDailyPulseMessage', () => {
       todayAlertFamily: 'Umbreon line',
       todayAlertTheme: 'moonlit alt art',
       hiddenDiscovery: 'Umbreon VMAX Alt Art PSA 10'
-    });
+    }).toJSON();
 
-    expect(message).toContain('💓 **Vault Pulse**');
-    expect(message).toContain('2 new Vaults opened');
-    expect(message).toContain('5 chase alerts reached 3 collectors');
-    expect(message).toContain('1 grail surfaced');
-    expect(message).toContain("The day's sharpest movement centered on moonlit alt art");
-    expect(message).toContain('**Today’s Movement**');
-    expect(message).toContain('• New Vaults: 2 collectors joined');
-    expect(message).toContain('• Alerts delivered: 5 listings reached 3 collectors');
-    expect(message).toContain('• Grail watch: 1 grail surfaced');
-    expect(message).toContain('• Active watchlist: 18 chases across 4 Vaults');
-    expect(message).toContain('**Collector Signal**');
-    expect(message).toContain("• Today's alerts leaned moonlit alt art in Umbreon line; active watchlist centers on Eeveelution cards");
-    expect(message).toContain('**Spotlight**');
-    expect(message).toContain('• Umbreon VMAX Alt Art PSA 10');
-    expect(message).not.toContain('📡');
-    expect(message).not.toContain('received a match');
-    expect(message).not.toContain('peeked out');
-    expect(message).not.toContain('pings');
+    expect(data.title).toBe('💓 Vault Pulse');
+    expect(data.description).toContain('2 new Vaults opened');
+    expect(data.description).toContain('5 chase alerts reached 3 collectors');
+    expect(data.description).toContain('1 grail surfaced');
+    expect(data.description).toContain("The day's sharpest movement centered on moonlit alt art");
+    expect(data.fields?.[0]).toMatchObject({ name: 'Today’s Movement' });
+    expect(data.fields?.[0].value).toContain('• New Vaults: 2 collectors joined');
+    expect(data.fields?.[0].value).toContain('• Alerts delivered: 5 listings reached 3 collectors');
+    expect(data.fields?.[0].value).toContain('• Grail watch: 1 grail surfaced');
+    expect(data.fields?.[0].value).toContain('• Active watchlist: 18 chases across 4 Vaults');
+    expect(data.fields?.[1]).toMatchObject({ name: 'Collector Signal' });
+    expect(data.fields?.[1].value).toContain("Today's alerts leaned moonlit alt art in Umbreon line; active watchlist centers on Eeveelution cards");
+    expect(data.fields?.[2]).toMatchObject({ name: 'Spotlight', value: 'Umbreon VMAX Alt Art PSA 10' });
+    expect(data.footer?.text).toBe('Vaultr • Pulse');
+    expect(JSON.stringify(data)).not.toContain('📡');
+    expect(JSON.stringify(data)).not.toContain('received a match');
+    expect(JSON.stringify(data)).not.toContain('peeked out');
+    expect(JSON.stringify(data)).not.toContain('pings');
   });
 
   it('keeps quiet days calm and collector-first', () => {
-    const message = buildDailyPulseMessage({
+    const data = buildDailyPulseEmbed({
       newVaultrs: 0,
       usersAlerted: 0,
       matches: 0,
@@ -610,16 +610,16 @@ describe('buildDailyPulseMessage', () => {
       todayAlertFamily: 'Mixed finds',
       todayAlertTheme: 'Fresh listings',
       hiddenDiscovery: 'Quiet spotlight: chases are still watching'
-    });
+    }).toJSON();
 
-    expect(message).toContain('Quiet day: active chases kept watching');
-    expect(message).toContain('No major movement today, but active chases kept watch');
-    expect(message).toContain('• Active watchlist: 11 chases across 3 Vaults');
-    expect(message).toContain('• Mixed collector interest today; no single path led the board');
+    expect(data.description).toContain('Quiet day: active chases kept watching');
+    expect(data.description).toContain('No major movement today, but active chases kept watch');
+    expect(data.fields?.[0].value).toContain('• Active watchlist: 11 chases across 3 Vaults');
+    expect(data.fields?.[1].value).toContain('Mixed collector interest today; no single path led the board');
   });
 
   it('does not frame broad tracked families as today-specific alert activity', () => {
-    const message = buildDailyPulseMessage({
+    const data = buildDailyPulseEmbed({
       newVaultrs: 0,
       usersAlerted: 1,
       matches: 1,
@@ -632,13 +632,13 @@ describe('buildDailyPulseMessage', () => {
       todayAlertFamily: 'Blastoise line',
       todayAlertTheme: 'Base Set / starter-era cards',
       hiddenDiscovery: 'A listing moved through the Vault'
-    });
+    }).toJSON();
 
-    expect(message).toContain('1 chase alert reached 1 collector');
-    expect(message).toContain('Fresh listings moved through the watchlist');
-    expect(message).toContain('• Active watchlist: 4 chases across 1 Vault');
-    expect(message).toContain("• Today's alerts leaned Base Set / starter-era cards in Blastoise line; active watchlist centers on Mew line");
-    expect(message).not.toContain('starter-era nostalgia across Mew line');
-    expect(message).not.toContain('Mew line collectors had something to inspect today.');
+    expect(data.description).toContain('1 chase alert reached 1 collector');
+    expect(data.description).toContain('Fresh listings moved through the watchlist');
+    expect(data.fields?.[0].value).toContain('• Active watchlist: 4 chases across 1 Vault');
+    expect(data.fields?.[1].value).toContain("Today's alerts leaned Base Set / starter-era cards in Blastoise line; active watchlist centers on Mew line");
+    expect(JSON.stringify(data)).not.toContain('starter-era nostalgia across Mew line');
+    expect(JSON.stringify(data)).not.toContain('Mew line collectors had something to inspect today.');
   });
 });
