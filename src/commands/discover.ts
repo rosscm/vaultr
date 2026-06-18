@@ -2775,7 +2775,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     lines.push(discoveryShelfTighteningNote());
   }
   if (!discovery.hasFullDiscovery) {
-    lines.push('A quick peek: Full Vault gets the deeper Weekly Shelf with feedback-powered taste memory, live market reads on every card, and tune-out controls for future drops');
+    lines.push('A quick peek: Full Vault gets the deeper Weekly Shelf with feedback-powered taste memory, live market reads on every card, and custom exclusion controls for future drops');
   }
   const actionRows = discoveryActionRows(userId, visibleCandidates, discovery.hasFullDiscovery, pageState.start);
   const headerEmbed = discoveryShelfHeaderEmbed(title, lines);

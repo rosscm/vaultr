@@ -38,7 +38,7 @@ function proControlNames(values: {
     values.listingTypeRaw !== null && values.listingTypeRaw !== 'ANY' ? 'listing type' : undefined,
     values.priorityRaw !== null && values.priorityRaw !== 'NORMAL' ? 'priority' : undefined,
     values.targetNote !== undefined ? 'note' : undefined,
-    values.hasCustomNegativeKeywords ? 'tune-out terms' : undefined
+    values.hasCustomNegativeKeywords ? 'custom exclusions' : undefined
   ].filter((value): value is string => Boolean(value));
 }
 
@@ -113,7 +113,7 @@ export const chaseAdd = {
 
     if (tuningTerms && tuningTerms.length > 15) {
       await interaction.reply({
-        embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms')],
+        embeds: [warningEmbed('Too Many Custom Exclusions', 'Use at most 15 comma-separated custom exclusions')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -142,7 +142,7 @@ export const chaseAdd = {
       `**Grade:** ${displayGrade(chase.grade)}`,
       `**Condition:** ${displayCondition(chase.condition)}`,
       `**Listing Type:** ${displayAny(chase.listingType)}`,
-      `**Tune-Out Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
+      `**Custom Exclusions:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
       `**Default Exclusions:** ${DEFAULT_NEGATIVE_KEYWORDS.join(', ')}`,
       ...(blockedProControls.length > 0
         ? [

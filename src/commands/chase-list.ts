@@ -98,7 +98,7 @@ export function buildChaseListEmbed(userId: string, page: number) {
       const extras: string[] = [];
       if (!paused && c.targetNote) extras.push(`Note: ${orNone(c.targetNote)}`);
       const customBlockedTerms = chaseSpecificBlockedTerms(c.negativeKeywords);
-      if (!paused && customBlockedTerms.length > 0) extras.push(`Tune Out: ${customBlockedTerms.join(', ')}`);
+      if (!paused && customBlockedTerms.length > 0) extras.push(`Custom Exclusions: ${customBlockedTerms.join(', ')}`);
 
       return [`**${chaseIndexBadge(absoluteIndex)}  ${c.cardName}**`, `↳ ${details}`, ...(extras.length > 0 ? [`↳ ${extras.join(' | ')}`] : [])].join('\n');
     });

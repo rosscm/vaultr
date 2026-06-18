@@ -28,7 +28,7 @@ export function upgradeFullVaultLines(): string[] {
     `- ${PLAN_LIMITS.PRO.maxActiveChases} active chases with faster checks every ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
     '- trusted shops alongside eBay, including shop-only restock signals',
     '- a deeper Weekly Shelf with Taste Profile memory',
-    '- precision controls for condition, listing type, tune-out terms, priority, and chase notes',
+    '- precision controls for condition, listing type, custom exclusions, priority, and chase notes',
     '- feedback-powered tune-outs that keep your watchlist cleaner over time'
   ];
 }

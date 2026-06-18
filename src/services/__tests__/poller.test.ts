@@ -241,7 +241,7 @@ describe('alert eBay search options', () => {
     const text = chaseTuningNoticeLines({ cardName: 'blastoise 002' }, 'PRO', 3, 8).join('\n');
 
     expect(text).toContain('condition or grade');
-    expect(text).toContain('tune-out terms');
+    expect(text).toContain('custom exclusions');
     expect(text).toContain('/alerts settings');
     expect(text).not.toContain('/upgrade');
   });
@@ -520,7 +520,7 @@ describe('buildWeeklyReflectionEmbed', () => {
     expect(data.fields?.[0].value).toBe('**36**\nsent');
     expect(data.fields?.[1].value).toBe('**7**\nhigh-priority hits');
     expect(data.fields?.[4].value).toContain('If this felt noisy');
-    expect(data.fields?.[4].value).toContain('tune-out terms');
+    expect(data.fields?.[4].value).toContain('custom exclusions');
   });
 });
 

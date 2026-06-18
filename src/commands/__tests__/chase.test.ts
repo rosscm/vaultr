@@ -74,11 +74,11 @@ describe('chase command', () => {
       'condition',
       'listing_type',
       'priority',
-      'target_note',
-      'tune_out_terms'
+      'tune_out_terms',
+      'target_note'
     ]);
     expect(entryOption).toBeUndefined();
-    expect(tuneOutOption?.description).toContain('Replace tune-outs');
+    expect(tuneOutOption?.description).toContain('Custom exclusions');
     expect(addTuneOutOption).toBeUndefined();
   });
 
@@ -158,7 +158,7 @@ describe('chase command', () => {
     }));
   });
 
-  it('stores Pro tune-out terms as chase-specific extras', async () => {
+  it('stores Pro custom exclusions as chase-specific extras', async () => {
     const userId = testUserId('pro-tune-out-add');
     setUserPlan(userId, 'PRO');
 
@@ -282,7 +282,7 @@ describe('chase command', () => {
     expect(interaction.reply).toHaveBeenCalledOnce();
   });
 
-  it('lists default blocked terms once while showing chase-specific tune-outs inline', () => {
+  it('lists default blocked terms once while showing chase-specific custom exclusions inline', () => {
     const userId = testUserId('list-default-exclusions');
     setUserPlan(userId, 'PRO');
     addChase({
@@ -312,7 +312,7 @@ describe('chase command', () => {
     expect(data.description).toContain('**Next Actions**\n✏️ Refine with `/chase edit`');
     expect(data.description).toContain('**Default Exclusions**\nproxy, custom, reprint, lot, orica, replica, fan art, novelty, keychain, extended art, acrylic case, magnetic case\n\n---\n**Next Actions**');
     expect(text.match(/proxy, custom/g)).toHaveLength(1);
-    expect(text).toContain('Tune Out: korean');
+    expect(text).toContain('Custom Exclusions: korean');
     expect(text).not.toContain('Blocked:');
   });
 
@@ -332,7 +332,7 @@ describe('chase command', () => {
     expect(pausedSection).not.toContain('Condition:');
     expect(pausedSection).not.toContain('Listing:');
     expect(pausedSection).not.toContain('Status: Paused until Full Vault');
-    expect(pausedSection).not.toContain('Tune Out:');
+    expect(pausedSection).not.toContain('Custom Exclusions:');
   });
 
   it('undoes Discovery feedback and removes More Like taste memory', () => {

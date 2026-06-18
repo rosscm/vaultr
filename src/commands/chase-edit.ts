@@ -21,7 +21,7 @@ function chaseDetailLines(chase: ReturnType<typeof listChases>[number]): string[
     `**Grade:** ${displayGrade(chase.grade)}`,
     `**Condition:** ${displayCondition(chase.condition)}`,
     `**Listing Type:** ${displayAny(chase.listingType)}`,
-    `**Tune-Out Terms:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`
+    `**Custom Exclusions:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`
   ];
 }
 
@@ -75,7 +75,7 @@ function proControlNames(values: {
     values.listingType !== undefined && values.listingType !== 'ANY' ? 'listing type' : undefined,
     values.priority !== undefined && values.priority !== 'NORMAL' ? 'priority' : undefined,
     values.targetNoteRaw !== null ? 'note' : undefined,
-    values.negativeKeywordsRaw !== null ? 'tune-out terms' : undefined
+    values.negativeKeywordsRaw !== null ? 'custom exclusions' : undefined
   ].filter((value): value is string => Boolean(value));
 }
 
@@ -151,7 +151,7 @@ export const chaseEdit = {
 
     if (negativeKeywords && negativeKeywords.length > 15) {
       await interaction.reply({
-        embeds: [warningEmbed('Too Many Tune-Out Terms', 'Use at most 15 comma-separated tune-out terms')],
+        embeds: [warningEmbed('Too Many Custom Exclusions', 'Use at most 15 comma-separated custom exclusions')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -166,7 +166,7 @@ export const chaseEdit = {
     }
 
     if (!cardName && maxPrice === undefined && grade === undefined && blockedProControls.length > 0) {
-    await interaction.reply({
+      await interaction.reply({
         embeds: [
           warningEmbed(
             'Pro Controls Not Applied',

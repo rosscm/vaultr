@@ -637,7 +637,7 @@ export function chaseTuningNoticeLines(
   if (activeTier === 'PRO') {
     return [
       intro,
-      'If that feels noisy, tighten the chase name, lower the max price, add condition or grade details, or use tune-out terms for variants you do not want.',
+      'If that feels noisy, tighten the chase name, lower the max price, add condition or grade details, or use custom exclusions for variants you do not want.',
       'You can also use `/alerts settings` to raise confidence or lower alert volume.'
     ];
   }
@@ -1174,7 +1174,7 @@ function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectio
 }
 
 function weeklyNextStep(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
-  if (summary.alertsReceived >= 25) return 'If this felt noisy, tighten max price, condition, or tune-out terms on the chases that fired most.';
+  if (summary.alertsReceived >= 25) return 'If this felt noisy, tighten max price, condition, or custom exclusions on the chases that fired most.';
   if (summary.newChasesAdded > 0) return 'Your new chases now shape future Discovery recommendations.';
   if (summary.alertsReceived === 0) return 'Refresh a chase or add another card if you want Discovery to broaden next week.';
   return 'Keep useful chases active and tune out listings that do not match your collecting intent.';
