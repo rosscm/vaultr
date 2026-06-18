@@ -21,15 +21,15 @@ const SHIPPING_COUNTRY_CHOICES = [
 export const alerts = {
   data: new SlashCommandBuilder()
     .setName('alerts')
-    .setDescription('Manage how Vaultr sends chase alerts')
+    .setDescription('Tune your alert rules and watch sources')
     .addSubcommand((sub) =>
       sub
         .setName('settings')
-        .setDescription('View or update your Vaultr controls')
+        .setDescription('Tune alert rules, pricing, and sources')
         .addStringOption((opt) =>
           opt
             .setName('source')
-            .setDescription('Where Vaultr watches for listings (default: eBay; shops Pro)')
+            .setDescription('Where Vaultr watches for listings (default: eBay, shops are Pro)')
             .addChoices(
               { name: 'eBay', value: 'EBAY' },
               { name: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY' },
@@ -46,11 +46,11 @@ export const alerts = {
         .addStringOption((opt) =>
           opt
             .setName('alert_volume')
-            .setDescription('How many alerts Vaultr may DM you (default: Balanced, 10/hour)')
+            .setDescription('How many alerts Vaultr may DM you (default: Balanced, 10/hr)')
             .addChoices(
-              { name: 'Quiet (3/hour)', value: 'QUIET' },
-              { name: 'Balanced (10/hour)', value: 'BALANCED' },
-              { name: 'More (25/hour)', value: 'MORE' }
+              { name: 'Quiet (3/hr)', value: 'QUIET' },
+              { name: 'Balanced (10/hr)', value: 'BALANCED' },
+              { name: 'More (25/hr)', value: 'MORE' }
             )
         )
         .addStringOption((opt) =>
@@ -75,24 +75,24 @@ export const alerts = {
         .addStringOption((opt) =>
           opt
             .setName('shipping_postal_code')
-            .setDescription('Postal/ZIP region for eBay shipping; CA stores FSA, US stores ZIP5; use OFF to clear')
+            .setDescription('Postal/ZIP region for eBay shipping. CA stores FSA, US stores ZIP5. Use OFF to clear')
             .setMaxLength(16)
         )
     )
     .addSubcommand((sub) =>
       sub
         .setName('recent')
-        .setDescription('Review your latest Vaultr alerts')
+        .setDescription('Review recent Vault matches')
     )
     .addSubcommand((sub) =>
       sub
         .setName('status')
-        .setDescription('Check that Vaultr is watching your active chases')
+        .setDescription('Check your Vault watch state')
     )
     .addSubcommand((sub) =>
       sub
         .setName('preview')
-        .setDescription('Preview the DM layout for a chase alert')
+        .setDescription('Preview a chase alert DM')
     ),
   async execute(interaction: any) {
     const subcommand = interaction.options.getSubcommand();

@@ -18,9 +18,9 @@ function maxAlertsForVolume(value: AlertVolume): number {
 }
 
 function displayAlertVolume(maxAlertsPerHour: number): string {
-  if (maxAlertsPerHour <= 5) return `Quiet (${maxAlertsPerHour}/hour)`;
-  if (maxAlertsPerHour >= 20) return `More (${maxAlertsPerHour}/hour)`;
-  return `Balanced (${maxAlertsPerHour}/hour)`;
+  if (maxAlertsPerHour <= 5) return `Quiet (${maxAlertsPerHour}/hr)`;
+  if (maxAlertsPerHour >= 20) return `More (${maxAlertsPerHour}/hr)`;
+  return `Balanced (${maxAlertsPerHour}/hr)`;
 }
 
 function normalizeShippingCountry(value: string | null): string | null | undefined {
@@ -65,12 +65,12 @@ function displayListingSourceSetting(value: ListingSourceModePreference, activeT
 function displayTrustedShopAccess(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
   if (activeTier === 'FREE') {
     return isStorefrontSourceMode(value)
-      ? `Paused until Full Vault (${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops)`
-      : `Full Vault brings ${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops`;
+      ? `Paused until Pro (${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops)`
+      : `Pro opens the Full Vault with ${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops`;
   }
   if (value === 'EBAY_SHOPIFY') return 'Enabled with eBay';
   if (value === 'SHOPIFY') return 'Enabled, trusted shops only';
-  return 'Available; switch source to eBay + Trusted Shops or Trusted Shops Only';
+  return 'Available. Choose eBay + Trusted Shops or Trusted Shops Only';
 }
 
 function sourceButton(
@@ -135,7 +135,7 @@ function settingsFields(plan: ReturnType<typeof getUserPlan>, settings: ReturnTy
       value: [
         `**Currency:** ${settings.alertCurrency} (default: USD)`,
         `**Ship-to:** ${shipToLocation} (default: Off)`,
-        '**Privacy:** ship-to country is used for eBay shipping estimates; CA/US postal input is stored only as a region code'
+        '**Privacy:** ship-to country is used for eBay shipping estimates. CA/US postal input is stored only as a region code'
       ].join('\n'),
       inline: false
     },
@@ -190,8 +190,8 @@ export const alertsSettings = {
       await interaction.reply({
         embeds: [
           warningEmbed(
-            'Trusted Shops Are Full Vault',
-            `Trusted shops live inside the Full Vault, useful for raw singles, promos, and restocks.\n\n**Free Vault:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Full Vault:** ${FULL_VAULT_SUMMARY}\n${proControlsNextLine()}`
+            'Trusted Shops Are Pro',
+            `Trusted shops are a Pro control inside the Full Vault, useful for raw singles, promos, and restocks.\n\n**Free Vault:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Full Vault:** ${FULL_VAULT_SUMMARY}\n${proControlsNextLine()}`
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -244,7 +244,7 @@ export async function handleAlertSourceButtons(interaction: any): Promise<boolea
   const activeTier = activePlanTier(plan);
   if (activeTier !== 'PRO') {
     await interaction.reply({
-      embeds: [warningEmbed('Trusted Shops Are Full Vault', `Trusted shop source controls live inside the Full Vault.\n\n${proControlsNextLine()}`)],
+      embeds: [warningEmbed('Trusted Shops Are Pro', `Trusted shop source controls are Pro controls inside the Full Vault.\n\n${proControlsNextLine()}`)],
       flags: MessageFlags.Ephemeral
     });
     return true;

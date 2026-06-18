@@ -23,7 +23,7 @@ describe('alerts command', () => {
       .toJSON()
       .options?.find((option: any) => option.name === 'status') as any;
 
-    expect(status?.description).toContain('watching');
+    expect(status?.description).toBe('Check your Vault watch state');
     expect(status?.options ?? []).toEqual([]);
   });
 });

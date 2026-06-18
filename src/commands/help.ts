@@ -7,7 +7,7 @@ export const help = {
   async execute(interaction: any) {
     const lines = [
       'Vaultr keeps watch for the cards you care about and sends matching listings by DM',
-      'Start with one specific chase; the Vault gets sharper from there',
+      'Start with one specific chase. The Vault gets sharper from there',
       '',
       '**First Steps**',
       '- Add a chase: `/chase add card:Pikachu 151 173`',
@@ -30,8 +30,8 @@ export const help = {
       '- Quiet stretches are normal for precise grails',
       '- Broaden the chase or lower confidence in `/alerts settings` if needed',
       '',
-      '**Free vs Pro**',
-      '- Free keeps 3 active chases',
+      '**Free Vault vs Full Vault**',
+      '- Free Vault keeps 3 active chases',
       `- Full Vault: ${FULL_VAULT_SUMMARY}`
     ];
 

@@ -66,7 +66,7 @@ export const alertsRecent = {
         embeds: [
           infoEmbed(
             '📨 Recent Alerts',
-            'No alerts yet. Keep your chases active; matching listings will appear here after Vaultr sends a DM'
+            'No alerts yet. Keep your chases active and matching listings will appear here after Vaultr sends a DM'
           )
         ],
         flags: MessageFlags.Ephemeral

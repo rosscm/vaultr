@@ -29,8 +29,8 @@ export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan')
       inline: false
     },
     {
-      name: 'Plan Role',
-      value: activeTier === 'PRO' ? 'Unlocks the full collector surface across alerts, trusted shops, precision controls, and Weekly Shelf depth' : 'Covers the starter collector surface; alert settings hold the watch controls',
+      name: 'What You Get',
+      value: activeTier === 'PRO' ? 'The full collector surface across alerts, trusted shops, precision controls, and Weekly Shelf depth' : 'The starter collector surface. Alert settings hold the watch controls',
       inline: false
     },
     {
@@ -63,7 +63,7 @@ export const plan = {
     .addSubcommand((sub) =>
       sub
         .setName('set')
-        .setDescription('Admin: update a user plan')
+        .setDescription('Update member Vault access')
         .addUserOption((opt) => opt.setName('user').setDescription('Member to update').setRequired(true))
         .addStringOption((opt) =>
           opt

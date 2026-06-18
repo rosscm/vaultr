@@ -251,14 +251,14 @@ function learningSignal(
 ): string {
   const rememberedTasteCount = Math.max(0, tasteProfileChases.length - activeChases.length);
   if (activeChases.length === 0 && rememberedTasteCount > 0) {
-    return `remembered taste; add active chases to sharpen it`;
+    return `remembered taste, add active chases to sharpen it`;
   }
   if (activeChases.length === 0) return 'add a few chases to shape Discovery';
-  const promoSignal = hasPromoLeaningDiscoveryProfile(tasteProfileChases) ? '; promos emerging' : '';
+  const promoSignal = hasPromoLeaningDiscoveryProfile(tasteProfileChases) ? ' + promos emerging' : '';
   const memoryNote = rememberedTasteCount > 0 ? ' + taste memory' : '';
   if (hasLearnedProfile) {
     const signals = tasteSignalsFromChases(tasteProfileChases, lane).filter((signal) => signal !== lane);
-    const signalNote = signals.length > 0 ? `; ${signals.join(', ')}` : '';
+    const signalNote = signals.length > 0 ? ` + ${signals.join(', ')}` : '';
     return `active chases${memoryNote}${signalNote}`;
   }
   if (hasFullDiscovery) return `taking shape from active chases${memoryNote}${promoSignal}`;
@@ -1258,17 +1258,17 @@ function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshWork[]): Set<
 function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
   if (candidate.sourceStatus === 'PENDING') {
     return candidate.image
-        ? 'Market data is updating; pricing will appear once the source responds'
-        : 'Market data is updating; image and pricing will appear once the source responds';
+        ? 'Market data is updating. Pricing will appear once the source responds'
+        : 'Market data is updating. Image and pricing will appear once the source responds';
   }
-      if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay; Vaultr will retry automatically';
-      if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time; Vaultr will retry automatically';
+      if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay. Vaultr will retry automatically';
+      if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time. Vaultr will retry automatically';
   const currency = candidate.displayCurrency ?? currencyHint;
   const hasSoldComps = candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE;
   const hasAskComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0;
   const hasReliableAskOnlyComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE;
   if (!hasSoldComps && !hasAskComps) {
-    return 'Market data is still being gathered; Vaultr will keep checking';
+    return 'Market data is still being gathered. Vaultr will keep checking';
   }
   if (hasSoldComps && hasAskComps) {
     return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps); ${formatMoney(candidate.typicalRawAskingTotal, currency)} raw ask`;
@@ -1645,7 +1645,7 @@ export function discoveryShelfTighteningNote(): string {
 }
 
 export function discoveryShelfMarketCheckNote(shelfSize: number): string {
-  return `🧪 **Market Check:** showing ${shelfSize} picks with cleaner live market checks; thinner comp rows will keep refreshing automatically`;
+  return `🧪 **Market Check:** showing ${shelfSize} picks with cleaner live market checks. Thinner comp rows will keep refreshing automatically`;
 }
 
 export function shouldShowDiscoveryShelfTighteningNote(hasFullDiscovery: boolean, shelfSize: number, proShelfSize = weeklyDiscoveryShelfSizeForPlan('PRO')): boolean {
@@ -2761,9 +2761,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     discovery.hasFullDiscovery,
     discovery.hasLearnedProfile
   );
-  const marketCheckedProfileSummary = profileSummary.includes('; ')
-    ? profileSummary.replace('; ', ' with live market checks; ')
-    : `${profileSummary} with live market checks`;
+  const marketCheckedProfileSummary = `${profileSummary} with live market checks`;
   const lines = [
     discovery.hasFullDiscovery
       ? `🪄 **Personal Picks:** ${shelfCandidates.length} new ${shelfCandidates.length === 1 ? 'find' : 'finds'} shaped by ${marketCheckedProfileSummary}`

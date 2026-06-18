@@ -5,7 +5,7 @@ import { infoEmbed, successEmbed } from '../ui/embeds.js';
 import { upgradeFreeVaultLines, upgradeFullVaultLines } from './pro-copy.js';
 
 export const upgrade = {
-  data: new SlashCommandBuilder().setName('upgrade').setDescription('See how Vaultr Pro deepens your Vault'),
+  data: new SlashCommandBuilder().setName('upgrade').setDescription('See how Vaultr Pro opens the Full Vault'),
   async execute(interaction: any) {
     const plan = getUserPlan(interaction.user.id);
 
@@ -34,7 +34,7 @@ export const upgrade = {
       ...upgradeFullVaultLines(),
       '',
       '**Status**',
-      'Checkout is coming soon; Pro access is currently available by request'
+      'Checkout is coming soon. Pro access is currently available by request'
     ];
 
     await interaction.reply({

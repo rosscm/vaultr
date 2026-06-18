@@ -27,7 +27,8 @@ describe('buildAlertsStatusEmbed', () => {
     const embed = buildAlertsStatusEmbed(userId, new Date('2026-06-12T19:00:00.000Z'));
 
     expect(embed.toJSON().title).toBe('🟢 Vaultr Watch Status');
-    expect(embed.toJSON().description).toBe('Watching now; fresh matches surfaced today');
+    expect(embed.toJSON().description).toBe('Fresh matches surfaced today');
+    expect(embed.toJSON().description).not.toContain(';');
     expect(embedFieldValue(embed, 'Watching')).toContain('**Active:** 1/50');
     expect(embedFieldValue(embed, 'Sweeps')).toContain('**Next:** about 10m');
     expect(embedFieldValue(embed, 'Finds')).toContain('**Last 24h:** 1');
@@ -47,7 +48,8 @@ describe('buildAlertsStatusEmbed', () => {
 
     const embed = buildAlertsStatusEmbed(userId, new Date('2026-06-12T19:00:00.000Z'));
 
-    expect(embed.toJSON().description).toBe('Watching active chases; extra saved chases are paused by plan limit');
+    expect(embed.toJSON().description).toBe('Extra saved chases are paused by plan limit');
+    expect(embed.toJSON().description).not.toContain(';');
     expect(embedFieldValue(embed, 'Watching')).toContain('**Active:** 3/3');
     expect(embedFieldValue(embed, 'Watching')).toContain('**Paused:** 1');
     expect(embed.toJSON().fields?.some((field) => field.name === 'Quiet Read')).toBe(false);

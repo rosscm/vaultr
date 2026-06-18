@@ -21,7 +21,7 @@ export const start = {
 
     const lines = [
       '**Build a sharper Vault around the cards you love.**',
-      'Add your grails, promos, and favorite finds; Vaultr keeps watch for listings that fit',
+      'Add your grails, promos, and favorite finds. Vaultr keeps watch for listings that fit',
       '',
       '**Step 1:** Add a card you are chasing with `/chase add`',
       '**Step 2:** View or update your Vaultr controls with `/alerts settings`',
@@ -34,7 +34,7 @@ export const start = {
       `**Minimum Confidence:** ${settings.minScore}`,
       `**Price Currency:** ${settings.alertCurrency}`,
       '',
-      '**Tip:** Add the card number when it matters; tiny details make cleaner alerts'
+      '**Tip:** Add the card number when it matters. Tiny details make cleaner alerts'
     ];
 
     await interaction.reply({

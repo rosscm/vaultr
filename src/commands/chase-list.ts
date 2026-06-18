@@ -62,7 +62,7 @@ export function buildChaseListEmbed(userId: string, page: number) {
   if (total === 0) {
     return {
       empty: true as const,
-      embeds: [infoEmbed('📭 No Active Chases', 'Use `/chase add` to start your Vault; active chases shape alerts and Discovery recommendations')],
+      embeds: [infoEmbed('📭 No Active Chases', 'Add a chase to start your Vault. Active chases shape alerts and Discovery recommendations')],
       components: []
     };
   }
@@ -116,7 +116,7 @@ export function buildChaseListEmbed(userId: string, page: number) {
     renderGroup('🏆 Grail', activeGrail),
     renderGroup('🔥 High', activeHigh),
     renderGroup('🟢 Casual', activeNormal),
-    renderGroup('⏸️ Paused Until Pro', pausedPageItems, { includePriority: true, paused: true })
+    renderGroup('⏸️ Paused (Full Vault)', pausedPageItems, { includePriority: true, paused: true })
   ].filter(Boolean);
 
   const description = [
