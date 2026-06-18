@@ -1,7 +1,7 @@
 import { ActionRowBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { getUserPlan, listChases, updateChase } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
-import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
+import { activePlanTier } from '../services/plans.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, gradeSelectionWarning, inferGradingTypeFromGrade, normalizeConditionChoice } from './chase-options.js';
