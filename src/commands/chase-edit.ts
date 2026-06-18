@@ -37,6 +37,24 @@ function chaseChoiceName(chase: ReturnType<typeof listChases>[number], entry: nu
   return `#${entry} ${chase.cardName}${suffix}`.slice(0, 100);
 }
 
+function resolveChaseSelection(chases: ReturnType<typeof listChases>, value: string): { chase: ReturnType<typeof listChases>[number]; entry: number } | null {
+  const trimmed = value.trim();
+  const byId = chases.find((chase) => chase.id === trimmed);
+  if (byId) return { chase: byId, entry: chases.findIndex((chase) => chase.id === byId.id) + 1 };
+
+  if (/^#?\d+$/.test(trimmed)) {
+    const entry = Number.parseInt(trimmed.replace(/^#/, ''), 10);
+    const chase = chases[entry - 1];
+    if (chase) return { chase, entry };
+  }
+
+  const normalized = trimmed.toLowerCase();
+  const byName = chases.find((chase) => chase.cardName.toLowerCase() === normalized);
+  if (byName) return { chase: byName, entry: chases.findIndex((chase) => chase.id === byName.id) + 1 };
+
+  return null;
+}
+
 function addOptionalValue(input: TextInputBuilder, value: string | undefined): TextInputBuilder {
   return value && value.length > 0 ? input.setValue(value) : input;
 }
@@ -186,13 +204,13 @@ export const chaseEdit = {
   async execute(interaction: any) {
     const chaseId = interaction.options.getString('chase', true);
     const chases = listChases(interaction.user.id);
-    const entryById = new Map(chases.map((chase, index) => [chase.id, index + 1]));
-    const match = chases.find((chase) => chase.id === chaseId);
-    const matchEntry = match ? entryById.get(match.id) : undefined;
+    const selection = resolveChaseSelection(chases, chaseId);
+    const match = selection?.chase;
+    const matchEntry = selection?.entry;
 
     if (!match) {
       await interaction.reply({
-        embeds: [errorEmbed('Chase Not Found', 'That saved chase could not be found. Try the `chase` picker again')],
+        embeds: [errorEmbed('Chase Not Found', 'That saved chase could not be found. Pick from the `chase` menu or enter its list number')],
         flags: MessageFlags.Ephemeral
       });
       return;

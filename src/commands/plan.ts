@@ -1,26 +1,10 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { getUserAlertSettings, getUserPlan } from '../services/chase-store.js';
-import { getEntitlementsForTier } from '../services/entitlements.js';
-import { activePlanTier, formatActivePlanAccess, formatPollInterval, PLAN_LIMITS } from '../services/plans.js';
-import { listTrustedShopifyShopNames } from '../services/shopify.js';
+import { getUserPlan } from '../services/chase-store.js';
+import { activePlanTier, formatActivePlanAccess } from '../services/plans.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { executePlanSet } from './plan-set.js';
 import { fullVaultLines } from './pro-copy.js';
-import type { ListingSourceModePreference } from '../types.js';
-
-function displaySourceMode(value: ListingSourceModePreference): string {
-  if (value === 'EBAY_SHOPIFY') return 'eBay + Trusted Shops';
-  if (value === 'SHOPIFY') return 'Trusted Shops Only';
-  return 'eBay';
-}
-
-export function displayEffectiveSourceMode(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
-  const entitlements = getEntitlementsForTier(activeTier);
-  if (entitlements.storefrontMonitoring) return displaySourceMode(value);
-  if (value === 'EBAY_SHOPIFY' || value === 'SHOPIFY') return displaySourceMode('EBAY');
-  return displaySourceMode(value);
-}
 
 function displayPlanAccess(userPlan: ReturnType<typeof getUserPlan>): string {
   const access = formatActivePlanAccess(userPlan);
@@ -31,28 +15,27 @@ function displayPlanAccess(userPlan: ReturnType<typeof getUserPlan>): string {
 
 export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan') {
   const userPlan = getUserPlan(userId);
-  const settings = getUserAlertSettings(userId);
   const activeTier = activePlanTier(userPlan);
-  const limits = PLAN_LIMITS[activeTier];
-  const trustedShopNames = listTrustedShopifyShopNames().join(', ');
   const activeAccessLine = displayPlanAccess(userPlan);
-  const sourceLine = `**Watching:** ${displayEffectiveSourceMode(settings.listingSourceMode, activeTier)}`;
-  const sourceLines = activeTier === 'PRO' ? [sourceLine, `**Trusted Shops:** ${trustedShopNames}`, '**Source Controls:** use `/alerts settings` to pick a watch mode'] : [sourceLine];
-  const embed = infoEmbed(title, activeTier === 'PRO' ? 'Pro Vault is active' : 'Free Vault is live');
+  const vaultName = activeTier === 'PRO' ? 'Full Vault' : 'Free Vault';
+  const accessSummary = activeTier === 'PRO'
+    ? 'Full Vault is active: deeper Weekly Shelf recommendations, Taste Profile memory, trusted shops, and precision controls'
+    : 'Free Vault is live: core chase tracking and Weekly Discovery previews';
+  const embed = infoEmbed(title, accessSummary);
   embed.addFields(
     {
-      name: 'Plan',
-      value: [`**Access:** ${activeAccessLine}`, `**Active Chases:** ${limits.maxActiveChases}`, `**Watch Cadence:** every ${formatPollInterval(limits.pollIntervalSeconds)}`].join('\n'),
+      name: 'Current Vault',
+      value: [`**Vault:** ${vaultName}`, `**Access:** ${activeAccessLine}`].join('\n'),
       inline: false
     },
     {
-      name: 'Vault Depth',
-      value: activeTier === 'PRO' ? 'Deeper Weekly Shelf recommendations with Taste Profile memory' : 'Weekly Discovery previews shaped by your active chases',
+      name: 'Plan Role',
+      value: activeTier === 'PRO' ? 'Unlocks the full collector surface across alerts, trusted shops, precision controls, and Weekly Shelf depth' : 'Covers the starter collector surface; alert settings hold the watch controls',
       inline: false
     },
     {
-      name: 'Sources',
-      value: [...sourceLines, `**Updated:** ${formatLocalDateTime(userPlan.updatedAt)}`].join('\n'),
+      name: 'Updated',
+      value: formatLocalDateTime(userPlan.updatedAt),
       inline: false
     }
   );

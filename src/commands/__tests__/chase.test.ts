@@ -203,6 +203,27 @@ describe('chase command', () => {
     expect(interaction.reply).toHaveBeenCalledOnce();
   });
 
+  it('edits a chase when Discord submits a typed list number instead of picker id', async () => {
+    const userId = testUserId('edit-number-fallback');
+    setUserPlan(userId, 'FREE');
+    addChase({ userId, cardName: 'Pikachu Skyridge 84', priority: 'GRAIL', listingType: 'ANY' });
+    const target = addChase({ userId, cardName: 'Mew XY Black Star Promos XY192', priority: 'NORMAL', listingType: 'ANY', maxPrice: 130 });
+
+    const interaction = mockInteraction(userId, 'edit', {
+      chase: '2',
+      max_price: 140
+    });
+
+    await chase.execute(interaction);
+
+    const updated = listChases(userId).find((item) => item.id === target.id);
+    expect(updated?.cardName).toBe('Mew XY Black Star Promos XY192');
+    expect(updated?.maxPrice).toBe(140);
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({
+      embeds: expect.arrayContaining([expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('Chase #2 Updated') }) })])
+    }));
+  });
+
   it('removes a chase by selected autocomplete value', async () => {
     const userId = testUserId('remove-picker');
     const keep = addChase({
