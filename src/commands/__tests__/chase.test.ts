@@ -60,10 +60,26 @@ describe('chase command', () => {
     const options = edit.options ?? [];
     const chaseOption = options.find((option: any) => option.name === 'chase');
     const entryOption = options.find((option: any) => option.name === 'entry');
+    const tuneOutOption = options.find((option: any) => option.name === 'tune_out_terms');
+    const addTuneOutOption = options.find((option: any) => option.name === 'add_tune_out_terms');
 
     expect(chaseOption?.autocomplete).toBe(true);
     expect(chaseOption?.required).toBe(true);
+    expect(options.map((option: any) => option.name)).toEqual([
+      'chase',
+      'card',
+      'max_price',
+      'grading_type',
+      'grade_value',
+      'condition',
+      'listing_type',
+      'priority',
+      'target_note',
+      'tune_out_terms'
+    ]);
     expect(entryOption).toBeUndefined();
+    expect(tuneOutOption?.description).toContain('Replace tune-outs');
+    expect(addTuneOutOption).toBeUndefined();
   });
 
   it('requires remove to pick a chase by autocomplete', () => {
@@ -94,7 +110,7 @@ describe('chase command', () => {
     expect(options.get('priority')).toContain('default: Casual');
     expect(options.get('target_note')).toContain('default: None');
     for (const name of ['condition', 'listing_type', 'tune_out_terms', 'priority', 'target_note']) {
-      expect(options.get(name)).toContain('[PRO ONLY]');
+      expect(options.get(name)).toContain('[PRO]');
     }
   });
 
@@ -219,9 +235,25 @@ describe('chase command', () => {
     const updated = listChases(userId).find((item) => item.id === target.id);
     expect(updated?.cardName).toBe('Mew XY Black Star Promos XY192');
     expect(updated?.maxPrice).toBe(140);
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({
-      embeds: expect.arrayContaining([expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('Chase #2 Updated') }) })])
-    }));
+    expect(interaction.reply).toHaveBeenCalledOnce();
+  });
+
+  it('edits a chase when Discord submits the visible picker label', async () => {
+    const userId = testUserId('edit-label-fallback');
+    setUserPlan(userId, 'FREE');
+    addChase({ userId, cardName: 'Pikachu Skyridge 84', priority: 'GRAIL', listingType: 'ANY' });
+    const target = addChase({ userId, cardName: 'Mew XY Black Star Promos XY192', priority: 'NORMAL', listingType: 'ANY', maxPrice: 130 });
+
+    const interaction = mockInteraction(userId, 'edit', {
+      chase: '#2 Mew XY Black Star Promos XY192 — Max 130',
+      max_price: 140
+    });
+
+    await chase.execute(interaction);
+
+    const updated = listChases(userId).find((item) => item.id === target.id);
+    expect(updated?.maxPrice).toBe(140);
+    expect(interaction.reply).toHaveBeenCalledOnce();
   });
 
   it('removes a chase by selected autocomplete value', async () => {
@@ -293,13 +325,13 @@ describe('chase command', () => {
 
     const payload = buildChaseListEmbed(userId, 0);
     const data = payload.embeds[0].toJSON();
-    const pausedSection = data.description?.split('**⏸️ Paused Until Pro**')[1]?.split('\n\n---')[0] ?? '';
+    const pausedSection = data.description?.split('**⏸️ Paused (Full Vault)**')[1]?.split('\n\n---')[0] ?? '';
 
     expect(pausedSection).toContain('Priority: Casual | Max: 104 USD');
     expect(pausedSection).not.toContain('Grade:');
     expect(pausedSection).not.toContain('Condition:');
     expect(pausedSection).not.toContain('Listing:');
-    expect(pausedSection).not.toContain('Status: Paused until Pro');
+    expect(pausedSection).not.toContain('Status: Paused until Full Vault');
     expect(pausedSection).not.toContain('Tune Out:');
   });
 

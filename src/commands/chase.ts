@@ -8,7 +8,7 @@ import { CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES } from './
 export const chase = {
   data: new SlashCommandBuilder()
     .setName('chase')
-    .setDescription('Manage your Vault chases')
+    .setDescription('Build your Vault chase list')
     .addSubcommand((sub) =>
       sub
         .setName('add')
@@ -37,13 +37,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('[PRO ONLY] Minimum raw condition (default: Any)')
+            .setDescription('[PRO] Minimum raw condition (default: Any)')
             .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('listing_type')
-            .setDescription('[PRO ONLY] Auction or Buy It Now preference (default: Any)')
+            .setDescription('[PRO] Auction or Buy It Now preference (default: Any)')
             .addChoices(
               { name: 'Any', value: 'ANY' },
               { name: 'Auction', value: 'AUCTION' },
@@ -53,13 +53,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('tune_out_terms')
-            .setDescription('[PRO ONLY] Extra terms to exclude (default: None)')
+            .setDescription('[PRO] Extra terms to exclude (default: None)')
             .setMaxLength(240)
         )
         .addStringOption((opt) =>
           opt
             .setName('priority')
-            .setDescription('[PRO ONLY] Chase importance (default: Casual)')
+            .setDescription('[PRO] Chase importance (default: Casual)')
             .addChoices(
               { name: 'Casual', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
@@ -67,7 +67,7 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('[PRO ONLY] Short note for this chase (default: None)').setMaxLength(120)
+          opt.setName('target_note').setDescription('[PRO] Short note for this chase (default: None)').setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>
@@ -103,13 +103,13 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('condition')
-            .setDescription('[PRO ONLY] New minimum raw condition')
+            .setDescription('[PRO] New minimum raw condition')
             .addChoices(...CONDITION_CHOICES)
         )
         .addStringOption((opt) =>
           opt
             .setName('listing_type')
-            .setDescription('[PRO ONLY] New Auction or Buy It Now preference')
+            .setDescription('[PRO] New Auction or Buy It Now preference')
             .addChoices(
               { name: 'Any', value: 'ANY' },
               { name: 'Auction', value: 'AUCTION' },
@@ -118,14 +118,8 @@ export const chase = {
         )
         .addStringOption((opt) =>
           opt
-            .setName('tune_out_terms')
-            .setDescription('[PRO ONLY] New extra terms to exclude')
-            .setMaxLength(240)
-        )
-        .addStringOption((opt) =>
-          opt
             .setName('priority')
-            .setDescription('[PRO ONLY] New chase importance')
+            .setDescription('[PRO] New chase importance')
             .addChoices(
               { name: 'Casual', value: 'NORMAL' },
               { name: 'High', value: 'HIGH' },
@@ -133,7 +127,10 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription('[PRO ONLY] New note for this chase').setMaxLength(120)
+          opt.setName('target_note').setDescription("[PRO] New note. Type the word 'clear' to remove the saved note").setMaxLength(120)
+        )
+        .addStringOption((opt) =>
+          opt.setName('tune_out_terms').setDescription("[PRO] Replace tune-outs. Type the word 'clear' to remove custom terms").setMaxLength(240)
         )
     )
     .addSubcommand((sub) =>
