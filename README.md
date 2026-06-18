@@ -63,10 +63,12 @@ Vaultr is a Discord-native collector companion for card chases, grail sightings,
 
 ## Run As Services (Raspberry Pi)
 
-Use the included bot and worker unit files:
+Use the included bot, worker, backup, and ops unit files:
 
 - [deploy/vaultr.service](deploy/vaultr.service)
 - [deploy/vaultr-discovery-market-worker.service](deploy/vaultr-discovery-market-worker.service)
+- [deploy/vaultr-backup.service](deploy/vaultr-backup.service)
+- [deploy/vaultr-backup.timer](deploy/vaultr-backup.timer)
 - [deploy/vaultr-ops-check.service](deploy/vaultr-ops-check.service)
 - [deploy/vaultr-ops-check.timer](deploy/vaultr-ops-check.timer)
 
@@ -75,22 +77,28 @@ Use the included bot and worker unit files:
 2. Copy services:
    - `sudo cp deploy/vaultr.service /etc/systemd/system/vaultr.service`
    - `sudo cp deploy/vaultr-discovery-market-worker.service /etc/systemd/system/vaultr-discovery-market-worker.service`
+   - `sudo cp deploy/vaultr-backup.service /etc/systemd/system/vaultr-backup.service`
+   - `sudo cp deploy/vaultr-backup.timer /etc/systemd/system/vaultr-backup.timer`
    - `sudo cp deploy/vaultr-ops-check.service /etc/systemd/system/vaultr-ops-check.service`
    - `sudo cp deploy/vaultr-ops-check.timer /etc/systemd/system/vaultr-ops-check.timer`
 3. Reload and enable:
    - `sudo systemctl daemon-reload`
    - `sudo systemctl enable vaultr`
    - `sudo systemctl enable vaultr-discovery-market-worker`
+   - `sudo systemctl enable vaultr-backup.timer`
    - `sudo systemctl enable vaultr-ops-check.timer`
    - `sudo systemctl start vaultr`
    - `sudo systemctl start vaultr-discovery-market-worker`
+   - `sudo systemctl start vaultr-backup.timer`
    - `sudo systemctl start vaultr-ops-check.timer`
 4. Check status/logs:
    - `sudo systemctl status vaultr`
    - `sudo systemctl status vaultr-discovery-market-worker`
+   - `sudo systemctl status vaultr-backup.timer`
    - `sudo systemctl status vaultr-ops-check.timer`
    - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/vaultr.log`
    - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/discovery-market-worker.log`
+   - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/backup.log`
    - `tail -f /home/pi/Documents/GitHub/vaultr/data/logs/ops-check.log`
 
 ### Log Rotation
@@ -113,6 +121,8 @@ npm run backup
 ```
 
 Backups are written to `VAULTR_BACKUP_DIR` (default `./data/backups`) and are ignored by git with the rest of `data/*`. The command uses SQLite's backup API, so the bot and worker do not need to be stopped for routine backups.
+
+On the Pi, install [deploy/vaultr-backup.service](deploy/vaultr-backup.service) and [deploy/vaultr-backup.timer](deploy/vaultr-backup.timer) so SQLite backups run automatically. The timer runs once after boot and then every 12 hours with a small randomized delay, keeping backup age comfortably under the default 24-hour ops threshold.
 
 For a restore drill on the Pi:
 
@@ -164,7 +174,9 @@ sudo journalctl -u vaultr-ops-check.service -n 50
    - `npm run backup`
 - Operational checks pass:
    - `npm run ops:check`
-- Ops timer is enabled:
+- Backup and ops timers are enabled:
+   - `systemctl is-enabled vaultr-backup.timer`
+   - `systemctl list-timers vaultr-backup.timer`
    - `systemctl is-enabled vaultr-ops-check.timer`
    - `systemctl list-timers vaultr-ops-check.timer`
 - Optional Discovery drops are tuned:

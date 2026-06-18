@@ -1,0 +1,14 @@
+[Unit]
+Description=Vaultr SQLite online backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/Documents/GitHub/vaultr
+EnvironmentFile=/home/pi/Documents/GitHub/vaultr/.env
+ExecStartPre=/usr/bin/mkdir -p /home/pi/Documents/GitHub/vaultr/data/logs
+ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr/dist/backup.js
+StandardOutput=append:/home/pi/Documents/GitHub/vaultr/data/logs/backup.log
+StandardError=append:/home/pi/Documents/GitHub/vaultr/data/logs/backup.log
