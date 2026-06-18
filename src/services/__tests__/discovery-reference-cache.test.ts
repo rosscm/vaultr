@@ -85,6 +85,21 @@ describe('discovery reference cache', () => {
     expect(queries).toContain('name:"Pikachu VMAX" number:SWSH286 set.name:"SWSH Black Star Promos"');
   });
 
+  it('builds exact Pokemon TCG queries for SM Black Star tag team promos', () => {
+    const queries = pokemonTcgQueriesForSuggestion({
+      name: 'Umbreon & Darkrai-GX SM Black Star Promos SM241',
+      lane: 'promo cards',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Umbreon & Darkrai-GX SM Black Star Promos SM241 Pokemon card',
+      requiredEvidenceTokens: ['umbreon', 'darkrai', 'sm241']
+    });
+
+    expect(queries).toContain('name:"Umbreon & Darkrai-GX" number:SM241 set.name:"SM Black Star Promos"');
+    expect(queries).not.toContain('name:"Umbreon & Darkrai-GX SM" number:SM241');
+  });
+
   it('does not send One Piece cards to the Pokemon TCG API', () => {
     const queries = pokemonTcgQueriesForSuggestion({
       name: 'Monkey.D.Luffy ST01-001 Leader',

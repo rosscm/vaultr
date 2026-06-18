@@ -67,6 +67,7 @@ const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /undaunted/i, setName: 'Undaunted' },
   { pattern: /hidden fates/i, setName: 'Hidden Fates' },
   { pattern: /surging sparks/i, setName: 'Surging Sparks' },
+  { pattern: /sm black star|sun & moon black star/i, setName: 'SM Black Star Promos' },
   { pattern: /swsh black star|sword & shield black star/i, setName: 'SWSH Black Star Promos' },
   { pattern: /nintendo black star/i, setName: 'Nintendo Black Star Promos' }
 ];
@@ -111,7 +112,7 @@ function compactName(value: string): string {
     .replace(/\bPokemon\b/gi, '')
     .replace(/\b(card|cards|promo|holo|secret rare|illustration rare|art rare|trainer gallery|parallel|leader|trading)\b/gi, '')
     .replace(/\bsurging sparks\b\s*\d{1,3}\b/gi, '')
-    .replace(/\b(?:sword & shield black star promos?|swsh black star promos?|xy black star promos?|bw black star promos?|black star promos?|black star|mcdonald'?s|anniversary|vending series|web series)\b/gi, '')
+    .replace(/\b(?:sun & moon black star promos?|sm black star promos?|sword & shield black star promos?|swsh black star promos?|xy black star promos?|bw black star promos?|black star promos?|black star|mcdonald'?s|anniversary|vending series|web series)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

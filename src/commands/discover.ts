@@ -2537,6 +2537,7 @@ async function discoverCandidatesForUser(
   profileConfidence: DiscoveryProfileConfidence;
   lane: string;
   candidates: DiscoveryCandidate[];
+  hiddenVaultPickCount: number;
 }> {
   const preferScheduledDrop = options.preferScheduledDrop ?? true;
   const requireScheduledDrop = options.requireScheduledDrop ?? false;
@@ -2566,10 +2567,12 @@ async function discoverCandidatesForUser(
   const latestDrop = hasFullDiscovery && preferScheduledDrop ? getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY') : null;
   if (latestDrop && latestDrop.items.length > 0) {
     const rejectedNameKeys = new Set(rejectedNames.map(discoveryNameKey));
-    const scheduledCandidates = candidatesFromScheduledDiscoveryDrop(latestDrop)
+    const scheduledDropCandidates = candidatesFromScheduledDiscoveryDrop(latestDrop)
       .filter((candidate) => !rejectedNameKeys.has(discoveryNameKey(candidate.suggestion.name)))
+      .filter(isDisplayableDiscoveryCandidate);
+    const hiddenVaultPickCount = scheduledDropCandidates.filter((candidate) => isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)).length;
+    const scheduledCandidates = scheduledDropCandidates
       .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
-      .filter(isDisplayableDiscoveryCandidate)
       .slice(0, targetVisibleCount);
     const scheduledMarketContext = {
       userId,
@@ -2599,7 +2602,8 @@ async function discoverCandidatesForUser(
       hasLearnedProfile,
       profileConfidence,
       lane: 'weekly discovery',
-      candidates
+      candidates,
+      hiddenVaultPickCount
     };
   }
   if (requireScheduledDrop) {
@@ -2611,7 +2615,8 @@ async function discoverCandidatesForUser(
       hasLearnedProfile,
       profileConfidence,
       lane: 'weekly discovery',
-      candidates: []
+      candidates: [],
+      hiddenVaultPickCount: 0
     };
   }
   const selectAndEnrich = async () => {
@@ -2688,7 +2693,9 @@ async function discoverCandidatesForUser(
     if (hasFullDiscovery && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT && visibleCandidates.length >= targetVisibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: visibleCandidates.map((candidate) => candidate.suggestion.name) });
     }
-    const candidates = (await attachReferenceImages(visibleCandidates))
+    const referencedCandidates = await attachReferenceImages(visibleCandidates);
+    const hiddenVaultPickCount = referencedCandidates.filter((candidate) => isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)).length;
+    const candidates = referencedCandidates
       .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
       .filter(isDisplayableDiscoveryCandidate);
     if (hasFullDiscovery && shouldSaveScheduledDrop && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT) {
@@ -2696,7 +2703,8 @@ async function discoverCandidatesForUser(
     }
     return {
       lane: selection.lane,
-      candidates
+      candidates,
+      hiddenVaultPickCount
     };
   };
   const preferred = await selectAndEnrich();
@@ -2710,8 +2718,14 @@ async function discoverCandidatesForUser(
     hasLearnedProfile,
     profileConfidence,
     lane,
-    candidates
+    candidates,
+    hiddenVaultPickCount: preferred.hiddenVaultPickCount
   };
+}
+
+function hiddenVaultPickNote(count: number): string {
+  const pickLabel = count === 1 ? 'pick' : 'picks';
+  return `Already in your Vault: ${count} ${pickLabel} tucked out of this shelf`;
 }
 
 function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>>, requestedPage = 0): DiscoveryShelfPayload {
@@ -2756,6 +2770,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
       : `🎬 **Preview:** ${shelfCandidates.length} ${shelfPickLabel} shaped by ${profileSummary}`,
     `🧵 **Threads:** ${pathSummary}`
   ];
+  if (discovery.hiddenVaultPickCount > 0) lines.push(hiddenVaultPickNote(discovery.hiddenVaultPickCount));
   if (discovery.hasFullDiscovery && hiddenCandidateCount > 0) {
     lines.push('', discoveryShelfMarketCheckNote(shelfCandidates.length));
   } else if (shouldShowDiscoveryShelfTighteningNote(discovery.hasFullDiscovery, shelfCandidates.length)) {
