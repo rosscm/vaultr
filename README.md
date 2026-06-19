@@ -8,11 +8,13 @@ Vaultr is a Discord-native collector companion for card chases, grail sightings,
 
 - Discord slash commands for building a personal Vault
 - Persistent chase criteria and collector context per user
-- Source adapters for eBay and trusted shop sources
+- Source adapters for eBay and Trusted Shops sources
 - DM-first grail sightings with dedupe and fit scoring
-- Prepared Discovery shelves shaped by the user's active chases and taste memory
+- Prepared Discovery shelves shaped by the user's active chases and taste profile memory
 - Scheduled Discovery drop announcements that open personalized private shelves from the channel instead of spamming DMs
 - Optional community heartbeat for shared collector activity
+
+Product copy and terminology conventions live in [docs/PRODUCT_VOICE.md](docs/PRODUCT_VOICE.md).
 
 ## Tech Stack
 
@@ -323,12 +325,13 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 - `alert_volume`: friendly DM volume preference (`Quiet` 3/hour, `Balanced` 10/hour, `More` 25/hour)
 - `alert_currency`: price currency used for listing prices and max-price comparisons (`USD`, `CAD`, `EUR`, `GBP`, `JPY`)
 - `shipping_country`: optional per-user ship-to country used to warn when a listing may not ship to you; selected from common destinations aligned with supported currencies
-- `source`: where Vaultr watches for sightings (`eBay`, `eBay + Trusted Shops`, or `Trusted Shops Only`; default `eBay`; trusted shop sources are Pro)
+- `shipping_postal_code`: optional CA/US region code for eBay shipping estimates; type `off` to remove saved value
+- `source`: where Vaultr watches for sightings (`eBay`, `eBay + Trusted Shops`, or `Trusted Shops Only`; default `eBay`; Trusted Shops sources are Pro)
 - `max_price` compares against total cost when shipping is known, and item price when shipping is unavailable
 - FX conversion uses live USD-based rates with background refresh and fallback to env overrides
 - Recommended defaults: `source=eBay`, `min_score=60`, `alert_volume=Balanced`, `alert_currency=USD`
-- Pro per-chase blocked terms via `negative_keywords` on `/chase add` and `/chase edit`
-- Default blocked terms on new chases: `proxy, custom, reprint, lot, orica, replica`
+- Pro per-chase custom exclusions via `custom_exclusions` on `/chase add` and `/chase edit`
+- Default exclusions on new chases: `proxy, custom, reprint, lot, orica, replica`
 - Per-chase grading uses `grading_type` plus `grade_value`, or `Raw / Ungraded` for raw cards only
 - Per-chase `condition` uses thresholds like `LP or better` and `MP or better`
 - Per-chase `listing_type` filter: `ANY`, `AUCTION`, or `BUY_IT_NOW`
