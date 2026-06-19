@@ -125,13 +125,13 @@ async function handleApplyTuning(interaction: any): Promise<boolean> {
   const alert = chaseId && feedbackToken ? getSentAlertByFeedbackToken(interaction.user.id, chaseId, feedbackToken) : null;
   const chase = chaseId ? getChase(interaction.user.id, chaseId) : null;
   if (!chaseId || !feedbackToken || !alert || !chase) {
-    await interaction.update({ content: 'Could not apply that tune-out rule', components: [] });
+    await interaction.update({ content: 'Could not apply those custom exclusions', components: [] });
     return true;
   }
 
   if (activePlanTier(getUserPlan(interaction.user.id)) !== 'PRO') {
     await interaction.update({
-      content: `Vaultr can spot this pattern, but persistent tune-out rules are part of the Full Vault.\n\n${proControlsNextLine()}`,
+      content: `Vaultr can spot this pattern, but persistent custom exclusions are part of the Full Vault.\n\n${proControlsNextLine()}`,
       components: []
     });
     return true;
@@ -139,7 +139,7 @@ async function handleApplyTuning(interaction: any): Promise<boolean> {
 
   const suggestion = suggestionForChase(interaction.user.id, chaseId);
   if (!suggestion) {
-    await interaction.update({ content: 'That tune-out pattern is already applied or no longer has enough recent signal', components: [] });
+    await interaction.update({ content: 'That custom exclusion pattern is already applied or no longer has enough recent signal', components: [] });
     return true;
   }
 
@@ -182,10 +182,10 @@ async function handleTuneOutReason(interaction: any): Promise<boolean> {
   if (suggestion) {
     const intro = formatTuningSuggestion(suggestion);
     if (activePlanTier(getUserPlan(interaction.user.id)) === 'PRO') {
-      followUp = `${intro} Apply a tune-out rule to exclude these going forward?`;
+      followUp = `${intro} Add custom exclusions for these going forward?`;
       components = [tuningApplyRow(chaseId, feedbackToken, suggestion)];
     } else {
-      followUp = `${intro}. Pro can turn that into an automatic chase rule`;
+      followUp = `${intro}. Pro can turn that into custom exclusions`;
     }
   }
 

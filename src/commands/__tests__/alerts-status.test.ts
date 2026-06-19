@@ -33,7 +33,7 @@ describe('buildAlertsStatusEmbed', () => {
     expect(embedFieldValue(embed, 'Sweeps')).toContain('**Next:** about 10m');
     expect(embedFieldValue(embed, 'Finds')).toContain('**Last 24h:** 1');
     expect(embed.toJSON().fields?.some((field) => field.name === 'Rules')).toBe(false);
-    expect(JSON.stringify(embed.toJSON().fields)).not.toContain('eBay + trusted shops');
+    expect(JSON.stringify(embed.toJSON().fields)).not.toContain('eBay + Trusted Shops');
     expect(JSON.stringify(embed.toJSON().fields)).not.toContain('CAD');
   });
 

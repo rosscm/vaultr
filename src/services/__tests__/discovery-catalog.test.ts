@@ -81,7 +81,7 @@ describe('selectDiscoverySuggestions', () => {
     expect(names.some((name) => name.startsWith('Mario Pikachu'))).toBe(false);
   });
 
-  it('does not let weak /018 taste memory fabricate e-reader or small-set support', () => {
+  it('does not let weak /018 taste profile memory fabricate e-reader or small-set support', () => {
     const selection = selectDiscoverySuggestions(
       null,
       [

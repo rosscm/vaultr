@@ -790,7 +790,7 @@ describe('selectVisibleCandidates', () => {
     expect(backfilled[2]?.listing?.url).toBe('https://www.ebay.ca/itm/articuno-listing');
   });
 
-  it('treats removed chase taste memory as an exact-repeat guard', () => {
+  it('treats removed chase taste profile memory as an exact-repeat guard', () => {
     const removedChases: Chase[] = [{ id: 'taste:removed-meowth', userId: 'u1', cardName: 'Meowth 18/53', createdAt: '2026-06-14T02:26:37.266Z', tasteSource: 'REMOVED_CHASE' }];
 
     expect(isActiveChaseEchoText('Meowth 18/53 trading card', removedChases)).toBe(true);
@@ -2483,7 +2483,7 @@ describe('Discovery plan scaling', () => {
     expect(discoveryVisibleCountForPlan('PRO')).toBe(7);
   });
 
-  it('keeps Free Discovery on active Vault signals while Pro can blend taste memory', () => {
+  it('keeps Free Discovery on active Vault signals while Pro can blend taste profile memory', () => {
     const activeChases: Chase[] = [
       { id: 'c1', userId: 'u1', cardName: 'Pikachu 26/83 promo', createdAt: '2026-06-03T00:00:00.000Z' },
       { id: 'c2', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-06-03T00:00:00.000Z' }

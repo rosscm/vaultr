@@ -182,7 +182,7 @@ describe('isDueForPollInterval', () => {
 });
 
 describe('orderAlertCandidatesForSending', () => {
-  it('keeps a trusted shop candidate ahead of eBay when both sources match', () => {
+  it('keeps a Trusted Shops candidate ahead of eBay when both sources match', () => {
     const ordered = orderAlertCandidatesForSending([
       { listing: { source: 'EBAY', listingId: 'ebay-1' }, rankScore: 70_000 },
       { listing: { source: 'EBAY', listingId: 'ebay-2' }, rankScore: 69_000 },
@@ -237,7 +237,7 @@ describe('alert eBay search options', () => {
     expect(text).not.toContain('condition or grade');
   });
 
-  it('keeps Pro high-volume chase guidance focused on advanced tune-out controls', () => {
+  it('keeps Pro high-volume chase guidance focused on advanced custom exclusion controls', () => {
     const text = chaseTuningNoticeLines({ cardName: 'blastoise 002' }, 'PRO', 3, 8).join('\n');
 
     expect(text).toContain('condition or grade');

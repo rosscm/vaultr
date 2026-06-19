@@ -55,7 +55,7 @@ function resolveChaseSelection(chases: ReturnType<typeof listChases>, value: str
 }
 
 function parseNegativeKeywords(value: string): string[] | null {
-  if (/^(none|clear|any)$/i.test(value.trim())) return null;
+  if (/^none$/i.test(value.trim())) return null;
   const keywords = value
     .split(',')
     .map((keyword) => keyword.trim())
@@ -140,8 +140,8 @@ export const chaseEdit = {
     const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? undefined;
     const priority = (interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null) ?? undefined;
     const targetNoteRaw = interaction.options.getString('target_note');
-    const targetNote = targetNoteRaw === null ? undefined : /^(none|clear)$/i.test(targetNoteRaw.trim()) ? null : targetNoteRaw;
-    const negativeKeywordsRaw = interaction.options.getString('tune_out_terms') ?? interaction.options.getString('tuning_terms') ?? interaction.options.getString('negative_keywords');
+    const targetNote = targetNoteRaw === null ? undefined : /^none$/i.test(targetNoteRaw.trim()) ? null : targetNoteRaw;
+    const negativeKeywordsRaw = interaction.options.getString('custom_exclusions');
     const plan = getUserPlan(interaction.user.id);
     const activeTier = activePlanTier(plan);
     const entitlements = getEntitlementsForTier(activeTier);

@@ -26,14 +26,14 @@ function displayAlertVolume(maxAlertsPerHour: number): string {
 function normalizeShippingCountry(value: string | null): string | null | undefined {
   if (value === null) return undefined;
   const normalized = value.trim().toUpperCase();
-  if (normalized === 'OFF' || normalized === 'NONE' || normalized === 'CLEAR') return null;
+  if (normalized === 'OFF') return null;
   return /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
 }
 
 function normalizeShippingPostalCode(value: string | null, shippingCountry?: string): string | null | undefined {
   if (value === null) return undefined;
   const normalized = value.trim().toUpperCase().replace(/\s+/g, ' ');
-  if (normalized === 'OFF' || normalized === 'NONE' || normalized === 'CLEAR') return null;
+  if (normalized === 'OFF') return null;
   if (shippingCountry === 'CA') {
     const compact = normalized.replace(/[\s-]+/g, '');
     const match = /^([A-Z]\d[A-Z])(?:\d[A-Z]\d)?$/.exec(compact);
@@ -65,11 +65,11 @@ function displayListingSourceSetting(value: ListingSourceModePreference, activeT
 function displayTrustedShopAccess(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
   if (activeTier === 'FREE') {
     return isStorefrontSourceMode(value)
-      ? `Paused until Pro (${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops)`
-      : `Pro opens the Full Vault with ${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops`;
+      ? `Paused until Pro (${PLAN_LIMITS.PRO.maxActiveChases} active chases + Trusted Shops)`
+      : `Pro opens the Full Vault with ${PLAN_LIMITS.PRO.maxActiveChases} active chases + Trusted Shops`;
   }
   if (value === 'EBAY_SHOPIFY') return 'Enabled with eBay';
-  if (value === 'SHOPIFY') return 'Enabled, trusted shops only';
+  if (value === 'SHOPIFY') return 'Enabled, Trusted Shops only';
   return 'Available. Choose eBay + Trusted Shops or Trusted Shops Only';
 }
 
@@ -96,11 +96,11 @@ function sourceRows(userId: string, activeTier: 'FREE' | 'PRO', currentSource: L
       sourceButton(
         userId,
         'EBAY_SHOPIFY',
-        currentSource === 'EBAY_SHOPIFY' ? 'eBay + Shops Active' : 'Use eBay + Shops',
+        currentSource === 'EBAY_SHOPIFY' ? 'eBay + Trusted Shops Active' : 'Use eBay + Trusted Shops',
         ButtonStyle.Primary,
         currentSource === 'EBAY_SHOPIFY'
       ),
-      sourceButton(userId, 'SHOPIFY', currentSource === 'SHOPIFY' ? 'Trusted Shops Active' : 'Use Shops Only', ButtonStyle.Secondary, currentSource === 'SHOPIFY')
+      sourceButton(userId, 'SHOPIFY', currentSource === 'SHOPIFY' ? 'Trusted Shops Active' : 'Use Trusted Shops Only', ButtonStyle.Secondary, currentSource === 'SHOPIFY')
     )
   ];
 }
@@ -172,7 +172,7 @@ export const alertsSettings = {
 
     if (shippingCountryInput !== null && shippingCountry === undefined) {
       await interaction.reply({
-        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or `OFF` to clear your ship-to country')],
+        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or choose `Off` to remove saved value')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -180,7 +180,7 @@ export const alertsSettings = {
 
     if (shippingPostalCodeInput !== null && shippingPostalCode === undefined) {
       await interaction.reply({
-        embeds: [warningEmbed('Invalid Postal Code', 'Postal regions are currently supported for `CA` and `US` only. Use a matching value like `M5V`, `M5V 2T6`, or `90210`, or `OFF` to clear it')],
+        embeds: [warningEmbed('Invalid Postal Code', "Postal regions are currently supported for `CA` and `US` only. Use a matching value like `M5V`, `M5V 2T6`, or `90210`, or type the word 'off' to remove saved value (default: Off)")],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -191,7 +191,7 @@ export const alertsSettings = {
         embeds: [
           warningEmbed(
             'Trusted Shops Are Pro',
-            `Trusted shops are a Pro control inside the Full Vault, useful for raw singles, promos, and restocks.\n\n**Free Vault:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Full Vault:** ${FULL_VAULT_SUMMARY}\n${proControlsNextLine()}`
+            `Trusted Shops are a Pro control inside the Full Vault, useful for raw singles, promos, and restocks.\n\n**Free Vault:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Full Vault:** ${FULL_VAULT_SUMMARY}\n${proControlsNextLine()}`
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -244,7 +244,7 @@ export async function handleAlertSourceButtons(interaction: any): Promise<boolea
   const activeTier = activePlanTier(plan);
   if (activeTier !== 'PRO') {
     await interaction.reply({
-      embeds: [warningEmbed('Trusted Shops Are Pro', `Trusted shop source controls are Pro controls inside the Full Vault.\n\n${proControlsNextLine()}`)],
+      embeds: [warningEmbed('Trusted Shops Are Pro', `Trusted Shops source controls are Pro controls inside the Full Vault.\n\n${proControlsNextLine()}`)],
       flags: MessageFlags.Ephemeral
     });
     return true;

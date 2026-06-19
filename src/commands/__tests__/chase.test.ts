@@ -60,6 +60,8 @@ describe('chase command', () => {
     const options = edit.options ?? [];
     const chaseOption = options.find((option: any) => option.name === 'chase');
     const entryOption = options.find((option: any) => option.name === 'entry');
+    const customExclusionsOption = options.find((option: any) => option.name === 'custom_exclusions');
+    const targetNoteOption = options.find((option: any) => option.name === 'target_note');
     const tuneOutOption = options.find((option: any) => option.name === 'tune_out_terms');
     const addTuneOutOption = options.find((option: any) => option.name === 'add_tune_out_terms');
 
@@ -74,11 +76,16 @@ describe('chase command', () => {
       'condition',
       'listing_type',
       'priority',
-      'tune_out_terms',
+      'custom_exclusions',
       'target_note'
     ]);
     expect(entryOption).toBeUndefined();
-    expect(tuneOutOption?.description).toContain('Custom exclusions');
+    expect(customExclusionsOption?.description).toContain('Custom exclusions');
+    expect(customExclusionsOption?.description).toContain("Type the word 'none' to remove saved terms");
+    expect(customExclusionsOption?.description).not.toContain('default: None');
+    expect(targetNoteOption?.description).toContain("Type the word 'none'");
+    expect(targetNoteOption?.description).not.toContain('default: None');
+    expect(tuneOutOption).toBeUndefined();
     expect(addTuneOutOption).toBeUndefined();
   });
 
@@ -106,10 +113,10 @@ describe('chase command', () => {
     expect(options.get('condition')).toContain('default: Any');
     expect(options.get('listing_type')).toContain('default: Any');
     expect(options.get('listing_type')).toContain('Auction');
-    expect(options.get('tune_out_terms')).toContain('default: None');
+    expect(options.get('custom_exclusions')).toContain('default: None');
     expect(options.get('priority')).toContain('default: Casual');
     expect(options.get('target_note')).toContain('default: None');
-    for (const name of ['condition', 'listing_type', 'tune_out_terms', 'priority', 'target_note']) {
+    for (const name of ['condition', 'listing_type', 'custom_exclusions', 'priority', 'target_note']) {
       expect(options.get(name)).toContain('[PRO]');
     }
   });
@@ -127,7 +134,7 @@ describe('chase command', () => {
       listing_type: 'AUCTION',
       priority: 'GRAIL',
       target_note: 'Moonbreon grail',
-      tune_out_terms: 'digital, jumbo'
+      custom_exclusions: 'digital, jumbo'
     });
 
     await chase.execute(interaction);
@@ -165,7 +172,7 @@ describe('chase command', () => {
     await chase.execute(mockInteraction(userId, 'add', {
       card: 'Umbreon 217/187 Japanese',
       max_price: 550,
-      tune_out_terms: 'korean, chinese'
+      custom_exclusions: 'korean, chinese'
     }));
 
     const saved = listChases(userId)[0];
@@ -202,7 +209,7 @@ describe('chase command', () => {
       listing_type: 'BUY_IT_NOW',
       priority: 'HIGH',
       target_note: 'Binder copy',
-      tune_out_terms: 'creased'
+      custom_exclusions: 'creased'
     });
 
     await chase.execute(interaction);
@@ -235,6 +242,54 @@ describe('chase command', () => {
     const updated = listChases(userId).find((item) => item.id === target.id);
     expect(updated?.cardName).toBe('Mew XY Black Star Promos XY192');
     expect(updated?.maxPrice).toBe(140);
+    expect(interaction.reply).toHaveBeenCalledOnce();
+  });
+
+  it('clears Pro edit text extras with the default word none', async () => {
+    const userId = testUserId('pro-edit-none-clear');
+    setUserPlan(userId, 'PRO');
+    const original = addChase({
+      userId,
+      cardName: 'Umbreon VMAX 215/203',
+      targetNote: 'Moonbreon grail',
+      negativeKeywords: ['digital', 'jumbo']
+    });
+
+    const interaction = mockInteraction(userId, 'edit', {
+      chase: original.id,
+      target_note: 'none',
+      custom_exclusions: 'none'
+    });
+
+    await chase.execute(interaction);
+
+    const updated = listChases(userId)[0];
+    expect(updated.targetNote).toBeUndefined();
+    expect(updated.negativeKeywords).toBeUndefined();
+    expect(interaction.reply).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat clear as a Pro edit removal alias', async () => {
+    const userId = testUserId('pro-edit-clear-literal');
+    setUserPlan(userId, 'PRO');
+    const original = addChase({
+      userId,
+      cardName: 'Umbreon VMAX 215/203',
+      targetNote: 'Moonbreon grail',
+      negativeKeywords: ['digital', 'jumbo']
+    });
+
+    const interaction = mockInteraction(userId, 'edit', {
+      chase: original.id,
+      target_note: 'clear',
+      custom_exclusions: 'clear'
+    });
+
+    await chase.execute(interaction);
+
+    const updated = listChases(userId)[0];
+    expect(updated.targetNote).toBe('clear');
+    expect(updated.negativeKeywords).toEqual(['clear']);
     expect(interaction.reply).toHaveBeenCalledOnce();
   });
 
@@ -282,7 +337,7 @@ describe('chase command', () => {
     expect(interaction.reply).toHaveBeenCalledOnce();
   });
 
-  it('lists default blocked terms once while showing chase-specific custom exclusions inline', () => {
+  it('lists default exclusions once while showing chase-specific custom exclusions inline', () => {
     const userId = testUserId('list-default-exclusions');
     setUserPlan(userId, 'PRO');
     addChase({
@@ -335,7 +390,7 @@ describe('chase command', () => {
     expect(pausedSection).not.toContain('Custom Exclusions:');
   });
 
-  it('undoes Discovery feedback and removes More Like taste memory', () => {
+  it('undoes Discovery feedback and removes More Like taste profile memory', () => {
     const userId = testUserId('discovery-feedback-undo');
     const cardName = 'Mew ex Paldean Fates 232';
 
@@ -350,7 +405,7 @@ describe('chase command', () => {
     expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).not.toContain(cardName);
   });
 
-  it('switching Discovery feedback to Not For Me removes prior More Like taste memory', () => {
+  it('switching Discovery feedback to Not For Me removes prior More Like taste profile memory', () => {
     const userId = testUserId('discovery-feedback-switch');
     const cardName = 'Gardevoir ex Paldean Fates 233';
 

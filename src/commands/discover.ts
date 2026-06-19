@@ -251,11 +251,11 @@ function learningSignal(
 ): string {
   const rememberedTasteCount = Math.max(0, tasteProfileChases.length - activeChases.length);
   if (activeChases.length === 0 && rememberedTasteCount > 0) {
-    return `remembered taste, add active chases to sharpen it`;
+    return `taste profile memory, add active chases to sharpen it`;
   }
   if (activeChases.length === 0) return 'add a few chases to shape Discovery';
   const promoSignal = hasPromoLeaningDiscoveryProfile(tasteProfileChases) ? ' + promos emerging' : '';
-  const memoryNote = rememberedTasteCount > 0 ? ' + taste memory' : '';
+  const memoryNote = rememberedTasteCount > 0 ? ' + taste profile memory' : '';
   if (hasLearnedProfile) {
     const signals = tasteSignalsFromChases(tasteProfileChases, lane).filter((signal) => signal !== lane);
     const signalNote = signals.length > 0 ? ` + ${signals.join(', ')}` : '';
@@ -1704,7 +1704,7 @@ function broadSourceBackfillParents(): DiscoverySuggestion[] {
     name,
     lane,
     laneWhy: 'broad source-backed card backfill',
-    why: 'keeps the weekly shelf full with concrete source-backed cards while personalized market data catches up',
+    why: 'keeps the Weekly Shelf full with concrete source-backed cards while personalized market data catches up',
     nearby: [],
     evidenceSearchTerm: name,
     evidenceAliases: [name],
@@ -2775,7 +2775,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     lines.push(discoveryShelfTighteningNote());
   }
   if (!discovery.hasFullDiscovery) {
-    lines.push('A quick peek: Full Vault gets the deeper Weekly Shelf with feedback-powered taste memory, live market reads on every card, and custom exclusion controls for future drops');
+    lines.push('A quick peek: Full Vault gets the deeper Weekly Shelf with feedback-powered taste profile memory, live market reads on every card, and custom exclusion controls for future drops');
   }
   const actionRows = discoveryActionRows(userId, visibleCandidates, discovery.hasFullDiscovery, pageState.start);
   const headerEmbed = discoveryShelfHeaderEmbed(title, lines);

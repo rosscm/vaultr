@@ -47,6 +47,32 @@ describe('alerts-settings shipping postal validation', () => {
     expect(getUserAlertSettings(userId).shippingPostalCode).toBe('M5V');
   });
 
+  it('clears a stored postal region with the word off', async () => {
+    const userId = `settings-postal-off-${Date.now()}`;
+    resetUserAlertSettings(userId);
+    setUserAlertSettings(userId, { shippingCountry: 'CA', shippingPostalCode: 'M5V' });
+    const interaction = mockInteraction(userId, { shipping_postal_code: 'off' });
+
+    await alertsSettings.execute(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledTimes(1);
+    expect(getUserAlertSettings(userId).shippingCountry).toBe('CA');
+    expect(getUserAlertSettings(userId).shippingPostalCode).toBeUndefined();
+  });
+
+  it('rejects clear as a postal region removal alias', async () => {
+    const userId = `settings-postal-clear-reject-${Date.now()}`;
+    resetUserAlertSettings(userId);
+    setUserAlertSettings(userId, { shippingCountry: 'CA', shippingPostalCode: 'M5V' });
+    const interaction = mockInteraction(userId, { shipping_postal_code: 'clear' });
+
+    await alertsSettings.execute(interaction);
+
+    expect(interaction.reply.mock.calls[0]?.[0]?.embeds?.[0]?.data?.title).toContain('Invalid Postal Code');
+    expect(getUserAlertSettings(userId).shippingCountry).toBe('CA');
+    expect(getUserAlertSettings(userId).shippingPostalCode).toBe('M5V');
+  });
+
   it('rejects US ZIP input for CA ship-to country', async () => {
     const userId = `settings-ca-reject-${Date.now()}`;
     resetUserAlertSettings(userId);
@@ -86,7 +112,7 @@ describe('alerts-settings shipping postal validation', () => {
     expect(settings.shippingPostalCode).toBeUndefined();
   });
 
-  it('frames trusted shop source controls as Pro controls inside the Full Vault for Free users', async () => {
+  it('frames Trusted Shops source controls as Pro controls inside the Full Vault for Free users', async () => {
     const userId = `settings-shop-source-${Date.now()}`;
     resetUserAlertSettings(userId);
     setUserPlan(userId, 'FREE');
@@ -96,8 +122,8 @@ describe('alerts-settings shipping postal validation', () => {
 
     const embed = interaction.reply.mock.calls[0]?.[0]?.embeds?.[0];
     const text = [embed?.data?.title, embed?.data?.description].join('\n');
-    expect(text).toContain('Trusted shops are a Pro control inside the Full Vault');
-    expect(text).toContain('More room for grails, faster checks, trusted shops, precision controls, and the full Weekly Shelf');
+    expect(text).toContain('Trusted Shops are a Pro control inside the Full Vault');
+    expect(text).toContain('More room for grails, faster checks, Trusted Shops, precision controls, and the full Weekly Shelf');
     expect(text).toContain('`/upgrade` opens the Full Vault');
   });
 });

@@ -15,7 +15,7 @@ export const upgrade = {
         '',
         `**Active Chases:** ${PLAN_LIMITS.PRO.maxActiveChases}`,
         `**Listing Checks:** every ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
-        '**Discovery:** deeper recommendations with Taste Profile memory'
+        '**Discovery:** deeper recommendations with taste profile memory'
       ];
       await interaction.reply({
         embeds: [successEmbed('You Are Pro', lines.join('\n')).setTitle('👑 You Are Pro')],

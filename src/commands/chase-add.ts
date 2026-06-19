@@ -89,7 +89,7 @@ export const chaseAdd = {
     const listingTypeRaw = interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null;
     const priorityRaw = interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null;
     const targetNote = interaction.options.getString('target_note') ?? undefined;
-    const tuningTermsRaw = interaction.options.getString('tune_out_terms') ?? interaction.options.getString('tuning_terms') ?? interaction.options.getString('negative_keywords');
+    const tuningTermsRaw = interaction.options.getString('custom_exclusions');
     const hasCustomNegativeKeywords =
       tuningTermsRaw !== null &&
       tuningTermsRaw

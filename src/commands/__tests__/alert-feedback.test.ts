@@ -87,7 +87,7 @@ describe('alert feedback tune-outs', () => {
     ).toMatchObject({ label: 'Korean variants', terms: ['korean'], count: 2 });
   });
 
-  it('offers Pro users a feedback-powered chase rule and applies it', async () => {
+  it('offers Pro users feedback-powered custom exclusions and applies them', async () => {
     const userId = testUserId('pro-apply');
     setUserPlan(userId, 'PRO');
     const chase = addChase({ userId, cardName: 'Umbreon 217/187', negativeKeywords: ['proxy'] });
@@ -114,7 +114,7 @@ describe('alert feedback tune-outs', () => {
     expect(getChase(userId, chase.id)?.negativeKeywords).toEqual(['proxy', 'korean']);
   });
 
-  it('shows Free users the learned pattern without applying persistent tune-outs', async () => {
+  it('shows Free users the learned pattern without applying persistent custom exclusions', async () => {
     const userId = testUserId('free-pattern');
     setUserPlan(userId, 'FREE');
     const chase = addChase({ userId, cardName: 'Umbreon 217/187', negativeKeywords: ['proxy'] });
@@ -126,7 +126,7 @@ describe('alert feedback tune-outs', () => {
     await handleAlertFeedback(reasonInteraction);
 
     expect(reasonInteraction.update).toHaveBeenCalledWith({
-      content: expect.stringContaining('Pro can turn that into an automatic chase rule'),
+      content: expect.stringContaining('Pro can turn that into custom exclusions'),
       components: []
     });
     expect(getChase(userId, chase.id)?.negativeKeywords).toEqual(['proxy']);

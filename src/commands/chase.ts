@@ -52,7 +52,7 @@ export const chase = {
         )
         .addStringOption((opt) =>
           opt
-            .setName('tune_out_terms')
+            .setName('custom_exclusions')
             .setDescription('[PRO] Custom exclusions (default: None)')
             .setMaxLength(240)
         )
@@ -127,10 +127,10 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('tune_out_terms').setDescription("[PRO] Custom exclusions. Type the word 'clear' to remove them").setMaxLength(240)
+          opt.setName('custom_exclusions').setDescription("[PRO] Custom exclusions. Type the word 'none' to remove saved terms").setMaxLength(240)
         )
         .addStringOption((opt) =>
-          opt.setName('target_note').setDescription("[PRO] New note. Type the word 'clear' to remove the saved note").setMaxLength(120)
+          opt.setName('target_note').setDescription("[PRO] New note. Type the word 'none' to remove the saved note").setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>

@@ -29,7 +29,7 @@ describe('buildPlanViewPayload', () => {
     expect(text).toContain('**Access:** Free');
     expect(text).toContain('core chase tracking and Weekly Discovery previews');
     expect(data.fields?.some((field) => field.name === 'Updated' && !field.value.includes('Updated:'))).toBe(true);
-    expect(text).toContain('Full Vault\nMore room for grails, faster checks, trusted shops, precision controls, and the full Weekly Shelf');
+    expect(text).toContain('Full Vault\nMore room for grails, faster checks, Trusted Shops, precision controls, and the full Weekly Shelf');
     expect(text).toContain('`/upgrade` opens the Full Vault');
     expect(text).not.toContain('**Active Chases:**');
     expect(text).not.toContain('**Watch Cadence:**');
@@ -52,7 +52,7 @@ describe('buildPlanViewPayload', () => {
     expect(text).toContain('Full Vault is active');
     expect(text).toContain('Current Vault\n**Vault:** Full Vault');
     expect(text).toContain('**Access:** Pro');
-    expect(text).toContain('trusted shops, and precision controls');
+    expect(text).toContain('Trusted Shops, and precision controls');
     expect(data.fields?.some((field) => field.name === 'Updated' && !field.value.includes('Updated:'))).toBe(true);
     expect(text).not.toContain('**Watch Cadence:**');
     expect(text).not.toContain('**Watching:**');

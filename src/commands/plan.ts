@@ -19,7 +19,7 @@ export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan')
   const activeAccessLine = displayPlanAccess(userPlan);
   const vaultName = activeTier === 'PRO' ? 'Full Vault' : 'Free Vault';
   const accessSummary = activeTier === 'PRO'
-    ? 'Full Vault is active: deeper Weekly Shelf recommendations, Taste Profile memory, trusted shops, and precision controls'
+    ? 'Full Vault is active: deeper Weekly Shelf recommendations, taste profile memory, Trusted Shops, and precision controls'
     : 'Free Vault is live: core chase tracking and Weekly Discovery previews';
   const embed = infoEmbed(title, accessSummary);
   embed.addFields(
@@ -30,7 +30,7 @@ export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan')
     },
     {
       name: 'What You Get',
-      value: activeTier === 'PRO' ? 'The full collector surface across alerts, trusted shops, precision controls, and Weekly Shelf depth' : 'The starter collector surface. Alert settings hold the watch controls',
+      value: activeTier === 'PRO' ? 'The full collector surface across alerts, Trusted Shops, precision controls, and Weekly Shelf depth' : 'The starter collector surface. Alert settings hold the watch controls',
       inline: false
     },
     {
