@@ -8,7 +8,7 @@ Vaultr is a Discord-native collector companion for card chases, grail sightings,
 
 - Discord slash commands for building a personal Vault
 - Persistent chase criteria and collector context per user
-- Source adapters for eBay and Trusted Shops sources
+- Source adapters for eBay and trusted shops
 - DM-first grail sightings with dedupe and fit scoring
 - Prepared Discovery shelves shaped by the user's active chases and taste profile memory
 - Scheduled Discovery drop announcements that open personalized private shelves from the channel instead of spamming DMs
@@ -326,7 +326,7 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 - `alert_currency`: price currency used for listing prices and max-price comparisons (`USD`, `CAD`, `EUR`, `GBP`, `JPY`)
 - `shipping_country`: optional per-user ship-to country used to warn when a listing may not ship to you; selected from common destinations aligned with supported currencies
 - `shipping_postal_code`: optional CA/US region code for eBay shipping estimates; type `off` to remove saved value
-- `source`: where Vaultr watches for sightings (`eBay`, `eBay + Trusted Shops`, or `Trusted Shops Only`; default `eBay`; Trusted Shops sources are Pro)
+- `source`: where Vaultr watches for sightings (`eBay`, `eBay + Trusted Shops`, or `Trusted Shops Only`; default `eBay`; trusted shops are Pro)
 - `max_price` compares against total cost when shipping is known, and item price when shipping is unavailable
 - FX conversion uses live USD-based rates with background refresh and fallback to env overrides
 - Recommended defaults: `source=eBay`, `min_score=60`, `alert_volume=Balanced`, `alert_currency=USD`

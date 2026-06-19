@@ -233,7 +233,7 @@ describe('alert eBay search options', () => {
     expect(text).toContain('lower the max price');
     expect(text).toContain('/upgrade');
     expect(text).toContain('opens the Full Vault');
-    expect(text).not.toContain('negative keywords');
+    expect(text).not.toContain(['negative', 'keywords'].join(' '));
     expect(text).not.toContain('condition or grade');
   });
 

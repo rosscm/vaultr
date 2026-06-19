@@ -15,7 +15,7 @@ Vaultr should feel like a reliable collector SaaS product with a light Pokaccini
 - `Full Vault`: unlocked branded experience
 - `Free Vault`: free branded experience
 - `Weekly Shelf`: Discovery surface
-- `Trusted Shops`: source category
+- `trusted shops`: vetted shop storefront sources and shop-only restock signals; lowercase in prose, title case only in UI labels and choices
 - `taste profile memory`: learned preference memory; lowercase unless it becomes a named user-facing surface
 - `custom exclusions`: saved per-chase exclusion terms
 - `tune-outs`: feedback actions or feedback events only
@@ -33,9 +33,9 @@ Avoid older or blurrier alternatives in user-facing copy:
 
 Use crisp control copy:
 
-- `Type the word 'none' to remove saved terms`
-- `Type the word 'off' to remove saved value`
-- `Trusted Shops are a Pro control inside the Full Vault`
+- `Custom exclusions; type the word 'none' to remove saved terms`
+- `Postal/ZIP region for eBay shipping; type the word 'off' to remove saved value`
+- `trusted shops are a Pro control inside the Full Vault`
 
 Use warmer Discovery copy:
 
@@ -51,19 +51,19 @@ Avoid flavor in high-stakes or corrective copy:
 ## Punctuation
 
 - Slash command descriptions: sentence fragments, no final period
-- Slash option descriptions: sentence fragments, no final period unless two full sentences are needed
+- Slash option descriptions: sentence fragments, no final period; use semicolons for compact helper clauses
 - Button labels: title case, no punctuation
 - Embed titles: title case, no punctuation
 - Embed field names: title case, no punctuation
 - Short status lines: no final period when they are fragments
 - Full explanatory sentences: use normal punctuation
 - Bullet lists: omit final periods for fragments; use periods only when the bullet contains multiple full sentences
-- Helper text with quoted input should be explicit: `Type the word 'none'...`, not `Use none...`
+- Helper text with quoted input should be explicit: `type the word 'none'...`; avoid shorthand like `none` alone
 
 ## Capitalization
 
-- Capitalize named product surfaces: `Full Vault`, `Free Vault`, `Weekly Shelf`, `Trusted Shops`
-- Keep functional concepts lowercase: `taste profile memory`, `custom exclusions`, `tune-outs`, `sightings`
+- Capitalize named product surfaces: `Full Vault`, `Free Vault`, `Weekly Shelf`
+- Keep source categories and functional concepts lowercase in prose: `trusted shops`, `taste profile memory`, `custom exclusions`, `tune-outs`, `sightings`
 - Keep `eBay` casing exact
 - Use `Pro` in prose, `PRO` only for stored enum values or technical docs
 

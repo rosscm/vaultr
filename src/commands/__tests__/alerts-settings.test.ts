@@ -112,7 +112,7 @@ describe('alerts-settings shipping postal validation', () => {
     expect(settings.shippingPostalCode).toBeUndefined();
   });
 
-  it('frames Trusted Shops source controls as Pro controls inside the Full Vault for Free users', async () => {
+  it('frames trusted shops source controls as Pro controls inside the Full Vault for Free users', async () => {
     const userId = `settings-shop-source-${Date.now()}`;
     resetUserAlertSettings(userId);
     setUserPlan(userId, 'FREE');
@@ -122,8 +122,8 @@ describe('alerts-settings shipping postal validation', () => {
 
     const embed = interaction.reply.mock.calls[0]?.[0]?.embeds?.[0];
     const text = [embed?.data?.title, embed?.data?.description].join('\n');
-    expect(text).toContain('Trusted Shops are a Pro control inside the Full Vault');
-    expect(text).toContain('More room for grails, faster checks, Trusted Shops, precision controls, and the full Weekly Shelf');
+    expect(text).toContain('trusted shops are a Pro control inside the Full Vault');
+    expect(text).toContain('More room for grails, faster checks, trusted shops, precision controls, and the full Weekly Shelf');
     expect(text).toContain('`/upgrade` opens the Full Vault');
   });
 });

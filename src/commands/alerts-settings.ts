@@ -65,11 +65,11 @@ function displayListingSourceSetting(value: ListingSourceModePreference, activeT
 function displayTrustedShopAccess(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
   if (activeTier === 'FREE') {
     return isStorefrontSourceMode(value)
-      ? `Paused until Pro (${PLAN_LIMITS.PRO.maxActiveChases} active chases + Trusted Shops)`
-      : `Pro opens the Full Vault with ${PLAN_LIMITS.PRO.maxActiveChases} active chases + Trusted Shops`;
+        ? `Paused until Pro (${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops)`
+        : `Pro opens the Full Vault with ${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops`;
   }
   if (value === 'EBAY_SHOPIFY') return 'Enabled with eBay';
-  if (value === 'SHOPIFY') return 'Enabled, Trusted Shops only';
+  if (value === 'SHOPIFY') return 'Enabled, trusted shops only';
   return 'Available. Choose eBay + Trusted Shops or Trusted Shops Only';
 }
 
@@ -191,7 +191,7 @@ export const alertsSettings = {
         embeds: [
           warningEmbed(
             'Trusted Shops Are Pro',
-            `Trusted Shops are a Pro control inside the Full Vault, useful for raw singles, promos, and restocks.\n\n**Free Vault:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Full Vault:** ${FULL_VAULT_SUMMARY}\n${proControlsNextLine()}`
+            `trusted shops are a Pro control inside the Full Vault, useful for raw singles, promos, and restocks.\n\n**Free Vault:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Full Vault:** ${FULL_VAULT_SUMMARY}\n${proControlsNextLine()}`
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -244,7 +244,7 @@ export async function handleAlertSourceButtons(interaction: any): Promise<boolea
   const activeTier = activePlanTier(plan);
   if (activeTier !== 'PRO') {
     await interaction.reply({
-      embeds: [warningEmbed('Trusted Shops Are Pro', `Trusted Shops source controls are Pro controls inside the Full Vault.\n\n${proControlsNextLine()}`)],
+      embeds: [warningEmbed('Trusted Shops Are Pro', `trusted shops source controls are Pro controls inside the Full Vault.\n\n${proControlsNextLine()}`)],
       flags: MessageFlags.Ephemeral
     });
     return true;

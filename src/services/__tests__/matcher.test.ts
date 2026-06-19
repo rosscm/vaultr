@@ -170,7 +170,7 @@ describe('matchChaseToListing', () => {
     expect(result.reasons).toEqual(['listing_type_miss']);
   });
 
-  it('blocks default non-card listing types even without chase-specific negative keywords', () => {
+  it('blocks default non-card listing types even without chase-specific custom exclusions', () => {
     const examples: Array<{ cardName: string; title: string; term: string }> = [
       {
         cardName: 'Corocoro Shining Mew',
