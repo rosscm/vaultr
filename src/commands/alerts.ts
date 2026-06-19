@@ -75,7 +75,7 @@ export const alerts = {
         .addStringOption((opt) =>
           opt
             .setName('shipping_postal_code')
-            .setDescription("Postal/ZIP region for eBay shipping. Type the word 'off' to remove saved value (default: Off)")
+            .setDescription("Postal/ZIP region for eBay shipping; type the word 'off' to remove saved value (default: Off)")
             .setMaxLength(16)
         )
     )

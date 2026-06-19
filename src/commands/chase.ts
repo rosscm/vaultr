@@ -117,6 +117,9 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
+          opt.setName('custom_exclusions').setDescription("[PRO] Custom exclusions; type the word 'none' to remove saved terms").setMaxLength(240)
+        )
+        .addStringOption((opt) =>
           opt
             .setName('priority')
             .setDescription('[PRO] New chase importance')
@@ -127,10 +130,7 @@ export const chase = {
             )
         )
         .addStringOption((opt) =>
-          opt.setName('custom_exclusions').setDescription("[PRO] Custom exclusions. Type the word 'none' to remove saved terms").setMaxLength(240)
-        )
-        .addStringOption((opt) =>
-          opt.setName('target_note').setDescription("[PRO] New note. Type the word 'none' to remove the saved note").setMaxLength(120)
+          opt.setName('target_note').setDescription("[PRO] New note; type the word 'none' to remove the saved note").setMaxLength(120)
         )
     )
     .addSubcommand((sub) =>

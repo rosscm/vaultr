@@ -75,15 +75,15 @@ describe('chase command', () => {
       'grade_value',
       'condition',
       'listing_type',
-      'priority',
       'custom_exclusions',
+      'priority',
       'target_note'
     ]);
     expect(entryOption).toBeUndefined();
     expect(customExclusionsOption?.description).toContain('Custom exclusions');
-    expect(customExclusionsOption?.description).toContain("Type the word 'none' to remove saved terms");
+    expect(customExclusionsOption?.description).toContain("Custom exclusions; type the word 'none' to remove saved terms");
     expect(customExclusionsOption?.description).not.toContain('default: None');
-    expect(targetNoteOption?.description).toContain("Type the word 'none'");
+    expect(targetNoteOption?.description).toContain("New note; type the word 'none'");
     expect(targetNoteOption?.description).not.toContain('default: None');
     expect(tuneOutOption).toBeUndefined();
     expect(addTuneOutOption).toBeUndefined();
@@ -119,6 +119,17 @@ describe('chase command', () => {
     for (const name of ['condition', 'listing_type', 'custom_exclusions', 'priority', 'target_note']) {
       expect(options.get(name)).toContain('[PRO]');
     }
+  });
+
+  it('keeps chase edit options in the same order as chase add options', () => {
+    const command = chase.data.toJSON();
+    const add = command.options?.find((option: any) => option.name === 'add') as any;
+    const edit = command.options?.find((option: any) => option.name === 'edit') as any;
+
+    const addOptionNames = (add.options ?? []).map((option: any) => option.name);
+    const editOptionNames = (edit.options ?? []).map((option: any) => option.name).filter((name: string) => name !== 'chase');
+
+    expect(editOptionNames).toEqual(addOptionNames);
   });
 
   it('saves Free add submissions while ignoring Pro-only modifiers', async () => {
