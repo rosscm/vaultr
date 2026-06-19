@@ -1,42 +1,47 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { infoEmbed } from '../ui/embeds.js';
-import { FULL_VAULT_SUMMARY } from './pro-copy.js';
 
 export const help = {
-  data: new SlashCommandBuilder().setName('help').setDescription('Show the Vaultr quick start'),
+  data: new SlashCommandBuilder().setName('help').setDescription('Show the Vaultr command guide'),
   async execute(interaction: any) {
     const lines = [
-      'Vaultr keeps watch for the cards you care about and sends matching listings by DM',
-      'Start with one specific chase. The Vault gets sharper from there',
+      'Use this as your Vault map: every command, what it does, and where to go next. First time here? Get going with `/start`. 👋',
       '',
-      '**First Steps**',
-      '- Add a chase: `/chase add card:Pikachu 151 173`',
-      '- Check what Vaultr is watching: `/alerts status`',
-      '- Review matches already sent: `/alerts recent`',
+      '**/start**',
+      '- Opens the first-run guide for getting your Vault set up',
       '',
-      '**Good Chase Names**',
-      '- Include the card number when you know it',
-      '- Add a max price if you only want realistic listings',
-      '- Keep names concrete: card, set, number, variant, or promo stamp',
+      '**/chase**',
+      '- Builds and manages the cards Vaultr watches for you',
+      '- Use `add`, `list`, `edit`, and `remove` to keep the Vault focused',
+      '- Better chase names include the card number, set, or variant when you know it',
       '',
-      '**Commands**',
-      '- Vault: `/chase add` · `/chase list` · `/chase edit` · `/chase remove`',
-      '- Alerts: `/alerts status` · `/alerts settings` · `/alerts recent`',
-      '- Discovery: peek inside the weekly server drop for your private shelf',
-      '- Plan: `/plan view` · `/upgrade`',
+      '**/alerts**',
+      '- Controls the alert signal behind your Vault',
+      '- Use `settings` for confidence, currency, volume, shipping, and sources',
+      '- Use `status`, `recent`, and `preview` to inspect what Vaultr is watching and sending',
+      '- Dial up confidence for fewer, cleaner alerts',
+      '- Dial down confidence for more possible finds, with more noise',
       '',
-      '**When It Feels Quiet**',
-      '- Use `/alerts status` first',
-      '- Quiet stretches are normal for precise grails',
-      '- Broaden the chase or lower confidence in `/alerts settings` if needed',
+      '**/plan**',
+      '- Shows your current Free Vault or Full Vault access',
       '',
-      '**Free Vault vs Full Vault**',
-      '- Free Vault keeps 3 active chases',
-      `- Full Vault: ${FULL_VAULT_SUMMARY}`
+      '**/upgrade**',
+      '- Explains what Vaultr Pro opens inside the Full Vault',
+      '- Covers more chases, faster checks, trusted shops, custom exclusions, and deeper Weekly Shelf recommendations',
+      '',
+      '**/feed**',
+      '- Admin: turn Community Vault Pulse posts on or off',
+      '',
+      '**/setup**',
+      '- Admin: choose the server’s Vaultr channel',
+      '- That channel is where Weekly Shelf posts and Vault Pulse activity can land',
+      '',
+      '**/help**',
+      '- Shows this command guide when you need the full map again'
     ];
 
     await interaction.reply({
-      embeds: [infoEmbed('🧭 Vaultr Quick Start', lines.join('\n')).setFooter({ text: 'Vaultr • Help' })],
+      embeds: [infoEmbed('🧭 Vaultr Command Guide', lines.join('\n')).setFooter({ text: 'Vaultr • Help' })],
       flags: MessageFlags.Ephemeral
     });
   }

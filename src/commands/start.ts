@@ -1,44 +1,24 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
-import {
-  getUserAlertSettings,
-  getUserPlan,
-  listChases
-} from '../services/chase-store.js';
-import { activePlanChases, activePlanLimits, formatActivePlanAccess, pausedPlanChases } from '../services/plans.js';
 import { infoEmbed } from '../ui/embeds.js';
 
 export const start = {
   data: new SlashCommandBuilder()
     .setName('start')
-    .setDescription('Open the Vaultr onboarding guide'),
+    .setDescription('Open the Vaultr quick start'),
   async execute(interaction: any) {
-    const plan = getUserPlan(interaction.user.id);
-    const settings = getUserAlertSettings(interaction.user.id);
-    const storedChases = listChases(interaction.user.id);
-    const activeChases = activePlanChases(storedChases, plan);
-    const pausedChases = pausedPlanChases(storedChases, plan);
-    const limits = activePlanLimits(plan);
-
     const lines = [
-      '**Build a sharper Vault around the cards you love.**',
-      'Add your grails, promos, and favorite finds. Vaultr keeps watch for listings that fit',
+      '**Welcome to Vaultr!**',
       '',
-      '**Step 1:** Add a card you are chasing with `/chase add`',
-      '**Step 2:** View or update your Vaultr controls with `/alerts settings`',
-      '**Step 3:** Peek inside Weekly Discovery drops from the server channel when they land',
-      '**Step 4:** Watch your DMs for chase alerts and collector recaps',
+      'Start with one card you want Vaultr to watch. Your chases shape better alerts now and help Vaultr learn what to show you next in your Weekly Shelf. 🔮',
       '',
-      `**Plan:** ${formatActivePlanAccess(plan)}`,
-      `**Active Chases:** ${activeChases.length}/${limits.maxActiveChases}`,
-      ...(pausedChases.length > 0 ? [`**Paused Chases:** ${pausedChases.length} saved for Full Vault`] : []),
-      `**Minimum Confidence:** ${settings.minScore}`,
-      `**Price Currency:** ${settings.alertCurrency}`,
-      '',
-      '**Tip:** Add the card number when it matters. Tiny details make cleaner alerts'
+      '**Step 1:** Add your first chase with `/chase add`; include the set number or variant when you know it',
+      '**Step 2:** Tune confidence, currency, and source controls with `/alerts settings`',
+      '**Step 3:** Watch DMs for chase alerts and check your server’s Vaultr channel for fresh collector picks in your Weekly Shelf',
+      '**Step 4:** Use `/help` for the full command guide'
     ];
 
     await interaction.reply({
-      embeds: [infoEmbed('🏁 Getting Started', lines.join('\n'))],
+      embeds: [infoEmbed('🏁 Vaultr Quick Start', lines.join('\n'))],
       flags: MessageFlags.Ephemeral
     });
   }
