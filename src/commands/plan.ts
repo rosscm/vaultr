@@ -1,10 +1,9 @@
-import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getUserPlan } from '../services/chase-store.js';
-import { activePlanTier, formatActivePlanAccess } from '../services/plans.js';
+import { activePlanTier, formatActivePlanAccess, formatPollInterval, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
 import { executePlanSet } from './plan-set.js';
-import { fullVaultLines } from './pro-copy.js';
 
 function displayPlanAccess(userPlan: ReturnType<typeof getUserPlan>): string {
   const access = formatActivePlanAccess(userPlan);
@@ -18,35 +17,59 @@ export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan')
   const activeTier = activePlanTier(userPlan);
   const activeAccessLine = displayPlanAccess(userPlan);
   const vaultName = activeTier === 'PRO' ? 'Full Vault' : 'Free Vault';
+  const freeChaseLimit = PLAN_LIMITS.FREE.maxActiveChases;
+  const proChaseLimit = PLAN_LIMITS.PRO.maxActiveChases;
+  const freePollInterval = formatPollInterval(PLAN_LIMITS.FREE.pollIntervalSeconds);
+  const proPollInterval = formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds);
   const accessSummary = activeTier === 'PRO'
-    ? 'Full Vault is active: deeper Weekly Shelf recommendations, taste profile memory, Trusted Shops, and precision controls'
-    : 'Free Vault is live: core chase tracking and Weekly Discovery previews';
+    ? `Full Vault is active: ${proChaseLimit} active chases, faster checks, trusted shops, precision controls, and a richer Weekly Shelf that learns from taste profile memory`
+    : `Free Vault is active: ${freeChaseLimit} active chases, DM alerts, and a starter Weekly Shelf preview`;
   const embed = infoEmbed(title, accessSummary);
   embed.addFields(
     {
-      name: 'Current Vault',
-      value: [`**Vault:** ${vaultName}`, `**Access:** ${activeAccessLine}`].join('\n'),
+      name: 'Current Access',
+      value: activeAccessLine === 'Pro' || activeAccessLine === 'Free'
+        ? `**Plan:** ${vaultName}`
+        : [`**Plan:** ${vaultName}`, `**Status:** ${activeAccessLine}`].join('\n'),
       inline: false
     },
     {
-      name: 'What You Get',
-      value: activeTier === 'PRO' ? 'The full collector surface across alerts, Trusted Shops, precision controls, and Weekly Shelf depth' : 'The starter collector surface. Alert settings hold the watch controls',
-      inline: false
-    },
-    {
-      name: 'Updated',
-      value: formatLocalDateTime(userPlan.updatedAt),
+      name: 'Included',
+      value: activeTier === 'PRO'
+        ? [
+            `- ${proChaseLimit} active chases with checks every ${proPollInterval}`,
+            '- trusted shops alongside eBay for shop-only restock signals',
+            '- precision controls for conditions, listing types, custom exclusions, priority, and notes',
+            '- richer Weekly Shelf recommendations powered by taste profile memory'
+          ].join('\n')
+        : [
+            `- ${freeChaseLimit} active chases with eBay checks every ${freePollInterval}`,
+            '- DM alerts with core tuning controls',
+            '- starter Weekly Shelf preview based on active chases'
+          ].join('\n'),
       inline: false
     }
   );
 
   if (activeTier === 'FREE') {
     embed.addFields({
-      name: 'Full Vault',
-      value: fullVaultLines().join('\n'),
+      name: 'Pro Features',
+      value: [
+        `- ${proChaseLimit} active chases with checks every ${proPollInterval}`,
+        '- trusted shops alongside eBay for shop-only restock signals',
+        '- precision controls for conditions, listing types, custom exclusions, priority, and notes',
+        '- a deeper Weekly Shelf that learns from taste profile memory',
+        '- use `/upgrade` to open your Full Vault'
+      ].join('\n'),
       inline: false
     });
   }
+
+  embed.addFields({
+    name: 'Updated',
+    value: formatLocalDateTime(userPlan.updatedAt),
+    inline: false
+  });
 
   return {
     embeds: [embed],
@@ -89,9 +112,10 @@ export const plan = {
   async execute(interaction: any) {
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === 'set') {
-      if (!interaction.guildId || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      const ownerId = process.env.OWNER_USER_ID;
+      if (!ownerId || interaction.user.id !== ownerId) {
         await interaction.reply({
-          embeds: [warningEmbed('Admin Only', 'This subcommand requires Manage Server permissions in a server')],
+          embeds: [warningEmbed('Owner Only', 'This subcommand is reserved for the Vaultr owner')],
           flags: MessageFlags.Ephemeral
         });
         return;
