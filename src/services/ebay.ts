@@ -62,6 +62,24 @@ function ebaySearchCacheTtlMs(): number {
   return Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds * 1000) : 0;
 }
 
+function boundedPositiveIntegerEnv(key: string, fallback: number, max: number): number {
+  const value = Number(process.env[key] ?? String(fallback));
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(max, Math.floor(value));
+}
+
+function ebaySearchLimit(): number {
+  return boundedPositiveIntegerEnv('EBAY_SEARCH_LIMIT', 25, 50);
+}
+
+function ebaySoldSearchLimit(): number {
+  return boundedPositiveIntegerEnv('EBAY_SOLD_SEARCH_LIMIT', ebaySearchLimit(), 50);
+}
+
+function ebayMaxEnrichItemsPerSearch(): number {
+  return boundedPositiveIntegerEnv('EBAY_MAX_ENRICH_ITEMS_PER_SEARCH', 3, 10);
+}
+
 function cloneListings(listings: Listing[]): Listing[] {
   return listings.map((listing) => ({ ...listing }));
 }
@@ -71,7 +89,7 @@ function ebaySearchCacheKey(chase: Chase, destination: ShippingDestination | und
     getEbayEnv(),
     'BROWSE',
     getEbayBrowseMarketplaceId(destination),
-    process.env.EBAY_SEARCH_LIMIT ?? '50',
+    ebaySearchLimit(),
     process.env.EBAY_BROWSE_SORT ?? 'newlyListed',
     searchMaxPriceFilter(options) ?? '',
     chase.cardName.trim().toLowerCase(),
@@ -476,7 +494,7 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
   const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
   const params = new URLSearchParams({
     q: keywords,
-    limit: process.env.EBAY_SEARCH_LIMIT ?? '50',
+    limit: String(ebaySearchLimit()),
     sort: process.env.EBAY_BROWSE_SORT ?? 'newlyListed'
   });
   const maxPriceFilter = searchMaxPriceFilter(options);
@@ -508,7 +526,9 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
   if (options.enrichMissingShipping === false) return listings;
 
   const needsDestinationShipping = getDeliveryCountry(destination) !== undefined;
-  const needsEnrichment = listings.filter((listing: Listing) => needsDestinationShipping || listing.shippingCost === undefined);
+  const needsEnrichment = listings
+    .filter((listing: Listing) => needsDestinationShipping || listing.shippingCost === undefined)
+    .slice(0, ebayMaxEnrichItemsPerSearch());
   if (needsEnrichment.length === 0) return listings;
 
   const enrichedById = new Map<string, Listing>();
@@ -648,7 +668,7 @@ export async function searchEbaySoldListings(chase: Chase, destination?: Shippin
       'REST-PAYLOAD': '',
       keywords,
       sortOrder: 'EndTimeSoonest',
-      'paginationInput.entriesPerPage': process.env.EBAY_SOLD_SEARCH_LIMIT ?? process.env.EBAY_SEARCH_LIMIT ?? '50',
+      'paginationInput.entriesPerPage': String(ebaySoldSearchLimit()),
       'paginationInput.pageNumber': String(pageNumber)
     });
     params.append('outputSelector', 'SellerInfo');

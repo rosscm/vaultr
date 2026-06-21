@@ -17,6 +17,8 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
 - Pro scheduled shelf opens and pagination render from persisted shelf rows only; market refresh work stays in background workers so Discord interactions stay quick.
 - Discovery market refresh enqueueing has per-user cooldowns and a global active-job cap so shelf opens cannot stampede eBay.
 - Discovery feedback is release-training input: More Like / Not For Me affects future shelves, and feedback confirmations support Undo.
+- eBay result windows and item-detail enrichment are capped in code, with smoke checks guarding unsafe env values.
+- `/health` and ops checks now track active-chase freshness so tail latency is visible before broad launch.
 
 ## Target Shape
 
@@ -51,4 +53,6 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
 - Expand scheduled drops into taste-profile summaries and refresh statuses.
 - Tune Discovery refresh cooldowns and active-job caps from beta traffic.
 - Add operational views for queued/running/failed jobs before public beta.
+- Track beta readiness weekly: active users, active chases, average/peak source calls, deferred groups, and worst overdue chase.
+- Keep public launch gated on sustained chase freshness: no active chase over 4x plan interval during normal source availability.
 - Wire Stripe subscription lifecycle into `user_plans` before selling Pro outside manual/admin testing.

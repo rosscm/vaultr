@@ -53,7 +53,7 @@ function checkListingSourceEnv(): CheckResult {
 }
 
 function checkNumericEnv(): CheckResult {
-  const integerVars: Array<{ key: string; min: number }> = [
+  const integerVars: Array<{ key: string; min: number; max?: number }> = [
     { key: 'POLL_INTERVAL_SECONDS', min: 30 },
     { key: 'MAX_ALERTS_PER_CHASE_PER_POLL', min: 1 },
     { key: 'ALERT_LISTING_ENRICHMENT_TIMEOUT_MS', min: 1000 },
@@ -71,9 +71,10 @@ function checkNumericEnv(): CheckResult {
     { key: 'DISCOVERY_MARKET_WORKER_RETRY_MAX_MS', min: 60000 },
     { key: 'DISCOVERY_MARKET_WORKER_MAX_ATTEMPTS', min: 1 },
     { key: 'DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS', min: 60000 },
-    { key: 'EBAY_SEARCH_LIMIT', min: 1 },
-    { key: 'EBAY_SOLD_SEARCH_LIMIT', min: 1 },
-    { key: 'EBAY_SOLD_SEARCH_PAGES', min: 1 },
+    { key: 'EBAY_SEARCH_LIMIT', min: 1, max: 50 },
+    { key: 'EBAY_SOLD_SEARCH_LIMIT', min: 1, max: 50 },
+    { key: 'EBAY_SOLD_SEARCH_PAGES', min: 1, max: 5 },
+    { key: 'EBAY_MAX_ENRICH_ITEMS_PER_SEARCH', min: 1, max: 10 },
     { key: 'EBAY_MAX_REQUESTS_PER_MINUTE', min: 1 },
     { key: 'EBAY_MIN_REQUEST_GAP_MS', min: 0 },
     { key: 'EBAY_SEARCH_CACHE_TTL_SECONDS', min: 0 },
@@ -84,11 +85,13 @@ function checkNumericEnv(): CheckResult {
     { key: 'EBAY_WEBHOOK_PORT', min: 1 },
     { key: 'EBAY_WEBHOOK_MAX_BODY_BYTES', min: 1024 }
   ];
-  const invalid = integerVars.flatMap(({ key, min }) => {
+  const invalid = integerVars.flatMap(({ key, min, max }) => {
     const raw = envValue(key);
     if (!raw) return [];
     const parsed = Number(raw);
-    return Number.isInteger(parsed) && parsed >= min ? [] : [`${key}>=${min}`];
+    if (!Number.isInteger(parsed) || parsed < min) return [`${key}>=${min}`];
+    if (max !== undefined && parsed > max) return [`${key}<=${max}`];
+    return [];
   });
 
   if (invalid.length > 0) {

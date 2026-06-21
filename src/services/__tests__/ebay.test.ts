@@ -215,6 +215,58 @@ describe('searchEbayListings Browse shipping', () => {
     expect(listings[0]?.listingId).toBe('v1|317978401186|0');
   });
 
+  it('caps Browse search result windows even when env asks for more', async () => {
+    process.env.EBAY_SEARCH_LIMIT = '500';
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(jsonResponse({ itemSummaries: [] }));
+
+    const { searchEbayListings } = await import('../ebay.js');
+    await searchEbayListings(baseChase(), undefined, { enrichMissingShipping: false });
+    const url = String(fetchMock.mock.calls[1]?.[0]);
+
+    expect(url).toContain('limit=50');
+  });
+
+  it('caps per-search Browse item detail enrichment to avoid request amplification', async () => {
+    process.env.EBAY_SEARCH_LIMIT = '3';
+    process.env.EBAY_MAX_ENRICH_ITEMS_PER_SEARCH = '1';
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          itemSummaries: [
+            {
+              itemId: 'v1|1111111111|0',
+              title: 'Umbreon VMAX Alt Art One',
+              itemWebUrl: 'https://example.com/item/1111111111',
+              price: { value: '100.00', currency: 'USD' },
+              itemLocation: { country: 'US' },
+              buyingOptions: ['FIXED_PRICE']
+            },
+            {
+              itemId: 'v1|2222222222|0',
+              title: 'Umbreon VMAX Alt Art Two',
+              itemWebUrl: 'https://example.com/item/2222222222',
+              price: { value: '120.00', currency: 'USD' },
+              itemLocation: { country: 'US' },
+              buyingOptions: ['FIXED_PRICE']
+            }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ shippingOptions: [{ shippingCost: { value: '9.25', currency: 'CAD' } }] }));
+
+    const { searchEbayListings } = await import('../ebay.js');
+    const listings = await searchEbayListings(baseChase(), { country: 'CA' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(listings[0]?.shippingCost).toBe(9.25);
+    expect(listings[1]?.shippingCost).toBeUndefined();
+  });
+
   it('reuses recent successful eBay searches from cache', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
@@ -376,6 +428,22 @@ describe('searchEbaySoldListings', () => {
     expect(listings[0]?.price).toBe(210);
     expect(listings[0]?.shippingCost).toBe(8);
     expect(listings[0]?.listingType).toBe('BUY_IT_NOW');
+  });
+
+  it('caps sold search page sizes even when env asks for more', async () => {
+    process.env.EBAY_SOLD_SEARCH_LIMIT = '500';
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        findCompletedItemsResponse: [{ searchResult: [{ item: [] }] }]
+      })
+    );
+
+    const { searchEbaySoldListings } = await import('../ebay.js');
+    await searchEbaySoldListings(baseChase());
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+
+    expect(url).toContain('paginationInput.entriesPerPage=50');
   });
 
   it('can collect multiple recent completed pages with an override keyword and dedupe repeats', async () => {
