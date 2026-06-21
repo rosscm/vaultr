@@ -38,9 +38,11 @@ describe('start command', () => {
     const text = [data.title, data.description].join('\n');
 
     expect(data.title).toBe('🏁 Vaultr Quick Start');
-    expect(text).toContain('**Welcome to Vaultr!**');
+    expect(text).toContain('**Welcome to Vaultr!** 👋');
     expect(text).toContain('Start with one card you actually want to know about.');
-    expect(text).toContain('**Good first chases:**');
+    expect(text).toContain('teach Vaultr the tiny details that make a grail feel personal.');
+    expect(text).toContain('Every Monday, your setup channel gets a fresh shelf of collector picks shaped by your Vault and taste signals.');
+    expect(text).toContain('**Good chase examples:**');
     expect(text).toContain('`Umbreon 217/187 Japanese`');
     expect(text).toContain('`Mew RC24/RC25`');
     expect(text).toContain('`Gardevoir ex Paldean Fates 233`');
@@ -48,8 +50,12 @@ describe('start command', () => {
     expect(text).not.toContain('promo stamp');
     expect(text).toContain('**Step 2:** Check your active Vault with `/chase list`');
     expect(text).toContain('**Step 3:** Tune confidence, currency, shipping, and sources with `/alerts settings`');
-    expect(text).toContain('**Step 4:** Watch DMs for chase alerts; quiet days are normal when no listing clears your match settings');
+    expect(text).toContain('**Step 4:** Watch DMs for chase alerts');
+    expect(text).not.toContain('; quiet days are normal when no listing clears your match settings');
     expect(text).toContain('**Step 5:** Use `/help` when you want the full command map');
+    expect(text.endsWith('Build your Vault. Chase your grails. Discover what you love next.')).toBe(true);
+    expect((text.match(/Weekly Shelf/g) ?? []).length).toBe(0);
+    expect(text).not.toContain('🔮');
     expect(text).not.toContain('🃏');
     expect(text).not.toContain('✨');
     expect(text).not.toContain('🗂️');
