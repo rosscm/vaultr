@@ -1162,7 +1162,7 @@ export function buildDailyPulseEmbed(stats: ReturnType<typeof getGuildCommunityS
 }
 
 export function shouldPostDailyPulse(stats: ReturnType<typeof getGuildCommunityStatsToday>): boolean {
-  return stats.newVaultrs > 0 || stats.usersAlerted > 0 || stats.matches > 0 || stats.grailsSurfaced > 0;
+  return stats.newVaultrs > 0 || stats.usersAlerted > 0 || stats.matches > 0 || stats.grailsSurfaced > 0 || stats.activeVaults > 0 || stats.activeChases > 0;
 }
 
 function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {

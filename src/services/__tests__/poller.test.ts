@@ -525,7 +525,7 @@ describe('buildWeeklyReflectionEmbed', () => {
 });
 
 describe('buildDailyPulseEmbed', () => {
-  it('posts only when the daily pulse has real activity', () => {
+  it('posts when the daily pulse has movement or active watchlists', () => {
     expect(
       shouldPostDailyPulse({
         newVaultrs: 0,
@@ -542,6 +542,22 @@ describe('buildDailyPulseEmbed', () => {
         hiddenDiscovery: 'Quiet spotlight: chases are still watching'
       })
     ).toBe(false);
+    expect(
+      shouldPostDailyPulse({
+        newVaultrs: 0,
+        usersAlerted: 0,
+        matches: 0,
+        grailsSurfaced: 0,
+        activeVaults: 1,
+        activeChases: 3,
+        topTrackedFamily: 'Mixed collections',
+        topTrackedTheme: 'Varied styles',
+        activeTrackedFamily: 'Mixed collections',
+        todayAlertFamily: 'Mixed finds',
+        todayAlertTheme: 'Fresh listings',
+        hiddenDiscovery: 'Quiet spotlight: chases are still watching'
+      })
+    ).toBe(true);
     expect(
       shouldPostDailyPulse({
         newVaultrs: 0,
