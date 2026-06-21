@@ -22,7 +22,7 @@ function testUserId(label: string): string {
 }
 
 function mockInteraction(userId: string, subcommand: string, values: Record<string, string | number | null | undefined>) {
-  const reply = vi.fn(async () => undefined);
+  const reply = vi.fn(async (_payload?: any) => undefined);
   return {
     user: { id: userId },
     guildId: null,
@@ -160,6 +160,24 @@ describe('chase command', () => {
     expect(saved.targetNote).toBeUndefined();
     expect(saved.negativeKeywords).toBeUndefined();
     expect(interaction.reply).toHaveBeenCalledOnce();
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    expect(payload.embeds[0].toJSON().description).toContain('This is a strong chase name');
+  });
+
+  it('warns broad chase adds that alerts may be noisy', async () => {
+    const userId = testUserId('broad-add');
+    setUserPlan(userId, 'FREE');
+
+    const interaction = mockInteraction(userId, 'add', {
+      card: 'Charizard'
+    });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const text = payload.embeds[0].toJSON().description;
+    expect(text).toContain('This chase is broad, so alerts may be noisy');
+    expect(text).toContain('include a set, card number, language, or variant');
   });
 
   it('does not add the same chase twice from repeated submissions', async () => {
@@ -380,6 +398,18 @@ describe('chase command', () => {
     expect(text.match(/proxy, custom/g)).toHaveLength(1);
     expect(text).toContain('Custom Exclusions: korean');
     expect(text).not.toContain('Blocked:');
+  });
+
+  it('gives useful first-chase guidance when the Vault is empty', () => {
+    const userId = testUserId('empty-list');
+
+    const payload = buildChaseListEmbed(userId, 0);
+    const data = payload.embeds[0].toJSON();
+
+    expect(data.title).toBe('📭 No Active Chases');
+    expect(data.description).toContain('Add one specific card to start shaping your Vault.');
+    expect(data.description).toContain('`Umbreon 217/187 Japanese`');
+    expect(data.description).toContain('Quiet days are normal. Vaultr only sends alerts when a listing clears your match settings.');
   });
 
   it('keeps paused chase rows compact without active alert filters', () => {

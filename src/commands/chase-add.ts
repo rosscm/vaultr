@@ -26,6 +26,16 @@ function displayAny(value: string | undefined): string {
   return value;
 }
 
+function chaseNameQualityLine(cardName: string): string {
+  const tokens = cardName.trim().split(/\s+/).filter(Boolean);
+  const hasNumber = /\b\d{1,4}\s*[/#-]\s*\d{1,4}\b|\b[A-Z]{1,4}\d{1,4}\b/i.test(cardName);
+  const hasSetSignal = /\b(promo|fates|festival|paldean|evolving|skyridge|unleashed|base|rocket|japanese|korean|english|psa|bgs|cgc|sar|sir|alt|ex|vmax)\b/i.test(cardName);
+
+  if (hasNumber && tokens.length >= 2) return 'This is a strong chase name: it includes a card number or set-style identifier.';
+  if (tokens.length >= 4 || hasSetSignal) return 'This chase has useful detail. Add the card number too if alerts ever feel broad.';
+  return 'This chase is broad, so alerts may be noisy. For sharper alerts, include a set, card number, language, or variant.';
+}
+
 function proControlNames(values: {
   conditionRaw: string | null;
   listingTypeRaw: string | null;
@@ -134,6 +144,7 @@ export const chaseAdd = {
 
     const lines = [
       'Nice pick. Vaultr is keeping watch for listings that fit',
+      chaseNameQualityLine(chase.cardName),
       '',
       `**Card:** ${chase.cardName}`,
       `**Priority:** ${chase.priority ?? 'NORMAL'}`,

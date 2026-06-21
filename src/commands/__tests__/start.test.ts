@@ -38,16 +38,19 @@ describe('start command', () => {
     const text = [data.title, data.description].join('\n');
 
     expect(data.title).toBe('🏁 Vaultr Quick Start');
-  expect(text).toContain('**Welcome to Vaultr!**');
-    expect(text).toContain('Start with one card you want Vaultr to watch.');
-    expect(text).toContain('Your chases shape better alerts now and help Vaultr learn what to show you next in your Weekly Shelf. 🔮');
-    expect(text).toContain('**Step 1:** Add your first chase with `/chase add`; include the set number or variant when you know it');
+    expect(text).toContain('**Welcome to Vaultr!**');
+    expect(text).toContain('Start with one card you actually want to know about.');
+    expect(text).toContain('**Good first chases:**');
+    expect(text).toContain('`Umbreon 217/187 Japanese`');
+    expect(text).toContain('`Mew RC24/RC25`');
+    expect(text).toContain('`Gardevoir ex Paldean Fates 233`');
+    expect(text).toContain('**Step 1:** Add your first chase with `/chase add`');
     expect(text).not.toContain('promo stamp');
-    expect(text).toContain('**Step 2:** Tune confidence, currency, and source controls with `/alerts settings`');
-    expect(text).toContain('**Step 3:** Watch DMs for chase alerts and check your server’s Vaultr channel for fresh collector picks in your Weekly Shelf');
-    expect(text).toContain('**Step 4:** Use `/help` for the full command guide');
+    expect(text).toContain('**Step 2:** Check your active Vault with `/chase list`');
+    expect(text).toContain('**Step 3:** Tune confidence, currency, shipping, and sources with `/alerts settings`');
+    expect(text).toContain('**Step 4:** Watch DMs for chase alerts; quiet days are normal when no listing clears your match settings');
+    expect(text).toContain('**Step 5:** Use `/help` when you want the full command map');
     expect(text).not.toContain('🃏');
-    expect(text).not.toContain('**Step 5:**');
     expect(text).not.toContain('✨');
     expect(text).not.toContain('🗂️');
     expect(text).not.toContain('Vaultr’s weekly set');

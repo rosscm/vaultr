@@ -62,7 +62,16 @@ export function buildChaseListEmbed(userId: string, page: number) {
   if (total === 0) {
     return {
       empty: true as const,
-      embeds: [infoEmbed('📭 No Active Chases', 'Add a chase to start your Vault. Active chases shape alerts and Discovery recommendations')],
+      embeds: [infoEmbed('📭 No Active Chases', [
+        'Add one specific card to start shaping your Vault.',
+        '',
+        '**Good first chases:**',
+        '- `Umbreon 217/187 Japanese`',
+        '- `Mew RC24/RC25`',
+        '- `Gardevoir ex Paldean Fates 233`',
+        '',
+        'Quiet days are normal. Vaultr only sends alerts when a listing clears your match settings.'
+      ].join('\n'))],
       components: []
     };
   }
