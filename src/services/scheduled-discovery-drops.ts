@@ -217,6 +217,48 @@ function addDays(date: Date, days: number): Date {
   return next;
 }
 
+function timeZoneOffsetMs(date: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+    hour12: false
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const zonedTime = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second)
+  );
+  return zonedTime - date.getTime();
+}
+
+function zonedDateTimeToUtc(
+  year: number,
+  monthIndex: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  timeZone: string
+): Date {
+  const localAsUtc = Date.UTC(year, monthIndex, day, hour, minute, second);
+  const firstPass = new Date(localAsUtc - timeZoneOffsetMs(new Date(localAsUtc), timeZone));
+  return new Date(localAsUtc - timeZoneOffsetMs(firstPass, timeZone));
+}
+
+function weeklyDiscoveryAvailableAt(weekStart: Date): Date {
+  return zonedDateTimeToUtc(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate(), 8, 0, 0, 'America/New_York');
+}
+
 function mapScheduledDiscoveryDropItemRow(row: ScheduledDiscoveryDropItemRow): ScheduledDiscoveryDropItem {
   let suggestion: DiscoverySuggestion;
   try {
@@ -286,8 +328,12 @@ export function scheduledDiscoveryPeriodKey(dropType: ScheduledDiscoveryDropType
 
 export function scheduledDiscoveryAvailability(dropType: ScheduledDiscoveryDropType, date = new Date()): { availableAt: string; expiresAt: string } {
   const weekStart = isoWeekStartUtc(date);
-  const available = dropType === 'MARKET_RADAR' ? addDays(weekStart, 4) : weekStart;
-  const expires = addDays(weekStart, 7);
+  const available = dropType === 'WEEKLY_DISCOVERY'
+    ? weeklyDiscoveryAvailableAt(weekStart)
+    : dropType === 'MARKET_RADAR'
+      ? addDays(weekStart, 4)
+      : weekStart;
+  const expires = dropType === 'WEEKLY_DISCOVERY' ? addDays(available, 7) : addDays(weekStart, 7);
   return { availableAt: available.toISOString(), expiresAt: expires.toISOString() };
 }
 

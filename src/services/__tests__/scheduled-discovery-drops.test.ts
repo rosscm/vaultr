@@ -37,13 +37,18 @@ describe('scheduled discovery drops', () => {
     expect(scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date)).toBe('2026-W24');
     expect(scheduledDiscoveryPeriodKey('MARKET_RADAR', date)).toBe('2026-W24-FRI');
     expect(scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date)).toEqual({
-      availableAt: '2026-06-08T00:00:00.000Z',
-      expiresAt: '2026-06-15T00:00:00.000Z'
+      availableAt: '2026-06-08T12:00:00.000Z',
+      expiresAt: '2026-06-15T12:00:00.000Z'
     });
     expect(scheduledDiscoveryAvailability('MARKET_RADAR', date)).toEqual({
       availableAt: '2026-06-12T00:00:00.000Z',
       expiresAt: '2026-06-15T00:00:00.000Z'
     });
+  });
+
+  it('keeps weekly discovery drops at Monday 8 AM Eastern across DST changes', () => {
+    expect(scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', new Date('2026-01-07T16:00:00.000Z')).availableAt).toBe('2026-01-05T13:00:00.000Z');
+    expect(scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', new Date('2026-06-10T16:00:00.000Z')).availableAt).toBe('2026-06-08T12:00:00.000Z');
   });
 
   it('stores and reads a prepared weekly drop with normalized items', () => {
