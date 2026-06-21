@@ -1123,11 +1123,11 @@ function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStats
   const lines: string[] = [];
   if (stats.newVaultrs > 0) lines.push(`• New Vaults: ${pluralize(stats.newVaultrs, 'collector')} joined`);
   if (stats.usersAlerted > 0) {
-    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')}, ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')}`;
-    lines.push(`• Alert reach: ${sightingDetail}`);
+    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} reached ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')} received a chase alert`;
+    lines.push(`• ${sightingDetail}`);
   }
   if (stats.grailsSurfaced > 0) lines.push(`• Grail watch: ${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  if (stats.activeVaults > 0 || stats.activeChases > 0) lines.push(`• Watchlist size: ${pluralize(stats.activeChases, 'chase', 'chases')} across ${pluralize(stats.activeVaults, 'Vault')}`);
+  if (stats.activeVaults > 0 || stats.activeChases > 0) lines.push(`• ${pluralize(stats.activeChases, 'chase', 'chases')} stayed active across ${pluralize(stats.activeVaults, 'Vault')}`);
   return lines.length > 0 ? lines : ['• No active watchlist yet'];
 }
 
@@ -1137,14 +1137,14 @@ function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunitySt
     const alertSignal = stats.todayAlertFamily === 'Mixed finds'
       ? stats.todayAlertTheme
       : `${stats.todayAlertTheme} in ${stats.todayAlertFamily}`;
-    if (stats.activeTrackedFamily !== 'Mixed collections') return `Alert signal: ${alertSignal}. Taste profile: ${stats.activeTrackedFamily}`;
-    return `Alert signal: ${alertSignal}. Taste profile stayed broad`;
+    if (stats.activeTrackedFamily !== 'Mixed collections') return `Today leaned ${alertSignal}; the board still centers on ${stats.activeTrackedFamily}`;
+    return `Today leaned ${alertSignal}; the board stayed broad`;
   }
-  if (stats.activeTrackedFamily !== 'Mixed collections') return `Taste profile centers on ${stats.activeTrackedFamily}`;
+  if (stats.activeTrackedFamily !== 'Mixed collections') return `The board is still centered on ${stats.activeTrackedFamily}`;
   if (stats.topTrackedFamily === 'Mixed collections' && stats.topTrackedTheme === 'Varied styles') {
-    return 'Taste profile is still mixed; no single path leads the board';
+    return 'The board stayed mixed; no single path led today';
   }
-  return `Watchlist leans ${stats.topTrackedTheme} in ${stats.topTrackedFamily}`;
+  return `The board leans ${stats.topTrackedTheme} in ${stats.topTrackedFamily}`;
 }
 
 export function buildDailyPulseEmbed(stats: ReturnType<typeof getGuildCommunityStatsToday>): EmbedBuilder {

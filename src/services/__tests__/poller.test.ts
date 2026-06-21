@@ -599,11 +599,11 @@ describe('buildDailyPulseEmbed', () => {
     expect(data.description).toContain("The day's sharpest movement centered on moonlit alt art");
     expect(data.fields?.[0]).toMatchObject({ name: 'Today’s Movement' });
     expect(data.fields?.[0].value).toContain('• New Vaults: 2 collectors joined');
-    expect(data.fields?.[0].value).toContain('• Alert reach: 5 listings, 3 collectors');
+    expect(data.fields?.[0].value).toContain('• 5 listings reached 3 collectors');
     expect(data.fields?.[0].value).toContain('• Grail watch: 1 grail surfaced');
-    expect(data.fields?.[0].value).toContain('• Watchlist size: 18 chases across 4 Vaults');
+    expect(data.fields?.[0].value).toContain('• 18 chases stayed active across 4 Vaults');
     expect(data.fields?.[1]).toMatchObject({ name: 'Collector Signal' });
-    expect(data.fields?.[1].value).toContain('Alert signal: moonlit alt art in Umbreon line. Taste profile: Eeveelution cards');
+    expect(data.fields?.[1].value).toContain('Today leaned moonlit alt art in Umbreon line; the board still centers on Eeveelution cards');
     expect(data.fields?.[2]).toMatchObject({ name: 'Spotlight', value: 'Umbreon VMAX Alt Art PSA 10' });
     expect(data.footer?.text).toBe('Vaultr • Pulse');
     expect(JSON.stringify(data)).not.toContain('📡');
@@ -630,8 +630,8 @@ describe('buildDailyPulseEmbed', () => {
 
     expect(data.description).toContain('Quiet day in the Vault');
     expect(data.description).toContain('No new alerts or joins today');
-    expect(data.fields?.[0].value).toContain('• Watchlist size: 11 chases across 3 Vaults');
-    expect(data.fields?.[1].value).toContain('Taste profile is still mixed; no single path leads the board');
+    expect(data.fields?.[0].value).toContain('• 11 chases stayed active across 3 Vaults');
+    expect(data.fields?.[1].value).toContain('The board stayed mixed; no single path led today');
     expect(data.fields?.[2]).toMatchObject({ name: 'Spotlight', value: 'No standout listing today' });
   });
 
@@ -653,8 +653,8 @@ describe('buildDailyPulseEmbed', () => {
 
     expect(data.description).toContain('1 chase alert reached 1 collector');
     expect(data.description).toContain('Fresh listings crossed the feed today');
-    expect(data.fields?.[0].value).toContain('• Watchlist size: 4 chases across 1 Vault');
-    expect(data.fields?.[1].value).toContain('Alert signal: Base Set / starter-era cards in Blastoise line. Taste profile: Mew line');
+    expect(data.fields?.[0].value).toContain('• 4 chases stayed active across 1 Vault');
+    expect(data.fields?.[1].value).toContain('Today leaned Base Set / starter-era cards in Blastoise line; the board still centers on Mew line');
     expect(JSON.stringify(data)).not.toContain('starter-era nostalgia across Mew line');
     expect(JSON.stringify(data)).not.toContain('Mew line collectors had something to inspect today.');
   });
