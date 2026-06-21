@@ -1,8 +1,11 @@
 export type PollerCoverageGroup = {
   queryKey: string;
+  chaseName?: string;
   chaseCount: number;
   overdueSeconds: number;
   reason?: string;
+  sourceCallsAtDeferral?: number;
+  sourceBudget?: number;
 };
 
 export type PollerCoverageSnapshot = {

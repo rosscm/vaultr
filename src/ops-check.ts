@@ -5,6 +5,8 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Client, GatewayIntentBits } from 'discord.js';
+import { getChaseLastPollCheckAt, getUserPlan, listAllChases } from './services/chase-store.js';
+import { activePlanChases, activePlanTier, PLAN_LIMITS } from './services/plans.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -170,6 +172,55 @@ function checkRecentBackup(): CheckResult {
   };
 }
 
+function checkChaseFreshness(): CheckResult {
+  const maxOverdueMultiple = positiveNumberEnv('VAULTR_OPS_MAX_OVERDUE_INTERVAL_MULTIPLE', 4);
+  const nowMs = Date.now();
+  const chasesByUser = new Map<string, ReturnType<typeof listAllChases>>();
+
+  for (const chase of listAllChases()) {
+    const userChases = chasesByUser.get(chase.userId) ?? [];
+    userChases.push(chase);
+    chasesByUser.set(chase.userId, userChases);
+  }
+
+  let activeChaseCount = 0;
+  let staleChaseCount = 0;
+  let worst: { cardName: string; overdueMinutes: number; intervalMinutes: number } | undefined;
+
+  for (const [userId, userChases] of chasesByUser.entries()) {
+    const plan = getUserPlan(userId);
+    const tier = activePlanTier(plan);
+    const intervalSeconds = PLAN_LIMITS[tier].pollIntervalSeconds;
+    const maxOverdueMs = intervalSeconds * 1000 * maxOverdueMultiple;
+
+    for (const chase of activePlanChases(userChases, plan)) {
+      activeChaseCount += 1;
+      const lastCheckedAt = getChaseLastPollCheckAt(chase.id);
+      if (!lastCheckedAt) continue;
+      const lastCheckedAtMs = new Date(lastCheckedAt).getTime();
+      if (!Number.isFinite(lastCheckedAtMs)) continue;
+      const overdueMs = nowMs - (lastCheckedAtMs + intervalSeconds * 1000);
+      if (overdueMs <= maxOverdueMs) continue;
+
+      staleChaseCount += 1;
+      const overdueMinutes = Math.floor(overdueMs / 60_000);
+      if (!worst || overdueMinutes > worst.overdueMinutes) {
+        worst = { cardName: chase.cardName, overdueMinutes, intervalMinutes: Math.floor(intervalSeconds / 60) };
+      }
+    }
+  }
+
+  if (!worst) {
+    return { name: 'chase-freshness', ok: true, details: `${activeChaseCount} active chases; none over ${maxOverdueMultiple}x interval` };
+  }
+
+  return {
+    name: 'chase-freshness',
+    ok: false,
+    details: `${staleChaseCount}/${activeChaseCount} active chases over ${maxOverdueMultiple}x interval; worst ${worst.cardName} (${worst.overdueMinutes}m overdue, ${worst.intervalMinutes}m interval)`
+  };
+}
+
 const services = (envValue('VAULTR_OPS_SERVICES') ?? 'vaultr.service,vaultr-discovery-market-worker.service,vaultr-ebay-webhook.service')
   .split(',')
   .map((serviceName) => serviceName.trim())
@@ -178,7 +229,8 @@ const services = (envValue('VAULTR_OPS_SERVICES') ?? 'vaultr.service,vaultr-disc
 const checks = [
   ...(await Promise.all(services.map((serviceName) => checkSystemdService(serviceName)))),
   checkDatabaseFile(),
-  checkRecentBackup()
+  checkRecentBackup(),
+  checkChaseFreshness()
 ];
 
 for (const check of checks) {

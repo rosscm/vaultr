@@ -356,6 +356,7 @@ type ActiveGroup = {
   sourceMode: string;
   oldestCreatedAt: string;
   oldestDueAtMs: number;
+  oldestChaseName?: string;
 };
 
 type CoverageAccumulator = {
@@ -369,8 +370,8 @@ type CoverageAccumulator = {
   backoffGroups: number;
   sourceTimeoutGroups: number;
   sourceErrorGroups: number;
-  oldestDue?: { queryKey: string; chaseCount: number; overdueSeconds: number };
-  oldestDeferred?: { queryKey: string; chaseCount: number; overdueSeconds: number; reason?: string };
+  oldestDue?: { queryKey: string; chaseName?: string; chaseCount: number; overdueSeconds: number };
+  oldestDeferred?: { queryKey: string; chaseName?: string; chaseCount: number; overdueSeconds: number; reason?: string; sourceCallsAtDeferral?: number; sourceBudget?: number };
 };
 
 export function orderGroupsForRun(
@@ -429,7 +430,8 @@ function markCoverageDeferred(
   queryKey: string,
   group: ActiveGroup,
   nowMs: number,
-  reason: string
+  reason: string,
+  sourceBudgetState?: { calls: number; budget: number }
 ): void {
   coverage.deferredGroups += 1;
   coverage.deferredChases += group.members.length;
@@ -439,10 +441,33 @@ function markCoverageDeferred(
   if (reason === 'Source error') coverage.sourceErrorGroups += 1;
   coverage.oldestDeferred = maybeReplaceOldestCoverageGroup(coverage.oldestDeferred, {
     queryKey: groupDisplayName(queryKey),
+    chaseName: group.oldestChaseName ?? group.members[0]?.chase.cardName,
     chaseCount: group.members.length,
     overdueSeconds: overdueSeconds(group.oldestDueAtMs, nowMs),
-    reason
+    reason,
+    sourceCallsAtDeferral: sourceBudgetState?.calls,
+    sourceBudget: sourceBudgetState?.budget
   });
+}
+
+function maxEbayRequestsPerMinute(): number {
+  const value = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '6');
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 6;
+}
+
+function clearExpiredBackoff(nowMs: number): void {
+  if (backoffUntilMs > 0 && nowMs >= backoffUntilMs) {
+    backoffUntilMs = 0;
+    setBackoffUntil(null);
+  }
+}
+
+function logSourceGroupDeferral(queryKey: string, group: ActiveGroup, reason: string, sourceBudgetState: { calls: number; budget: number }): void {
+  const chaseName = group.oldestChaseName ?? group.members[0]?.chase.cardName ?? 'Unknown chase';
+  console.warn(
+    `[Poller] Deferred source group ${groupDisplayName(queryKey)} / ${chaseName}: ${reason} ` +
+      `(source budget ${sourceBudgetState.calls}/${sourceBudgetState.budget}, ${group.members.length} chase${group.members.length === 1 ? '' : 's'})`
+  );
 }
 
 function finishCoverageSnapshot(coverage: CoverageAccumulator): void {
@@ -555,7 +580,7 @@ async function fetchListingsWithRetry(
   destination?: ShippingDestination,
   alertCurrency?: string
 ): Promise<Listing[]> {
-  const maxRequestsPerMinute = Number(process.env.EBAY_MAX_REQUESTS_PER_MINUTE ?? '6');
+  const maxRequestsPerMinute = maxEbayRequestsPerMinute();
   const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '900');
   const attempts = 2;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -569,6 +594,7 @@ async function fetchListingsWithRetry(
 
       const shopifyListingsPromise = includeShopify ? searchTrustedShopifyListings(chase) : Promise.resolve([]);
       const nowMs = Date.now();
+      clearExpiredBackoff(nowMs);
       if (nowMs < backoffUntilMs) {
         return shopifyListingsPromise;
       }
@@ -689,6 +715,8 @@ async function runPoll(client: Client): Promise<void> {
   const startedAt = Date.now();
   const nowMs = Date.now();
   markPollerRunStart();
+  clearExpiredBackoff(nowMs);
+  pruneSourceCallWindow(nowMs);
   const sourceMode = (process.env.LISTING_SOURCE ?? 'EBAY').toUpperCase();
   const chases = listAllChases();
   if (chases.length === 0) {
@@ -741,13 +769,14 @@ async function runPoll(client: Client): Promise<void> {
     const settings = getUserAlertSettings(chase.userId);
     const memberSourceMode = effectiveListingSourceMode(sourceMode, tier, settings.listingSourceMode);
     const key = sourceQueryKey(chase, settings, memberSourceMode);
-    const group = activeGroups.get(key) ?? { members: [], sourceMode: memberSourceMode, oldestCreatedAt: chase.createdAt, oldestDueAtMs: dueAtMs };
+    const group = activeGroups.get(key) ?? { members: [], sourceMode: memberSourceMode, oldestCreatedAt: chase.createdAt, oldestDueAtMs: dueAtMs, oldestChaseName: chase.cardName };
     group.members.push({ chase, settings });
     if (chase.createdAt.localeCompare(group.oldestCreatedAt) < 0) {
       group.oldestCreatedAt = chase.createdAt;
     }
     if (dueAtMs < group.oldestDueAtMs) {
       group.oldestDueAtMs = dueAtMs;
+      group.oldestChaseName = chase.cardName;
     }
     activeGroups.set(key, group);
   }
@@ -774,6 +803,7 @@ async function runPoll(client: Client): Promise<void> {
   for (const { queryKey, group } of orderedGroups) {
     coverage.oldestDue = maybeReplaceOldestCoverageGroup(coverage.oldestDue, {
       queryKey: groupDisplayName(queryKey),
+      chaseName: group.oldestChaseName ?? group.members[0]?.chase.cardName,
       chaseCount: group.members.length,
       overdueSeconds: overdueSeconds(group.oldestDueAtMs, nowMs)
     });
@@ -810,11 +840,16 @@ async function runPoll(client: Client): Promise<void> {
         markCoverageChecked(coverage, group);
       } else {
         const reason = group.sourceMode !== 'MOCK' && Date.now() < backoffUntilMs ? 'Backoff' : 'Rate limit';
-        markCoverageDeferred(coverage, queryKey, group, nowMs, reason);
+        pruneSourceCallWindow(Date.now());
+        const sourceBudgetState = { calls: sourceCallTimestamps.length, budget: maxEbayRequestsPerMinute() };
+        markCoverageDeferred(coverage, queryKey, group, nowMs, reason, sourceBudgetState);
+        logSourceGroupDeferral(queryKey, group, reason, sourceBudgetState);
       }
     } catch (error) {
       const reason = listingSourceFailureReason(error);
-      markCoverageDeferred(coverage, queryKey, group, nowMs, reason);
+      pruneSourceCallWindow(Date.now());
+      const sourceBudgetState = { calls: sourceCallTimestamps.length, budget: maxEbayRequestsPerMinute() };
+      markCoverageDeferred(coverage, queryKey, group, nowMs, reason, sourceBudgetState);
       finishCoverageSnapshot(coverage);
       console.error(`Listing source group failed for ${groupDisplayName(queryKey)}`, error);
       continue;

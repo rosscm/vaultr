@@ -92,10 +92,12 @@ function formatDuration(seconds: number): string {
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
-function formatCoverageGroup(group: { queryKey: string; chaseCount: number; overdueSeconds: number; reason?: string } | undefined): string {
+function formatCoverageGroup(group: { queryKey: string; chaseName?: string; chaseCount: number; overdueSeconds: number; reason?: string; sourceCallsAtDeferral?: number; sourceBudget?: number } | undefined): string {
   if (!group) return 'None';
+  const chase = group.chaseName ? ` / ${truncateValue(group.chaseName, 54)}` : '';
   const reason = group.reason ? `, ${group.reason.toLowerCase()}` : '';
-  return `${group.queryKey} (${group.chaseCount} chase${group.chaseCount === 1 ? '' : 's'}, ${formatDuration(group.overdueSeconds)} overdue${reason})`;
+  const sourceBudget = group.sourceCallsAtDeferral !== undefined && group.sourceBudget !== undefined ? `, source budget ${group.sourceCallsAtDeferral}/${group.sourceBudget}` : '';
+  return `${group.queryKey}${chase} (${group.chaseCount} chase${group.chaseCount === 1 ? '' : 's'}, ${formatDuration(group.overdueSeconds)} overdue${reason}${sourceBudget})`;
 }
 
 function formatRelativeDue(seconds: number): string {
@@ -111,6 +113,8 @@ function buildEligibilityLines(chases: Chase[], nowMs: number): string[] {
   let dueNow = 0;
   let notYetDue = 0;
   let neverChecked = 0;
+  let overdueTwiceInterval = 0;
+  let overdueFourTimesInterval = 0;
   let nextDue: { chase: Chase; tier: string; secondsUntilDue: number } | undefined;
   let oldestEligible: { chase: Chase; tier: string; secondsUntilDue: number } | undefined;
 
@@ -129,6 +133,8 @@ function buildEligibilityLines(chases: Chase[], nowMs: number): string[] {
     const summary = { chase, tier, secondsUntilDue };
     if (secondsUntilDue <= 0) {
       dueNow += 1;
+      if (Math.abs(secondsUntilDue) >= intervalSeconds * 2) overdueTwiceInterval += 1;
+      if (Math.abs(secondsUntilDue) >= intervalSeconds * 4) overdueFourTimesInterval += 1;
       if (!oldestEligible || secondsUntilDue < oldestEligible.secondsUntilDue) oldestEligible = summary;
     } else {
       notYetDue += 1;
@@ -144,6 +150,7 @@ function buildEligibilityLines(chases: Chase[], nowMs: number): string[] {
   return [
     '**Current Eligibility (Live Chase Queue):**',
     `**Eligible Now:** ${dueNow}`,
+    `**Overdue Pressure:** ${overdueTwiceInterval} over 2x interval, ${overdueFourTimesInterval} over 4x interval`,
     `**Not Yet Due:** ${notYetDue}`,
     `**Never Checked:** ${neverChecked}`,
     `**Next Eligible:** ${formatChaseDue(nextDue)}`,
