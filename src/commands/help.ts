@@ -26,7 +26,7 @@ export const help = {
       '- Dial down confidence for more possible finds, with more noise',
       '',
       '**Discover More**',
-      '- `/discover` opens your Weekly Shelf and recommendation paths',
+      '- Weekly Shelf arrives in the setup channel when the weekly drop is live',
       '- `/plan` shows current Free Vault or Full Vault access',
       '- `/upgrade` explains what Vaultr Pro opens inside the Full Vault',
       '',

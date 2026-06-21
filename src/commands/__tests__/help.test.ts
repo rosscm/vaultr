@@ -27,7 +27,8 @@ describe('help command', () => {
     expect(text).toContain('Dial up confidence for fewer, cleaner alerts');
     expect(text).toContain('Dial down confidence for more possible finds, with more noise');
     expect(text).toContain('**Discover More**');
-    expect(text).toContain('`/discover` opens your Weekly Shelf and recommendation paths');
+    expect(text).toContain('Weekly Shelf arrives in the setup channel when the weekly drop is live');
+    expect(text).not.toContain('`/discover`');
     expect(text).toContain('`/plan` shows current Free Vault or Full Vault access');
     expect(text).not.toContain('Server admins can use `set`');
     expect(text).toContain('**Server Rhythm**');
