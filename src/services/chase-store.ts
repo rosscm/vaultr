@@ -1114,7 +1114,7 @@ export function getGuildCommunityStatsToday(guildId: string): {
     activeTrackedFamily: inferFamilyFromText(chaseNames, 2) ?? inferFamilyFromText(chaseNames) ?? 'Mixed collections',
     todayAlertFamily: inferFamilyFromText(alertTitles) ?? 'Mixed finds',
     todayAlertTheme: inferThemeFromText(alertTitles) ?? 'Fresh listings',
-    hiddenDiscovery: alertTitles[0] ?? 'Quiet spotlight: chases are still watching'
+    hiddenDiscovery: alertTitles[0] ?? 'No standout listing today'
   };
 }
 

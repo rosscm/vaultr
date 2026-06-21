@@ -539,7 +539,7 @@ describe('buildDailyPulseEmbed', () => {
         activeTrackedFamily: 'Mixed collections',
         todayAlertFamily: 'Mixed finds',
         todayAlertTheme: 'Fresh listings',
-        hiddenDiscovery: 'Quiet spotlight: chases are still watching'
+        hiddenDiscovery: 'No standout listing today'
       })
     ).toBe(false);
     expect(
@@ -555,7 +555,7 @@ describe('buildDailyPulseEmbed', () => {
         activeTrackedFamily: 'Mixed collections',
         todayAlertFamily: 'Mixed finds',
         todayAlertTheme: 'Fresh listings',
-        hiddenDiscovery: 'Quiet spotlight: chases are still watching'
+        hiddenDiscovery: 'No standout listing today'
       })
     ).toBe(true);
     expect(
@@ -599,11 +599,11 @@ describe('buildDailyPulseEmbed', () => {
     expect(data.description).toContain("The day's sharpest movement centered on moonlit alt art");
     expect(data.fields?.[0]).toMatchObject({ name: 'Today’s Movement' });
     expect(data.fields?.[0].value).toContain('• New Vaults: 2 collectors joined');
-    expect(data.fields?.[0].value).toContain('• Alerts delivered: 5 listings reached 3 collectors');
+    expect(data.fields?.[0].value).toContain('• Alert reach: 5 listings, 3 collectors');
     expect(data.fields?.[0].value).toContain('• Grail watch: 1 grail surfaced');
-    expect(data.fields?.[0].value).toContain('• Active watchlist: 18 chases across 4 Vaults');
+    expect(data.fields?.[0].value).toContain('• Watchlist size: 18 chases across 4 Vaults');
     expect(data.fields?.[1]).toMatchObject({ name: 'Collector Signal' });
-    expect(data.fields?.[1].value).toContain("Today's alerts leaned moonlit alt art in Umbreon line; active watchlist centers on Eeveelution cards");
+    expect(data.fields?.[1].value).toContain('Alert signal: moonlit alt art in Umbreon line. Taste profile: Eeveelution cards');
     expect(data.fields?.[2]).toMatchObject({ name: 'Spotlight', value: 'Umbreon VMAX Alt Art PSA 10' });
     expect(data.footer?.text).toBe('Vaultr • Pulse');
     expect(JSON.stringify(data)).not.toContain('📡');
@@ -625,13 +625,14 @@ describe('buildDailyPulseEmbed', () => {
       activeTrackedFamily: 'Mixed collections',
       todayAlertFamily: 'Mixed finds',
       todayAlertTheme: 'Fresh listings',
-      hiddenDiscovery: 'Quiet spotlight: chases are still watching'
+      hiddenDiscovery: 'No standout listing today'
     }).toJSON();
 
-    expect(data.description).toContain('Quiet day: active chases kept watching');
-    expect(data.description).toContain('No major movement today, but active chases kept watch');
-    expect(data.fields?.[0].value).toContain('• Active watchlist: 11 chases across 3 Vaults');
-    expect(data.fields?.[1].value).toContain('Mixed collector interest today; no single path led the board');
+    expect(data.description).toContain('Quiet day in the Vault');
+    expect(data.description).toContain('No new alerts or joins today');
+    expect(data.fields?.[0].value).toContain('• Watchlist size: 11 chases across 3 Vaults');
+    expect(data.fields?.[1].value).toContain('Taste profile is still mixed; no single path leads the board');
+    expect(data.fields?.[2]).toMatchObject({ name: 'Spotlight', value: 'No standout listing today' });
   });
 
   it('does not frame broad tracked families as today-specific alert activity', () => {
@@ -651,9 +652,9 @@ describe('buildDailyPulseEmbed', () => {
     }).toJSON();
 
     expect(data.description).toContain('1 chase alert reached 1 collector');
-    expect(data.description).toContain('Fresh listings moved through the watchlist');
-    expect(data.fields?.[0].value).toContain('• Active watchlist: 4 chases across 1 Vault');
-    expect(data.fields?.[1].value).toContain("Today's alerts leaned Base Set / starter-era cards in Blastoise line; active watchlist centers on Mew line");
+    expect(data.description).toContain('Fresh listings crossed the feed today');
+    expect(data.fields?.[0].value).toContain('• Watchlist size: 4 chases across 1 Vault');
+    expect(data.fields?.[1].value).toContain('Alert signal: Base Set / starter-era cards in Blastoise line. Taste profile: Mew line');
     expect(JSON.stringify(data)).not.toContain('starter-era nostalgia across Mew line');
     expect(JSON.stringify(data)).not.toContain('Mew line collectors had something to inspect today.');
   });

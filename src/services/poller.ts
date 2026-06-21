@@ -1107,28 +1107,28 @@ function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): 
   if (stats.matches > 0) parts.push(`${pluralize(stats.matches, 'chase alert')} reached ${pluralize(stats.usersAlerted, 'collector')}`);
   else if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received chase alerts`);
   if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  if (parts.length === 0) return 'Quiet day: active chases kept watching';
+  if (parts.length === 0) return 'Quiet day in the Vault';
   return parts.join(' • ');
 }
 
 function dailyPulseMood(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   if (stats.grailsSurfaced > 0) return `The day's sharpest movement centered on ${stats.topTrackedTheme.toLowerCase()}`;
   if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'New Vaults joined while active chases found fresh listings';
-  if (stats.usersAlerted > 0) return 'Fresh listings moved through the watchlist';
+  if (stats.usersAlerted > 0) return 'Fresh listings crossed the feed today';
   if (stats.newVaultrs > 0) return 'New collectors joined the chase board today';
-  return 'No major movement today, but active chases kept watch';
+  return 'No new alerts or joins today';
 }
 
 function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStatsToday>): string[] {
   const lines: string[] = [];
   if (stats.newVaultrs > 0) lines.push(`• New Vaults: ${pluralize(stats.newVaultrs, 'collector')} joined`);
   if (stats.usersAlerted > 0) {
-    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} reached ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')} received a chase alert`;
-    lines.push(`• Alerts delivered: ${sightingDetail}`);
+    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')}, ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')}`;
+    lines.push(`• Alert reach: ${sightingDetail}`);
   }
   if (stats.grailsSurfaced > 0) lines.push(`• Grail watch: ${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  if (stats.activeVaults > 0 || stats.activeChases > 0) lines.push(`• Active watchlist: ${pluralize(stats.activeChases, 'chase', 'chases')} across ${pluralize(stats.activeVaults, 'Vault')}`);
-  return lines.length > 0 ? lines : ['• Active chases stayed on watch'];
+  if (stats.activeVaults > 0 || stats.activeChases > 0) lines.push(`• Watchlist size: ${pluralize(stats.activeChases, 'chase', 'chases')} across ${pluralize(stats.activeVaults, 'Vault')}`);
+  return lines.length > 0 ? lines : ['• No active watchlist yet'];
 }
 
 function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
@@ -1137,12 +1137,12 @@ function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunitySt
     const alertSignal = stats.todayAlertFamily === 'Mixed finds'
       ? stats.todayAlertTheme
       : `${stats.todayAlertTheme} in ${stats.todayAlertFamily}`;
-    if (stats.activeTrackedFamily !== 'Mixed collections') return `Today's alerts leaned ${alertSignal}; active watchlist centers on ${stats.activeTrackedFamily}`;
-    return `Today's alerts leaned ${alertSignal}; active watchlist stayed broad`;
+    if (stats.activeTrackedFamily !== 'Mixed collections') return `Alert signal: ${alertSignal}. Taste profile: ${stats.activeTrackedFamily}`;
+    return `Alert signal: ${alertSignal}. Taste profile stayed broad`;
   }
-  if (stats.activeTrackedFamily !== 'Mixed collections') return `Active watchlist centers on ${stats.activeTrackedFamily}`;
+  if (stats.activeTrackedFamily !== 'Mixed collections') return `Taste profile centers on ${stats.activeTrackedFamily}`;
   if (stats.topTrackedFamily === 'Mixed collections' && stats.topTrackedTheme === 'Varied styles') {
-    return 'Mixed collector interest today; no single path led the board';
+    return 'Taste profile is still mixed; no single path leads the board';
   }
   return `Watchlist leans ${stats.topTrackedTheme} in ${stats.topTrackedFamily}`;
 }
