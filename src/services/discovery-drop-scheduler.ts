@@ -3,12 +3,14 @@ import { discoveryDropOpenButton, prepareWeeklyDiscoveryDropForUser } from '../c
 import { getUserPlan, listGuildCommandChannels, listUsersWithChases } from './chase-store.js';
 import { activePlanTier } from './plans.js';
 import {
+  countAnnounceableScheduledDiscoveryDrops,
   countPreparedScheduledDiscoveryDrops,
   getScheduledDiscoveryDrop,
   hasScheduledDiscoveryDropAnnouncement,
   markScheduledDiscoveryDropAnnouncement,
   scheduledDiscoveryAvailability,
-  scheduledDiscoveryPeriodKey
+  scheduledDiscoveryPeriodKey,
+  type ScheduledDiscoveryDrop
 } from './scheduled-discovery-drops.js';
 
 const WEEKLY_DROP_TYPE = 'WEEKLY_DISCOVERY' as const;
@@ -28,14 +30,45 @@ function envNumber(name: string, fallback: number, min: number, max: number): nu
   return Math.min(max, Math.max(min, Math.floor(value)));
 }
 
+function envHours(name: string, fallback: number, min: number, max: number): number {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+function minMarketReadyItemsForAnnouncement(): number {
+  return envNumber('DISCOVERY_DROP_ANNOUNCE_MIN_READY_ITEMS', 5, 1, 20);
+}
+
 function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
 }
 
-function weeklyPreparationTargetDate(now: Date): Date {
-  return now.getUTCDay() === 0 ? addDays(now, 1) : now;
+export function weeklyPreparationTargetDate(now: Date, leadDays = envNumber('DISCOVERY_DROP_PREPARE_LEAD_DAYS', 3, 0, 6)): Date {
+  const currentAvailability = scheduledDiscoveryAvailability(WEEKLY_DROP_TYPE, now);
+  if (now.getTime() < Date.parse(currentAvailability.availableAt)) return now;
+
+  const nextWeek = addDays(now, 7);
+  const nextAvailability = scheduledDiscoveryAvailability(WEEKLY_DROP_TYPE, nextWeek);
+  const leadMs = leadDays * 24 * 60 * 60 * 1000;
+  return Date.parse(nextAvailability.availableAt) - now.getTime() <= leadMs ? nextWeek : now;
+}
+
+export function shouldPrepareWeeklyDrop(
+  existing: Pick<ScheduledDiscoveryDrop, 'status' | 'itemCount' | 'updatedAt'> | null,
+  targetDate: Date,
+  now: Date,
+  refreshHours = envHours('DISCOVERY_DROP_PREPARE_REFRESH_HOURS', 12, 1, 168)
+): boolean {
+  if (!existing || existing.itemCount <= 0) return true;
+  const availability = scheduledDiscoveryAvailability(WEEKLY_DROP_TYPE, targetDate);
+  if (now.getTime() >= Date.parse(availability.availableAt)) return false;
+
+  const updatedAtMs = Date.parse(existing.updatedAt);
+  if (!Number.isFinite(updatedAtMs)) return true;
+  return now.getTime() - updatedAtMs >= refreshHours * 60 * 60 * 1000;
 }
 
 function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number): EmbedBuilder {
@@ -63,14 +96,14 @@ async function prepareWeeklyDrops(now: Date): Promise<{ periodKey: string; prepa
 
   for (const userId of proUsersWithChases()) {
     const existing = getScheduledDiscoveryDrop(userId, WEEKLY_DROP_TYPE, periodKey);
-    if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0) {
+    if (!shouldPrepareWeeklyDrop(existing, targetDate, now)) {
       skipped += 1;
       continue;
     }
     if (prepared >= batchSize) break;
 
     try {
-      const result = await prepareWeeklyDiscoveryDropForUser(userId, targetDate);
+      const result = await prepareWeeklyDiscoveryDropForUser(userId, targetDate, { force: !!existing });
       if (result.prepared && result.itemCount > 0) prepared += 1;
       else skipped += 1;
     } catch (error) {
@@ -91,7 +124,7 @@ async function announceWeeklyDrop(client: Client, now: Date): Promise<{ periodKe
   const availability = scheduledDiscoveryAvailability(WEEKLY_DROP_TYPE, now);
   if (Date.parse(availability.availableAt) > now.getTime()) return { periodKey, announced: 0, skipped: 0 };
 
-  const preparedCount = countPreparedScheduledDiscoveryDrops(WEEKLY_DROP_TYPE, periodKey);
+  const preparedCount = countAnnounceableScheduledDiscoveryDrops(WEEKLY_DROP_TYPE, periodKey, minMarketReadyItemsForAnnouncement());
   if (preparedCount === 0) return { periodKey, announced: 0, skipped: 0 };
 
   let announced = 0;

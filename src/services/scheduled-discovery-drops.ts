@@ -178,6 +178,15 @@ const countScheduledDiscoveryDropsStmt = db.prepare(`
     AND item_count > 0
 `);
 
+const countAnnounceableScheduledDiscoveryDropsStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM discovery_scheduled_drops
+  WHERE drop_type = ?
+    AND period_key = ?
+    AND status IN ('READY', 'PARTIAL')
+    AND market_ready_count >= ?
+`);
+
 const hasScheduledDiscoveryDropAnnouncementStmt = db.prepare(`
   SELECT 1
   FROM discovery_scheduled_drop_announcements
@@ -407,6 +416,11 @@ export function deleteScheduledDiscoveryDrop(userId: string, dropType: Scheduled
 
 export function countPreparedScheduledDiscoveryDrops(dropType: ScheduledDiscoveryDropType, periodKey: string): number {
   const row = countScheduledDiscoveryDropsStmt.get(dropType, periodKey) as { count: number };
+  return Number(row?.count ?? 0);
+}
+
+export function countAnnounceableScheduledDiscoveryDrops(dropType: ScheduledDiscoveryDropType, periodKey: string, minMarketReadyItems: number): number {
+  const row = countAnnounceableScheduledDiscoveryDropsStmt.get(dropType, periodKey, minMarketReadyItems) as { count: number };
   return Number(row?.count ?? 0);
 }
 

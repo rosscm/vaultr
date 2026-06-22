@@ -29,6 +29,7 @@ import {
   looksLikeBaselineRawMarketListing,
   looksLikeVisualDiscoveryListing,
   marketReadyShelfCandidates,
+  marketReadyShelfCandidatesWithOptions,
   mergeFreshDiscoveryCandidates,
   orderConcreteDiscoveryFallbackSuggestionsForMarket,
   orderCandidatesForMarketConfidence,
@@ -37,6 +38,7 @@ import {
   preserveLanguageSignalFallbackSuggestions,
   repairScheduledDiscoveryShelfImages,
   resetDiscoveryMarketRefreshThrottleState,
+  selectFreshVisibleCandidatesForCount,
   selectVisibleCandidates,
   selectVisibleCandidatesForCount,
   shouldShowDiscoveryShelfTighteningNote,
@@ -371,6 +373,34 @@ describe('selectVisibleCandidates', () => {
 
     expect(visible).toHaveLength(13);
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
+  });
+
+  it('keeps scheduled delivery shelves to market-ready picks instead of pending filler', () => {
+    const readyCandidates = Array.from({ length: 5 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const pendingCandidates = Array.from({ length: 10 }, (_, index) => candidate(`Pending Pick ${index + 1} SWSH${200 + index}`, 'exploration path', index + 5));
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [...readyCandidates, ...pendingCandidates],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false }
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
+  });
+
+  it('does not blank prepared scheduled shelves just because ready picks were seen before', () => {
+    const repeated = candidate('Moltres Skyridge H20', 'market ready path', 0, 4);
+    const anotherReadyPick = candidate('Zapdos Wizards Black Star Promos 23', 'market ready path', 1, 4);
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [repeated, anotherReadyPick],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false }
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([repeated.suggestion.name, anotherReadyPick.suggestion.name]);
   });
 
   it('prefers reliable cards tied to concrete chase subjects over era-only reliable filler', () => {
@@ -727,6 +757,64 @@ describe('selectVisibleCandidates', () => {
     expect(visibleNames).toHaveLength(3);
     expect(visibleNames.filter((name) => /^Zapdos Aquapolis/i.test(name))).toHaveLength(1);
     expect(visibleNames).toEqual(expect.arrayContaining(['Articuno Skyridge 4', 'Mew Expedition Base Set 55']));
+  });
+
+  it('prefers fresh weekly candidates before repeating previous shelf names', () => {
+    const visible = selectFreshVisibleCandidatesForCount(
+      [
+        candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 4),
+        candidate('Pikachu Skyridge 84', 'Vintage Era Trail', 1, 4),
+        candidate('Totodile McDonalds Promo', 'starter promo side paths', 2, 4),
+        candidate('Squirtle Expedition Base Set 132', 'Vintage Era Trail', 3, 4)
+      ],
+      [],
+      3,
+      undefined,
+      ['Mew Southern Islands Promo', 'Pikachu Skyridge 84']
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Totodile McDonalds Promo',
+      'Squirtle Expedition Base Set 132',
+      'Mew Southern Islands Promo'
+    ]);
+  });
+
+  it('uses previous shelf repeats only as weekly filler when fresh candidates run short', () => {
+    const visible = selectFreshVisibleCandidatesForCount(
+      [
+        candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 4),
+        candidate('Pikachu Skyridge 84', 'Vintage Era Trail', 1, 4),
+        candidate('Totodile McDonalds Promo', 'starter promo side paths', 2, 4)
+      ],
+      [],
+      3,
+      undefined,
+      ['Mew Southern Islands Promo', 'Pikachu Skyridge 84']
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Totodile McDonalds Promo',
+      'Mew Southern Islands Promo',
+      'Pikachu Skyridge 84'
+    ]);
+  });
+
+  it('can keep scheduled weekly shelves smaller instead of padding with recent repeats', () => {
+    const visible = selectFreshVisibleCandidatesForCount(
+      [
+        candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 4),
+        candidate('Pikachu Skyridge 84', 'Vintage Era Trail', 1, 4),
+        candidate('Totodile McDonalds Promo', 'starter promo side paths', 2, 4)
+      ],
+      [],
+      3,
+      undefined,
+      ['Mew Southern Islands Promo', 'Pikachu Skyridge 84'],
+      { allowAvoidedFiller: false }
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual(['Totodile McDonalds Promo']);
   });
 
   it('backfills a short strong shelf from prior ready weekly cards without same-set variants', () => {
@@ -2012,7 +2100,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     );
     const visible = marketReadyShelfCandidates(backfilled, true, strongProfileConfidence);
 
-    expect(visible.map((item) => item.suggestion.name)).toEqual([current.suggestion.name, replacementName]);
+    expect(visible.map((item) => item.suggestion.name)).toHaveLength(2);
+    expect(visible.map((item) => item.suggestion.name)).toEqual(expect.arrayContaining([current.suggestion.name, replacementName]));
+    expect(visible.map((item) => item.suggestion.name)).not.toContain(variantName);
+    expect(visible.map((item) => item.suggestion.name)).not.toContain(rejectedName);
     deleteDiscoveryMarketCache(variantCacheKey);
     deleteDiscoveryMarketCache(unrelatedEraCacheKey);
     deleteDiscoveryMarketCache(rejectedCacheKey);

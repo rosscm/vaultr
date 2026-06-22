@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  countAnnounceableScheduledDiscoveryDrops,
   countPreparedScheduledDiscoveryDrops,
   deleteScheduledDiscoveryDropAnnouncement,
   deleteScheduledDiscoveryDrop,
@@ -174,6 +175,8 @@ describe('scheduled discovery drops', () => {
     );
 
     expect(countPreparedScheduledDiscoveryDrops('WEEKLY_DISCOVERY', periodKey)).toBe(1);
+    expect(countAnnounceableScheduledDiscoveryDrops('WEEKLY_DISCOVERY', periodKey, 1)).toBe(1);
+    expect(countAnnounceableScheduledDiscoveryDrops('WEEKLY_DISCOVERY', periodKey, 2)).toBe(0);
     expect(hasScheduledDiscoveryDropAnnouncement(guildId, 'WEEKLY_DISCOVERY', periodKey)).toBe(false);
     expect(
       markScheduledDiscoveryDropAnnouncement({
