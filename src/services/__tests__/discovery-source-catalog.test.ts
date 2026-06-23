@@ -52,6 +52,22 @@ describe('discovery source catalog', () => {
     expect(queries).toEqual(expect.arrayContaining(['supertype:Pokemon set.series:"E-Card"', 'supertype:Pokemon set.name:Expedition']));
   });
 
+  it('builds source queries for McDonalds e-reader promo taste threads', () => {
+    const queries = pokemonTcgCatalogQueriesForSuggestion({
+      name: "Pikachu McDonald's e-Reader promo Pokemon cards",
+      lane: 'Retail Promo Trail',
+      laneWhy: 'profile',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: "Pikachu McDonald's e-Reader promo Pokemon card",
+      requiredEvidenceTokens: ['pikachu', 'promo', 'e-reader', 'mcdonalds'],
+      sourceTasteTokens: ['pikachu', 'promo', 'e-reader', 'mcdonalds']
+    });
+
+    expect(queries).toContain('supertype:Pokemon rarity:Promo');
+    expect(queries).not.toContain('supertype:Pokemon set.name:"Nintendo Black Star Promos"');
+  });
+
   it('turns broad taste threads into named source-backed cards', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(
@@ -90,6 +106,64 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.name).toBe('Eevee VMAX SWSH Black Star Promos SWSH118');
     expect(resolved.suggestions[0]?.referenceSourceName).toBe('Pokemon TCG (SWSH Black Star Promos)');
     expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe('Eevee VMAX SWSH Black Star Promos SWSH118 Pokemon card');
+  });
+
+  it('surfaces Pikachu McDonalds 010/018 without relabeling Nintendo Black Star source records', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const query = url.searchParams.get('q') ?? '';
+      const data = query.includes('Nintendo Black Star Promos')
+        ? [
+            {
+              id: 'np-35',
+              name: 'Pikachu δ',
+              number: '35',
+              supertype: 'Pokemon',
+              subtypes: ['Basic'],
+              rarity: 'Promo',
+              nationalPokedexNumbers: [25],
+              set: { name: 'Nintendo Black Star Promos', series: 'NP', releaseDate: '2006/03/01' },
+              images: { small: 'https://images.pokemontcg.io/np/35.png', large: 'https://images.pokemontcg.io/np/35_hires.png' }
+            },
+            {
+              id: 'np-12',
+              name: 'Pikachu',
+              number: '12',
+              supertype: 'Pokemon',
+              subtypes: ['Basic'],
+              rarity: 'Promo',
+              nationalPokedexNumbers: [25],
+              set: { name: 'Nintendo Black Star Promos', series: 'NP', releaseDate: '2003/10/01' },
+              images: { small: 'https://images.pokemontcg.io/np/12.png', large: 'https://images.pokemontcg.io/np/12_hires.png' }
+            }
+          ]
+        : [];
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: "Pikachu McDonald's e-Reader promo Pokemon cards",
+        lane: 'Retail Promo Trail',
+        laneWhy: 'same-subject retail e-reader promo variants',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: "Pikachu McDonald's e-Reader promo Pokemon card",
+        requiredEvidenceTokens: ['pikachu', 'promo', 'e-reader', 'mcdonalds'],
+        sourceTasteTokens: ['pikachu', 'promo', 'e-reader', 'mcdonalds']
+      },
+      [],
+      3,
+      [chase('Pikachu xy95'), chase('Squirtle 007/018 McDonalds e-Reader Promo')]
+    );
+
+    expect(resolved.suggestions[0]?.name).toBe("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese");
+    expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Pokemon card");
+    expect(resolved.suggestions[0]?.evidenceAliases).toContain('Pikachu 010/018');
+    expect(resolved.suggestions[0]?.evidenceAliases).toContain("Pokemon Card Game Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Nintendo");
+    expect(resolved.suggestions[0]?.requiredEvidenceTokens).toEqual(['pikachu', '010', '018']);
+    expect(resolved.suggestions[0]?.referenceSourceName).toBeUndefined();
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain("Pikachu McDonald's e-Reader Promo 12");
   });
 
   it('caches repeated source API lookups for the same catalog query', async () => {

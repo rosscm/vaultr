@@ -156,6 +156,18 @@ const getLatestScheduledDiscoveryDropStmt = db.prepare(`
   LIMIT 1
 `);
 
+const listRecentScheduledDiscoveryDropsStmt = db.prepare(`
+  SELECT user_id, drop_type, period_key, status, title, summary, currency, available_at, expires_at,
+         generated_at, updated_at, source_state_updated_at, market_ready_count, image_ready_count, item_count
+  FROM discovery_scheduled_drops
+  WHERE user_id = ?
+    AND drop_type = ?
+    AND status IN ('READY', 'PARTIAL')
+    AND available_at <= ?
+  ORDER BY available_at DESC, updated_at DESC
+  LIMIT ?
+`);
+
 const listScheduledDiscoveryDropItemsStmt = db.prepare(`
   SELECT position, suggestion_name, suggestion_json, image_url, image_source_name, market_status, market_currency,
          asking_total, asking_sample_size, sold_total, sold_sample_size, listing_id, listing_title, listing_url, market_updated_at
@@ -408,6 +420,11 @@ export function getScheduledDiscoveryDrop(userId: string, dropType: ScheduledDis
 export function getLatestAvailableScheduledDiscoveryDrop(userId: string, dropType: ScheduledDiscoveryDropType, now = new Date().toISOString()): ScheduledDiscoveryDrop | null {
   const row = getLatestScheduledDiscoveryDropStmt.get(userId, dropType, now, now) as ScheduledDiscoveryDropRow | undefined;
   return row ? mapScheduledDiscoveryDropRow(row) : null;
+}
+
+export function listRecentAvailableScheduledDiscoveryDrops(userId: string, dropType: ScheduledDiscoveryDropType, now = new Date().toISOString(), limit = 3): ScheduledDiscoveryDrop[] {
+  const rows = listRecentScheduledDiscoveryDropsStmt.all(userId, dropType, now, Math.max(1, Math.min(8, Math.floor(limit)))) as ScheduledDiscoveryDropRow[];
+  return rows.map(mapScheduledDiscoveryDropRow);
 }
 
 export function deleteScheduledDiscoveryDrop(userId: string, dropType: ScheduledDiscoveryDropType, periodKey: string): void {

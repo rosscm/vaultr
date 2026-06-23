@@ -189,6 +189,22 @@ function quoted(value: string): string {
   return `"${value.replaceAll('"', '')}"`;
 }
 
+function uniqueValuesPreservingOrder(values: string[]): string[] {
+  return values.filter((value, index) => values.indexOf(value) === index);
+}
+
+function uniqueSuggestionsByName(suggestions: DiscoverySuggestion[]): DiscoverySuggestion[] {
+  const seen = new Set<string>();
+  const unique: DiscoverySuggestion[] = [];
+  for (const suggestion of suggestions) {
+    const key = normalizeSearchText(suggestion.name);
+    if (seen.has(key)) continue;
+    unique.push(suggestion);
+    seen.add(key);
+  }
+  return unique;
+}
+
 export function pokemonTcgCatalogQueriesForSuggestion(suggestion: DiscoverySuggestion): string[] {
   const text = sourceText(suggestion);
   if (!/\bpokemon\b/i.test(text)) return [];
@@ -220,8 +236,51 @@ export function pokemonTcgCatalogQueriesForSuggestion(suggestion: DiscoverySugge
 }
 
 function hasJapaneseTaste(suggestion: DiscoverySuggestion): boolean {
+  if (isRetailEReaderPromoSuggestion(suggestion)) return false;
   const source = normalizeSearchText([sourceText(suggestion), ...(suggestion.sourceTasteTokens ?? [])].join(' '));
   return /\bjapanese\b/.test(source);
+}
+
+function isRetailEReaderPromoSuggestion(suggestion: DiscoverySuggestion): boolean {
+  const text = [sourceText(suggestion), ...(suggestion.sourceTasteTokens ?? []), ...(suggestion.requiredEvidenceTokens ?? [])].join(' ');
+  return /\bmcdonald'?s\b/i.test(text) && /\be[- ]?reader\b/i.test(text);
+}
+
+function retailEReaderPromoSubjectToken(suggestion: DiscoverySuggestion): string | undefined {
+  return (suggestion.requiredEvidenceTokens ?? suggestion.sourceTasteTokens ?? [])
+    .map(normalizeSearchText)
+    .find((token) => token.length >= 3 && !['e-reader', 'mcdonalds', 'promo'].includes(token));
+}
+
+function exactRetailEReaderSubjectRank(card: PokemonTcgCard, suggestion: DiscoverySuggestion): number {
+  const subjectToken = retailEReaderPromoSubjectToken(suggestion);
+  if (!isRetailEReaderPromoSuggestion(suggestion) || !subjectToken) return 0;
+  return (card.name ?? '').trim().toLowerCase() === subjectToken ? 1 : 0;
+}
+
+function curatedRetailEReaderPromoSuggestion(parent: DiscoverySuggestion): DiscoverySuggestion | null {
+  const subjectToken = retailEReaderPromoSubjectToken(parent);
+  if (!isRetailEReaderPromoSuggestion(parent) || subjectToken !== 'pikachu') return null;
+  const name = "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese";
+  const evidenceSearchTerm = "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Pokemon card";
+  return {
+    ...parent,
+    name,
+    lane: parent.lane.replace(/\bthread\b/i, 'market identity'),
+    laneWhy: `${parent.laneWhy}; collector marketplace identity corrected to McDonald's 010/018, not Nintendo Black Star Promo 12`,
+    evidenceSearchTerm,
+    evidenceAliases: uniqueValuesPreservingOrder([
+      'Pikachu 010/018',
+      name,
+      evidenceSearchTerm,
+      "Pokemon Card Game Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Nintendo",
+      "Pikachu 010/018 McDonald's Promo Holo e-Series Japanese",
+      "Pokemon Card Pikachu 010/018 McDonald's Promo Holo e-Series Japanese"
+    ]),
+    requiredEvidenceTokens: ['pikachu', '010', '018'],
+    sourceTasteTokens: ['pikachu', 'promo', 'e-reader', 'mcdonalds', 'japanese'],
+    curiosityScore: (parent.curiosityScore ?? 0) + 3
+  };
 }
 
 function hasJapaneseChaseSignal(chase: Chase): boolean {
@@ -576,6 +635,10 @@ function expandedQueriesForProfile(baseQueries: string[], profile: SourceTastePr
   for (const base of broadPokemonBases) {
     for (const term of profileTerms.slice(0, 8)) queries.push(`${base} name:${quoted(term)}`);
   }
+  const retailEReaderPromoBases = baseQueries.filter((query) => /nintendo black star promos/i.test(query));
+  for (const base of retailEReaderPromoBases) {
+    for (const term of profileTerms.slice(0, 8)) queries.push(`${base} name:${quoted(term)}`);
+  }
   const profileEReaderBases = ['supertype:Pokemon set.series:"E-Card"', 'supertype:Pokemon set.name:Expedition', 'supertype:Pokemon set.name:Aquapolis', 'supertype:Pokemon set.name:Skyridge'];
   const explicitEReaderBases = baseQueries.filter((query) => /set\.(?:series|name):/i.test(query) && /e-card|expedition|aquapolis|skyridge/i.test(query));
   const eReaderBases = explicitEReaderBases.length > 0 ? explicitEReaderBases : hasEReaderProfileEvidence(profile) ? profileEReaderBases : [];
@@ -655,8 +718,10 @@ function releaseYear(card: PokemonTcgCard): number {
 }
 
 function sourceSuggestionFromPokemonCard(parent: DiscoverySuggestion, card: PokemonTcgCard): DiscoverySuggestion | null {
-  const name = cardDisplayName(card);
-  const evidenceSearchTerm = cardEvidenceSearchTerm(card);
+  const officialName = cardDisplayName(card);
+  const name = officialName;
+  const officialEvidenceSearchTerm = cardEvidenceSearchTerm(card);
+  const evidenceSearchTerm = officialEvidenceSearchTerm;
   const imageUrl = card.images?.large ?? card.images?.small;
   if (!card.id || !name || !evidenceSearchTerm) return null;
 
@@ -670,7 +735,7 @@ function sourceSuggestionFromPokemonCard(parent: DiscoverySuggestion, card: Poke
     why: parent.why,
     nearby: parent.nearby,
     evidenceSearchTerm,
-    evidenceAliases: [name, evidenceSearchTerm],
+    evidenceAliases: uniqueValuesPreservingOrder([name, evidenceSearchTerm, officialName, officialEvidenceSearchTerm].filter((value): value is string => !!value)),
     requiredEvidenceTokens: requiredCardEvidenceTokens(card),
     referenceImageUrl: imageUrl,
     referenceSourceName: setName ? `Pokemon TCG (${setName})` : 'Pokemon TCG',
@@ -852,6 +917,11 @@ function matchesCardFormatProfile(card: PokemonTcgCard, suggestion: DiscoverySug
 }
 
 function matchesCollectorQualityProfile(card: PokemonTcgCard, suggestion: DiscoverySuggestion, profile: SourceTasteProfile, hasAnchoredQuery: boolean): boolean {
+  if (isRetailEReaderPromoSuggestion(suggestion)) {
+    const subjectToken = retailEReaderPromoSubjectToken(suggestion);
+    const cardTokens = new Set(activeCardTokens(card.name ?? ''));
+    return /\bnintendo black star promos?\b/i.test(card.set?.name ?? '') && (!subjectToken || cardTokens.has(subjectToken));
+  }
   if (isBroadCollectorSuggestion(suggestion) && profile.signalCount > 0 && profile.dexNumbers.size === 0 && !hasPremiumCollectorShape(card)) return false;
   if (isGenericSourceThread(suggestion) && !isVintageSuggestion(suggestion) && isOrdinaryLowRarityMainSetCard(card)) return false;
   if (isGenericSourceThread(suggestion) && isOrdinaryModernMainSetCard(card)) return false;
@@ -898,8 +968,10 @@ function candidateScore(card: PokemonTcgCard, parent: DiscoverySuggestion, profi
     return sum;
   }, 0);
   const modernPlainPromoPenalty = isModernPlainPromo(card) ? (hasExactPokemonProfileAnchor(card, profile) ? 30 : 50) : 0;
+  const retailEReaderSubject = retailEReaderPromoSubjectToken(parent);
+  const exactRetailEReaderSubjectBoost = isRetailEReaderPromoSuggestion(parent) && retailEReaderSubject && (card.name ?? '').trim().toLowerCase() === retailEReaderSubject ? 1000 : 0;
   const deterministicVarietyScore = hashText(card.id ?? card.name ?? '') % 5;
-  return requiredScore + tasteScore + sourceProfileScore(card, profile) + profileShapeScore + imageScore + rarityScore + recencyScore + deterministicVarietyScore - offProfileFormatPenalty - modernPlainPromoPenalty;
+  return requiredScore + tasteScore + sourceProfileScore(card, profile) + profileShapeScore + imageScore + rarityScore + recencyScore + exactRetailEReaderSubjectBoost + deterministicVarietyScore - offProfileFormatPenalty - modernPlainPromoPenalty;
 }
 
 async function resolveTcgDexJapaneseCards(
@@ -909,6 +981,7 @@ async function resolveTcgDexJapaneseCards(
   profile: SourceTasteProfile,
   limit: number
 ): Promise<DiscoverySuggestion[]> {
+  if (isRetailEReaderPromoSuggestion(suggestion)) return [];
   if (!hasJapaneseTaste(suggestion) && profile.japaneseSignalRatio < 0.5 && !profile.hasPriorityJapaneseSignal) return [];
 
   const summariesById = new Map<string, TcgDexCardSummary>();
@@ -972,12 +1045,14 @@ export async function resolveSourceBackedDiscoveryCards(
 
   try {
     const profile = await sourceTasteProfile(tasteProfileChases);
+    const curatedRetailSuggestion = curatedRetailEReaderPromoSuggestion(suggestion);
     const japaneseSuggestions = await resolveTcgDexJapaneseCards(suggestion, tasteProfileChases, activeChases, profile, limit);
     if (japaneseSuggestions.length > 0 && shouldPreferJapaneseOnly(suggestion, profile)) {
-      return { suggestions: japaneseSuggestions.slice(0, limit) };
+      return { suggestions: uniqueSuggestionsByName([curatedRetailSuggestion, ...japaneseSuggestions].filter((value): value is DiscoverySuggestion => !!value)).slice(0, limit) };
     }
     if (queries.length === 0) {
-      return japaneseSuggestions.length > 0 ? { suggestions: japaneseSuggestions } : { suggestions: [], sourceStatus: 'UNSUPPORTED' };
+      const suggestions = uniqueSuggestionsByName([curatedRetailSuggestion, ...japaneseSuggestions].filter((value): value is DiscoverySuggestion => !!value)).slice(0, limit);
+      return suggestions.length > 0 ? { suggestions } : { suggestions: [], sourceStatus: 'UNSUPPORTED' };
     }
 
     const cardsById = new Map<string, PokemonTcgCard>();
@@ -996,10 +1071,15 @@ export async function resolveSourceBackedDiscoveryCards(
     }
 
     const rankedCardScore = (card: PokemonTcgCard) => candidateScore(card, suggestion, profile) + (anchoredQueryCardScores.get(card.id ?? '') ?? 0);
-    const rankedCards = [...cardsById.values()].sort((left, right) => rankedCardScore(right) - rankedCardScore(left));
+    const rankedCards = [...cardsById.values()].sort((left, right) => {
+      const retailSubjectDelta = exactRetailEReaderSubjectRank(right, suggestion) - exactRetailEReaderSubjectRank(left, suggestion);
+      if (retailSubjectDelta !== 0) return retailSubjectDelta;
+      return rankedCardScore(right) - rankedCardScore(left);
+    });
     const japaneseSeed = japaneseSuggestions.slice(0, japaneseSuggestionCap(suggestion, profile, limit));
-    const suggestions: DiscoverySuggestion[] = [...japaneseSeed];
+    const suggestions: DiscoverySuggestion[] = [curatedRetailSuggestion, ...japaneseSeed].filter((value): value is DiscoverySuggestion => !!value);
     const seenNames = new Set(japaneseSeed.map((sourceSuggestion) => normalizeSearchText(sourceSuggestion.name)));
+    if (curatedRetailSuggestion) seenNames.add(normalizeSearchText(curatedRetailSuggestion.name));
     const seenPokemonSubjects = new Map<string, number>();
     const pokemonSubjectLimit = profile.signalCount >= 6 ? 2 : 1;
     for (const card of rankedCards) {

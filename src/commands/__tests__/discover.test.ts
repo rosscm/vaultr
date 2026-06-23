@@ -5,6 +5,7 @@ import {
   backfillScheduledDiscoveryShelfCandidates,
   backfillDiscoverySuggestions,
   backfillSourceBackedDiscoverySuggestions,
+  blendWeeklyTasteLaneCandidates,
   candidatesFromDiscoveryMarketCache,
   compactDiscoveryPathSummary,
   concreteDiscoveryFallbackSuggestions,
@@ -35,6 +36,7 @@ import {
   orderCandidatesForMarketConfidence,
   orderCandidatesFromPersistedState,
   profileSubjectMatchedReliableDiscoveryCandidates,
+  profileVariantSourceBackfillParents,
   preserveLanguageSignalFallbackSuggestions,
   repairScheduledDiscoveryShelfImages,
   resetDiscoveryMarketRefreshThrottleState,
@@ -245,6 +247,60 @@ describe('selectVisibleCandidates', () => {
     ]);
   });
 
+  it('prefers proper card reference images when market confidence is tied', () => {
+    const ordered = orderCandidatesForMarketConfidence([
+      candidate('Mew Evolutions 53', 'market ready path', 0, 12),
+      {
+        ...candidate('Mew VMAX Fusion Strike 269', 'market ready path', 1, 12),
+        image: {
+          name: 'Mew VMAX Fusion Strike 269',
+          url: 'https://images.pokemontcg.io/swsh8/269_hires.png',
+          sourceName: 'Pokemon TCG (Fusion Strike)',
+          sourceKind: 'CARD_REFERENCE' as const
+        }
+      },
+      {
+        ...candidate('Mewtwo & Mew-GX Unified Minds 222', 'market ready path', 2, 12),
+        image: {
+          name: 'Mewtwo & Mew-GX Unified Minds 222',
+          url: 'https://i.ebayimg.com/images/g/listing/s-l225.jpg',
+          sourceName: 'eBay listing image',
+          sourceKind: 'MARKET_LISTING' as const
+        }
+      }
+    ]);
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual([
+      'Mew VMAX Fusion Strike 269',
+      'Mew Evolutions 53',
+      'Mewtwo & Mew-GX Unified Minds 222'
+    ]);
+  });
+
+  it('keeps stronger market evidence ahead of image quality polish', () => {
+    const ordered = orderCandidatesForMarketConfidence([
+      {
+        ...candidate('Pikachu VMAX Vivid Voltage 188', 'market ready path', 0, 12),
+        image: {
+          name: 'Pikachu VMAX Vivid Voltage 188',
+          url: 'https://images.pokemontcg.io/swsh4/188_hires.png',
+          sourceName: 'Pokemon TCG (Vivid Voltage)',
+          sourceKind: 'CARD_REFERENCE' as const
+        }
+      },
+      {
+        ...candidate('Mew Southern Islands Promo', 'market ready path', 1, 1),
+        typicalRawSoldTotal: 120,
+        soldSampleSize: 3
+      }
+    ]);
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual([
+      'Mew Southern Islands Promo',
+      'Pikachu VMAX Vivid Voltage 188'
+    ]);
+  });
+
   it('explains Discovery path summaries for shelf headers', () => {
     expect(compactDiscoveryPathSummary(['Japanese Collector Trail', 'E-Reader Era Trail', 'Collector Compass'])).toBe('Japanese variants, E-reader era, Profile-adjacent picks');
     expect(compactDiscoveryPathSummary([])).toBe('No fresh Discovery threads right now');
@@ -387,6 +443,84 @@ describe('selectVisibleCandidates', () => {
     );
 
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
+  });
+
+  it('keeps a thin Japanese-language signal when a Japanese-weighted scheduled shelf has no ready Japanese row', () => {
+    const readyCandidates = Array.from({ length: 20 }, (_, index) => candidate(`Ready English Pick ${index + 1}`, 'market ready path', index, 4));
+    const japaneseCandidate = candidate('Mew Japanese S12a 052', 'Japanese Collector Trail', 20, 2);
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [...readyCandidates, japaneseCandidate],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false, allowLanguageSignalFallback: true }
+    );
+
+    expect(visible).toHaveLength(20);
+    expect(visible[0].suggestion.name).toBe('Mew Japanese S12a 052');
+  });
+
+  it('can keep multiple thin Japanese-language rows for a Japanese-heavy scheduled shelf', () => {
+    const readyCandidates = Array.from({ length: 20 }, (_, index) => candidate(`Ready English Pick ${index + 1}`, 'market ready path', index, 4));
+    const japaneseCandidates = [
+      candidate('Mew Japanese S12a 052', 'Japanese Collector Trail', 20, 2),
+      candidate('Pikachu Japanese SV2a 025', 'Japanese Collector Trail', 21, 2),
+      candidate('Umbreon Japanese SV8a 092', 'Japanese Collector Trail', 22, 2)
+    ];
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [...readyCandidates, ...japaneseCandidates],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false, allowLanguageSignalFallback: true, languageSignalTargetCount: 4 }
+    );
+
+    expect(visible).toHaveLength(20);
+    expect(visible.slice(0, 3).map((item) => item.suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Pikachu Japanese SV2a 025', 'Umbreon Japanese SV8a 092']);
+  });
+
+  it('can keep source-backed Japanese rows while market data catches up', () => {
+    const readyCandidates = Array.from({ length: 20 }, (_, index) => candidate(`Ready English Pick ${index + 1}`, 'market ready path', index, 4));
+    const japaneseCandidate = {
+      ...sourceCandidate('Mew Japanese S12a 183', 'TCGdex Japanese (S12a)', 20),
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined,
+      sourceStatus: 'PENDING' as const
+    };
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [...readyCandidates, japaneseCandidate],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false, allowLanguageSignalFallback: true, languageSignalTargetCount: 3 }
+    );
+
+    expect(visible[0].suggestion.name).toBe('Mew Japanese S12a 183');
+  });
+
+  it('does not keep retail e-reader promo rows without market data or card reference data', () => {
+    const readyCandidates = Array.from({ length: 20 }, (_, index) => candidate(`Ready English Pick ${index + 1}`, 'market ready path', index, 4));
+    const retailPromoCandidate = {
+      ...candidate("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese", 'Retail Promo Trail', 20),
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined,
+      sourceStatus: 'PENDING' as const,
+      suggestion: {
+        ...candidate("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese", 'Retail Promo Trail', 20).suggestion,
+        evidenceSearchTerm: "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Pokemon card",
+        evidenceAliases: ['Pikachu 010/018'],
+        requiredEvidenceTokens: ['pikachu', '010', '018']
+      }
+    } satisfies DiscoveryCandidate;
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [...readyCandidates, retailPromoCandidate],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false, allowSourceBackedRetailEReaderFallback: true }
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).not.toContain("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese");
   });
 
   it('does not blank prepared scheduled shelves just because ready picks were seen before', () => {
@@ -817,6 +951,61 @@ describe('selectVisibleCandidates', () => {
     expect(visible.map((item) => item.suggestion.name)).toEqual(['Totodile McDonalds Promo']);
   });
 
+  it('reserves weekly slots for supported Japanese promo and e-reader taste lanes', () => {
+    const baseSelection = Array.from({ length: 20 }, (_, index) => candidate(`Reliable Modern Pick ${index + 1}`, 'Value Watch', index, 4));
+    const pool = [
+      ...baseSelection,
+      {
+        ...sourceCandidate('Mew Japanese S12a 183', 'TCGdex Japanese (S12a)', 20),
+        sourceStatus: 'PENDING' as const
+      },
+      candidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Promo Trail', 21, 4),
+      candidate('Mew Wizards Black Star Promos 8', 'Promo Trail', 22, 4),
+      candidate('Moltres Wizards Black Star Promos 21', 'Promo Trail', 23, 4),
+      candidate('Zapdos Aquapolis 44', 'E-Reader Era Trail', 24, 4),
+      candidate('Articuno Skyridge 4', 'E-Reader Era Trail', 25, 4),
+      candidate('Squirtle Expedition Base Set 132', 'E-Reader Era Trail', 26, 4)
+    ];
+
+    const blended = blendWeeklyTasteLaneCandidates(
+      baseSelection,
+      pool,
+      ['Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo', 'Squirtle Expedition Base Set 132', 'Umbreon 217/187 Japanese'].map(chase),
+      20,
+      ['Mew Expedition Base Set 55']
+    );
+    const names = blended.map((item) => item.suggestion.name);
+
+    expect(names).not.toContain('Mew Expedition Base Set 55');
+    expect(names.filter((name) => /japanese/i.test(name)).length).toBeGreaterThanOrEqual(1);
+    expect(names.filter((name) => /promo|black star/i.test(name)).length).toBeGreaterThanOrEqual(3);
+    expect(names.filter((name) => /aquapolis|skyridge|expedition/i.test(name)).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('surfaces market-backed retail e-reader promo variants for matching profiles', () => {
+    const baseSelection = Array.from({ length: 20 }, (_, index) => candidate(`Reliable Modern Pick ${index + 1}`, 'Value Watch', index, 4));
+    const pikachuRetailPromo = {
+      ...candidate("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese", 'Retail Promo Trail', 20, 4),
+      suggestion: {
+        ...candidate("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese", 'Retail Promo Trail', 20, 4).suggestion,
+        lane: 'Retail Promo Trail',
+        laneWhy: 'same-subject retail e-reader promo variants',
+        evidenceSearchTerm: "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Pokemon card",
+        evidenceAliases: ['Pikachu 010/018'],
+        requiredEvidenceTokens: ['pikachu', '010', '018']
+      }
+    } satisfies DiscoveryCandidate;
+
+    const blended = blendWeeklyTasteLaneCandidates(
+      baseSelection,
+      [...baseSelection, pikachuRetailPromo],
+      ["Squirtle 007/018 McDonald's e-Reader Promo", 'Pikachu xy95', 'Pikachu 26/83 Toys R Us promo'].map(chase),
+      20
+    );
+
+    expect(blended.map((item) => item.suggestion.name)).toContain("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese");
+  });
+
   it('backfills a short strong shelf from prior ready weekly cards without same-set variants', () => {
     const current = [
       sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0),
@@ -876,6 +1065,60 @@ describe('selectVisibleCandidates', () => {
 
     expect(names).toEqual(['Zapdos Aquapolis 44', 'Mew Expedition Base Set 55', 'Articuno Skyridge 4', 'Mew XY Black Star Promos XY110']);
     expect(backfilled[2]?.listing?.url).toBe('https://www.ebay.ca/itm/articuno-listing');
+  });
+
+  it('rehydrates vetted marketplace images from scheduled niche promo rows', () => {
+    const name = `Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Scheduled ${Date.now()}`;
+    const backfilled = backfillScheduledDiscoveryShelfCandidates(
+      [],
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W25',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-06-15T00:00:00.000Z',
+        expiresAt: '2026-06-22T00:00:00.000Z',
+        generatedAt: '2026-06-17T00:00:00.000Z',
+        updatedAt: '2026-06-17T00:00:00.000Z',
+        sourceStateUpdatedAt: '2026-06-17T00:00:00.000Z',
+        itemCount: 1,
+        imageReadyCount: 1,
+        marketReadyCount: 1,
+        items: [
+          {
+            position: 1,
+            suggestion: {
+              name,
+              lane: 'Retail Promo Trail',
+              laneWhy: 'same-subject retail e-reader promo variants',
+              why: 'try a Japanese McDonalds e-reader promo variant',
+              nearby: [],
+              evidenceSearchTerm: `${name} Pokemon card`,
+              requiredEvidenceTokens: ['pikachu', '010', '018'],
+              sourceTasteTokens: ['pikachu', 'promo', 'e-reader', 'mcdonalds', 'japanese']
+            },
+            imageUrl: 'https://i.ebayimg.com/images/g/clean-card/s-l1600.jpg',
+            imageSourceName: 'eBay vetted marketplace image',
+            market: {
+              status: 'READY',
+              currency: 'CAD',
+              askingTotal: 1355,
+              askingSampleSize: 12,
+              listing: { id: 'vetted-pikachu-010', title: "Pokemon Card Game Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Nintendo", url: 'https://www.ebay.ca/itm/vetted-pikachu-010' }
+            }
+          }
+        ]
+      },
+      1
+    );
+
+    expect(backfilled[0]?.image).toMatchObject({
+      url: 'https://i.ebayimg.com/images/g/clean-card/s-l1600.jpg',
+      sourceName: 'eBay vetted marketplace image',
+      sourceKind: 'MARKET_LISTING'
+    });
   });
 
   it('treats removed chase taste profile memory as an exact-repeat guard', () => {
@@ -1037,6 +1280,30 @@ describe('preserveLanguageSignalFallbackSuggestions', () => {
     );
 
     expect(preserved.map((suggestion) => suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Pikachu Scarlet & Violet Black Star Promos 101']);
+  });
+});
+
+describe('profileVariantSourceBackfillParents', () => {
+  it('builds same-subject release variant parents from the taste profile', () => {
+    const parents = profileVariantSourceBackfillParents(
+      ['Corocoro Shining Mew', 'Pikachu xy95', 'Umbreon 217/187 Japanese'].map(chase),
+      60
+    );
+    const names = parents.map((suggestion) => suggestion.name);
+
+    expect(names).toEqual(expect.arrayContaining(['Mew Pokemon promo cards', 'Pikachu e-reader Pokemon cards', 'Umbreon illustration rare Pokemon cards']));
+    expect(names.some((name) => /deoxys/i.test(name))).toBe(false);
+    expect(parents.every((suggestion) => suggestion.requiredEvidenceTokens && suggestion.requiredEvidenceTokens.length >= 2)).toBe(true);
+  });
+
+  it('builds cross-trait retail e-reader promo parents from grail-shaped profile signals', () => {
+    const parents = profileVariantSourceBackfillParents(
+      ['Squirtle 007/018 McDonalds e-Reader Promo', 'Pikachu xy95', 'Pikachu 26/83 Toys R Us promo'].map(chase),
+      80
+    );
+
+    expect(parents.map((suggestion) => suggestion.name)).toContain("Pikachu McDonald's e-Reader promo Pokemon cards");
+    expect(parents.find((suggestion) => suggestion.name === "Pikachu McDonald's e-Reader promo Pokemon cards")?.requiredEvidenceTokens).toEqual(['pikachu', 'promo', 'e-reader', 'mcdonalds']);
   });
 });
 
@@ -1432,6 +1699,27 @@ describe('Discovery listing enrichment eligibility', () => {
 
     expect(isUsableDiscoveryExample(paldeanMewSuggestion, rawListing, { min: 0, max: 1200 }, 'CAD')).toBe(false);
     expect(isUsableDiscoveryMarketSample(paldeanMewSuggestion, rawListing, 'CAD')).toBe(true);
+  });
+
+  it('accepts compact Pikachu 010/018 listings as McDonalds e-reader market samples', () => {
+    const pikachu010Suggestion = {
+      name: "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese",
+      lane: 'Retail Promo Trail',
+      laneWhy: 'same-subject retail e-reader promo variants',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Pokemon card",
+      evidenceAliases: ['Pikachu 010/018'],
+      requiredEvidenceTokens: ['pikachu', '010', '018']
+    };
+    const compactListing = listing({
+      title: "Pikachu 010/018 Holo McDonald's Promo Pokemon Card Japanese E-Series 2002",
+      price: 780,
+      condition: 'Ungraded'
+    });
+
+    expect(isUsableDiscoveryMarketSample(pikachu010Suggestion, compactListing, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryExample(pikachu010Suggestion, compactListing, { min: 0, max: 1200 }, 'CAD')).toBe(true);
   });
 
   it('does not mistake Toys R Us promo cards for toy merchandise', () => {
@@ -2110,6 +2398,145 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteDiscoveryMarketCache(replacementCacheKey);
   });
 
+  it('only backfills reliable cache rows with concrete profile subject matches', () => {
+    const suffix = Date.now();
+    const mewtwoName = `Mewtwo & Mew-GX SM Black Star Promos SM191 Cache Fit ${suffix}`;
+    const unrelatedNames = [
+      `Deoxys VMAX SWSH Black Star Promos SWSH267 Cache Leak ${suffix}`,
+      `Meowth Nintendo Black Star Promos 13 Cache Leak ${suffix}`,
+      `Xatu Skyridge H32 Cache Leak ${suffix}`,
+      `Venonat Expedition Base Set 111 Cache Leak ${suffix}`
+    ];
+    const unrelatedCacheKeys = unrelatedNames.map((name) => discoveryMarketCacheKey(name, 'CAD', 'CA'));
+    const mewtwoCacheKey = discoveryMarketCacheKey(mewtwoName, 'CAD', 'CA');
+    for (const cacheKey of unrelatedCacheKeys) deleteDiscoveryMarketCache(cacheKey);
+    deleteDiscoveryMarketCache(mewtwoCacheKey);
+    for (const [index, suggestionName] of unrelatedNames.entries()) {
+      upsertDiscoveryMarketCache({
+        cacheKey: unrelatedCacheKeys[index],
+        suggestionName,
+        displayCurrency: 'CAD',
+        destinationCountry: 'CA',
+        typicalRawAskingTotal: 25 + index,
+        marketSampleSize: 12,
+        soldSampleSize: 0
+      });
+    }
+    upsertDiscoveryMarketCache({
+      cacheKey: mewtwoCacheKey,
+      suggestionName: mewtwoName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 125,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      2,
+      ['Corocoro Shining Mew', 'Pikachu xy95'].map(chase)
+    );
+    const names = backfilled.map((item) => item.suggestion.name);
+
+    expect(names).toContain(mewtwoName);
+    for (const unrelatedName of unrelatedNames) expect(names).not.toContain(unrelatedName);
+    for (const cacheKey of unrelatedCacheKeys) deleteDiscoveryMarketCache(cacheKey);
+    deleteDiscoveryMarketCache(mewtwoCacheKey);
+  });
+
+  it('backfills same-subject set-number variants from reliable cache', () => {
+    const suffix = Date.now();
+    const fusionName = `Mew VMAX Fusion Strike 269 Cache Variant ${suffix}`;
+    const fusionCacheKey = discoveryMarketCacheKey(fusionName, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(fusionCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: fusionCacheKey,
+      suggestionName: fusionName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 155,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      1,
+      ['Corocoro Shining Mew', 'Mew XY192'].map(chase)
+    );
+
+    expect(backfilled.map((item) => item.suggestion.name)).toContain(fusionName);
+    deleteDiscoveryMarketCache(fusionCacheKey);
+  });
+
+  it('allows exact niche retail e-reader promos just above the learned max price', () => {
+    const suffix = Date.now();
+    const nearStretchName = `Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Stretch ${suffix}`;
+    const farStretchName = `Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Too High ${suffix}`;
+    const range = { min: 0, max: 1200 };
+    const nearStretchCacheKey = discoveryMarketCacheKey(nearStretchName, 'CAD', 'CA', undefined, range);
+    const farStretchCacheKey = discoveryMarketCacheKey(farStretchName, 'CAD', 'CA', undefined, range);
+    deleteDiscoveryMarketCache(nearStretchCacheKey);
+    deleteDiscoveryMarketCache(farStretchCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: nearStretchCacheKey,
+      suggestionName: nearStretchName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 1355,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: farStretchCacheKey,
+      suggestionName: farStretchName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 1600,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD', range },
+      2,
+      ["Squirtle 007/018 McDonald's e-Reader Promo", 'Pikachu xy95', 'Pikachu 26/83 Toys R Us promo'].map(chase)
+    );
+    const names = backfilled.map((item) => item.suggestion.name);
+
+    expect(names).toContain(nearStretchName);
+    expect(names).not.toContain(farStretchName);
+    deleteDiscoveryMarketCache(nearStretchCacheKey);
+    deleteDiscoveryMarketCache(farStretchCacheKey);
+  });
+
+  it('applies weekly soft avoids before deciding a market-ready shelf is already full', () => {
+    const suffix = Date.now();
+    const repeatedMew = candidate(`Mew Expedition Base Set 55 Weekly Repeat ${suffix}`, 'E-Reader Era Trail', 0, 4);
+    const repeatedPikachu = candidate(`Pikachu Expedition Base Set 124 Weekly Repeat ${suffix}`, 'E-Reader Era Trail', 1, 4);
+    const freshUmbreon = candidate(`Umbreon XY Black Star Promos XY96 Fresh ${suffix}`, 'Promo Trail', 2, 4);
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [repeatedMew, repeatedPikachu, freshUmbreon],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      2,
+      ['Corocoro Shining Mew', 'Pikachu xy95', 'Umbreon 217/187 Japanese'].map(chase),
+      strongProfileConfidence,
+      undefined,
+      [],
+      [repeatedMew.suggestion.name, repeatedPikachu.suggestion.name]
+    );
+    const names = backfilled.map((item) => item.suggestion.name);
+
+    expect(names).toContain(freshUmbreon.suggestion.name);
+    expect(names).not.toContain(repeatedMew.suggestion.name);
+    expect(names).not.toContain(repeatedPikachu.suggestion.name);
+  });
+
   it('attaches cached market values to visible Discovery cards', () => {
     const name = `Mew Southern Islands Promo ${Date.now()}`;
     const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
@@ -2494,6 +2921,80 @@ describe('attachReferenceImages', () => {
     expect(attached?.image?.url).toBe('https://images.pokemontcg.io/sv8/238_hires.png');
     expect(attached?.image?.sourceName).toBe('Pokemon TCG (Surging Sparks)');
     expect(attached?.image?.sourceKind).toBe('CARD_REFERENCE');
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+  });
+
+  it('removes eBay listing thumbnails when no clean reference image is available', async () => {
+    const name = `Mew Evolutions 53 ${Date.now()}`;
+    const referenceCacheKey = discoveryReferenceCacheKey(name);
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+    upsertDiscoveryReferenceCache({
+      cacheKey: referenceCacheKey,
+      suggestionName: name,
+      sourceName: 'Pokemon TCG',
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = await attachReferenceImages([
+      {
+        ...candidate(name, 'market ready path', 0, 4),
+        image: {
+          name,
+          url: 'https://i.ebayimg.com/images/g/seller-photo/s-l225.jpg',
+          sourceName: 'eBay listing image',
+          sourceKind: 'MARKET_LISTING'
+        }
+      }
+    ]);
+
+    expect(attached?.image).toBeUndefined();
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+  });
+
+  it('preserves vetted marketplace images for exact niche retail e-reader promos', async () => {
+    const name = `Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese ${Date.now()}`;
+    const referenceCacheKey = discoveryReferenceCacheKey(name);
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+    upsertDiscoveryReferenceCache({
+      cacheKey: referenceCacheKey,
+      suggestionName: name,
+      sourceName: 'Pokemon TCG',
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = await attachReferenceImages([
+      {
+        ...candidate(name, 'Retail Promo Trail', 0, 12),
+        suggestion: {
+          ...candidate(name, 'Retail Promo Trail', 0, 12).suggestion,
+          laneWhy: 'same-subject retail e-reader promo variants',
+          evidenceSearchTerm: `${name} Pokemon card`,
+          requiredEvidenceTokens: ['pikachu', '010', '018'],
+          sourceTasteTokens: ['pikachu', 'promo', 'e-reader', 'mcdonalds', 'japanese']
+        },
+        listing: {
+          source: 'EBAY',
+          listingId: 'vetted-pikachu-010',
+          title: "Pokemon Card Game Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Nintendo",
+          price: 1180,
+          currency: 'CAD',
+          url: 'https://www.ebay.ca/itm/vetted-pikachu-010',
+          imageUrl: 'https://i.ebayimg.com/images/g/clean-card/s-l1600.jpg',
+          region: 'CA',
+          listingType: 'BUY_IT_NOW'
+        },
+        image: {
+          name,
+          url: 'https://i.ebayimg.com/images/g/clean-card/s-l1600.jpg',
+          sourceName: 'eBay vetted marketplace image',
+          sourceKind: 'MARKET_LISTING'
+        }
+      }
+    ]);
+
+    expect(attached?.image?.url).toBe('https://i.ebayimg.com/images/g/clean-card/s-l1600.jpg');
+    expect(attached?.image?.sourceName).toBe('eBay vetted marketplace image');
+    expect(attached?.image?.sourceKind).toBe('MARKET_LISTING');
     deleteDiscoveryReferenceCache(referenceCacheKey);
   });
 

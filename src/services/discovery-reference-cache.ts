@@ -50,11 +50,20 @@ const REFERENCE_FETCH_TIMEOUT_MS = 12000;
 const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /southern islands?/i, setName: 'Southern Islands' },
   { pattern: /cosmic eclipse/i, setName: 'Cosmic Eclipse' },
+  { pattern: /champion'?s path/i, setName: "Champion's Path" },
+  { pattern: /celebrations.*classic collection|classic collection.*celebrations/i, setName: 'Celebrations: Classic Collection' },
+  { pattern: /celebrations/i, setName: 'Celebrations' },
   { pattern: /crown zenith/i, setName: 'Crown Zenith' },
+  { pattern: /destined rivals/i, setName: 'Destined Rivals' },
   { pattern: /pokemon\s+151|\b151\b/i, setName: '151' },
   { pattern: /mcdonald'?s|18\s?\/\s?25|25th anniversary/i, setName: "McDonald's Collection 2021" },
+  { pattern: /evolutions/i, setName: 'Evolutions' },
+  { pattern: /fusion strike/i, setName: 'Fusion Strike' },
+  { pattern: /legendary treasures/i, setName: 'Legendary Treasures' },
   { pattern: /lost origin/i, setName: 'Lost Origin' },
   { pattern: /fates collide/i, setName: 'Fates Collide' },
+  { pattern: /generations/i, setName: 'Generations' },
+  { pattern: /paldean fates/i, setName: 'Paldean Fates' },
   { pattern: /supreme victors/i, setName: 'Supreme Victors' },
   { pattern: /aquapolis/i, setName: 'Aquapolis' },
   { pattern: /expedition/i, setName: 'Expedition Base Set' },
@@ -67,6 +76,8 @@ const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /undaunted/i, setName: 'Undaunted' },
   { pattern: /hidden fates/i, setName: 'Hidden Fates' },
   { pattern: /surging sparks/i, setName: 'Surging Sparks' },
+  { pattern: /unified minds/i, setName: 'Unified Minds' },
+  { pattern: /vivid voltage/i, setName: 'Vivid Voltage' },
   { pattern: /sm black star|sun & moon black star/i, setName: 'SM Black Star Promos' },
   { pattern: /swsh black star|sword & shield black star/i, setName: 'SWSH Black Star Promos' },
   { pattern: /nintendo black star/i, setName: 'Nintendo Black Star Promos' }
@@ -130,7 +141,7 @@ function extractNumber(value: string): string | undefined {
   if (holoNumber) return holoNumber.toUpperCase();
   const surgingSparksNumber = /\bsurging sparks\b.*\b([1-9]\d{1,2})\b/i.exec(value)?.[1];
   if (surgingSparksNumber) return surgingSparksNumber;
-  const setNumber = /\b(?:base set|expedition|aquapolis|skyridge|gym heroes|gym challenge|neo discovery|neo destiny|fossil|jungle|team rocket|xy black star promos?|bw black star promos?|swsh black star promos?)\b.*\b([1-9]\d{0,2})\b/i.exec(value)?.[1];
+  const setNumber = /\b(?:base set|champion'?s path|celebrations|classic collection|destined rivals|evolutions|fusion strike|generations|legendary treasures|lost origin|paldean fates|surging sparks|unified minds|vivid voltage|expedition|aquapolis|skyridge|gym heroes|gym challenge|neo discovery|neo destiny|fossil|jungle|team rocket|xy black star promos?|bw black star promos?|swsh black star promos?)\b.*\b([1-9]\d{0,2})\b/i.exec(value)?.[1];
   if (setNumber) return setNumber;
   const standalone = /\b0\d{2}\b/.exec(value)?.[0];
   return standalone;
@@ -139,8 +150,9 @@ function extractNumber(value: string): string | undefined {
 function leadingName(value: string): string {
   const beforeNumber = value.split(/\b(?:[A-Z]{0,4}\d{1,3}\s*\/\s*\d{1,3}|(?:GG|TG|RC|XY|SM|SWSH|SVP|BW|DP|HGSS)\s?-?\d{1,4}|H\d{1,2}|0\d{2})\b/i)[0];
   return compactName(beforeNumber)
-    .replace(/\b(?:southern islands?|crown zenith|cosmic eclipse|lost origin|pokemon 151|triplet beat|fossil|aquapolis|expedition|neo discovery|neo destiny|gym challenge|gym heroes|deoxys|fates collide|undaunted|hidden fates|surging sparks)\b/gi, '')
+    .replace(/\b(?:southern islands?|champion'?s path|celebrations|classic collection|classic|crown zenith|cosmic eclipse|destined rivals|evolutions|fusion strike|generations|legendary treasures|lost origin|paldean fates|pokemon 151|triplet beat|fossil|aquapolis|expedition|neo discovery|neo destiny|gym challenge|gym heroes|deoxys|fates collide|undaunted|hidden fates|surging sparks|unified minds|vivid voltage)\b/gi, '')
     .replace(/\b(?:base set|skyridge|xy|bw|swsh)\b/gi, '')
+    .replace(/\s*:\s*/g, ' ')
     .replace(/\b[1-9]\d{0,2}\b\s*$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -151,7 +163,7 @@ function setHintForSuggestion(value: string): string | undefined {
 }
 
 function isUnsupportedReferenceSuggestion(value: string): boolean {
-  return /\b(one piece|luffy|nami|zoro|sabo)\b/i.test(value);
+  return /\b(one piece|luffy|nami|zoro|sabo)\b/i.test(value) || /\bmcdonald'?s\b/i.test(value) && /\be[- ]?(?:reader|series)\b/i.test(value) && /\b0?\d{1,2}\s?\/\s?018\b/i.test(value);
 }
 
 function onePieceSourceText(suggestion: DiscoverySuggestion): string {
@@ -283,10 +295,11 @@ async function imageExistsWithTimeout(url: string, timeoutMs: number): Promise<b
   }
 }
 
-function referenceFromCard(card: PokemonTcgCard, suggestionName: string): DiscoveryReferenceCacheEntry | null {
+function referenceFromCard(card: PokemonTcgCard, suggestionName: string, fallbackSetName?: string): DiscoveryReferenceCacheEntry | null {
   const imageUrl = card.images?.large ?? card.images?.small;
   if (!card.id || !card.name || !imageUrl) return null;
-  const setName = card.set?.name ? ` (${card.set.name})` : '';
+  const sourceSetName = card.set?.name ?? fallbackSetName;
+  const setName = sourceSetName ? ` (${sourceSetName})` : '';
   const now = new Date().toISOString();
   return {
     cacheKey: discoveryReferenceCacheKey(suggestionName),
@@ -359,6 +372,8 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
     }
   }
 
+  const sourceText = [suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
+  const sourceSetName = setHintForSuggestion(sourceText);
   const queries = pokemonTcgQueriesForSuggestion(suggestion);
   if (queries.length === 0) {
     return {
@@ -375,7 +390,7 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
       const params = new URLSearchParams({ q: query, pageSize: '3', select: 'id,name,number,set.name,images' });
       const json = await fetchJsonWithTimeout(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS);
       const cards = Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [];
-      const reference = cards.map((card) => referenceFromCard(card, suggestion.name)).find((entry): entry is DiscoveryReferenceCacheEntry => !!entry);
+      const reference = cards.map((card) => referenceFromCard(card, suggestion.name, sourceSetName)).find((entry): entry is DiscoveryReferenceCacheEntry => !!entry);
       if (reference) return reference;
     }
     return {
