@@ -68,20 +68,36 @@ describe('discovery source catalog', () => {
     expect(queries).not.toContain('supertype:Pokemon set.name:"Nintendo Black Star Promos"');
   });
 
+  it('does not send niche Japanese exclusive identities to broad Pokemon TCG source lookup', () => {
+    const queries = pokemonTcgCatalogQueriesForSuggestion({
+      name: 'Raichu Japanese niche exclusive Pokemon cards',
+      lane: 'Japanese Collector Trail',
+      laneWhy: 'profile',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: 'raichu Japanese niche exclusive Pokemon card intro deck',
+      requiredEvidenceTokens: ['raichu', 'japanese', 'exclusive', 'intro', 'deck'],
+      sourceTasteTokens: ['raichu', 'japanese', 'exclusive', 'intro', 'deck']
+    });
+
+    expect(queries).toEqual([]);
+  });
+
   it('turns broad taste threads into named source-backed cards', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(
         JSON.stringify({
           data: [
             {
-              id: 'swshp-SWSH118',
-              name: 'Eevee VMAX',
-              number: 'SWSH118',
+              id: 'swshp-SWSH074',
+              name: 'Special Delivery Pikachu',
+              number: 'SWSH074',
               supertype: 'Pokemon',
-              subtypes: ['VMAX', 'Promo'],
+              subtypes: ['Basic', 'Promo'],
               rarity: 'Promo',
+              nationalPokedexNumbers: [25],
               set: { name: 'SWSH Black Star Promos', series: 'Sword & Shield' },
-              images: { small: 'https://images.pokemontcg.io/swshp/SWSH118.png', large: 'https://images.pokemontcg.io/swshp/SWSH118_hires.png' }
+              images: { small: 'https://images.pokemontcg.io/swshp/SWSH074.png', large: 'https://images.pokemontcg.io/swshp/SWSH074_hires.png' }
             }
           ]
         }),
@@ -103,9 +119,9 @@ describe('discovery source catalog', () => {
       3
     );
 
-    expect(resolved.suggestions[0]?.name).toBe('Eevee VMAX SWSH Black Star Promos SWSH118');
+    expect(resolved.suggestions[0]?.name).toBe('Special Delivery Pikachu SWSH Black Star Promos SWSH074');
     expect(resolved.suggestions[0]?.referenceSourceName).toBe('Pokemon TCG (SWSH Black Star Promos)');
-    expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe('Eevee VMAX SWSH Black Star Promos SWSH118 Pokemon card');
+    expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe('Special Delivery Pikachu SWSH Black Star Promos SWSH074 Pokemon card');
   });
 
   it('surfaces Pikachu McDonalds 010/018 without relabeling Nintendo Black Star source records', async () => {
@@ -164,6 +180,31 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.requiredEvidenceTokens).toEqual(['pikachu', '010', '018']);
     expect(resolved.suggestions[0]?.referenceSourceName).toBeUndefined();
     expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain("Pikachu McDonald's e-Reader Promo 12");
+  });
+
+  it('surfaces Raichu No.026 as a curated Japanese Intro Pack marketplace identity', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Raichu Japanese niche exclusive Pokemon cards',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'raichu Japanese niche exclusive Pokemon card intro deck',
+        requiredEvidenceTokens: ['raichu', 'japanese', 'exclusive', 'intro', 'deck'],
+        sourceTasteTokens: ['raichu', 'japanese', 'exclusive', 'intro', 'deck']
+      },
+      [],
+      3,
+      [chase('Pikachu 26/83 Toys R Us promo'), chase('Umbreon 217/187 Japanese'), chase('Corocoro Shining Mew')]
+    );
+
+    expect(resolved.suggestions[0]?.name).toBe('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
+    expect(resolved.suggestions[0]?.evidenceAliases).toContain('Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card');
+    expect(resolved.suggestions[0]?.requiredEvidenceTokens).toEqual(['raichu', '026', 'bulbasaur']);
+    expect(resolved.suggestions[0]?.referenceSourceName).toBeUndefined();
   });
 
   it('caches repeated source API lookups for the same catalog query', async () => {
@@ -1653,7 +1694,8 @@ describe('discovery source catalog', () => {
 
     const names = resolved.suggestions.map((suggestion) => suggestion.name);
     expect(names).not.toContain('Pikachu Paldean Fates 18');
-    expect(names).toEqual(expect.arrayContaining(['Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pikachu VMAX SWSH Black Star Promos SWSH286']));
+    expect(names).toContain('Special Delivery Pikachu SWSH Black Star Promos SWSH074');
+    expect(names).not.toContain('Pikachu VMAX SWSH Black Star Promos SWSH286');
   });
 
   it('turns premium source-backed cards into exact card suggestions', async () => {
@@ -1854,6 +1896,6 @@ describe('discovery source catalog', () => {
       3
     );
 
-    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual(['Eevee VMAX SWSH Black Star Promos SWSH118']);
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual([]);
   });
 });

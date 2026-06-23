@@ -163,7 +163,11 @@ function setHintForSuggestion(value: string): string | undefined {
 }
 
 function isUnsupportedReferenceSuggestion(value: string): boolean {
-  return /\b(one piece|luffy|nami|zoro|sabo)\b/i.test(value) || /\bmcdonald'?s\b/i.test(value) && /\be[- ]?(?:reader|series)\b/i.test(value) && /\b0?\d{1,2}\s?\/\s?018\b/i.test(value);
+  return (
+    /\b(one piece|luffy|nami|zoro|sabo)\b/i.test(value) ||
+    /\bmcdonald'?s\b/i.test(value) && /\be[- ]?(?:reader|series)\b/i.test(value) && /\b0?\d{1,2}\s?\/\s?018\b/i.test(value) ||
+    /\braichu\b/i.test(value) && /\b(?:no\.?\s*)?0?26\b/i.test(value) && /\b(?:bulbasaur deck|intro pack|vhs)\b/i.test(value)
+  );
 }
 
 function onePieceSourceText(suggestion: DiscoverySuggestion): string {

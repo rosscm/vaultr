@@ -186,6 +186,20 @@ describe('discovery reference cache', () => {
     expect(queries).toEqual([]);
   });
 
+  it('does not map Raichu No.026 Intro Pack to modern Raichu 026 reference images', () => {
+    const queries = pokemonTcgQueriesForSuggestion({
+      name: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese',
+      lane: 'Japanese Collector Trail',
+      laneWhy: 'deck exclusive cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+      requiredEvidenceTokens: ['raichu', '026', 'bulbasaur']
+    });
+
+    expect(queries).toEqual([]);
+  });
+
   it('does not use broad name fallback for exact numbered Japanese cards', () => {
     const queries = pokemonTcgQueriesForSuggestion({
       name: 'Totodile 073/071 Triplet Beat Art Rare',

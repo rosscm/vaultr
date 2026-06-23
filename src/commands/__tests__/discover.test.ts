@@ -635,21 +635,58 @@ describe('selectVisibleCandidates', () => {
     ]);
   });
 
-  it('allows VMAX and GX cards when the profile shows format affinity', () => {
+  it('keeps ordinary VMAX held back even when the profile has a premium VMAX chase', () => {
     const visible = selectVisibleCandidatesForCount(
       [
         sourceCandidate('Pikachu VMAX SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 0),
-        sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 1),
+        sourceCandidate('Umbreon VMAX Alt Art Evolving Skies 215', 'Pokemon TCG (Evolving Skies)', 1),
         sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 2)
       ],
-      [{ id: 'c1', userId: 'u1', cardName: 'Umbreon VMAX Evolving Skies 215', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' }],
+      [{ id: 'c1', userId: 'u1', cardName: 'Umbreon VMAX Alt Art Evolving Skies 215', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' }],
       2
     );
 
     expect(visible.map((item) => item.suggestion.name)).toEqual([
-      'Pikachu VMAX SWSH Black Star Promos SWSH286',
-      'Mewtwo & Mew-GX SM Black Star Promos SM191'
+      'Umbreon VMAX Alt Art Evolving Skies 215',
+      'Mew Expedition Base Set 55'
     ]);
+  });
+
+  it('prefers direct-subject premium VMAX over off-subject related-family VMAX', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate("Gardevoir VMAX Champion's Path 76", "Pokemon TCG (Champion's Path)", 0),
+        sourceCandidate('Sylveon VMAX Alt Art Evolving Skies 212', 'Pokemon TCG (Evolving Skies)', 1),
+        sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 2)
+      ],
+      [{ id: 'c1', userId: 'u1', cardName: 'Sylveon VMAX Alt Art Evolving Skies 212', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' }],
+      2
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Sylveon VMAX Alt Art Evolving Skies 212',
+      'Mew Expedition Base Set 55'
+    ]);
+  });
+
+  it('does not turn a single non-VMAX subject signal into a premium VMAX recommendation', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate("Gardevoir VMAX Champion's Path Secret Rare 76", "Pokemon TCG (Champion's Path)", 0),
+        sourceCandidate('Mew VMAX Lost Origin Trainer Gallery TG30', 'Pokemon TCG (Lost Origin)', 1),
+        sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 2),
+        sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 3)
+      ],
+      [
+        { id: 'c1', userId: 'u1', cardName: 'Mega Gardevoir 087/063', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' },
+        { id: 'c2', userId: 'u1', cardName: 'Corocoro Shining Mew', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' },
+        { id: 'c3', userId: 'u1', cardName: 'Mew RC24/RC25', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' }
+      ],
+      3
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toContain('Mew VMAX Lost Origin Trainer Gallery TG30');
+    expect(visible.map((item) => item.suggestion.name)).not.toContain("Gardevoir VMAX Champion's Path Secret Rare 76");
   });
 
   it('downranks rejected subjects without suppressing positively supported shared eras', () => {
@@ -1305,6 +1342,16 @@ describe('profileVariantSourceBackfillParents', () => {
     expect(parents.map((suggestion) => suggestion.name)).toContain("Pikachu McDonald's e-Reader promo Pokemon cards");
     expect(parents.find((suggestion) => suggestion.name === "Pikachu McDonald's e-Reader promo Pokemon cards")?.requiredEvidenceTokens).toEqual(['pikachu', 'promo', 'e-reader', 'mcdonalds']);
   });
+
+  it('builds Japanese niche exclusive parents from learned grail-shaped profile signals', () => {
+    const parents = profileVariantSourceBackfillParents(
+      ['Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo', 'Umbreon 217/187 Japanese'].map(chase),
+      80
+    );
+
+    expect(parents.map((suggestion) => suggestion.name)).toContain('Raichu Japanese niche exclusive Pokemon cards');
+    expect(parents.find((suggestion) => suggestion.name === 'Raichu Japanese niche exclusive Pokemon cards')?.requiredEvidenceTokens).toEqual(['raichu', 'japanese', 'exclusive', 'intro', 'deck']);
+  });
 });
 
 describe('backfillSourceBackedDiscoverySuggestions', () => {
@@ -1720,6 +1767,33 @@ describe('Discovery listing enrichment eligibility', () => {
 
     expect(isUsableDiscoveryMarketSample(pikachu010Suggestion, compactListing, 'CAD')).toBe(true);
     expect(isUsableDiscoveryExample(pikachu010Suggestion, compactListing, { min: 0, max: 1200 }, 'CAD')).toBe(true);
+  });
+
+  it('accepts Raichu No.026 Intro Pack Bulbasaur Deck listings as niche Japanese market samples', () => {
+    const raichuIntroSuggestion = {
+      name: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese',
+      lane: 'Japanese Collector Trail',
+      laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+      evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
+      requiredEvidenceTokens: ['raichu', '026', 'bulbasaur']
+    };
+    const introPackListing = listing({
+      title: 'Raichu No.026 - Intro pack bulbasaur deck - Japanese - MP',
+      price: 515,
+      condition: 'Ungraded - Very good'
+    });
+    const modern151Listing = listing({
+      title: 'Raichu 026/165 Sv2a Pokemon Card 151 Japanese Near Mint',
+      price: 5,
+      condition: 'Ungraded'
+    });
+
+    expect(isUsableDiscoveryMarketSample(raichuIntroSuggestion, introPackListing, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryExample(raichuIntroSuggestion, introPackListing, { min: 0, max: 700 }, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryMarketSample(raichuIntroSuggestion, modern151Listing, 'CAD')).toBe(false);
   });
 
   it('does not mistake Toys R Us promo cards for toy merchandise', () => {
@@ -2993,6 +3067,53 @@ describe('attachReferenceImages', () => {
     ]);
 
     expect(attached?.image?.url).toBe('https://i.ebayimg.com/images/g/clean-card/s-l1600.jpg');
+    expect(attached?.image?.sourceName).toBe('eBay vetted marketplace image');
+    expect(attached?.image?.sourceKind).toBe('MARKET_LISTING');
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+  });
+
+  it('preserves vetted marketplace images for exact niche Japanese deck exclusives', async () => {
+    const name = `Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese ${Date.now()}`;
+    const referenceCacheKey = discoveryReferenceCacheKey(name);
+    deleteDiscoveryReferenceCache(referenceCacheKey);
+    upsertDiscoveryReferenceCache({
+      cacheKey: referenceCacheKey,
+      suggestionName: name,
+      sourceName: 'Pokemon TCG',
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = await attachReferenceImages([
+      {
+        ...candidate(name, 'Japanese Collector Trail', 0, 12),
+        suggestion: {
+          ...candidate(name, 'Japanese Collector Trail', 0, 12).suggestion,
+          laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+          evidenceSearchTerm: `${name} Pokemon card`,
+          requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
+          sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage']
+        },
+        listing: {
+          source: 'EBAY',
+          listingId: 'vetted-raichu-026',
+          title: 'Raichu No.026 - Intro pack bulbasaur deck - Japanese - MP',
+          price: 515,
+          currency: 'CAD',
+          url: 'https://www.ebay.ca/itm/vetted-raichu-026',
+          imageUrl: 'https://i.ebayimg.com/images/g/raichu-clean/s-l1600.jpg',
+          region: 'CA',
+          listingType: 'BUY_IT_NOW'
+        },
+        image: {
+          name,
+          url: 'https://i.ebayimg.com/images/g/raichu-clean/s-l1600.jpg',
+          sourceName: 'eBay vetted marketplace image',
+          sourceKind: 'MARKET_LISTING'
+        }
+      }
+    ]);
+
+    expect(attached?.image?.url).toBe('https://i.ebayimg.com/images/g/raichu-clean/s-l1600.jpg');
     expect(attached?.image?.sourceName).toBe('eBay vetted marketplace image');
     expect(attached?.image?.sourceKind).toBe('MARKET_LISTING');
     deleteDiscoveryReferenceCache(referenceCacheKey);

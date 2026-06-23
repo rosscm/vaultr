@@ -549,8 +549,17 @@ function hasNonCardTerms(listing: Listing): boolean {
   return includesAnyNonCardTerm(listing.title);
 }
 
+function allowsNicheSingleCardReleaseTerm(suggestion: DiscoverySuggestion, listing: Listing): boolean {
+  const suggestionText = normalize([suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? []), ...(suggestion.requiredEvidenceTokens ?? [])].filter(Boolean).join(' '));
+  const listingText = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
+  if (!/\braichu\b/.test(suggestionText) || !/\b(?:no\.?\s*)?0?26\b/.test(suggestionText) || !/\b(?:intro pack|bulbasaur deck|vhs)\b/.test(suggestionText)) return false;
+  if (!/\braichu\b/.test(listingText) || !/\b(?:no\.?\s*)?0?26\b/.test(listingText) || !/\bbulbasaur\b/.test(listingText)) return false;
+  if (/\b(?:booster|bundle|display|sealed|unopened|lot|set of)\b/.test(listingText)) return false;
+  return hasCoreSuggestionTokens(suggestion, listing);
+}
+
 function looksLikeDiscoveryCardListing(suggestion: DiscoverySuggestion, listing: Listing): boolean {
-  if (hasNonCardTerms(listing)) return false;
+  if (hasNonCardTerms(listing)) return allowsNicheSingleCardReleaseTerm(suggestion, listing);
   return looksLikeCardListing(listing) || hasCoreSuggestionTokens(suggestion, listing);
 }
 
@@ -655,7 +664,7 @@ function isVettedMarketplaceImageCandidate(candidate: DiscoveryCandidate): boole
 }
 
 function marketplaceImageSourceNameForCandidate(candidate: DiscoveryCandidate): string {
-  if (isExactNicheRetailEReaderCandidate(candidate) && candidate.listing && looksLikeCleanMarketplaceCardPhoto(candidate.listing)) return VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME;
+  if (isExactNicheDiscoveryCandidate(candidate) && candidate.listing && looksLikeCleanMarketplaceCardPhoto(candidate.listing)) return VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME;
   return EBAY_LISTING_IMAGE_SOURCE_NAME;
 }
 
@@ -1425,7 +1434,7 @@ export function marketReadyShelfCandidatesWithOptions(
   if (options.allowPendingExploration === false && options.allowSourceBackedRetailEReaderFallback === true) {
     pendingFallbacks.push(
       ...displayableCandidates
-        .filter(hasSourceBackedRetailEReaderDisplayData)
+        .filter((candidate) => hasSourceBackedRetailEReaderDisplayData(candidate) || hasSourceBackedNicheJapaneseDisplayData(candidate))
         .filter((candidate) => !readyCandidates.some((readyCandidate) => discoveryDisplayNameKey(readyCandidate.suggestion.name) === discoveryDisplayNameKey(candidate.suggestion.name)))
     );
   }
@@ -1471,7 +1480,7 @@ function isMarketEstimateInRange(candidate: DiscoveryCandidate, range?: { min: n
   const total = marketEstimateTotal(candidate);
   if (total === undefined || (total >= range.min && total <= range.max)) return true;
   if (candidate.typicalRawSoldTotal !== undefined) return false;
-  if (!isExactNicheRetailEReaderCandidate(candidate) || !hasReliableMarketEstimate(candidate)) return false;
+  if (!isExactNicheDiscoveryCandidate(candidate) || !hasReliableMarketEstimate(candidate)) return false;
   const stretchMax = Math.max(range.max, Math.min(range.max * NICHE_DISCOVERY_STRETCH_RATIO, range.max + NICHE_DISCOVERY_STRETCH_ABSOLUTE));
   return total >= range.min && total <= stretchMax;
 }
@@ -1512,7 +1521,24 @@ function cacheBackfillSubjectTokens(value: string): string[] {
   return profileSubjectTokens(value).filter((token) => !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token) && !/^[a-z]{1,4}\d+$/i.test(token));
 }
 
+function hasDirectProfileSubjectMatch(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  const profileTokens = new Set(chases.flatMap((chase) => profileSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).filter((token) => !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token))));
+  if (profileTokens.size === 0) return false;
+  const candidateTokens = profileSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' ')).filter((token) => !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token));
+  return candidateTokens.some((token) => profileTokens.has(token));
+}
+
+function directProfileSubjectSupportCount(candidate: DiscoveryCandidate, chases: Chase[]): number {
+  const candidateTokens = new Set(profileSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' ')).filter((token) => !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token)));
+  if (candidateTokens.size === 0) return 0;
+  return chases.filter((chase) => {
+    const chaseTokens = profileSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).filter((token) => !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token));
+    return chaseTokens.some((token) => candidateTokens.has(token));
+  }).length;
+}
+
 function hasConcreteProfileSubjectMatch(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  if (/\bvmax\b/i.test(sourceCardText(candidate)) && !hasSupportedProfileVmaxSubjectMatch(candidate, chases)) return false;
   const profileTokens = new Set(chases.flatMap((chase) => expandedProfileSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).filter((token) => !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token))));
   if (profileTokens.size === 0) return false;
   const candidateTokens = expandedProfileSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' ')).filter((token) => !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token));
@@ -1687,14 +1713,32 @@ function isExactNicheRetailEReaderCandidate(candidate: DiscoveryCandidate): bool
   return isRetailEReaderDiscoveryCandidate(candidate) && /\b\d{1,3}\s*\/\s*\d{1,3}\b/.test(text);
 }
 
+function isNicheJapaneseExclusiveDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
+  const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, candidate.image?.sourceName].filter(Boolean).join(' '));
+  return /\bjapanese\b/.test(text) && /\b(?:bulbasaur deck|intro pack|vhs|deck exclusive|exclusive|odd(?:ball)? release)\b/.test(text);
+}
+
+function isExactNicheJapaneseExclusiveCandidate(candidate: DiscoveryCandidate): boolean {
+  const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName].filter(Boolean).join(' '));
+  return isNicheJapaneseExclusiveDiscoveryCandidate(candidate) && /\b(?:no\.?\s*)?0?\d{2,3}\b/.test(text);
+}
+
+function isExactNicheDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
+  return isExactNicheRetailEReaderCandidate(candidate) || isExactNicheJapaneseExclusiveCandidate(candidate);
+}
+
 function hasSourceBackedRetailEReaderDisplayData(candidate: DiscoveryCandidate): boolean {
   return isRetailEReaderDiscoveryCandidate(candidate) && (hasReliableMarketEstimate(candidate) || candidate.image?.sourceKind === 'CARD_REFERENCE' || !!candidate.suggestion.referenceImageUrl);
+}
+
+function hasSourceBackedNicheJapaneseDisplayData(candidate: DiscoveryCandidate): boolean {
+  return isNicheJapaneseExclusiveDiscoveryCandidate(candidate) && (hasReliableMarketEstimate(candidate) || candidate.image?.sourceKind === 'CARD_REFERENCE' || isVettedMarketplaceImageCandidate(candidate) || !!candidate.suggestion.referenceImageUrl);
 }
 
 function isWeeklyTasteLaneCandidate(candidate: DiscoveryCandidate, lane: WeeklyTasteLane): boolean {
   const text = normalize([sourceCardText(candidate), candidate.suggestion.lane].join(' '));
   if (lane === 'japanese') return isJapaneseDiscoveryCandidate(candidate) && hasLanguageSignalDisplayData(candidate);
-  if (lane === 'retail-e-reader') return hasSourceBackedRetailEReaderDisplayData(candidate);
+  if (lane === 'retail-e-reader') return hasSourceBackedRetailEReaderDisplayData(candidate) || hasSourceBackedNicheJapaneseDisplayData(candidate);
   if (lane === 'promo') return hasReliableMarketEstimate(candidate) && /\bpromo|black star|special delivery|futsal|toys r us|exclusive|classic collection|celebrations|felt hat\b/.test(text);
   return hasReliableMarketEstimate(candidate) && /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(text);
 }
@@ -1829,21 +1873,38 @@ function sourcePreferenceRankScore(candidate: DiscoveryCandidate, chases: Chase[
   return japaneseBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty - historyFallbackPenalty - negativeProfileRankPenalty(candidate, negativeProfile);
 }
 
-function hasVmaxGxFormatSignal(value: string): boolean {
-  return /\b(?:vmax|tag team|gx)\b/i.test(value);
+function hasGxTagTeamFormatSignal(value: string): boolean {
+  return /\b(?:tag team|gx)\b/i.test(value);
 }
 
-function profileHasVmaxGxAffinity(chases: Chase[] = []): boolean {
-  return chases.some((chase) => hasVmaxGxFormatSignal([chase.cardName, chase.targetNote].filter(Boolean).join(' ')));
+function hasPremiumVmaxContextText(value: string): boolean {
+  return /\bvmax\b/i.test(value) && /\b(?:alt art|alternate art|full art|gallery|trainer gallery|galarian gallery|rare secret|secret rare|hyper rare|rainbow rare|sar|sir|special delivery|munch|poncho|pokemon center|kanazawa|yokohama|sapporo)\b/i.test(value);
 }
 
-function candidateNeedsVmaxGxAffinity(candidate: DiscoveryCandidate): boolean {
-  return hasVmaxGxFormatSignal(sourceCardText(candidate));
+function profileHasVmaxAffinity(chases: Chase[] = []): boolean {
+  return chases.some((chase) => /\bvmax\b/i.test([chase.cardName, chase.targetNote].filter(Boolean).join(' ')));
+}
+
+function hasSupportedProfileVmaxSubjectMatch(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  if (!hasDirectProfileSubjectMatch(candidate, chases)) return false;
+  if (profileHasVmaxAffinity(chases)) return true;
+  return directProfileSubjectSupportCount(candidate, chases) >= 2;
+}
+
+function profileHasGxTagTeamAffinity(chases: Chase[] = []): boolean {
+  return chases.some((chase) => hasGxTagTeamFormatSignal([chase.cardName, chase.targetNote].filter(Boolean).join(' ')));
 }
 
 function preferProfileFormatAffinity(candidates: DiscoveryCandidate[], chases: Chase[], count: number): DiscoveryCandidate[] {
-  if (profileHasVmaxGxAffinity(chases)) return candidates;
-  const preferred = candidates.filter((candidate) => !candidateNeedsVmaxGxAffinity(candidate));
+  const hasGxTagTeamAffinity = profileHasGxTagTeamAffinity(chases);
+  const positiveSubjectChases = positiveTasteSubjectChases(chases);
+  const preferred = candidates.filter((candidate) => {
+    const text = sourceCardText(candidate);
+    if (/\bvmax\b/i.test(text) && !hasPremiumVmaxContextText(text)) return false;
+    if (/\bvmax\b/i.test(text) && positiveSubjectChases.length > 0 && !hasSupportedProfileVmaxSubjectMatch(candidate, positiveSubjectChases)) return false;
+    if (!hasGxTagTeamAffinity && hasGxTagTeamFormatSignal(text)) return false;
+    return true;
+  });
   if (preferred.length >= count) return preferred;
   const preferredNameKeys = new Set(preferred.map((candidate) => discoveryNameKey(candidate.suggestion.name)));
   return [...preferred, ...candidates.filter((candidate) => !preferredNameKeys.has(discoveryNameKey(candidate.suggestion.name)))];
@@ -2066,40 +2127,52 @@ function japaneseSourceBackfillParents(chases: Chase[]): DiscoverySuggestion[] {
 
 export function profileVariantSourceBackfillParents(chases: Chase[], targetCount = DISCOVERY_CANDIDATE_POOL_SIZE): DiscoverySuggestion[] {
   const subjectChases = positiveTasteSubjectChases(chases);
-  const usefulSubjectToken = (token: string): boolean => token.length >= 3 && !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token) && !['corocoro', 'mega', 'pokemon', 'shining'].includes(token);
-  const directSubjects = subjectChases
-    .flatMap((chase) => profileSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')))
-    .filter(usefulSubjectToken);
-  const expandedSubjects = subjectChases
-    .flatMap((chase) => expandedProfileSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')))
-    .filter(usefulSubjectToken);
-  const subjects = uniqueValuesPreservingOrder([...directSubjects, ...expandedSubjects]).slice(0, Math.max(4, Math.min(16, Math.ceil(targetCount / 5))));
+  const usefulSubjectToken = (token: string): boolean => token.length >= 3 && !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token) && !/^[a-z]{1,5}\d+$/i.test(token) && !['corocoro', 'mega', 'pokemon', 'rus', 'shining', 'toys'].includes(token);
+  const subjectTokens = subjectChases.flatMap((chase) => {
+    const text = [chase.cardName, chase.targetNote].filter(Boolean).join(' ');
+    const directSubjects = profileSubjectTokens(text).filter(usefulSubjectToken);
+    const directSubjectSet = new Set(directSubjects);
+    const relatedSubjects = expandedProfileSubjectTokens(text).filter((token) => usefulSubjectToken(token) && !directSubjectSet.has(token));
+    return [...directSubjects, ...relatedSubjects];
+  });
   const releaseTypes = distinctProfileKeys(chases, profileReleaseTypeKeys);
   const eras = distinctProfileKeys(chases, profileEraKeys);
   const hasRetailEReaderPromoSignal = releaseTypes.has('promo') && eras.has('e-reader');
+  const hasNicheJapaneseExclusiveSignal = hasJapaneseWeightedProfile(chases) && (releaseTypes.has('promo') || eras.has('vintage') || eras.has('e-reader'));
+  const subjectLimit = Math.max(4, Math.min(24, Math.ceil(targetCount / (hasNicheJapaneseExclusiveSignal ? 4 : 5))));
+  const subjects = uniqueValuesPreservingOrder(subjectTokens).slice(0, subjectLimit);
+  const nicheJapaneseExclusiveThread = { suffix: 'Japanese niche exclusive Pokemon cards', lane: 'Japanese Collector Trail', laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives', tokens: ['japanese', 'exclusive', 'intro', 'deck'], curiosityScore: 9 };
   const threads = [
     ...(hasJapaneseWeightedProfile(chases) ? [{ suffix: 'Japanese Pokemon cards', lane: 'Japanese Collector Trail', laneWhy: 'same-subject Japanese print variants', tokens: ['japanese'], curiosityScore: 6 }] : []),
     ...(hasRetailEReaderPromoSignal ? [{ suffix: "McDonald's e-Reader promo Pokemon cards", lane: 'Retail Promo Trail', laneWhy: 'same-subject retail e-reader promo variants', tokens: ['promo', 'e-reader', 'mcdonalds'], curiosityScore: 7 }] : []),
+    ...(hasNicheJapaneseExclusiveSignal ? [nicheJapaneseExclusiveThread] : []),
     { suffix: 'Pokemon promo cards', lane: 'Promo Trail', laneWhy: 'same-subject promo release variants', tokens: ['promo'], curiosityScore: 5 },
     { suffix: 'e-reader Pokemon cards', lane: 'E-Reader Era Trail', laneWhy: 'same-subject early-2000s set variants', tokens: ['e-reader'], curiosityScore: 4 },
     { suffix: 'illustration rare Pokemon cards', lane: 'Artwork Trail', laneWhy: 'same-subject artwork-led variants', tokens: ['illustration'], curiosityScore: 4 },
     { suffix: 'Pokemon collector cards', lane: 'Collector Compass', laneWhy: 'same-subject set and release variants', tokens: ['collector'], curiosityScore: 3 }
   ];
   const parents: DiscoverySuggestion[] = [];
+  const pushParent = (subject: string, thread: (typeof threads)[number]): void => {
+    parents.push({
+      name: `${titleCase(subject)} ${thread.suffix}`,
+      lane: thread.lane,
+      laneWhy: thread.laneWhy,
+      why: `keeps the Weekly Shelf fresh with different ${titleCase(subject)} sets, promos, and release shapes instead of repeating the same prepared card`,
+      nearby: [],
+      evidenceSearchTerm: `${subject} ${thread.suffix.replace('Pokemon ', 'Pokemon card ')}`,
+      evidenceAliases: [`${subject} Pokemon card`, `${subject} ${thread.suffix}`],
+      requiredEvidenceTokens: [subject, ...thread.tokens],
+      sourceTasteTokens: [subject, ...thread.tokens],
+      curiosityScore: thread.curiosityScore
+    });
+  };
+  if (hasNicheJapaneseExclusiveSignal) {
+    for (const subject of subjects) pushParent(subject, nicheJapaneseExclusiveThread);
+  }
   for (const subject of subjects) {
     for (const thread of threads) {
-      parents.push({
-        name: `${titleCase(subject)} ${thread.suffix}`,
-        lane: thread.lane,
-        laneWhy: thread.laneWhy,
-        why: `keeps the Weekly Shelf fresh with different ${titleCase(subject)} sets, promos, and release shapes instead of repeating the same prepared card`,
-        nearby: [],
-        evidenceSearchTerm: `${subject} ${thread.suffix.replace('Pokemon ', 'Pokemon card ')}`,
-        evidenceAliases: [`${subject} Pokemon card`, `${subject} ${thread.suffix}`],
-        requiredEvidenceTokens: [subject, ...thread.tokens],
-        sourceTasteTokens: [subject, ...thread.tokens],
-        curiosityScore: thread.curiosityScore
-      });
+      if (hasNicheJapaneseExclusiveSignal && thread === nicheJapaneseExclusiveThread) continue;
+      pushParent(subject, thread);
     }
   }
   return parents.slice(0, Math.max(targetCount, DISCOVERY_SHELF_PAGE_SIZE));
@@ -2371,6 +2444,7 @@ const TASTE_SIGNAL_TRAIT_TOKENS = new Set([
   'tag',
   'team',
   'v',
+  'vmax',
   'vintage'
 ]);
 

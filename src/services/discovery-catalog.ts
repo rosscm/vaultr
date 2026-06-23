@@ -142,15 +142,18 @@ const RETAIL_RELEASE_PATTERN = /\b(mcdonald'?s|toys\s*r\s*us|pokemon center|game
 const MULTI_SUBJECT_PATTERN = /\b\w+\s+\w+\s+\w+\b/;
 const SOURCE_FEATURE_TOKENS = new Set([
   'collector',
+  'deck',
   'delta',
   'e-reader',
   'ex',
+  'exclusive',
   'art',
   'full',
   'full art',
   'gallery',
   'gx',
   'illustration',
+  'intro',
   'japanese',
   'promo',
   'rare',
@@ -162,6 +165,7 @@ const SOURCE_FEATURE_TOKENS = new Set([
   'tag',
   'tag team',
   'team',
+  'vhs',
   'vintage'
 ]);
 
@@ -591,6 +595,18 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
         why: 'uses region and language as a broad taste marker rather than a prewritten card branch',
         tasteTokens: ['japanese'],
         curiosityScore: 7
+      });
+    }
+    if (profile.languageHints.includes('japanese') && (profile.promoLike || profile.specialReleaseLike || profile.traitHints.includes('vintage') || profile.traitHints.includes('e-reader'))) {
+      addTasteFeature(features, profile, {
+        key: 'release:japanese-niche-exclusive',
+        name: 'Japanese niche exclusive Pokemon cards',
+        lane: 'Japanese Collector Trail',
+        requiredTerms: ['japanese', 'exclusive', 'intro', 'deck'],
+        laneWhy: 'matches repeated Japanese promo, deck, and odd-release signals across your chase profile',
+        why: 'looks for scarce marketplace-native Japanese release identities that official card sources often miss',
+        tasteTokens: ['japanese', 'exclusive', 'intro', 'deck', 'vhs', 'vintage'],
+        curiosityScore: 9
       });
     }
     if (/\b(illustration|art rare|alt art|alternate art|full art|gallery|sar|ar)\b/i.test(profile.sourceText)) {
