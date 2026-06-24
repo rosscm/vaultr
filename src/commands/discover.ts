@@ -161,11 +161,13 @@ const NON_CARD_TERMS = [
   'funko',
   'gold foil',
   'gold metal',
+  'jumbo',
   'magnetic case',
   'magnetic holder',
   'keychain',
   'lot',
   'orica',
+  'oversized',
   'pack',
   'protector case',
   'plush',
@@ -1348,7 +1350,8 @@ export async function attachReferenceImages(candidates: DiscoveryCandidate[]): P
 function hasEnoughRawMarketData(candidate: DiscoveryCandidate): boolean {
   return (
     (candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE) ||
-    (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE)
+    (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE) ||
+    (isExactNicheDiscoveryCandidate(candidate) && hasSomeRawMarketData(candidate))
   );
 }
 
@@ -1370,6 +1373,7 @@ function hasThinRawMarketEstimate(candidate: DiscoveryCandidate): boolean {
 function marketEvidenceRank(candidate: DiscoveryCandidate): number {
   if (candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE) return 3;
   if (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE) return 2;
+  if (isExactNicheDiscoveryCandidate(candidate) && hasSomeRawMarketData(candidate)) return 2;
   if (
     (candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) > 0) ||
     (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0)
@@ -1390,7 +1394,7 @@ function imageQualityRank(candidate: DiscoveryCandidate): number {
 }
 
 function hasReliableMarketEstimate(candidate: DiscoveryCandidate): boolean {
-  return marketEvidenceRank(candidate) >= 2;
+  return marketEvidenceRank(candidate) >= 2 || (isExactNicheDiscoveryCandidate(candidate) && hasSomeRawMarketData(candidate));
 }
 
 function pagePolishedReadyCount(readyCount: number, maxShelfSize: number): number {
@@ -1685,10 +1689,16 @@ function blendJapaneseSignalCandidates(candidates: DiscoveryCandidate[], japanes
   return [...additions, ...trimmed];
 }
 
-type WeeklyTasteLane = 'japanese' | 'promo' | 'e-reader' | 'retail-e-reader';
+type WeeklyTasteLane = 'japanese' | 'promo' | 'e-reader' | 'retail-e-reader' | 'niche-japanese';
 
 function hasRetailEReaderPromoProfileSignal(chases: Chase[]): boolean {
   return distinctProfileKeys(chases, profileReleaseTypeKeys).has('promo') && distinctProfileKeys(chases, profileEraKeys).has('e-reader');
+}
+
+function hasNicheJapaneseExclusiveProfileSignal(chases: Chase[]): boolean {
+  const releaseTypes = distinctProfileKeys(chases, profileReleaseTypeKeys);
+  const eras = distinctProfileKeys(chases, profileEraKeys);
+  return hasJapaneseWeightedProfile(chases) && (releaseTypes.has('promo') || eras.has('vintage') || eras.has('e-reader'));
 }
 
 function weeklyTasteLaneTargets(chases: Chase[], targetCount: number): Array<{ lane: WeeklyTasteLane; target: number }> {
@@ -1697,6 +1707,7 @@ function weeklyTasteLaneTargets(chases: Chase[], targetCount: number): Array<{ l
   const eras = distinctProfileKeys(chases, profileEraKeys);
   const japaneseTarget = weeklyJapaneseSignalTargetCount(chases, targetCount);
   if (japaneseTarget > 0) targets.push({ lane: 'japanese', target: japaneseTarget });
+  if (hasNicheJapaneseExclusiveProfileSignal(chases)) targets.push({ lane: 'niche-japanese', target: 1 });
   if (hasRetailEReaderPromoProfileSignal(chases)) targets.push({ lane: 'retail-e-reader', target: 1 });
   if (releaseTypes.has('promo')) targets.push({ lane: 'promo', target: Math.max(3, Math.ceil(targetCount * 0.2)) });
   if (eras.has('e-reader')) targets.push({ lane: 'e-reader', target: Math.max(3, Math.ceil(targetCount * 0.2)) });
@@ -1738,6 +1749,7 @@ function hasSourceBackedNicheJapaneseDisplayData(candidate: DiscoveryCandidate):
 function isWeeklyTasteLaneCandidate(candidate: DiscoveryCandidate, lane: WeeklyTasteLane): boolean {
   const text = normalize([sourceCardText(candidate), candidate.suggestion.lane].join(' '));
   if (lane === 'japanese') return isJapaneseDiscoveryCandidate(candidate) && hasLanguageSignalDisplayData(candidate);
+  if (lane === 'niche-japanese') return hasSourceBackedNicheJapaneseDisplayData(candidate);
   if (lane === 'retail-e-reader') return hasSourceBackedRetailEReaderDisplayData(candidate) || hasSourceBackedNicheJapaneseDisplayData(candidate);
   if (lane === 'promo') return hasReliableMarketEstimate(candidate) && /\bpromo|black star|special delivery|futsal|toys r us|exclusive|classic collection|celebrations|felt hat\b/.test(text);
   return hasReliableMarketEstimate(candidate) && /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(text);
@@ -1870,7 +1882,10 @@ function sourcePreferenceRankScore(candidate: DiscoveryCandidate, chases: Chase[
   const japaneseBoost = hasJapaneseSource ? Math.round(80 + japaneseAffinity * 80 + (priorityJapanese ? 80 : 0)) : 0;
   const blackStarPenalty = (japaneseAffinity >= 0.35 || priorityJapanese) && isEnglishBlackStar ? 90 : 0;
   const historyFallbackPenalty = isConcreteHistoryFallbackCandidate(candidate) ? 160 : 0;
-  return japaneseBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty - historyFallbackPenalty - negativeProfileRankPenalty(candidate, negativeProfile);
+  const ordinaryVmaxPenalty = isOrdinaryVmaxDiscoveryCandidate(candidate) ? 110 : 0;
+  const weakLegendaryBirdPenalty = isWeakSingleLegendaryBirdSurface(candidate, chases) ? 140 : 0;
+  const nicheGrailShapeBoost = isExactNicheDiscoveryCandidate(candidate) ? 130 : 0;
+  return japaneseBoost + nicheGrailShapeBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty - historyFallbackPenalty - ordinaryVmaxPenalty - weakLegendaryBirdPenalty - negativeProfileRankPenalty(candidate, negativeProfile);
 }
 
 function hasGxTagTeamFormatSignal(value: string): boolean {
@@ -1879,6 +1894,36 @@ function hasGxTagTeamFormatSignal(value: string): boolean {
 
 function hasPremiumVmaxContextText(value: string): boolean {
   return /\bvmax\b/i.test(value) && /\b(?:alt art|alternate art|full art|gallery|trainer gallery|galarian gallery|rare secret|secret rare|hyper rare|rainbow rare|sar|sir|special delivery|munch|poncho|pokemon center|kanazawa|yokohama|sapporo)\b/i.test(value);
+}
+
+function isOrdinaryVmaxDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
+  const text = sourceCardText(candidate);
+  return /\bvmax\b/i.test(text) && !hasPremiumVmaxContextText(text);
+}
+
+const LEGENDARY_BIRD_TOKENS = ['articuno', 'zapdos', 'moltres'];
+
+function legendaryBirdTokens(value: string): string[] {
+  const text = normalize(value);
+  return LEGENDARY_BIRD_TOKENS.filter((token) => new RegExp(`\\b${token}\\b`).test(text));
+}
+
+function hasOnlyBroadLegendaryBirdSupport(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  const candidateBirds = legendaryBirdTokens(sourceCardText(candidate));
+  if (candidateBirds.length !== 1) return false;
+  const [candidateBird] = candidateBirds;
+  const supportingChases = positiveTasteSubjectChases(chases).filter((chase) => legendaryBirdTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).includes(candidateBird));
+  if (supportingChases.length === 0) return false;
+  return supportingChases.every((chase) => legendaryBirdTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).length >= 2);
+}
+
+function hasPremiumLegendaryBirdContext(candidate: DiscoveryCandidate): boolean {
+  const text = sourceCardText(candidate);
+  return /\b(?:skyridge|aquapolis|expedition|h\d{1,2}|crystal|shining|ex|lv\.?x|legend|gold star|japanese|exclusive|alt art|sar|sir)\b/i.test(text);
+}
+
+function isWeakSingleLegendaryBirdSurface(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  return hasOnlyBroadLegendaryBirdSupport(candidate, chases) && !hasPremiumLegendaryBirdContext(candidate);
 }
 
 function profileHasVmaxAffinity(chases: Chase[] = []): boolean {
@@ -2353,7 +2398,7 @@ export function backfillDiscoverySuggestions(sourceBackedSuggestions: DiscoveryS
 
 function discoveryVisualTone(lane: string): { icon: string; color: number; path: string } {
   const normalizedLane = normalize(lane);
-  if (/japanese|vending|oddit/.test(normalizedLane)) return { icon: '🗾', color: DISCOVERY_LANE_COLOR, path: 'Hidden release path' };
+  if (/japanese|vending|oddit/.test(normalizedLane)) return { icon: '◇', color: DISCOVERY_LANE_COLOR, path: 'Hidden release path' };
   if (/secret|bird|legendary/.test(normalizedLane)) return { icon: '✦', color: DISCOVERY_LANE_COLOR, path: 'Rarer detour' };
   if (/promo/.test(normalizedLane)) return { icon: '◆', color: DISCOVERY_LANE_COLOR, path: 'Promo path' };
   if (/gallery|character/.test(normalizedLane)) return { icon: '◆', color: DISCOVERY_LANE_COLOR, path: 'Character gallery' };
@@ -3665,7 +3710,7 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
   const message =
     feedback === 'MORE_LIKE_THIS'
       ? `Vaultr will treat **${pick.cardName}** as a stronger preference signal for your next Discovery release`
-      : `Vaultr will avoid **${pick.cardName}** and gently downrank close subject matches when they do not conflict with your Vault`;
+      : `Noted. Vaultr will keep **${pick.cardName}** off future Shelves and favor sharper grail signals around your Vault`;
   const undoRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:${interaction.user.id}:${pick.token}`)

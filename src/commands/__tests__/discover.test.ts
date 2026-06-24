@@ -431,6 +431,25 @@ describe('selectVisibleCandidates', () => {
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
   });
 
+  it('allows exact niche Japanese deck exclusives onto scheduled shelves with one specific market comp', () => {
+    const readyCandidates = Array.from({ length: 13 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const raichuIntroPack = {
+      ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 13, 1),
+      suggestion: {
+        ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 13, 1).suggestion,
+        laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+        evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+        evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
+        requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
+        sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage']
+      }
+    } satisfies DiscoveryCandidate;
+
+    const visible = marketReadyShelfCandidates([...readyCandidates, raichuIntroPack], true, strongProfileConfidence);
+
+    expect(visible.map((item) => item.suggestion.name)).toContain('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
+  });
+
   it('keeps scheduled delivery shelves to market-ready picks instead of pending filler', () => {
     const readyCandidates = Array.from({ length: 5 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
     const pendingCandidates = Array.from({ length: 10 }, (_, index) => candidate(`Pending Pick ${index + 1} SWSH${200 + index}`, 'exploration path', index + 5));
@@ -652,6 +671,28 @@ describe('selectVisibleCandidates', () => {
     ]);
   });
 
+  it('demotes ordinary VMAX below niche grail-style picks', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Pikachu VMAX SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 0),
+        sourceCandidate("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese", 'eBay vetted marketplace image', 1),
+        sourceCandidate('Pikachu Expedition Base Set 124', 'Pokemon TCG (Expedition Base Set)', 2),
+        sourceCandidate('Pikachu Crown Zenith 160', 'Pokemon TCG (Crown Zenith)', 3)
+      ],
+      [
+        { id: 'c1', userId: 'u1', cardName: 'Pikachu Skyridge 84', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' },
+        { id: 'c2', userId: 'u1', cardName: 'Pikachu Japanese promo', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' }
+      ],
+      3
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese",
+      'Pikachu Expedition Base Set 124',
+      'Pikachu Crown Zenith 160'
+    ]);
+  });
+
   it('prefers direct-subject premium VMAX over off-subject related-family VMAX', () => {
     const visible = selectVisibleCandidatesForCount(
       [
@@ -720,6 +761,36 @@ describe('selectVisibleCandidates', () => {
       'Articuno Skyridge H3',
       'Moltres Skyridge H20'
     ]);
+  });
+
+  it('keeps weak single-bird surfaces behind premium picks when the only bird signal is a trio chase', () => {
+    const visible = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Zapdos Generations 29', 'Pokemon TCG (Generations)', 0),
+        sourceCandidate('Zapdos Wizards Black Star Promos 23', 'Pokemon TCG (Wizards Black Star Promos)', 4),
+        sourceCandidate('Pikachu Expedition Base Set 124', 'Pokemon TCG (Expedition Base Set)', 1),
+        sourceCandidate('Moltres Skyridge H20', 'Pokemon TCG (Skyridge)', 2),
+        sourceCandidate('Mew Japanese S12a 183', 'TCGdex Japanese (S12a)', 3)
+      ],
+      [
+        { id: 'c1', userId: 'u1', cardName: 'Moltres Zapdos Articuno SM210', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' },
+        { id: 'c2', userId: 'u1', cardName: 'Pikachu Skyridge 84', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' }
+      ],
+      3,
+      discoveryNegativeProfile(
+        [{ suggestionName: 'Zapdos Generations 29', lane: 'Collector Compass', feedback: 'NOT_FOR_ME', interactionCount: 1, lastInteractedAt: '2026-06-24T03:06:03.789Z' }],
+        [{ id: 'c1', userId: 'u1', cardName: 'Moltres Zapdos Articuno SM210', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' }]
+      )
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toHaveLength(3);
+    expect(visible.map((item) => item.suggestion.name)).not.toContain('Zapdos Generations 29');
+    expect(visible.map((item) => item.suggestion.name)).not.toContain('Zapdos Wizards Black Star Promos 23');
+    expect(visible.map((item) => item.suggestion.name)).toEqual(expect.arrayContaining([
+      'Pikachu Expedition Base Set 124',
+      'Moltres Skyridge H20',
+      'Mew Japanese S12a 183'
+    ]));
   });
 
   it('prioritizes Japanese source cards over English Black Star promos for Japanese-weighted grails', () => {
@@ -1041,6 +1112,54 @@ describe('selectVisibleCandidates', () => {
     );
 
     expect(blended.map((item) => item.suggestion.name)).toContain("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese");
+  });
+
+  it('surfaces market-backed niche Japanese deck exclusives for Japanese grail-shaped profiles', () => {
+    const baseSelection = Array.from({ length: 20 }, (_, index) => candidate(`Reliable Modern Pick ${index + 1}`, 'Value Watch', index, 4));
+    const raichuIntroPack = {
+      ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 20, 4),
+      suggestion: {
+        ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 20, 4).suggestion,
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+        evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+        evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
+        requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
+        sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage']
+      }
+    } satisfies DiscoveryCandidate;
+
+    const blended = blendWeeklyTasteLaneCandidates(
+      baseSelection,
+      [...baseSelection, raichuIntroPack],
+      ['Umbreon 217/187 Japanese', 'Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo', 'Squirtle 007/018'].map(chase),
+      20
+    );
+
+    expect(blended.map((item) => item.suggestion.name)).toContain('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
+  });
+
+  it('ranks exact niche Japanese deck exclusives ahead of ordinary ready promo rows', () => {
+    const ranked = orderCandidatesForMarketConfidence(
+      [
+        candidate('Umbreon-GX SM Black Star Promos SM36', 'Promo Trail', 0, 12),
+        candidate('Pikachu-GX SM Black Star Promos SM232', 'Promo Trail', 1, 12),
+        {
+          ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 2, 1),
+          suggestion: {
+            ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 2, 1).suggestion,
+            laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+            evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+            evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
+            requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
+            sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage']
+          }
+        }
+      ],
+      ['Umbreon 217/187 Japanese', 'Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo', 'Squirtle 007/018'].map(chase)
+    );
+
+    expect(ranked[0]?.suggestion.name).toBe('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
   });
 
   it('backfills a short strong shelf from prior ready weekly cards without same-set variants', () => {
@@ -1590,6 +1709,26 @@ describe('Discovery listing enrichment eligibility', () => {
 
     expect(isUsableDiscoveryExample(paldeanMewSuggestion, caseListing, undefined, 'CAD')).toBe(false);
     expect(looksLikeVisualDiscoveryListing(paldeanMewSuggestion, caseListing)).toBe(false);
+  });
+
+  it('rejects jumbo promo listings as market samples for normal cards', () => {
+    const umbreonPromoSuggestion = {
+      name: 'Umbreon-GX SM Black Star Promos SM36',
+      lane: 'Promo Trail',
+      laneWhy: 'specific card source match',
+      why: 'specific card source match',
+      nearby: [],
+      evidenceSearchTerm: 'Umbreon-GX SM Black Star Promos SM36 Pokemon card',
+      evidenceAliases: ['Umbreon-GX SM Black Star Promos SM36'],
+      requiredEvidenceTokens: ['umbreon', 'sm36']
+    };
+    const jumboListing = listing({
+      title: 'Pokemon Jumbo Card Umbreon GX SM36 Black Star Promo Oversized Card 2017',
+      price: 49.7
+    });
+
+    expect(isUsableDiscoveryExample(umbreonPromoSuggestion, jumboListing, undefined, 'CAD')).toBe(false);
+    expect(looksLikeVisualDiscoveryListing(umbreonPromoSuggestion, jumboListing)).toBe(false);
   });
 
   it('rejects extended art case accessories from Paldean Fates market samples', () => {
@@ -2329,10 +2468,12 @@ describe('discoveryEmbed', () => {
     const promoEmbed = discoveryEmbed(sourceCandidate('Special Delivery Pikachu SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 0), 'CAD', false).toJSON();
     const artworkEmbed = discoveryEmbed(candidate('Gardevoir full art', 'visual-format discovery', 1), 'CAD', false).toJSON();
     const formatEmbed = discoveryEmbed(candidate('Mewtwo & Mew-GX SM191', 'Tag Team Trail', 2), 'CAD', false).toJSON();
+    const japaneseEmbed = discoveryEmbed(candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 3), 'CAD', false).toJSON();
 
     expect(promoEmbed.description).toBe('◆ Promo Trail');
     expect(artworkEmbed.description).toBe('◇ Artwork Trail');
     expect(formatEmbed.description).toBe('◇ Format Trail');
+    expect(japaneseEmbed.description).toBe('◇ Japanese Collector Trail');
   });
 
   it('does not include per-card next threads', () => {
