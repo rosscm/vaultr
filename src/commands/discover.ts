@@ -528,13 +528,11 @@ function includesAnyNonCardTerm(value: string): boolean {
 function hasCoreSuggestionTokens(suggestion: DiscoverySuggestion, listing: Listing): boolean {
   if (hasExactRaichuIntroPackListingEvidence(suggestion, listing)) return true;
   const titleTokens = new Set(normalizedTokens(listing.title));
+  const listingText = [listing.title, listing.condition].filter(Boolean).join(' ');
   const compactTitle = normalize(listing.title).replace(/[^a-z0-9]+/g, '');
   const candidateNames = [suggestion.name, ...(suggestion.evidenceAliases ?? [])];
   const requiredTokens = suggestion.requiredEvidenceTokens ?? [];
-  const hasRequiredTokens = requiredTokens.every((token) => {
-    const normalized = normalize(token).replace(/[^a-z0-9]+/g, '');
-    return titleTokens.has(token) || compactTitle.includes(normalized);
-  });
+  const hasRequiredTokens = requiredTokens.every((token) => matchesRequiredEvidenceToken(token, titleTokens, compactTitle, listingText));
 
   if (!hasRequiredTokens) return false;
 
@@ -546,6 +544,23 @@ function hasCoreSuggestionTokens(suggestion: DiscoverySuggestion, listing: Listi
     const matches = suggestionTokens.filter((token) => titleTokens.has(token) || compactTitle.includes(token.replace(/[^a-z0-9]+/g, '')));
     return matches.length / suggestionTokens.length >= 0.75;
   });
+}
+
+function matchesRequiredEvidenceToken(token: string, titleTokens: Set<string>, compactTitle: string, listingText: string): boolean {
+  const normalizedToken = normalize(token).replace(/[^a-z0-9]+/g, '');
+  if (titleTokens.has(normalize(token)) || compactTitle.includes(normalizedToken)) return true;
+  if (normalizedToken === 'japanese') return hasJapaneseListingEvidence(listingText);
+
+  const identityParts = normalize(token)
+    .split(/[^a-z0-9]+/g)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 2);
+  if (identityParts.length < 2 || !identityParts.some((part) => /\d/.test(part))) return false;
+  return identityParts.every((part) => titleTokens.has(part) || compactTitle.includes(part));
+}
+
+function hasJapaneseListingEvidence(value: string): boolean {
+  return /\b(?:japanese|japan|jp|jpn)\b/i.test(value) || JAPANESE_PROMO_CODE_PATTERN.test(value) || JAPANESE_SCRIPT_PATTERN.test(value) || JAPANESE_RELEASE_MARKER_PATTERN.test(value) || /\b(?:s|sv|sm|xy)\d{1,3}[a-z]?\b/i.test(value);
 }
 
 function isRaichuIntroPackSuggestion(suggestion: DiscoverySuggestion): boolean {
@@ -658,7 +673,7 @@ export function isUsableDiscoveryMarketSample(
   listing: Listing,
   targetCurrency: SupportedCurrency
 ): boolean {
-  return isUsableDiscoveryExample(suggestion, listing, undefined, targetCurrency);
+  return looksLikeBaselineRawMarketListing(listing) && isUsableDiscoveryExample(suggestion, listing, undefined, targetCurrency);
 }
 
 function normalizedMarketplaceImageUrl(image: string | undefined): string | undefined {

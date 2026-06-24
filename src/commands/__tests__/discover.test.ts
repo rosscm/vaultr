@@ -1963,6 +1963,50 @@ describe('Discovery listing enrichment eligibility', () => {
     expect(isUsableDiscoveryExample(pikachu010Suggestion, compactListing, { min: 0, max: 1200 }, 'CAD')).toBe(true);
   });
 
+  it('accepts Mew S12a 052 listings when set and number appear in either order', () => {
+    const mewS12aSuggestion = {
+      name: 'Mew Japanese S12a 052',
+      lane: 'Japanese Collector Trail',
+      laneWhy: 'Japanese-language profile signal',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: 'Mew Japanese Pokemon card S12a 052',
+      evidenceAliases: ['Mew Japanese S12a 052'],
+      requiredEvidenceTokens: ['mew-s12a-052', 'japanese']
+    };
+    const numberFirstListing = listing({
+      title: 'Mew 052/172 Reverse Holo s12a VSTAR Universe Japanese Pokemon Card',
+      price: 7,
+      condition: 'Ungraded'
+    });
+    const setFirstListing = listing({
+      title: 'Mew S12a: VSTAR Universe 052/172 Pokemon Card Holo JP',
+      price: 9,
+      condition: 'Ungraded'
+    });
+    const japaneseSetCodeListing = listing({
+      title: 'Mew Holo S12A VSTAR Universe 052/172 Pokemon Card NM',
+      price: 8,
+      condition: 'Ungraded'
+    });
+    const gradedListing = listing({
+      title: 'PSA 10 Gem Mint S12a 052/172 Mew VSTAR Universe Japanese JP Pokemon Card Game',
+      price: 120,
+      condition: 'Graded'
+    });
+    const wrongNumberListing = listing({
+      title: 'Pokemon Card PSA10 Mew s12a 183/172 AR 2022 Japanese',
+      price: 565,
+      condition: 'Graded'
+    });
+
+    expect(isUsableDiscoveryMarketSample(mewS12aSuggestion, numberFirstListing, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryMarketSample(mewS12aSuggestion, setFirstListing, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryMarketSample(mewS12aSuggestion, japaneseSetCodeListing, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryMarketSample(mewS12aSuggestion, gradedListing, 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(mewS12aSuggestion, wrongNumberListing, 'CAD')).toBe(false);
+  });
+
   it('accepts Raichu No.026 Intro Pack Bulbasaur Deck listings as niche Japanese market samples', () => {
     const raichuIntroSuggestion = {
       name: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese',
