@@ -1313,17 +1313,17 @@ function queueDiscoveryMarketRefreshes(jobs: DiscoveryMarketRefreshWork[]): Set<
 }
 
 function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency): string {
-  if (candidate.sourceStatus === 'PENDING') {
-    return candidate.image
-        ? 'Market data is updating. Pricing will appear once the source responds'
-        : 'Market data is updating. Image and pricing will appear once the source responds';
-  }
-      if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay. Vaultr will retry automatically';
-      if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time. Vaultr will retry automatically';
   const currency = candidate.displayCurrency ?? currencyHint;
   const hasSoldComps = candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE;
   const hasAskComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0;
   const hasReliableAskOnlyComps = candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE;
+  if (candidate.sourceStatus === 'PENDING' && !hasSoldComps && !hasAskComps) {
+    return candidate.image
+      ? 'Market data is updating. Pricing will appear once the source responds'
+      : 'Market data is updating. Image and pricing will appear once the source responds';
+  }
+    if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay. Vaultr will retry automatically';
+    if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time. Vaultr will retry automatically';
   if (!hasSoldComps && !hasAskComps) {
     return 'Market data is still being gathered. Vaultr will keep checking';
   }
@@ -1437,6 +1437,7 @@ export function marketReadyShelfCandidatesWithOptions(
   if (options.allowPendingExploration === false && options.allowLanguageSignalFallback === true && readyJapaneseCount < Math.max(1, languageSignalTargetCount)) {
     const languageFallbacks = displayableCandidates
       .filter((candidate) => isJapaneseDiscoveryCandidate(candidate) && hasLanguageSignalDisplayData(candidate))
+      .filter((candidate) => readyJapaneseCount === 0 || hasSomeRawMarketData(candidate))
       .filter((candidate) => !readyCandidates.some((readyCandidate) => discoveryDisplayNameKey(readyCandidate.suggestion.name) === discoveryDisplayNameKey(candidate.suggestion.name)))
       .slice(0, Math.max(1, Math.min(6, languageSignalTargetCount - readyJapaneseCount || Math.ceil(profileConfidence.maxShelfSize * 0.1))));
     pendingFallbacks.push(...languageFallbacks);

@@ -498,6 +498,27 @@ describe('selectVisibleCandidates', () => {
     expect(visible.slice(0, 3).map((item) => item.suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Pikachu Japanese SV2a 025', 'Umbreon Japanese SV8a 092']);
   });
 
+  it('does not pad scheduled shelves with no-data Japanese rows once ready Japanese picks exist', () => {
+    const readyCandidates = Array.from({ length: 16 }, (_, index) => candidate(`Ready English Pick ${index + 1}`, 'market ready path', index, 4));
+    const readyJapaneseCandidate = candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 16, 1);
+    const noDataJapaneseCandidate = {
+      ...sourceCandidate('Mew Japanese S12a 183', 'TCGdex Japanese (S12a)', 17),
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined,
+      sourceStatus: 'PENDING' as const
+    };
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [...readyCandidates, readyJapaneseCandidate, noDataJapaneseCandidate],
+      true,
+      { ...strongProfileConfidence, maxShelfSize: 18 },
+      { allowPendingExploration: false, allowLanguageSignalFallback: true, languageSignalTargetCount: 4 }
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toContain('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
+    expect(visible.map((item) => item.suggestion.name)).not.toContain('Mew Japanese S12a 183');
+  });
+
   it('can keep source-backed Japanese rows while market data catches up', () => {
     const readyCandidates = Array.from({ length: 20 }, (_, index) => candidate(`Ready English Pick ${index + 1}`, 'market ready path', index, 4));
     const japaneseCandidate = {
@@ -2243,6 +2264,23 @@ describe('discoveryEmbed', () => {
 
     const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
     expect(marketRead).toBe('Market data is updating. Pricing will appear once the source responds');
+  });
+
+  it('shows thin comp copy instead of updating copy when pending rows already have ask data', () => {
+    const embed = discoveryEmbed(
+      {
+        ...candidate('Mew Japanese S12a 052', 'Japanese Collector Trail', 0),
+        sourceStatus: 'PENDING',
+        typicalRawAskingTotal: 25,
+        marketSampleSize: 2,
+        displayCurrency: 'CAD'
+      },
+      'CAD',
+      true
+    ).toJSON();
+
+    const marketRead = embed.fields?.find((field) => field.name === 'Market Snapshot')?.value;
+    expect(marketRead).toBe('Low recent comps data: only 2 active ask comps found, so Vaultr is not showing a price yet');
   });
 
   it('mentions image attachment only when pending market cards have no image yet', () => {
