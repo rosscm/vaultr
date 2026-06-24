@@ -2534,11 +2534,14 @@ function tasteSignalText(candidate: DiscoveryCandidate): string {
   const normalizedSourceSetText = normalize([candidate.suggestion.referenceSourceName, candidate.image?.sourceName, sourceSetLabel(candidate)].filter(Boolean).join(' '));
   const sourceTasteTokens = candidate.suggestion.sourceTasteTokens ?? [];
   const cardAndSourceText = normalizedCardText;
+  const sourceTasteText = normalize(sourceTasteTokens.join(' '));
+  const isExactNicheCue = isExactNicheDiscoveryCandidate(candidate);
   const signals: string[] = [];
 
-  signals.push(...tasteSignalTokenLabels(sourceTasteTokens, normalizedCardText));
-  if (/\bpromo|black star|special release|limited release\b/.test(cardAndSourceText)) signals.push('Promo Releases');
+  if (!isExactNicheCue) signals.push(...tasteSignalTokenLabels(sourceTasteTokens, normalizedCardText));
   if (hasJapaneseCardEvidence(normalizedCardText)) signals.push('Japanese Prints');
+  if (isExactNicheCue || /\b(?:exclusive|unique|unusual|odd(?:ball)? release|intro pack|bulbasaur deck|vhs)\b/.test(sourceTasteText)) signals.push('Unique Releases');
+  if (/\bpromo|black star|special release|limited release\b/.test(cardAndSourceText)) signals.push('Promo Releases');
   if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(cardAndSourceText)) signals.push('E-Reader Era');
   else if (/\bbase set\b|\bteam rocket\b|\bgym heroes\b|\bgym challenge\b|\bneo\b|\bwizards black star\b/.test(normalizedSourceSetText)) signals.push('Vintage Era');
   if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(cardAndSourceText)) signals.push('Binder Art');

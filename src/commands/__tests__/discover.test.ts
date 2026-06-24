@@ -2401,6 +2401,28 @@ describe('discoveryEmbed', () => {
     expect(signal).not.toContain('Mewtwo & Mew-GX adjacency');
   });
 
+  it('uses broad Japanese unique-release cues for exact niche marketplace identities', () => {
+    const embed = discoveryEmbed(
+      {
+        ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 0, 1),
+        suggestion: {
+          ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 0, 1).suggestion,
+          evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+          requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
+          sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage']
+        }
+      },
+      'CAD',
+      true
+    ).toJSON();
+
+    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
+    expect(signal).toContain('Japanese Prints');
+    expect(signal).toContain('Unique Releases');
+    expect(signal).not.toContain('Raichu Family');
+    expect(signal).not.toContain('Intro Pack Family');
+  });
+
   it('does not label modern Team Rocket named cards as Vintage Era', () => {
     const embed = discoveryEmbed(
       {
