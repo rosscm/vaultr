@@ -1465,6 +1465,8 @@ export function marketReadyShelfCandidatesWithOptions(
 
 export function orderCandidatesForMarketConfidence(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {
   return [...candidates].sort((left, right) => {
+    const grailShapeDelta = grailShapePriorityRank(right, chases) - grailShapePriorityRank(left, chases);
+    if (grailShapeDelta !== 0) return grailShapeDelta;
     const evidenceDelta = marketEvidenceRank(right) - marketEvidenceRank(left);
     if (evidenceDelta !== 0) return evidenceDelta;
     const imageDelta = imageQualityRank(right) - imageQualityRank(left);
@@ -1886,6 +1888,11 @@ function sourcePreferenceRankScore(candidate: DiscoveryCandidate, chases: Chase[
   const weakLegendaryBirdPenalty = isWeakSingleLegendaryBirdSurface(candidate, chases) ? 140 : 0;
   const nicheGrailShapeBoost = isExactNicheDiscoveryCandidate(candidate) ? 130 : 0;
   return japaneseBoost + nicheGrailShapeBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty - historyFallbackPenalty - ordinaryVmaxPenalty - weakLegendaryBirdPenalty - negativeProfileRankPenalty(candidate, negativeProfile);
+}
+
+function grailShapePriorityRank(candidate: DiscoveryCandidate, chases: Chase[] = []): number {
+  if (!isExactNicheDiscoveryCandidate(candidate) || !hasSomeRawMarketData(candidate)) return 0;
+  return hasConcreteProfileSubjectMatch(candidate, positiveTasteSubjectChases(chases)) ? 3 : 2;
 }
 
 function hasGxTagTeamFormatSignal(value: string): boolean {

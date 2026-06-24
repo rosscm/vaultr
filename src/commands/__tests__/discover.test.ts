@@ -1162,6 +1162,40 @@ describe('selectVisibleCandidates', () => {
     expect(ranked[0]?.suggestion.name).toBe('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
   });
 
+  it('selects exact niche Japanese grail cards before conventional GX and format rows', () => {
+    const raichuIntroPackBase = candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 8, 1);
+    const raichuIntroPack = {
+      ...raichuIntroPackBase,
+      suggestion: {
+        ...raichuIntroPackBase.suggestion,
+        laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+        evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+        evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
+        requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
+        sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage']
+      }
+    } satisfies DiscoveryCandidate;
+
+    const visible = selectVisibleCandidatesForCount(
+      [
+        candidate('Mewtwo & Mew-GX Unified Minds 222', 'Format Trail', 0, 12),
+        candidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Promo Trail', 1, 12),
+        candidate('Umbreon-GX SM Black Star Promos SM36', 'Promo Trail', 2, 12),
+        candidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Promo Trail', 3, 12),
+        candidate('Pikachu & Zekrom-GX SM Black Star Promos SM168', 'Promo Trail', 4, 12),
+        candidate('Pikachu-GX SM Black Star Promos SM232', 'Promo Trail', 5, 12),
+        sourceCandidate('Pikachu ex Surging Sparks 238', 'Pokemon TCG (Surging Sparks)', 6),
+        sourceCandidate('Mew VMAX Fusion Strike 269', 'Pokemon TCG (Fusion Strike)', 7),
+        raichuIntroPack
+      ],
+      ['Umbreon 217/187 Japanese', 'Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo', 'Pikachu xy95', 'Squirtle 007/018'].map(chase),
+      5
+    );
+
+    expect(visible[0]?.suggestion.name).toBe('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
+    expect(visible.map((item) => item.suggestion.name)).not.toContain('Mew VMAX Fusion Strike 269');
+  });
+
   it('backfills a short strong shelf from prior ready weekly cards without same-set variants', () => {
     const current = [
       sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0),
