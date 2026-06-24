@@ -256,13 +256,13 @@ function retailEReaderPromoSubjectToken(suggestion: DiscoverySuggestion): string
 
 function isNicheJapaneseExclusiveSuggestion(suggestion: DiscoverySuggestion): boolean {
   const text = [sourceText(suggestion), ...(suggestion.sourceTasteTokens ?? []), ...(suggestion.requiredEvidenceTokens ?? [])].join(' ');
-  return /\bjapanese\b/i.test(text) && /\b(?:bulbasaur deck|intro pack|vhs|deck exclusive|exclusive|odd(?:ball)? release)\b/i.test(text);
+  return /\bjapanese\b/i.test(text) && /\b(?:bulbasaur deck|intro pack|vhs|deck exclusive|exclusive|unique|unusual|odd(?:ball)? release)\b/i.test(text);
 }
 
 function nicheJapaneseExclusiveSubjectToken(suggestion: DiscoverySuggestion): string | undefined {
   return (suggestion.requiredEvidenceTokens ?? suggestion.sourceTasteTokens ?? [])
     .map(normalizeSearchText)
-    .find((token) => token.length >= 3 && !['bulbasaur', 'deck', 'exclusive', 'intro', 'japanese', 'odd', 'release', 'vhs'].includes(token));
+    .find((token) => token.length >= 3 && !['bulbasaur', 'deck', 'exclusive', 'intro', 'japanese', 'odd', 'release', 'unique', 'unusual', 'vhs'].includes(token));
 }
 
 function exactRetailEReaderSubjectRank(card: PokemonTcgCard, suggestion: DiscoverySuggestion): number {

@@ -431,13 +431,13 @@ describe('selectVisibleCandidates', () => {
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
   });
 
-  it('allows exact niche Japanese deck exclusives onto scheduled shelves with one specific market comp', () => {
+  it('allows exact Japanese unique releases onto scheduled shelves with one specific market comp', () => {
     const readyCandidates = Array.from({ length: 13 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
     const raichuIntroPack = {
       ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 13, 1),
       suggestion: {
         ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 13, 1).suggestion,
-        laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+        laneWhy: 'Japanese exclusiveness and unusual-release signals',
         evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
         evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
         requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
@@ -1114,14 +1114,14 @@ describe('selectVisibleCandidates', () => {
     expect(blended.map((item) => item.suggestion.name)).toContain("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese");
   });
 
-  it('surfaces market-backed niche Japanese deck exclusives for Japanese grail-shaped profiles', () => {
+  it('surfaces market-backed Japanese unique releases for Japanese grail-shaped profiles', () => {
     const baseSelection = Array.from({ length: 20 }, (_, index) => candidate(`Reliable Modern Pick ${index + 1}`, 'Value Watch', index, 4));
     const raichuIntroPack = {
       ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 20, 4),
       suggestion: {
         ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 20, 4).suggestion,
         lane: 'Japanese Collector Trail',
-        laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+        laneWhy: 'Japanese exclusiveness and unusual-release signals',
         evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
         evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
         requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
@@ -1139,7 +1139,7 @@ describe('selectVisibleCandidates', () => {
     expect(blended.map((item) => item.suggestion.name)).toContain('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
   });
 
-  it('ranks exact niche Japanese deck exclusives ahead of ordinary ready promo rows', () => {
+  it('ranks exact Japanese unique releases ahead of ordinary ready promo rows', () => {
     const ranked = orderCandidatesForMarketConfidence(
       [
         candidate('Umbreon-GX SM Black Star Promos SM36', 'Promo Trail', 0, 12),
@@ -1148,7 +1148,7 @@ describe('selectVisibleCandidates', () => {
           ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 2, 1),
           suggestion: {
             ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 2, 1).suggestion,
-            laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+            laneWhy: 'Japanese exclusiveness and unusual-release signals',
             evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
             evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
             requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
@@ -1168,7 +1168,7 @@ describe('selectVisibleCandidates', () => {
       ...raichuIntroPackBase,
       suggestion: {
         ...raichuIntroPackBase.suggestion,
-        laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+        laneWhy: 'Japanese exclusiveness and unusual-release signals',
         evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
         evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
         requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
@@ -1496,14 +1496,14 @@ describe('profileVariantSourceBackfillParents', () => {
     expect(parents.find((suggestion) => suggestion.name === "Pikachu McDonald's e-Reader promo Pokemon cards")?.requiredEvidenceTokens).toEqual(['pikachu', 'promo', 'e-reader', 'mcdonalds']);
   });
 
-  it('builds Japanese niche exclusive parents from learned grail-shaped profile signals', () => {
+  it('builds Japanese unique release parents from learned grail-shaped profile signals', () => {
     const parents = profileVariantSourceBackfillParents(
       ['Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo', 'Umbreon 217/187 Japanese'].map(chase),
       80
     );
 
-    expect(parents.map((suggestion) => suggestion.name)).toContain('Raichu Japanese niche exclusive Pokemon cards');
-    expect(parents.find((suggestion) => suggestion.name === 'Raichu Japanese niche exclusive Pokemon cards')?.requiredEvidenceTokens).toEqual(['raichu', 'japanese', 'exclusive', 'intro', 'deck']);
+    expect(parents.map((suggestion) => suggestion.name)).toContain('Raichu Japanese unique release Pokemon cards');
+    expect(parents.find((suggestion) => suggestion.name === 'Raichu Japanese unique release Pokemon cards')?.requiredEvidenceTokens).toEqual(['raichu', 'japanese', 'exclusive', 'unique']);
   });
 });
 
@@ -1946,7 +1946,7 @@ describe('Discovery listing enrichment eligibility', () => {
     const raichuIntroSuggestion = {
       name: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese',
       lane: 'Japanese Collector Trail',
-      laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+      laneWhy: 'Japanese exclusiveness and unusual-release signals',
       why: 'profile',
       nearby: [],
       evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
@@ -3263,7 +3263,7 @@ describe('attachReferenceImages', () => {
         ...candidate(name, 'Japanese Collector Trail', 0, 12),
         suggestion: {
           ...candidate(name, 'Japanese Collector Trail', 0, 12).suggestion,
-          laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+          laneWhy: 'Japanese exclusiveness and unusual-release signals',
           evidenceSearchTerm: `${name} Pokemon card`,
           requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
           sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage']

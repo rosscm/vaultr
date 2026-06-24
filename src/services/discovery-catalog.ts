@@ -600,12 +600,12 @@ function collectTasteFeatures(profiles: ChaseSignalProfile[]): TasteFeature[] {
     if (profile.languageHints.includes('japanese') && (profile.promoLike || profile.specialReleaseLike || profile.traitHints.includes('vintage') || profile.traitHints.includes('e-reader'))) {
       addTasteFeature(features, profile, {
         key: 'release:japanese-niche-exclusive',
-        name: 'Japanese niche exclusive Pokemon cards',
+        name: 'Japanese unique release Pokemon cards',
         lane: 'Japanese Collector Trail',
-        requiredTerms: ['japanese', 'exclusive', 'intro', 'deck'],
-        laneWhy: 'matches repeated Japanese promo, deck, and odd-release signals across your chase profile',
+        requiredTerms: ['japanese', 'exclusive'],
+        laneWhy: 'matches Japanese exclusiveness and unusual-release signals across your chase profile',
         why: 'looks for scarce marketplace-native Japanese release identities that official card sources often miss',
-        tasteTokens: ['japanese', 'exclusive', 'intro', 'deck', 'vhs', 'vintage'],
+        tasteTokens: ['japanese', 'exclusive', 'unique', 'limited', 'vintage'],
         curiosityScore: 9
       });
     }

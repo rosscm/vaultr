@@ -279,6 +279,12 @@ function learningSignal(
   return `early read from active chases${memoryNote}${promoSignal}`;
 }
 
+function personalPicksProfileSummary(profileSummary: string): string {
+  const parts = profileSummary.split(' + ');
+  if (parts.length <= 2) return parts.join(' and ');
+  return `${parts.slice(0, 2).join(' and ')}; ${parts.slice(2).join(', ')}`;
+}
+
 export function discoveryVisibleCountForPlan(tier: PlanTier): number {
   return getEntitlementsForTier(tier).discoveryVisibleCards;
 }
@@ -2193,7 +2199,7 @@ export function profileVariantSourceBackfillParents(chases: Chase[], targetCount
   const hasNicheJapaneseExclusiveSignal = hasJapaneseWeightedProfile(chases) && (releaseTypes.has('promo') || eras.has('vintage') || eras.has('e-reader'));
   const subjectLimit = Math.max(4, Math.min(24, Math.ceil(targetCount / (hasNicheJapaneseExclusiveSignal ? 4 : 5))));
   const subjects = uniqueValuesPreservingOrder(subjectTokens).slice(0, subjectLimit);
-  const nicheJapaneseExclusiveThread = { suffix: 'Japanese niche exclusive Pokemon cards', lane: 'Japanese Collector Trail', laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives', tokens: ['japanese', 'exclusive', 'intro', 'deck'], curiosityScore: 9 };
+  const nicheJapaneseExclusiveThread = { suffix: 'Japanese unique release Pokemon cards', lane: 'Japanese Collector Trail', laneWhy: 'Japanese exclusiveness and unusual-release signals', tokens: ['japanese', 'exclusive', 'unique'], curiosityScore: 9 };
   const threads = [
     ...(hasJapaneseWeightedProfile(chases) ? [{ suffix: 'Japanese Pokemon cards', lane: 'Japanese Collector Trail', laneWhy: 'same-subject Japanese print variants', tokens: ['japanese'], curiosityScore: 6 }] : []),
     ...(hasRetailEReaderPromoSignal ? [{ suffix: "McDonald's e-Reader promo Pokemon cards", lane: 'Retail Promo Trail', laneWhy: 'same-subject retail e-reader promo variants', tokens: ['promo', 'e-reader', 'mcdonalds'], curiosityScore: 7 }] : []),
@@ -3432,10 +3438,9 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     discovery.hasFullDiscovery,
     discovery.hasLearnedProfile
   );
-  const marketCheckedProfileSummary = `${profileSummary} with live market checks`;
   const lines = [
     discovery.hasFullDiscovery
-      ? `🪄 **Personal Picks:** ${shelfCandidates.length} new ${shelfCandidates.length === 1 ? 'find' : 'finds'} shaped by ${marketCheckedProfileSummary}`
+      ? `🪄 **Personal Picks:** ${shelfCandidates.length} new ${shelfCandidates.length === 1 ? 'find' : 'finds'} shaped by ${personalPicksProfileSummary(profileSummary)}`
       : `🎬 **Preview:** ${shelfCandidates.length} ${shelfPickLabel} shaped by ${profileSummary}`,
     `🧵 **Threads:** ${pathSummary}`
   ];

@@ -68,16 +68,16 @@ describe('discovery source catalog', () => {
     expect(queries).not.toContain('supertype:Pokemon set.name:"Nintendo Black Star Promos"');
   });
 
-  it('does not send niche Japanese exclusive identities to broad Pokemon TCG source lookup', () => {
+  it('does not send Japanese unique release identities to broad Pokemon TCG source lookup', () => {
     const queries = pokemonTcgCatalogQueriesForSuggestion({
-      name: 'Raichu Japanese niche exclusive Pokemon cards',
+      name: 'Raichu Japanese unique release Pokemon cards',
       lane: 'Japanese Collector Trail',
       laneWhy: 'profile',
       why: 'profile',
       nearby: [],
-      evidenceSearchTerm: 'raichu Japanese niche exclusive Pokemon card intro deck',
-      requiredEvidenceTokens: ['raichu', 'japanese', 'exclusive', 'intro', 'deck'],
-      sourceTasteTokens: ['raichu', 'japanese', 'exclusive', 'intro', 'deck']
+      evidenceSearchTerm: 'raichu Japanese unique release Pokemon card',
+      requiredEvidenceTokens: ['raichu', 'japanese', 'exclusive', 'unique'],
+      sourceTasteTokens: ['raichu', 'japanese', 'exclusive', 'unique']
     });
 
     expect(queries).toEqual([]);
@@ -187,14 +187,14 @@ describe('discovery source catalog', () => {
 
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
-        name: 'Raichu Japanese niche exclusive Pokemon cards',
+        name: 'Raichu Japanese unique release Pokemon cards',
         lane: 'Japanese Collector Trail',
-        laneWhy: 'same-subject Japanese deck, VHS, and odd-release exclusives',
+        laneWhy: 'Japanese exclusiveness and unusual-release signals',
         why: 'profile',
         nearby: [],
-        evidenceSearchTerm: 'raichu Japanese niche exclusive Pokemon card intro deck',
-        requiredEvidenceTokens: ['raichu', 'japanese', 'exclusive', 'intro', 'deck'],
-        sourceTasteTokens: ['raichu', 'japanese', 'exclusive', 'intro', 'deck']
+        evidenceSearchTerm: 'raichu Japanese unique release Pokemon card',
+        requiredEvidenceTokens: ['raichu', 'japanese', 'exclusive', 'unique'],
+        sourceTasteTokens: ['raichu', 'japanese', 'exclusive', 'unique']
       },
       [],
       3,
