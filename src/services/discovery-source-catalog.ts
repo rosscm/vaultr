@@ -313,7 +313,10 @@ function curatedNicheJapaneseExclusiveSuggestion(parent: DiscoverySuggestion): D
       evidenceSearchTerm,
       'Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card',
       'Pokemon TCG 1999 Bulbasaur Deck Raichu No.026 Japanese',
-      'Raichu 026 Intro Pack Bulbasaur Deck Japanese'
+      'Raichu 026 Intro Pack Bulbasaur Deck Japanese',
+      'Raichu No. 026 3 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card',
+      'Raichu #3 Non-Holo VHS Promo Bulbasaur Deck 1999 Japanese Pokemon',
+      'Pokemon Card Raichu VHS Intro Pack Bulbasaur Deck No.03 LP Japanese'
     ]),
     requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
     sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage'],

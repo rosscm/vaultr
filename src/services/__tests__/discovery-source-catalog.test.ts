@@ -203,6 +203,8 @@ describe('discovery source catalog', () => {
 
     expect(resolved.suggestions[0]?.name).toBe('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
     expect(resolved.suggestions[0]?.evidenceAliases).toContain('Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card');
+    expect(resolved.suggestions[0]?.evidenceAliases).toContain('Raichu #3 Non-Holo VHS Promo Bulbasaur Deck 1999 Japanese Pokemon');
+    expect(resolved.suggestions[0]?.evidenceAliases).toContain('Pokemon Card Raichu VHS Intro Pack Bulbasaur Deck No.03 LP Japanese');
     expect(resolved.suggestions[0]?.requiredEvidenceTokens).toEqual(['raichu', '026', 'bulbasaur']);
     expect(resolved.suggestions[0]?.referenceSourceName).toBeUndefined();
   });

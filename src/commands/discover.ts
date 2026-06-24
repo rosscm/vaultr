@@ -360,7 +360,7 @@ function discoveryMarketSearchTerms(suggestion: DiscoverySuggestion): string[] {
   const terms = [suggestion.evidenceSearchTerm, suggestion.name, ...(suggestion.evidenceAliases ?? [])]
     .filter((term): term is string => !!term && term.trim().length > 0)
     .map((term) => term.replace(/\s+/g, ' ').trim());
-  return uniqueValuesPreservingOrder(terms).slice(0, 3);
+  return uniqueValuesPreservingOrder(terms).slice(0, isRaichuIntroPackSuggestion(suggestion) ? 8 : 3);
 }
 
 function dedupeDiscoveryListings(listings: Listing[]): Listing[] {
@@ -526,6 +526,7 @@ function includesAnyNonCardTerm(value: string): boolean {
 }
 
 function hasCoreSuggestionTokens(suggestion: DiscoverySuggestion, listing: Listing): boolean {
+  if (hasExactRaichuIntroPackListingEvidence(suggestion, listing)) return true;
   const titleTokens = new Set(normalizedTokens(listing.title));
   const compactTitle = normalize(listing.title).replace(/[^a-z0-9]+/g, '');
   const candidateNames = [suggestion.name, ...(suggestion.evidenceAliases ?? [])];
@@ -547,6 +548,19 @@ function hasCoreSuggestionTokens(suggestion: DiscoverySuggestion, listing: Listi
   });
 }
 
+function isRaichuIntroPackSuggestion(suggestion: DiscoverySuggestion): boolean {
+  const suggestionText = normalize([suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? []), ...(suggestion.requiredEvidenceTokens ?? [])].filter(Boolean).join(' '));
+  return /\braichu\b/.test(suggestionText) && /\b(?:no\.?\s*)?0?26\b/.test(suggestionText) && /\b(?:intro pack|bulbasaur deck|vhs)\b/.test(suggestionText);
+}
+
+function hasExactRaichuIntroPackListingEvidence(suggestion: DiscoverySuggestion, listing: Listing): boolean {
+  if (!isRaichuIntroPackSuggestion(suggestion)) return false;
+  const listingText = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
+  if (!/\braichu\b/.test(listingText) || !/\bbulbasaur\b/.test(listingText) || !/\bjapanese\b/.test(listingText)) return false;
+  if (!/\b(?:intro pack|vhs|deck)\b/.test(listingText)) return false;
+  return /(?:\b(?:no\.?\s*)?0?26\b|#\s?0?3\b|\bno\.?\s?0?3\b)/.test(listingText);
+}
+
 function looksLikeCardListing(listing: Listing): boolean {
   const title = normalize(listing.title);
   if (includesAnyNonCardTerm(title)) return false;
@@ -558,10 +572,8 @@ function hasNonCardTerms(listing: Listing): boolean {
 }
 
 function allowsNicheSingleCardReleaseTerm(suggestion: DiscoverySuggestion, listing: Listing): boolean {
-  const suggestionText = normalize([suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? []), ...(suggestion.requiredEvidenceTokens ?? [])].filter(Boolean).join(' '));
   const listingText = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
-  if (!/\braichu\b/.test(suggestionText) || !/\b(?:no\.?\s*)?0?26\b/.test(suggestionText) || !/\b(?:intro pack|bulbasaur deck|vhs)\b/.test(suggestionText)) return false;
-  if (!/\braichu\b/.test(listingText) || !/\b(?:no\.?\s*)?0?26\b/.test(listingText) || !/\bbulbasaur\b/.test(listingText)) return false;
+  if (!hasExactRaichuIntroPackListingEvidence(suggestion, listing)) return false;
   if (/\b(?:booster|bundle|display|sealed|unopened|lot|set of)\b/.test(listingText)) return false;
   return hasCoreSuggestionTokens(suggestion, listing);
 }
@@ -578,10 +590,11 @@ export function looksLikeRawCardListing(listing: Listing): boolean {
 
 export function looksLikeBaselineRawMarketListing(listing: Listing): boolean {
   const text = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
+  const exactRaichuIntroPackSingleCard = /\braichu\b/.test(text) && /\bbulbasaur\b/.test(text) && /\bjapanese\b/.test(text) && /\b(?:intro pack|vhs|deck)\b/.test(text) && /(?:\b(?:no\.?\s*)?0?26\b|#\s?0?3\b|\bno\.?\s?0?3\b)/.test(text);
   return (
     looksLikeRawCardListing(listing) &&
     !/\b(altered|bent|creased|damaged|dmg|error|gem mint|heavy play|hp|inked|minty mint|misprint|miscut|nintedo|poor|sealed|unopened|signature|signed|autograph|staff|water damaged)\b/.test(text) &&
-    !/\b(lot|pack|post ?card)\b|\bcard set\b|\b(complete|master|binder)\b.*\b(set|collection)\b|\b(6|9|18)[- ]?card set\b|\bset of \d+\b/.test(text)
+    !(exactRaichuIntroPackSingleCard ? /\b(lot|post ?card)\b|\bcard set\b|\b(complete|master|binder)\b.*\b(set|collection)\b|\b(6|9|18)[- ]?card set\b|\bset of \d+\b/.test(text) : /\b(lot|pack|post ?card)\b|\bcard set\b|\b(complete|master|binder)\b.*\b(set|collection)\b|\b(6|9|18)[- ]?card set\b|\bset of \d+\b/.test(text))
   );
 }
 
@@ -939,7 +952,7 @@ async function hydratePendingDiscoveryMarketCandidates(
   const hydratedByIndex = new Map<number, DiscoveryCandidate>();
   const pendingCandidates = candidates
     .map((candidate, index) => ({ candidate, index }))
-    .filter(({ candidate }) => candidate.sourceStatus === 'PENDING' && !hasEnoughRawMarketData(candidate));
+    .filter(({ candidate }) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate));
 
   await mapWithConcurrency(pendingCandidates, Math.min(2, DISCOVERY_ENRICHMENT_CONCURRENCY), async ({ candidate, index }) => {
     try {
@@ -999,7 +1012,7 @@ function candidateWithFreshMarketCache(
     range?: { min: number; max: number };
   }
 ): DiscoveryCandidate {
-  if (candidate.sourceStatus !== 'PENDING' || hasEnoughRawMarketData(candidate)) return candidate;
+  if (candidate.sourceStatus !== 'PENDING' || !needsMoreMarketDepth(candidate)) return candidate;
   const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
   const cacheEntry = getDiscoveryMarketCache(cacheKey);
   if (!cacheEntry || !discoveryMarketCacheHasReliableEstimate(cacheEntry)) return candidate;
@@ -1025,12 +1038,12 @@ async function settlePendingDiscoveryMarketCandidates(
   },
   maxWaitMs = DISCOVERY_MARKET_FIRST_RESPONSE_WAIT_MS
 ): Promise<DiscoveryCandidate[]> {
-  if (maxWaitMs <= 0 || !candidates.some((candidate) => candidate.sourceStatus === 'PENDING' && !hasEnoughRawMarketData(candidate))) return candidates;
+  if (maxWaitMs <= 0 || !candidates.some((candidate) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate))) return candidates;
   const deadlineMs = Date.now() + maxWaitMs;
   let settled = candidates;
   while (Date.now() < deadlineMs) {
     settled = settled.map((candidate) => candidateWithFreshMarketCache(candidate, context));
-    if (!settled.some((candidate) => candidate.sourceStatus === 'PENDING' && !hasEnoughRawMarketData(candidate))) return settled;
+    if (!settled.some((candidate) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate))) return settled;
     await new Promise((resolve) => setTimeout(resolve, Math.min(500, Math.max(0, deadlineMs - Date.now()))));
   }
   return settled.map((candidate) => candidateWithFreshMarketCache(candidate, context));
@@ -1358,6 +1371,13 @@ function hasEnoughRawMarketData(candidate: DiscoveryCandidate): boolean {
     (candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE) ||
     (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE) ||
     (isExactNicheDiscoveryCandidate(candidate) && hasSomeRawMarketData(candidate))
+  );
+}
+
+function needsMoreMarketDepth(candidate: DiscoveryCandidate): boolean {
+  return !(
+    (candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE) ||
+    (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE)
   );
 }
 

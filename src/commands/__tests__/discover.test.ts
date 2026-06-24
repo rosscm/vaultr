@@ -1979,15 +1979,45 @@ describe('Discovery listing enrichment eligibility', () => {
       price: 515,
       condition: 'Ungraded - Very good'
     });
+    const numberedIntroPackListing = listing({
+      title: 'Raichu No. 026 3 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card',
+      price: 430,
+      condition: 'Ungraded'
+    });
+    const deckNumberIntroPackListing = listing({
+      title: 'Raichu #3 Non-Holo VHS Promo Bulbasaur Deck 1999 Japanese Pokemon LP',
+      price: 395,
+      condition: 'Ungraded'
+    });
+    const no03IntroPackListing = listing({
+      title: 'Pokemon Card Raichu VHS Intro Pack Bulbasaur Deck No.03 LP Japanese',
+      price: 375,
+      condition: 'Ungraded'
+    });
     const modern151Listing = listing({
       title: 'Raichu 026/165 Sv2a Pokemon Card 151 Japanese Near Mint',
       price: 5,
       condition: 'Ungraded'
     });
+    const wrongSpeciesListing = listing({
+      title: 'Venusaur No.003 Intro Pack Bulbasaur Deck Japanese Pokemon Card',
+      price: 420,
+      condition: 'Ungraded'
+    });
+    const pairListing = listing({
+      title: 'Pikachu No.025 Raichu No.026 Intro Pack 2set old back Japanese Pokemon Card 1999',
+      price: 680,
+      condition: 'Ungraded'
+    });
 
     expect(isUsableDiscoveryMarketSample(raichuIntroSuggestion, introPackListing, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryMarketSample(raichuIntroSuggestion, numberedIntroPackListing, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryMarketSample(raichuIntroSuggestion, deckNumberIntroPackListing, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryMarketSample(raichuIntroSuggestion, no03IntroPackListing, 'CAD')).toBe(true);
     expect(isUsableDiscoveryExample(raichuIntroSuggestion, introPackListing, { min: 0, max: 700 }, 'CAD')).toBe(true);
     expect(isUsableDiscoveryMarketSample(raichuIntroSuggestion, modern151Listing, 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(raichuIntroSuggestion, wrongSpeciesListing, 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(raichuIntroSuggestion, pairListing, 'CAD')).toBe(false);
   });
 
   it('does not mistake Toys R Us promo cards for toy merchandise', () => {
@@ -3168,6 +3198,50 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(attached?.typicalRawAskingTotal).toBe(790);
     expect(attached?.marketSampleSize).toBe(3);
     expect(attached?.sourceStatus).toBe('PENDING');
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('keeps thin exact niche marketplace cache rows refreshable after making them display-ready', () => {
+    const name = `Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese ${Date.now()}`;
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 426,
+      marketSampleSize: 1,
+      soldSampleSize: 0,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const raichuIntroPack = candidate(name, 'Japanese Collector Trail', 0, 1);
+    const [attached] = candidatesFromDiscoveryMarketCache(
+      [
+        {
+          ...raichuIntroPack,
+          suggestion: {
+            ...raichuIntroPack.suggestion,
+            evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+            evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
+            requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
+            sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage']
+          }
+        }
+      ],
+      {
+        userId: 'user-1',
+        activeChases: [],
+        destination: { country: 'CA' },
+        targetCurrency: 'CAD',
+        forceRefreshThinSignal: true
+      }
+    );
+
+    expect(attached?.marketSampleSize).toBe(1);
+    expect(attached?.sourceStatus).toBe('PENDING');
+    expect(marketReadyShelfCandidatesWithOptions([attached!], true, strongProfileConfidence, { allowPendingExploration: false })).toHaveLength(1);
     deleteDiscoveryMarketCache(cacheKey);
   });
 
