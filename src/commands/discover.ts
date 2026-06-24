@@ -14,6 +14,7 @@ import {
   createDiscoveryVaultAction,
   deleteExpiredDiscoveryVaultActions,
   getDiscoveryVaultAction,
+  getDiscoveryLearnedSignalSummary,
   getUserDiscoveryState,
   getUserAlertSettings,
   getUserPlan,
@@ -24,6 +25,7 @@ import {
   markUserDiscoverySuggestionsSeen,
   recordDiscoveryFeedback,
   recordDiscoveryAddTaste,
+  recordDiscoveryTrainingExamples,
   undoDiscoveryFeedback,
   upsertUserDiscoveryState
 } from '../services/chase-store.js';
@@ -73,6 +75,27 @@ export type DiscoveryCandidate = {
   selectionIndex?: number;
   sourceStatus?: 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR';
 };
+
+export type DiscoveryCollectorFeatures = {
+  directSubjectSupport: number;
+  japaneseAffinity: number;
+  japaneseSignal: boolean;
+  promoSignal: boolean;
+  eReaderSignal: boolean;
+  retailEReaderSignal: boolean;
+  nicheExclusiveSignal: boolean;
+  exactNicheIdentity: boolean;
+  premiumFormatContext: boolean;
+  ordinaryFormatPenalty: boolean;
+  weakSubjectPenalty: boolean;
+  historyFallbackPenalty: boolean;
+  negativeSignalPenalty: number;
+  marketEvidence: number;
+  imageEvidence: number;
+  curiosity: number;
+};
+
+type DiscoveryLearnedRankContext = ReturnType<typeof getDiscoveryLearnedSignalSummary>;
 
 type DiscoveryCardImage = {
   name: string;
@@ -186,6 +209,7 @@ const CARD_TERMS = ['card', 'cards', 'tcg', 'pokemon', 'psa', 'bgs', 'cgc', 'sgc
 const DISCOVERY_OVERVIEW_COLOR = 0x8b5cf6;
 const DISCOVERY_LANE_COLOR = 0x0e7490;
 const DISCOVERY_SELECTION_VERSION = PREPARED_DISCOVERY_SELECTION_VERSION;
+const DISCOVERY_COLLECTOR_RANKER_VERSION = 'collector-v1';
 const DISCOVERY_VAULT_PREFIX = 'discover-vault';
 const DISCOVERY_FEEDBACK_PREFIX = 'discover-feedback';
 const DISCOVERY_FEEDBACK_UNDO_PREFIX = 'discover-feedback-undo';
@@ -1505,7 +1529,7 @@ export function marketReadyShelfCandidatesWithOptions(
   return selected;
 }
 
-export function orderCandidatesForMarketConfidence(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {
+export function orderCandidatesForMarketConfidence(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile, learnedRankContext?: DiscoveryLearnedRankContext): DiscoveryCandidate[] {
   return [...candidates].sort((left, right) => {
     const grailShapeDelta = grailShapePriorityRank(right, chases) - grailShapePriorityRank(left, chases);
     if (grailShapeDelta !== 0) return grailShapeDelta;
@@ -1513,10 +1537,70 @@ export function orderCandidatesForMarketConfidence(candidates: DiscoveryCandidat
     if (evidenceDelta !== 0) return evidenceDelta;
     const imageDelta = imageQualityRank(right) - imageQualityRank(left);
     if (imageDelta !== 0) return imageDelta;
-    const sourceDelta = sourcePreferenceRankScore(right, chases, negativeProfile) - sourcePreferenceRankScore(left, chases, negativeProfile);
-    if (sourceDelta !== 0) return sourceDelta;
+    const collectorDelta = collectorDiscoveryRankScore(right, chases, negativeProfile, learnedRankContext) - collectorDiscoveryRankScore(left, chases, negativeProfile, learnedRankContext);
+    if (collectorDelta !== 0) return collectorDelta;
     return curiosityRankScore(right) - curiosityRankScore(left);
   });
+}
+
+export function collectorDiscoveryFeatures(candidate: DiscoveryCandidate, chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): DiscoveryCollectorFeatures {
+  const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, candidate.image?.sourceName].filter(Boolean).join(' '));
+  const directSubjectSupport = directProfileSubjectSupportCount(candidate, positiveTasteSubjectChases(chases));
+  const japaneseAffinity = japaneseSignalWeightRatio(chases);
+  const japaneseSignal = isJapaneseDiscoveryCandidate(candidate);
+  const promoSignal = /\bpromo|black star|special delivery|futsal|toys r us|classic collection|celebrations|exclusive|mcdonald'?s\b/.test(text);
+  const eReaderSignal = /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(text);
+  const retailEReaderSignal = isRetailEReaderDiscoveryCandidate(candidate);
+  const nicheExclusiveSignal = isNicheJapaneseExclusiveDiscoveryCandidate(candidate);
+  const exactNicheIdentity = isExactNicheDiscoveryCandidate(candidate);
+  const premiumFormatContext = hasPremiumVmaxContextText(text) || /\b(?:sir|sar|ar|special illustration rare|illustration rare|alt art|alternate art|secret rare|trainer gallery|galarian gallery)\b/.test(text);
+  const ordinaryFormatPenalty = isOrdinaryVmaxDiscoveryCandidate(candidate) || (/\b(?:gx|ex|vmax|vstar)\b/.test(text) && !premiumFormatContext && !exactNicheIdentity);
+  return {
+    directSubjectSupport,
+    japaneseAffinity,
+    japaneseSignal,
+    promoSignal,
+    eReaderSignal,
+    retailEReaderSignal,
+    nicheExclusiveSignal,
+    exactNicheIdentity,
+    premiumFormatContext,
+    ordinaryFormatPenalty,
+    weakSubjectPenalty: isWeakSingleLegendaryBirdSurface(candidate, chases),
+    historyFallbackPenalty: isConcreteHistoryFallbackCandidate(candidate),
+    negativeSignalPenalty: negativeProfileRankPenalty(candidate, negativeProfile),
+    marketEvidence: marketEvidenceRank(candidate),
+    imageEvidence: imageQualityRank(candidate),
+    curiosity: candidate.suggestion.curiosityScore ?? 0
+  };
+}
+
+function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
+  if (!learnedRankContext || learnedRankContext.exampleCount < 3) return 0;
+  let nudge = 0;
+  for (const [feature, weight] of Object.entries(learnedRankContext.featureWeights)) {
+    if ((features as unknown as Record<string, unknown>)[feature] === true) nudge += weight;
+  }
+  return Math.max(-48, Math.min(48, nudge));
+}
+
+export function collectorDiscoveryRankScore(candidate: DiscoveryCandidate, chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile, learnedRankContext?: DiscoveryLearnedRankContext): number {
+  const features = collectorDiscoveryFeatures(candidate, chases, negativeProfile);
+  return (
+    sourcePreferenceRankScore(candidate, chases, negativeProfile) +
+    features.directSubjectSupport * 18 +
+    (features.japaneseSignal ? Math.round(24 + features.japaneseAffinity * 36) : 0) +
+    (features.promoSignal ? 10 : 0) +
+    (features.eReaderSignal ? 18 : 0) +
+    (features.retailEReaderSignal ? 32 : 0) +
+    (features.nicheExclusiveSignal ? 34 : 0) +
+    (features.exactNicheIdentity ? 42 : 0) +
+    (features.premiumFormatContext ? 14 : 0) -
+    (features.ordinaryFormatPenalty ? 40 : 0) -
+    (features.weakSubjectPenalty ? 35 : 0) -
+    (features.historyFallbackPenalty ? 45 : 0) +
+    learnedFeatureRankNudge(features, learnedRankContext)
+  );
 }
 
 function marketEstimateTotal(candidate: DiscoveryCandidate): number | undefined {
@@ -1593,8 +1677,25 @@ function hasConcreteProfileSubjectMatch(candidate: DiscoveryCandidate, chases: C
   return candidateTokens.some((token) => profileTokens.has(token));
 }
 
-function isScheduledProfileRelevantCandidate(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+function hasCollectorShapedScheduledSignal(candidate: DiscoveryCandidate): boolean {
+  const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.sourceTasteTokens ?? [])].filter(Boolean).join(' '));
+  const highNumberMatch = /\b(\d{3})\b/.exec(text);
+  const exactNicheSignal = isExactNicheDiscoveryCandidate(candidate);
+  const japaneseSignal = isJapaneseDiscoveryCandidate(candidate);
+  const specialPromoSignal = /\b(?:special delivery|futsal|toys r us|classic collection|celebrations|mcdonald'?s|staff|winner|prerelease|stamped|stamp|exclusive|unique|odd(?:ball)? release|limited release)\b/.test(text);
+  const genericPromoSignal = /\b(?:promo|black star)\b/.test(text);
+  const eraSignal = /\b(?:e[- ]?reader|expedition|aquapolis|skyridge|base set|team rocket(?!'s)|gym heroes|gym challenge|neo|wizards)\b/.test(text);
+  const artSignal = /\b(?:illustration rare|special illustration rare|art rare|alt art|alternate art|full art|secret rare|trainer gallery|galarian gallery|sar|sir)\b/.test(text);
+  const modernSecretLikeSignal = !!highNumberMatch && Number(highNumberMatch[1]) >= 180 && /\b(?:scarlet|violet|destined rivals|surging sparks|paldean fates|journey together|stellar crown|temporal forces|twilight masquerade|prismatic evolutions|obsidian flames|paradox rift)\b/.test(text);
+  const formatSignal = /\b(?:tag team|gx|ex|vmax|vstar|radiant)\b/.test(text);
+  if (formatSignal) return exactNicheSignal || japaneseSignal || specialPromoSignal || genericPromoSignal || eraSignal || artSignal || modernSecretLikeSignal;
+  return exactNicheSignal || japaneseSignal || specialPromoSignal || genericPromoSignal || eraSignal || artSignal || modernSecretLikeSignal;
+}
+
+export function isScheduledProfileRelevantCandidate(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
   if (chases.length === 0) return true;
+  if (isWeakSingleLegendaryBirdSurface(candidate, chases)) return false;
+  if (!hasCollectorShapedScheduledSignal(candidate)) return false;
   return hasConcreteProfileSubjectMatch(candidate, chases) || (hasJapaneseWeightedProfile(chases) && isJapaneseDiscoveryCandidate(candidate));
 }
 
@@ -2016,23 +2117,8 @@ function profileSubjectTokens(value: string): string[] {
     .filter((token) => token.length >= 3 && !PROFILE_SUBJECT_STOP_WORDS.has(token) && !/^\d+$/.test(token));
 }
 
-const RELATED_PROFILE_SUBJECT_GROUPS = [
-  ['squirtle', 'wartortle', 'blastoise'],
-  ['mew', 'mewtwo'],
-  ['pikachu', 'pichu', 'raichu', 'zekrom'],
-  ['eevee', 'umbreon', 'espeon', 'sylveon'],
-  ['ralts', 'kirlia', 'gardevoir', 'gallade', 'sylveon'],
-  ['articuno', 'zapdos', 'moltres']
-];
-
 function expandedProfileSubjectTokens(value: string): string[] {
-  const tokens = profileSubjectTokens(value);
-  const expanded = new Set(tokens);
-  for (const group of RELATED_PROFILE_SUBJECT_GROUPS) {
-    if (!group.some((token) => expanded.has(token))) continue;
-    for (const token of group) expanded.add(token);
-  }
-  return [...expanded];
+  return profileSubjectTokens(value);
 }
 
 function profileReleaseTypeKeys(value: string): string[] {
@@ -2150,10 +2236,16 @@ function subjectProfileRankScore(candidate: DiscoveryCandidate, chases: Chase[] 
   return Math.min(140, Math.round(score));
 }
 
-function rankDiscoveryCandidatesForProfile(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {
+function rankDiscoveryCandidatesForProfile(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile, learnedRankContext?: DiscoveryLearnedRankContext): DiscoveryCandidate[] {
+  if (chases.length === 0) {
+    return [...candidates].sort((left, right) => {
+      const sourceDelta = sourcePreferenceRankScore(right, chases, negativeProfile) - sourcePreferenceRankScore(left, chases, negativeProfile);
+      return sourceDelta || curiosityRankScore(right) - curiosityRankScore(left);
+    });
+  }
   return [...candidates].sort((left, right) => {
-    const sourceDelta = sourcePreferenceRankScore(right, chases, negativeProfile) - sourcePreferenceRankScore(left, chases, negativeProfile);
-    return sourceDelta || curiosityRankScore(right) - curiosityRankScore(left);
+    const collectorDelta = collectorDiscoveryRankScore(right, chases, negativeProfile, learnedRankContext) - collectorDiscoveryRankScore(left, chases, negativeProfile, learnedRankContext);
+    return collectorDelta || curiosityRankScore(right) - curiosityRankScore(left);
   });
 }
 
@@ -2224,10 +2316,7 @@ export function profileVariantSourceBackfillParents(chases: Chase[], targetCount
   const usefulSubjectToken = (token: string): boolean => token.length >= 3 && !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token) && !/^[a-z]{1,5}\d+$/i.test(token) && !['corocoro', 'mega', 'pokemon', 'rus', 'shining', 'toys'].includes(token);
   const subjectTokens = subjectChases.flatMap((chase) => {
     const text = [chase.cardName, chase.targetNote].filter(Boolean).join(' ');
-    const directSubjects = profileSubjectTokens(text).filter(usefulSubjectToken);
-    const directSubjectSet = new Set(directSubjects);
-    const relatedSubjects = expandedProfileSubjectTokens(text).filter((token) => usefulSubjectToken(token) && !directSubjectSet.has(token));
-    return [...directSubjects, ...relatedSubjects];
+    return profileSubjectTokens(text).filter(usefulSubjectToken);
   });
   const releaseTypes = distinctProfileKeys(chases, profileReleaseTypeKeys);
   const eras = distinctProfileKeys(chases, profileEraKeys);
@@ -2485,6 +2574,35 @@ function discoveryShelfHeaderEmbed(title: string, lines: string[]): EmbedBuilder
     .setFooter({ text: 'Vaultr • Weekly Shelf' });
 }
 
+function recordDiscoveryShelfTrainingExamples(
+  userId: string,
+  candidates: DiscoveryCandidate[],
+  chases: Chase[],
+  startIndex: number,
+  negativeProfile?: DiscoveryNegativeProfile,
+  learnedRankContext?: DiscoveryLearnedRankContext,
+  periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY')
+): void {
+  recordDiscoveryTrainingExamples(
+    candidates.map((candidate, index) => ({
+      userId,
+      surface: 'WEEKLY_DISCOVERY_SHELF',
+      periodKey,
+      suggestionName: candidate.suggestion.name,
+      lane: candidate.suggestion.lane,
+      position: startIndex + index + 1,
+      rankerVersion: DISCOVERY_COLLECTOR_RANKER_VERSION,
+      features: collectorDiscoveryFeatures(candidate, chases),
+      scores: {
+        collectorRank: collectorDiscoveryRankScore(candidate, chases, negativeProfile, learnedRankContext),
+        marketEvidence: marketEvidenceRank(candidate),
+        imageQuality: imageQualityRank(candidate),
+        curiosity: curiosityRankScore(candidate)
+      }
+    }))
+  );
+}
+
 function sourceSetLabel(candidate: DiscoveryCandidate): string | undefined {
   const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
   const match = /\(([^)]+)\)/.exec(sourceName ?? '');
@@ -2628,6 +2746,10 @@ function candidateSubjectBalanceKeys(candidate: DiscoveryCandidate): string[] {
   return profileSubjectTokens(subject).slice(0, 3);
 }
 
+function candidateSubjectDiversityKeys(candidate: DiscoveryCandidate): string[] {
+  return candidateSubjectBalanceKeys(candidate);
+}
+
 function candidateVariantFamilyKey(candidate: DiscoveryCandidate): string | undefined {
   const setLabel = sourceSetLabel(candidate);
   if (!setLabel) return undefined;
@@ -2695,7 +2817,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     : count >= 5 ? 2 : count;
   let japaneseCount = 0;
   const candidateSubjectIsUnderLimit = (candidate: DiscoveryCandidate): boolean => {
-    const subjectKeys = candidateSubjectBalanceKeys(candidate);
+    const subjectKeys = candidateSubjectDiversityKeys(candidate);
     return subjectKeys.length === 0 || subjectKeys.every((subjectKey) => (subjectCounts.get(subjectKey) ?? 0) < subjectLimit);
   };
   const candidateVariantIsFresh = (candidate: DiscoveryCandidate): boolean => {
@@ -2715,7 +2837,7 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
     seenNames.add(nameKey);
     if (variantKey) seenVariantFamilies.add(variantKey);
     trailCounts.set(trailLabel, (trailCounts.get(trailLabel) ?? 0) + 1);
-    for (const subjectKey of candidateSubjectBalanceKeys(candidate)) subjectCounts.set(subjectKey, (subjectCounts.get(subjectKey) ?? 0) + 1);
+    for (const subjectKey of candidateSubjectDiversityKeys(candidate)) subjectCounts.set(subjectKey, (subjectCounts.get(subjectKey) ?? 0) + 1);
     if (isJapaneseDiscoveryCandidate(candidate)) japaneseCount += 1;
   };
   for (const candidate of candidates) {
@@ -2790,11 +2912,11 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
   return selected;
 }
 
-export function selectVisibleCandidates(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {
+export function selectVisibleCandidates(candidates: DiscoveryCandidate[], chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile, learnedRankContext?: DiscoveryLearnedRankContext): DiscoveryCandidate[] {
   const profileAlignedCandidates = preferProfileFormatAffinity(candidates, chases, VISIBLE_DISCOVERY_COUNT);
-  const strongRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter(hasEnoughRawMarketData), chases, negativeProfile);
-  const partialRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases, negativeProfile);
-  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases, negativeProfile);
+  const strongRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter(hasEnoughRawMarketData), chases, negativeProfile, learnedRankContext);
+  const partialRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases, negativeProfile, learnedRankContext);
+  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases, negativeProfile, learnedRankContext);
   const strongSelection = takeDistinctThemes(strongRawData, chases);
   if (strongSelection.length >= VISIBLE_DISCOVERY_COUNT) return strongSelection;
   const selectedNameKeys = new Set(strongSelection.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
@@ -2802,11 +2924,11 @@ export function selectVisibleCandidates(candidates: DiscoveryCandidate[], chases
   return takeDistinctThemes([...strongSelection, ...remainingCandidates], chases);
 }
 
-export function selectVisibleCandidatesForCount(candidates: DiscoveryCandidate[], chases: Chase[] = [], count = VISIBLE_DISCOVERY_COUNT, negativeProfile?: DiscoveryNegativeProfile): DiscoveryCandidate[] {
+export function selectVisibleCandidatesForCount(candidates: DiscoveryCandidate[], chases: Chase[] = [], count = VISIBLE_DISCOVERY_COUNT, negativeProfile?: DiscoveryNegativeProfile, learnedRankContext?: DiscoveryLearnedRankContext): DiscoveryCandidate[] {
   const profileAlignedCandidates = preferProfileFormatAffinity(candidates, chases, count);
-  const strongRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter(hasEnoughRawMarketData), chases, negativeProfile);
-  const partialRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases, negativeProfile);
-  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases, negativeProfile);
+  const strongRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter(hasEnoughRawMarketData), chases, negativeProfile, learnedRankContext);
+  const partialRawData = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => hasSomeRawMarketData(candidate) && !strongRawData.includes(candidate)), chases, negativeProfile, learnedRankContext);
+  const tasteRankedFallback = rankDiscoveryCandidatesForProfile(profileAlignedCandidates.filter((candidate) => !hasSomeRawMarketData(candidate)), chases, negativeProfile, learnedRankContext);
   const strongSelection = takeDistinctThemes(strongRawData, chases, count);
   if (strongSelection.length >= count) return strongSelection;
   const selectedNameKeys = new Set(strongSelection.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
@@ -2820,17 +2942,31 @@ export function selectFreshVisibleCandidatesForCount(
   count = VISIBLE_DISCOVERY_COUNT,
   negativeProfile?: DiscoveryNegativeProfile,
   softAvoidNames: string[] = [],
-  options: { allowAvoidedFiller?: boolean } = {}
+  options: { allowAvoidedFiller?: boolean; learnedRankContext?: DiscoveryLearnedRankContext } = {}
 ): DiscoveryCandidate[] {
-  if (softAvoidNames.length === 0) return selectVisibleCandidatesForCount(candidates, chases, count, negativeProfile);
+  if (softAvoidNames.length === 0) return selectVisibleCandidatesForCount(candidates, chases, count, negativeProfile, options.learnedRankContext);
   const softAvoidNameKeys = new Set(softAvoidNames.map(discoveryNameKey));
   const freshCandidates = candidates.filter((candidate) => !softAvoidNameKeys.has(discoveryNameKey(candidate.suggestion.name)));
   const avoidedCandidates = candidates.filter((candidate) => softAvoidNameKeys.has(discoveryNameKey(candidate.suggestion.name)));
-  const selected = selectVisibleCandidatesForCount(freshCandidates, chases, count, negativeProfile);
+  const selected = selectVisibleCandidatesForCount(freshCandidates, chases, count, negativeProfile, options.learnedRankContext);
   if (selected.length >= count || avoidedCandidates.length === 0 || options.allowAvoidedFiller === false) return selected;
   const selectedNameKeys = new Set(selected.map((candidate) => discoveryNameKey(candidate.suggestion.name)));
-  const filler = selectVisibleCandidatesForCount(avoidedCandidates.filter((candidate) => !selectedNameKeys.has(discoveryNameKey(candidate.suggestion.name))), chases, count - selected.length, negativeProfile);
+  const filler = selectVisibleCandidatesForCount(avoidedCandidates.filter((candidate) => !selectedNameKeys.has(discoveryNameKey(candidate.suggestion.name))), chases, count - selected.length, negativeProfile, options.learnedRankContext);
   return [...selected, ...filler];
+}
+
+function orderCandidatesForCollectorPresentation(candidates: DiscoveryCandidate[], chases: Chase[] = [], count = candidates.length, negativeProfile?: DiscoveryNegativeProfile, learnedRankContext?: DiscoveryLearnedRankContext): DiscoveryCandidate[] {
+  const confidenceOrdered = orderCandidatesForMarketConfidence(candidates, chases, negativeProfile, learnedRankContext);
+  if (chases.length === 0 || confidenceOrdered.length <= DISCOVERY_SHELF_PAGE_SIZE) return confidenceOrdered;
+  const anchoredNameKeys = new Set<string>();
+  const exactNicheAnchors = confidenceOrdered.filter(isExactNicheDiscoveryCandidate).slice(0, 3);
+  for (const candidate of exactNicheAnchors) anchoredNameKeys.add(discoveryDisplayNameKey(candidate.suggestion.name));
+  const diversified = takeDistinctThemes(
+    confidenceOrdered.filter((candidate) => !anchoredNameKeys.has(discoveryDisplayNameKey(candidate.suggestion.name))),
+    chases,
+    Math.max(0, count - exactNicheAnchors.length)
+  );
+  return [...exactNicheAnchors, ...diversified].slice(0, count);
 }
 
 export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency, includeMarketRead: boolean, displayIndex?: number): EmbedBuilder {
@@ -3171,6 +3307,8 @@ async function discoverCandidatesForUser(
   hasFullDiscovery: boolean;
   hasLearnedProfile: boolean;
   profileConfidence: DiscoveryProfileConfidence;
+  negativeProfile: DiscoveryNegativeProfile;
+  learnedRankContext?: DiscoveryLearnedRankContext;
   usesScheduledDrop: boolean;
   lane: string;
   candidates: DiscoveryCandidate[];
@@ -3200,6 +3338,7 @@ async function discoverCandidatesForUser(
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const rejectedNames = recentlyRejected.map((item) => item.suggestionName);
   const negativeProfile = discoveryNegativeProfile(recentlyRejected, tasteProfileChases);
+  const learnedRankContext = hasFullDiscovery ? getDiscoveryLearnedSignalSummary(userId) : undefined;
   const recentlySeenNames = listRecentUserDiscoverySeenNames(userId);
   const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames, activeTier, targetVisibleCount);
   const stateKey = discoveryStateKey(activeTier, targetVisibleCount);
@@ -3223,12 +3362,14 @@ async function discoverCandidatesForUser(
       forceRefreshThinSignal: true
     };
     const cachedScheduledCandidates = candidatesFromDiscoveryMarketCache(scheduledCandidates, scheduledMarketContext);
-    const candidates = await repairScheduledDiscoveryShelfImages(orderCandidatesForMarketConfidence(
+    const candidates = await repairScheduledDiscoveryShelfImages(orderCandidatesForCollectorPresentation(
       hydrateScheduledMarketInline
         ? await settlePendingDiscoveryMarketCandidates(await hydratePendingDiscoveryMarketCandidates(cachedScheduledCandidates, scheduledMarketContext), scheduledMarketContext)
         : cachedScheduledCandidates,
       tasteProfileChases,
-      negativeProfile
+      targetVisibleCount,
+      negativeProfile,
+      learnedRankContext
     ));
     if (hydrateScheduledMarketInline && shouldSaveScheduledDrop && candidates.some(hasMarketSignal)) {
       saveWeeklyDiscoveryDrop(userId, candidates, settings.alertCurrency, latestDrop.sourceStateUpdatedAt);
@@ -3240,6 +3381,8 @@ async function discoverCandidatesForUser(
       hasFullDiscovery,
       hasLearnedProfile,
       profileConfidence,
+      negativeProfile,
+      learnedRankContext,
       usesScheduledDrop: true,
       lane: 'weekly discovery',
       candidates,
@@ -3254,6 +3397,8 @@ async function discoverCandidatesForUser(
       hasFullDiscovery,
       hasLearnedProfile,
       profileConfidence,
+      negativeProfile,
+      learnedRankContext,
       usesScheduledDrop: true,
       lane: 'weekly discovery',
       candidates: [],
@@ -3313,7 +3458,7 @@ async function discoverCandidatesForUser(
       discoverySelectionCount
     );
     const enriched = freshSourceBackedSuggestions.map((suggestion, index) => tasteOnlyCandidate(suggestion, index));
-    const rankedCandidates = selectVisibleCandidatesForCount(enriched, tasteProfileChases, discoverySelectionCount, negativeProfile);
+    const rankedCandidates = selectVisibleCandidatesForCount(enriched, tasteProfileChases, discoverySelectionCount, negativeProfile, learnedRankContext);
     const persistedCandidates =
       persistedState?.profileFingerprint === profileFingerprint && persistedState.suggestionNames.length >= targetVisibleCount
         ? orderCandidatesFromPersistedState(rankedCandidates, persistedState.suggestionNames, targetVisibleCount, { hardExcludedNames: rejectedNames })
@@ -3343,12 +3488,12 @@ async function discoverCandidatesForUser(
       : [];
     const reliableSelectionPool = profileSubjectMatchedReliableDiscoveryCandidates(selectionPool, tasteProfileChases, targetVisibleCount, negativeProfile);
     const reliableCandidates = hasFullDiscovery && hydrateScheduledMarketInline && !persistedCandidates
-      ? selectFreshVisibleCandidatesForCount(reliableSelectionPool, tasteProfileChases, targetVisibleCount, negativeProfile, softAvoidNames, { allowAvoidedFiller: allowSoftAvoidFiller })
+      ? selectFreshVisibleCandidatesForCount(reliableSelectionPool, tasteProfileChases, targetVisibleCount, negativeProfile, softAvoidNames, { allowAvoidedFiller: allowSoftAvoidFiller, learnedRankContext })
       : [];
     let visibleCandidates = hasFullDiscovery && !persistedCandidates
       ? reliableCandidates.length >= Math.min(targetVisibleCount, DISCOVERY_SHELF_PAGE_SIZE)
         ? reliableCandidates
-        : selectFreshVisibleCandidatesForCount(selectionPool, tasteProfileChases, targetVisibleCount, negativeProfile, softAvoidNames, { allowAvoidedFiller: allowSoftAvoidFiller })
+        : selectFreshVisibleCandidatesForCount(selectionPool, tasteProfileChases, targetVisibleCount, negativeProfile, softAvoidNames, { allowAvoidedFiller: allowSoftAvoidFiller, learnedRankContext })
       : selectionPool.slice(0, targetVisibleCount);
     let freshBackfilledCandidates: DiscoveryCandidate[] = [];
     if (hasFullDiscovery && !persistedCandidates) {
@@ -3389,13 +3534,15 @@ async function discoverCandidatesForUser(
     if (hasFullDiscovery && hydrateScheduledMarketInline) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
     const referencedCandidates = await attachReferenceImages(visibleCandidates);
     const hiddenVaultPickCount = referencedCandidates.filter((candidate) => isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)).length;
-    const candidates = orderCandidatesForMarketConfidence(
+    const candidates = orderCandidatesForCollectorPresentation(
       referencedCandidates
         .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
         .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases))
         .filter(isDisplayableDiscoveryCandidate),
       tasteProfileChases,
-      negativeProfile
+      targetVisibleCount,
+      negativeProfile,
+      learnedRankContext
     );
     if (hasFullDiscovery && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT && candidates.length >= targetVisibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: candidates.map((candidate) => candidate.suggestion.name) });
@@ -3419,6 +3566,8 @@ async function discoverCandidatesForUser(
     hasFullDiscovery,
     hasLearnedProfile,
     profileConfidence,
+    negativeProfile,
+    learnedRankContext,
     usesScheduledDrop: false,
     lane,
     candidates,
@@ -3495,6 +3644,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
   const actionRows = discoveryActionRows(userId, visibleCandidates, discovery.hasFullDiscovery, pageState.start);
   const headerEmbed = discoveryShelfHeaderEmbed(title, lines);
   const cardEmbeds = discoveryCardEmbeds(visibleCandidates, discovery.settings.alertCurrency, discovery.hasFullDiscovery, pageState.start);
+  if (discovery.hasFullDiscovery) recordDiscoveryShelfTrainingExamples(userId, visibleCandidates, discovery.tasteProfileChases, pageState.start, discovery.negativeProfile, discovery.learnedRankContext);
   return {
     headerEmbeds: [headerEmbed],
     embeds: discovery.hasFullDiscovery ? cardEmbeds : [headerEmbed, ...cardEmbeds],

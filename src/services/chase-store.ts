@@ -56,12 +56,36 @@ type UserTasteMemoryRow = {
 
 export type UserDiscoveryFeedback = 'MORE_LIKE_THIS' | 'NOT_FOR_ME';
 
+export type DiscoveryTrainingExampleInput = {
+  userId: string;
+  surface: string;
+  periodKey: string;
+  suggestionName: string;
+  lane: string;
+  position: number;
+  rankerVersion: string;
+  features: Record<string, unknown>;
+  scores: Record<string, unknown>;
+};
+
+export type DiscoveryLearnedSignalSummary = {
+  exampleCount: number;
+  likedCount: number;
+  rejectedCount: number;
+  featureWeights: Record<string, number>;
+};
+
 type UserDiscoveryFeedbackRow = {
   suggestion_name: string;
   lane: string;
   feedback: UserDiscoveryFeedback;
   interaction_count: number;
   last_interacted_at: string;
+};
+
+type DiscoveryTrainingOutcomeRow = {
+  outcome: UserDiscoveryFeedback;
+  feature_json: string;
 };
 
 export type SourceObservation = {
@@ -494,6 +518,50 @@ const getUserDiscoveryFeedbackStmt = db.prepare(`
 const deleteUserDiscoveryFeedbackStmt = db.prepare(`
   DELETE FROM user_discovery_feedback
   WHERE user_id = ? AND suggestion_name = ?
+`);
+
+const upsertDiscoveryTrainingExampleStmt = db.prepare(`
+  INSERT INTO discovery_training_examples (
+    user_id,
+    surface,
+    period_key,
+    suggestion_name,
+    lane,
+    position,
+    ranker_version,
+    feature_json,
+    score_json,
+    shown_at,
+    updated_at
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(user_id, surface, period_key, suggestion_name) DO UPDATE SET
+    lane = excluded.lane,
+    position = excluded.position,
+    ranker_version = excluded.ranker_version,
+    feature_json = excluded.feature_json,
+    score_json = excluded.score_json,
+    updated_at = excluded.updated_at
+`);
+
+const updateDiscoveryTrainingOutcomeStmt = db.prepare(`
+  UPDATE discovery_training_examples
+  SET outcome = ?, outcome_at = ?, updated_at = ?
+  WHERE user_id = ? AND suggestion_name = ?
+`);
+
+const clearDiscoveryTrainingOutcomeStmt = db.prepare(`
+  UPDATE discovery_training_examples
+  SET outcome = NULL, outcome_at = NULL, updated_at = ?
+  WHERE user_id = ? AND suggestion_name = ?
+`);
+
+const listDiscoveryTrainingOutcomesStmt = db.prepare(`
+  SELECT outcome, feature_json
+  FROM discovery_training_examples
+  WHERE user_id = ? AND outcome IN ('MORE_LIKE_THIS', 'NOT_FOR_ME')
+  ORDER BY outcome_at DESC, updated_at DESC
+  LIMIT ?
 `);
 
 const getUserDiscoveryStateStmt = db.prepare(`
@@ -991,6 +1059,78 @@ export function recordDiscoveryAddTaste(userId: string, cardName: string, maxPri
   });
 }
 
+export function recordDiscoveryTrainingExamples(examples: DiscoveryTrainingExampleInput[]): void {
+  if (examples.length === 0) return;
+  const now = new Date().toISOString();
+  const persist = db.transaction((rows: DiscoveryTrainingExampleInput[]) => {
+    for (const row of rows) {
+      upsertDiscoveryTrainingExampleStmt.run(
+        row.userId,
+        row.surface,
+        row.periodKey,
+        row.suggestionName,
+        row.lane,
+        row.position,
+        row.rankerVersion,
+        JSON.stringify(row.features),
+        JSON.stringify(row.scores),
+        now,
+        now
+      );
+    }
+  });
+  persist(examples);
+}
+
+const LEARNED_BOOLEAN_FEATURES = [
+  'japaneseSignal',
+  'promoSignal',
+  'eReaderSignal',
+  'retailEReaderSignal',
+  'nicheExclusiveSignal',
+  'exactNicheIdentity',
+  'premiumFormatContext',
+  'ordinaryFormatPenalty',
+  'weakSubjectPenalty',
+  'historyFallbackPenalty'
+];
+
+function clampLearnedWeight(value: number): number {
+  return Math.max(-36, Math.min(36, Math.round(value)));
+}
+
+export function getDiscoveryLearnedSignalSummary(userId: string, limit = 200): DiscoveryLearnedSignalSummary {
+  const rows = listDiscoveryTrainingOutcomesStmt.all(userId, limit) as DiscoveryTrainingOutcomeRow[];
+  const stats = new Map<string, { liked: number; rejected: number }>();
+  let likedCount = 0;
+  let rejectedCount = 0;
+  for (const row of rows) {
+    let features: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(row.feature_json) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) features = parsed as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (row.outcome === 'MORE_LIKE_THIS') likedCount += 1;
+    else rejectedCount += 1;
+    for (const feature of LEARNED_BOOLEAN_FEATURES) {
+      if (features[feature] !== true) continue;
+      const current = stats.get(feature) ?? { liked: 0, rejected: 0 };
+      if (row.outcome === 'MORE_LIKE_THIS') current.liked += 1;
+      else current.rejected += 1;
+      stats.set(feature, current);
+    }
+  }
+  const featureWeights: Record<string, number> = {};
+  for (const [feature, counts] of stats.entries()) {
+    const total = counts.liked + counts.rejected;
+    if (total < 2) continue;
+    featureWeights[feature] = clampLearnedWeight(((counts.liked - counts.rejected) / total) * 36);
+  }
+  return { exampleCount: rows.length, likedCount, rejectedCount, featureWeights };
+}
+
 export function recordDiscoveryFeedback(input: {
   userId: string;
   cardName: string;
@@ -1000,6 +1140,7 @@ export function recordDiscoveryFeedback(input: {
 }): void {
   const now = new Date().toISOString();
   upsertUserDiscoveryFeedbackStmt.run(input.userId, input.cardName, input.lane, input.feedback, now, now);
+  updateDiscoveryTrainingOutcomeStmt.run(input.feedback, now, now, input.userId, input.cardName);
   if (input.feedback === 'MORE_LIKE_THIS') {
     rememberTasteSignal({
       userId: input.userId,
@@ -1021,6 +1162,7 @@ export function undoDiscoveryFeedback(input: {
     const row = getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow | undefined;
     if (!row) return null;
     deleteUserDiscoveryFeedbackStmt.run(input.userId, input.cardName);
+    clearDiscoveryTrainingOutcomeStmt.run(new Date().toISOString(), input.userId, input.cardName);
     if (row.feedback === 'MORE_LIKE_THIS') {
       deleteUserTasteMemoryStmt.run(input.userId, discoveryTasteSignalId(input.cardName), 'DISCOVERY_LIKE');
     }

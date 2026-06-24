@@ -9,6 +9,8 @@ import {
   candidatesFromDiscoveryMarketCache,
   compactDiscoveryPathSummary,
   concreteDiscoveryFallbackSuggestions,
+  collectorDiscoveryFeatures,
+  collectorDiscoveryRankScore,
   discoveryCandidateSelectionCount,
   discoveryActionRows,
   discoveryCardEmbeds,
@@ -26,6 +28,7 @@ import {
   isUsableDiscoveryMarketSample,
   isActiveChaseEchoSuggestion,
   isActiveChaseEchoText,
+  isScheduledProfileRelevantCandidate,
   looksLikeRawCardListing,
   looksLikeBaselineRawMarketListing,
   looksLikeVisualDiscoveryListing,
@@ -299,6 +302,62 @@ describe('selectVisibleCandidates', () => {
       'Mew Southern Islands Promo',
       'Pikachu VMAX Vivid Voltage 188'
     ]);
+  });
+
+  it('extracts collector-shaped features for ML-ready Discovery ranking', () => {
+    const raichuIntroPack = {
+      ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 0, 12),
+      suggestion: {
+        ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 0).suggestion,
+        evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+        evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
+        requiredEvidenceTokens: ['raichu', '026', 'bulbasaur']
+      }
+    } satisfies DiscoveryCandidate;
+    const profile = [{ id: 'c1', userId: 'u1', cardName: 'Raichu Japanese promo oddball releases', priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' }];
+
+    const features = collectorDiscoveryFeatures(raichuIntroPack, profile);
+
+    expect(features.directSubjectSupport).toBe(1);
+    expect(features.japaneseSignal).toBe(true);
+    expect(features.nicheExclusiveSignal).toBe(true);
+    expect(features.exactNicheIdentity).toBe(true);
+    expect(features.ordinaryFormatPenalty).toBe(false);
+    expect(features.marketEvidence).toBeGreaterThanOrEqual(2);
+  });
+
+  it('gives collector-shaped graph signals more rank than ordinary format filler', () => {
+    const profile = [
+      { id: 'c1', userId: 'u1', cardName: 'Raichu Japanese promo oddball releases', priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+    const nicheRelease = {
+      ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 0, 12),
+      suggestion: {
+        ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 0).suggestion,
+        evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
+        evidenceAliases: ['Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card'],
+        requiredEvidenceTokens: ['raichu', '026', 'bulbasaur']
+      }
+    } satisfies DiscoveryCandidate;
+    const ordinaryFormat = candidate('Raichu VMAX Standard Set 051', 'Collector Compass', 1, 12);
+
+    expect(collectorDiscoveryRankScore(nicheRelease, profile)).toBeGreaterThan(collectorDiscoveryRankScore(ordinaryFormat, profile));
+  });
+
+  it('applies bounded learned feature nudges from feedback traces', () => {
+    const profile = [
+      { id: 'c1', userId: 'u1', cardName: 'Japanese promo binder cards', priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+    const japanesePromo = candidate('Pikachu 010/018 Holo McDonalds Promo e-Reader 2002 Japanese', 'Japanese Collector Trail', 0, 12);
+    const neutralScore = collectorDiscoveryRankScore(japanesePromo, profile);
+    const learnedScore = collectorDiscoveryRankScore(japanesePromo, profile, undefined, {
+      exampleCount: 4,
+      likedCount: 3,
+      rejectedCount: 1,
+      featureWeights: { japaneseSignal: 24, promoSignal: 18 }
+    });
+
+    expect(learnedScore).toBeGreaterThan(neutralScore);
   });
 
   it('explains Discovery path summaries for shelf headers', () => {
@@ -812,6 +871,34 @@ describe('selectVisibleCandidates', () => {
       'Moltres Skyridge H20',
       'Mew Japanese S12a 183'
     ]));
+  });
+
+  it('does not schedule ordinary common or holo set filler from subject overlap alone', () => {
+    const plainSourceCandidate = (name: string, sourceName: string, selectionIndex: number): DiscoveryCandidate => ({
+      ...sourceCandidate(name, sourceName, selectionIndex),
+      suggestion: {
+        ...sourceCandidate(name, sourceName, selectionIndex).suggestion,
+        lane: 'Collector Compass',
+        requiredEvidenceTokens: []
+      }
+    });
+    const chases: Chase[] = [
+      { id: 'c1', userId: 'u1', cardName: 'Moltres Zapdos Articuno SM210', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c2', userId: 'u1', cardName: 'Corocoro Shining Mew', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c3', userId: 'u1', cardName: 'Mewtwo promo cards', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c4', userId: 'u1', cardName: 'Pikachu VMAX promo cards', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+
+    expect(isScheduledProfileRelevantCandidate(plainSourceCandidate('Moltres Legendary Treasures 22', 'Pokemon TCG (Legendary Treasures)', 0), chases)).toBe(false);
+    expect(isScheduledProfileRelevantCandidate(plainSourceCandidate('Zapdos Legendary Treasures 46', 'Pokemon TCG (Legendary Treasures)', 1), chases)).toBe(false);
+    expect(isScheduledProfileRelevantCandidate(plainSourceCandidate('Mew Evolutions 53', 'Pokemon TCG (Evolutions)', 2), chases)).toBe(false);
+    expect(isScheduledProfileRelevantCandidate(plainSourceCandidate('Mew VMAX Fusion Strike 269', 'Pokemon TCG (Fusion Strike)', 4), chases)).toBe(false);
+    expect(isScheduledProfileRelevantCandidate(plainSourceCandidate('Team Rocket\'s Moltres ex Destined Rivals 229', 'Pokemon TCG (Destined Rivals)', 3), chases)).toBe(true);
+    expect(isScheduledProfileRelevantCandidate(sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 6), chases)).toBe(true);
+    expect(isScheduledProfileRelevantCandidate(sourceCandidate('Moltres Skyridge H20', 'Pokemon TCG (Skyridge)', 2), chases)).toBe(true);
+    expect(isScheduledProfileRelevantCandidate(sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 4), chases)).toBe(true);
+    expect(isScheduledProfileRelevantCandidate(sourceCandidate('Mew ex Paldean Fates 232 Full Art', 'Pokemon TCG (Paldean Fates)', 5), chases)).toBe(true);
+    expect(isScheduledProfileRelevantCandidate(sourceCandidate('Pikachu VMAX Special Delivery SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 7), chases)).toBe(true);
   });
 
   it('prioritizes Japanese source cards over English Black Star promos for Japanese-weighted grails', () => {
@@ -1517,14 +1604,16 @@ describe('profileVariantSourceBackfillParents', () => {
     expect(parents.find((suggestion) => suggestion.name === "Pikachu McDonald's e-Reader promo Pokemon cards")?.requiredEvidenceTokens).toEqual(['pikachu', 'promo', 'e-reader', 'mcdonalds']);
   });
 
-  it('builds Japanese unique release parents from learned grail-shaped profile signals', () => {
+  it('builds Japanese unique release parents only from direct profile subjects', () => {
     const parents = profileVariantSourceBackfillParents(
       ['Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo', 'Umbreon 217/187 Japanese'].map(chase),
       80
     );
 
-    expect(parents.map((suggestion) => suggestion.name)).toContain('Raichu Japanese unique release Pokemon cards');
-    expect(parents.find((suggestion) => suggestion.name === 'Raichu Japanese unique release Pokemon cards')?.requiredEvidenceTokens).toEqual(['raichu', 'japanese', 'exclusive', 'unique']);
+    expect(parents.map((suggestion) => suggestion.name)).toContain('Mew Japanese unique release Pokemon cards');
+    expect(parents.map((suggestion) => suggestion.name)).toContain('Pikachu Japanese unique release Pokemon cards');
+    expect(parents.map((suggestion) => suggestion.name)).not.toContain('Raichu Japanese unique release Pokemon cards');
+    expect(parents.find((suggestion) => suggestion.name === 'Mew Japanese unique release Pokemon cards')?.requiredEvidenceTokens).toEqual(['mew', 'japanese', 'exclusive', 'unique']);
   });
 });
 

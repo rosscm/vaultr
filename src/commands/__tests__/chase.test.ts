@@ -3,9 +3,11 @@ import { chase } from '../chase.js';
 import { buildChaseListEmbed } from '../chase-list.js';
 import {
   addChase,
+  getDiscoveryLearnedSignalSummary,
   listChases,
   listRecentUserDiscoveryFeedback,
   listUserTasteMemoryChases,
+  recordDiscoveryTrainingExamples,
   recordDiscoveryFeedback,
   removeAllChases,
   setUserPlan,
@@ -46,6 +48,7 @@ afterEach(() => {
   for (const userId of testUserIds) {
     removeAllChases(userId);
     db.prepare('DELETE FROM user_discovery_feedback WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM discovery_training_examples WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
   }
@@ -456,5 +459,91 @@ describe('chase command', () => {
     expect(listRecentUserDiscoveryFeedback(userId, 'MORE_LIKE_THIS')).toEqual([]);
     expect(listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME').map((item) => item.suggestionName)).toEqual([cardName]);
     expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).not.toContain(cardName);
+  });
+
+  it('labels shown Discovery training examples from feedback and clears labels on undo', () => {
+    const userId = testUserId('discovery-training-outcome');
+    const cardName = 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese';
+
+    recordDiscoveryTrainingExamples([
+      {
+        userId,
+        surface: 'WEEKLY_DISCOVERY_SHELF',
+        periodKey: '2026-W26',
+        suggestionName: cardName,
+        lane: 'Japanese Collector Trail',
+        position: 2,
+        rankerVersion: 'collector-v1',
+        features: { japaneseSignal: true, exactNicheIdentity: true },
+        scores: { collectorRank: 449 }
+      }
+    ]);
+
+    recordDiscoveryFeedback({ userId, cardName, lane: 'Japanese Collector Trail', feedback: 'MORE_LIKE_THIS', maxPrice: 500 });
+    expect(db.prepare('SELECT outcome FROM discovery_training_examples WHERE user_id = ? AND suggestion_name = ?').get(userId, cardName)).toMatchObject({ outcome: 'MORE_LIKE_THIS' });
+
+    undoDiscoveryFeedback({ userId, cardName });
+    expect(db.prepare('SELECT outcome FROM discovery_training_examples WHERE user_id = ? AND suggestion_name = ?').get(userId, cardName)).toMatchObject({ outcome: null });
+  });
+
+  it('summarizes labeled Discovery traces into bounded learned feature weights', () => {
+    const userId = testUserId('discovery-learned-summary');
+    recordDiscoveryTrainingExamples([
+      {
+        userId,
+        surface: 'WEEKLY_DISCOVERY_SHELF',
+        periodKey: '2026-W26',
+        suggestionName: 'Liked Japanese Promo 1',
+        lane: 'Japanese Collector Trail',
+        position: 1,
+        rankerVersion: 'collector-v1',
+        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false },
+        scores: { collectorRank: 300 }
+      },
+      {
+        userId,
+        surface: 'WEEKLY_DISCOVERY_SHELF',
+        periodKey: '2026-W26',
+        suggestionName: 'Liked Japanese Promo 2',
+        lane: 'Japanese Collector Trail',
+        position: 2,
+        rankerVersion: 'collector-v1',
+        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false },
+        scores: { collectorRank: 280 }
+      },
+      {
+        userId,
+        surface: 'WEEKLY_DISCOVERY_SHELF',
+        periodKey: '2026-W26',
+        suggestionName: 'Rejected Format Card',
+        lane: 'Format Trail',
+        position: 3,
+        rankerVersion: 'collector-v1',
+        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true },
+        scores: { collectorRank: 80 }
+      },
+      {
+        userId,
+        surface: 'WEEKLY_DISCOVERY_SHELF',
+        periodKey: '2026-W26',
+        suggestionName: 'Rejected Format Card 2',
+        lane: 'Format Trail',
+        position: 4,
+        rankerVersion: 'collector-v1',
+        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true },
+        scores: { collectorRank: 70 }
+      }
+    ]);
+    recordDiscoveryFeedback({ userId, cardName: 'Liked Japanese Promo 1', lane: 'Japanese Collector Trail', feedback: 'MORE_LIKE_THIS' });
+    recordDiscoveryFeedback({ userId, cardName: 'Liked Japanese Promo 2', lane: 'Japanese Collector Trail', feedback: 'MORE_LIKE_THIS' });
+    recordDiscoveryFeedback({ userId, cardName: 'Rejected Format Card', lane: 'Format Trail', feedback: 'NOT_FOR_ME' });
+    recordDiscoveryFeedback({ userId, cardName: 'Rejected Format Card 2', lane: 'Format Trail', feedback: 'NOT_FOR_ME' });
+
+    const summary = getDiscoveryLearnedSignalSummary(userId);
+
+    expect(summary).toMatchObject({ exampleCount: 4, likedCount: 2, rejectedCount: 2 });
+    expect(summary.featureWeights.japaneseSignal).toBeGreaterThan(0);
+    expect(summary.featureWeights.promoSignal).toBeGreaterThan(0);
+    expect(summary.featureWeights.ordinaryFormatPenalty).toBeLessThan(0);
   });
 });

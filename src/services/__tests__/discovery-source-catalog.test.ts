@@ -124,7 +124,7 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe('Special Delivery Pikachu SWSH Black Star Promos SWSH074 Pokemon card');
   });
 
-  it('surfaces Pikachu McDonalds 010/018 without relabeling Nintendo Black Star source records', async () => {
+  it('does not inject curated Pikachu McDonalds identities from broad retail e-reader threads', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       const query = url.searchParams.get('q') ?? '';
@@ -173,16 +173,11 @@ describe('discovery source catalog', () => {
       [chase('Pikachu xy95'), chase('Squirtle 007/018 McDonalds e-Reader Promo')]
     );
 
-    expect(resolved.suggestions[0]?.name).toBe("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese");
-    expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Pokemon card");
-    expect(resolved.suggestions[0]?.evidenceAliases).toContain('Pikachu 010/018');
-    expect(resolved.suggestions[0]?.evidenceAliases).toContain("Pokemon Card Game Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Nintendo");
-    expect(resolved.suggestions[0]?.requiredEvidenceTokens).toEqual(['pikachu', '010', '018']);
-    expect(resolved.suggestions[0]?.referenceSourceName).toBeUndefined();
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese");
     expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain("Pikachu McDonald's e-Reader Promo 12");
   });
 
-  it('surfaces Raichu No.026 as a curated Japanese Intro Pack marketplace identity', async () => {
+  it('does not inject curated Raichu Intro Pack identities from broad Japanese unique-release threads', async () => {
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as any;
 
     const resolved = await resolveSourceBackedDiscoveryCards(
@@ -201,12 +196,8 @@ describe('discovery source catalog', () => {
       [chase('Pikachu 26/83 Toys R Us promo'), chase('Umbreon 217/187 Japanese'), chase('Corocoro Shining Mew')]
     );
 
-    expect(resolved.suggestions[0]?.name).toBe('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
-    expect(resolved.suggestions[0]?.evidenceAliases).toContain('Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card');
-    expect(resolved.suggestions[0]?.evidenceAliases).toContain('Raichu #3 Non-Holo VHS Promo Bulbasaur Deck 1999 Japanese Pokemon');
-    expect(resolved.suggestions[0]?.evidenceAliases).toContain('Pokemon Card Raichu VHS Intro Pack Bulbasaur Deck No.03 LP Japanese');
-    expect(resolved.suggestions[0]?.requiredEvidenceTokens).toEqual(['raichu', '026', 'bulbasaur']);
-    expect(resolved.suggestions[0]?.referenceSourceName).toBeUndefined();
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
+    expect(resolved.suggestions).toEqual([]);
   });
 
   it('caches repeated source API lookups for the same catalog query', async () => {

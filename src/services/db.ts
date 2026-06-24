@@ -121,6 +121,26 @@ db.exec(`
     PRIMARY KEY (user_id, suggestion_name)
   );
 
+  CREATE TABLE IF NOT EXISTS discovery_training_examples (
+    user_id TEXT NOT NULL,
+    surface TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    suggestion_name TEXT NOT NULL,
+    lane TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    ranker_version TEXT NOT NULL,
+    feature_json TEXT NOT NULL,
+    score_json TEXT NOT NULL,
+    outcome TEXT,
+    shown_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    outcome_at TEXT,
+    PRIMARY KEY (user_id, surface, period_key, suggestion_name)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_discovery_training_examples_user_outcome
+    ON discovery_training_examples(user_id, outcome, updated_at);
+
   CREATE TABLE IF NOT EXISTS user_discovery_state (
     user_id TEXT NOT NULL,
     mode TEXT NOT NULL,

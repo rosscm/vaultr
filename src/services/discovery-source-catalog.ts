@@ -271,59 +271,6 @@ function exactRetailEReaderSubjectRank(card: PokemonTcgCard, suggestion: Discove
   return (card.name ?? '').trim().toLowerCase() === subjectToken ? 1 : 0;
 }
 
-function curatedRetailEReaderPromoSuggestion(parent: DiscoverySuggestion): DiscoverySuggestion | null {
-  const subjectToken = retailEReaderPromoSubjectToken(parent);
-  if (!isRetailEReaderPromoSuggestion(parent) || subjectToken !== 'pikachu') return null;
-  const name = "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese";
-  const evidenceSearchTerm = "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Pokemon card";
-  return {
-    ...parent,
-    name,
-    lane: parent.lane.replace(/\bthread\b/i, 'market identity'),
-    laneWhy: `${parent.laneWhy}; collector marketplace identity corrected to McDonald's 010/018, not Nintendo Black Star Promo 12`,
-    evidenceSearchTerm,
-    evidenceAliases: uniqueValuesPreservingOrder([
-      'Pikachu 010/018',
-      name,
-      evidenceSearchTerm,
-      "Pokemon Card Game Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Nintendo",
-      "Pikachu 010/018 McDonald's Promo Holo e-Series Japanese",
-      "Pokemon Card Pikachu 010/018 McDonald's Promo Holo e-Series Japanese"
-    ]),
-    requiredEvidenceTokens: ['pikachu', '010', '018'],
-    sourceTasteTokens: ['pikachu', 'promo', 'e-reader', 'mcdonalds', 'japanese'],
-    curiosityScore: (parent.curiosityScore ?? 0) + 3
-  };
-}
-
-function curatedNicheJapaneseExclusiveSuggestion(parent: DiscoverySuggestion): DiscoverySuggestion | null {
-  const subjectToken = nicheJapaneseExclusiveSubjectToken(parent);
-  if (!isNicheJapaneseExclusiveSuggestion(parent) || subjectToken !== 'raichu') return null;
-  const name = 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese';
-  const evidenceSearchTerm = 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card';
-  return {
-    ...parent,
-    name,
-    lane: parent.lane.replace(/\bthread\b/i, 'market identity'),
-    laneWhy: `${parent.laneWhy}; collector marketplace identity matched to the 1999 Japanese Intro Pack Bulbasaur Deck Raichu, not modern Raichu 026/165`,
-    evidenceSearchTerm,
-    evidenceAliases: uniqueValuesPreservingOrder([
-      'Raichu No.026',
-      name,
-      evidenceSearchTerm,
-      'Raichu No.026 VHS Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card',
-      'Pokemon TCG 1999 Bulbasaur Deck Raichu No.026 Japanese',
-      'Raichu 026 Intro Pack Bulbasaur Deck Japanese',
-      'Raichu No. 026 3 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon Card',
-      'Raichu #3 Non-Holo VHS Promo Bulbasaur Deck 1999 Japanese Pokemon',
-      'Pokemon Card Raichu VHS Intro Pack Bulbasaur Deck No.03 LP Japanese'
-    ]),
-    requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
-    sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage'],
-    curiosityScore: (parent.curiosityScore ?? 0) + 4
-  };
-}
-
 function hasJapaneseChaseSignal(chase: Chase): boolean {
   const text = [chase.cardName, chase.targetNote].filter(Boolean).join(' ');
   return /\b(japanese|japan|jp|jpn)\b/i.test(text) || JAPANESE_PROMO_CODE_PATTERN.test(text) || JAPANESE_SCRIPT_PATTERN.test(text) || JAPANESE_RELEASE_MARKER_PATTERN.test(text);
@@ -1107,10 +1054,8 @@ export async function resolveSourceBackedDiscoveryCards(
 
   try {
     const profile = await sourceTasteProfile(tasteProfileChases);
-    const curatedRetailSuggestion = curatedRetailEReaderPromoSuggestion(suggestion);
-    const curatedNicheJapaneseSuggestion = curatedNicheJapaneseExclusiveSuggestion(suggestion);
     const japaneseSuggestions = await resolveTcgDexJapaneseCards(suggestion, tasteProfileChases, activeChases, profile, limit);
-    const curatedSuggestions = [curatedRetailSuggestion, curatedNicheJapaneseSuggestion].filter((value): value is DiscoverySuggestion => !!value);
+    const curatedSuggestions: DiscoverySuggestion[] = [];
     if (japaneseSuggestions.length > 0 && shouldPreferJapaneseOnly(suggestion, profile)) {
       return { suggestions: uniqueSuggestionsByName([...curatedSuggestions, ...japaneseSuggestions]).slice(0, limit) };
     }
