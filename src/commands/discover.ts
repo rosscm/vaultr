@@ -93,6 +93,7 @@ export type DiscoveryCollectorFeatures = {
   marketEvidence: number;
   imageEvidence: number;
   curiosity: number;
+  collectorTerms: string[];
 };
 
 type DiscoveryLearnedRankContext = ReturnType<typeof getDiscoveryLearnedSignalSummary>;
@@ -1574,8 +1575,92 @@ export function collectorDiscoveryFeatures(candidate: DiscoveryCandidate, chases
     negativeSignalPenalty: negativeProfileRankPenalty(candidate, negativeProfile),
     marketEvidence: marketEvidenceRank(candidate),
     imageEvidence: imageQualityRank(candidate),
-    curiosity: candidate.suggestion.curiosityScore ?? 0
+    curiosity: candidate.suggestion.curiosityScore ?? 0,
+    collectorTerms: collectorTermTokens(candidate)
   };
+}
+
+const COLLECTOR_TERM_PHRASES = [
+  'special illustration rare',
+  'illustration rare',
+  'trainer gallery',
+  'galarian gallery',
+  'black star',
+  'special delivery',
+  'classic collection',
+  'art rare',
+  'alt art',
+  'alternate art',
+  'full art',
+  'secret rare',
+  'hyper rare',
+  'rainbow rare',
+  'gold star',
+  'tag team',
+  'shiny vault',
+  'southern islands',
+  'team rocket',
+  'gym challenge',
+  'gym heroes',
+  'e-reader',
+  'deck exclusive',
+  'intro pack',
+  'bulbasaur deck',
+  'odd release',
+  'oddball release',
+  'limited release',
+  'unique release',
+  'magazine promo',
+  'special set',
+  'small set',
+  'numbered set',
+  'pokemon center',
+  'coro coro',
+  'corocoro',
+  'magazine',
+  'vending',
+  'masaki',
+  'munch',
+  'poncho',
+  'staff',
+  'winner',
+  'prerelease',
+  'stamped',
+  'stamp',
+  'japanese',
+  'promo',
+  'exclusive',
+  'vintage',
+  'crystal',
+  'shining',
+  'sar',
+  'sir',
+  'vmax',
+  'vstar',
+  'gx',
+  'ex'
+];
+
+function normalizeCollectorTerm(value: string): string {
+  return normalize(value).replace(/\bcoro coro\b/g, 'corocoro').replace(/\boddball release\b/g, 'odd release');
+}
+
+function collectorTermTokens(candidate: DiscoveryCandidate): string[] {
+  const text = normalizeCollectorTerm([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.requiredEvidenceTokens ?? [])].filter(Boolean).join(' '));
+  const subjectTokens = new Set(candidateSpecificSubjectTokens(candidate));
+  const terms = new Set<string>();
+  for (const phrase of COLLECTOR_TERM_PHRASES) {
+    const normalizedPhrase = normalizeCollectorTerm(phrase);
+    if (new RegExp(`\\b${normalizedPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text)) terms.add(normalizedPhrase);
+  }
+  for (const token of [...(candidate.suggestion.sourceTasteTokens ?? []), ...(candidate.suggestion.requiredEvidenceTokens ?? [])]) {
+    const normalizedToken = normalizeCollectorTerm(token);
+    if (!normalizedToken || normalizedToken.length < 2) continue;
+    if (/^\d+$/.test(normalizedToken) || subjectTokens.has(normalizedToken)) continue;
+    if (['card', 'cards', 'pokemon', 'collector'].includes(normalizedToken)) continue;
+    terms.add(normalizedToken);
+  }
+  return Array.from(terms).sort();
 }
 
 function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
@@ -1585,6 +1670,13 @@ function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRa
     if ((features as unknown as Record<string, unknown>)[feature] === true) nudge += weight;
   }
   return Math.max(-48, Math.min(48, nudge));
+}
+
+function learnedTermRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
+  if (!learnedRankContext || learnedRankContext.exampleCount < 3) return 0;
+  let nudge = 0;
+  for (const term of features.collectorTerms) nudge += learnedRankContext.termWeights[term] ?? 0;
+  return Math.max(-36, Math.min(36, nudge));
 }
 
 export function collectorDiscoveryRankScore(candidate: DiscoveryCandidate, chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile, learnedRankContext?: DiscoveryLearnedRankContext): number {
@@ -1602,7 +1694,8 @@ export function collectorDiscoveryRankScore(candidate: DiscoveryCandidate, chase
     (features.ordinaryFormatPenalty ? 40 : 0) -
     (features.weakSubjectPenalty ? 35 : 0) -
     (features.historyFallbackPenalty ? 45 : 0) +
-    learnedFeatureRankNudge(features, learnedRankContext)
+    learnedFeatureRankNudge(features, learnedRankContext) +
+    learnedTermRankNudge(features, learnedRankContext)
   );
 }
 
@@ -2191,6 +2284,7 @@ function profileReleaseTypeKeys(value: string): string[] {
   const keys: string[] = [];
   if (/\bpromo|black star|special delivery|futsal|celebrations|classic collection|exclusive|toys r us|retail|event\b/.test(text)) keys.push('promo');
   if (/\bjapanese|tcgdex|coro\s?coro|vending|masaki|munch|poncho\b/.test(text)) keys.push('japanese');
+  if (/\bcoro\s?coro\b/.test(text)) keys.push('corocoro', 'publication');
   if (/\billustration|art rare|gallery|full art|sar|\bar\b/.test(text)) keys.push('art');
   if (/\btag team\b|\bgx\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(text)) keys.push('format');
   if (/\bex\b/.test(text)) keys.push('ex');
@@ -2377,6 +2471,15 @@ function japaneseSourceBackfillParents(chases: Chase[]): DiscoverySuggestion[] {
   return subjects.map(parent);
 }
 
+type ProfileVariantSourceThread = {
+  suffix: string;
+  lane: string;
+  laneWhy: string;
+  tokens: string[];
+  sourceTasteTokens?: string[];
+  curiosityScore: number;
+};
+
 export function profileVariantSourceBackfillParents(chases: Chase[], targetCount = DISCOVERY_CANDIDATE_POOL_SIZE): DiscoverySuggestion[] {
   const subjectChases = positiveTasteSubjectChases(chases);
   const usefulSubjectToken = (token: string): boolean => token.length >= 3 && !CACHE_BACKFILL_SUBJECT_STOP_WORDS.has(token) && !/^[a-z]{1,5}\d+$/i.test(token) && !['corocoro', 'mega', 'pokemon', 'rus', 'shining', 'toys'].includes(token);
@@ -2388,11 +2491,17 @@ export function profileVariantSourceBackfillParents(chases: Chase[], targetCount
   const eras = distinctProfileKeys(chases, profileEraKeys);
   const hasRetailEReaderPromoSignal = releaseTypes.has('promo') && eras.has('e-reader');
   const hasNicheJapaneseExclusiveSignal = hasJapaneseWeightedProfile(chases) && (releaseTypes.has('promo') || eras.has('vintage') || eras.has('e-reader'));
+  const hasJapaneseSpecialSetSignal = hasJapaneseWeightedProfile(chases) && releaseTypes.has('promo');
+  const hasCoroCoroPublicationSignal = hasJapaneseWeightedProfile(chases) && releaseTypes.has('corocoro');
   const subjectLimit = Math.max(4, Math.min(24, Math.ceil(targetCount / (hasNicheJapaneseExclusiveSignal ? 4 : 5))));
   const subjects = uniqueValuesPreservingOrder(subjectTokens).slice(0, subjectLimit);
   const nicheJapaneseExclusiveThread = { suffix: 'Japanese unique release Pokemon cards', lane: 'Japanese Collector Trail', laneWhy: 'Japanese exclusiveness and unusual-release signals', tokens: ['japanese', 'exclusive', 'unique'], curiosityScore: 9 };
-  const threads = [
+  const japaneseSpecialSetThread = { suffix: 'Japanese special set Pokemon cards', lane: 'Japanese Collector Trail', laneWhy: 'Japanese small-set and numbered-release signals', tokens: ['japanese', 'special set', 'small set', 'numbered set'], curiosityScore: 9 };
+  const coroCoroPublicationThread = { suffix: 'CoroCoro promo Pokemon cards', lane: 'Japanese Collector Trail', laneWhy: 'Japanese magazine-promo publication signals', tokens: ['corocoro'], sourceTasteTokens: ['japanese', 'promo', 'corocoro', 'magazine'], curiosityScore: 10 };
+  const threads: ProfileVariantSourceThread[] = [
     ...(hasJapaneseWeightedProfile(chases) ? [{ suffix: 'Japanese Pokemon cards', lane: 'Japanese Collector Trail', laneWhy: 'same-subject Japanese print variants', tokens: ['japanese'], curiosityScore: 6 }] : []),
+    ...(hasCoroCoroPublicationSignal ? [coroCoroPublicationThread] : []),
+    ...(hasJapaneseSpecialSetSignal ? [japaneseSpecialSetThread] : []),
     ...(hasRetailEReaderPromoSignal ? [{ suffix: "McDonald's e-Reader promo Pokemon cards", lane: 'Retail Promo Trail', laneWhy: 'same-subject retail e-reader promo variants', tokens: ['promo', 'e-reader', 'mcdonalds'], curiosityScore: 7 }] : []),
     ...(hasNicheJapaneseExclusiveSignal ? [nicheJapaneseExclusiveThread] : []),
     { suffix: 'Pokemon promo cards', lane: 'Promo Trail', laneWhy: 'same-subject promo release variants', tokens: ['promo'], curiosityScore: 5 },
@@ -2401,7 +2510,8 @@ export function profileVariantSourceBackfillParents(chases: Chase[], targetCount
     { suffix: 'Pokemon collector cards', lane: 'Collector Compass', laneWhy: 'same-subject set and release variants', tokens: ['collector'], curiosityScore: 3 }
   ];
   const parents: DiscoverySuggestion[] = [];
-  const pushParent = (subject: string, thread: (typeof threads)[number]): void => {
+  const pushParent = (subject: string, thread: ProfileVariantSourceThread): void => {
+    const sourceTasteTokens = thread.sourceTasteTokens ?? thread.tokens;
     parents.push({
       name: `${titleCase(subject)} ${thread.suffix}`,
       lane: thread.lane,
@@ -2409,18 +2519,26 @@ export function profileVariantSourceBackfillParents(chases: Chase[], targetCount
       why: `keeps the Weekly Shelf fresh with different ${titleCase(subject)} sets, promos, and release shapes instead of repeating the same prepared card`,
       nearby: [],
       evidenceSearchTerm: `${subject} ${thread.suffix.replace('Pokemon ', 'Pokemon card ')}`,
-      evidenceAliases: [`${subject} Pokemon card`, `${subject} ${thread.suffix}`],
+      evidenceAliases: [`${subject} Pokemon card`, `${subject} ${thread.tokens.join(' ')}`, `${subject} ${thread.suffix}`],
       requiredEvidenceTokens: [subject, ...thread.tokens],
-      sourceTasteTokens: [subject, ...thread.tokens],
+      sourceTasteTokens: [subject, ...sourceTasteTokens],
       curiosityScore: thread.curiosityScore
     });
   };
   if (hasNicheJapaneseExclusiveSignal) {
     for (const subject of subjects) pushParent(subject, nicheJapaneseExclusiveThread);
   }
+  if (hasJapaneseSpecialSetSignal) {
+    for (const subject of subjects) pushParent(subject, japaneseSpecialSetThread);
+  }
+  if (hasCoroCoroPublicationSignal) {
+    for (const subject of subjects) pushParent(subject, coroCoroPublicationThread);
+  }
   for (const subject of subjects) {
     for (const thread of threads) {
       if (hasNicheJapaneseExclusiveSignal && thread === nicheJapaneseExclusiveThread) continue;
+      if (hasJapaneseSpecialSetSignal && thread === japaneseSpecialSetThread) continue;
+      if (hasCoroCoroPublicationSignal && thread === coroCoroPublicationThread) continue;
       pushParent(subject, thread);
     }
   }

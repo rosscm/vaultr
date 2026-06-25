@@ -73,6 +73,7 @@ export type DiscoveryLearnedSignalSummary = {
   likedCount: number;
   rejectedCount: number;
   featureWeights: Record<string, number>;
+  termWeights: Record<string, number>;
 };
 
 type UserDiscoveryFeedbackRow = {
@@ -1102,6 +1103,7 @@ function clampLearnedWeight(value: number): number {
 export function getDiscoveryLearnedSignalSummary(userId: string, limit = 200): DiscoveryLearnedSignalSummary {
   const rows = listDiscoveryTrainingOutcomesStmt.all(userId, limit) as DiscoveryTrainingOutcomeRow[];
   const stats = new Map<string, { liked: number; rejected: number }>();
+  const termStats = new Map<string, { liked: number; rejected: number }>();
   let likedCount = 0;
   let rejectedCount = 0;
   for (const row of rows) {
@@ -1121,6 +1123,15 @@ export function getDiscoveryLearnedSignalSummary(userId: string, limit = 200): D
       else current.rejected += 1;
       stats.set(feature, current);
     }
+    const collectorTerms = Array.isArray(features.collectorTerms)
+      ? features.collectorTerms.filter((term): term is string => typeof term === 'string' && term.trim().length > 0)
+      : [];
+    for (const term of new Set(collectorTerms)) {
+      const current = termStats.get(term) ?? { liked: 0, rejected: 0 };
+      if (row.outcome === 'MORE_LIKE_THIS') current.liked += 1;
+      else current.rejected += 1;
+      termStats.set(term, current);
+    }
   }
   const featureWeights: Record<string, number> = {};
   for (const [feature, counts] of stats.entries()) {
@@ -1128,7 +1139,13 @@ export function getDiscoveryLearnedSignalSummary(userId: string, limit = 200): D
     if (total < 2) continue;
     featureWeights[feature] = clampLearnedWeight(((counts.liked - counts.rejected) / total) * 36);
   }
-  return { exampleCount: rows.length, likedCount, rejectedCount, featureWeights };
+  const termWeights: Record<string, number> = {};
+  for (const [term, counts] of termStats.entries()) {
+    const total = counts.liked + counts.rejected;
+    if (total < 2) continue;
+    termWeights[term] = clampLearnedWeight(((counts.liked - counts.rejected) / total) * 24);
+  }
+  return { exampleCount: rows.length, likedCount, rejectedCount, featureWeights, termWeights };
 }
 
 export function recordDiscoveryFeedback(input: {

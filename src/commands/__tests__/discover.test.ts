@@ -323,6 +323,7 @@ describe('selectVisibleCandidates', () => {
     expect(features.nicheExclusiveSignal).toBe(true);
     expect(features.exactNicheIdentity).toBe(true);
     expect(features.ordinaryFormatPenalty).toBe(false);
+    expect(features.collectorTerms).toEqual(expect.arrayContaining(['bulbasaur deck', 'intro pack', 'japanese']));
     expect(features.marketEvidence).toBeGreaterThanOrEqual(2);
   });
 
@@ -354,9 +355,28 @@ describe('selectVisibleCandidates', () => {
       exampleCount: 4,
       likedCount: 3,
       rejectedCount: 1,
-      featureWeights: { japaneseSignal: 24, promoSignal: 18 }
+      featureWeights: { japaneseSignal: 24, promoSignal: 18 },
+      termWeights: { japanese: 12, promo: 8 }
     });
 
+    expect(learnedScore).toBeGreaterThan(neutralScore);
+  });
+
+  it('applies learned collector taxonomy term nudges without manual subject steering', () => {
+    const profile = [
+      { id: 'c1', userId: 'u1', cardName: 'Mew gallery cards', priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+    const galleryCandidate = candidate('Mew VMAX Lost Origin Trainer Gallery TG30', 'Artwork Trail', 0, 12);
+    const neutralScore = collectorDiscoveryRankScore(galleryCandidate, profile);
+    const learnedScore = collectorDiscoveryRankScore(galleryCandidate, profile, undefined, {
+      exampleCount: 4,
+      likedCount: 3,
+      rejectedCount: 1,
+      featureWeights: {},
+      termWeights: { 'trainer gallery': 24 }
+    });
+
+    expect(collectorDiscoveryFeatures(galleryCandidate, profile).collectorTerms).toContain('trainer gallery');
     expect(learnedScore).toBeGreaterThan(neutralScore);
   });
 
@@ -1615,6 +1635,32 @@ describe('profileVariantSourceBackfillParents', () => {
     expect(parents.map((suggestion) => suggestion.name)).not.toContain('Raichu Japanese unique release Pokemon cards');
     expect(parents.find((suggestion) => suggestion.name === 'Mew Japanese unique release Pokemon cards')?.requiredEvidenceTokens).toEqual(['mew', 'japanese', 'exclusive', 'unique']);
   });
+
+  it('builds Japanese special set parents from Japanese plus special-release signals', () => {
+    const parents = profileVariantSourceBackfillParents(
+      ['Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo', 'Umbreon 217/187 Japanese'].map(chase),
+      80
+    );
+
+    expect(parents.map((suggestion) => suggestion.name)).toContain('Mew Japanese special set Pokemon cards');
+    expect(parents.map((suggestion) => suggestion.name)).toContain('Pikachu Japanese special set Pokemon cards');
+    expect(parents.map((suggestion) => suggestion.name)).not.toContain('Raichu Japanese special set Pokemon cards');
+    expect(parents.find((suggestion) => suggestion.name === 'Mew Japanese special set Pokemon cards')?.requiredEvidenceTokens).toEqual(['mew', 'japanese', 'special set', 'small set', 'numbered set']);
+  });
+
+  it('learns CoroCoro as a reusable publication-promo pattern across profile subjects', () => {
+    const parents = profileVariantSourceBackfillParents(
+      ['Corocoro Shining Mew', 'Pikachu xy95', 'Umbreon 217/187 Japanese'].map(chase),
+      80
+    );
+    const pikachuCoroCoro = parents.find((suggestion) => suggestion.name === 'Pikachu CoroCoro promo Pokemon cards');
+
+    expect(parents.map((suggestion) => suggestion.name)).toContain('Mew CoroCoro promo Pokemon cards');
+    expect(pikachuCoroCoro?.requiredEvidenceTokens).toEqual(['pikachu', 'corocoro']);
+    expect(pikachuCoroCoro?.sourceTasteTokens).toEqual(['pikachu', 'japanese', 'promo', 'corocoro', 'magazine']);
+    expect(pikachuCoroCoro?.evidenceAliases).toContain('pikachu corocoro');
+    expect(parents.map((suggestion) => suggestion.name)).not.toContain('Raichu CoroCoro promo Pokemon cards');
+  });
 });
 
 describe('backfillSourceBackedDiscoverySuggestions', () => {
@@ -2050,6 +2096,28 @@ describe('Discovery listing enrichment eligibility', () => {
 
     expect(isUsableDiscoveryMarketSample(pikachu010Suggestion, compactListing, 'CAD')).toBe(true);
     expect(isUsableDiscoveryExample(pikachu010Suggestion, compactListing, { min: 0, max: 1200 }, 'CAD')).toBe(true);
+  });
+
+  it('accepts CoroCoro publication listings even when sellers omit promo and Japanese wording', () => {
+    const pikachuCoroCoroSuggestion = {
+      name: 'Pikachu CoroCoro promo Pokemon cards',
+      lane: 'Japanese Collector Trail',
+      laneWhy: 'Japanese magazine-promo publication signals',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: 'pikachu CoroCoro promo Pokemon card cards',
+      evidenceAliases: ['pikachu Pokemon card', 'pikachu corocoro', 'pikachu CoroCoro promo Pokemon cards'],
+      requiredEvidenceTokens: ['pikachu', 'corocoro'],
+      sourceTasteTokens: ['pikachu', 'japanese', 'promo', 'corocoro', 'magazine']
+    };
+    const coroCoroListing = listing({
+      title: 'Pikachu, Jigglypuff, and Clefairy CoroCoro Pokemon Card',
+      price: 96,
+      condition: 'Ungraded'
+    });
+
+    expect(isUsableDiscoveryMarketSample(pikachuCoroCoroSuggestion, coroCoroListing, 'CAD')).toBe(true);
+    expect(isUsableDiscoveryExample(pikachuCoroCoroSuggestion, coroCoroListing, { min: 0, max: 1200 }, 'CAD')).toBe(true);
   });
 
   it('accepts Mew S12a 052 listings when set and number appear in either order', () => {

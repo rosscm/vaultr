@@ -31,7 +31,7 @@ type TcgDexCardSummary = {
 type TcgDexCard = TcgDexCardSummary & {
   category?: string;
   rarity?: string;
-  set?: { id?: string; name?: string };
+  set?: { id?: string; name?: string; cardCount?: { official?: number; total?: number }; cards?: { official?: number; total?: number } };
   dexId?: number[];
   types?: string[];
   stage?: string;
@@ -771,13 +771,37 @@ function tcgDexEnglishSetLabel(card: TcgDexCard): string | undefined {
   return undefined;
 }
 
+function tcgDexSetPrintedTotal(card: TcgDexCard): number | undefined {
+  const total = card.set?.cardCount?.official ?? card.set?.cardCount?.total ?? card.set?.cards?.official ?? card.set?.cards?.total;
+  return Number.isFinite(total) && total && total > 0 ? total : undefined;
+}
+
+function tcgDexNumberLabel(card: TcgDexCard): string | undefined {
+  if (!card.localId) return undefined;
+  const total = tcgDexSetPrintedTotal(card);
+  return total ? `${card.localId}/${String(total).padStart(card.localId.length, '0')}` : card.localId;
+}
+
+function isSmallJapaneseSpecialSet(card: TcgDexCard): boolean {
+  const total = tcgDexSetPrintedTotal(card);
+  if (total !== undefined && total > 0 && total <= 30) return true;
+  const text = normalizeSearchText([card.set?.name, card.set?.id, card.suffix, card.rarity].filter(Boolean).join(' '));
+  return /\b(?:deck|box|promo|special|collection|battle|gift|vending|limited|exclusive)\b/.test(text);
+}
+
 function sourceSuggestionFromTcgDexJapaneseCard(parent: DiscoverySuggestion, card: TcgDexCard, profile: SourceTasteProfile): DiscoverySuggestion | null {
   if (!card.id || !card.name || !card.image) return null;
   const displayName = tcgDexEnglishCardName(card, profile);
   const setLabel = tcgDexEnglishSetLabel(card);
-  const name = [displayName, 'Japanese', setLabel, card.localId].filter(Boolean).join(' ');
-  const evidenceSearchTerm = [displayName, 'Japanese Pokemon card', setLabel, card.localId].filter(Boolean).join(' ');
-  const cardKey = normalizeSearchText([displayName, setLabel, card.localId].filter(Boolean).join(' ')).split(/\s+/).slice(0, 4).join('-') || 'japanese-card';
+  const numberLabel = tcgDexNumberLabel(card);
+  const name = [displayName, 'Japanese', setLabel, numberLabel].filter(Boolean).join(' ');
+  const evidenceSearchTerm = [displayName, 'Japanese Pokemon card', setLabel, numberLabel].filter(Boolean).join(' ');
+  const cardKey = normalizeSearchText([displayName, setLabel, numberLabel].filter(Boolean).join(' ')).split(/\s+/).slice(0, 4).join('-') || 'japanese-card';
+  const sourceTasteTokens = uniqueValuesPreservingOrder([
+    ...(parent.sourceTasteTokens ?? []),
+    'japanese',
+    ...(isSmallJapaneseSpecialSet(card) ? ['special set', 'small set', 'numbered set'] : [])
+  ]);
   return {
     ...parent,
     name,
@@ -785,7 +809,8 @@ function sourceSuggestionFromTcgDexJapaneseCard(parent: DiscoverySuggestion, car
     laneWhy: `${parent.laneWhy}; Japanese source catalog surfaced ${displayName}${setLabel ? ` from ${setLabel}` : ''}`,
     evidenceSearchTerm,
     evidenceAliases: [name, evidenceSearchTerm],
-    requiredEvidenceTokens: [cardKey, 'japanese'],
+    requiredEvidenceTokens: [cardKey, 'japanese', ...(numberLabel?.includes('/') ? [numberLabel] : [])],
+    sourceTasteTokens,
     referenceImageUrl: tcgDexImageUrl(card),
     referenceSourceName: setLabel ? `TCGdex Japanese (${setLabel})` : 'TCGdex Japanese',
     referenceSourceCardId: card.id,
@@ -828,9 +853,10 @@ function tcgDexJapaneseScore(card: TcgDexCard, profile: SourceTasteProfile): num
   ].filter(Boolean).length * 5;
   const imageScore = card.image ? 12 : -18;
   const sourcePreferenceScore = 24;
+  const smallSpecialSetScore = isSmallJapaneseSpecialSet(card) ? 28 : 0;
   const ordinaryModernRarityPenalty = isOrdinaryModernJapaneseRarity(card) ? 36 : 0;
   const deterministicVarietyScore = hashText(card.id ?? card.name ?? '') % 5;
-  return sourcePreferenceScore + exactDexScore + kantoScore + typeScore + specialShapeScore + imageScore + deterministicVarietyScore - ordinaryModernRarityPenalty;
+  return sourcePreferenceScore + exactDexScore + kantoScore + typeScore + specialShapeScore + imageScore + smallSpecialSetScore + deterministicVarietyScore - ordinaryModernRarityPenalty;
 }
 
 function isOrdinaryModernJapaneseRarity(card: TcgDexCard): boolean {
@@ -844,6 +870,7 @@ function isOrdinaryModernJapaneseRarity(card: TcgDexCard): boolean {
 }
 
 function matchesJapaneseCollectorQuality(card: TcgDexCard): boolean {
+  if (isSmallJapaneseSpecialSet(card)) return true;
   return !isOrdinaryModernJapaneseRarity(card);
 }
 

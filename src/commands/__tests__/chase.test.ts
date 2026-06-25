@@ -497,7 +497,7 @@ describe('chase command', () => {
         lane: 'Japanese Collector Trail',
         position: 1,
         rankerVersion: 'collector-v1',
-        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false },
+        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false, collectorTerms: ['japanese', 'promo', 'trainer gallery'] },
         scores: { collectorRank: 300 }
       },
       {
@@ -508,7 +508,7 @@ describe('chase command', () => {
         lane: 'Japanese Collector Trail',
         position: 2,
         rankerVersion: 'collector-v1',
-        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false },
+        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false, collectorTerms: ['japanese', 'promo', 'trainer gallery'] },
         scores: { collectorRank: 280 }
       },
       {
@@ -519,7 +519,7 @@ describe('chase command', () => {
         lane: 'Format Trail',
         position: 3,
         rankerVersion: 'collector-v1',
-        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true },
+        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true, collectorTerms: ['vmax'] },
         scores: { collectorRank: 80 }
       },
       {
@@ -530,7 +530,7 @@ describe('chase command', () => {
         lane: 'Format Trail',
         position: 4,
         rankerVersion: 'collector-v1',
-        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true },
+        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true, collectorTerms: ['vmax'] },
         scores: { collectorRank: 70 }
       }
     ]);
@@ -545,5 +545,8 @@ describe('chase command', () => {
     expect(summary.featureWeights.japaneseSignal).toBeGreaterThan(0);
     expect(summary.featureWeights.promoSignal).toBeGreaterThan(0);
     expect(summary.featureWeights.ordinaryFormatPenalty).toBeLessThan(0);
+    expect(summary.termWeights.japanese).toBeGreaterThan(0);
+    expect(summary.termWeights['trainer gallery']).toBeGreaterThan(0);
+    expect(summary.termWeights.vmax).toBeLessThan(0);
   });
 });

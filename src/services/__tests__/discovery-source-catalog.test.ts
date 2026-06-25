@@ -1532,6 +1532,71 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.name).toBe('Pikachu Japanese SV2a 025');
   });
 
+  it('surfaces compact numbered Japanese special sets with source-backed set totals', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'xy-rc24',
+                name: 'Mew',
+                number: 'RC24',
+                supertype: 'Pokemon',
+                types: ['Psychic'],
+                nationalPokedexNumbers: [151],
+                set: { name: 'Radiant Collection', series: 'XY', releaseDate: '2016/02/22' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        return new Response(JSON.stringify([{ id: 'SPSET-005', localId: '005', name: 'ミュウ', image: 'https://assets.tcgdex.net/ja/XY/SPSET/005' }]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          category: 'Pokemon',
+          id: 'SPSET-005',
+          localId: '005',
+          name: 'ミュウ',
+          image: 'https://assets.tcgdex.net/ja/XY/SPSET/005',
+          rarity: 'None',
+          set: { id: 'SPSET', name: 'スペシャルセット', cardCount: { official: 16, total: 16 } },
+          dexId: [151],
+          types: ['Psychic'],
+          stage: 'Basic'
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Mew Japanese special set Pokemon cards',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'mew Japanese special set Pokemon card',
+        requiredEvidenceTokens: ['mew', 'japanese', 'special set'],
+        sourceTasteTokens: ['mew', 'japanese', 'special set']
+      },
+      [chase('Corocoro Shining Mew'), chase('Mew RC24/RC25')],
+      1
+    );
+
+    expect(resolved.suggestions[0]?.name).toBe('Mew Japanese SPSET 005/016');
+    expect(resolved.suggestions[0]?.evidenceSearchTerm).toContain('005/016');
+    expect(resolved.suggestions[0]?.requiredEvidenceTokens).toContain('005/016');
+    expect(resolved.suggestions[0]?.sourceTasteTokens).toEqual(expect.arrayContaining(['special set', 'small set', 'numbered set']));
+  });
+
   it('does not let broad collector threads drift into unrelated modern source cards', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
