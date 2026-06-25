@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chase } from '../chase.js';
+import { handleChaseAddAutocomplete } from '../chase-add.js';
 import { buildChaseListEmbed } from '../chase-list.js';
 import {
   addChase,
@@ -14,9 +15,12 @@ import {
   setUserPlan,
   undoDiscoveryFeedback
 } from '../../services/chase-store.js';
+import { clearChaseCardAutocompleteCache } from '../../services/chase-card-catalog.js';
+import { autocompleteChaseCards } from '../../services/chase-card-catalog.js';
 import { db } from '../../services/db.js';
 
 const testUserIds = new Set<string>();
+const originalFetch = globalThis.fetch;
 
 function testUserId(label: string): string {
   const userId = `test-chase-${label}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -46,6 +50,8 @@ function mockInteraction(userId: string, subcommand: string, values: Record<stri
 }
 
 afterEach(() => {
+  globalThis.fetch = originalFetch;
+  clearChaseCardAutocompleteCache();
   for (const userId of testUserIds) {
     removeAllChases(userId);
     db.prepare('DELETE FROM user_discovery_feedback WHERE user_id = ?').run(userId);
@@ -57,6 +63,82 @@ afterEach(() => {
 });
 
 describe('chase command', () => {
+  it('offers source-backed autocomplete for new chase card names', () => {
+    const add = chase.data
+      .toJSON()
+      .options?.find((option: any) => option.name === 'add') as any;
+    const options = add.options ?? [];
+    const cardOption = options.find((option: any) => option.name === 'card');
+
+    expect(cardOption?.autocomplete).toBe(true);
+    expect(cardOption?.required).toBe(true);
+  });
+
+  it('returns card catalog autocomplete choices for chase add', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+    const respond = vi.fn(async (_choices?: any) => undefined);
+    const interaction = {
+      isAutocomplete: () => true,
+      commandName: 'chase',
+      options: {
+        getSubcommand: () => 'add',
+        getFocused: () => ({ name: 'card', value: 'mew ex' })
+      },
+      respond
+    };
+
+    await handleChaseAddAutocomplete(interaction);
+
+    expect(respond).toHaveBeenCalledWith([
+      { name: 'Mew ex — Paldean Fates #232', value: 'Mew ex Paldean Fates 232' }
+    ]);
+  });
+
+  it('narrows Japanese autocomplete choices by slash-total card numbers', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/S12a-052')) {
+        return new Response(JSON.stringify({
+          id: 'S12a-052',
+          localId: '052',
+          name: 'ミュウ',
+          set: { id: 'S12a', cardCount: { official: 172 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV4M-052')) {
+        return new Response(JSON.stringify({
+          id: 'SV4M-052',
+          localId: '052',
+          name: 'エテボース',
+          set: { id: 'SV4M', cardCount: { official: 66 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([
+        { id: 'S12a-052', localId: '052', name: 'ミュウ' },
+        { id: 'SV4M-052', localId: '052', name: 'エテボース' }
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew 052/172', 10);
+
+    expect(choices).toEqual([
+      { name: 'Mew Japanese S12a 052/172', value: 'Mew Japanese S12a 052/172' }
+    ]);
+  });
+
   it('requires edit to pick a chase by autocomplete', () => {
     const edit = chase.data
       .toJSON()

@@ -20,6 +20,7 @@ export const chase = {
             .setRequired(true)
             .setMinLength(3)
             .setMaxLength(100)
+            .setAutocomplete(true)
         )
         .addNumberOption((opt) => opt.setName('max_price').setDescription('Highest total price to surface (default: Any)').setMinValue(0.01))
         .addStringOption((opt) =>

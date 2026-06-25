@@ -10,6 +10,7 @@ import {
 } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
+import { autocompleteChaseCards } from '../services/chase-card-catalog.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
@@ -50,6 +51,19 @@ function proControlNames(values: {
     values.targetNote !== undefined ? 'note' : undefined,
     values.hasCustomNegativeKeywords ? 'custom exclusions' : undefined
   ].filter((value): value is string => Boolean(value));
+}
+
+export async function handleChaseAddAutocomplete(interaction: any): Promise<boolean> {
+  if (!interaction.isAutocomplete()) return false;
+  if (interaction.commandName !== 'chase') return false;
+  if (interaction.options.getSubcommand() !== 'add') return false;
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== 'card') return false;
+
+  const query = String(focused.value ?? '').trim();
+  const choices = await autocompleteChaseCards(query, 25);
+  await interaction.respond(choices);
+  return true;
 }
 
 export const chaseAdd = {

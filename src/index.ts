@@ -3,6 +3,7 @@ import { Client, Events, GatewayIntentBits, MessageFlags, type ChatInputCommandI
 import { commands } from './commands/index.js';
 import { handleAlertFeedback } from './commands/alert-feedback.js';
 import { handleAlertSourceButtons } from './commands/alerts-settings.js';
+import { handleChaseAddAutocomplete } from './commands/chase-add.js';
 import { handleChaseEditAutocomplete } from './commands/chase-edit.js';
 import { handleChaseListPagination } from './commands/chase-list.js';
 import { handleChaseRemoveAutocomplete } from './commands/chase-remove.js';
@@ -70,6 +71,7 @@ client.on(Events.Error, (error) => {
 
 client.on(Events.InteractionCreate, async (interaction: Interaction) => {
   try {
+    if (await handleChaseAddAutocomplete(interaction)) return;
     if (await handleChaseEditAutocomplete(interaction)) return;
     if (await handleChaseRemoveAutocomplete(interaction)) return;
     if (await handleChaseListPagination(interaction)) return;
