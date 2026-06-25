@@ -3,6 +3,7 @@ import { chase } from '../chase.js';
 import { buildChaseListEmbed } from '../chase-list.js';
 import {
   addChase,
+  getDiscoveryGlobalCollectorGrammarSummary,
   getDiscoveryLearnedSignalSummary,
   listChases,
   listRecentUserDiscoveryFeedback,
@@ -497,7 +498,7 @@ describe('chase command', () => {
         lane: 'Japanese Collector Trail',
         position: 1,
         rankerVersion: 'collector-v1',
-        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false, collectorTerms: ['japanese', 'promo', 'trainer gallery'] },
+        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false, collectorTerms: ['japanese', 'promo', 'trainer gallery'], collectorTraits: { region: ['japanese'], releaseShape: ['promo'], artShape: ['trainer gallery'] } },
         scores: { collectorRank: 300 }
       },
       {
@@ -508,7 +509,7 @@ describe('chase command', () => {
         lane: 'Japanese Collector Trail',
         position: 2,
         rankerVersion: 'collector-v1',
-        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false, collectorTerms: ['japanese', 'promo', 'trainer gallery'] },
+        features: { japaneseSignal: true, promoSignal: true, ordinaryFormatPenalty: false, collectorTerms: ['japanese', 'promo', 'trainer gallery'], collectorTraits: { region: ['japanese'], releaseShape: ['promo'], artShape: ['trainer gallery'] } },
         scores: { collectorRank: 280 }
       },
       {
@@ -519,7 +520,7 @@ describe('chase command', () => {
         lane: 'Format Trail',
         position: 3,
         rankerVersion: 'collector-v1',
-        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true, collectorTerms: ['vmax'] },
+        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true, collectorTerms: ['vmax'], collectorTraits: { format: ['vmax'] } },
         scores: { collectorRank: 80 }
       },
       {
@@ -530,7 +531,7 @@ describe('chase command', () => {
         lane: 'Format Trail',
         position: 4,
         rankerVersion: 'collector-v1',
-        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true, collectorTerms: ['vmax'] },
+        features: { japaneseSignal: false, promoSignal: false, ordinaryFormatPenalty: true, collectorTerms: ['vmax'], collectorTraits: { format: ['vmax'] } },
         scores: { collectorRank: 70 }
       }
     ]);
@@ -548,5 +549,45 @@ describe('chase command', () => {
     expect(summary.termWeights.japanese).toBeGreaterThan(0);
     expect(summary.termWeights['trainer gallery']).toBeGreaterThan(0);
     expect(summary.termWeights.vmax).toBeLessThan(0);
+    expect(summary.termEdgeWeights['japanese|promo']).toBeGreaterThan(0);
+    expect(summary.termEdgeWeights['promo|trainer gallery']).toBeGreaterThan(0);
+    expect(summary.typedTraitEdgeWeights['region:japanese|releaseShape:promo']).toBeGreaterThan(0);
+    expect(summary.typedTraitEdgeWeights['artShape:trainer gallery|releaseShape:promo']).toBeGreaterThan(0);
+  });
+
+  it('summarizes global collector grammar only after multiple users support a typed edge', () => {
+    const firstUserId = testUserId('global-grammar-first');
+    const secondUserId = testUserId('global-grammar-second');
+    recordDiscoveryTrainingExamples([
+      {
+        userId: firstUserId,
+        surface: 'WEEKLY_DISCOVERY_SHELF',
+        periodKey: '2026-W26',
+        suggestionName: 'First Global Japanese Promo',
+        lane: 'Japanese Collector Trail',
+        position: 1,
+        rankerVersion: 'collector-v1',
+        features: { collectorTraits: { subject: ['mew'], region: ['japanese'], releaseShape: ['promo'] } },
+        scores: { collectorRank: 300 }
+      },
+      {
+        userId: secondUserId,
+        surface: 'WEEKLY_DISCOVERY_SHELF',
+        periodKey: '2026-W26',
+        suggestionName: 'Second Global Japanese Promo',
+        lane: 'Japanese Collector Trail',
+        position: 1,
+        rankerVersion: 'collector-v1',
+        features: { collectorTraits: { subject: ['pikachu'], region: ['japanese'], releaseShape: ['promo'] } },
+        scores: { collectorRank: 290 }
+      }
+    ]);
+    recordDiscoveryFeedback({ userId: firstUserId, cardName: 'First Global Japanese Promo', lane: 'Japanese Collector Trail', feedback: 'MORE_LIKE_THIS' });
+    recordDiscoveryFeedback({ userId: secondUserId, cardName: 'Second Global Japanese Promo', lane: 'Japanese Collector Trail', feedback: 'MORE_LIKE_THIS' });
+
+    const summary = getDiscoveryGlobalCollectorGrammarSummary({ limit: 20, minDistinctUsers: 2, minExamples: 2 });
+
+    expect(summary.typedTraitEdgeWeights['region:japanese|releaseShape:promo']).toBeGreaterThan(0);
+    expect(Object.keys(summary.typedTraitEdgeWeights).some((edge) => edge.includes('subject:'))).toBe(false);
   });
 });

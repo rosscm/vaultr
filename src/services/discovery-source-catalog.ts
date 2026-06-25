@@ -96,6 +96,35 @@ const SOURCE_PROFILE_IDENTITY_STOP_WORDS = new Set([
   'vmax',
   'vstar'
 ]);
+const SOURCE_TASTE_TRAIT_TERMS = new Set([
+  'art rare',
+  'black star',
+  'classic collection',
+  'collector',
+  'corocoro',
+  'deck exclusive',
+  'e-reader',
+  'exclusive',
+  'full art',
+  'illustration',
+  'illustration rare',
+  'japanese',
+  'magazine',
+  'magazine promo',
+  'mcdonalds',
+  'numbered set',
+  'odd release',
+  'promo',
+  'rare',
+  'retail',
+  'small set',
+  'special',
+  'special set',
+  'tag team',
+  'trainer gallery',
+  'unique',
+  'vintage'
+]);
 const JAPANESE_PROMO_CODE_PATTERN = /\b(?:\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3})\b/i;
 const JAPANESE_SCRIPT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff]/;
 const JAPANESE_RELEASE_MARKER_PATTERN = /\b(?:coro\s?coro|vending|masaki|munch|poncho|battle\s*festa|players?\s+club|fan\s+club|trainers?\s+magazine|yu\s?nagaba|precious\s+collector|kanazawa|yokohama|sapporo|pokemon\s+center)\b/i;
@@ -192,6 +221,33 @@ function quoted(value: string): string {
 
 function uniqueValuesPreservingOrder(values: string[]): string[] {
   return values.filter((value, index) => values.indexOf(value) === index);
+}
+
+function isSourceTasteTraitTerm(value: string): boolean {
+  return SOURCE_TASTE_TRAIT_TERMS.has(normalizeSearchText(value));
+}
+
+function sourceSubjectTokens(value: string): Set<string> {
+  return new Set(
+    normalizedTokens(value).filter(
+      (token) => token.length >= 3 && !/\d/.test(token) && !ACTIVE_CARD_TOKEN_STOP_WORDS.has(token) && !SOURCE_PROFILE_IDENTITY_STOP_WORDS.has(token) && !isSourceTasteTraitTerm(token)
+    )
+  );
+}
+
+function sanitizeInheritedSourceTasteTokens(parentTokens: string[] | undefined, concreteSubjectText: string, extraTokens: string[] = []): string[] {
+  const concreteSubjectTokens = sourceSubjectTokens(concreteSubjectText);
+  const sanitizedParentTokens = (parentTokens ?? []).filter((token) => {
+    const normalizedToken = normalizeSearchText(token);
+    if (!normalizedToken) return false;
+    if (isSourceTasteTraitTerm(normalizedToken)) return true;
+    const tokenSubjectParts = normalizedTokens(normalizedToken).filter(
+      (part) => part.length >= 3 && !/\d/.test(part) && !ACTIVE_CARD_TOKEN_STOP_WORDS.has(part) && !SOURCE_PROFILE_IDENTITY_STOP_WORDS.has(part) && !isSourceTasteTraitTerm(part)
+    );
+    if (tokenSubjectParts.length === 0) return true;
+    return tokenSubjectParts.every((part) => concreteSubjectTokens.has(part));
+  });
+  return uniqueValuesPreservingOrder([...sanitizedParentTokens, ...extraTokens]);
 }
 
 function uniqueSuggestionsByName(suggestions: DiscoverySuggestion[]): DiscoverySuggestion[] {
@@ -734,6 +790,7 @@ function sourceSuggestionFromPokemonCard(parent: DiscoverySuggestion, card: Poke
 
   const setName = card.set?.name;
   const setLabel = setName ? ` from ${setName}` : '';
+  const sourceTasteTokens = sanitizeInheritedSourceTasteTokens(parent.sourceTasteTokens, card.name ?? name);
   return {
     ...parent,
     name,
@@ -744,6 +801,7 @@ function sourceSuggestionFromPokemonCard(parent: DiscoverySuggestion, card: Poke
     evidenceSearchTerm,
     evidenceAliases: uniqueValuesPreservingOrder([name, evidenceSearchTerm, officialName, officialEvidenceSearchTerm].filter((value): value is string => !!value)),
     requiredEvidenceTokens: requiredCardEvidenceTokens(card),
+    sourceTasteTokens,
     referenceImageUrl: imageUrl,
     referenceSourceName: setName ? `Pokemon TCG (${setName})` : 'Pokemon TCG',
     referenceSourceCardId: card.id,
@@ -797,11 +855,7 @@ function sourceSuggestionFromTcgDexJapaneseCard(parent: DiscoverySuggestion, car
   const name = [displayName, 'Japanese', setLabel, numberLabel].filter(Boolean).join(' ');
   const evidenceSearchTerm = [displayName, 'Japanese Pokemon card', setLabel, numberLabel].filter(Boolean).join(' ');
   const cardKey = normalizeSearchText([displayName, setLabel, numberLabel].filter(Boolean).join(' ')).split(/\s+/).slice(0, 4).join('-') || 'japanese-card';
-  const sourceTasteTokens = uniqueValuesPreservingOrder([
-    ...(parent.sourceTasteTokens ?? []),
-    'japanese',
-    ...(isSmallJapaneseSpecialSet(card) ? ['special set', 'small set', 'numbered set'] : [])
-  ]);
+  const sourceTasteTokens = sanitizeInheritedSourceTasteTokens(parent.sourceTasteTokens, displayName, ['japanese', ...(isSmallJapaneseSpecialSet(card) ? ['special set', 'small set', 'numbered set'] : [])]);
   return {
     ...parent,
     name,

@@ -49,6 +49,7 @@ import {
   shouldShowDiscoveryShelfTighteningNote,
   typicalMarketTotal,
   weeklyDiscoveryShelfSizeForPlan,
+  __discoveryLearningTestHooks,
   type DiscoveryCandidate
 } from '../discover.js';
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
@@ -324,6 +325,12 @@ describe('selectVisibleCandidates', () => {
     expect(features.exactNicheIdentity).toBe(true);
     expect(features.ordinaryFormatPenalty).toBe(false);
     expect(features.collectorTerms).toEqual(expect.arrayContaining(['bulbasaur deck', 'intro pack', 'japanese']));
+    expect(features.collectorTraits).toMatchObject({
+      subject: ['raichu'],
+      region: ['japanese'],
+      releaseShape: ['intro pack'],
+      identifierShape: ['collector-number']
+    });
     expect(features.marketEvidence).toBeGreaterThanOrEqual(2);
   });
 
@@ -356,7 +363,9 @@ describe('selectVisibleCandidates', () => {
       likedCount: 3,
       rejectedCount: 1,
       featureWeights: { japaneseSignal: 24, promoSignal: 18 },
-      termWeights: { japanese: 12, promo: 8 }
+      termWeights: { japanese: 12, promo: 8 },
+      termEdgeWeights: {},
+      typedTraitEdgeWeights: {}
     });
 
     expect(learnedScore).toBeGreaterThan(neutralScore);
@@ -373,11 +382,135 @@ describe('selectVisibleCandidates', () => {
       likedCount: 3,
       rejectedCount: 1,
       featureWeights: {},
-      termWeights: { 'trainer gallery': 24 }
+      termWeights: { 'trainer gallery': 24 },
+      termEdgeWeights: {},
+      typedTraitEdgeWeights: {}
     });
 
     expect(collectorDiscoveryFeatures(galleryCandidate, profile).collectorTerms).toContain('trainer gallery');
     expect(learnedScore).toBeGreaterThan(neutralScore);
+  });
+
+  it('applies learned collector term graph nudges from co-occurring taste traits', () => {
+    const profile = [
+      { id: 'c1', userId: 'u1', cardName: 'Corocoro Shining Mew', priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+    const coroCoroCandidate = {
+      ...candidate('Pikachu CoroCoro promo Pokemon cards', 'Japanese Collector Trail', 0, 12),
+      suggestion: {
+        ...candidate('Pikachu CoroCoro promo Pokemon cards', 'Japanese Collector Trail', 0).suggestion,
+        requiredEvidenceTokens: ['pikachu', 'corocoro'],
+        sourceTasteTokens: ['pikachu', 'japanese', 'promo', 'corocoro', 'magazine']
+      }
+    } satisfies DiscoveryCandidate;
+    const neutralScore = collectorDiscoveryRankScore(coroCoroCandidate, profile);
+    const learnedScore = collectorDiscoveryRankScore(coroCoroCandidate, profile, undefined, {
+      exampleCount: 4,
+      likedCount: 3,
+      rejectedCount: 1,
+      featureWeights: {},
+      termWeights: {},
+      termEdgeWeights: { 'corocoro|magazine': 18 },
+      typedTraitEdgeWeights: {}
+    });
+
+    expect(collectorDiscoveryFeatures(coroCoroCandidate, profile).collectorTerms).toEqual(expect.arrayContaining(['corocoro', 'magazine']));
+    expect(learnedScore).toBeGreaterThan(neutralScore);
+  });
+
+  it('applies learned typed collector graph nudges between trait families', () => {
+    const profile = [
+      { id: 'c1', userId: 'u1', cardName: 'Corocoro Shining Mew', priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+    const coroCoroCandidate = {
+      ...candidate('Pikachu CoroCoro promo Pokemon cards', 'Japanese Collector Trail', 0, 12),
+      suggestion: {
+        ...candidate('Pikachu CoroCoro promo Pokemon cards', 'Japanese Collector Trail', 0).suggestion,
+        requiredEvidenceTokens: ['pikachu', 'corocoro'],
+        sourceTasteTokens: ['pikachu', 'japanese', 'promo', 'corocoro', 'magazine']
+      }
+    } satisfies DiscoveryCandidate;
+    const neutralScore = collectorDiscoveryRankScore(coroCoroCandidate, profile);
+    const learnedScore = collectorDiscoveryRankScore(coroCoroCandidate, profile, undefined, {
+      exampleCount: 4,
+      likedCount: 3,
+      rejectedCount: 1,
+      featureWeights: {},
+      termWeights: {},
+      termEdgeWeights: {},
+      typedTraitEdgeWeights: { 'channel:corocoro|releaseShape:promo': 16 }
+    });
+
+    expect(collectorDiscoveryFeatures(coroCoroCandidate, profile).collectorTraits).toMatchObject({
+      channel: ['corocoro', 'magazine'],
+      releaseShape: ['promo'],
+      region: ['japanese']
+    });
+    expect(learnedScore).toBeGreaterThan(neutralScore);
+  });
+
+  it('applies lower-capped global collector grammar without personal subject learning', () => {
+    const profile = [
+      { id: 'c1', userId: 'u1', cardName: 'Japanese promo binder cards', priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+    const japanesePromo = candidate('Pikachu 010/018 Holo McDonalds Promo e-Reader 2002 Japanese', 'Japanese Collector Trail', 0, 12);
+    const neutralScore = collectorDiscoveryRankScore(japanesePromo, profile);
+    const learnedScore = collectorDiscoveryRankScore(japanesePromo, profile, undefined, {
+      exampleCount: 0,
+      likedCount: 0,
+      rejectedCount: 0,
+      featureWeights: {},
+      termWeights: {},
+      termEdgeWeights: {},
+      typedTraitEdgeWeights: {},
+      globalExampleCount: 12,
+      globalTypedTraitEdgeWeights: { 'region:japanese|releaseShape:promo': 12 }
+    });
+
+    expect(learnedScore).toBeGreaterThan(neutralScore);
+  });
+
+  it('applies vault-derived trait priors before explicit Discovery feedback exists', () => {
+    const profile = [
+      { id: 'c1', userId: 'u1', cardName: "Squirtle 007/018 McDonald's Promo e-Reader 2002 Japanese", priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c2', userId: 'u1', cardName: 'Pikachu xy95', priority: 'HIGH' as const, createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+    const retailEReaderCandidate = candidate("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese", 'Japanese Collector Trail', 0, 12);
+    const neutralScore = collectorDiscoveryRankScore(retailEReaderCandidate, profile);
+    const learnedScore = collectorDiscoveryRankScore(retailEReaderCandidate, profile, undefined, {
+      exampleCount: 0,
+      likedCount: 0,
+      rejectedCount: 0,
+      featureWeights: {},
+      termWeights: {},
+      termEdgeWeights: {},
+      typedTraitEdgeWeights: {},
+      vaultTypedTraitEdgeWeights: {
+        'era:e-reader|identifierShape:compact-fraction': 10,
+        'era:e-reader|releaseShape:promo': 10,
+        'identifierShape:compact-fraction|releaseShape:promo': 10
+      }
+    });
+
+    expect(collectorDiscoveryFeatures(retailEReaderCandidate, profile).collectorTraits).toMatchObject({
+      era: ['e-reader'],
+      releaseShape: ['promo'],
+      identifierShape: ['compact-fraction']
+    });
+    expect(learnedScore).toBeGreaterThan(neutralScore);
+  });
+
+  it('derives graph priors from common collector shapes in saved chases', () => {
+    const profile = [
+      { id: 'c1', userId: 'u1', cardName: "Squirtle 007/018 McDonald's Promo e-Reader 2002 Japanese", priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c2', userId: 'u1', cardName: "Pikachu 010/018 McDonald's Promo e-Reader 2002 Japanese", priority: 'HIGH' as const, createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+
+    const weights = __discoveryLearningTestHooks.vaultTypedTraitEdgeWeights(profile);
+
+    expect(weights['era:e-reader|releaseShape:promo']).toBe(10);
+    expect(weights['identifierShape:compact-fraction|releaseShape:promo']).toBe(10);
+    expect(weights['region:japanese|releaseShape:promo']).toBe(10);
   });
 
   it('explains Discovery path summaries for shelf headers', () => {
@@ -1127,6 +1260,28 @@ describe('selectVisibleCandidates', () => {
     expect(visibleNames).toHaveLength(3);
     expect(visibleNames.filter((name) => /^Zapdos Aquapolis/i.test(name))).toHaveLength(1);
     expect(visibleNames).toEqual(expect.arrayContaining(['Articuno Skyridge 4', 'Mew Expedition Base Set 55']));
+  });
+
+  it('prefers image-backed compact Japanese set variants over slash-total market duplicates', () => {
+    const slashTotalMarketCandidate = candidate('Mew Japanese S12a 052/172', 'Japanese Collector Trail', 0, 3);
+    const sourceImageCandidate = sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 1);
+
+    const visible = selectVisibleCandidatesForCount([slashTotalMarketCandidate, sourceImageCandidate], [], 1);
+
+    expect(visible).toHaveLength(1);
+    expect(visible[0].suggestion.name).toBe('Mew Japanese S12a 052');
+    expect(visible[0].image?.sourceName).toBe('TCGdex Japanese (S12a)');
+  });
+
+  it('prefers image-backed Black Star Promo variants over shorthand marketplace duplicates', () => {
+    const shorthandMarketCandidate = candidate('Umbreon Darkrai-gx Sm Promos SM241 trading card', 'Promo Trail', 0, 3);
+    const sourceImageCandidate = sourceCandidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Pokemon TCG (SM Black Star Promos)', 1);
+
+    const visible = selectVisibleCandidatesForCount([shorthandMarketCandidate, sourceImageCandidate], [], 1);
+
+    expect(visible).toHaveLength(1);
+    expect(visible[0].suggestion.name).toBe('Umbreon & Darkrai-GX SM Black Star Promos SM241');
+    expect(visible[0].image?.sourceName).toBe('Pokemon TCG (SM Black Star Promos)');
   });
 
   it('prefers fresh weekly candidates before repeating previous shelf names', () => {

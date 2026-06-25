@@ -13,6 +13,7 @@ import {
   countUserChases,
   createDiscoveryVaultAction,
   deleteExpiredDiscoveryVaultActions,
+  getDiscoveryGlobalCollectorGrammarSummary,
   getDiscoveryVaultAction,
   getDiscoveryLearnedSignalSummary,
   getUserDiscoveryState,
@@ -94,9 +95,14 @@ export type DiscoveryCollectorFeatures = {
   imageEvidence: number;
   curiosity: number;
   collectorTerms: string[];
+  collectorTraits: Record<string, string[]>;
 };
 
-type DiscoveryLearnedRankContext = ReturnType<typeof getDiscoveryLearnedSignalSummary>;
+type DiscoveryLearnedRankContext = ReturnType<typeof getDiscoveryLearnedSignalSummary> & {
+  globalTypedTraitEdgeWeights?: Record<string, number>;
+  globalExampleCount?: number;
+  vaultTypedTraitEdgeWeights?: Record<string, number>;
+};
 
 type DiscoveryCardImage = {
   name: string;
@@ -1559,6 +1565,7 @@ export function collectorDiscoveryFeatures(candidate: DiscoveryCandidate, chases
   const exactNicheIdentity = isExactNicheDiscoveryCandidate(candidate);
   const premiumFormatContext = hasPremiumVmaxContextText(text) || /\b(?:sir|sar|ar|special illustration rare|illustration rare|alt art|alternate art|secret rare|trainer gallery|galarian gallery)\b/.test(text);
   const ordinaryFormatPenalty = isOrdinaryVmaxDiscoveryCandidate(candidate) || (/\b(?:gx|ex|vmax|vstar)\b/.test(text) && !premiumFormatContext && !exactNicheIdentity);
+  const collectorTerms = collectorTermTokens(candidate);
   return {
     directSubjectSupport,
     japaneseAffinity,
@@ -1576,7 +1583,8 @@ export function collectorDiscoveryFeatures(candidate: DiscoveryCandidate, chases
     marketEvidence: marketEvidenceRank(candidate),
     imageEvidence: imageQualityRank(candidate),
     curiosity: candidate.suggestion.curiosityScore ?? 0,
-    collectorTerms: collectorTermTokens(candidate)
+    collectorTerms,
+    collectorTraits: collectorTraitMap(candidate, collectorTerms)
   };
 }
 
@@ -1663,6 +1671,82 @@ function collectorTermTokens(candidate: DiscoveryCandidate): string[] {
   return Array.from(terms).sort();
 }
 
+function typedCollectorTrait(terms: string[], values: string[]): string[] {
+  const termSet = new Set(terms);
+  return values.filter((value) => termSet.has(value));
+}
+
+function collectorTraitMap(candidate: DiscoveryCandidate, collectorTerms: string[]): Record<string, string[]> {
+  const text = normalizeCollectorTerm([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.requiredEvidenceTokens ?? []), ...(candidate.suggestion.sourceTasteTokens ?? [])].filter(Boolean).join(' '));
+  const collectorTermParts = new Set(collectorTerms.flatMap((term) => normalizedTokens(term)));
+  const subject = uniqueValuesPreservingOrder(candidateSpecificSubjectTokens(candidate).filter((token) => token.length >= 3 && !collectorTermParts.has(token))).slice(0, 4);
+  const traits: Record<string, string[]> = {
+    subject,
+    region: typedCollectorTrait(collectorTerms, ['japanese']),
+    channel: typedCollectorTrait(collectorTerms, ['corocoro', 'magazine', 'pokemon center', 'vending', 'masaki', 'munch', 'poncho']),
+    releaseShape: typedCollectorTrait(collectorTerms, ['promo', 'black star', 'special delivery', 'classic collection', 'exclusive', 'deck exclusive', 'intro pack', 'odd release', 'limited release', 'unique release', 'magazine promo', 'special set', 'small set', 'numbered set', 'staff', 'winner', 'prerelease', 'stamped', 'stamp']),
+    era: typedCollectorTrait(collectorTerms, ['vintage', 'e-reader', 'southern islands', 'team rocket', 'gym challenge', 'gym heroes']),
+    artShape: typedCollectorTrait(collectorTerms, ['special illustration rare', 'illustration rare', 'trainer gallery', 'galarian gallery', 'art rare', 'alt art', 'alternate art', 'full art', 'secret rare', 'hyper rare', 'rainbow rare', 'gold star', 'shiny vault', 'sar', 'sir', 'crystal', 'shining']),
+    format: typedCollectorTrait(collectorTerms, ['tag team', 'vmax', 'vstar', 'gx', 'ex']),
+    identifierShape: []
+  };
+  if (BARE_COLLECTOR_NUMBER_PATTERN.test(text)) traits.identifierShape.push('compact-fraction');
+  if (JAPANESE_PROMO_CODE_PATTERN.test(text)) traits.identifierShape.push('japanese-promo-code');
+  if (/\b(?:no\.?|#)\s?\d{1,3}\b/.test(text)) traits.identifierShape.push('collector-number');
+  return Object.fromEntries(Object.entries(traits).filter(([, values]) => values.length > 0));
+}
+
+function chaseCollectorTerms(chase: Chase): string[] {
+  const text = normalizeCollectorTerm([chase.cardName, chase.targetNote].filter(Boolean).join(' '));
+  const terms = new Set<string>();
+  for (const phrase of COLLECTOR_TERM_PHRASES) {
+    const normalizedPhrase = normalizeCollectorTerm(phrase);
+    if (new RegExp(`\\b${normalizedPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text)) terms.add(normalizedPhrase);
+  }
+  return Array.from(terms).sort();
+}
+
+function chaseCollectorTraits(chase: Chase): Record<string, string[]> {
+  const text = normalizeCollectorTerm([chase.cardName, chase.targetNote].filter(Boolean).join(' '));
+  const collectorTerms = chaseCollectorTerms(chase);
+  const collectorTermParts = new Set(collectorTerms.flatMap((term) => normalizedTokens(term)));
+  const subject = uniqueValuesPreservingOrder(chaseSpecificSubjectTokens(chase).filter((token) => token.length >= 3 && !collectorTermParts.has(token))).slice(0, 4);
+  const traits: Record<string, string[]> = {
+    subject,
+    region: typedCollectorTrait(collectorTerms, ['japanese']),
+    channel: typedCollectorTrait(collectorTerms, ['corocoro', 'magazine', 'pokemon center', 'vending', 'masaki', 'munch', 'poncho']),
+    releaseShape: typedCollectorTrait(collectorTerms, ['promo', 'black star', 'special delivery', 'classic collection', 'exclusive', 'deck exclusive', 'intro pack', 'odd release', 'limited release', 'unique release', 'magazine promo', 'special set', 'small set', 'numbered set', 'staff', 'winner', 'prerelease', 'stamped', 'stamp']),
+    era: typedCollectorTrait(collectorTerms, ['vintage', 'e-reader', 'southern islands', 'team rocket', 'gym challenge', 'gym heroes']),
+    artShape: typedCollectorTrait(collectorTerms, ['special illustration rare', 'illustration rare', 'trainer gallery', 'galarian gallery', 'art rare', 'alt art', 'alternate art', 'full art', 'secret rare', 'hyper rare', 'rainbow rare', 'gold star', 'shiny vault', 'sar', 'sir', 'crystal', 'shining']),
+    format: typedCollectorTrait(collectorTerms, ['tag team', 'vmax', 'vstar', 'gx', 'ex']),
+    identifierShape: []
+  };
+  if (BARE_COLLECTOR_NUMBER_PATTERN.test(text)) traits.identifierShape.push('compact-fraction');
+  if (JAPANESE_PROMO_CODE_PATTERN.test(text)) traits.identifierShape.push('japanese-promo-code');
+  if (/\b(?:no\.?|#)\s?\d{1,3}\b/.test(text)) traits.identifierShape.push('collector-number');
+  return Object.fromEntries(Object.entries(traits).filter(([, values]) => values.length > 0));
+}
+
+function vaultTypedTraitEdgeWeights(chases: Chase[]): Record<string, number> {
+  const edgeCounts = new Map<string, number>();
+  for (const chase of positiveTasteSubjectChases(chases)) {
+    const traits = typedCollectorTraitTokens(chaseCollectorTraits(chase));
+    for (let outerIndex = 0; outerIndex < traits.length; outerIndex += 1) {
+      for (let innerIndex = outerIndex + 1; innerIndex < traits.length; innerIndex += 1) {
+        const edge = collectorTermEdgeKey(traits[outerIndex], traits[innerIndex]);
+        edgeCounts.set(edge, (edgeCounts.get(edge) ?? 0) + 1);
+      }
+    }
+  }
+  const weights: Record<string, number> = {};
+  for (const [edge, count] of edgeCounts.entries()) weights[edge] = count >= 2 ? 10 : 5;
+  return weights;
+}
+
+export const __discoveryLearningTestHooks = {
+  vaultTypedTraitEdgeWeights
+};
+
 function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
   if (!learnedRankContext || learnedRankContext.exampleCount < 3) return 0;
   let nudge = 0;
@@ -1677,6 +1761,66 @@ function learnedTermRankNudge(features: DiscoveryCollectorFeatures, learnedRankC
   let nudge = 0;
   for (const term of features.collectorTerms) nudge += learnedRankContext.termWeights[term] ?? 0;
   return Math.max(-36, Math.min(36, nudge));
+}
+
+function collectorTermEdgeKey(first: string, second: string): string {
+  return [first, second].sort().join('|');
+}
+
+function typedCollectorTraitTokens(traits: Record<string, string[]>): string[] {
+  const tokens: string[] = [];
+  for (const [type, values] of Object.entries(traits)) {
+    for (const value of values) tokens.push(`${type}:${value}`);
+  }
+  return Array.from(new Set(tokens)).sort();
+}
+
+function learnedTermGraphRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
+  if (!learnedRankContext || learnedRankContext.exampleCount < 3 || !learnedRankContext.termEdgeWeights) return 0;
+  let nudge = 0;
+  const terms = Array.from(new Set(features.collectorTerms)).sort();
+  for (let outerIndex = 0; outerIndex < terms.length; outerIndex += 1) {
+    for (let innerIndex = outerIndex + 1; innerIndex < terms.length; innerIndex += 1) {
+      nudge += learnedRankContext.termEdgeWeights[collectorTermEdgeKey(terms[outerIndex], terms[innerIndex])] ?? 0;
+    }
+  }
+  return Math.max(-24, Math.min(24, nudge));
+}
+
+function learnedTypedTraitGraphRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
+  if (!learnedRankContext || learnedRankContext.exampleCount < 3 || !learnedRankContext.typedTraitEdgeWeights) return 0;
+  let nudge = 0;
+  const traits = typedCollectorTraitTokens(features.collectorTraits);
+  for (let outerIndex = 0; outerIndex < traits.length; outerIndex += 1) {
+    for (let innerIndex = outerIndex + 1; innerIndex < traits.length; innerIndex += 1) {
+      nudge += learnedRankContext.typedTraitEdgeWeights[collectorTermEdgeKey(traits[outerIndex], traits[innerIndex])] ?? 0;
+    }
+  }
+  return Math.max(-24, Math.min(24, nudge));
+}
+
+function globalTypedTraitGraphRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
+  if (!learnedRankContext || (learnedRankContext.globalExampleCount ?? 0) < 12 || !learnedRankContext.globalTypedTraitEdgeWeights) return 0;
+  let nudge = 0;
+  const traits = typedCollectorTraitTokens({ ...features.collectorTraits, subject: [] });
+  for (let outerIndex = 0; outerIndex < traits.length; outerIndex += 1) {
+    for (let innerIndex = outerIndex + 1; innerIndex < traits.length; innerIndex += 1) {
+      nudge += learnedRankContext.globalTypedTraitEdgeWeights[collectorTermEdgeKey(traits[outerIndex], traits[innerIndex])] ?? 0;
+    }
+  }
+  return Math.max(-12, Math.min(12, nudge));
+}
+
+function vaultTypedTraitGraphRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
+  if (!learnedRankContext?.vaultTypedTraitEdgeWeights) return 0;
+  let nudge = 0;
+  const traits = typedCollectorTraitTokens(features.collectorTraits);
+  for (let outerIndex = 0; outerIndex < traits.length; outerIndex += 1) {
+    for (let innerIndex = outerIndex + 1; innerIndex < traits.length; innerIndex += 1) {
+      nudge += learnedRankContext.vaultTypedTraitEdgeWeights[collectorTermEdgeKey(traits[outerIndex], traits[innerIndex])] ?? 0;
+    }
+  }
+  return Math.max(-18, Math.min(18, nudge));
 }
 
 export function collectorDiscoveryRankScore(candidate: DiscoveryCandidate, chases: Chase[] = [], negativeProfile?: DiscoveryNegativeProfile, learnedRankContext?: DiscoveryLearnedRankContext): number {
@@ -1695,7 +1839,11 @@ export function collectorDiscoveryRankScore(candidate: DiscoveryCandidate, chase
     (features.weakSubjectPenalty ? 35 : 0) -
     (features.historyFallbackPenalty ? 45 : 0) +
     learnedFeatureRankNudge(features, learnedRankContext) +
-    learnedTermRankNudge(features, learnedRankContext)
+    learnedTermRankNudge(features, learnedRankContext) +
+    learnedTermGraphRankNudge(features, learnedRankContext) +
+    learnedTypedTraitGraphRankNudge(features, learnedRankContext) +
+    globalTypedTraitGraphRankNudge(features, learnedRankContext) +
+    vaultTypedTraitGraphRankNudge(features, learnedRankContext)
   );
 }
 
@@ -2793,7 +2941,11 @@ function sourceSetLabel(candidate: DiscoveryCandidate): string | undefined {
   if (match?.[1]) return match[1];
   const text = candidate.suggestion.name;
   const knownSetMatch = /\b(Expedition Base Set|Aquapolis|Skyridge|Wizards Black Star Promos|XY Black Star Promos|BW Black Star Promos|SWSH Black Star Promos|SM Black Star Promos|Surging Sparks|Paldean Fates|Legendary Treasures|151)\b/i.exec(text);
-  return knownSetMatch?.[1];
+  if (knownSetMatch?.[1]) return knownSetMatch[1];
+  const shorthandPromoSetMatch = /\b(XY|BW|SWSH|SM)\s+Promos?\b/i.exec(text);
+  if (shorthandPromoSetMatch?.[1]) return `${shorthandPromoSetMatch[1].toUpperCase()} Black Star Promos`;
+  const compactJapaneseSetMatch = /\b((?:S|SV|SM|XY)\d{1,3}[a-z]?)\b/i.exec(text);
+  return compactJapaneseSetMatch?.[1];
 }
 
 function sourceCardSubject(candidate: DiscoveryCandidate, setLabel: string | undefined): string {
@@ -2801,6 +2953,7 @@ function sourceCardSubject(candidate: DiscoveryCandidate, setLabel: string | und
   if (setLabel) subject = subject.replace(new RegExp(`\\s+${setLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b.*$`, 'i'), '');
   subject = subject
     .replace(/\b(?:special delivery|with grey felt hat|grey felt hat|felt hat|illustration collection|toys r us|staff|winner|prerelease)\b/gi, ' ')
+    .replace(/\b(?:xy|bw|swsh|sm)\s+(?:black star\s+)?promos?\b.*$/i, ' ')
     .replace(/\b(?:promo|promos|black star)\b/gi, ' ')
     .replace(/\s+Japanese\b.*$/i, '')
     .replace(/\s+\S*\d{1,4}\s*$/i, '')
@@ -2943,6 +3096,21 @@ function candidateVariantFamilyKey(candidate: DiscoveryCandidate): string | unde
   return `${subjectKey}|${setKey}`;
 }
 
+function variantRepresentativeCandidates(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
+  const bestByVariant = new Map<string, DiscoveryCandidate>();
+  const score = (candidate: DiscoveryCandidate): number => imageQualityRank(candidate) * 100 + marketEvidenceRank(candidate);
+  for (const candidate of candidates) {
+    const variantKey = candidateVariantFamilyKey(candidate);
+    if (!variantKey) continue;
+    const current = bestByVariant.get(variantKey);
+    if (!current || score(candidate) > score(current)) bestByVariant.set(variantKey, candidate);
+  }
+  return candidates.filter((candidate) => {
+    const variantKey = candidateVariantFamilyKey(candidate);
+    return !variantKey || bestByVariant.get(variantKey) === candidate;
+  });
+}
+
 function isJapaneseDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
   return /\bjapanese\b|\btcgdex japanese\b/i.test(
     [candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
@@ -2983,6 +3151,7 @@ export function discoveryCardClickUrl(candidate: DiscoveryCandidate, currencyHin
 }
 
 function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = [], count = VISIBLE_DISCOVERY_COUNT): DiscoveryCandidate[] {
+  candidates = variantRepresentativeCandidates(candidates);
   const selected: DiscoveryCandidate[] = [];
   const seenThemes = new Set<string>();
   const seenSubjects = new Set<string>();
@@ -3532,7 +3701,18 @@ async function discoverCandidatesForUser(
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const rejectedNames = recentlyRejected.map((item) => item.suggestionName);
   const negativeProfile = discoveryNegativeProfile(recentlyRejected, tasteProfileChases);
-  const learnedRankContext = hasFullDiscovery ? getDiscoveryLearnedSignalSummary(userId) : undefined;
+  const learnedRankContext = hasFullDiscovery
+    ? (() => {
+        const userSummary = getDiscoveryLearnedSignalSummary(userId);
+        const globalSummary = getDiscoveryGlobalCollectorGrammarSummary();
+        return {
+          ...userSummary,
+          globalTypedTraitEdgeWeights: globalSummary.typedTraitEdgeWeights,
+          globalExampleCount: globalSummary.exampleCount,
+          vaultTypedTraitEdgeWeights: vaultTypedTraitEdgeWeights(tasteProfileChases)
+        };
+      })()
+    : undefined;
   const recentlySeenNames = listRecentUserDiscoverySeenNames(userId);
   const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames, activeTier, targetVisibleCount);
   const stateKey = discoveryStateKey(activeTier, targetVisibleCount);

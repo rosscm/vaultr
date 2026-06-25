@@ -74,6 +74,16 @@ export type DiscoveryLearnedSignalSummary = {
   rejectedCount: number;
   featureWeights: Record<string, number>;
   termWeights: Record<string, number>;
+  termEdgeWeights: Record<string, number>;
+  typedTraitEdgeWeights: Record<string, number>;
+};
+
+export type DiscoveryGlobalCollectorGrammarSummary = {
+  exampleCount: number;
+  likedCount: number;
+  rejectedCount: number;
+  distinctUserCount: number;
+  typedTraitEdgeWeights: Record<string, number>;
 };
 
 type UserDiscoveryFeedbackRow = {
@@ -85,6 +95,7 @@ type UserDiscoveryFeedbackRow = {
 };
 
 type DiscoveryTrainingOutcomeRow = {
+  user_id?: string;
   outcome: UserDiscoveryFeedback;
   feature_json: string;
 };
@@ -561,6 +572,14 @@ const listDiscoveryTrainingOutcomesStmt = db.prepare(`
   SELECT outcome, feature_json
   FROM discovery_training_examples
   WHERE user_id = ? AND outcome IN ('MORE_LIKE_THIS', 'NOT_FOR_ME')
+  ORDER BY outcome_at DESC, updated_at DESC
+  LIMIT ?
+`);
+
+const listGlobalDiscoveryTrainingOutcomesStmt = db.prepare(`
+  SELECT user_id, outcome, feature_json
+  FROM discovery_training_examples
+  WHERE outcome IN ('MORE_LIKE_THIS', 'NOT_FOR_ME')
   ORDER BY outcome_at DESC, updated_at DESC
   LIMIT ?
 `);
@@ -1100,37 +1119,81 @@ function clampLearnedWeight(value: number): number {
   return Math.max(-36, Math.min(36, Math.round(value)));
 }
 
+function discoveryTermEdgeKey(first: string, second: string): string {
+  return [first, second].sort().join('|');
+}
+
+function discoveryTypedTraitTokens(features: Record<string, unknown>, options: { includeSubjects?: boolean } = {}): string[] {
+  const traits = features.collectorTraits;
+  if (!traits || typeof traits !== 'object' || Array.isArray(traits)) return [];
+  const tokens: string[] = [];
+  for (const [type, values] of Object.entries(traits as Record<string, unknown>)) {
+    if (type === 'subject' && options.includeSubjects === false) continue;
+    if (!Array.isArray(values)) continue;
+    for (const value of values) {
+      if (typeof value !== 'string' || value.trim().length === 0) continue;
+      tokens.push(`${type}:${value}`);
+    }
+  }
+  return Array.from(new Set(tokens)).sort();
+}
+
+function incrementLearnedCounts(current: { liked: number; rejected: number }, outcome: UserDiscoveryFeedback): { liked: number; rejected: number } {
+  if (outcome === 'MORE_LIKE_THIS') current.liked += 1;
+  else current.rejected += 1;
+  return current;
+}
+
+function parsedDiscoveryTrainingFeatures(row: DiscoveryTrainingOutcomeRow): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(row.feature_json) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export function getDiscoveryLearnedSignalSummary(userId: string, limit = 200): DiscoveryLearnedSignalSummary {
   const rows = listDiscoveryTrainingOutcomesStmt.all(userId, limit) as DiscoveryTrainingOutcomeRow[];
   const stats = new Map<string, { liked: number; rejected: number }>();
   const termStats = new Map<string, { liked: number; rejected: number }>();
+  const termEdgeStats = new Map<string, { liked: number; rejected: number }>();
+  const typedTraitEdgeStats = new Map<string, { liked: number; rejected: number }>();
   let likedCount = 0;
   let rejectedCount = 0;
   for (const row of rows) {
-    let features: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(row.feature_json) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) features = parsed as Record<string, unknown>;
-    } catch {
-      continue;
-    }
+    const features = parsedDiscoveryTrainingFeatures(row);
+    if (!features) continue;
     if (row.outcome === 'MORE_LIKE_THIS') likedCount += 1;
     else rejectedCount += 1;
     for (const feature of LEARNED_BOOLEAN_FEATURES) {
       if (features[feature] !== true) continue;
       const current = stats.get(feature) ?? { liked: 0, rejected: 0 };
-      if (row.outcome === 'MORE_LIKE_THIS') current.liked += 1;
-      else current.rejected += 1;
-      stats.set(feature, current);
+      stats.set(feature, incrementLearnedCounts(current, row.outcome));
     }
     const collectorTerms = Array.isArray(features.collectorTerms)
       ? features.collectorTerms.filter((term): term is string => typeof term === 'string' && term.trim().length > 0)
       : [];
-    for (const term of new Set(collectorTerms)) {
+    const uniqueCollectorTerms = Array.from(new Set(collectorTerms)).sort();
+    for (const term of uniqueCollectorTerms) {
       const current = termStats.get(term) ?? { liked: 0, rejected: 0 };
-      if (row.outcome === 'MORE_LIKE_THIS') current.liked += 1;
-      else current.rejected += 1;
-      termStats.set(term, current);
+      termStats.set(term, incrementLearnedCounts(current, row.outcome));
+    }
+    for (let outerIndex = 0; outerIndex < uniqueCollectorTerms.length; outerIndex += 1) {
+      for (let innerIndex = outerIndex + 1; innerIndex < uniqueCollectorTerms.length; innerIndex += 1) {
+        const edge = discoveryTermEdgeKey(uniqueCollectorTerms[outerIndex], uniqueCollectorTerms[innerIndex]);
+        const current = termEdgeStats.get(edge) ?? { liked: 0, rejected: 0 };
+        termEdgeStats.set(edge, incrementLearnedCounts(current, row.outcome));
+      }
+    }
+    const typedTraitTokens = discoveryTypedTraitTokens(features);
+    for (let outerIndex = 0; outerIndex < typedTraitTokens.length; outerIndex += 1) {
+      for (let innerIndex = outerIndex + 1; innerIndex < typedTraitTokens.length; innerIndex += 1) {
+        const edge = discoveryTermEdgeKey(typedTraitTokens[outerIndex], typedTraitTokens[innerIndex]);
+        const current = typedTraitEdgeStats.get(edge) ?? { liked: 0, rejected: 0 };
+        typedTraitEdgeStats.set(edge, incrementLearnedCounts(current, row.outcome));
+      }
     }
   }
   const featureWeights: Record<string, number> = {};
@@ -1145,7 +1208,55 @@ export function getDiscoveryLearnedSignalSummary(userId: string, limit = 200): D
     if (total < 2) continue;
     termWeights[term] = clampLearnedWeight(((counts.liked - counts.rejected) / total) * 24);
   }
-  return { exampleCount: rows.length, likedCount, rejectedCount, featureWeights, termWeights };
+  const termEdgeWeights: Record<string, number> = {};
+  for (const [edge, counts] of termEdgeStats.entries()) {
+    const total = counts.liked + counts.rejected;
+    if (total < 2) continue;
+    termEdgeWeights[edge] = clampLearnedWeight(((counts.liked - counts.rejected) / total) * 18);
+  }
+  const typedTraitEdgeWeights: Record<string, number> = {};
+  for (const [edge, counts] of typedTraitEdgeStats.entries()) {
+    const total = counts.liked + counts.rejected;
+    if (total < 2) continue;
+    typedTraitEdgeWeights[edge] = clampLearnedWeight(((counts.liked - counts.rejected) / total) * 16);
+  }
+  return { exampleCount: rows.length, likedCount, rejectedCount, featureWeights, termWeights, termEdgeWeights, typedTraitEdgeWeights };
+}
+
+export function getDiscoveryGlobalCollectorGrammarSummary(options: { limit?: number; minDistinctUsers?: number; minExamples?: number } = {}): DiscoveryGlobalCollectorGrammarSummary {
+  const limit = options.limit ?? 1000;
+  const minDistinctUsers = options.minDistinctUsers ?? 5;
+  const minExamples = options.minExamples ?? 12;
+  const rows = listGlobalDiscoveryTrainingOutcomesStmt.all(limit) as DiscoveryTrainingOutcomeRow[];
+  const typedTraitEdgeStats = new Map<string, { liked: number; rejected: number; users: Set<string> }>();
+  const users = new Set<string>();
+  let likedCount = 0;
+  let rejectedCount = 0;
+  for (const row of rows) {
+    const features = parsedDiscoveryTrainingFeatures(row);
+    if (!features) continue;
+    const userId = row.user_id;
+    if (userId) users.add(userId);
+    if (row.outcome === 'MORE_LIKE_THIS') likedCount += 1;
+    else rejectedCount += 1;
+    const typedTraitTokens = discoveryTypedTraitTokens(features, { includeSubjects: false });
+    for (let outerIndex = 0; outerIndex < typedTraitTokens.length; outerIndex += 1) {
+      for (let innerIndex = outerIndex + 1; innerIndex < typedTraitTokens.length; innerIndex += 1) {
+        const edge = discoveryTermEdgeKey(typedTraitTokens[outerIndex], typedTraitTokens[innerIndex]);
+        const current = typedTraitEdgeStats.get(edge) ?? { liked: 0, rejected: 0, users: new Set<string>() };
+        incrementLearnedCounts(current, row.outcome);
+        if (userId) current.users.add(userId);
+        typedTraitEdgeStats.set(edge, current);
+      }
+    }
+  }
+  const typedTraitEdgeWeights: Record<string, number> = {};
+  for (const [edge, counts] of typedTraitEdgeStats.entries()) {
+    const total = counts.liked + counts.rejected;
+    if (total < minExamples || counts.users.size < minDistinctUsers) continue;
+    typedTraitEdgeWeights[edge] = Math.max(-12, Math.min(12, Math.round(((counts.liked - counts.rejected) / total) * 12)));
+  }
+  return { exampleCount: rows.length, likedCount, rejectedCount, distinctUserCount: users.size, typedTraitEdgeWeights };
 }
 
 export function recordDiscoveryFeedback(input: {

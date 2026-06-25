@@ -1597,6 +1597,113 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.sourceTasteTokens).toEqual(expect.arrayContaining(['special set', 'small set', 'numbered set']));
   });
 
+  it('drops stale parent subjects from Japanese source taste tokens while preserving traits', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'xy-rc24',
+                name: 'Mew',
+                number: 'RC24',
+                supertype: 'Pokemon',
+                types: ['Psychic'],
+                nationalPokedexNumbers: [151],
+                set: { name: 'Radiant Collection', series: 'XY', releaseDate: '2016/02/22' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        return new Response(JSON.stringify([{ id: 'S12a-052', localId: '052', name: 'ミュウ', image: 'https://assets.tcgdex.net/ja/S/S12a/052' }]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          category: 'Pokemon',
+          id: 'S12a-052',
+          localId: '052',
+          name: 'ミュウ',
+          image: 'https://assets.tcgdex.net/ja/S/S12a/052',
+          rarity: 'AR',
+          set: { id: 'S12a', name: 'VSTARユニバース' },
+          dexId: [151],
+          types: ['Psychic'],
+          stage: 'Basic'
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Squirtle Japanese Pokemon cards',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'squirtle Japanese Pokemon card',
+        requiredEvidenceTokens: ['squirtle', 'japanese'],
+        sourceTasteTokens: ['squirtle', 'japanese']
+      },
+      [chase('Corocoro Shining Mew'), chase('Mew RC24/RC25')],
+      1
+    );
+
+    expect(resolved.suggestions[0]?.name).toBe('Mew Japanese S12a 052');
+    expect(resolved.suggestions[0]?.sourceTasteTokens).toContain('japanese');
+    expect(resolved.suggestions[0]?.sourceTasteTokens).not.toContain('squirtle');
+  });
+
+  it('drops stale parent subjects from Pokemon TCG source taste tokens while preserving traits', async () => {
+    globalThis.fetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'ecard2-124',
+              name: 'Pikachu',
+              number: '124',
+              supertype: 'Pokemon',
+              subtypes: ['Basic'],
+              rarity: 'Common',
+              types: ['Lightning'],
+              nationalPokedexNumbers: [25],
+              set: { name: 'Expedition Base Set', series: 'E-Card', releaseDate: '2002/09/15' },
+              images: { small: 'https://images.pokemontcg.io/ecard2/124.png' }
+            }
+          ]
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Squirtle e-reader Pokemon cards',
+        lane: 'E-Reader Era Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'squirtle e-reader Pokemon card',
+        requiredEvidenceTokens: ['squirtle', 'e-reader'],
+        sourceTasteTokens: ['squirtle', 'e-reader']
+      },
+      [chase('Pikachu xy95')],
+      1
+    );
+
+    expect(resolved.suggestions[0]?.name).toBe('Pikachu Expedition Base Set 124');
+    expect(resolved.suggestions[0]?.sourceTasteTokens).toContain('e-reader');
+    expect(resolved.suggestions[0]?.sourceTasteTokens).not.toContain('squirtle');
+  });
+
   it('does not let broad collector threads drift into unrelated modern source cards', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
