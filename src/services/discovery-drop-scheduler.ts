@@ -74,9 +74,11 @@ export function shouldPrepareWeeklyDrop(
 function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x8b5cf6)
-    .setTitle('✨ Vaultr Weekly Discovery is live')
+    .setTitle('💫 Vaultr Weekly Discovery')
     .setDescription([
-      'Collector picks are freshly brewed and ready to browse! Full Vault gets a deeper Weekly Shelf shaped by your Vault and taste profile memory, while Free gets a tasty appetizer ☕'
+      'Collector picks are freshly brewed and ready to browse!',
+      '',
+      'Full Vault gets a deeper Weekly Shelf shaped by your Vault and taste profile memory, while Free gets a tasty appetizer 🫰'
     ].join('\n'))
     .setFooter({ text: 'Vaultr • Weekly Shelf' })
     .setTimestamp();

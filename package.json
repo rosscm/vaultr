@@ -17,11 +17,15 @@
     "ops:check": "tsx src/ops-check.ts",
     "ops:check:dist": "node dist/ops-check.js",
     "weekly:refresh": "tsx src/weekly-discovery-refresh.ts",
+    "discovery:inspect": "tsx src/discovery-shelf-inspect.ts",
     "dev:discovery-worker": "tsx src/discovery-market-worker.ts",
     "dev:webhook": "tsx src/ebay-webhook.ts",
     "smoke": "tsx src/smoke.ts",
     "lint": "eslint .",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "test:discovery": "vitest run --config vitest.config.ts src/commands/__tests__/discover.test.ts",
+    "test:discovery:related": "vitest run --config vitest.config.ts src/commands/__tests__/discover.test.ts src/commands/__tests__/chase.test.ts src/services/__tests__/discovery-source-catalog.test.ts src/services/__tests__/discovery-reference-cache.test.ts",
+    "check:discovery": "npm run test:discovery:related && npm run build && git diff --check"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",

@@ -491,9 +491,12 @@ function isActiveChaseEchoListing(listing: Listing, activeChases: Chase[]): bool
 
 function mergeActiveAndTasteMemoryChases(activeChases: Chase[], memoryChases: Chase[]): Chase[] {
   const activeNames = new Set(activeChases.map((chase) => normalize(chase.cardName)));
+  const removedMemoryNames = new Set(memoryChases.filter((chase) => chase.tasteSource === 'REMOVED_CHASE').map((chase) => normalize(chase.cardName)));
   const merged: Chase[] = activeChases.map((chase) => ({ ...chase, tasteSource: 'ACTIVE_CHASE' as const }));
   for (const memoryChase of memoryChases) {
-    if (activeNames.has(normalize(memoryChase.cardName))) continue;
+    const memoryName = normalize(memoryChase.cardName);
+    if (activeNames.has(memoryName)) continue;
+    if (memoryChase.tasteSource !== 'REMOVED_CHASE' && removedMemoryNames.has(memoryName)) continue;
     merged.push(memoryChase);
   }
   return merged;
@@ -1566,7 +1569,7 @@ export function collectorDiscoveryFeatures(candidate: DiscoveryCandidate, chases
     exactNicheIdentity,
     premiumFormatContext,
     ordinaryFormatPenalty,
-    weakSubjectPenalty: isWeakSingleLegendaryBirdSurface(candidate, chases),
+    weakSubjectPenalty: isWeakSingleSubjectFromMultiSubjectProfile(candidate, chases),
     historyFallbackPenalty: isConcreteHistoryFallbackCandidate(candidate),
     negativeSignalPenalty: negativeProfileRankPenalty(candidate, negativeProfile),
     marketEvidence: marketEvidenceRank(candidate),
@@ -1712,7 +1715,7 @@ function hasCollectorShapedScheduledSignal(candidate: DiscoveryCandidate): boole
 
 export function isScheduledProfileRelevantCandidate(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
   if (chases.length === 0) return true;
-  if (isWeakSingleLegendaryBirdSurface(candidate, chases)) return false;
+  if (isWeakSingleSubjectFromMultiSubjectProfile(candidate, chases)) return false;
   if (!hasCollectorShapedScheduledSignal(candidate)) return false;
   return hasConcreteProfileSubjectMatch(candidate, chases) || hasCollectorProfileTraitMatch(candidate, chases) || (hasJapaneseWeightedProfile(chases) && isJapaneseDiscoveryCandidate(candidate));
 }
@@ -2089,9 +2092,9 @@ function sourcePreferenceRankScore(candidate: DiscoveryCandidate, chases: Chase[
   const blackStarPenalty = (japaneseAffinity >= 0.35 || priorityJapanese) && isEnglishBlackStar ? 90 : 0;
   const historyFallbackPenalty = isConcreteHistoryFallbackCandidate(candidate) ? 160 : 0;
   const ordinaryVmaxPenalty = isOrdinaryVmaxDiscoveryCandidate(candidate) ? 110 : 0;
-  const weakLegendaryBirdPenalty = isWeakSingleLegendaryBirdSurface(candidate, chases) ? 140 : 0;
+  const weakMultiSubjectPenalty = isWeakSingleSubjectFromMultiSubjectProfile(candidate, chases) ? 140 : 0;
   const nicheGrailShapeBoost = isExactNicheDiscoveryCandidate(candidate) ? 130 : 0;
-  return japaneseBoost + nicheGrailShapeBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty - historyFallbackPenalty - ordinaryVmaxPenalty - weakLegendaryBirdPenalty - negativeProfileRankPenalty(candidate, negativeProfile);
+  return japaneseBoost + nicheGrailShapeBoost + subjectProfileRankScore(candidate, chases) - blackStarPenalty - historyFallbackPenalty - ordinaryVmaxPenalty - weakMultiSubjectPenalty - negativeProfileRankPenalty(candidate, negativeProfile);
 }
 
 function grailShapePriorityRank(candidate: DiscoveryCandidate, chases: Chase[] = []): number {
@@ -2112,29 +2115,30 @@ function isOrdinaryVmaxDiscoveryCandidate(candidate: DiscoveryCandidate): boolea
   return /\bvmax\b/i.test(text) && !hasPremiumVmaxContextText(text);
 }
 
-const LEGENDARY_BIRD_TOKENS = ['articuno', 'zapdos', 'moltres'];
-
-function legendaryBirdTokens(value: string): string[] {
-  const text = normalize(value);
-  return LEGENDARY_BIRD_TOKENS.filter((token) => new RegExp(`\\b${token}\\b`).test(text));
+function candidateSpecificSubjectTokens(candidate: DiscoveryCandidate): string[] {
+  return cacheBackfillSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' '));
 }
 
-function hasOnlyBroadLegendaryBirdSupport(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
-  const candidateBirds = legendaryBirdTokens(sourceCardText(candidate));
-  if (candidateBirds.length !== 1) return false;
-  const [candidateBird] = candidateBirds;
-  const supportingChases = positiveTasteSubjectChases(chases).filter((chase) => legendaryBirdTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).includes(candidateBird));
+function chaseSpecificSubjectTokens(chase: Chase): string[] {
+  return cacheBackfillSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' '));
+}
+
+function hasOnlyBroadMultiSubjectSupport(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  const candidateTokens = candidateSpecificSubjectTokens(candidate);
+  if (candidateTokens.length !== 1) return false;
+  const [candidateToken] = candidateTokens;
+  const supportingChases = positiveTasteSubjectChases(chases).filter((chase) => chaseSpecificSubjectTokens(chase).includes(candidateToken));
   if (supportingChases.length === 0) return false;
-  return supportingChases.every((chase) => legendaryBirdTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).length >= 2);
+  return supportingChases.every((chase) => chaseSpecificSubjectTokens(chase).length >= 2);
 }
 
-function hasPremiumLegendaryBirdContext(candidate: DiscoveryCandidate): boolean {
+function hasPremiumSingleSubjectContext(candidate: DiscoveryCandidate): boolean {
   const text = sourceCardText(candidate);
   return /\b(?:skyridge|aquapolis|expedition|h\d{1,2}|crystal|shining|ex|lv\.?x|legend|gold star|japanese|exclusive|alt art|sar|sir)\b/i.test(text);
 }
 
-function isWeakSingleLegendaryBirdSurface(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
-  return hasOnlyBroadLegendaryBirdSupport(candidate, chases) && !hasPremiumLegendaryBirdContext(candidate);
+function isWeakSingleSubjectFromMultiSubjectProfile(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  return hasOnlyBroadMultiSubjectSupport(candidate, chases) && !hasPremiumSingleSubjectContext(candidate);
 }
 
 function profileHasVmaxAffinity(chases: Chase[] = []): boolean {
@@ -2249,10 +2253,11 @@ function negativeProfileRankPenalty(candidate: DiscoveryCandidate, negativeProfi
 }
 
 export function discoveryProfileConfidence(chases: Chase[]): DiscoveryProfileConfidence {
-  const signalCount = chases.length;
-  const subjectCount = distinctProfileKeys(chases, (value) => profileSubjectTokens(value).slice(0, 2)).size;
-  const releaseTypeCount = distinctProfileKeys(chases, profileReleaseTypeKeys).size;
-  const eraCount = distinctProfileKeys(chases, profileEraKeys).size;
+  const positiveChases = positiveTasteSubjectChases(chases);
+  const signalCount = positiveChases.length;
+  const subjectCount = distinctProfileKeys(positiveChases, (value) => profileSubjectTokens(value).slice(0, 2)).size;
+  const releaseTypeCount = distinctProfileKeys(positiveChases, profileReleaseTypeKeys).size;
+  const eraCount = distinctProfileKeys(positiveChases, profileEraKeys).size;
   const diversityScore = [subjectCount >= 2, releaseTypeCount >= 2, eraCount >= 2].filter(Boolean).length;
   if (signalCount >= MIN_STRONG_PROFILE_CHASES && diversityScore >= 2) {
     return { tier: 'STRONG', signalCount, subjectCount, releaseTypeCount, eraCount, minShelfSize: DISCOVERY_WEEKLY_DROP_SIZE, maxShelfSize: DISCOVERY_WEEKLY_DROP_SIZE };

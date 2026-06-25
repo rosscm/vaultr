@@ -3818,6 +3818,22 @@ describe('Discovery plan scaling', () => {
     expect(discoveryTasteProfileChases(activeChases, tasteMemory, true).map((chase) => chase.cardName)).toEqual(['Pikachu 26/83 promo', 'Mew RC24', 'Corocoro Shining Mew']);
   });
 
+  it('lets removed taste memory cancel older positive memory for the same card', () => {
+    const activeChases: Chase[] = [{ id: 'c1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-06-03T00:00:00.000Z' }];
+    const tasteMemory: Chase[] = [
+      { id: 'taste:add-skyridge', userId: 'u1', cardName: 'Pikachu Skyridge 84', createdAt: '2026-06-05T18:48:53.216Z', tasteSource: 'DISCOVERY_ADD' },
+      { id: 'taste:removed-skyridge', userId: 'u1', cardName: 'Pikachu Skyridge 84', createdAt: '2026-06-05T18:49:24.380Z', tasteSource: 'REMOVED_CHASE' }
+    ];
+
+    const profile = discoveryTasteProfileChases(activeChases, tasteMemory, true);
+
+    expect(profile.map((chase) => `${chase.cardName}:${chase.tasteSource}`)).toEqual([
+      'Mew RC24:ACTIVE_CHASE',
+      'Pikachu Skyridge 84:REMOVED_CHASE'
+    ]);
+    expect(discoveryProfileConfidence(profile).eraCount).toBe(0);
+  });
+
   it('builds a dynamic market range from saved max prices', () => {
     const chases: Chase[] = [
       { id: 'c1', userId: 'u1', cardName: 'Mew RC24', maxPrice: 80, createdAt: '2026-06-03T00:00:00.000Z' },
