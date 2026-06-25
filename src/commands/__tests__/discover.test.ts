@@ -2918,9 +2918,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteDiscoveryMarketCache(mewtwoCacheKey);
   });
 
-  it('backfills same-subject set-number variants from reliable cache', () => {
+  it('backfills same-subject collector-shaped set-number variants from reliable cache', () => {
     const suffix = Date.now();
-    const fusionName = `Mew VMAX Fusion Strike 269 Cache Variant ${suffix}`;
+    const fusionName = `Mew ex Paldean Fates 232 Full Art Cache Variant ${suffix}`;
     const fusionCacheKey = discoveryMarketCacheKey(fusionName, 'CAD', 'CA');
     deleteDiscoveryMarketCache(fusionCacheKey);
     upsertDiscoveryMarketCache({
@@ -2942,6 +2942,175 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(backfilled.map((item) => item.suggestion.name)).toContain(fusionName);
     deleteDiscoveryMarketCache(fusionCacheKey);
+  });
+
+  it('uses same-set cache variants only after non-variant backfill cannot fill the target', () => {
+    const suffix = Date.now();
+    const current = sourceCandidate(`Umbreon Skyridge 32 Variant Anchor ${suffix}`, 'Pokemon TCG (Skyridge)', 0);
+    const variantName = `Umbreon Skyridge H30 Variant Fallback ${suffix}`;
+    const variantCacheKey = discoveryMarketCacheKey(variantName, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(variantCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: variantCacheKey,
+      suggestionName: variantName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 155,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [{ ...current, typicalRawAskingTotal: 175, marketSampleSize: 12, displayCurrency: 'CAD' }],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      2,
+      ['Umbreon Skyridge 32'].map(chase)
+    );
+
+    expect(backfilled.map((item) => item.suggestion.name)).toContain(variantName);
+    deleteDiscoveryMarketCache(variantCacheKey);
+  });
+
+  it('skips ordinary cached set filler while filling from collector-shaped cache rows', () => {
+    const suffix = Date.now();
+    const ordinaryName = `Mew Evolutions 53 Cache Filler ${suffix}`;
+    const shapedName = `Mew ex Paldean Fates 232 Full Art Cache Fit ${suffix}`;
+    const ordinaryCacheKey = discoveryMarketCacheKey(ordinaryName, 'CAD', 'CA');
+    const shapedCacheKey = discoveryMarketCacheKey(shapedName, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(ordinaryCacheKey);
+    deleteDiscoveryMarketCache(shapedCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: ordinaryCacheKey,
+      suggestionName: ordinaryName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 55,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: shapedCacheKey,
+      suggestionName: shapedName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 155,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      1,
+      ['Corocoro Shining Mew', 'Mew XY192'].map(chase)
+    );
+    const names = backfilled.map((item) => item.suggestion.name);
+
+    expect(names).toContain(shapedName);
+    expect(names).not.toContain(ordinaryName);
+    deleteDiscoveryMarketCache(ordinaryCacheKey);
+    deleteDiscoveryMarketCache(shapedCacheKey);
+  });
+
+  it('uses shared collector traits for cache backfill when direct subjects run short', () => {
+    const suffix = Date.now();
+    const promoName = `Special Delivery Bidoof SWSH Black Star Promos SWSH177 Trait Fit ${suffix}`;
+    const genericPromoName = `Meowth VMAX SWSH Black Star Promos SWSH005 Trait Filler ${suffix}`;
+    const ordinaryName = `Moltres Legendary Treasures 22 Trait Filler ${suffix}`;
+    const promoCacheKey = discoveryMarketCacheKey(promoName, 'CAD', 'CA');
+    const genericPromoCacheKey = discoveryMarketCacheKey(genericPromoName, 'CAD', 'CA');
+    const ordinaryCacheKey = discoveryMarketCacheKey(ordinaryName, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(promoCacheKey);
+    deleteDiscoveryMarketCache(genericPromoCacheKey);
+    deleteDiscoveryMarketCache(ordinaryCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: ordinaryCacheKey,
+      suggestionName: ordinaryName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 65,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: genericPromoCacheKey,
+      suggestionName: genericPromoName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 155,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: promoCacheKey,
+      suggestionName: promoName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 155,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      1,
+      ['Pikachu 26/83 Toys R Us promo'].map(chase)
+    );
+    const names = backfilled.map((item) => item.suggestion.name);
+
+    expect(names).toContain(promoName);
+    expect(names).not.toContain(genericPromoName);
+    expect(names).not.toContain(ordinaryName);
+    deleteDiscoveryMarketCache(promoCacheKey);
+    deleteDiscoveryMarketCache(genericPromoCacheKey);
+    deleteDiscoveryMarketCache(ordinaryCacheKey);
+  });
+
+  it('does not use plain e-reader era residents as trait-only backfill', () => {
+    const suffix = Date.now();
+    const randomEraNames = [
+      `Xatu Skyridge H32 Random Era ${suffix}`,
+      `Zubat Skyridge 117 Random Era ${suffix}`,
+      `Magneton Skyridge H19 Random Era ${suffix}`,
+      `Politoed Skyridge H23 Random Era ${suffix}`
+    ];
+    const anchoredName = `Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Anchored Era ${suffix}`;
+    const randomEraKeys = randomEraNames.map((name) => discoveryMarketCacheKey(name, 'CAD', 'CA'));
+    const anchoredKey = discoveryMarketCacheKey(anchoredName, 'CAD', 'CA');
+    for (const cacheKey of [...randomEraKeys, anchoredKey]) deleteDiscoveryMarketCache(cacheKey);
+    for (const [index, suggestionName] of randomEraNames.entries()) {
+      upsertDiscoveryMarketCache({
+        cacheKey: randomEraKeys[index],
+        suggestionName,
+        displayCurrency: 'CAD',
+        destinationCountry: 'CA',
+        typicalRawAskingTotal: 55 + index,
+        marketSampleSize: 12,
+        soldSampleSize: 0
+      });
+    }
+    upsertDiscoveryMarketCache({
+      cacheKey: anchoredKey,
+      suggestionName: anchoredName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 255,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      1,
+      ['Umbreon Skyridge 32'].map(chase)
+    );
+    const names = backfilled.map((item) => item.suggestion.name);
+
+    expect(names).toContain(anchoredName);
+    for (const randomEraName of randomEraNames) expect(names).not.toContain(randomEraName);
+    for (const cacheKey of [...randomEraKeys, anchoredKey]) deleteDiscoveryMarketCache(cacheKey);
   });
 
   it('allows exact niche retail e-reader promos just above the learned max price', () => {

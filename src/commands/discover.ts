@@ -1677,6 +1677,24 @@ function hasConcreteProfileSubjectMatch(candidate: DiscoveryCandidate, chases: C
   return candidateTokens.some((token) => profileTokens.has(token));
 }
 
+function hasCollectorProfileTraitMatch(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  const profileTraits = distinctProfileKeys(positiveTasteSubjectChases(chases), profileTraitKeys);
+  const candidateText = [sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, ...(candidate.suggestion.sourceTasteTokens ?? [])].filter(Boolean).join(' ');
+  const candidateTraits = new Set(profileTraitKeys(candidateText));
+  const text = normalize(candidateText);
+  const premiumPromoAnchor = /\b(?:special delivery|futsal|toys r us|classic collection|celebrations|mcdonald'?s|staff|winner|prerelease|stamped|stamp|exclusive|unique|odd(?:ball)? release|limited release)\b/.test(text);
+  const hasSharedStrongTrait = ['japanese', 'art'].some((trait) => profileTraits.has(trait) && candidateTraits.has(trait))
+    || (profileTraits.has('promo') && candidateTraits.has('promo') && premiumPromoAnchor);
+  if (hasSharedStrongTrait) return true;
+  const hasSharedEraTrait = ['e-reader', 'wotc'].some((trait) => profileTraits.has(trait) && candidateTraits.has(trait));
+  if (!hasSharedEraTrait) return false;
+  const premiumEraAnchor = isExactNicheDiscoveryCandidate(candidate)
+    || isJapaneseDiscoveryCandidate(candidate)
+    || premiumPromoAnchor
+    || /\b(?:illustration rare|special illustration rare|art rare|alt art|alternate art|full art|secret rare|trainer gallery|galarian gallery|sar|sir)\b/.test(text);
+  return premiumEraAnchor;
+}
+
 function hasCollectorShapedScheduledSignal(candidate: DiscoveryCandidate): boolean {
   const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.sourceTasteTokens ?? [])].filter(Boolean).join(' '));
   const highNumberMatch = /\b(\d{3})\b/.exec(text);
@@ -1696,7 +1714,7 @@ export function isScheduledProfileRelevantCandidate(candidate: DiscoveryCandidat
   if (chases.length === 0) return true;
   if (isWeakSingleLegendaryBirdSurface(candidate, chases)) return false;
   if (!hasCollectorShapedScheduledSignal(candidate)) return false;
-  return hasConcreteProfileSubjectMatch(candidate, chases) || (hasJapaneseWeightedProfile(chases) && isJapaneseDiscoveryCandidate(candidate));
+  return hasConcreteProfileSubjectMatch(candidate, chases) || hasCollectorProfileTraitMatch(candidate, chases) || (hasJapaneseWeightedProfile(chases) && isJapaneseDiscoveryCandidate(candidate));
 }
 
 export function backfillMarketReadyDiscoveryCandidates(
@@ -1717,9 +1735,22 @@ export function backfillMarketReadyDiscoveryCandidates(
   const excludedNameKeys = new Set(excludedNames.map(discoveryNameKey));
   const readyShelfCount = (items: DiscoveryCandidate[]): number => marketReadyShelfCandidatesWithOptions(items, true, profileConfidence, { allowPendingExploration: false }).length;
   const positiveSubjectChases = positiveTasteSubjectChases(tasteProfileChases);
+  const isProfileAlignedBackfillCandidate = (candidate: DiscoveryCandidate): boolean =>
+    hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases) || hasCollectorProfileTraitMatch(candidate, tasteProfileChases);
+  const directProfileReadyShelfCount = (items: DiscoveryCandidate[]): number =>
+    selectVisibleCandidatesForCount(
+      marketReadyShelfCandidatesWithOptions(items, true, profileConfidence, { allowPendingExploration: false })
+        .filter((candidate) => hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases))
+        .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases)),
+      positiveSubjectChases,
+      targetCount,
+      negativeProfile
+    ).length;
   const profileMatchedReadyShelfCount = (items: DiscoveryCandidate[]): number =>
     selectVisibleCandidatesForCount(
-      marketReadyShelfCandidatesWithOptions(items, true, profileConfidence, { allowPendingExploration: false }).filter((candidate) => hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases)),
+      marketReadyShelfCandidatesWithOptions(items, true, profileConfidence, { allowPendingExploration: false })
+        .filter(isProfileAlignedBackfillCandidate)
+        .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases)),
       positiveSubjectChases,
       targetCount,
       negativeProfile
@@ -1734,6 +1765,37 @@ export function backfillMarketReadyDiscoveryCandidates(
     destinationCountry: context.destination?.country,
     limit: 240
   });
+  for (const entry of cacheEntries) {
+    if ((!hasConcreteProfileSignals && readyShelfCount(merged) >= targetCount) || (hasConcreteProfileSignals && directProfileReadyShelfCount(merged) >= targetCount)) break;
+    const suggestion = marketCacheSuggestionFromCardName(entry.suggestionName);
+    if (excludedNameKeys.has(discoveryNameKey(suggestion.name))) continue;
+    const candidate = {
+      ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
+      listing: listingFromDiscoveryMarketCache(entry),
+      image: entry.imageUrl
+        ? {
+            name: suggestion.name,
+            url: entry.imageUrl,
+            sourceName: marketplaceImageSourceNameForCandidate({
+              ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
+              listing: listingFromDiscoveryMarketCache(entry)
+            }),
+            sourceKind: 'MARKET_LISTING' as const
+          }
+        : undefined
+    } satisfies DiscoveryCandidate;
+    if (!isDisplayableDiscoveryCandidate(candidate) || !isConcreteDiscoverySuggestion(candidate.suggestion)) continue;
+    if (!hasReliableMarketEstimate(candidate) || !isMarketEstimateInRange(candidate, context.range)) continue;
+    if (!hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases)) continue;
+    if (!isScheduledProfileRelevantCandidate(candidate, tasteProfileChases)) continue;
+    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const variantKey = candidateVariantFamilyKey(candidate);
+    if (seenNames.has(nameKey) || (variantKey && seenVariantFamilies.has(variantKey))) continue;
+    merged.push(candidate);
+    seenNames.add(nameKey);
+    if (variantKey) seenVariantFamilies.add(variantKey);
+  }
   for (const entry of cacheEntries) {
     if ((!hasConcreteProfileSignals && readyShelfCount(merged) >= targetCount) || (hasConcreteProfileSignals && profileMatchedReadyShelfCount(merged) >= targetCount)) break;
     const suggestion = marketCacheSuggestionFromCardName(entry.suggestionName);
@@ -1755,14 +1817,13 @@ export function backfillMarketReadyDiscoveryCandidates(
     } satisfies DiscoveryCandidate;
     if (!isDisplayableDiscoveryCandidate(candidate) || !isConcreteDiscoverySuggestion(candidate.suggestion)) continue;
     if (!hasReliableMarketEstimate(candidate) || !isMarketEstimateInRange(candidate, context.range)) continue;
-    if (!hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases)) continue;
+    if (!isProfileAlignedBackfillCandidate(candidate)) continue;
+    if (!isScheduledProfileRelevantCandidate(candidate, tasteProfileChases)) continue;
     if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
-    const variantKey = candidateVariantFamilyKey(candidate);
-    if (seenNames.has(nameKey) || (variantKey && seenVariantFamilies.has(variantKey))) continue;
+    if (seenNames.has(nameKey)) continue;
     merged.push(candidate);
     seenNames.add(nameKey);
-    if (variantKey) seenVariantFamilies.add(variantKey);
   }
   return orderCandidatesForMarketConfidence(merged, tasteProfileChases, negativeProfile);
 }
@@ -2966,7 +3027,17 @@ function orderCandidatesForCollectorPresentation(candidates: DiscoveryCandidate[
     chases,
     Math.max(0, count - exactNicheAnchors.length)
   );
-  return [...exactNicheAnchors, ...diversified].slice(0, count);
+  const selected = [...exactNicheAnchors, ...diversified].slice(0, count);
+  if (selected.length >= count) return selected;
+  const selectedNameKeys = new Set(selected.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
+  for (const candidate of confidenceOrdered) {
+    if (selected.length >= count) break;
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    if (selectedNameKeys.has(nameKey)) continue;
+    selected.push(candidate);
+    selectedNameKeys.add(nameKey);
+  }
+  return selected;
 }
 
 export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency, includeMarketRead: boolean, displayIndex?: number): EmbedBuilder {
@@ -3534,11 +3605,27 @@ async function discoverCandidatesForUser(
     if (hasFullDiscovery && hydrateScheduledMarketInline) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
     const referencedCandidates = await attachReferenceImages(visibleCandidates);
     const hiddenVaultPickCount = referencedCandidates.filter((candidate) => isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)).length;
+    const scheduledRelevantCandidates = referencedCandidates
+      .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
+      .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases))
+      .filter(isDisplayableDiscoveryCandidate);
+    const finalSelectionPool = hasFullDiscovery && scheduledRelevantCandidates.length < targetVisibleCount
+      ? (await attachReferenceImages(backfillMarketReadyDiscoveryCandidates(
+          scheduledRelevantCandidates,
+          marketContext,
+          targetVisibleCount,
+          tasteProfileChases,
+          profileConfidence,
+          negativeProfile,
+          repeatGuardChases,
+          rejectedNames
+        )))
+          .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
+          .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases))
+          .filter(isDisplayableDiscoveryCandidate)
+      : scheduledRelevantCandidates;
     const candidates = orderCandidatesForCollectorPresentation(
-      referencedCandidates
-        .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
-        .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases))
-        .filter(isDisplayableDiscoveryCandidate),
+      finalSelectionPool,
       tasteProfileChases,
       targetVisibleCount,
       negativeProfile,
