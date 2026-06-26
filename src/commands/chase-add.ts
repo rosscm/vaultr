@@ -32,9 +32,9 @@ function chaseNameQualityLine(cardName: string): string {
   const hasNumber = /\b\d{1,4}\s*[/#-]\s*\d{1,4}\b|\b[A-Z]{1,4}\d{1,4}\b/i.test(cardName);
   const hasSetSignal = /\b(promo|fates|festival|paldean|evolving|skyridge|unleashed|base|rocket|japanese|korean|english|psa|bgs|cgc|sar|sir|alt|ex|vmax)\b/i.test(cardName);
 
-  if (hasNumber && tokens.length >= 2) return 'This is a strong chase name: it includes a card number or set-style identifier.';
-  if (tokens.length >= 4 || hasSetSignal) return 'This chase has useful detail. Add the card number too if alerts ever feel broad.';
-  return 'This chase is broad, so alerts may be noisy. For sharper alerts, include a set, card number, language, or variant.';
+  if (hasNumber && tokens.length >= 2) return 'You included a card number or set-style identifier, so alerts should stay nicely focused.';
+  if (tokens.length >= 4 || hasSetSignal) return 'There is useful detail here; if alerts ever feel broad, adding the card number will tighten them further.';
+  return 'This chase is broad, so alerts may be noisy. Adding a set, card number, language, or variant will sharpen them.';
 }
 
 function proControlNames(values: {
@@ -157,7 +157,7 @@ export const chaseAdd = {
     });
 
     const lines = [
-      'Nice pick. Vaultr is keeping watch for listings that fit',
+      'Nice pick. Vaultr will watch for matching listings and keep this chase tuned as results come in.',
       chaseNameQualityLine(chase.cardName),
       '',
       `**Card:** ${chase.cardName}`,
