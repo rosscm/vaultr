@@ -247,7 +247,8 @@ describe('chase command', () => {
     expect(saved.negativeKeywords).toBeUndefined();
     expect(interaction.reply).toHaveBeenCalledOnce();
     const payload = interaction.reply.mock.calls[0]![0] as any;
-    expect(payload.embeds[0].toJSON().description).toContain('You included a card number or set-style identifier');
+    expect(payload.embeds[0].toJSON().description).toContain('Plenty of detail here');
+    expect(payload.embeds[0].toJSON().description).toContain('tighten the filters with price, grade, condition, or exclusions');
   });
 
   it('warns broad chase adds that alerts may be noisy', async () => {
@@ -262,8 +263,8 @@ describe('chase command', () => {
 
     const payload = interaction.reply.mock.calls[0]![0] as any;
     const text = payload.embeds[0].toJSON().description;
-    expect(text).toContain('This chase is broad, so alerts may be noisy');
-    expect(text).toContain('Adding a set, card number, language, or variant will sharpen them');
+    expect(text).toContain('This one is broad, so it may cast a wider net');
+    expect(text).toContain('Add a set, card number, language, or variant to sharpen it');
   });
 
   it('does not add the same chase twice from repeated submissions', async () => {
