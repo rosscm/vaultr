@@ -10,7 +10,7 @@ import {
 } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
-import { autocompleteChaseCards } from '../services/chase-card-catalog.js';
+import { autocompleteChaseCards, getCachedChaseCardPreviewImage } from '../services/chase-card-catalog.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
@@ -180,8 +180,12 @@ export const chaseAdd = {
       '**Next:** Use `/chase list` to review active chases'
     ];
 
+    const embed = successEmbed('Chase Added', lines.join('\n')).setTitle('✅ Chase Added');
+    const previewImage = getCachedChaseCardPreviewImage(chase.cardName);
+    if (previewImage) embed.setThumbnail(previewImage);
+
     await interaction.reply({
-      embeds: [successEmbed('Chase Added', lines.join('\n')).setTitle('✅ Chase Added')],
+      embeds: [embed],
       flags: MessageFlags.Ephemeral
     });
 

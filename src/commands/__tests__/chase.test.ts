@@ -80,7 +80,7 @@ describe('chase command', () => {
       if (url.includes('api.pokemontcg.io')) {
         return new Response(JSON.stringify({
           data: [
-            { id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' } }
+            { id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' }, images: { large: 'https://images.pokemontcg.io/sv4pt5/232_hires.png' } }
           ]
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -104,6 +104,290 @@ describe('chase command', () => {
     ]);
   });
 
+  it('shows a source image after adding a selected autocomplete card', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' }, images: { large: 'https://images.pokemontcg.io/sv4pt5/232_hires.png' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+    await autocompleteChaseCards('mew ex', 10);
+    const userId = testUserId('add-selected-autocomplete-image');
+    setUserPlan(userId, 'FREE');
+
+    const interaction = mockInteraction(userId, 'add', {
+      card: 'Mew ex Paldean Fates 232'
+    });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    expect(payload.embeds[0].toJSON().thumbnail?.url).toBe('https://images.pokemontcg.io/sv4pt5/232_hires.png');
+  });
+
+  it('keeps broad English card autocomplete on the fast Pokemon source path', async () => {
+    const requestedUrls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'basep-1', name: 'Pikachu', number: '1', set: { name: 'Wizards Black Star Promos' } },
+            { id: 'mcd19-6', name: 'Pikachu', number: '6', set: { name: "McDonald's Collection 2019" } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new Error(`Unexpected source call: ${url}`);
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu', 25);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — Wizards Black Star Promos #1', value: 'Pikachu Wizards Black Star Promos 1' },
+      { name: "Pikachu — McDonald's Collection 2019 #6", value: "Pikachu McDonald's Collection 2019 6" }
+    ]);
+    expect(requestedUrls.some((url) => url.includes('api.pokemontcg.io'))).toBe(true);
+  });
+
+  it('does not treat Mewtwo as a Mew autocomplete match', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'si1-1', name: 'Mew', number: '1', set: { name: 'Southern Islands' } },
+            { id: 'basep-3', name: 'Mewtwo', number: '3', set: { name: 'Wizards Black Star Promos' } },
+            { id: 'pop5-3', name: 'Mew δ', number: '3', set: { name: 'POP Series 5' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew — Southern Islands #1', value: 'Mew Southern Islands 1' },
+      { name: 'Mew δ — POP Series 5 #3', value: 'Mew δ POP Series 5 3' }
+    ]);
+  });
+
+  it('searches Pokemon set and promo context for queries like Pikachu XY', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('set.name:xy')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'xy1-42', name: 'Pikachu', number: '42', set: { name: 'XY' } },
+            { id: 'xyp-XY89', name: 'Pikachu', number: 'XY89', set: { name: 'XY Black Star Promos' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (q.includes('number:xy')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'xyp-XY95', name: 'Pikachu', number: 'XY95', set: { name: 'XY Black Star Promos' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu XY', 25);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — XY #42', value: 'Pikachu XY 42' },
+      { name: 'Pikachu — XY Black Star Promos #XY89', value: 'Pikachu XY Black Star Promos XY89' },
+      { name: 'Pikachu — XY Black Star Promos #XY95', value: 'Pikachu XY Black Star Promos XY95' }
+    ]);
+    expect(requestedQueries).toContain('name:pikachu* set.name:xy*');
+    expect(requestedQueries).toContain('name:pikachu* set.series:xy');
+    expect(requestedQueries).toContain('name:pikachu* number:xy*');
+  });
+
+  it('searches and filters Pokemon alphanumeric card-number prefixes like Mew RC', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('number:rc')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'g1-RC2', name: 'Mew', number: 'RC2', set: { name: 'Generations Radiant Collection' } },
+            { id: 'g1-RC24', name: 'Mew', number: 'RC24', set: { name: 'Generations Radiant Collection' } },
+            { id: 'g1-RC29', name: 'Mewtwo', number: 'RC29', set: { name: 'Generations Radiant Collection' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew RC', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew — Generations Radiant Collection #RC2', value: 'Mew Generations Radiant Collection RC2' },
+      { name: 'Mew — Generations Radiant Collection #RC24', value: 'Mew Generations Radiant Collection RC24' }
+    ]);
+    expect(requestedQueries).toContain('name:mew* number:rc*');
+  });
+
+  it('filters Pokemon alphanumeric card-number prefixes as they are typed', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      requestedQueries.push(new URL(url).searchParams.get('q') ?? '');
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'g1-RC2', name: 'Mew', number: 'RC2', set: { name: 'Generations Radiant Collection' } },
+          { id: 'g1-RC24', name: 'Mew', number: 'RC24', set: { name: 'Generations Radiant Collection' } },
+          { id: 'xy10-29', name: 'Mew', number: '29', set: { name: 'Fates Collide' } }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew RC2', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew — Generations Radiant Collection #RC2', value: 'Mew Generations Radiant Collection RC2' },
+      { name: 'Mew — Generations Radiant Collection #RC24', value: 'Mew Generations Radiant Collection RC24' }
+    ]);
+    expect(requestedQueries).toContain('name:mew* number:rc2*');
+  });
+
+  it('resolves English special-release promo aliases while preserving collector wording', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('number:26') && q.includes('set.name:generations')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'g1-26', name: 'Pikachu', number: '26', set: { name: 'Generations', printedTotal: 83 } },
+            { id: 'basep-26', name: 'Pikachu', number: '26', set: { name: 'Wizards Black Star Promos', printedTotal: 53 } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu 26/83 Toys R Us promo', 25);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — Toys R Us Promo #26/83', value: 'Pikachu Toys R Us Promo 26/83' }
+    ]);
+    expect(requestedQueries).toContain('name:pikachu* number:26 set.name:generations*');
+  });
+
+  it('preserves English printed totals so slash-number filtering can match', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      if (q.includes('number:26')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'basep-26', name: 'Pikachu', number: '26', set: { name: 'Wizards Black Star Promos', printedTotal: 53 } },
+            { id: 'g1-26', name: 'Pikachu', number: '26', set: { name: 'Generations', printedTotal: 83 } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu 26/83', 25);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — Generations #26/83', value: 'Pikachu Generations 26/83' }
+    ]);
+  });
+
+  it('finds English special-release promo aliases before the card number is complete', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      if (q.includes('set.name:generations')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'g1-26', name: 'Pikachu', number: '26', set: { name: 'Generations', printedTotal: 83 } },
+            { id: 'g1-RC29', name: 'Pikachu', number: 'RC29', set: { name: 'Generations', printedTotal: 83 } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu Toys R Us', 25);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — Toys R Us Promo #26/83', value: 'Pikachu Toys R Us Promo 26/83' },
+      { name: 'Pikachu — Toys R Us Promo #RC29', value: 'Pikachu Toys R Us Promo RC29' }
+    ]);
+  });
+
+  it('treats arbitrary trailing words as Pokemon set context', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('set.name:paldean') && q.includes('set.name:fates')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew Paldean Fates', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew ex — Paldean Fates #232', value: 'Mew ex Paldean Fates 232' }
+    ]);
+    expect(requestedQueries.length).toBeLessThanOrEqual(8);
+    expect(requestedQueries).toContain('name:mew* set.name:paldean* set.name:fates*');
+  });
+
+  it('keeps Pokemon autocomplete results when one query variant fails', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      if (q.includes('set.name:xy')) throw new Error('slow source variant');
+      if (q.includes('set.series:xy')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'xy1-42', name: 'Pikachu', number: '42', set: { name: 'XY' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu XY', 25);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — XY #42', value: 'Pikachu XY 42' }
+    ]);
+  });
+
   it('narrows Japanese autocomplete choices by slash-total card numbers', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -115,6 +399,7 @@ describe('chase command', () => {
           id: 'S12a-052',
           localId: '052',
           name: 'ミュウ',
+          image: 'https://assets.tcgdex.net/ja/S/S12a/052',
           set: { id: 'S12a', cardCount: { official: 172 } }
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -135,8 +420,526 @@ describe('chase command', () => {
     const choices = await autocompleteChaseCards('Mew 052/172', 10);
 
     expect(choices).toEqual([
-      { name: 'Mew Japanese S12a 052/172', value: 'Mew Japanese S12a 052/172' }
+      { name: 'Mew Japanese 052/172', value: 'Mew Japanese 052/172' }
     ]);
+  });
+
+  it('keeps bare English subject autocomplete broad instead of jumping to Japanese aliases', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'si1-1', name: 'Mew', number: '1', set: { name: 'Southern Islands' } },
+            { id: 'pop4-4', name: 'Mew', number: '4', set: { name: 'POP Series 4' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new Error(`Unexpected Japanese source call for bare subject: ${url}`);
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew — Southern Islands #1', value: 'Mew Southern Islands 1' },
+      { name: 'Mew — POP Series 4 #4', value: 'Mew POP Series 4 4' }
+    ]);
+  });
+
+  it('returns intentional Japanese subject-backed choices when Japanese is specified', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV4a-347')) {
+        return new Response(JSON.stringify({
+          id: 'SV4a-347',
+          localId: '347',
+          name: 'ミュウex',
+          set: { id: 'SV4a', cardCount: { official: 190 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('name=%E3%83%9F%E3%83%A5%E3%82%A6')) {
+        return new Response(JSON.stringify([
+          { id: 'SV4a-347', localId: '347', name: 'ミュウex' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew Japanese', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew Japanese 347/190', value: 'Mew Japanese 347/190' }
+    ]);
+  });
+
+  it('collapses Japanese catalog variants into one collector-friendly slash-number choice', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV9a-087')) {
+        return new Response(JSON.stringify({
+          id: 'SV9a-087',
+          localId: '087',
+          name: 'サーナイト',
+          set: { id: 'SV9a', cardCount: { official: 63 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/M1S-087')) {
+        return new Response(JSON.stringify({
+          id: 'M1S-087',
+          localId: '087',
+          name: 'サーナイト',
+          set: { id: 'M1S', cardCount: { official: 63 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/M1L-087')) {
+        return new Response(JSON.stringify({
+          id: 'M1L-087',
+          localId: '087',
+          name: 'サーナイト',
+          set: { id: 'M1L', cardCount: { official: 63 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([
+        { id: 'SV9a-087', localId: '087', name: 'サーナイト' },
+        { id: 'M1S-087', localId: '087', name: 'サーナイト' },
+        { id: 'M1L-087', localId: '087', name: 'サーナイト' }
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Gardevoir 087/063', 10);
+
+    expect(choices).toEqual([
+      { name: 'Gardevoir Japanese 087/063', value: 'Gardevoir Japanese 087/063' }
+    ]);
+  });
+
+  it('prioritizes Japanese local-number autocomplete over broad English name matches', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: Array.from({ length: 25 }, (_, index) => ({
+            id: `en-${index + 1}`,
+            name: 'Gardevoir',
+            number: String(index + 1),
+            set: { name: `English Set ${index + 1}` }
+          }))
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV9a-087')) {
+        return new Response(JSON.stringify({
+          id: 'SV9a-087',
+          localId: '087',
+          name: 'サーナイト',
+          set: { id: 'SV9a', cardCount: { official: 63 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([
+        { id: 'SV9a-087', localId: '087', name: 'サーナイト' }
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Gardevoir 087', 25);
+
+    expect(choices[0]).toEqual({ name: 'Gardevoir Japanese 087/063', value: 'Gardevoir Japanese 087/063' });
+  });
+
+  it('matches Japanese autocomplete when card number is typed before the subject without a space', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV9a-087')) {
+        return new Response(JSON.stringify({
+          id: 'SV9a-087',
+          localId: '087',
+          name: 'サーナイト',
+          set: { id: 'SV9a', cardCount: { official: 63 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('name=%E3%82%B5%E3%83%BC%E3%83%8A%E3%82%A4%E3%83%88') || url.includes('localId=087')) {
+        return new Response(JSON.stringify([
+          { id: 'SV9a-087', localId: '087', name: 'サーナイト' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('087gardevoir', 25);
+
+    expect(choices).toEqual([
+      { name: 'Gardevoir Japanese 087/063', value: 'Gardevoir Japanese 087/063' }
+    ]);
+  });
+
+  it('matches Japanese autocomplete while known English subjects are partially typed', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV9a-087')) {
+        return new Response(JSON.stringify({
+          id: 'SV9a-087',
+          localId: '087',
+          name: 'サーナイト',
+          set: { id: 'SV9a', cardCount: { official: 63 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('name=%E3%82%B5%E3%83%BC%E3%83%8A%E3%82%A4%E3%83%88') || url.includes('localId=087')) {
+        return new Response(JSON.stringify([
+          { id: 'SV9a-087', localId: '087', name: 'サーナイト' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await autocompleteChaseCards('087 gard', 25)).toEqual([
+      { name: 'Gardevoir Japanese 087/063', value: 'Gardevoir Japanese 087/063' }
+    ]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('gard 087', 25)).toEqual([
+      { name: 'Gardevoir Japanese 087/063', value: 'Gardevoir Japanese 087/063' }
+    ]);
+  });
+
+  it('falls back to collector wording for source-missing Japanese promo slash numbers', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV2a-007')) {
+        return new Response(JSON.stringify({
+          id: 'SV2a-007',
+          localId: '007',
+          name: 'ゼニガメ',
+          set: { id: 'SV2a', cardCount: { official: 165 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('name=%E3%82%BC%E3%83%8B%E3%82%AC%E3%83%A1') || url.includes('localId=007')) {
+        return new Response(JSON.stringify([
+          { id: 'SV2a-007', localId: '007', name: 'ゼニガメ' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await autocompleteChaseCards('squirtle 007/018', 25)).toEqual([
+      { name: 'Squirtle Japanese Promo 007/018', value: 'Squirtle Japanese Promo 007/018' }
+    ]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('007/018 squirtle', 25)).toEqual([
+      { name: 'Squirtle Japanese Promo 007/018', value: 'Squirtle Japanese Promo 007/018' }
+    ]);
+  });
+
+  it('uses Japanese promo fallback across expanded known subjects', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await autocompleteChaseCards('bulbasaur 001/018', 25)).toEqual([
+      { name: 'Bulbasaur Japanese Promo 001/018', value: 'Bulbasaur Japanese Promo 001/018' }
+    ]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('charmander 004/018', 25)).toEqual([
+      { name: 'Charmander Japanese Promo 004/018', value: 'Charmander Japanese Promo 004/018' }
+    ]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('wartortle 008/018', 25)).toEqual([
+      { name: 'Wartortle Japanese Promo 008/018', value: 'Wartortle Japanese Promo 008/018' }
+    ]);
+  });
+
+  it('does not guess ambiguous partial Japanese promo subjects', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await autocompleteChaseCards('char 004/018', 25)).toEqual([]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('charma 004/018', 25)).toEqual([
+      { name: 'Charmander Japanese Promo 004/018', value: 'Charmander Japanese Promo 004/018' }
+    ]);
+  });
+
+  it('does not use Japanese promo fallback for broad or impossible collector numbers', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await autocompleteChaseCards('squirtle 007', 25)).toEqual([]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('squirtle 247/018', 25)).toEqual([]);
+  });
+
+  it('filters autocomplete to the requested full collector number when provided', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'en-1', name: 'Gardevoir', number: '1', set: { name: 'Broad English Set' } },
+            { id: 'en-245', name: 'Gardevoir ex', number: '245', set: { name: 'Scarlet & Violet' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV9a-087')) {
+        return new Response(JSON.stringify({
+          id: 'SV9a-087',
+          localId: '087',
+          name: 'サーナイト',
+          set: { id: 'SV9a', cardCount: { official: 63 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV9a-088')) {
+        return new Response(JSON.stringify({
+          id: 'SV9a-088',
+          localId: '088',
+          name: 'サーナイトex',
+          set: { id: 'SV9a', cardCount: { official: 63 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([
+        { id: 'SV9a-087', localId: '087', name: 'サーナイト' },
+        { id: 'SV9a-088', localId: '088', name: 'サーナイトex' }
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Gardevoir 087/063', 25);
+
+    expect(choices).toEqual([
+      { name: 'Gardevoir Japanese 087/063', value: 'Gardevoir Japanese 087/063' }
+    ]);
+  });
+
+  it('matches Japanese autocomplete while the slash total is still partially typed', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV4a-347')) {
+        return new Response(JSON.stringify({
+          id: 'SV4a-347',
+          localId: '347',
+          name: 'ミュウ',
+          set: { id: 'SV4a', cardCount: { official: 190 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV4a-348')) {
+        return new Response(JSON.stringify({
+          id: 'SV4a-348',
+          localId: '348',
+          name: 'ミュウex',
+          set: { id: 'SV4a', cardCount: { official: 190 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([
+        { id: 'SV4a-347', localId: '347', name: 'ミュウ' },
+        { id: 'SV4a-348', localId: '348', name: 'ミュウex' }
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew 347/19', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew Japanese 347/190', value: 'Mew Japanese 347/190' }
+    ]);
+  });
+
+  it('filters autocomplete to a standalone requested card number when provided', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'en-1', name: 'Mew', number: '1', set: { name: 'Broad English Set' } },
+            { id: 'en-37', name: 'Mew', number: '37', set: { name: 'Another English Set' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV4a-347')) {
+        return new Response(JSON.stringify({
+          id: 'SV4a-347',
+          localId: '347',
+          name: 'ミュウ',
+          set: { id: 'SV4a', cardCount: { official: 190 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV4a-348')) {
+        return new Response(JSON.stringify({
+          id: 'SV4a-348',
+          localId: '348',
+          name: 'ミュウex',
+          set: { id: 'SV4a', cardCount: { official: 190 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([
+        { id: 'SV4a-347', localId: '347', name: 'ミュウ' },
+        { id: 'SV4a-348', localId: '348', name: 'ミュウex' }
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew 347', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew Japanese 347/190', value: 'Mew Japanese 347/190' }
+    ]);
+  });
+
+  it('matches Japanese autocomplete while a standalone card number is partially typed', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV4a-347')) {
+        return new Response(JSON.stringify({
+          id: 'SV4a-347',
+          localId: '347',
+          name: 'ミュウex',
+          set: { id: 'SV4a', cardCount: { official: 190 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const earlierLocalIdMatch = /localId=34([0-6])/.exec(url);
+      if (earlierLocalIdMatch) {
+        const localId = `34${earlierLocalIdMatch[1]}`;
+        return new Response(JSON.stringify([
+          { id: `SV4a-${localId}`, localId, name: 'パモ' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('localId=347')) {
+        return new Response(JSON.stringify([
+          { id: 'SV4a-347', localId: '347', name: 'ミュウex' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew 34', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew Japanese 347/190', value: 'Mew Japanese 347/190' }
+    ]);
+  });
+
+  it('filters Japanese subject-backed choices by one-digit local-number prefix', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV4a-347')) {
+        return new Response(JSON.stringify({
+          id: 'SV4a-347',
+          localId: '347',
+          name: 'ミュウex',
+          set: { id: 'SV4a', cardCount: { official: 190 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/S12a-052')) {
+        return new Response(JSON.stringify({
+          id: 'S12a-052',
+          localId: '052',
+          name: 'ミュウ',
+          set: { id: 'S12a', cardCount: { official: 172 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('name=%E3%83%9F%E3%83%A5%E3%82%A6')) {
+        return new Response(JSON.stringify([
+          { id: 'S12a-052', localId: '052', name: 'ミュウ' },
+          { id: 'SV4a-347', localId: '347', name: 'ミュウex' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew 3', 25);
+
+    expect(choices).toEqual([
+      { name: 'Mew Japanese 347/190', value: 'Mew Japanese 347/190' }
+    ]);
+  });
+
+  it('shows helper text instead of treating bare card numbers as autocomplete', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      throw new Error(`Unexpected source call for bare card number: ${String(input)}`);
+    }) as any;
+
+    const choices = await autocompleteChaseCards('34', 25);
+
+    expect(choices).toEqual([
+      { name: 'Keep typing: add the card name with this number', value: '34' }
+    ]);
+  });
+
+  it('does not invent Japanese card names from local-number-only matches', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('name=')) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV4a-247')) {
+        return new Response(JSON.stringify({
+          id: 'SV4a-247',
+          localId: '247',
+          name: 'リザードンex',
+          set: { id: 'SV4a', cardCount: { official: 190 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/S12a-247')) {
+        return new Response(JSON.stringify({
+          id: 'S12a-247',
+          localId: '247',
+          name: 'ピカチュウ',
+          set: { id: 'S12a', cardCount: { official: 172 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([
+        { id: 'SV4a-247', localId: '247', name: 'リザードンex' },
+        { id: 'S12a-247', localId: '247', name: 'ピカチュウ' }
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew 247', 25);
+
+    expect(choices).toEqual([]);
   });
 
   it('requires edit to pick a chase by autocomplete', () => {
