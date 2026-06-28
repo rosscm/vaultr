@@ -39,8 +39,17 @@ const POKEMON_QUERY_VARIANT_LIMIT = 8;
 const POKEMON_CONTEXT_STOP_TERMS = new Set(['card', 'cards', 'pokemon', 'tcg']);
 const POKEMON_NUMBER_PREFIX_TERMS = new Set(['bw', 'dp', 'rc', 'sm', 'sv', 'swsh', 'xy']);
 const POKEMON_RELEASE_ALIASES: Array<{ pattern: RegExp; alias: PokemonReleaseAlias }> = [
-  { pattern: /\btoys?\s*r\s*us\b/i, alias: { label: 'Toys R Us Promo', setNamePrefix: 'generations' } }
+  { pattern: /\bcorocoro\b.*\bjumbo\b|\bjumbo\b.*\bcorocoro\b/i, alias: { label: 'CoroCoro Jumbo Promo', setNamePrefix: 'CoroCoro' } },
+  { pattern: /\bcorocoro\b.*\bmagazine\b|\bmagazine\b.*\bcorocoro\b/i, alias: { label: 'CoroCoro Magazine Promo', setNamePrefix: 'CoroCoro' } },
+  { pattern: /\bcorocoro\b.*\bmanga\b|\bmanga\b.*\bcorocoro\b/i, alias: { label: 'CoroCoro Manga Promo', setNamePrefix: 'CoroCoro' } },
+  { pattern: /\bmcdonald'?s\b/i, alias: { label: "McDonald's Promo", setNamePrefix: "McDonald's" } },
+  { pattern: /\bpok(?:e|é)mon\s*center\b/i, alias: { label: 'Pokemon Center Promo', setNamePrefix: 'Pokemon Center' } },
+  { pattern: /\bblack\s*star\s*promos?\b/i, alias: { label: 'Black Star Promos', setNamePrefix: 'Black Star Promos' } },
+  { pattern: /\btoys?\s*r\s*us\b/i, alias: { label: 'Toys R Us Promo', setNamePrefix: 'generations' } },
+  { pattern: /\bcorocoro\b/i, alias: { label: 'CoroCoro Promo', setNamePrefix: 'CoroCoro' } }
 ];
+const POKEMON_PROMO_PUBLICATION_TERMS = new Set(['corocoro', 'coro coro', 'mcdonald', 'mcdonalds', 'center']);
+const POKEMON_PROMO_STYLE_STOP_TERMS = new Set(['promo', 'promos', 'promotional', 'shining', 'holo', 'foil', 'magazine', 'manga', 'japanese', 'jumbo']);
 const BARE_CARD_NUMBER_HELPER_TEXT = 'Keep typing: add the card name with this number';
 const JAPANESE_SUBJECT_ALIASES: Record<string, string[]> = {
   blastoise: ['カメックス'],
@@ -119,9 +128,11 @@ function pokemonTcgSearchQueries(query: string): string[] {
   const terms = allTerms.slice(0, 4);
   if (terms.length === 0) return [];
   const number = /\b(?:[a-z]{0,4}\d{1,4}|\d{1,4}\s*\/\s*\d{1,4})\b/i.exec(query)?.[0]?.replace(/\s/g, '');
-  const searchableTerms = terms.filter((term) => !/^\d+$/.test(term) && !/^\d+\/\d+$/.test(term) && !/^[a-z]{1,4}\d{1,4}$/.test(term) && !POKEMON_CONTEXT_STOP_TERMS.has(term));
+  const publicationTerms = allTerms.filter((term) => POKEMON_PROMO_PUBLICATION_TERMS.has(term));
+  const searchableTerms = terms.filter((term) => !/^\d+$/.test(term) && !/^\d+\/\d+$/.test(term) && !/^[a-z]{1,4}\d{1,4}$/.test(term) && !POKEMON_CONTEXT_STOP_TERMS.has(term) && !POKEMON_PROMO_PUBLICATION_TERMS.has(term) && !POKEMON_PROMO_STYLE_STOP_TERMS.has(term));
   if (searchableTerms.length === 0) return [];
   const releaseAlias = pokemonTcgReleaseAlias(query);
+  const publicationSubject = allTerms.filter((term) => !POKEMON_PROMO_PUBLICATION_TERMS.has(term) && !POKEMON_PROMO_STYLE_STOP_TERMS.has(term) && !POKEMON_CONTEXT_STOP_TERMS.has(term))[0] ?? searchableTerms[0];
 
   const queries: string[] = [];
   const addQuery = (parts: string[]) => {
@@ -146,9 +157,12 @@ function pokemonTcgSearchQueries(query: string): string[] {
 
   if (number) addQuery([`name:${searchableTerms[0]}*`, `number:${pokemonTcgNumberQueryValue(number)}`]);
   if (releaseAlias) {
-    const namePart = `name:${searchableTerms[0]}*`;
+    const namePart = `name:${publicationTerms.length > 0 ? publicationSubject : searchableTerms[0]}*`;
     if (number) addQuery([namePart, `number:${pokemonTcgNumberQueryValue(number)}`, `set.name:${releaseAlias.setNamePrefix}*`]);
     addQuery([namePart, `set.name:${releaseAlias.setNamePrefix}*`]);
+    if (publicationTerms.length > 0 || releaseAlias.setNamePrefix.toLowerCase() === 'corocoro') {
+      addQuery([namePart, 'rarity:Promo']);
+    }
   }
 
   if (searchableTerms.length >= 2) {
@@ -167,6 +181,12 @@ function pokemonTcgNumberQueryValue(number: string): string {
   return /^[a-z]{1,4}\d{1,4}$/.test(value) ? `${value}*` : value;
 }
 
+function pokemonTcgReleaseSetMatches(card: PokemonTcgCard, releaseAlias: PokemonReleaseAlias): boolean {
+  const normalizedSetName = normalize(card.set?.name ?? '');
+  const normalizedPrefix = normalize(releaseAlias.setNamePrefix);
+  return normalizedSetName.startsWith(normalizedPrefix) || normalizedSetName.includes(` ${normalizedPrefix}`);
+}
+
 function pokemonTcgReleaseAlias(query: string): PokemonReleaseAlias | undefined {
   return POKEMON_RELEASE_ALIASES.find(({ pattern }) => pattern.test(query))?.alias;
 }
@@ -174,7 +194,7 @@ function pokemonTcgReleaseAlias(query: string): PokemonReleaseAlias | undefined 
 function pokemonTcgQuerySubject(query: string): string | undefined {
   return normalize(query)
     .split(' ')
-    .filter((term) => term.length >= 2 && !/^\d+$/.test(term) && !/^\d+\/\d+$/.test(term) && !/^[a-z]{1,4}\d{1,4}$/.test(term) && !POKEMON_CONTEXT_STOP_TERMS.has(term))[0];
+    .filter((term) => term.length >= 2 && !/^\d+$/.test(term) && !/^\d+\/\d+$/.test(term) && !/^[a-z]{1,4}\d{1,4}$/.test(term) && !POKEMON_CONTEXT_STOP_TERMS.has(term) && !POKEMON_PROMO_PUBLICATION_TERMS.has(term) && !POKEMON_PROMO_STYLE_STOP_TERMS.has(term))[0];
 }
 
 function pokemonTcgRequestedNumberPrefix(query: string): string | undefined {
@@ -212,12 +232,13 @@ async function pokemonTcgAutocompleteChoices(query: string, limit: number): Prom
   const querySubject = pokemonTcgQuerySubject(query);
   const numberPrefix = pokemonTcgRequestedNumberPrefix(query);
   const releaseAlias = pokemonTcgReleaseAlias(query);
+  const releaseAliasSetNamePrefix = releaseAlias ? normalize(releaseAlias.setNamePrefix) : undefined;
   const includePrintedTotal = !!requestedCollectorNumber(query);
   return cards
     .filter((card) => card.name && card.number)
     .filter((card) => pokemonTcgCardMatchesQuerySubject(card, querySubject))
     .filter((card) => pokemonTcgCardMatchesNumberPrefix(card, numberPrefix))
-    .filter((card) => !releaseAlias || normalize(card.set?.name ?? '').startsWith(releaseAlias.setNamePrefix))
+    .filter((card) => !releaseAlias || pokemonTcgReleaseSetMatches(card, releaseAlias))
     .map((card) => {
       const setName = card.set?.name;
       const releaseLabel = pokemonTcgReleaseChoiceLabel(card, releaseAlias);
@@ -239,7 +260,7 @@ function pokemonTcgChoiceNumberLabel(card: PokemonTcgCard, releaseAlias: Pokemon
 
 function pokemonTcgReleaseChoiceLabel(card: PokemonTcgCard, releaseAlias: PokemonReleaseAlias | undefined): string | undefined {
   if (!releaseAlias) return undefined;
-  if (!normalize(card.set?.name ?? '').startsWith(releaseAlias.setNamePrefix)) return undefined;
+  if (!pokemonTcgReleaseSetMatches(card, releaseAlias)) return undefined;
   return releaseAlias.label;
 }
 
@@ -434,8 +455,14 @@ export async function autocompleteChaseCards(query: string, limit = 25): Promise
   if (cached && cached.expiresAt > Date.now()) return cached.choices.slice(0, limit);
 
   const [pokemonChoices, japaneseChoices] = await Promise.all([
-    pokemonTcgAutocompleteChoices(query, limit).catch(() => []),
-    tcgDexAutocompleteChoices(query, limit).catch(() => [])
+    pokemonTcgAutocompleteChoices(query, limit).catch((error) => {
+      console.error('pokemonTcgAutocompleteChoices failed', error);
+      return [];
+    }),
+    tcgDexAutocompleteChoices(query, limit).catch((error) => {
+      console.error('tcgDexAutocompleteChoices failed', error);
+      return [];
+    })
   ]);
   const sourceOrderedChoices = hasTcgDexAutocompleteSignal(query) ? [...japaneseChoices, ...pokemonChoices] : [...pokemonChoices, ...japaneseChoices];
   const collectorNumber = requestedCollectorNumber(query);
@@ -445,7 +472,26 @@ export async function autocompleteChaseCards(query: string, limit = 25): Promise
     : standaloneCardNumber
       ? sourceOrderedChoices.filter((choice) => choiceMatchesStandaloneCardNumber(choice, standaloneCardNumber))
       : sourceOrderedChoices;
-  const choices = uniqueChoices(filteredChoices, limit);
+  // If the user included a known series token (e.g. 'xy'), prefer choices that mention that series.
+  const seriesToken = normalize(query)
+    .split(' ')
+    .find((term) => POKEMON_NUMBER_PREFIX_TERMS.has(term));
+  let prioritizedChoices = filteredChoices;
+  if (seriesToken) {
+    const token = seriesToken.toLowerCase();
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const tokenWordRe = new RegExp(`\\b${esc(token)}\\b`, 'i');
+    const tokenNumberRe = new RegExp(`${esc(token)}\\s*\\d`, 'i');
+    prioritizedChoices = [...filteredChoices].map((choice) => ({ choice, score: (() => {
+      const text = normalize(choice.value);
+      let score = 0;
+      if (tokenNumberRe.test(text)) score += 3; // e.g. XY192
+      if (tokenWordRe.test(text)) score += 2; // e.g. set name contains 'xy'
+      if (text.includes(token)) score += 1; // fallback boost for any match
+      return score;
+    })() })).sort((a, b) => b.score - a.score).map((s) => s.choice);
+  }
+  const choices = uniqueChoices(prioritizedChoices, limit);
   const fallbackChoice = choices.length === 0 ? japanesePromoFallbackChoice(query) : undefined;
   if (fallbackChoice) return [fallbackChoice];
   if (choices.length > 0) autocompleteCache.set(normalizedQuery, { expiresAt: Date.now() + AUTOCOMPLETE_CACHE_TTL_MS, choices });

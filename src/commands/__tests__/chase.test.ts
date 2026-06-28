@@ -243,6 +243,48 @@ describe('chase command', () => {
     expect(requestedQueries).toContain('name:mew* number:rc*');
   });
 
+  it('prioritizes series token matches (e.g. XY) for queries like "mew xy"', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      // Return a mixed set: a general Mew and several XY Mew variants
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'si1-1', name: 'Mew', number: '1', set: { name: 'Southern Islands' } },
+          { id: 'xy-110', name: 'Mew', number: 'XY110', set: { name: 'XY Black Star Promos' } },
+          { id: 'xy-126', name: 'Mew-EX', number: 'XY126', set: { name: 'XY Black Star Promos' } },
+          { id: 'xy-192', name: 'Mew', number: 'XY192', set: { name: 'XY Black Star Promos' } }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('mew xy', 10);
+    expect(choices.length).toBeGreaterThan(0);
+    // Ensure choices that mention 'xy' appear before generic ones
+    const firstNonXY = choices.findIndex((c) => !/\bxy\b/i.test(c.value.toLowerCase()));
+    const firstXY = choices.findIndex((c) => /\bxy\b/i.test(c.value.toLowerCase()));
+    expect(firstXY).toBeGreaterThanOrEqual(0);
+    if (firstNonXY !== -1) expect(firstXY).toBeLessThan(firstNonXY);
+  });
+
+  it('surfaces the exact series-number when provided (e.g. "mew xy192")', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'xy-110', name: 'Mew', number: 'XY110', set: { name: 'XY Black Star Promos' } },
+          { id: 'xy-192', name: 'Mew', number: 'XY192', set: { name: 'XY Black Star Promos' } },
+          { id: 'si1-1', name: 'Mew', number: '1', set: { name: 'Southern Islands' } }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('mew xy192', 10);
+    expect(choices.length).toBeGreaterThan(0);
+    expect(choices[0].value.toLowerCase()).toContain('xy192');
+  });
+
   it('filters Pokemon alphanumeric card-number prefixes as they are typed', async () => {
     const requestedQueries: string[] = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -291,6 +333,223 @@ describe('chase command', () => {
       { name: 'Pikachu — Toys R Us Promo #26/83', value: 'Pikachu Toys R Us Promo 26/83' }
     ]);
     expect(requestedQueries).toContain('name:pikachu* number:26 set.name:generations*');
+  });
+
+  it('supports CoroCoro promo subject searches without a card number', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('rarity:Promo')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'coro-1', name: 'Mew', number: '1', set: { name: 'CoroCoro Promo' } },
+            { id: 'coro-2', name: 'Mew', number: '2', set: { name: 'CoroCoro Promo' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('CoroCoro Shining Mew', 10);
+
+    expect(choices).toEqual([
+      { name: 'Mew — CoroCoro Promo #1', value: 'Mew CoroCoro Promo 1' },
+      { name: 'Mew — CoroCoro Promo #2', value: 'Mew CoroCoro Promo 2' }
+    ]);
+    expect(requestedQueries).toContain('name:mew* rarity:Promo');
+  });
+
+  it('supports CoroCoro Jumbo promo subject searches without a card number', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('rarity:Promo')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'coro-j1', name: 'Pikachu', number: 'J1', set: { name: 'CoroCoro Jumbo Promo' } },
+            { id: 'coro-j2', name: 'Pikachu', number: 'J2', set: { name: 'CoroCoro Jumbo Promo' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards("Pikachu's Summer vacation Corocoro JUMBO", 10);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — CoroCoro Jumbo Promo #J1', value: 'Pikachu CoroCoro Jumbo Promo J1' },
+      { name: 'Pikachu — CoroCoro Jumbo Promo #J2', value: 'Pikachu CoroCoro Jumbo Promo J2' }
+    ]);
+    expect(requestedQueries).toContain('name:pikachu* rarity:Promo');
+  });
+
+  it('supports CoroCoro Promotional Cards subject searches without a card number', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('rarity:Promo')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'coro-p1', name: 'Pikachu', number: '1', set: { name: 'CoroCoro Promo' } },
+            { id: 'coro-p2', name: 'Pikachu', number: '2', set: { name: 'CoroCoro Promo' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu CoroCoro Promotional Cards', 10);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — CoroCoro Promo #1', value: 'Pikachu CoroCoro Promo 1' },
+      { name: 'Pikachu — CoroCoro Promo #2', value: 'Pikachu CoroCoro Promo 2' }
+    ]);
+    expect(requestedQueries).toContain('name:pikachu* rarity:Promo');
+  });
+
+  it('supports CoroCoro Magazine promo subject searches without a card number', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('rarity:Promo')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'coro-m1', name: 'Pikachu', number: 'M1', set: { name: 'CoroCoro Magazine Promo' } },
+            { id: 'coro-m2', name: 'Pikachu', number: 'M2', set: { name: 'CoroCoro Magazine Promo' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu CoroCoro Magazine Promo', 10);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — CoroCoro Magazine Promo #M1', value: 'Pikachu CoroCoro Magazine Promo M1' },
+      { name: 'Pikachu — CoroCoro Magazine Promo #M2', value: 'Pikachu CoroCoro Magazine Promo M2' }
+    ]);
+    expect(requestedQueries).toContain('name:pikachu* rarity:Promo');
+  });
+
+  it('supports CoroCoro Manga promo subject searches without a card number', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('rarity:Promo')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'coro-m1', name: 'Pikachu', number: 'M1', set: { name: 'CoroCoro Manga Promo' } },
+            { id: 'coro-m2', name: 'Pikachu', number: 'M2', set: { name: 'CoroCoro Manga Promo' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu CoroCoro Manga Promo', 10);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — CoroCoro Manga Promo #M1', value: 'Pikachu CoroCoro Manga Promo M1' },
+      { name: 'Pikachu — CoroCoro Manga Promo #M2', value: 'Pikachu CoroCoro Manga Promo M2' }
+    ]);
+    expect(requestedQueries).toContain('name:pikachu* rarity:Promo');
+  });
+
+  it('supports McDonald\'s promo subject searches without a card number', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('rarity:Promo')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'mcd-1', name: 'Pikachu', number: '1', set: { name: "McDonald's Promo" } },
+            { id: 'mcd-2', name: 'Pikachu', number: '2', set: { name: "McDonald's Promo" } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards("Pikachu McDonald's promo", 10);
+
+    expect(choices).toEqual([
+      { name: "Pikachu — McDonald's Promo #1", value: "Pikachu McDonald's Promo 1" },
+      { name: "Pikachu — McDonald's Promo #2", value: "Pikachu McDonald's Promo 2" }
+    ]);
+    expect(requestedQueries).toContain('name:pikachu* rarity:Promo');
+  });
+
+  it('supports Pokemon Center promo subject searches without a card number', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      if (q.includes('rarity:Promo')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'pct-1', name: 'Pikachu', number: '1', set: { name: 'Pokemon Center Promo' } },
+            { id: 'pct-2', name: 'Pikachu', number: '2', set: { name: 'Pokemon Center Promo' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu Pokemon Center promo', 10);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — Pokemon Center Promo #1', value: 'Pikachu Pokemon Center Promo 1' },
+      { name: 'Pikachu — Pokemon Center Promo #2', value: 'Pikachu Pokemon Center Promo 2' }
+    ]);
+    expect(requestedQueries).toContain('name:pikachu* rarity:Promo');
+  });
+
+  it('supports Black Star Promos subject searches without a card number', async () => {
+    const requestedQueries: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      const q = new URL(url).searchParams.get('q') ?? '';
+      requestedQueries.push(q);
+      const lowerQ = q.toLowerCase();
+      if (lowerQ.includes('set.name:black star promos*')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'bsp-1', name: 'Pikachu', number: '1', set: { name: 'XY Black Star Promos' } },
+            { id: 'bsp-2', name: 'Pikachu', number: '2', set: { name: 'XY Black Star Promos' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Pikachu Black Star Promos', 10);
+
+    expect(choices).toEqual([
+      { name: 'Pikachu — Black Star Promos #1', value: 'Pikachu Black Star Promos 1' },
+      { name: 'Pikachu — Black Star Promos #2', value: 'Pikachu Black Star Promos 2' }
+    ]);
+    expect(requestedQueries.some((q) => q.toLowerCase().includes('name:pikachu* set.name:black star promos*'))).toBe(true);
   });
 
   it('preserves English printed totals so slash-number filtering can match', async () => {
