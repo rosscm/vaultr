@@ -51,6 +51,32 @@ const POKEMON_RELEASE_ALIASES: Array<{ pattern: RegExp; alias: PokemonReleaseAli
 const POKEMON_PROMO_PUBLICATION_TERMS = new Set(['corocoro', 'coro coro', 'mcdonald', 'mcdonalds', 'center']);
 const POKEMON_PROMO_STYLE_STOP_TERMS = new Set(['promo', 'promos', 'promotional', 'shining', 'holo', 'foil', 'magazine', 'manga', 'japanese', 'jumbo']);
 const BARE_CARD_NUMBER_HELPER_TEXT = 'Keep typing: add the card name with this number';
+
+export function normalizeChaseCardName(value: string): string {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  let result = normalized
+    .replace(/pok[eé]mon/gi, 'Pokemon')
+    .replace(/mcdonald'?s/gi, "McDonald's")
+    .replace(/toys?\s*r\s*us/gi, 'Toys R Us')
+    .replace(/black\s*star\s*(?:promos?|promo)/gi, 'Black Star Promos')
+    .replace(/coro\s*coro/gi, 'CoroCoro');
+
+  result = result.replace(/\bCoroCoro\b[\s-]*(?:Jumbo|Magazine|Manga)[\s-]*(?:Promo|Promos?)?/gi, (match) => {
+    if (/Jumbo/i.test(match)) return 'CoroCoro Jumbo Promo';
+    if (/Magazine/i.test(match)) return 'CoroCoro Magazine Promo';
+    if (/Manga/i.test(match)) return 'CoroCoro Manga Promo';
+    return 'CoroCoro Promo';
+  });
+  result = result.replace(/\bCoroCoro\b[\s-]*(?:Promo|Promos?|Promotional|Promotional Cards?|Cards?)\b/gi, 'CoroCoro Promo');
+  result = result.replace(/\bCoroCoro\b(?!\s+(?:Jumbo|Magazine|Manga|Promo|Promos|Promotional)\b)/gi, 'CoroCoro Promo');
+  result = result.replace(/\bMcDonald's\b(?!\s+Promo\b)/gi, "McDonald's Promo");
+  result = result.replace(/\bPokemon Center\b(?!\s+Promo\b)/gi, 'Pokemon Center Promo');
+  result = result.replace(/\bToys R Us\b(?!\s+Promo\b)/gi, 'Toys R Us Promo');
+  result = result.replace(/\bBlack Star\b(?!\s+Promos\b)/gi, 'Black Star Promos');
+
+  return result.replace(/\s+/g, ' ').trim();
+}
+
 const JAPANESE_SUBJECT_ALIASES: Record<string, string[]> = {
   blastoise: ['カメックス'],
   bulbasaur: ['フシギダネ'],

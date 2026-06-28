@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chase } from '../chase.js';
 import { handleChaseAddAutocomplete } from '../chase-add.js';
+import { handleChaseEditAutocomplete } from '../chase-edit.js';
 import { buildChaseListEmbed } from '../chase-list.js';
 import {
   addChase,
@@ -49,6 +50,20 @@ function mockInteraction(userId: string, subcommand: string, values: Record<stri
   };
 }
 
+function mockAutocompleteInteraction(userId: string, subcommand: string, focusedName: string, focusedValue: string) {
+  const respond = vi.fn(async (_choices?: any) => undefined);
+  return {
+    user: { id: userId },
+    commandName: 'chase',
+    isAutocomplete: () => true,
+    options: {
+      getSubcommand: () => subcommand,
+      getFocused: () => ({ name: focusedName, value: focusedValue })
+    },
+    respond
+  };
+}
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
   clearChaseCardAutocompleteCache();
@@ -86,20 +101,32 @@ describe('chase command', () => {
       }
       return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }) as any;
-    const respond = vi.fn(async (_choices?: any) => undefined);
-    const interaction = {
-      isAutocomplete: () => true,
-      commandName: 'chase',
-      options: {
-        getSubcommand: () => 'add',
-        getFocused: () => ({ name: 'card', value: 'mew ex' })
-      },
-      respond
-    };
+    const interaction = mockAutocompleteInteraction('user-1', 'add', 'card', 'mew ex');
 
     await handleChaseAddAutocomplete(interaction);
 
-    expect(respond).toHaveBeenCalledWith([
+    expect(interaction.respond).toHaveBeenCalledWith([
+      { name: 'Mew ex — Paldean Fates #232', value: 'Mew ex Paldean Fates 232' }
+    ]);
+  });
+
+  it('returns card catalog autocomplete choices for chase edit card', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' }, images: { large: 'https://images.pokemontcg.io/sv4pt5/232_hires.png' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+    const interaction = mockAutocompleteInteraction('user-1', 'edit', 'card', 'mew ex');
+
+    await handleChaseEditAutocomplete(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith([
       { name: 'Mew ex — Paldean Fates #232', value: 'Mew ex Paldean Fates 232' }
     ]);
   });

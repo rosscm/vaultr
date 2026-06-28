@@ -86,7 +86,7 @@ export const chase = {
             .setAutocomplete(true)
         )
         .addStringOption((opt) =>
-          opt.setName('card').setDescription('New card name or set number').setMinLength(3).setMaxLength(100)
+          opt.setName('card').setDescription('New card name or set number').setMinLength(3).setMaxLength(100).setAutocomplete(true)
         )
         .addNumberOption((opt) => opt.setName('max_price').setDescription('New highest total price to surface').setMinValue(0.01))
         .addStringOption((opt) =>

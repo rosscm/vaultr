@@ -10,7 +10,7 @@ import {
 } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
-import { autocompleteChaseCards, getCachedChaseCardPreviewImage } from '../services/chase-card-catalog.js';
+import { autocompleteChaseCards, getCachedChaseCardPreviewImage, normalizeChaseCardName } from '../services/chase-card-catalog.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
@@ -87,7 +87,8 @@ export const chaseAdd = {
     }
 
     const cardName = interaction.options.getString('card', true);
-    const existingDuplicate = listChases(interaction.user.id).find((chase) => normalizeChaseName(chase.cardName) === normalizeChaseName(cardName));
+    const normalizedCardName = normalizeChaseCardName(cardName);
+    const existingDuplicate = listChases(interaction.user.id).find((chase) => normalizeChaseCardName(chase.cardName) === normalizedCardName);
     if (existingDuplicate) {
       await interaction.reply({
         embeds: [warningEmbed('Already In Vault', `**${existingDuplicate.cardName}** is already an active chase`)],
@@ -146,7 +147,7 @@ export const chaseAdd = {
     const chase = addChase({
       userId: interaction.user.id,
       guildId: interaction.guildId ?? undefined,
-      cardName,
+      cardName: normalizeChaseCardName(cardName),
       priority,
       targetNote: appliedTargetNote,
       maxPrice,

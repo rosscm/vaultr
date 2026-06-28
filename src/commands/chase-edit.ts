@@ -2,6 +2,7 @@ import { MessageFlags } from 'discord.js';
 import { getUserPlan, listChases, updateChase } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanTier } from '../services/plans.js';
+import { autocompleteChaseCards } from '../services/chase-card-catalog.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, gradeSelectionWarning, inferGradingTypeFromGrade, normalizeConditionChoice } from './chase-options.js';
@@ -84,6 +85,14 @@ export async function handleChaseEditAutocomplete(interaction: any): Promise<boo
   if (interaction.commandName !== 'chase') return false;
   if (interaction.options.getSubcommand() !== 'edit') return false;
   const focused = interaction.options.getFocused(true);
+
+  if (focused.name === 'card') {
+    const query = String(focused.value ?? '').trim();
+    const choices = await autocompleteChaseCards(query, 25);
+    await interaction.respond(choices);
+    return true;
+  }
+
   if (focused.name !== 'chase') return false;
 
   const query = String(focused.value ?? '').trim().toLowerCase();

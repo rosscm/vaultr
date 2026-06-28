@@ -340,6 +340,45 @@ function gradeSearchTerm(grade: string | undefined): string | undefined {
   return grade;
 }
 
+function buildEbaySearchKeywords(chase: Chase): string {
+  const base = chase.cardName ?? '';
+  let s = base;
+
+  // Remove common verbose promo/publication phrases but keep essential tokens
+  const promoPatterns = [
+    /\bBlack Star Promos?\b/gi,
+    /\bCoroCoro(?:\s+Jumbo|\s+Magazine|\s+Manga)?\b/gi,
+    /\bMcDonald'?s(?:\s+Promo(?:s)?)?\b/gi,
+    /\bPokemon Center(?:\s+Promo)?\b/gi,
+    /\bToys\s*R\s*Us(?:\s+Promo)?\b/gi,
+    /\bPromotional?\b/gi,
+    /\bPromos?\b/gi,
+    /\bMagazine\b/gi,
+    /\bManga\b/gi
+  ];
+  for (const re of promoPatterns) s = s.replace(re, ' ');
+
+  // Normalize spaced series+number like "XY 95" -> "XY95" and "XY/95" -> "XY95"
+  s = s.replace(/\b([A-Za-z]{1,4})\s*\/?\s*(\d{1,4})\b/g, (_m, a, b) => `${a}${b}`);
+
+  // Preserve alphanumeric tokens (e.g. XY95), then remove isolated standalone series tokens
+  const seriesMatches = Array.from(new Set((s.match(/\b([A-Za-z]{1,4})(?=\d)/gi) || []).map((m) => m.replace(/\d+/g, ''))));
+  for (const series of seriesMatches) {
+    // remove lone occurrences of the series word but don't touch alphanumeric tokens already paired with numbers
+    s = s.replace(new RegExp(`\\b${series}\\b`, 'gi'), ' ');
+  }
+
+  // Cleanup lingering words that are noisy for marketplace searches
+  s = s
+    .replace(/\bJapanese\b/gi, ' ')
+    .replace(/\bPokemon\b\s+cards?\b/gi, 'Pokemon card')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return s.length > 0 ? s : base;
+}
+
+
 function searchMaxPriceFilter(options: EbaySearchOptions): string | undefined {
   const maxPrice = Number(options.maxPrice);
   const currency = options.maxPriceCurrency?.trim().toUpperCase();
@@ -353,7 +392,7 @@ function ebaySoldSearchPageCount(options: EbaySoldSearchOptions): number {
 }
 
 function ebaySoldSearchKeywords(chase: Chase, options: EbaySoldSearchOptions): string {
-  const baseKeywords = options.keywords?.trim() || chase.cardName;
+  const baseKeywords = options.keywords?.trim() || buildEbaySearchKeywords(chase);
   const gradeTerm = gradeSearchTerm(chase.grade);
   return gradeTerm ? `${baseKeywords} ${gradeTerm}` : baseKeywords;
 }
