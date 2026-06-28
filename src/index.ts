@@ -9,6 +9,7 @@ import { handleChaseListPagination } from './commands/chase-list.js';
 import { handleChaseRemoveAutocomplete } from './commands/chase-remove.js';
 import { handleDiscoveryActionSelect, handleDiscoveryDropOpen, handleDiscoveryDropPage, handleDiscoveryFeedback, handleDiscoveryFeedbackUndo, handleDiscoveryVaultAdd } from './commands/discover.js';
 import { initializeCurrencyRates } from './services/currency.js';
+import { backfillChaseQueryNames } from './services/chase-store.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
 import { startDiscoveryDropScheduler } from './services/discovery-drop-scheduler.js';
 import { startPoller } from './services/poller.js';
@@ -54,6 +55,8 @@ async function handleCommandError(interaction: ChatInputCommandInteraction, erro
 }
 
 await initializeCurrencyRates();
+// Backfill `query_name` for existing chases if missing.
+backfillChaseQueryNames();
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}`);

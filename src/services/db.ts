@@ -17,6 +17,7 @@ db.exec(`
     user_id TEXT NOT NULL,
     guild_id TEXT,
     card_name TEXT NOT NULL,
+    query_name TEXT,
     priority TEXT NOT NULL DEFAULT 'NORMAL',
     target_note TEXT,
     max_price REAL,
@@ -470,6 +471,11 @@ db.exec(`
 `);
 try {
   db.exec(`ALTER TABLE user_alert_settings ADD COLUMN listing_source_mode TEXT NOT NULL DEFAULT 'EBAY';`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN query_name TEXT;`);
 } catch {
   // Column already exists on upgraded databases.
 }

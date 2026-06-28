@@ -92,7 +92,7 @@ function ebaySearchCacheKey(chase: Chase, destination: ShippingDestination | und
     ebaySearchLimit(),
     process.env.EBAY_BROWSE_SORT ?? 'newlyListed',
     searchMaxPriceFilter(options) ?? '',
-    chase.cardName.trim().toLowerCase(),
+      (chase.queryName ?? chase.cardName).trim().toLowerCase(),
     chase.grade?.trim().toLowerCase() ?? '',
     normalizeCountryCode(destination?.country) ?? '',
     destination?.postalCode?.trim().toUpperCase() ?? '',
@@ -530,7 +530,8 @@ function mapBrowseItemToListing(item: any, destination?: ShippingDestination): L
 async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {
   const token = await getBrowseAccessToken();
   const gradeTerm = gradeSearchTerm(chase.grade);
-  const keywords = gradeTerm ? `${chase.cardName} ${gradeTerm}` : chase.cardName;
+  const baseKeywords = chase.queryName?.trim() || buildEbaySearchKeywords(chase);
+  const keywords = gradeTerm ? `${baseKeywords} ${gradeTerm}` : baseKeywords;
   const params = new URLSearchParams({
     q: keywords,
     limit: String(ebaySearchLimit()),

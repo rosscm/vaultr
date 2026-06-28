@@ -6,6 +6,7 @@ export type Chase = {
   userId: string;
   guildId?: string;
   cardName: string;
+  queryName?: string;
   priority?: 'GRAIL' | 'HIGH' | 'NORMAL';
   targetNote?: string;
   maxPrice?: number;

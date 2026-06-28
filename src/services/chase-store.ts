@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
+import { buildEbaySearchKeywords } from './ebay.js';
 import { makeAlertFeedbackToken } from './alert-feedback-token.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice } from './currency.js';
 import { normalizePlanTier } from './plans.js';
@@ -12,6 +13,7 @@ type ChaseRow = {
   user_id: string;
   guild_id: string | null;
   card_name: string;
+  query_name: string | null;
   priority: 'GRAIL' | 'HIGH' | 'NORMAL';
   target_note: string | null;
   max_price: number | null;
@@ -180,6 +182,7 @@ function mapRow(row: ChaseRow): Chase {
     userId: row.user_id,
     guildId: row.guild_id ?? undefined,
     cardName: row.card_name,
+    queryName: row.query_name ?? undefined,
     priority: row.priority ?? 'NORMAL',
     targetNote: row.target_note ?? undefined,
     maxPrice: row.max_price ?? undefined,
@@ -235,12 +238,12 @@ function mapSentAlertDetails(row: SentAlertDetailsRow): SentAlertDetails {
 }
 
 const insertChaseStmt = db.prepare(`
-  INSERT INTO chases (id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at)
-  VALUES (@id, @user_id, @guild_id, @card_name, @priority, @target_note, @max_price, @grade, @condition, @listing_type, @negative_keywords, @created_at)
+  INSERT INTO chases (id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at)
+  VALUES (@id, @user_id, @guild_id, @card_name, @query_name, @priority, @target_note, @max_price, @grade, @condition, @listing_type, @negative_keywords, @created_at)
 `);
 
 const getChaseByUserAndNormalizedNameStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   WHERE user_id = ? AND lower(trim(card_name)) = lower(trim(?))
   ORDER BY created_at ASC
@@ -248,7 +251,7 @@ const getChaseByUserAndNormalizedNameStmt = db.prepare(`
 `);
 
 const listChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   WHERE user_id = ?
   ORDER BY
@@ -261,9 +264,17 @@ const listChasesStmt = db.prepare(`
 `);
 
 const listAllChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   ORDER BY created_at DESC
+`);
+
+const selectChasesMissingQueryNameStmt = db.prepare(`
+  SELECT id, card_name FROM chases WHERE query_name IS NULL OR trim(query_name) = ''
+`);
+
+const updateChaseQueryNameOnlyStmt = db.prepare(`
+  UPDATE chases SET query_name = ? WHERE id = ?
 `);
 
 const removeChaseStmt = db.prepare(`
@@ -279,6 +290,7 @@ const removeAllChasesByUserStmt = db.prepare(`
 const updateChaseStmt = db.prepare(`
   UPDATE chases
   SET card_name = @card_name,
+      query_name = @query_name,
       priority = @priority,
       target_note = @target_note,
       max_price = @max_price,
@@ -808,7 +820,7 @@ const listRecentChaseTuneOutAlertsSinceStmt = db.prepare(`
 `);
 
 const getChaseByIdStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   WHERE user_id = ? AND id = ?
   LIMIT 1
@@ -992,11 +1004,13 @@ export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
   };
 
   try {
+    const computedQueryName = buildEbaySearchKeywords(chase);
     insertChaseStmt.run({
       id: chase.id,
       user_id: chase.userId,
       guild_id: chase.guildId ?? null,
       card_name: chase.cardName,
+      query_name: computedQueryName,
       priority: chase.priority ?? 'NORMAL',
       target_note: chase.targetNote ?? null,
       max_price: chase.maxPrice ?? null,
@@ -1062,6 +1076,19 @@ export function listChases(userId: string): Chase[] {
 export function getChase(userId: string, chaseId: string): Chase | null {
   const row = getChaseByIdStmt.get(userId, chaseId) as ChaseRow | undefined;
   return row ? mapRow(row) : null;
+}
+
+export function backfillChaseQueryNames(): void {
+  const rows = selectChasesMissingQueryNameStmt.all() as Array<{ id: string; card_name: string }>;
+  if (rows.length === 0) return;
+  const tx = db.transaction((items: Array<{ id: string; card_name: string }>) => {
+    for (const r of items) {
+      const fakeChase = { id: r.id, userId: '', cardName: r.card_name } as unknown as Chase;
+      const q = buildEbaySearchKeywords(fakeChase);
+      updateChaseQueryNameOnlyStmt.run(q, r.id);
+    }
+  });
+  tx(rows);
 }
 
 export function listUserTasteMemoryChases(userId: string, limit = 24): Chase[] {
@@ -1530,6 +1557,7 @@ export function updateChase(
     id: chaseId,
     user_id: userId,
     card_name: next.cardName,
+    query_name: next.queryName ?? buildEbaySearchKeywords(next),
     priority: next.priority ?? 'NORMAL',
     target_note: next.targetNote ?? null,
     max_price: next.maxPrice ?? null,
