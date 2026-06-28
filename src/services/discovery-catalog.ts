@@ -785,7 +785,12 @@ export function selectDiscoverySuggestionsForFocuses(focuses: string[], chases: 
   if (selected.length < count) {
     for (const { suggestion } of ranked) {
       const nameKey = normalizeKey(suggestion.name);
-      if (selected.length >= count || selectedNames.has(nameKey) || excludedNameKeys.has(nameKey)) continue;
+      if (
+        selected.length >= count ||
+        selectedNames.has(nameKey) ||
+        excludedNameKeys.has(nameKey) ||
+        excludedLanes.has(suggestion.lane)
+      ) continue;
       selected.push(suggestion);
       selectedNames.add(nameKey);
     }
