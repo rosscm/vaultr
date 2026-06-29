@@ -88,7 +88,9 @@ export const chaseAdd = {
 
     const cardName = interaction.options.getString('card', true);
     const normalizedCardName = normalizeChaseCardName(cardName);
-    const existingDuplicate = listChases(interaction.user.id).find((chase) => normalizeChaseCardName(chase.cardName) === normalizedCardName);
+    const existingDuplicate = listChases(interaction.user.id).find(
+      (chase) => normalizeChaseCardName(chase.cardName).toLowerCase() === normalizedCardName.toLowerCase()
+    );
     if (existingDuplicate) {
       await interaction.reply({
         embeds: [warningEmbed('Already In Vault', `**${existingDuplicate.cardName}** is already an active chase`)],

@@ -340,7 +340,7 @@ function gradeSearchTerm(grade: string | undefined): string | undefined {
   return grade;
 }
 
-function buildEbaySearchKeywords(chase: Chase): string {
+export function buildEbaySearchKeywords(chase: Chase): string {
   const base = chase.cardName ?? '';
   let s = base;
 
