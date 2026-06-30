@@ -158,6 +158,7 @@ const VISIBLE_DISCOVERY_COUNT = 7;
 const DISCOVERY_SHELF_PAGE_SIZE = 10;
 const DISCOVERY_WEEKLY_DROP_SIZE = Math.max(DISCOVERY_SHELF_PAGE_SIZE, Math.min(20, Math.floor(Number(process.env.DISCOVERY_WEEKLY_DROP_SIZE ?? '20'))));
 const DISCOVERY_CANDIDATE_POOL_SIZE = Math.max(72, DISCOVERY_WEEKLY_DROP_SIZE * 3);
+const DISCOVERY_SEEN_EXCLUSION_LIMIT = Math.max(120, DISCOVERY_WEEKLY_DROP_SIZE * 6);
 const DISCOVERY_ENRICHMENT_CONCURRENCY = 4;
 const DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY = 1;
 const DISCOVERY_SOURCE_TIMEOUT_MS = Math.max(30000, Math.min(90000, Math.floor(Number(process.env.DISCOVERY_SOURCE_TIMEOUT_MS ?? '60000'))));
@@ -390,6 +391,21 @@ function discoveryDisplayNameKey(value: string): string {
     .replace(/\b(?:promo|promos|pokemon|tcg|trading|card|cards)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function discoveryExclusionNameKeys(values: string[]): Set<string> {
+  const keys = new Set<string>();
+  for (const value of values) {
+    const nameKey = discoveryNameKey(value);
+    const displayNameKey = discoveryDisplayNameKey(value);
+    if (nameKey) keys.add(nameKey);
+    if (displayNameKey) keys.add(displayNameKey);
+  }
+  return keys;
+}
+
+function isDiscoveryNameExcluded(value: string, excludedNameKeys: Set<string>): boolean {
+  return excludedNameKeys.has(discoveryNameKey(value)) || excludedNameKeys.has(discoveryDisplayNameKey(value));
 }
 
 function discoveryMarketSearchTerms(suggestion: DiscoverySuggestion): string[] {
@@ -1981,7 +1997,7 @@ export function backfillMarketReadyDiscoveryCandidates(
   repeatGuardChases: Chase[] = context.activeChases,
   excludedNames: string[] = []
 ): DiscoveryCandidate[] {
-  const excludedNameKeys = new Set(excludedNames.map(discoveryNameKey));
+  const excludedNameKeys = discoveryExclusionNameKeys(excludedNames);
   const readyShelfCount = (items: DiscoveryCandidate[]): number => marketReadyShelfCandidatesWithOptions(items, true, profileConfidence, { allowPendingExploration: false }).length;
   const positiveSubjectChases = positiveTasteSubjectChases(tasteProfileChases);
   const isProfileAlignedBackfillCandidate = (candidate: DiscoveryCandidate): boolean =>
@@ -2005,7 +2021,7 @@ export function backfillMarketReadyDiscoveryCandidates(
       negativeProfile
     ).length;
   const hasConcreteProfileSignals = positiveSubjectChases.some((chase) => cacheBackfillSubjectTokens([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).length > 0);
-  const merged = candidates.filter((candidate) => !excludedNameKeys.has(discoveryNameKey(candidate.suggestion.name)));
+  const merged = candidates.filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, excludedNameKeys));
   if (readyShelfCount(merged) >= targetCount && (!hasConcreteProfileSignals || profileMatchedReadyShelfCount(merged) >= targetCount)) return merged;
   const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
   const seenVariantFamilies = new Set(merged.map(candidateVariantFamilyKey).filter((key): key is string => !!key));
@@ -2017,7 +2033,7 @@ export function backfillMarketReadyDiscoveryCandidates(
   for (const entry of cacheEntries) {
     if ((!hasConcreteProfileSignals && readyShelfCount(merged) >= targetCount) || (hasConcreteProfileSignals && directProfileReadyShelfCount(merged) >= targetCount)) break;
     const suggestion = marketCacheSuggestionFromCardName(entry.suggestionName);
-    if (excludedNameKeys.has(discoveryNameKey(suggestion.name))) continue;
+    if (isDiscoveryNameExcluded(suggestion.name, excludedNameKeys)) continue;
     const candidate = {
       ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
       listing: listingFromDiscoveryMarketCache(entry),
@@ -2048,7 +2064,7 @@ export function backfillMarketReadyDiscoveryCandidates(
   for (const entry of cacheEntries) {
     if ((!hasConcreteProfileSignals && readyShelfCount(merged) >= targetCount) || (hasConcreteProfileSignals && profileMatchedReadyShelfCount(merged) >= targetCount)) break;
     const suggestion = marketCacheSuggestionFromCardName(entry.suggestionName);
-    if (excludedNameKeys.has(discoveryNameKey(suggestion.name))) continue;
+    if (isDiscoveryNameExcluded(suggestion.name, excludedNameKeys)) continue;
     const candidate = {
       ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
       listing: listingFromDiscoveryMarketCache(entry),
@@ -2094,14 +2110,14 @@ function backfillJapaneseMarketSignalCandidates(
   const positiveSubjectChases = positiveTasteSubjectChases(tasteProfileChases);
   const genericJapaneseBackfillLimit = Math.max(0, targetJapaneseCount - candidates.filter(isJapaneseDiscoveryCandidate).length);
   let genericJapaneseBackfillCount = 0;
-  const excludedNameKeys = new Set(excludedNames.map(discoveryNameKey));
+  const excludedNameKeys = discoveryExclusionNameKeys(excludedNames);
   const merged = [...candidates];
   const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
   for (const entry of listDiscoveryMarketSignalCacheEntries({ displayCurrency: context.targetCurrency, destinationCountry: context.destination?.country, limit: 240 })) {
     if (merged.filter(isJapaneseDiscoveryCandidate).length >= targetJapaneseCount) break;
     const suggestion = marketCacheSuggestionFromCardName(entry.suggestionName);
     if (!isJapaneseSourceSuggestion(suggestion)) continue;
-    if (excludedNameKeys.has(discoveryNameKey(suggestion.name))) continue;
+    if (isDiscoveryNameExcluded(suggestion.name, excludedNameKeys)) continue;
     const candidate = candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false);
     if (!isDisplayableDiscoveryCandidate(candidate) || !isConcreteDiscoverySuggestion(candidate.suggestion)) continue;
     if (!hasSomeRawMarketData(candidate) || !isMarketEstimateInRange(candidate, context.range)) continue;
@@ -2225,7 +2241,7 @@ function uniqueCandidatesByDisplayName(candidates: DiscoveryCandidate[]): Discov
 export function blendWeeklyTasteLaneCandidates(candidates: DiscoveryCandidate[], candidatePool: DiscoveryCandidate[], chases: Chase[], targetCount: number, softAvoidNames: string[] = []): DiscoveryCandidate[] {
   const laneTargets = weeklyTasteLaneTargets(chases, targetCount);
   if (laneTargets.length === 0) return candidates;
-  const softAvoidNameKeys = new Set(softAvoidNames.map(discoveryNameKey));
+  const softAvoidNameKeys = discoveryExclusionNameKeys(softAvoidNames);
   const selected = candidates.slice(0, targetCount);
   const selectedNameKeys = new Set(selected.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
   const additions: DiscoveryCandidate[] = [];
@@ -2233,7 +2249,7 @@ export function blendWeeklyTasteLaneCandidates(candidates: DiscoveryCandidate[],
   const countLane = (lane: WeeklyTasteLane): number => [...selected, ...additions].filter((candidate) => isWeeklyTasteLaneCandidate(candidate, lane)).length;
   const canUseCandidate = (candidate: DiscoveryCandidate): boolean => {
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
-    return isDisplayableDiscoveryCandidate(candidate) && !softAvoidNameKeys.has(discoveryNameKey(candidate.suggestion.name)) && !selectedNameKeys.has(nameKey) && !additionNameKeys.has(nameKey);
+    return isDisplayableDiscoveryCandidate(candidate) && !isDiscoveryNameExcluded(candidate.suggestion.name, softAvoidNameKeys) && !selectedNameKeys.has(nameKey) && !additionNameKeys.has(nameKey);
   };
   const rankedPool = orderCandidatesForMarketConfidence(candidatePool, chases);
   for (const { lane, target } of laneTargets) {
@@ -2265,8 +2281,8 @@ function backfillWeeklyTasteLaneMarketCandidates(
   if (laneTargets.length === 0) return candidates;
   const positiveSubjectChases = positiveTasteSubjectChases(tasteProfileChases);
   if (positiveSubjectChases.length === 0) return candidates;
-  const excludedNameKeys = new Set(excludedNames.map(discoveryNameKey));
-  const merged = candidates.filter((candidate) => !excludedNameKeys.has(discoveryNameKey(candidate.suggestion.name)));
+  const excludedNameKeys = discoveryExclusionNameKeys(excludedNames);
+  const merged = candidates.filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, excludedNameKeys));
   const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
   const cacheEntries = listReliableDiscoveryMarketCacheEntries({
     displayCurrency: context.targetCurrency,
@@ -2275,7 +2291,7 @@ function backfillWeeklyTasteLaneMarketCandidates(
   });
   for (const entry of cacheEntries) {
     const suggestion = marketCacheSuggestionFromCardName(entry.suggestionName);
-    if (excludedNameKeys.has(discoveryNameKey(suggestion.name))) continue;
+    if (isDiscoveryNameExcluded(suggestion.name, excludedNameKeys)) continue;
     const candidate = {
       ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
       listing: listingFromDiscoveryMarketCache(entry),
@@ -2786,12 +2802,12 @@ function marketCacheSuggestionFromCardName(name: string): DiscoverySuggestion {
 }
 
 export function concreteDiscoveryFallbackSuggestions(names: string[], excludedNames: string[] = []): DiscoverySuggestion[] {
-  const excludedNameKeys = new Set(excludedNames.map(discoveryNameKey));
+  const excludedNameKeys = discoveryExclusionNameKeys(excludedNames);
   const seenNameKeys = new Set<string>();
   const suggestions: DiscoverySuggestion[] = [];
   for (const name of names) {
     const nameKey = discoveryNameKey(name);
-    if (!nameKey || seenNameKeys.has(nameKey) || excludedNameKeys.has(nameKey)) continue;
+    if (!nameKey || seenNameKeys.has(nameKey) || isDiscoveryNameExcluded(name, excludedNameKeys)) continue;
     const suggestion = fallbackSuggestionFromCardName(name);
     if (!isConcreteDiscoverySuggestion(suggestion)) continue;
     suggestions.push(suggestion);
@@ -3459,11 +3475,11 @@ function discoveryShelfPageRows(userId: string, page: number, totalPages: number
 
 export function mergeFreshDiscoveryCandidates(candidates: DiscoveryCandidate[], fallbackCandidates: DiscoveryCandidate[], recentlySeenNames: string[], count: number): DiscoveryCandidate[] {
   const candidateNames = new Set(candidates.map((candidate) => discoveryNameKey(candidate.suggestion.name)));
-  const recentlySeenNameKeys = new Set(recentlySeenNames.map(discoveryNameKey));
+  const recentlySeenNameKeys = discoveryExclusionNameKeys(recentlySeenNames);
   const mergedCandidates = [...candidates];
   for (const candidate of fallbackCandidates) {
     const candidateNameKey = discoveryNameKey(candidate.suggestion.name);
-    if (candidateNames.has(candidateNameKey) || recentlySeenNameKeys.has(candidateNameKey)) continue;
+    if (candidateNames.has(candidateNameKey) || isDiscoveryNameExcluded(candidate.suggestion.name, recentlySeenNameKeys)) continue;
     mergedCandidates.push(candidate);
     candidateNames.add(candidateNameKey);
     if (mergedCandidates.length >= count) break;
@@ -3637,19 +3653,19 @@ export function orderCandidatesFromPersistedState(
   const candidatesByName = new Map(candidates.map((candidate) => [discoveryNameKey(candidate.suggestion.name), candidate]));
   const selected: DiscoveryCandidate[] = [];
   const selectedNames = new Set<string>();
-  const hardExcludedNameKeys = new Set((options.hardExcludedNames ?? []).map(discoveryNameKey));
-  const softAvoidNameKeys = new Set((options.softAvoidNames ?? []).map(discoveryNameKey));
+  const hardExcludedNameKeys = discoveryExclusionNameKeys(options.hardExcludedNames ?? []);
+  const softAvoidNameKeys = discoveryExclusionNameKeys(options.softAvoidNames ?? []);
   for (const name of persistedNames) {
     const nameKey = discoveryNameKey(name);
     const candidate = candidatesByName.get(nameKey);
-    if (!candidate || selectedNames.has(nameKey) || hardExcludedNameKeys.has(nameKey)) continue;
+    if (!candidate || selectedNames.has(nameKey) || isDiscoveryNameExcluded(candidate.suggestion.name, hardExcludedNameKeys)) continue;
     selected.push(candidate);
     selectedNames.add(nameKey);
     if (selected.length >= count) return selected;
   }
   for (const candidate of candidates) {
     const nameKey = discoveryNameKey(candidate.suggestion.name);
-    if (selectedNames.has(nameKey) || hardExcludedNameKeys.has(nameKey) || softAvoidNameKeys.has(nameKey)) continue;
+    if (selectedNames.has(nameKey) || isDiscoveryNameExcluded(candidate.suggestion.name, hardExcludedNameKeys) || isDiscoveryNameExcluded(candidate.suggestion.name, softAvoidNameKeys)) continue;
     selected.push(candidate);
     selectedNames.add(nameKey);
     if (selected.length >= count) break;
@@ -3657,7 +3673,7 @@ export function orderCandidatesFromPersistedState(
   for (const candidate of candidates) {
     if (selected.length >= count) break;
     const nameKey = discoveryNameKey(candidate.suggestion.name);
-    if (selectedNames.has(nameKey) || hardExcludedNameKeys.has(nameKey)) continue;
+    if (selectedNames.has(nameKey) || isDiscoveryNameExcluded(candidate.suggestion.name, hardExcludedNameKeys)) continue;
     selected.push(candidate);
     selectedNames.add(nameKey);
   }
@@ -3705,7 +3721,6 @@ async function discoverCandidatesForUser(
   const hasLearnedProfile = hasFullDiscovery && (profileConfidence.tier === 'USABLE' || profileConfidence.tier === 'STRONG');
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const rejectedNames = recentlyRejected.map((item) => item.suggestionName);
-  const scheduledExcludedNames = allowSoftAvoidFiller ? rejectedNames : uniqueValuesPreservingOrder([...rejectedNames, ...softAvoidNames]);
   const negativeProfile = discoveryNegativeProfile(recentlyRejected, tasteProfileChases);
   const learnedRankContext = hasFullDiscovery
     ? (() => {
@@ -3719,7 +3734,9 @@ async function discoverCandidatesForUser(
         };
       })()
     : undefined;
-  const recentlySeenNames = listRecentUserDiscoverySeenNames(userId);
+  const recentlySeenNames = listRecentUserDiscoverySeenNames(userId, DISCOVERY_SEEN_EXCLUSION_LIMIT);
+  const seenExcludedNames = uniqueValuesPreservingOrder([...rejectedNames, ...recentlySeenNames]);
+  const scheduledSeenExcludedNames = allowSoftAvoidFiller ? seenExcludedNames : uniqueValuesPreservingOrder([...seenExcludedNames, ...softAvoidNames]);
   const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames, activeTier, targetVisibleCount);
   const stateKey = discoveryStateKey(activeTier, targetVisibleCount);
   const latestDrop = hasFullDiscovery && preferScheduledDrop ? getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY') : null;
@@ -3786,8 +3803,8 @@ async function discoverCandidatesForUser(
     };
   }
   const selectAndEnrich = async () => {
-    const combinedExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
-    const combinedSourceExcludedNames = uniqueValuesPreservingOrder(rejectedNames);
+    const combinedExcludedNames = uniqueValuesPreservingOrder(seenExcludedNames);
+    const combinedSourceExcludedNames = uniqueValuesPreservingOrder(seenExcludedNames);
     const persistedState = usePersistedState && hasFullDiscovery && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT ? getUserDiscoveryState(userId, stateKey) : null;
     const selection = selectDiscoverySuggestionsForFocuses([], tasteProfileChases, DISCOVERY_CANDIDATE_POOL_SIZE, {
       excludedNames: combinedExcludedNames,
@@ -3841,7 +3858,7 @@ async function discoverCandidatesForUser(
     const rankedCandidates = selectVisibleCandidatesForCount(enriched, tasteProfileChases, discoverySelectionCount, negativeProfile, learnedRankContext);
     const persistedCandidates =
       persistedState?.profileFingerprint === profileFingerprint && persistedState.suggestionNames.length >= targetVisibleCount
-        ? orderCandidatesFromPersistedState(rankedCandidates, persistedState.suggestionNames, targetVisibleCount, { hardExcludedNames: rejectedNames })
+        ? orderCandidatesFromPersistedState(rankedCandidates, persistedState.suggestionNames, targetVisibleCount, { hardExcludedNames: seenExcludedNames })
         : null;
     const discoveryCandidatePool =
       persistedCandidates ??
@@ -3854,7 +3871,7 @@ async function discoverCandidatesForUser(
       ? await hydratePendingDiscoveryMarketCandidates(cacheCandidates, marketContext)
       : cacheCandidates;
     const selectionPool = hasFullDiscovery
-      ? backfillMarketReadyDiscoveryCandidates(marketCandidates, marketContext, targetVisibleCount, tasteProfileChases, profileConfidence, negativeProfile, repeatGuardChases, rejectedNames)
+      ? backfillMarketReadyDiscoveryCandidates(marketCandidates, marketContext, targetVisibleCount, tasteProfileChases, profileConfidence, negativeProfile, repeatGuardChases, seenExcludedNames)
       : marketCandidates;
     const japaneseSignalPool = hasFullDiscovery && hasJapaneseWeightedProfile(tasteProfileChases)
       ? backfillJapaneseMarketSignalCandidates(
@@ -3863,7 +3880,7 @@ async function discoverCandidatesForUser(
           weeklyJapaneseSignalTargetCount(tasteProfileChases, targetVisibleCount),
           tasteProfileChases,
           repeatGuardChases,
-          rejectedNames
+          seenExcludedNames
         )
       : [];
     const reliableSelectionPool = profileSubjectMatchedReliableDiscoveryCandidates(selectionPool, tasteProfileChases, targetVisibleCount, negativeProfile);
@@ -3885,13 +3902,13 @@ async function discoverCandidatesForUser(
         profileConfidence,
         negativeProfile,
         repeatGuardChases,
-        scheduledExcludedNames
+        scheduledSeenExcludedNames
       );
       const freshReadyCount = marketReadyShelfCandidatesWithOptions(freshBackfilledCandidates, true, profileConfidence, { allowPendingExploration: false }).length;
       const freshShelfFloor = Math.min(targetVisibleCount, DISCOVERY_SHELF_PAGE_SIZE);
       visibleCandidates = freshReadyCount >= freshShelfFloor
         ? freshBackfilledCandidates
-        : backfillMarketReadyDiscoveryCandidates(visibleCandidates, marketContext, targetVisibleCount, tasteProfileChases, profileConfidence, negativeProfile, repeatGuardChases, scheduledExcludedNames);
+        : backfillMarketReadyDiscoveryCandidates(visibleCandidates, marketContext, targetVisibleCount, tasteProfileChases, profileConfidence, negativeProfile, repeatGuardChases, scheduledSeenExcludedNames);
     }
     if (hasFullDiscovery && !persistedCandidates) {
       const weeklyTasteLanePool = backfillWeeklyTasteLaneMarketCandidates(
@@ -3900,7 +3917,7 @@ async function discoverCandidatesForUser(
         targetVisibleCount,
         tasteProfileChases,
         repeatGuardChases,
-        scheduledExcludedNames
+        scheduledSeenExcludedNames
       );
       visibleCandidates = blendJapaneseSignalCandidates(visibleCandidates, japaneseSignalPool, tasteProfileChases, targetVisibleCount);
       visibleCandidates = blendWeeklyTasteLaneCandidates(
@@ -3912,8 +3929,8 @@ async function discoverCandidatesForUser(
       );
     }
     if (hasFullDiscovery && !allowSoftAvoidFiller && softAvoidNames.length > 0) {
-      const softAvoidNameKeys = new Set(softAvoidNames.map(discoveryNameKey));
-      visibleCandidates = visibleCandidates.filter((candidate) => !softAvoidNameKeys.has(discoveryNameKey(candidate.suggestion.name)));
+      const softAvoidNameKeys = discoveryExclusionNameKeys(softAvoidNames);
+      visibleCandidates = visibleCandidates.filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, softAvoidNameKeys));
     }
     if (hasFullDiscovery && hydrateScheduledMarketInline) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
     const referencedCandidates = await attachReferenceImages(visibleCandidates);
@@ -3931,7 +3948,7 @@ async function discoverCandidatesForUser(
           profileConfidence,
           negativeProfile,
           repeatGuardChases,
-          scheduledExcludedNames
+          scheduledSeenExcludedNames
         )))
           .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
           .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases))

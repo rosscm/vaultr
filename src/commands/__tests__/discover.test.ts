@@ -1703,6 +1703,23 @@ describe('orderCandidatesFromPersistedState', () => {
     expect(ordered.map((item) => item.suggestion.name)).toEqual(['Pikachu Skyridge 84', 'Teal Mask Ogerpon Scarlet & Violet Black Star Promos 123']);
   });
 
+  it('hard-excludes seen weekly cards from persisted and refill slots', () => {
+    const ranked = [
+      candidate('Umbreon Skyridge 32', 'Vintage Era Trail', 0),
+      candidate('Pikachu Skyridge 84', 'Vintage Era Trail', 1),
+      candidate('Mew Japanese S12a 052', 'Japanese Collector Trail', 2)
+    ];
+
+    const ordered = orderCandidatesFromPersistedState(
+      ranked,
+      ['Umbreon Skyridge 32', 'Pikachu Skyridge 84'],
+      2,
+      { hardExcludedNames: ['Umbreon Skyridge 32'] }
+    );
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual(['Pikachu Skyridge 84', 'Mew Japanese S12a 052']);
+  });
+
   it('keeps feedback exclusions out of persisted and refill slots', () => {
     const ranked = [
       candidate('Teal Mask Ogerpon Scarlet & Violet Black Star Promos 123', 'Promo Trail', 0),
