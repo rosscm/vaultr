@@ -2012,6 +2012,15 @@ function hasCollectorShapedScheduledSignal(candidate: DiscoveryCandidate): boole
   return exactNicheSignal || japaneseSignal || specialPromoSignal || genericPromoSignal || eraSignal || artSignal || modernSecretLikeSignal;
 }
 
+function isReliableDirectSubjectRefillCandidate(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
+  if (!hasReliableMarketEstimate(candidate)) return false;
+  if (!isConcreteDiscoveryCandidate(candidate)) return false;
+  if (isLowValueModernFormatPromoCandidate(candidate)) return false;
+  if (!hasConcreteProfileSubjectMatch(candidate, positiveTasteSubjectChases(chases))) return false;
+  if (isWeakSingleSubjectFromMultiSubjectProfile(candidate, chases)) return false;
+  return true;
+}
+
 export function isScheduledProfileRelevantCandidate(candidate: DiscoveryCandidate, chases: Chase[]): boolean {
   if (chases.length === 0) return true;
   if (isWeakSingleSubjectFromMultiSubjectProfile(candidate, chases)) return false;
@@ -2067,65 +2076,79 @@ export function backfillMarketReadyDiscoveryCandidates(
     destinationCountry: context.destination?.country,
     limit: 1000
   });
-  for (const entry of cacheEntries) {
-    if ((!hasConcreteProfileSignals && readyShelfCount(merged) >= targetCount) || (hasConcreteProfileSignals && directProfileReadyShelfCount(merged) >= targetCount)) break;
+  const candidateFromCacheEntry = (entry: DiscoveryMarketCacheEntry): DiscoveryCandidate => {
     const suggestion = marketCacheSuggestionFromCardName(entry.suggestionName);
-    if (isDiscoveryNameExcluded(suggestion.name, excludedNameKeys)) continue;
-    const candidate = {
-      ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
+    const cachedCandidate = candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false);
+    return {
+      ...cachedCandidate,
       listing: listingFromDiscoveryMarketCache(entry),
       image: entry.imageUrl
         ? {
             name: suggestion.name,
             url: entry.imageUrl,
             sourceName: marketplaceImageSourceNameForCandidate({
-              ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
+              ...cachedCandidate,
               listing: listingFromDiscoveryMarketCache(entry)
             }),
             sourceKind: 'MARKET_LISTING' as const
           }
         : undefined
     } satisfies DiscoveryCandidate;
+  };
+  const concreteDirectRefillCandidate = (candidate: DiscoveryCandidate): DiscoveryCandidate => {
+    if (!isGenericDiscoveryCardTitle(candidate.suggestion.name)) return candidate;
+    const listingTitle = candidate.listing?.title?.trim();
+    if (!listingTitle || !hasConcreteCardIdentifier(listingTitle) || isGenericDiscoveryCardTitle(listingTitle)) return candidate;
+    return {
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        name: listingTitle,
+        evidenceSearchTerm: `${listingTitle} Pokemon card`,
+        evidenceAliases: uniqueValuesPreservingOrder([listingTitle, candidate.suggestion.name, ...(candidate.suggestion.evidenceAliases ?? [])])
+      }
+    };
+  };
+  const addBackfillCandidate = (candidate: DiscoveryCandidate, options: { allowVariantFamilyDuplicate?: boolean } = {}): boolean => {
+    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) return false;
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const variantKey = candidateVariantFamilyKey(candidate);
+    if (seenNames.has(nameKey) || (!options.allowVariantFamilyDuplicate && variantKey && seenVariantFamilies.has(variantKey))) return false;
+    merged.push(candidate);
+    seenNames.add(nameKey);
+    if (variantKey) seenVariantFamilies.add(variantKey);
+    return true;
+  };
+  for (const entry of cacheEntries) {
+    if ((!hasConcreteProfileSignals && readyShelfCount(merged) >= targetCount) || (hasConcreteProfileSignals && directProfileReadyShelfCount(merged) >= targetCount)) break;
+    if (isDiscoveryNameExcluded(entry.suggestionName, excludedNameKeys)) continue;
+    const candidate = candidateFromCacheEntry(entry);
     if (!isDisplayableDiscoveryCandidate(candidate) || !isConcreteDiscoverySuggestion(candidate.suggestion)) continue;
     if (!hasReliableMarketEstimate(candidate) || !isMarketEstimateInRange(candidate, context.range)) continue;
     if (!hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases)) continue;
     if (!isScheduledProfileRelevantCandidate(candidate, tasteProfileChases)) continue;
-    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
-    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
-    const variantKey = candidateVariantFamilyKey(candidate);
-    if (seenNames.has(nameKey) || (variantKey && seenVariantFamilies.has(variantKey))) continue;
-    merged.push(candidate);
-    seenNames.add(nameKey);
-    if (variantKey) seenVariantFamilies.add(variantKey);
+    addBackfillCandidate(candidate);
   }
   for (const entry of cacheEntries) {
     if ((!hasConcreteProfileSignals && readyShelfCount(merged) >= targetCount) || (hasConcreteProfileSignals && profileMatchedReadyShelfCount(merged) >= targetCount)) break;
-    const suggestion = marketCacheSuggestionFromCardName(entry.suggestionName);
-    if (isDiscoveryNameExcluded(suggestion.name, excludedNameKeys)) continue;
-    const candidate = {
-      ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
-      listing: listingFromDiscoveryMarketCache(entry),
-      image: entry.imageUrl
-        ? {
-            name: suggestion.name,
-            url: entry.imageUrl,
-            sourceName: marketplaceImageSourceNameForCandidate({
-              ...candidateFromCachedMarket(suggestion, DISCOVERY_CANDIDATE_POOL_SIZE + merged.length, entry, context.targetCurrency, context.activeChases, false),
-              listing: listingFromDiscoveryMarketCache(entry)
-            }),
-            sourceKind: 'MARKET_LISTING' as const
-          }
-        : undefined
-    } satisfies DiscoveryCandidate;
+    if (isDiscoveryNameExcluded(entry.suggestionName, excludedNameKeys)) continue;
+    const candidate = candidateFromCacheEntry(entry);
     if (!isDisplayableDiscoveryCandidate(candidate) || !isConcreteDiscoverySuggestion(candidate.suggestion)) continue;
     if (!hasReliableMarketEstimate(candidate) || !isMarketEstimateInRange(candidate, context.range)) continue;
     if (!isProfileAlignedBackfillCandidate(candidate)) continue;
     if (!isScheduledProfileRelevantCandidate(candidate, tasteProfileChases)) continue;
-    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
-    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
-    if (seenNames.has(nameKey)) continue;
-    merged.push(candidate);
-    seenNames.add(nameKey);
+    addBackfillCandidate(candidate, { allowVariantFamilyDuplicate: true });
+  }
+  for (const entry of cacheEntries) {
+    if (readyShelfCount(merged) >= targetCount) break;
+    if (isDiscoveryNameExcluded(entry.suggestionName, excludedNameKeys)) continue;
+    const candidate = candidateFromCacheEntry(entry);
+    if (!isMarketEstimateInRange(candidate, context.range)) continue;
+    if (!isReliableDirectSubjectRefillCandidate(candidate, tasteProfileChases)) continue;
+    const concreteCandidate = concreteDirectRefillCandidate(candidate);
+    if (isDiscoveryNameExcluded(concreteCandidate.suggestion.name, excludedNameKeys)) continue;
+    if (!isDisplayableDiscoveryCandidate(concreteCandidate)) continue;
+    addBackfillCandidate(concreteCandidate, { allowVariantFamilyDuplicate: true });
   }
   return orderCandidatesForMarketConfidence(merged, tasteProfileChases, negativeProfile);
 }
@@ -2799,6 +2822,12 @@ function isGenericDiscoveryCardTitle(value: string): boolean {
 
 function isConcreteDiscoverySuggestion(suggestion: DiscoverySuggestion): boolean {
   return !!(suggestion.referenceImageUrl || suggestion.referenceSourceCardId || suggestion.referenceSourceName || (!isGenericDiscoveryCardTitle(suggestion.name) && hasConcreteCardIdentifier(suggestion.name)));
+}
+
+function isConcreteDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
+  if (isConcreteDiscoverySuggestion(candidate.suggestion)) return true;
+  const listingTitle = candidate.listing?.title?.trim();
+  return !!listingTitle && hasConcreteCardIdentifier(listingTitle) && !isGenericDiscoveryCardTitle(listingTitle);
 }
 
 function isDisplayableDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
@@ -3783,7 +3812,7 @@ async function discoverCandidatesForUser(
     const rejectedNameKeys = new Set(rejectedNames.map(discoveryNameKey));
     const scheduledDropCandidates = candidatesFromScheduledDiscoveryDrop(latestDrop)
       .filter((candidate) => !rejectedNameKeys.has(discoveryNameKey(candidate.suggestion.name)))
-      .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases))
+      .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases) || isReliableDirectSubjectRefillCandidate(candidate, tasteProfileChases))
       .filter(isDisplayableDiscoveryCandidate);
     const hiddenVaultPickCount = scheduledDropCandidates.filter((candidate) => isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)).length;
     const scheduledCandidates = scheduledDropCandidates
@@ -3976,7 +4005,7 @@ async function discoverCandidatesForUser(
     const hiddenVaultPickCount = referencedCandidates.filter((candidate) => isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)).length;
     const scheduledRelevantCandidates = referencedCandidates
       .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
-      .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases))
+      .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases) || isReliableDirectSubjectRefillCandidate(candidate, tasteProfileChases))
       .filter(isDisplayableDiscoveryCandidate);
     const finalSelectionPool = hasFullDiscovery && scheduledRelevantCandidates.length < targetVisibleCount
       ? (await attachReferenceImages(backfillMarketReadyDiscoveryCandidates(
@@ -3990,7 +4019,7 @@ async function discoverCandidatesForUser(
           scheduledSeenExcludedNames
         )))
           .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
-          .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases))
+          .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases) || isReliableDirectSubjectRefillCandidate(candidate, tasteProfileChases))
           .filter(isDisplayableDiscoveryCandidate)
       : scheduledRelevantCandidates;
     const candidates = orderCandidatesForCollectorPresentation(

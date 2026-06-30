@@ -3256,6 +3256,50 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteDiscoveryMarketCache(fusionCacheKey);
   });
 
+  it('fills healthy Pro shelves from reliable direct-subject cache rows after stricter scheduled rows run short', () => {
+    const suffix = Date.now();
+    const directNames = [
+      `Mew Fates Collide 29 Direct Refill ${suffix}`,
+      `Gardevoir LV.X Secret Wonders 131 Direct Refill ${suffix}`,
+      `Mewtwo & Mew-GX Unified Minds 71 Direct Refill ${suffix}`
+    ];
+    const unrelatedName = `Deoxys VMAX SWSH Black Star Promos SWSH267 Direct Refill ${suffix}`;
+    const cacheKeys = [...directNames, unrelatedName].map((name) => discoveryMarketCacheKey(name, 'CAD', 'CA'));
+    for (const cacheKey of cacheKeys) deleteDiscoveryMarketCache(cacheKey);
+    for (const [index, suggestionName] of directNames.entries()) {
+      upsertDiscoveryMarketCache({
+        cacheKey: cacheKeys[index],
+        suggestionName,
+        displayCurrency: 'CAD',
+        destinationCountry: 'CA',
+        typicalRawAskingTotal: 90 + index,
+        marketSampleSize: 12,
+        soldSampleSize: 0
+      });
+    }
+    upsertDiscoveryMarketCache({
+      cacheKey: cacheKeys[3],
+      suggestionName: unrelatedName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 120,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD', range: { min: 0, max: 200 } },
+      3,
+      ['Mew CoroCoro Promo 151', 'Gardevoir ex SAR Japanese 087/063'].map(chase)
+    );
+    const names = backfilled.map((item) => item.suggestion.name);
+
+    for (const directName of directNames) expect(names).toContain(directName);
+    expect(names).not.toContain(unrelatedName);
+    for (const cacheKey of cacheKeys) deleteDiscoveryMarketCache(cacheKey);
+  });
+
   it('uses same-set cache variants only after non-variant backfill cannot fill the target', () => {
     const suffix = Date.now();
     const current = sourceCandidate(`Umbreon Skyridge 32 Variant Anchor ${suffix}`, 'Pokemon TCG (Skyridge)', 0);
