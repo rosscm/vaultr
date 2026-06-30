@@ -1273,6 +1273,16 @@ describe('selectVisibleCandidates', () => {
     expect(visible[0].image?.sourceName).toBe('TCGdex Japanese (S12a)');
   });
 
+  it('does not show compact Japanese source cards beside slash-total marketplace duplicates', () => {
+    const slashTotalMarketCandidate = candidate('Mew Japanese S12a 052/172', 'Japanese Collector Trail', 0, 3);
+    const sourceImageCandidate = sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 1);
+    const freshCandidate = sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 2);
+
+    const visible = selectVisibleCandidatesForCount([slashTotalMarketCandidate, sourceImageCandidate, freshCandidate], [], 2);
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Squirtle Expedition Base Set 132']);
+  });
+
   it('prefers image-backed Black Star Promo variants over shorthand marketplace duplicates', () => {
     const shorthandMarketCandidate = candidate('Umbreon Darkrai-gx Sm Promos SM241 trading card', 'Promo Trail', 0, 3);
     const sourceImageCandidate = sourceCandidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Pokemon TCG (SM Black Star Promos)', 1);
@@ -1282,6 +1292,16 @@ describe('selectVisibleCandidates', () => {
     expect(visible).toHaveLength(1);
     expect(visible[0].suggestion.name).toBe('Umbreon & Darkrai-GX SM Black Star Promos SM241');
     expect(visible[0].image?.sourceName).toBe('Pokemon TCG (SM Black Star Promos)');
+  });
+
+  it('does not show source-backed promo cards beside shorthand marketplace duplicates', () => {
+    const shorthandMarketCandidate = candidate('Umbreon Darkrai-gx Sm Promos SM241 trading card', 'Promo Trail', 0, 3);
+    const sourceImageCandidate = sourceCandidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Pokemon TCG (SM Black Star Promos)', 1);
+    const freshCandidate = sourceCandidate('Umbreon XY Black Star Promos XY96', 'Pokemon TCG (XY Black Star Promos)', 2);
+
+    const visible = selectVisibleCandidatesForCount([shorthandMarketCandidate, sourceImageCandidate, freshCandidate], [], 2);
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual(['Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Umbreon XY Black Star Promos XY96']);
   });
 
   it('prefers fresh weekly candidates before repeating previous shelf names', () => {

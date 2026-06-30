@@ -384,7 +384,12 @@ function discoveryNameKey(value: string): string {
 }
 
 function discoveryDisplayNameKey(value: string): string {
-  return discoveryNameKey(value).replace(/\b(?:pokemon|tcg|trading) cards?\b/g, ' ').replace(/\s+/g, ' ').trim();
+  return discoveryNameKey(value)
+    .replace(/\b([a-z]{1,4}\d+[a-z]?)\s+(\d{1,3})\s+\d{1,3}\b/g, '$1 $2')
+    .replace(/\bblack star\b/g, ' ')
+    .replace(/\b(?:promo|promos|pokemon|tcg|trading|card|cards)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function discoveryMarketSearchTerms(suggestion: DiscoverySuggestion): string[] {
@@ -3700,6 +3705,7 @@ async function discoverCandidatesForUser(
   const hasLearnedProfile = hasFullDiscovery && (profileConfidence.tier === 'USABLE' || profileConfidence.tier === 'STRONG');
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const rejectedNames = recentlyRejected.map((item) => item.suggestionName);
+  const scheduledExcludedNames = allowSoftAvoidFiller ? rejectedNames : uniqueValuesPreservingOrder([...rejectedNames, ...softAvoidNames]);
   const negativeProfile = discoveryNegativeProfile(recentlyRejected, tasteProfileChases);
   const learnedRankContext = hasFullDiscovery
     ? (() => {
@@ -3879,13 +3885,13 @@ async function discoverCandidatesForUser(
         profileConfidence,
         negativeProfile,
         repeatGuardChases,
-        uniqueValuesPreservingOrder([...rejectedNames, ...softAvoidNames])
+        scheduledExcludedNames
       );
       const freshReadyCount = marketReadyShelfCandidatesWithOptions(freshBackfilledCandidates, true, profileConfidence, { allowPendingExploration: false }).length;
       const freshShelfFloor = Math.min(targetVisibleCount, DISCOVERY_SHELF_PAGE_SIZE);
       visibleCandidates = freshReadyCount >= freshShelfFloor
         ? freshBackfilledCandidates
-        : backfillMarketReadyDiscoveryCandidates(visibleCandidates, marketContext, targetVisibleCount, tasteProfileChases, profileConfidence, negativeProfile, repeatGuardChases, rejectedNames);
+        : backfillMarketReadyDiscoveryCandidates(visibleCandidates, marketContext, targetVisibleCount, tasteProfileChases, profileConfidence, negativeProfile, repeatGuardChases, scheduledExcludedNames);
     }
     if (hasFullDiscovery && !persistedCandidates) {
       const weeklyTasteLanePool = backfillWeeklyTasteLaneMarketCandidates(
@@ -3894,7 +3900,7 @@ async function discoverCandidatesForUser(
         targetVisibleCount,
         tasteProfileChases,
         repeatGuardChases,
-        uniqueValuesPreservingOrder([...rejectedNames, ...softAvoidNames])
+        scheduledExcludedNames
       );
       visibleCandidates = blendJapaneseSignalCandidates(visibleCandidates, japaneseSignalPool, tasteProfileChases, targetVisibleCount);
       visibleCandidates = blendWeeklyTasteLaneCandidates(
@@ -3904,6 +3910,10 @@ async function discoverCandidatesForUser(
         targetVisibleCount,
         softAvoidNames
       );
+    }
+    if (hasFullDiscovery && !allowSoftAvoidFiller && softAvoidNames.length > 0) {
+      const softAvoidNameKeys = new Set(softAvoidNames.map(discoveryNameKey));
+      visibleCandidates = visibleCandidates.filter((candidate) => !softAvoidNameKeys.has(discoveryNameKey(candidate.suggestion.name)));
     }
     if (hasFullDiscovery && hydrateScheduledMarketInline) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
     const referencedCandidates = await attachReferenceImages(visibleCandidates);
@@ -3921,7 +3931,7 @@ async function discoverCandidatesForUser(
           profileConfidence,
           negativeProfile,
           repeatGuardChases,
-          rejectedNames
+          scheduledExcludedNames
         )))
           .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
           .filter((candidate) => isScheduledProfileRelevantCandidate(candidate, tasteProfileChases))
