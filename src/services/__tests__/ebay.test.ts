@@ -20,6 +20,47 @@ function baseChase(): Chase {
   };
 }
 
+describe('buildEbaySearchKeywords', () => {
+  it('keeps slash-number spacing for EX cards while compacting known promo series numbers', async () => {
+    const { buildEbaySearchKeywords } = await import('../ebay.js');
+
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Mega Gardevoir Ex 178/132' })).toBe('Mega Gardevoir Ex 178/132');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Charizard EX 101/108' })).toBe('Charizard EX 101/108');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Pikachu XY Black Star Promos XY95' })).toBe('Pikachu XY95');
+  });
+
+  it('keeps Japanese specificity for Japanese chases', async () => {
+    const { buildEbaySearchKeywords } = await import('../ebay.js');
+
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Mew Japanese 347/190' })).toBe('Mew Japanese 347/190');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Squirtle Japanese Promo 007/018' })).toBe('Squirtle Japanese 007/018');
+  });
+
+  it('refines source-backed Japanese chase numbers with release identity', async () => {
+    const { buildEbaySearchKeywords } = await import('../ebay.js');
+
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Gardevoir Japanese 087/063' })).toBe('Mega Gardevoir ex 087/063 M1S Japanese');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063' })).toBe('Mega Gardevoir ex 087/063 M1S Japanese');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Umbreon Japanese 217/187' })).toBe('Umbreon ex SAR Terastal Festival Japanese 217/187');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Umbreon EX 217/187' })).toBe('Umbreon ex SAR Terastal Festival Japanese 217/187');
+  });
+
+  it('keeps CoroCoro Mew searches specific enough for the old-back promo', async () => {
+    const { buildEbaySearchKeywords } = await import('../ebay.js');
+
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Mew CoroCoro Promo 151' })).toBe('CoroCoro Shining Mew');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'CoroCoro Shining Mew' })).toBe('CoroCoro Shining Mew');
+  });
+
+  it('keeps retailer and publication release signals while dropping generic promo words', async () => {
+    const { buildEbaySearchKeywords } = await import('../ebay.js');
+
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Pikachu 26/83 Toys R Us promo' })).toBe('Pikachu 26/83 Toys R Us');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: "Squirtle Japanese McDonald's Promo 007/018" })).toBe("Squirtle Japanese McDonald's 007/018");
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Charmander Pokemon Center Promo 004/SV-P' })).toBe('Charmander Pokemon Center 004/SV-P');
+  });
+});
+
 describe('searchEbayListings Browse shipping', () => {
   beforeEach(() => {
     vi.resetModules();

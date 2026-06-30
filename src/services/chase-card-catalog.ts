@@ -1,3 +1,14 @@
+import {
+  JAPANESE_SUBJECT_ALIASES,
+  POKEMON_PROMO_PUBLICATION_TERMS,
+  POKEMON_PROMO_STYLE_STOP_TERMS,
+  POKEMON_RELEASE_ALIASES,
+  normalizeChaseCardName
+} from './collector-card-aliases.js';
+import type { PokemonReleaseAlias } from './collector-card-aliases.js';
+
+export { normalizeChaseCardName } from './collector-card-aliases.js';
+
 export type ChaseCardAutocompleteChoice = {
   name: string;
   value: string;
@@ -12,11 +23,6 @@ type PokemonTcgCard = {
   name?: string;
   number?: string;
   set?: { name?: string; printedTotal?: number };
-};
-
-type PokemonReleaseAlias = {
-  label: string;
-  setNamePrefix: string;
 };
 
 type TcgDexCardSummary = {
@@ -38,70 +44,7 @@ const POKEMON_AUTOCOMPLETE_LIMIT = 16;
 const POKEMON_QUERY_VARIANT_LIMIT = 8;
 const POKEMON_CONTEXT_STOP_TERMS = new Set(['card', 'cards', 'pokemon', 'tcg']);
 const POKEMON_NUMBER_PREFIX_TERMS = new Set(['bw', 'dp', 'rc', 'sm', 'sv', 'swsh', 'xy']);
-const POKEMON_RELEASE_ALIASES: Array<{ pattern: RegExp; alias: PokemonReleaseAlias }> = [
-  { pattern: /\bcorocoro\b.*\bjumbo\b|\bjumbo\b.*\bcorocoro\b/i, alias: { label: 'CoroCoro Jumbo Promo', setNamePrefix: 'CoroCoro' } },
-  { pattern: /\bcorocoro\b.*\bmagazine\b|\bmagazine\b.*\bcorocoro\b/i, alias: { label: 'CoroCoro Magazine Promo', setNamePrefix: 'CoroCoro' } },
-  { pattern: /\bcorocoro\b.*\bmanga\b|\bmanga\b.*\bcorocoro\b/i, alias: { label: 'CoroCoro Manga Promo', setNamePrefix: 'CoroCoro' } },
-  { pattern: /\bmcdonald'?s\b/i, alias: { label: "McDonald's Promo", setNamePrefix: "McDonald's" } },
-  { pattern: /\bpok(?:e|é)mon\s*center\b/i, alias: { label: 'Pokemon Center Promo', setNamePrefix: 'Pokemon Center' } },
-  { pattern: /\bblack\s*star\s*promos?\b/i, alias: { label: 'Black Star Promos', setNamePrefix: 'Black Star Promos' } },
-  { pattern: /\btoys?\s*r\s*us\b/i, alias: { label: 'Toys R Us Promo', setNamePrefix: 'generations' } },
-  { pattern: /\bcorocoro\b/i, alias: { label: 'CoroCoro Promo', setNamePrefix: 'CoroCoro' } }
-];
-const POKEMON_PROMO_PUBLICATION_TERMS = new Set(['corocoro', 'coro coro', 'mcdonald', 'mcdonalds', 'center']);
-const POKEMON_PROMO_STYLE_STOP_TERMS = new Set(['promo', 'promos', 'promotional', 'shining', 'holo', 'foil', 'magazine', 'manga', 'japanese', 'jumbo']);
 const BARE_CARD_NUMBER_HELPER_TEXT = 'Keep typing: add the card name with this number';
-
-export function normalizeChaseCardName(value: string): string {
-  const normalized = value.trim().replace(/\s+/g, ' ');
-  let result = normalized
-    .replace(/pok[eé]mon/gi, 'Pokemon')
-    .replace(/mcdonald'?s/gi, "McDonald's")
-    .replace(/toys?\s*r\s*us/gi, 'Toys R Us')
-    .replace(/black\s*star\s*(?:promos?|promo)/gi, 'Black Star Promos')
-    .replace(/coro\s*coro/gi, 'CoroCoro');
-
-  result = result.replace(/\bCoroCoro\b[\s-]*(?:Jumbo|Magazine|Manga)[\s-]*(?:Promo|Promos?)?/gi, (match) => {
-    if (/Jumbo/i.test(match)) return 'CoroCoro Jumbo Promo';
-    if (/Magazine/i.test(match)) return 'CoroCoro Magazine Promo';
-    if (/Manga/i.test(match)) return 'CoroCoro Manga Promo';
-    return 'CoroCoro Promo';
-  });
-  result = result.replace(/\bCoroCoro\b[\s-]*(?:Promo|Promos?|Promotional|Promotional Cards?|Cards?)\b/gi, 'CoroCoro Promo');
-  result = result.replace(/\bCoroCoro\b(?!\s+(?:Jumbo|Magazine|Manga|Promo|Promos|Promotional)\b)/gi, 'CoroCoro Promo');
-  result = result.replace(/\bMcDonald's\b(?!\s+Promo\b)/gi, "McDonald's Promo");
-  result = result.replace(/\bPokemon Center\b(?!\s+Promo\b)/gi, 'Pokemon Center Promo');
-  result = result.replace(/\bToys R Us\b(?!\s+Promo\b)/gi, 'Toys R Us Promo');
-  result = result.replace(/\bBlack Star\b(?!\s+Promos\b)/gi, 'Black Star Promos');
-
-  return result.replace(/\s+/g, ' ').trim();
-}
-
-const JAPANESE_SUBJECT_ALIASES: Record<string, string[]> = {
-  blastoise: ['カメックス'],
-  bulbasaur: ['フシギダネ'],
-  charmander: ['ヒトカゲ'],
-  charmeleon: ['リザード'],
-  charizard: ['リザードン'],
-  eevee: ['イーブイ'],
-  espeon: ['エーフィ'],
-  flareon: ['ブースター'],
-  gardevoir: ['サーナイト'],
-  glaceon: ['グレイシア'],
-  ivysaur: ['フシギソウ'],
-  jolteon: ['サンダース'],
-  leafeon: ['リーフィア'],
-  mew: ['ミュウ'],
-  pichu: ['ピチュー'],
-  pikachu: ['ピカチュウ'],
-  raichu: ['ライチュウ'],
-  squirtle: ['ゼニガメ'],
-  sylveon: ['ニンフィア'],
-  umbreon: ['ブラッキー'],
-  vaporeon: ['シャワーズ'],
-  venusaur: ['フシギバナ'],
-  wartortle: ['カメール']
-};
 const autocompleteCache = new Map<string, { expiresAt: number; choices: ChaseCardAutocompleteChoice[] }>();
 const autocompletePreviewCache = new Map<string, { expiresAt: number; imageUrl?: string }>();
 
@@ -325,6 +268,18 @@ function requestedCollectorNumber(query: string): RequestedCollectorNumber | und
   return { localId: match[1].padStart(3, '0'), totalPrefix: match[2] };
 }
 
+function pokemonReleaseFallbackChoice(query: string): ChaseCardAutocompleteChoice | undefined {
+  const releaseAlias = pokemonTcgReleaseAlias(query);
+  if (!releaseAlias) return undefined;
+  const subject = pokemonTcgQuerySubject(query);
+  if (!subject) return undefined;
+  const number = /\b(?:[a-z]{0,4}\d{1,4}|\d{1,4}\s*\/\s*\d{1,4})\b/i.exec(query)?.[0]?.replace(/\s/g, '');
+  if (!number && !releaseAlias.allowNumberlessFallback) return undefined;
+  const displaySubject = subject.replace(/^./, (letter) => letter.toUpperCase());
+  const value = normalizeChaseCardName([displaySubject, releaseAlias.label, number].filter(Boolean).join(' '));
+  return { name: value, value };
+}
+
 function japanesePromoFallbackChoice(query: string): ChaseCardAutocompleteChoice | undefined {
   const match = /\b(0?\d{1,3})\s*\/\s*(\d{2,3})\b/.exec(query);
   if (!match) return undefined;
@@ -518,7 +473,7 @@ export async function autocompleteChaseCards(query: string, limit = 25): Promise
     })() })).sort((a, b) => b.score - a.score).map((s) => s.choice);
   }
   const choices = uniqueChoices(prioritizedChoices, limit);
-  const fallbackChoice = choices.length === 0 ? japanesePromoFallbackChoice(query) : undefined;
+  const fallbackChoice = choices.length === 0 ? japanesePromoFallbackChoice(query) ?? pokemonReleaseFallbackChoice(query) : undefined;
   if (fallbackChoice) return [fallbackChoice];
   if (choices.length > 0) autocompleteCache.set(normalizedQuery, { expiresAt: Date.now() + AUTOCOMPLETE_CACHE_TTL_MS, choices });
   return choices;

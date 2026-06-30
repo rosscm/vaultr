@@ -389,6 +389,40 @@ describe('chase command', () => {
     expect(requestedQueries).toContain('name:mew* rarity:Promo');
   });
 
+  it('does not invent generic CoroCoro choices when source results are missing without a card number', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await autocompleteChaseCards('corocoro mew', 10)).toEqual([]);
+  });
+
+  it('falls back for specific numberless CoroCoro release subtypes', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected source call: ${url}`);
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await autocompleteChaseCards('mew corocoro jumbo', 10)).toEqual([
+      { name: 'Mew CoroCoro Jumbo Promo', value: 'Mew CoroCoro Jumbo Promo' }
+    ]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('corocoro magazine pikachu', 10)).toEqual([
+      { name: 'Pikachu CoroCoro Magazine Promo', value: 'Pikachu CoroCoro Magazine Promo' }
+    ]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('pikachu corocoro manga', 10)).toEqual([
+      { name: 'Pikachu CoroCoro Manga Promo', value: 'Pikachu CoroCoro Manga Promo' }
+    ]);
+  });
+
   it('supports CoroCoro Jumbo promo subject searches without a card number', async () => {
     const requestedQueries: string[] = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -1364,7 +1398,7 @@ describe('chase command', () => {
     const duplicateInteraction = mockInteraction(userId, 'add', { card: '  umbreon   217/187 japanese  ', max_price: 550 });
     await chase.execute(duplicateInteraction);
 
-    expect(listChases(userId).map((item) => item.cardName)).toEqual(['Umbreon 217/187 Japanese']);
+    expect(listChases(userId).map((item) => item.cardName)).toEqual(['Umbreon ex SAR Terastal Festival Japanese 217/187']);
     expect(duplicateInteraction.reply).toHaveBeenCalledWith(expect.objectContaining({
       embeds: expect.arrayContaining([expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('Already In Vault') }) })])
     }));
