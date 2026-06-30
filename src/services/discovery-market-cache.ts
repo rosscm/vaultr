@@ -171,7 +171,7 @@ export function listReliableDiscoveryMarketCacheEntries(input: { displayCurrency
   const rows = listReliableDiscoveryMarketCacheStmt.all({
     display_currency: input.displayCurrency,
     destination_country: input.destinationCountry?.trim().toUpperCase() ?? null,
-    limit: Math.max(1, Math.min(300, Math.floor(input.limit ?? 120)))
+    limit: Math.max(1, Math.min(1000, Math.floor(input.limit ?? 120)))
   }) as DiscoveryMarketCacheRow[];
   return rows.map(mapDiscoveryMarketCacheRow);
 }
@@ -180,7 +180,7 @@ export function listDiscoveryMarketSignalCacheEntries(input: { displayCurrency: 
   const rows = listDiscoveryMarketSignalCacheStmt.all({
     display_currency: input.displayCurrency,
     destination_country: input.destinationCountry?.trim().toUpperCase() ?? null,
-    limit: Math.max(1, Math.min(300, Math.floor(input.limit ?? 120)))
+    limit: Math.max(1, Math.min(1000, Math.floor(input.limit ?? 120)))
   }) as DiscoveryMarketCacheRow[];
   return rows.map(mapDiscoveryMarketCacheRow);
 }

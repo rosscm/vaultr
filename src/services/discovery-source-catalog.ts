@@ -574,8 +574,11 @@ function sourceTasteProfileFromCards(cards: PokemonTcgCard[], activeChases: Chas
       .replace(/\s+/g, ' ')
       .trim();
     if (!name) continue;
-    for (const dex of card.nationalPokedexNumbers ?? []) {
-      if (!dexNames.has(dex)) dexNames.set(dex, name);
+    const dexNumbersForCard = card.nationalPokedexNumbers ?? [];
+    if (dexNumbersForCard.length === 1) {
+      for (const dex of dexNumbersForCard) {
+        if (!dexNames.has(dex)) dexNames.set(dex, name);
+      }
     }
     addFormatCounts(formatCounts, cardFormatTokens(card));
     if (isOrdinaryExCard(card)) resolvedOrdinaryExCount += 1;
@@ -846,6 +849,7 @@ function isSmallJapaneseSpecialSet(card: TcgDexCard): boolean {
 function sourceSuggestionFromTcgDexJapaneseCard(parent: DiscoverySuggestion, card: TcgDexCard, profile: SourceTasteProfile): DiscoverySuggestion | null {
   if (!card.id || !card.name || !card.image) return null;
   const displayName = tcgDexEnglishCardName(card, profile);
+  if (displayName === 'Pokemon') return null;
   const setLabel = tcgDexEnglishSetLabel(card);
   const numberLabel = tcgDexNumberLabel(card);
   const name = [displayName, 'Japanese', setLabel, numberLabel].filter(Boolean).join(' ');

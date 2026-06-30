@@ -1532,6 +1532,70 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.name).toBe('Pikachu Japanese SV2a 025');
   });
 
+  it('does not label single Japanese source cards with multi-Pokemon profile names', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'smp-SM210',
+                name: 'Moltres & Zapdos & Articuno-GX',
+                number: 'SM210',
+                supertype: 'Pokemon',
+                subtypes: ['Basic', 'TAG TEAM', 'GX'],
+                rarity: 'Promo',
+                types: ['Colorless'],
+                nationalPokedexNumbers: [146, 145, 144],
+                set: { name: 'SM Black Star Promos', series: 'Sun & Moon', releaseDate: '2019/10/04' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        return new Response(JSON.stringify([{ id: 'SV9-102', localId: '102', name: 'フリーザー', image: 'https://assets.tcgdex.net/ja/SV/SV9/102' }]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          category: 'Pokemon',
+          id: 'SV9-102',
+          localId: '102',
+          name: 'フリーザー',
+          image: 'https://assets.tcgdex.net/ja/SV/SV9/102',
+          set: { id: 'SV9', name: 'バトルパートナーズ', cardCount: { official: 100, total: 132 } },
+          dexId: [144],
+          types: ['Water'],
+          stage: 'Basic'
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Japanese Pokemon cards',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Japanese Pokemon cards',
+        requiredEvidenceTokens: ['japanese'],
+        sourceTasteTokens: ['japanese']
+      },
+      [priorityChase('Moltres Zapdos Articuno SM210', 'HIGH')],
+      1
+    );
+
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain('Moltres & Zapdos & Articuno Japanese SV9 102/100');
+    expect(resolved.suggestions).toHaveLength(0);
+  });
+
   it('surfaces compact numbered Japanese special sets with source-backed set totals', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));

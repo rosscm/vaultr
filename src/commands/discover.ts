@@ -172,6 +172,7 @@ const DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS = Math.max(60_000, Math.floor(Numb
 const MIN_RAW_MARKET_SAMPLE_SIZE = 2;
 const MIN_ASK_ONLY_MARKET_SAMPLE_SIZE = 4;
 const TARGET_RAW_MARKET_SAMPLE_SIZE = 12;
+const MIN_COLLECTOR_WORTHY_MODERN_PROMO_TOTAL = 20;
 const NICHE_DISCOVERY_STRETCH_RATIO = 1.2;
 const NICHE_DISCOVERY_STRETCH_ABSOLUTE = 200;
 const EBAY_LISTING_IMAGE_SOURCE_NAME = 'eBay listing image';
@@ -1493,6 +1494,32 @@ function hasReliableMarketEstimate(candidate: DiscoveryCandidate): boolean {
   return marketEvidenceRank(candidate) >= 2 || (isExactNicheDiscoveryCandidate(candidate) && hasSomeRawMarketData(candidate));
 }
 
+function discoveryMarketTotal(candidate: DiscoveryCandidate): number | undefined {
+  return candidate.typicalRawSoldTotal ?? candidate.typicalRawAskingTotal;
+}
+
+function isLowValueModernFormatPromoCandidate(candidate: DiscoveryCandidate): boolean {
+  const marketTotal = discoveryMarketTotal(candidate);
+  if (marketTotal === undefined || marketTotal >= MIN_COLLECTOR_WORTHY_MODERN_PROMO_TOTAL) return false;
+  const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, candidate.image?.sourceName].filter(Boolean).join(' '));
+  if (!/\b(?:scarlet|violet|sword|shield|sun|moon|black star|promo|promos)\b/.test(text)) return false;
+  if (!/\b(?:promo|promos|black star)\b/.test(text)) return false;
+  if (!/\b(?:ex|gx|v|vmax|vstar)\b/.test(text)) return false;
+  return !/\b(?:special delivery|futsal|toys r us|classic collection|celebrations|mcdonald'?s|staff|winner|prerelease|stamped|stamp|exclusive|unique|odd(?:ball)? release|limited release|illustration rare|special illustration rare|art rare|alt art|alternate art|full art|secret rare|trainer gallery|galarian gallery|sar|sir|tag team)\b/.test(text);
+}
+
+function isCollectorWorthyWeeklyCandidate(candidate: DiscoveryCandidate): boolean {
+  return !isLowValueModernFormatPromoCandidate(candidate);
+}
+
+function hasSourceBackedPricedCollectorFallbackData(candidate: DiscoveryCandidate): boolean {
+  if (!hasSomeRawMarketData(candidate)) return false;
+  if (!isCollectorWorthyWeeklyCandidate(candidate)) return false;
+  const marketTotal = discoveryMarketTotal(candidate);
+  if (marketTotal === undefined || marketTotal < MIN_COLLECTOR_WORTHY_MODERN_PROMO_TOTAL) return false;
+  return imageQualityRank(candidate) >= 3 || isExactNicheDiscoveryCandidate(candidate);
+}
+
 function pagePolishedReadyCount(readyCount: number, maxShelfSize: number): number {
   const cappedReadyCount = Math.min(readyCount, maxShelfSize);
   if (cappedReadyCount <= DISCOVERY_SHELF_PAGE_SIZE) return cappedReadyCount;
@@ -1520,13 +1547,14 @@ export function marketReadyShelfCandidatesWithOptions(
     seenDisplayNames.add(displayNameKey);
     return true;
   });
-  const readyCandidates = displayableCandidates.filter(hasReliableMarketEstimate);
+  const readyCandidates = displayableCandidates.filter(hasReliableMarketEstimate).filter(isCollectorWorthyWeeklyCandidate);
   const languageSignalTargetCount = Math.max(0, Math.min(profileConfidence.maxShelfSize, Math.floor(options.languageSignalTargetCount ?? 0)));
   const readyJapaneseCount = readyCandidates.filter(isJapaneseDiscoveryCandidate).length;
   const pendingFallbacks: DiscoveryCandidate[] = [];
   if (options.allowPendingExploration === false && options.allowLanguageSignalFallback === true && readyJapaneseCount < Math.max(1, languageSignalTargetCount)) {
     const languageFallbacks = displayableCandidates
       .filter((candidate) => isJapaneseDiscoveryCandidate(candidate) && hasLanguageSignalDisplayData(candidate))
+      .filter(isCollectorWorthyWeeklyCandidate)
       .filter((candidate) => readyJapaneseCount === 0 || hasSomeRawMarketData(candidate))
       .filter((candidate) => !readyCandidates.some((readyCandidate) => discoveryDisplayNameKey(readyCandidate.suggestion.name) === discoveryDisplayNameKey(candidate.suggestion.name)))
       .slice(0, Math.max(1, Math.min(6, languageSignalTargetCount - readyJapaneseCount || Math.ceil(profileConfidence.maxShelfSize * 0.1))));
@@ -1536,6 +1564,14 @@ export function marketReadyShelfCandidatesWithOptions(
     pendingFallbacks.push(
       ...displayableCandidates
         .filter((candidate) => hasSourceBackedRetailEReaderDisplayData(candidate) || hasSourceBackedNicheJapaneseDisplayData(candidate))
+        .filter(isCollectorWorthyWeeklyCandidate)
+        .filter((candidate) => !readyCandidates.some((readyCandidate) => discoveryDisplayNameKey(readyCandidate.suggestion.name) === discoveryDisplayNameKey(candidate.suggestion.name)))
+    );
+  }
+  if (options.allowPendingExploration === false && readyCandidates.length < Math.min(MIN_READY_SHELF_PAGE_SIZE, profileConfidence.maxShelfSize)) {
+    pendingFallbacks.push(
+      ...displayableCandidates
+        .filter(hasSourceBackedPricedCollectorFallbackData)
         .filter((candidate) => !readyCandidates.some((readyCandidate) => discoveryDisplayNameKey(readyCandidate.suggestion.name) === discoveryDisplayNameKey(candidate.suggestion.name)))
     );
   }
@@ -1543,13 +1579,14 @@ export function marketReadyShelfCandidatesWithOptions(
     if (pendingFallbacks.length > 0) return uniqueCandidatesByDisplayName([...pendingFallbacks, ...readyCandidates]).slice(0, profileConfidence.maxShelfSize);
     return readyCandidates;
   }
-  if (!hasFullDiscovery || displayableCandidates.length <= DISCOVERY_SHELF_PAGE_SIZE) return displayableCandidates;
+  const collectorDisplayableCandidates = displayableCandidates.filter(isCollectorWorthyWeeklyCandidate);
+  if (!hasFullDiscovery || collectorDisplayableCandidates.length <= DISCOVERY_SHELF_PAGE_SIZE) return collectorDisplayableCandidates;
   const visibleReadyCount = pagePolishedReadyCount(readyCandidates.length, profileConfidence.maxShelfSize);
   const targetFloor = Math.max(profileConfidence.minShelfSize, visibleReadyCount);
-  const targetCount = Math.min(profileConfidence.maxShelfSize, displayableCandidates.length, targetFloor);
+  const targetCount = Math.min(profileConfidence.maxShelfSize, collectorDisplayableCandidates.length, targetFloor);
   const selected = readyCandidates.slice(0, Math.min(visibleReadyCount, targetCount));
   const selectedNameKeys = new Set(selected.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
-  for (const candidate of displayableCandidates) {
+  for (const candidate of collectorDisplayableCandidates) {
     if (selected.length >= targetCount) break;
     if (hasThinRawMarketEstimate(candidate)) continue;
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
@@ -2028,7 +2065,7 @@ export function backfillMarketReadyDiscoveryCandidates(
   const cacheEntries = listReliableDiscoveryMarketCacheEntries({
     displayCurrency: context.targetCurrency,
     destinationCountry: context.destination?.country,
-    limit: 240
+    limit: 1000
   });
   for (const entry of cacheEntries) {
     if ((!hasConcreteProfileSignals && readyShelfCount(merged) >= targetCount) || (hasConcreteProfileSignals && directProfileReadyShelfCount(merged) >= targetCount)) break;
@@ -2113,7 +2150,7 @@ function backfillJapaneseMarketSignalCandidates(
   const excludedNameKeys = discoveryExclusionNameKeys(excludedNames);
   const merged = [...candidates];
   const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
-  for (const entry of listDiscoveryMarketSignalCacheEntries({ displayCurrency: context.targetCurrency, destinationCountry: context.destination?.country, limit: 240 })) {
+  for (const entry of listDiscoveryMarketSignalCacheEntries({ displayCurrency: context.targetCurrency, destinationCountry: context.destination?.country, limit: 1000 })) {
     if (merged.filter(isJapaneseDiscoveryCandidate).length >= targetJapaneseCount) break;
     const suggestion = marketCacheSuggestionFromCardName(entry.suggestionName);
     if (!isJapaneseSourceSuggestion(suggestion)) continue;
@@ -2757,7 +2794,7 @@ function hasConcreteCardIdentifier(value: string): boolean {
 
 function isGenericDiscoveryCardTitle(value: string): boolean {
   const normalized = normalize(value);
-  return /\b(?:collector|e[- ]?reader|ex|full art|gx|illustration rare|japanese|promo|raw|special release|tag team|vintage) pokemon cards?\b/.test(normalized) || /\b(?:collector|e[- ]?reader|ex|full art|gx|illustration rare|japanese|promo|raw|special release|tag team|vintage) cards?\b/.test(normalized) || /\braw card\b/.test(normalized);
+  return /\b(?:collector|e[- ]?reader|ex|full art|gx|illustration rare|japanese|promo|raw|sar|sir|special release|special set|tag team|unique release|vintage) pokemon cards?\b/.test(normalized) || /\b(?:collector|e[- ]?reader|ex|full art|gx|illustration rare|japanese|promo|raw|sar|sir|special release|special set|tag team|unique release|vintage) cards?\b/.test(normalized) || /\braw card\b/.test(normalized);
 }
 
 function isConcreteDiscoverySuggestion(suggestion: DiscoverySuggestion): boolean {
@@ -2984,7 +3021,7 @@ function sourceCardSubject(candidate: DiscoveryCandidate, setLabel: string | und
 }
 
 function sourceCardText(candidate: DiscoveryCandidate): string {
-  return [candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
+  return [candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, candidate.suggestion.referenceSourceName, candidate.image?.sourceName, candidate.listing?.title, ...(candidate.suggestion.requiredEvidenceTokens ?? [])]
     .filter(Boolean)
     .join(' ');
 }
@@ -3544,7 +3581,9 @@ export async function repairScheduledDiscoveryShelfImages(candidates: DiscoveryC
 }
 
 export function backfillScheduledDiscoveryShelfCandidates(candidates: DiscoveryCandidate[], fallbackDrop: ScheduledDiscoveryDrop | null, targetCount: number, repeatGuardChases: Chase[] = []): DiscoveryCandidate[] {
-  const merged = candidates.filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases));
+  const merged = candidates
+    .filter(isDisplayableDiscoveryCandidate)
+    .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases));
   if (!fallbackDrop || merged.length >= targetCount) return merged;
   const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
   const seenVariantFamilies = new Set(merged.map(candidateVariantFamilyKey).filter((key): key is string => !!key));
@@ -3736,7 +3775,7 @@ async function discoverCandidatesForUser(
     : undefined;
   const recentlySeenNames = listRecentUserDiscoverySeenNames(userId, DISCOVERY_SEEN_EXCLUSION_LIMIT);
   const seenExcludedNames = uniqueValuesPreservingOrder([...rejectedNames, ...recentlySeenNames]);
-  const scheduledSeenExcludedNames = allowSoftAvoidFiller ? seenExcludedNames : uniqueValuesPreservingOrder([...seenExcludedNames, ...softAvoidNames]);
+  const scheduledSeenExcludedNames = seenExcludedNames;
   const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames, activeTier, targetVisibleCount);
   const stateKey = discoveryStateKey(activeTier, targetVisibleCount);
   const latestDrop = hasFullDiscovery && preferScheduledDrop ? getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY') : null;
@@ -3928,9 +3967,9 @@ async function discoverCandidatesForUser(
         softAvoidNames
       );
     }
-    if (hasFullDiscovery && !allowSoftAvoidFiller && softAvoidNames.length > 0) {
-      const softAvoidNameKeys = discoveryExclusionNameKeys(softAvoidNames);
-      visibleCandidates = visibleCandidates.filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, softAvoidNameKeys));
+    if (hasFullDiscovery && seenExcludedNames.length > 0) {
+      const seenExcludedNameKeys = discoveryExclusionNameKeys(seenExcludedNames);
+      visibleCandidates = visibleCandidates.filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, seenExcludedNameKeys));
     }
     if (hasFullDiscovery && hydrateScheduledMarketInline) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
     const referencedCandidates = await attachReferenceImages(visibleCandidates);

@@ -676,6 +676,43 @@ describe('selectVisibleCandidates', () => {
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
   });
 
+  it('does not count low-value ordinary modern format promos as weekly chase picks', () => {
+    const lowValuePromo = sourceCandidate('Zapdos ex Scarlet & Violet Black Star Promos 49', 'Pokemon TCG (Scarlet & Violet Black Star Promos)', 0);
+    lowValuePromo.typicalRawAskingTotal = 5.68;
+    lowValuePromo.marketSampleSize = 12;
+    const collectorPick = candidate('Mew Expedition Base Set 19', 'Vintage Era Trail', 1, 4);
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [lowValuePromo, collectorPick],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false }
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual(['Mew Expedition Base Set 19']);
+  });
+
+  it('keeps source-backed priced collector rows while scheduled market status catches up', () => {
+    const pricedCollectorPick = sourceCandidate('Mew Expedition Base Set 19', 'Pokemon TCG (Expedition Base Set)', 0);
+    pricedCollectorPick.typicalRawAskingTotal = 194.49;
+    pricedCollectorPick.marketSampleSize = 3;
+    pricedCollectorPick.sourceStatus = 'PENDING';
+    const cheapModernPromo = sourceCandidate('Zapdos ex Scarlet & Violet Black Star Promos 49', 'Pokemon TCG (Scarlet & Violet Black Star Promos)', 1);
+    cheapModernPromo.typicalRawAskingTotal = 5.68;
+    cheapModernPromo.marketSampleSize = 12;
+    cheapModernPromo.sourceStatus = 'PENDING';
+    const noDataGeneric = candidate('Umbreon Japanese unique release Pokemon cards', 'Japanese Collector Trail', 2);
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [pricedCollectorPick, cheapModernPromo, noDataGeneric],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false }
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual(['Mew Expedition Base Set 19']);
+  });
+
   it('keeps a thin Japanese-language signal when a Japanese-weighted scheduled shelf has no ready Japanese row', () => {
     const readyCandidates = Array.from({ length: 20 }, (_, index) => candidate(`Ready English Pick ${index + 1}`, 'market ready path', index, 4));
     const japaneseCandidate = candidate('Mew Japanese S12a 052', 'Japanese Collector Trail', 20, 2);
@@ -837,6 +874,21 @@ describe('selectVisibleCandidates', () => {
     const visible = marketReadyShelfCandidates([...readyCandidates, ...broadCandidates], true, strongProfileConfidence);
 
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
+  });
+
+  it('does not schedule broad Japanese unique-release bucket titles as shelf cards', () => {
+    const backfilled = backfillScheduledDiscoveryShelfCandidates(
+      [
+        candidate('Sar Japanese unique release Pokemon cards', 'Japanese Collector Trail', 0),
+        candidate('Umbreon Japanese unique release Pokemon cards', 'Japanese Collector Trail', 1),
+        candidate('Squirtle Japanese special set Pokemon cards', 'Japanese Collector Trail', 2),
+        candidate('Mew Expedition Base Set 19', 'Vintage Era Trail', 3, 3)
+      ],
+      null,
+      3
+    );
+
+    expect(backfilled.map((item) => item.suggestion.name)).toEqual(['Mew Expedition Base Set 19']);
   });
 
   it('does not show duplicate card picks that only differ by generic card suffixes', () => {
