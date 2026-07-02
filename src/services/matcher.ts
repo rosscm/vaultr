@@ -162,7 +162,9 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
 
   const title = normalize(listing.title);
   const card = normalize(chase.cardName);
-  const cardTokens = toTokens(chase.cardName);
+  // Use queryName for token matching when available — it's already cleaned of noisy editorial words
+  const chaseNameForMatch = chase.queryName?.trim() || chase.cardName;
+  const cardTokens = toTokens(chaseNameForMatch);
   const titleTokens = toTokens(listing.title);
   const chaseCardNumbers = extractCardNumbers(chase.cardName);
   const listingCardNumbers = extractCardNumbers(listing.title);
@@ -184,18 +186,26 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     score += 50;
     reasons.push('card_name_match_exact');
   } else {
+    // Relax overlap threshold when card numbers already confirm card identity
+    const earlyCardNumberMatch =
+      chaseCardNumbers.length > 0 && chaseCardNumbers.some((n) => new Set(listingCardNumbers).has(n));
+    const overlapThreshold = earlyCardNumberMatch ? 0.5 : 0.7;
+
     const overlap = tokenOverlapRatio(cardTokens, titleTokens);
-    if (overlap < 0.7) {
+    if (overlap < overlapThreshold) {
       return { isMatch: false, score: 0, reasons: ['card_name_miss'] };
     }
-    score += overlap >= 0.9 ? 45 : 35;
+    // Perfect token match (all core tokens present) scores same floor as exact name match
+    score += overlap >= 1 - Number.EPSILON ? 50 : overlap >= 0.9 ? 45 : 35;
     reasons.push('card_name_match_tokens');
   }
 
+  let cardNumberMatched = false;
   if (chaseCardNumbers.length > 0) {
     const listingNumberSet = new Set(listingCardNumbers);
     const hasMatch = chaseCardNumbers.some((n) => listingNumberSet.has(n));
     if (hasMatch) {
+      cardNumberMatched = true;
       score += 15;
       reasons.push('card_number_match');
     } else if (listingCardNumbers.length > 0) {
@@ -254,7 +264,7 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     reasons.push(`language_variants:${languageMismatches.join(',')}`);
   }
 
-  if (cardTokens.length >= 3) {
+  if (!cardNumberMatched && cardTokens.length >= 3) {
     const overlap = tokenOverlapRatio(cardTokens, titleTokens);
     if (overlap < 0.85) {
       score -= 8;

@@ -152,6 +152,42 @@ describe('matchChaseToListing', () => {
     expect(result.reasons).toContain('card_number_match');
   });
 
+  it('uses queryName for token matching when available, ignoring editorial noise in cardName', () => {
+    // Without queryName, 'Promo' and '151' dilute token overlap against a clean listing title
+    const withoutQuery = baseChase({ cardName: 'Mew CoroCoro Promo 151' });
+    const withQuery = baseChase({ cardName: 'Mew CoroCoro Promo 151', queryName: 'CoroCoro Shining Mew' });
+    const listing = baseListing({ title: 'CoroCoro Shining Mew Pokemon Card NM' });
+
+    const withoutResult = matchChaseToListing(withoutQuery, listing);
+    const withResult = matchChaseToListing(withQuery, listing);
+
+    expect(withoutResult.isMatch).toBe(false); // 'promo' and '151' not in listing → below threshold
+    expect(withResult.isMatch).toBe(true);     // clean 3-token set → 1.0 overlap
+    expect(withResult.score).toBeGreaterThanOrEqual(50);
+    expect(withResult.reasons).toContain('card_name_match_tokens');
+  });
+
+  it('relaxes token overlap threshold when card number already confirms identity', () => {
+    // Listing title lacks "Toys R Us" so without relaxation the overlap (2/4) is below 0.7
+    const chase = baseChase({ cardName: 'Pikachu 26/83 Toys R Us promo', queryName: 'Pikachu 26/83 Toys R Us' });
+    const listing = baseListing({ title: 'Pokemon Pikachu 26/83 Promo Card NM' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).toContain('card_number_match');
+    expect(result.score).toBeGreaterThanOrEqual(50);
+  });
+
+  it('scores perfect token overlap at 50 — same floor as exact name match', () => {
+    const chase = baseChase({ cardName: 'Mew CoroCoro Promo 151', queryName: 'CoroCoro Shining Mew' });
+    const listing = baseListing({ title: 'CoroCoro Shining Mew Pokemon Card NM' });
+    const result = matchChaseToListing(chase, listing);
+
+    // All 3 core tokens present → overlap = 1.0 → score should be exactly 50 (no card number bonus here)
+    expect(result.isMatch).toBe(true);
+    expect(result.score).toBe(50);
+  });
+
   it('matches when one of several requested conditions matches', () => {
     const chase = baseChase({ condition: 'LP,NM' });
     const listing = baseListing({ condition: 'Near Mint' });

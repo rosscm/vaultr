@@ -79,6 +79,9 @@ export function listTrustedShopifyShopNames(): string[] {
 const SHOPIFY_PAGE_LIMIT = 250;
 const SHOPIFY_MAX_PAGES = 3;
 const SHOPIFY_FETCH_TIMEOUT_MS = 10_000;
+// Product feed is cached per store — fetched once per poll cycle, shared across all chases
+const SHOPIFY_FEED_CACHE_TTL_MS = 270_000; // 4.5 min, just under the 300s poll interval
+const shopifyFeedCache = new Map<string, { products: ShopifyProduct[]; expiresAt: number }>();
 
 function normalize(text: string): string {
   return text
@@ -205,7 +208,7 @@ async function searchShopProducts(shop: TrustedShopifyShop, chase: Chase): Promi
   const url = new URL(shop.productsUrl);
   url.pathname = '/search/suggest.json';
   url.search = '';
-  url.searchParams.set('q', chase.cardName);
+  url.searchParams.set('q', chase.queryName?.trim() || chase.cardName);
   url.searchParams.set('resources[type]', 'product');
   url.searchParams.set('resources[limit]', '10');
 
@@ -226,6 +229,9 @@ async function searchShopProducts(shop: TrustedShopifyShop, chase: Chase): Promi
 }
 
 async function fetchShopProducts(shop: TrustedShopifyShop): Promise<ShopifyProduct[]> {
+  const cached = shopifyFeedCache.get(shop.productsUrl);
+  if (cached && Date.now() < cached.expiresAt) return cached.products;
+
   const products: ShopifyProduct[] = [];
   for (let page = 1; page <= SHOPIFY_MAX_PAGES; page += 1) {
     const url = new URL(shop.productsUrl);
@@ -239,6 +245,7 @@ async function fetchShopProducts(shop: TrustedShopifyShop): Promise<ShopifyProdu
     if (pageProducts.length < SHOPIFY_PAGE_LIMIT) break;
   }
 
+  shopifyFeedCache.set(shop.productsUrl, { products, expiresAt: Date.now() + SHOPIFY_FEED_CACHE_TTL_MS });
   return products;
 }
 
