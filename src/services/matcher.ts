@@ -195,7 +195,7 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     const listingNumberSet = new Set(listingCardNumbers);
     const hasMatch = chaseCardNumbers.some((n) => listingNumberSet.has(n));
     if (hasMatch) {
-      score += 12;
+      score += 15;
       reasons.push('card_number_match');
     } else if (listingCardNumbers.length > 0) {
       return { isMatch: false, score: 0, reasons: ['card_number_miss'] };
