@@ -142,12 +142,13 @@ const DEFAULT_EXCLUDED_TITLE_PATTERNS: Array<{ term: string; pattern: RegExp }> 
   { term: 'novelty', pattern: /\bnovelty\b/ },
   { term: 'keychain', pattern: /\bkey\s*chains?\b|\bkeychains?\b/ },
   { term: 'extended art', pattern: /\bextended\s+art(?:work)?\b/ },
-  { term: 'acrylic case', pattern: /\bacrylic\s+(?:case|card|display|holder)\b/ },
-  { term: 'magnetic case', pattern: /\bmagnetic\s+(?:case|card|display|holder)\b/ },
-  { term: 'card case', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+case\b|\bcase\s+card\b|\bart\s+case\b/ },
-  { term: 'card holder', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+holder\b/ },
-  { term: 'display accessory', pattern: /\b(?:display|protector)\s+case\b|\bcase\s+(?:for|only)\b|\bslab\s+stand\b/ },
-  { term: 'handmade art', pattern: /\bhand[ -]?drawn\b|\bsketch\s+card\b/ }
+  { term: 'acrylic case', pattern: /\bacrylic\s+(?:cases?|card|display|holder)\b/ },
+  { term: 'magnetic case', pattern: /\bmagnetic\s+(?:cases?|card|display|holder)\b/ },
+  { term: 'card case', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+cases?\b|\bcase\s+card\b|\bart\s+case\b/ },
+  { term: 'card holder', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+holders?\b/ },
+  { term: 'display accessory', pattern: /\b(?:display|protector)\s+cases?\b|\bcases?\s+(?:for|only)\b|\bslab\s+stand\b/ },
+  { term: 'handmade art', pattern: /\bhand[ -]?drawn\b|\bsketch\s+card\b/ },
+  { term: 'multi-card lot', pattern: /\b\d+x\b|\bx\d+\b|\blot\s+of\b/ }
 ];
 
 function defaultExcludedTitleTerm(title: string): string | undefined {

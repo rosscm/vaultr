@@ -201,6 +201,16 @@ describe('matchChaseToListing', () => {
         cardName: 'Mew RC24/RC25',
         title: 'Pokémon TCG Mew EX RC24/RC25 Legendary Treasures Novelty Keychain ',
         term: 'novelty'
+      },
+      {
+        cardName: 'Umbreon EX 217/187',
+        title: '9x Umbreon EX 217/187 Near Mint PSA',
+        term: 'multi-card lot'
+      },
+      {
+        cardName: 'Pikachu 26/83',
+        title: 'Lot of 5 Pikachu 26/83 Promo NM',
+        term: 'multi-card lot'
       }
     ];
 
