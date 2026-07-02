@@ -36,13 +36,13 @@ describe('buildEbaySearchKeywords', () => {
     expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Squirtle Japanese Promo 007/018' })).toBe('Squirtle Japanese 007/018');
   });
 
-  it('refines source-backed Japanese chase numbers with release identity', async () => {
+  it('passes Japanese card names through without alias refinement', async () => {
     const { buildEbaySearchKeywords } = await import('../ebay.js');
 
-    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Gardevoir Japanese 087/063' })).toBe('Mega Gardevoir ex 087/063 M1S Japanese');
-    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063' })).toBe('Mega Gardevoir ex 087/063 M1S Japanese');
-    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Umbreon Japanese 217/187' })).toBe('Umbreon ex SAR Terastal Festival Japanese 217/187');
-    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Umbreon EX 217/187' })).toBe('Umbreon ex SAR Terastal Festival Japanese 217/187');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Gardevoir Japanese 087/063' })).toBe('Gardevoir Japanese 087/063');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063' })).toBe('Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Umbreon Japanese 217/187' })).toBe('Umbreon Japanese 217/187');
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Umbreon EX 217/187' })).toBe('Umbreon EX 217/187');
   });
 
   it('keeps CoroCoro Mew searches specific enough for the old-back promo', async () => {

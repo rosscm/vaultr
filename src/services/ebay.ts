@@ -340,17 +340,24 @@ function gradeSearchTerm(grade: string | undefined): string | undefined {
   return grade;
 }
 
+const EBAY_SERIES_NUMBER_PREFIXES = new Set(['bw', 'dp', 'rc', 'sm', 'sv', 'swsh', 'xy']);
+
+function compactEbaySeriesNumber(prefix: string, number: string): string {
+  return EBAY_SERIES_NUMBER_PREFIXES.has(prefix.toLowerCase()) ? `${prefix.toUpperCase()}${number}` : `${prefix} ${number}`;
+}
+
 export function buildEbaySearchKeywords(chase: Chase): string {
   const base = chase.cardName ?? '';
+  const keepJapanese = /\bjapanese\b/i.test(base);
+
+  // CoroCoro Mew is a very specific vintage promo — special-case it for search precision
+  if (/\bcorocoro\b/i.test(base) && /\bmew\b/i.test(base) && /\b(?:shining|151)\b/i.test(base)) return 'CoroCoro Shining Mew';
+
   let s = base;
 
-  // Remove common verbose promo/publication phrases but keep essential tokens
+  // Remove generic verbose promo words — retailer/brand signals (CoroCoro, McDonald's, Pokemon Center, Toys R Us) are preserved
   const promoPatterns = [
     /\bBlack Star Promos?\b/gi,
-    /\bCoroCoro(?:\s+Jumbo|\s+Magazine|\s+Manga)?\b/gi,
-    /\bMcDonald'?s(?:\s+Promo(?:s)?)?\b/gi,
-    /\bPokemon Center(?:\s+Promo)?\b/gi,
-    /\bToys\s*R\s*Us(?:\s+Promo)?\b/gi,
     /\bPromotional?\b/gi,
     /\bPromos?\b/gi,
     /\bMagazine\b/gi,
@@ -358,19 +365,18 @@ export function buildEbaySearchKeywords(chase: Chase): string {
   ];
   for (const re of promoPatterns) s = s.replace(re, ' ');
 
-  // Normalize spaced series+number like "XY 95" -> "XY95" and "XY/95" -> "XY95"
-  s = s.replace(/\b([A-Za-z]{1,4})\s*\/?\s*(\d{1,4})\b/g, (_m, a, b) => `${a}${b}`);
+  // Compact known promo series+number like "XY 95" -> "XY95"; preserve spacing for non-series combos like "Ex 178/132"
+  s = s.replace(/\b([A-Za-z]{1,4})\s*\/?\s*(\d{1,4})\b/g, (_m, a, b) => compactEbaySeriesNumber(a, b));
 
   // Preserve alphanumeric tokens (e.g. XY95), then remove isolated standalone series tokens
   const seriesMatches = Array.from(new Set((s.match(/\b([A-Za-z]{1,4})(?=\d)/gi) || []).map((m) => m.replace(/\d+/g, ''))));
   for (const series of seriesMatches) {
-    // remove lone occurrences of the series word but don't touch alphanumeric tokens already paired with numbers
     s = s.replace(new RegExp(`\\b${series}\\b`, 'gi'), ' ');
   }
 
   // Cleanup lingering words that are noisy for marketplace searches
+  if (!keepJapanese) s = s.replace(/\bJapanese\b/gi, ' ');
   s = s
-    .replace(/\bJapanese\b/gi, ' ')
     .replace(/\bPokemon\b\s+cards?\b/gi, 'Pokemon card')
     .replace(/\s+/g, ' ')
     .trim();

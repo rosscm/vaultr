@@ -10,17 +10,22 @@ function normalize(text: string): string {
 
 function toTokens(text: string): string[] {
   return normalize(text)
-    .split(' ')
+    .split(/[\s-]+/)
     .map((t) => t.trim())
     .filter((t) => t.length >= 2);
 }
 
+// Light plural normalization for overlap matching (symmetric, so blastoise→blastois on both sides is fine)
+function normalizeTokenForMatch(t: string): string {
+  return t.length >= 5 && t.endsWith('s') ? t.slice(0, -1) : t;
+}
+
 function tokenOverlapRatio(needle: string[], haystack: string[]): number {
   if (needle.length === 0) return 0;
-  const haystackSet = new Set(haystack);
+  const haystackNorm = new Set(haystack.map(normalizeTokenForMatch));
   let hits = 0;
   for (const token of needle) {
-    if (haystackSet.has(token)) hits += 1;
+    if (haystackNorm.has(normalizeTokenForMatch(token))) hits += 1;
   }
   return hits / needle.length;
 }
@@ -41,6 +46,12 @@ function extractCardNumbers(text: string): string[] {
   for (const m of hashMatches) {
     const digits = m.match(/\d{1,4}/)?.[0];
     if (digits) out.add(`#${digits}`);
+  }
+
+  // Promo series+number identifiers like SM210, XY95, SWSH001, BW61, RC24, DP26
+  const promoMatches = raw.match(/\b[a-z]{1,4}\d{1,4}\b/g) ?? [];
+  for (const m of promoMatches) {
+    out.add(m);
   }
 
   return [...out];
