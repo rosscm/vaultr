@@ -68,6 +68,21 @@ describe('discovery source catalog', () => {
     expect(queries).not.toContain('supertype:Pokemon set.name:"Nintendo Black Star Promos"');
   });
 
+  it('builds source queries for same-set sibling special-set threads', () => {
+    const queries = pokemonTcgCatalogQueriesForSuggestion({
+      name: 'Sylveon Terastal Festival Pokemon cards',
+      lane: 'Set Companion Trail',
+      laneWhy: 'profile',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: 'sylveon Terastal Festival Japanese Pokemon card',
+      requiredEvidenceTokens: ['sylveon', 'japanese', 'Terastal Festival', 'special set', 'small set', 'numbered set'],
+      sourceTasteTokens: ['sylveon', 'japanese', 'Terastal Festival', 'special set', 'small set', 'numbered set']
+    });
+
+    expect(queries).toContain('supertype:Pokemon set.name:"Terastal Festival"');
+  });
+
   it('does not send Japanese unique release identities to broad Pokemon TCG source lookup', () => {
     const queries = pokemonTcgCatalogQueriesForSuggestion({
       name: 'Raichu Japanese unique release Pokemon cards',
@@ -1723,6 +1738,76 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.name).toBe('Mew Japanese S12a 052');
     expect(resolved.suggestions[0]?.sourceTasteTokens).toContain('japanese');
     expect(resolved.suggestions[0]?.sourceTasteTokens).not.toContain('squirtle');
+  });
+
+  it('surfaces same-set Japanese sibling cards for special-set collector threads', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'sv8a-sylveon',
+                name: 'Sylveon ex',
+                number: '212',
+                supertype: 'Pokemon',
+                nationalPokedexNumbers: [700],
+                set: { name: 'Terastal Festival ex', series: 'Scarlet & Violet', releaseDate: '2024/12/01' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        const name = url.searchParams.get('name');
+        if (name === 'sylveon') {
+          return new Response(JSON.stringify([{ id: 'SV8a-212', localId: '212', name: 'ニンフィアex', image: 'https://assets.tcgdex.net/ja/SV/SV8a/212' }]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          category: 'Pokemon',
+          id: 'SV8a-212',
+          localId: '212',
+          name: 'ニンフィアex',
+          image: 'https://assets.tcgdex.net/ja/SV/SV8a/212',
+          rarity: 'SAR',
+          set: { id: 'SV8a', name: 'Terastal Festival ex', cardCount: { official: 187, total: 187 } },
+          dexId: [700],
+          types: ['Psychic'],
+          stage: 'Stage 1'
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Sylveon Terastal Festival Pokemon cards',
+        lane: 'Set Companion Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'sylveon Terastal Festival Japanese Pokemon card',
+        requiredEvidenceTokens: ['sylveon', 'japanese', 'Terastal Festival', 'special set', 'small set', 'numbered set'],
+        sourceTasteTokens: ['sylveon', 'japanese', 'Terastal Festival', 'special set', 'small set', 'numbered set']
+      },
+      [priorityChase('Umbreon ex SAR Terastal Festival Japanese 217/187', 'HIGH')],
+      1,
+      [priorityChase('Umbreon ex SAR Terastal Festival Japanese 217/187', 'HIGH')]
+    );
+
+    expect(resolved.suggestions[0]?.name).toBe('Sylveon Japanese SV8a 212/187');
+    expect(resolved.suggestions[0]?.sourceTasteTokens).toEqual(expect.arrayContaining(['japanese', 'special set', 'small set', 'numbered set']));
   });
 
   it('drops stale parent subjects from Pokemon TCG source taste tokens while preserving traits', async () => {

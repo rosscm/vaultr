@@ -7,6 +7,7 @@ import { normalizePlanTier } from './plans.js';
 import type { Chase, Listing, ListingSource, ListingSourceModePreference, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
 
 type TasteMemorySource = NonNullable<Chase['tasteSource']>;
+export type ChaseRemovalReason = 'FOUND' | 'MISTAKE' | 'NOT_FOR_ME';
 
 type ChaseRow = {
   id: string;
@@ -1474,14 +1475,21 @@ export function listAllChases(): Chase[] {
   return rows.map(mapRow);
 }
 
-export function removeChase(userId: string, chaseId: string): boolean {
+function chaseRemovalTasteSource(reason: ChaseRemovalReason): TasteMemorySource | undefined {
+  if (reason === 'FOUND') return 'BOUGHT_OR_SEEN';
+  if (reason === 'NOT_FOR_ME') return 'REMOVED_CHASE';
+  return undefined;
+}
+
+export function removeChase(userId: string, chaseId: string, options: { reason?: ChaseRemovalReason } = {}): boolean {
   const chase = currentChaseForTaste(userId, chaseId);
+  const tasteSource = chaseRemovalTasteSource(options.reason ?? 'FOUND');
   const result = db.transaction(() => {
-    if (chase) {
+    if (chase && tasteSource) {
       rememberTasteSignal({
         userId,
         signalId: chase.id,
-        source: 'REMOVED_CHASE',
+        source: tasteSource,
         cardName: chase.cardName,
         maxPrice: chase.maxPrice
       });

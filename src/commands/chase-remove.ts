@@ -1,5 +1,6 @@
 import { MessageFlags } from 'discord.js';
 import { listChases, removeChase } from '../services/chase-store.js';
+import type { ChaseRemovalReason } from '../services/chase-store.js';
 import { errorEmbed, successEmbed } from '../ui/embeds.js';
 import { displayGrade } from '../ui/style.js';
 
@@ -40,6 +41,7 @@ export async function handleChaseRemoveAutocomplete(interaction: any): Promise<b
 export const chaseRemove = {
   async execute(interaction: any) {
     const chaseId = interaction.options.getString('chase');
+    const reason = normalizeRemovalReason(interaction.options.getString('reason'));
     const chases = listChases(interaction.user.id);
 
     if (chases.length === 0) {
@@ -67,7 +69,7 @@ export const chaseRemove = {
       return;
     }
 
-    const removed = removeChase(interaction.user.id, target.id);
+    const removed = removeChase(interaction.user.id, target.id, { reason });
     if (!removed) {
       await interaction.reply({
         embeds: [errorEmbed('Remove Failed', 'No chase was removed')],
@@ -78,9 +80,20 @@ export const chaseRemove = {
 
     await interaction.reply({
       embeds: [
-        successEmbed('Chase Removed', `Removed **${target.cardName}**\n\n**Next:** Use \`/chase list\` to review active chases`).setTitle('✅ Chase Removed')
+        successEmbed('Chase Removed', `Removed **${target.cardName}**\n${removalReasonLine(reason)}\n\n**Next:** Use \`/chase list\` to review active chases`).setTitle('✅ Chase Removed')
       ],
       flags: MessageFlags.Ephemeral
     });
   }
 };
+
+function normalizeRemovalReason(value: string | null): ChaseRemovalReason {
+  if (value === 'MISTAKE' || value === 'NOT_FOR_ME') return value;
+  return 'FOUND';
+}
+
+function removalReasonLine(reason: ChaseRemovalReason): string {
+  if (reason === 'MISTAKE') return 'No taste memory was added.';
+  if (reason === 'NOT_FOR_ME') return 'Vaultr will treat this as a soft tune-out signal.';
+  return 'Vaultr will remember this as a completed chase.';
+}

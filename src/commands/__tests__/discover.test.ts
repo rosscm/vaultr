@@ -28,6 +28,7 @@ import {
   isUsableDiscoveryMarketSample,
   isActiveChaseEchoSuggestion,
   isActiveChaseEchoText,
+  isBroadCollectorShelfFillerCandidate,
   isScheduledProfileRelevantCandidate,
   looksLikeRawCardListing,
   looksLikeBaselineRawMarketListing,
@@ -38,6 +39,7 @@ import {
   orderConcreteDiscoveryFallbackSuggestionsForMarket,
   orderCandidatesForMarketConfidence,
   orderCandidatesFromPersistedState,
+  preferFreshWeeklyCandidatesAgainstRecentShelves,
   profileSubjectMatchedReliableDiscoveryCandidates,
   profileVariantSourceBackfillParents,
   preserveLanguageSignalFallbackSuggestions,
@@ -57,6 +59,7 @@ import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscov
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import type { Chase, Listing } from '../../types.js';
+import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 
 afterEach(() => {
   resetDiscoveryMarketRefreshThrottleState();
@@ -692,6 +695,49 @@ describe('selectVisibleCandidates', () => {
     expect(visible.map((item) => item.suggestion.name)).toEqual(['Mew Expedition Base Set 19']);
   });
 
+  it('does not count low-value ordinary modern set cards as weekly chase picks', () => {
+    const lowValueJapaneseV = sourceCandidate('Mew V RR 053/172 S12a VSTAR Universe - Pokemon Card Japanese - NM', 'TCGdex Japanese (S12a)', 0);
+    lowValueJapaneseV.typicalRawAskingTotal = 11.87;
+    lowValueJapaneseV.marketSampleSize = 12;
+    const lowValueModernHolo = sourceCandidate('Mew S12a 052 trading card', 'TCGdex Japanese (S12a)', 1);
+    lowValueModernHolo.typicalRawAskingTotal = 13.92;
+    lowValueModernHolo.marketSampleSize = 12;
+    const lowValueModernArtRare = sourceCandidate('Paldean Tauros AR 084/073 Triplet Beat SV1a Pokemon Card Japanese [Near Mint]', 'TCGdex Japanese (SV1a)', 2);
+    lowValueModernArtRare.typicalRawAskingTotal = 13.4;
+    lowValueModernArtRare.marketSampleSize = 12;
+    const collectorPick = candidate('Mew Expedition Base Set 19', 'Vintage Era Trail', 2, 4);
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [lowValueJapaneseV, lowValueModernHolo, lowValueModernArtRare, collectorPick],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false }
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual(['Mew Expedition Base Set 19']);
+  });
+
+  it('keeps low-value modern cards with explicit collector context', () => {
+    const specialDelivery = sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 0);
+    specialDelivery.typicalRawAskingTotal = 18.5;
+    specialDelivery.marketSampleSize = 12;
+    const trainerGallery = sourceCandidate('Mew VMAX Lost Origin Trainer Gallery TG30', 'Pokemon TCG (Lost Origin)', 1);
+    trainerGallery.typicalRawAskingTotal = 14.25;
+    trainerGallery.marketSampleSize = 12;
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [specialDelivery, trainerGallery],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false }
+    );
+
+    expect(visible.map((item) => item.suggestion.name)).toEqual([
+      'Special Delivery Pikachu SWSH Black Star Promos SWSH074',
+      'Mew VMAX Lost Origin Trainer Gallery TG30'
+    ]);
+  });
+
   it('keeps source-backed priced collector rows while scheduled market status catches up', () => {
     const pricedCollectorPick = sourceCandidate('Mew Expedition Base Set 19', 'Pokemon TCG (Expedition Base Set)', 0);
     pricedCollectorPick.typicalRawAskingTotal = 194.49;
@@ -1104,6 +1150,24 @@ describe('selectVisibleCandidates', () => {
     expect(isScheduledProfileRelevantCandidate(sourceCandidate('Mew Japanese S12a 052', 'TCGdex Japanese (S12a)', 4), chases)).toBe(true);
     expect(isScheduledProfileRelevantCandidate(sourceCandidate('Mew ex Paldean Fates 232 Full Art', 'Pokemon TCG (Paldean Fates)', 5), chases)).toBe(true);
     expect(isScheduledProfileRelevantCandidate(sourceCandidate('Pikachu VMAX Special Delivery SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 7), chases)).toBe(true);
+  });
+
+  it('prefers adjacent-theme novelty over another direct-subject callback when collector fit is similar', () => {
+    const chases: Chase[] = [
+      { id: 'c1', userId: 'u1', cardName: 'Corocoro Shining Mew', priority: 'GRAIL', createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c2', userId: 'u1', cardName: 'Pikachu 26/83 Toys R Us promo', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' },
+      { id: 'c3', userId: 'u1', cardName: 'Umbreon 217/187 Japanese', priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' }
+    ];
+    const directCallback = sourceCandidate('Mew VMAX Lost Origin Trainer Gallery TG30', 'Pokemon TCG (Lost Origin)', 0);
+    directCallback.typicalRawAskingTotal = 49;
+    directCallback.marketSampleSize = 12;
+    const adjacentNovelty = sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 1);
+    adjacentNovelty.typicalRawAskingTotal = 95;
+    adjacentNovelty.marketSampleSize = 12;
+
+    const ranked = orderCandidatesForMarketConfidence([directCallback, adjacentNovelty], chases);
+
+    expect(ranked[0]?.suggestion.name).toBe('Mewtwo & Mew-GX SM Black Star Promos SM191');
   });
 
   it('prioritizes Japanese source cards over English Black Star promos for Japanese-weighted grails', () => {
@@ -1672,6 +1736,28 @@ describe('selectVisibleCandidates', () => {
     expect(isActiveChaseEchoText('Meowth 18/53 trading card', removedChases)).toBe(true);
     expect(isActiveChaseEchoText('Meowth character collection', removedChases)).toBe(false);
   });
+
+  it('treats completed chase taste profile memory as an exact-repeat guard', () => {
+    const completedChases: Chase[] = [{ id: 'taste:completed-meowth', userId: 'u1', cardName: 'Meowth 18/53', createdAt: '2026-06-14T02:26:37.266Z', tasteSource: 'BOUGHT_OR_SEEN' }];
+
+    expect(isActiveChaseEchoText('Meowth 18/53 trading card', completedChases)).toBe(true);
+    expect(isActiveChaseEchoText('Meowth character collection', completedChases)).toBe(false);
+  });
+
+  it('recognizes broad collector shelf filler while rejecting ordinary modern set filler', () => {
+    const broadCollector = sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 0);
+    broadCollector.typicalRawAskingTotal = 210;
+    broadCollector.marketSampleSize = 12;
+    broadCollector.displayCurrency = 'CAD';
+
+    const ordinaryModern = sourceCandidate('Mew V RR 053/172 S12a VSTAR Universe', 'TCGdex Japanese (S12a)', 1);
+    ordinaryModern.typicalRawAskingTotal = 11;
+    ordinaryModern.marketSampleSize = 12;
+    ordinaryModern.displayCurrency = 'CAD';
+
+    expect(isBroadCollectorShelfFillerCandidate(broadCollector, ['Corocoro Shining Mew', 'Umbreon 217/187 Japanese'].map(chase))).toBe(true);
+    expect(isBroadCollectorShelfFillerCandidate(ordinaryModern, ['Corocoro Shining Mew', 'Umbreon 217/187 Japanese'].map(chase))).toBe(false);
+  });
 });
 
 describe('mergeFreshDiscoveryCandidates', () => {
@@ -1693,6 +1779,55 @@ describe('mergeFreshDiscoveryCandidates', () => {
     );
 
     expect(merged.map((item) => item.suggestion.name)).toEqual(['ピカチュウ ポケモンカード151 025', 'Mew Southern Islands Promo']);
+  });
+});
+
+describe('preferFreshWeeklyCandidatesAgainstRecentShelves', () => {
+  it('prefers adjacent-theme novelty before same-subject weekly callbacks and repeats', () => {
+    const fresh = sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0);
+    const repeatedVariant = sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 1);
+    const repeatedByName = sourceCandidate("_____'s Pikachu Celebrations: Classic Collection 24", 'Pokemon TCG (Celebrations: Classic Collection)', 2);
+    const chases = ['Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo', 'Umbreon 217/187 Japanese'].map(chase);
+    const recentDrops: ScheduledDiscoveryDrop[] = [
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W26',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-06-23T00:00:00.000Z',
+        generatedAt: '2026-06-23T00:00:00.000Z',
+        updatedAt: '2026-06-23T00:00:00.000Z',
+        marketReadyCount: 2,
+        imageReadyCount: 2,
+        itemCount: 2,
+        items: [
+          {
+            position: 1,
+            suggestion: sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 0).suggestion,
+            imageUrl: 'https://images.example/mew55.png',
+            imageSourceName: 'Pokemon TCG (Expedition Base Set)',
+            market: { status: 'READY', currency: 'CAD', askingTotal: 180, askingSampleSize: 12 }
+          },
+          {
+            position: 2,
+            suggestion: sourceCandidate("_____'s Pikachu Celebrations: Classic Collection 24", 'Pokemon TCG (Celebrations: Classic Collection)', 1).suggestion,
+            imageUrl: 'https://images.example/pikachu24.png',
+            imageSourceName: 'Pokemon TCG (Celebrations: Classic Collection)',
+            market: { status: 'READY', currency: 'CAD', askingTotal: 80, askingSampleSize: 12 }
+          }
+        ]
+      }
+    ];
+
+    const ordered = preferFreshWeeklyCandidatesAgainstRecentShelves([repeatedVariant, fresh, repeatedByName], recentDrops, chases);
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual([
+      'Zapdos Aquapolis 44',
+      'Mew Expedition Base Set 55',
+      "_____'s Pikachu Celebrations: Classic Collection 24"
+    ]);
   });
 });
 
@@ -1890,6 +2025,23 @@ describe('profileVariantSourceBackfillParents', () => {
     expect(parents.map((suggestion) => suggestion.name)).toContain('Pikachu Japanese special set Pokemon cards');
     expect(parents.map((suggestion) => suggestion.name)).not.toContain('Raichu Japanese special set Pokemon cards');
     expect(parents.find((suggestion) => suggestion.name === 'Mew Japanese special set Pokemon cards')?.requiredEvidenceTokens).toEqual(['mew', 'japanese', 'special set', 'small set', 'numbered set']);
+  });
+
+  it('builds same-set sibling parents for special-set collector chases', () => {
+    const parents = profileVariantSourceBackfillParents(
+      ['Umbreon ex SAR Terastal Festival Japanese 217/187', 'Pikachu 26/83 Toys R Us promo'].map(chase),
+      80
+    );
+
+    expect(parents.map((suggestion) => suggestion.name)).toContain('Sylveon Terastal Festival Pokemon cards');
+    expect(parents.find((suggestion) => suggestion.name === 'Sylveon Terastal Festival Pokemon cards')?.requiredEvidenceTokens).toEqual([
+      'sylveon',
+      'japanese',
+      'Terastal Festival',
+      'special set',
+      'small set',
+      'numbered set'
+    ]);
   });
 
   it('learns CoroCoro as a reusable publication-promo pattern across profile subjects', () => {
@@ -3366,6 +3518,62 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(names).not.toContain(ordinaryName);
     deleteDiscoveryMarketCache(ordinaryCacheKey);
     deleteDiscoveryMarketCache(shapedCacheKey);
+  });
+
+  it('uses broad collector-shaped cache rows when a healthy weekly shelf is still short', () => {
+    const suffix = Date.now();
+    const broadVintageName = `Pikachu Skyridge 84 Broad Shelf ${suffix}`;
+    const broadPromoName = `Meowth Jungle 56/64 Broad Shelf ${suffix}`;
+    const ordinaryModernName = `Mew V RR 053/172 S12a Broad Shelf ${suffix}`;
+    const broadVintageCacheKey = discoveryMarketCacheKey(broadVintageName, 'CAD', 'CA');
+    const broadPromoCacheKey = discoveryMarketCacheKey(broadPromoName, 'CAD', 'CA');
+    const ordinaryModernCacheKey = discoveryMarketCacheKey(ordinaryModernName, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(broadVintageCacheKey);
+    deleteDiscoveryMarketCache(broadPromoCacheKey);
+    deleteDiscoveryMarketCache(ordinaryModernCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: broadVintageCacheKey,
+      suggestionName: broadVintageName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 210,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: broadPromoCacheKey,
+      suggestionName: broadPromoName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 64,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+    upsertDiscoveryMarketCache({
+      cacheKey: ordinaryModernCacheKey,
+      suggestionName: ordinaryModernName,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 11,
+      marketSampleSize: 12,
+      soldSampleSize: 0
+    });
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      12,
+      ['Corocoro Shining Mew', 'Umbreon 217/187 Japanese', 'Squirtle Expedition Base Set 132', 'Pikachu xy95'].map(chase),
+      strongProfileConfidence
+    );
+    const names = backfilled.map((item) => item.suggestion.name);
+
+    expect(names).toContain(broadVintageName);
+    expect(names.some((name) => name === broadPromoName || name === broadVintageName)).toBe(true);
+    expect(names).not.toContain(ordinaryModernName);
+    deleteDiscoveryMarketCache(broadVintageCacheKey);
+    deleteDiscoveryMarketCache(broadPromoCacheKey);
+    deleteDiscoveryMarketCache(ordinaryModernCacheKey);
   });
 
   it('uses shared collector traits for cache backfill when direct subjects run short', () => {

@@ -1304,10 +1304,13 @@ describe('chase command', () => {
       .options?.find((option: any) => option.name === 'remove') as any;
     const options = remove.options ?? [];
     const chaseOption = options.find((option: any) => option.name === 'chase');
+    const reasonOption = options.find((option: any) => option.name === 'reason');
 
-    expect(options.map((option: any) => option.name)).toEqual(['chase']);
+    expect(options.map((option: any) => option.name)).toEqual(['chase', 'reason']);
     expect(chaseOption?.autocomplete).toBe(true);
     expect(chaseOption?.required).toBe(true);
+    expect(reasonOption?.required).toBeFalsy();
+    expect(reasonOption?.choices.map((choice: any) => choice.value)).toEqual(['FOUND', 'MISTAKE', 'NOT_FOR_ME']);
   });
 
   it('shows defaults in chase add helper text', () => {
@@ -1574,6 +1577,52 @@ describe('chase command', () => {
     const remaining = listChases(userId);
     expect(remaining.map((item) => item.id)).toEqual([keep.id]);
     expect(interaction.reply).toHaveBeenCalledOnce();
+  });
+
+  it('defaults removed chases to completed taste memory', async () => {
+    const userId = testUserId('remove-completed-memory');
+    const remove = addChase({
+      userId,
+      cardName: 'Meowth 18/53',
+      maxPrice: 50,
+      priority: 'NORMAL',
+      listingType: 'ANY'
+    });
+
+    await chase.execute(mockInteraction(userId, 'remove', { chase: remove.id }));
+
+    expect(listChases(userId)).toEqual([]);
+    expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Meowth 18/53:BOUGHT_OR_SEEN']);
+  });
+
+  it('can remove an accidental chase without adding taste memory', async () => {
+    const userId = testUserId('remove-mistake-memory');
+    const remove = addChase({
+      userId,
+      cardName: 'Random Bulk Card',
+      priority: 'NORMAL',
+      listingType: 'ANY'
+    });
+
+    await chase.execute(mockInteraction(userId, 'remove', { chase: remove.id, reason: 'MISTAKE' }));
+
+    expect(listChases(userId)).toEqual([]);
+    expect(listUserTasteMemoryChases(userId)).toEqual([]);
+  });
+
+  it('can remove a chase as not for me taste memory', async () => {
+    const userId = testUserId('remove-negative-memory');
+    const remove = addChase({
+      userId,
+      cardName: 'Pikachu Pokemon Rumble 7',
+      priority: 'NORMAL',
+      listingType: 'ANY'
+    });
+
+    await chase.execute(mockInteraction(userId, 'remove', { chase: remove.id, reason: 'NOT_FOR_ME' }));
+
+    expect(listChases(userId)).toEqual([]);
+    expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Pikachu Pokemon Rumble 7:REMOVED_CHASE']);
   });
 
   it('lists default exclusions once while showing chase-specific custom exclusions inline', () => {

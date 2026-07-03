@@ -125,6 +125,17 @@ const SOURCE_TASTE_TRAIT_TERMS = new Set([
   'unique',
   'vintage'
 ]);
+
+const KNOWN_SET_TASTE_TOKENS = new Set([
+  'terastal festival',
+  'eevee heroes',
+  'vstar universe',
+  'pokemon card 151',
+  'pokemon 151',
+  'paldean fates',
+  'crown zenith',
+  'shiny treasure ex'
+]);
 const JAPANESE_PROMO_CODE_PATTERN = /\b(?:\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3})\b/i;
 const JAPANESE_SCRIPT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff]/;
 const JAPANESE_RELEASE_MARKER_PATTERN = /\b(?:coro\s?coro|vending|masaki|munch|poncho|battle\s*festa|players?\s+club|fan\s+club|trainers?\s+magazine|yu\s?nagaba|precious\s+collector|kanazawa|yokohama|sapporo|pokemon\s+center)\b/i;
@@ -227,6 +238,10 @@ function isSourceTasteTraitTerm(value: string): boolean {
   return SOURCE_TASTE_TRAIT_TERMS.has(normalizeSearchText(value));
 }
 
+function isKnownSetTasteToken(value: string): boolean {
+  return KNOWN_SET_TASTE_TOKENS.has(normalizeSearchText(value));
+}
+
 function sourceSubjectTokens(value: string): Set<string> {
   return new Set(
     normalizedTokens(value).filter(
@@ -289,6 +304,11 @@ export function pokemonTcgCatalogQueriesForSuggestion(suggestion: DiscoverySugge
   if (requiredTokens.has('promo') || /\bpromo\b/i.test(text)) queries.push('supertype:Pokemon rarity:Promo');
   if (/\bspecial release\b/i.test(text)) queries.push('supertype:Pokemon rarity:Promo');
   if (/\bcollector\b/i.test(normalized)) queries.push('supertype:Pokemon');
+  for (const token of suggestion.sourceTasteTokens ?? []) {
+    const normalizedToken = normalizeSearchText(token);
+    if (!isKnownSetTasteToken(normalizedToken)) continue;
+    queries.push(`supertype:Pokemon set.name:${quoted(token)}`);
+  }
 
   return [...new Set(queries)];
 }
@@ -893,7 +913,18 @@ function sourceProfileScore(card: PokemonTcgCard, profile: SourceTasteProfile): 
   return exactDexScore + kantoScore + typeScore + subtypeScore + setShapeScore + eraScore;
 }
 
-function tcgDexJapaneseScore(card: TcgDexCard, profile: SourceTasteProfile): number {
+function suggestionSetTasteBoost(card: TcgDexCard, suggestion: DiscoverySuggestion): number {
+  const setText = normalizeSearchText([card.set?.name, card.set?.id].filter(Boolean).join(' '));
+  if (!setText) return 0;
+  return (suggestion.sourceTasteTokens ?? [])
+    .map((token) => normalizeSearchText(token))
+    .filter((token) => isKnownSetTasteToken(token) && token.length >= 3)
+    .some((token) => setText.includes(token) || token.includes(setText))
+    ? 36
+    : 0;
+}
+
+function tcgDexJapaneseScore(card: TcgDexCard, profile: SourceTasteProfile, suggestion: DiscoverySuggestion): number {
   const dexNumbers = card.dexId ?? [];
   const types = new Set((card.types ?? []).map(normalizeSearchText));
   const cardText = normalizeSearchText([card.name, card.rarity, card.set?.name, card.set?.id, card.stage, card.suffix].filter(Boolean).join(' '));
@@ -908,9 +939,18 @@ function tcgDexJapaneseScore(card: TcgDexCard, profile: SourceTasteProfile): num
   const imageScore = card.image ? 12 : -18;
   const sourcePreferenceScore = 24;
   const smallSpecialSetScore = isSmallJapaneseSpecialSet(card) ? 28 : 0;
+  const setTasteScore = suggestionSetTasteBoost(card, suggestion);
   const ordinaryModernRarityPenalty = isOrdinaryModernJapaneseRarity(card) ? 36 : 0;
   const deterministicVarietyScore = hashText(card.id ?? card.name ?? '') % 5;
-  return sourcePreferenceScore + exactDexScore + kantoScore + typeScore + specialShapeScore + imageScore + smallSpecialSetScore + deterministicVarietyScore - ordinaryModernRarityPenalty;
+  return sourcePreferenceScore + exactDexScore + kantoScore + typeScore + specialShapeScore + imageScore + smallSpecialSetScore + setTasteScore + deterministicVarietyScore - ordinaryModernRarityPenalty;
+}
+
+function usefulSuggestionJapaneseNameTerms(suggestion: DiscoverySuggestion): string[] {
+  return uniqueValuesPreservingOrder(
+    [...(suggestion.requiredEvidenceTokens ?? []), ...(suggestion.sourceTasteTokens ?? [])]
+      .map(normalizeSearchText)
+      .filter((token) => token.length >= 3 && !isSourceTasteTraitTerm(token) && !isKnownSetTasteToken(token) && !ACTIVE_CARD_TOKEN_STOP_WORDS.has(token))
+  ).slice(0, 2);
 }
 
 function isOrdinaryModernJapaneseRarity(card: TcgDexCard): boolean {
@@ -1102,12 +1142,29 @@ async function resolveTcgDexJapaneseCards(
     }
   }
 
+  for (const term of usefulSuggestionJapaneseNameTerms(suggestion)) {
+    const dexNumbers = await fetchDexNumbersForIdentityTerm(term).catch(() => []);
+    for (const dexId of dexNumbers) {
+      profile.dexNumbers.add(dexId);
+      if (!profile.dexNames.has(dexId)) profile.dexNames.set(dexId, displayIdentityTerm(term));
+      const summaries = await fetchTcgDexJapaneseSummaries(dexId).catch(() => []);
+      if (summaries.length > TCGDEX_MAX_DEX_SUMMARY_MATCHES) continue;
+      for (const summary of summaries.slice(0, TCGDEX_SOURCE_CATALOG_PAGE_SIZE)) {
+        if (summary.id) summariesById.set(summary.id, summary);
+      }
+    }
+    const summaries = await fetchTcgDexJapaneseSummariesByName(term).catch(() => []);
+    for (const summary of summaries.slice(0, TCGDEX_SOURCE_CATALOG_PAGE_SIZE)) {
+      if (summary.id) summariesById.set(summary.id, summary);
+    }
+  }
+
   const cards = await Promise.all(
     [...summariesById.values()].slice(0, TCGDEX_SOURCE_CATALOG_PAGE_SIZE).map(async (summary) => (summary.id ? fetchTcgDexJapaneseCard(summary.id) : null))
   );
   const rankedCards = cards
     .filter((card): card is TcgDexCard => !!card && normalize(card.category ?? '') === 'pokemon' && matchesTcgDexProfileAnchor(card, profile) && matchesJapaneseCollectorQuality(card))
-    .sort((left, right) => tcgDexJapaneseScore(right, profile) - tcgDexJapaneseScore(left, profile));
+    .sort((left, right) => tcgDexJapaneseScore(right, profile, suggestion) - tcgDexJapaneseScore(left, profile, suggestion));
 
   const suggestions: DiscoverySuggestion[] = [];
   const seenNames = new Set<string>();
