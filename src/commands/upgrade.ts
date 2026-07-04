@@ -34,7 +34,7 @@ export const upgrade = {
       ...upgradeFullVaultLines(),
       '',
       '**Status**',
-      'Checkout is coming soon. Pro access is currently available by request'
+      'Public checkout is not live yet. Pro access is currently available by request during beta'
     ];
 
     await interaction.reply({
