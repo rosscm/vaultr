@@ -3565,7 +3565,7 @@ function orderCandidatesForCollectorPresentation(candidates: DiscoveryCandidate[
     chases,
     Math.max(0, count - exactNicheAnchors.length)
   );
-  const selected = [...exactNicheAnchors, ...diversified].slice(0, count);
+  const selected = composeWeeklyShelfCandidates([...exactNicheAnchors, ...diversified], chases, count);
   if (selected.length >= count) return selected;
   const selectedNameKeys = new Set(selected.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
   for (const candidate of confidenceOrdered) {
@@ -3574,6 +3574,55 @@ function orderCandidatesForCollectorPresentation(candidates: DiscoveryCandidate[
     if (selectedNameKeys.has(nameKey)) continue;
     selected.push(candidate);
     selectedNameKeys.add(nameKey);
+  }
+  return selected;
+}
+
+type WeeklyCompositionBucket = 'adjacent' | 'era-pivot' | 'modern' | 'anchor' | 'general';
+
+function weeklyCompositionBucket(candidate: DiscoveryCandidate, chases: Chase[]): WeeklyCompositionBucket {
+  const features = collectorDiscoveryFeatures(candidate, chases);
+  const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, ...(candidate.suggestion.sourceTasteTokens ?? [])].filter(Boolean).join(' '));
+  if (features.adjacentThemeNovelty || /\bset companion trail\b/.test(text)) return 'adjacent';
+  if (features.eReaderSignal || /\bbase set\b|\bgym heroes\b|\bgym challenge\b|\bneo\b|\bvintage\b/.test(text)) return 'era-pivot';
+  if (hasModernSetContextText(text)) return 'modern';
+  if (features.directSubjectSupport > 0 || features.exactNicheIdentity || features.retailEReaderSignal || features.nicheExclusiveSignal) return 'anchor';
+  return 'general';
+}
+
+export function composeWeeklyShelfCandidates(candidates: DiscoveryCandidate[], chases: Chase[], count: number): DiscoveryCandidate[] {
+  if (count < DISCOVERY_SHELF_PAGE_SIZE || candidates.length <= DISCOVERY_SHELF_PAGE_SIZE) return candidates.slice(0, count);
+  const selected: DiscoveryCandidate[] = [];
+  const selectedNameKeys = new Set<string>();
+  const maxModernCount = Math.max(2, Math.min(4, Math.floor(count * 0.2)));
+  const bucketTargets: Array<{ bucket: WeeklyCompositionBucket; target: number }> = [
+    { bucket: 'adjacent', target: Math.min(3, Math.max(2, Math.floor(count * 0.15))) },
+    { bucket: 'era-pivot', target: Math.min(3, Math.max(2, Math.floor(count * 0.15))) }
+  ];
+  const countBucket = (bucket: WeeklyCompositionBucket): number => selected.filter((candidate) => weeklyCompositionBucket(candidate, chases) === bucket).length;
+  const canAdd = (candidate: DiscoveryCandidate): boolean => {
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    if (selectedNameKeys.has(nameKey)) return false;
+    if (weeklyCompositionBucket(candidate, chases) === 'modern' && countBucket('modern') >= maxModernCount) return false;
+    return true;
+  };
+  const pushCandidate = (candidate: DiscoveryCandidate): void => {
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    if (selectedNameKeys.has(nameKey)) return;
+    selected.push(candidate);
+    selectedNameKeys.add(nameKey);
+  };
+  for (const { bucket, target } of bucketTargets) {
+    for (const candidate of candidates) {
+      if (selected.length >= count || countBucket(bucket) >= target) break;
+      if (weeklyCompositionBucket(candidate, chases) !== bucket || !canAdd(candidate)) continue;
+      pushCandidate(candidate);
+    }
+  }
+  for (const candidate of candidates) {
+    if (selected.length >= count) break;
+    if (!canAdd(candidate)) continue;
+    pushCandidate(candidate);
   }
   return selected;
 }
@@ -3794,15 +3843,21 @@ export function preferFreshWeeklyCandidatesAgainstRecentShelves(candidates: Disc
   const recentNameKeys = new Set<string>();
   const recentVariantKeys = new Set<string>();
   const recentSubjectKeys = new Set<string>();
+  const recentSubjectFrequency = new Map<string, number>();
   const positiveSubjectChases = positiveTasteSubjectChases(chases);
   for (const drop of recentDrops) {
     for (const priorCandidate of candidatesFromScheduledDiscoveryDrop(drop)) {
       recentNameKeys.add(discoveryDisplayNameKey(priorCandidate.suggestion.name));
       const variantKey = candidateVariantFamilyKey(priorCandidate);
       if (variantKey) recentVariantKeys.add(variantKey);
-      for (const subjectKey of candidateSubjectBalanceKeys(priorCandidate)) recentSubjectKeys.add(subjectKey);
+      for (const subjectKey of candidateSubjectBalanceKeys(priorCandidate)) {
+        recentSubjectKeys.add(subjectKey);
+        recentSubjectFrequency.set(subjectKey, (recentSubjectFrequency.get(subjectKey) ?? 0) + 1);
+      }
     }
   }
+  const subjectFatigueScore = (candidate: DiscoveryCandidate): number =>
+    candidateSubjectBalanceKeys(candidate).reduce((sum, subjectKey) => sum + (recentSubjectFrequency.get(subjectKey) ?? 0), 0);
   const adjacentThemeNoveltyCandidates: DiscoveryCandidate[] = [];
   const freshDirectSubjectCandidates: DiscoveryCandidate[] = [];
   const repeatedSubjectCandidates: DiscoveryCandidate[] = [];
@@ -3827,6 +3882,7 @@ export function preferFreshWeeklyCandidatesAgainstRecentShelves(candidates: Disc
     }
     repeatedSubjectCandidates.push(candidate);
   }
+  repeatedSubjectCandidates.sort((left, right) => subjectFatigueScore(left) - subjectFatigueScore(right));
   return [...adjacentThemeNoveltyCandidates, ...freshDirectSubjectCandidates, ...repeatedSubjectCandidates, ...repeatedCandidates];
 }
 

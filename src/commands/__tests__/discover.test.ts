@@ -36,6 +36,7 @@ import {
   marketReadyShelfCandidates,
   marketReadyShelfCandidatesWithOptions,
   mergeFreshDiscoveryCandidates,
+  composeWeeklyShelfCandidates,
   orderConcreteDiscoveryFallbackSuggestionsForMarket,
   orderCandidatesForMarketConfidence,
   orderCandidatesFromPersistedState,
@@ -1828,6 +1829,75 @@ describe('preferFreshWeeklyCandidatesAgainstRecentShelves', () => {
       'Mew Expedition Base Set 55',
       "_____'s Pikachu Celebrations: Classic Collection 24"
     ]);
+  });
+
+  it('demotes subjects that were heavily used across recent shelves', () => {
+    const mewCandidate = sourceCandidate('Mew Expedition Base Set 19', 'Pokemon TCG (Expedition Base Set)', 0);
+    const pikachuCandidate = sourceCandidate('Pikachu Expedition Base Set 124', 'Pokemon TCG (Expedition Base Set)', 1);
+    const recentDrops: ScheduledDiscoveryDrop[] = [
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W26',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-06-23T00:00:00.000Z',
+        generatedAt: '2026-06-23T00:00:00.000Z',
+        updatedAt: '2026-06-23T00:00:00.000Z',
+        marketReadyCount: 3,
+        imageReadyCount: 3,
+        itemCount: 3,
+        items: [
+          { position: 1, suggestion: sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 0).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 180, askingSampleSize: 12 } },
+          { position: 2, suggestion: sourceCandidate('Mew VMAX Fusion Strike 269', 'Pokemon TCG (Fusion Strike)', 1).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 180, askingSampleSize: 12 } },
+          { position: 3, suggestion: sourceCandidate('Pikachu ex Surging Sparks 238', 'Pokemon TCG (Surging Sparks)', 2).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 180, askingSampleSize: 12 } }
+        ]
+      }
+    ];
+
+    const ordered = preferFreshWeeklyCandidatesAgainstRecentShelves([mewCandidate, pikachuCandidate], recentDrops);
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual([
+      'Pikachu Expedition Base Set 124',
+      'Mew Expedition Base Set 19'
+    ]);
+  });
+});
+
+describe('composeWeeklyShelfCandidates', () => {
+  it('reserves room for adjacent and era-pivot cards while capping modern density', () => {
+    const chases = ['Umbreon ex SAR Terastal Festival Japanese 217/187', 'Corocoro Shining Mew', 'Pikachu 26/83 Toys R Us promo'].map(chase);
+    const candidates = [
+      sourceCandidate('Pikachu ex Surging Sparks 238', 'Pokemon TCG (Surging Sparks)', 0),
+      sourceCandidate('Mew ex Paldean Fates 216', 'Pokemon TCG (Paldean Fates)', 1),
+      sourceCandidate('Gardevoir ex Paldean Fates 233', 'Pokemon TCG (Paldean Fates)', 2),
+      sourceCandidate('Articuno Journey Together 161', 'Pokemon TCG (Journey Together)', 3),
+      sourceCandidate('Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese', 'TCGdex Japanese (S6a)', 4),
+      sourceCandidate('Mew VMAX Fusion Strike 269', 'Pokemon TCG (Fusion Strike)', 5),
+      sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 6),
+      sourceCandidate('Rocket\'s Moltres Gym Heroes 12', 'Pokemon TCG (Gym Heroes)', 7),
+      sourceCandidate('Sylveon Terastal Festival Pokemon cards', 'TCGdex Japanese (SV8a)', 8),
+      sourceCandidate('Mew Expedition Base Set 19', 'Pokemon TCG (Expedition Base Set)', 9),
+      sourceCandidate('Pikachu Expedition Base Set 124', 'Pokemon TCG (Expedition Base Set)', 10),
+      sourceCandidate('Blaine\'s Moltres Gym Heroes 1', 'Pokemon TCG (Gym Heroes)', 11)
+    ];
+    candidates[8] = {
+      ...candidates[8],
+      suggestion: {
+        ...candidates[8].suggestion,
+        lane: 'Set Companion Trail',
+        sourceTasteTokens: ['sylveon', 'japanese', 'Terastal Festival', 'special set', 'small set', 'numbered set']
+      }
+    };
+
+    const composed = composeWeeklyShelfCandidates(candidates, chases, 12);
+    const names = composed.map((item) => item.suggestion.name);
+    const modernCount = names.filter((name) => /surging sparks|paldean fates|journey together|fusion strike|eevee heroes/i.test(name)).length;
+
+    expect(names).toContain('Sylveon Terastal Festival Pokemon cards');
+    expect(names).toContain('Zapdos Aquapolis 44');
+    expect(modernCount).toBeLessThanOrEqual(4);
   });
 });
 
