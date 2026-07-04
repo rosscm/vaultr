@@ -65,11 +65,10 @@ export function buildChaseListEmbed(userId: string, page: number) {
       embeds: [infoEmbed('📭 No Active Chases', [
         'Add one specific card to start shaping your Vault.',
         '',
-        '**Good first chases:**',
-        '- `Umbreon 217/187 Japanese`',
-        '- `Mew RC24/RC25`',
-        '- `Gardevoir ex Paldean Fates 233`',
+        'Open `/chase add`, start typing your card, and pick the match if it looks right.',
+        'If it does not show up, you can still enter it yourself.',
         '',
+        'Then use `/alerts status` to confirm Vaultr is watching for you.',
         'Quiet days are normal. Vaultr only sends alerts when a listing clears your match settings.'
       ].join('\n'))],
       components: []

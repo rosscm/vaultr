@@ -40,11 +40,11 @@ function nextSweepSeconds(activeChases: Chase[], intervalSeconds: number, nowMs:
 }
 
 function watchSummary(activeCount: number, alerts24h: number, alerts7d: number, pausedCount: number): string {
-  if (activeCount === 0) return 'Add a chase to start your Vault watch';
+  if (activeCount === 0) return 'Add your first chase to start your Vault watch';
   if (alerts24h > 0) return 'Fresh matches surfaced today';
-  if (alerts7d > 0) return 'Latest listings have been quiet';
+  if (alerts7d > 0) return 'Quiet today, but Vaultr is still watching';
   if (pausedCount > 0) return 'Extra saved chases are paused by plan limit';
-  return 'No listings have cleared your filters yet';
+  return 'Quiet so far. Vaultr only pings you when a listing clears your filters';
 }
 
 export function buildAlertsStatusEmbed(userId: string, now = new Date()) {

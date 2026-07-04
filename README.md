@@ -35,6 +35,45 @@ Product copy and terminology conventions live in [docs/PRODUCT_VOICE.md](docs/PR
 6. Run in dev mode:
    - `npm run dev`
 
+## Public Site
+
+Vaultr's public site is a static docs build in [`docs/`](docs/).
+
+### Preview locally
+
+From the repo root:
+
+```sh
+cd docs
+python3 -m http.server 8080
+```
+
+Then open:
+
+- `http://localhost:8080/`
+- `http://localhost:8080/privacy.html`
+- `http://localhost:8080/terms.html`
+
+### Publish
+
+The intended static deploy shape is the same simple pattern used elsewhere in this workspace:
+
+- publish the `docs/` directory as a static site
+- use `index.html` as the landing page
+- keep `privacy.html`, `terms.html`, `robots.txt`, and `sitemap.xml` beside it
+
+Cloudflare Pages is a straightforward fit:
+
+- production branch: your chosen release branch
+- build command: none
+- output directory: `docs`
+
+### Before public launch
+
+- replace the placeholder domain in [`docs/robots.txt`](docs/robots.txt) and [`docs/sitemap.xml`](docs/sitemap.xml)
+- preview the static site locally once after each meaningful content pass
+- confirm legal pages and links still match the current product surface
+
 ## Initial Commands
 
 - `/start`
@@ -270,24 +309,24 @@ Use this when your webhook runs on a Raspberry Pi and needs a public HTTPS endpo
 
 1. Create a Cloudflare tunnel and DNS route (example hostname):
    - `cloudflared tunnel create vaultr-ebay-webhook`
-   - `cloudflared tunnel route dns vaultr-ebay-webhook ebay-webhook.tweeticcini.com`
+   - `cloudflared tunnel route dns vaultr-ebay-webhook ebay-webhook.your-domain.example`
 2. Create a dedicated tunnel config (example path):
-   - `/home/pi/.cloudflared/vaultr-webhook.yml`
+   - `/home/pi/.cloudflared/vaultr-ebay-webhook.yml`
 3. Example config:
    ```yaml
    tunnel: <TUNNEL_ID>
    credentials-file: /home/pi/.cloudflared/<TUNNEL_ID>.json
 
    ingress:
-     - hostname: ebay-webhook.tweeticcini.com
+     - hostname: ebay-webhook.your-domain.example
        service: http://localhost:8787
      - service: http_status:404
    ```
 4. Run tunnel as a separate service (recommended) so other apps are not disrupted:
    - Use your own `cloudflared-vaultr.service` with:
-     - `ExecStart=/usr/bin/cloudflared tunnel --config /home/pi/.cloudflared/vaultr-webhook.yml run`
+     - `ExecStart=/usr/bin/cloudflared tunnel --config /home/pi/.cloudflared/vaultr-ebay-webhook.yml run`
 5. Verify endpoint:
-   - `curl "https://ebay-webhook.tweeticcini.com/ebay/notifications?challenge_code=test123"`
+   - `curl "https://ebay-webhook.your-domain.example/ebay/notifications?challenge_code=test123"`
    - Expected: JSON containing `challengeResponse`
 
 ### eBay Portal Verification Steps
@@ -295,7 +334,7 @@ Use this when your webhook runs on a Raspberry Pi and needs a public HTTPS endpo
 1. Open your Production keyset in eBay Developers Program
 2. Go to Notifications -> Marketplace Account Deletion
 3. Set:
-   - Endpoint URL: `https://ebay-webhook.tweeticcini.com/ebay/notifications`
+   - Endpoint URL: `https://ebay-webhook.your-domain.example/ebay/notifications`
    - Verification token: must match `EBAY_NOTIFICATION_VERIFICATION_TOKEN`
 4. Click Save (this triggers eBay challenge validation)
 5. Click Send Test Notification

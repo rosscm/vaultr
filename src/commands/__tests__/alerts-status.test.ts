@@ -55,4 +55,18 @@ describe('buildAlertsStatusEmbed', () => {
     expect(embed.toJSON().fields?.some((field) => field.name === 'Quiet Read')).toBe(false);
     expect(embed.toJSON().fields?.some((field) => field.name === 'Rules')).toBe(false);
   });
+
+  it('reassures users on quiet days when nothing fresh matched', () => {
+    const userId = 'status-user-quiet';
+    removeAllChases(userId);
+    resetUserAlertSettings(userId);
+    setUserPlan(userId, 'PRO');
+    const chase = addChase({ userId, cardName: 'Espeon Delta Species', priority: 'HIGH' });
+    markChasesPollChecked([chase.id], '2026-06-12T18:55:00.000Z');
+
+    const embed = buildAlertsStatusEmbed(userId, new Date('2026-06-12T19:00:00.000Z'));
+
+    expect(embed.toJSON().description).toBe('Quiet so far. Vaultr only pings you when a listing clears your filters');
+    expect(embedFieldValue(embed, 'Sweeps')).toContain('**Next:** about 10m');
+  });
 });

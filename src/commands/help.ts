@@ -5,12 +5,15 @@ export const help = {
   data: new SlashCommandBuilder().setName('help').setDescription('Show the Vaultr command guide'),
   async execute(interaction: any) {
     const lines = [
-      'Use this as your Vault map. First time here? Start with `/start` and one specific card chase.',
+      'Use this as your Vault map. First time here? Start with `/start`, then add one specific card chase.',
       '',
       '✨ **Start Watching**',
       '- `/start` opens the first-run guide',
       '- `/chase add` adds a card for Vaultr to watch',
+      '- Start typing your chase and pick the autocomplete match if it looks right',
+      '- If your card does not appear, you can still enter it yourself',
       '- `/chase list` shows active and paused chases',
+      '- One specific chase is better than three broad ones when you are getting started',
       '- Strong chase names include the card number, set, language, or variant when you know it',
       '',
       '🗂️ **Refine The Vault**',
@@ -36,7 +39,8 @@ export const help = {
       '- Vault Pulse can post on quiet days so active chases do not look abandoned',
       '',
       '🌙 **When It Feels Quiet**',
-      '- Quiet days are normal. Vaultr sends chase alerts only when a listing clears your match settings'
+      '- Quiet days are normal. Vaultr sends alerts only when a listing clears your match settings',
+      '- `/alerts status` shows whether your Vault is actively being watched between hits'
     ];
 
     await interaction.reply({

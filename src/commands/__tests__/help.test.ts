@@ -14,11 +14,14 @@ describe('help command', () => {
     expect(help.data.toJSON().description).toBe('Show the Vaultr command guide');
     expect(data.title).toBe('🧭 Vaultr Command Guide');
     expect(text).toContain('Use this as your Vault map');
-    expect(text).toContain('First time here? Start with `/start` and one specific card chase.');
+    expect(text).toContain('First time here? Start with `/start`, then add one specific card chase.');
     expect(text).not.toContain('First time here? Start with `/start` and one specific card chase. 👋');
     expect(text).toContain('✨ **Start Watching**');
     expect(text).toContain('`/start` opens the first-run guide');
     expect(text).toContain('`/chase add` adds a card for Vaultr to watch');
+    expect(text).toContain('Start typing your chase and pick the autocomplete match if it looks right');
+    expect(text).toContain('If your card does not appear, you can still enter it yourself');
+    expect(text).toContain('One specific chase is better than three broad ones when you are getting started');
     expect(text).toContain('Strong chase names include the card number, set, language, or variant when you know it');
     expect(text).toContain('🗂️ **Refine The Vault**');
     expect(text).toContain('`/chase edit` tightens a chase name');
@@ -36,7 +39,8 @@ describe('help command', () => {
     expect(text).toContain('`/setup channel` lets admins choose where Vaultr posts server moments');
     expect(text).toContain('`/feed` lets admins turn Community Vault Pulse posts on or off');
     expect(text).toContain('🌙 **When It Feels Quiet**');
-    expect(text).toContain('Quiet days are normal. Vaultr sends chase alerts only when a listing clears your match settings');
+    expect(text).toContain('Quiet days are normal. Vaultr sends alerts only when a listing clears your match settings');
+    expect(text).toContain('`/alerts status` shows whether your Vault is actively being watched between hits');
     expect(text).not.toContain('**/health**');
     expect(text).not.toContain('Owner: inspect runtime health');
     expect(text).not.toContain('promo stamp');

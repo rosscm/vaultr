@@ -41,12 +41,11 @@ describe('start command', () => {
     expect(text).toContain('**Welcome to Vaultr!** 👋');
     expect(text).toContain('Start with one card you actually want to know about.');
     expect(text).toContain('teach Vaultr the tiny details that make a grail feel personal.');
+    expect(text).toContain('Your best first move is to open `/chase add` and start typing one specific card.');
     expect(text).toContain('Every Monday, your setup channel gets a fresh shelf of collector picks shaped by your Vault and taste signals.');
-    expect(text).toContain('**Good chase examples:**');
-    expect(text).toContain('`Umbreon 217/187 Japanese`');
-    expect(text).toContain('`Mew RC24/RC25`');
-    expect(text).toContain('`Gardevoir ex Paldean Fates 233`');
     expect(text).toContain('**Step 1:** Add your first chase with `/chase add`');
+    expect(text).toContain('Start typing `Mew RC24` if you want an easy first test, then pick the match if it looks right.');
+    expect(text).toContain('If your card does not show up, you can still enter it yourself.');
     expect(text).not.toContain('promo stamp');
     expect(text).toContain('**Step 2:** Check your active Vault with `/chase list`');
     expect(text).toContain('**Step 3:** Tune confidence, currency, shipping, and sources with `/alerts settings`');
@@ -70,6 +69,7 @@ describe('start command', () => {
     expect(text).not.toContain('**Saved Chases:**');
     expect(text).not.toContain('collector recaps');
     expect(text).not.toContain('server channel when they land');
+    expect(text).not.toContain('**Good chase examples:**');
     expect(text).not.toContain('**Plan:**');
     expect(text).not.toContain('**Active Chases:**');
     expect(text).not.toContain('**Paused Chases:**');
