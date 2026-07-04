@@ -98,11 +98,14 @@ function listingLooksGraded(title: string, condition: string | undefined): boole
   return gradedTerms.test(normalizedTitle) || /\bgraded\b/.test(normalizedCondition);
 }
 
+function looksLikeRawConditionText(text: string): boolean {
+  const normalized = normalize(text);
+  return /\b(raw|ungraded|near mint|lightly played|moderately played|heavily played|damaged|nm\/m|nm-m|lp|mp|hp|dmg|nm)\b/.test(normalized);
+}
+
 function listingLooksUngraded(title: string, condition: string | undefined): boolean {
-  const normalizedTitle = normalize(title);
-  const normalizedCondition = normalize(condition ?? '');
   if (listingLooksGraded(title, condition)) return false;
-  return /\b(ungraded|raw)\b/.test(normalizedTitle) || /\b(ungraded|raw)\b/.test(normalizedCondition);
+  return looksLikeRawConditionText(title) || looksLikeRawConditionText(condition ?? '');
 }
 
 function clampScore(score: number): number {

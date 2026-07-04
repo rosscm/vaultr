@@ -83,6 +83,31 @@ describe('matchChaseToListing', () => {
     expect(result.reasons).toContain('ungraded_match');
   });
 
+  it('matches ungraded preference against raw listings labeled with condition markers', () => {
+    const chase = baseChase({ cardName: 'Gardevoir ex Paldean Fates 233', grade: 'UNGRADED', maxPrice: 400, listingType: 'BUY_IT_NOW' });
+    const listing = baseListing({
+      title: 'Gardevoir ex Paldean Fates 233/091 Special Illustration Rare Holo - NM',
+      price: 271.15,
+      currency: 'CAD',
+      condition: undefined,
+      listingType: 'BUY_IT_NOW'
+    });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).toContain('ungraded_match');
+    expect(result.reasons).toContain('price_within_max');
+  });
+
+  it('matches ungraded preference when the listing condition carries the raw marker', () => {
+    const chase = baseChase({ grade: 'UNGRADED' });
+    const listing = baseListing({ title: 'Squirtle Base Set Pokemon Card', condition: 'Near Mint' });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).toContain('ungraded_match');
+  });
+
   it('rejects slabbed listings for ungraded preference', () => {
     const chase = baseChase({ grade: 'raw' });
     const listing = baseListing({ title: 'Squirtle Base Set PSA 10 Pokemon Card', condition: 'Graded' });
