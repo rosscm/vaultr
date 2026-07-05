@@ -393,6 +393,15 @@ const getSourceObservationForItemStmt = db.prepare(`
   LIMIT 1
 `);
 
+const listRecentSourceObservationsForChaseStmt = db.prepare(`
+  SELECT chase_id, user_id, listing_id, source, source_mode, query_key, first_seen_at, last_seen_at, source_rank,
+    listing_title, listing_price, listing_currency, listing_posted_at
+  FROM source_observations
+  WHERE chase_id = ?
+  ORDER BY last_seen_at DESC, source_rank ASC, listing_id ASC
+  LIMIT ?
+`);
+
 const pruneSourceObservationsStmt = db.prepare(`
   DELETE FROM source_observations
   WHERE last_seen_at < ?
@@ -1651,6 +1660,12 @@ export function getSourceObservationForItem(chaseId: string, itemId: string): So
   if (!needle) return null;
   const row = getSourceObservationForItemStmt.get(chaseId, needle, needle) as SourceObservationRow | undefined;
   return row ? mapSourceObservation(row) : null;
+}
+
+export function listRecentSourceObservationsForChase(chaseId: string, limit = 10): SourceObservation[] {
+  const boundedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(25, Math.floor(limit))) : 10;
+  const rows = listRecentSourceObservationsForChaseStmt.all(chaseId, boundedLimit) as SourceObservationRow[];
+  return rows.map(mapSourceObservation);
 }
 
 export function pruneSourceObservations(retentionDays = 14): number {

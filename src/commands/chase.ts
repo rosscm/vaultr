@@ -16,7 +16,7 @@ export const chase = {
         .addStringOption((opt) =>
           opt
             .setName('card')
-            .setDescription('Card name or number, e.g. Umbreon VMAX 215/203')
+            .setDescription('Card name and number, eg Mew RC24')
             .setRequired(true)
             .setMinLength(3)
             .setMaxLength(100)

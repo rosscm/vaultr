@@ -1,4 +1,5 @@
 import type { Chase, Listing } from '../types.js';
+import { buildEbaySearchKeywords } from './ebay.js';
 
 type TrustedShopifyShop = {
   slug: string;
@@ -77,8 +78,9 @@ export function listTrustedShopifyShopNames(): string[] {
 }
 
 const SHOPIFY_PAGE_LIMIT = 250;
-const SHOPIFY_MAX_PAGES = 3;
+const SHOPIFY_MAX_PAGES = 5;
 const SHOPIFY_FETCH_TIMEOUT_MS = 10_000;
+const SHOPIFY_SUGGEST_LIMIT = 25;
 // Product feed is cached per store — fetched once per poll cycle, shared across all chases
 const SHOPIFY_FEED_CACHE_TTL_MS = 270_000; // 4.5 min, just under the 300s poll interval
 const shopifyFeedCache = new Map<string, { products: ShopifyProduct[]; expiresAt: number }>();
@@ -101,9 +103,10 @@ function toTokens(text: string): string[] {
 function hasChaseTokens(product: ShopifyProduct, chase: Chase): boolean {
   const title = normalize(product.title ?? '');
   const productTokens = new Set(toTokens(product.title ?? ''));
-  const chaseTokens = toTokens(chase.cardName);
+  const chaseNeedle = chase.queryName?.trim() || buildEbaySearchKeywords(chase);
+  const chaseTokens = toTokens(chaseNeedle);
   if (chaseTokens.length === 0) return false;
-  if (title.includes(normalize(chase.cardName))) return true;
+  if (title.includes(normalize(chaseNeedle))) return true;
 
   const hits = chaseTokens.filter((token) => productTokens.has(token)).length;
   return hits / chaseTokens.length >= 0.7;
@@ -111,11 +114,12 @@ function hasChaseTokens(product: ShopifyProduct, chase: Chase): boolean {
 
 function isSingleCardProduct(product: ShopifyProduct): boolean {
   const productType = normalize(product.product_type ?? product.type ?? '');
+  const title = normalize(product.title ?? '');
   const tags = (product.tags ?? []).map((tag) => normalize(tag));
   const joined = tags.join(' ');
   const hasSingleSignal =
     productType === 'single' || productType === 'singles' || joined.includes('type single') || joined.includes('type_single') || joined.includes('pokemon single');
-  const hasSupportedBrand = /\b(pokemon|onepiece|one piece|bandai)\b/.test(joined);
+  const hasSupportedBrand = /\b(pokemon|onepiece|one piece|bandai)\b/.test(`${joined} ${productType} ${title}`);
   return hasSingleSignal && hasSupportedBrand;
 }
 
@@ -210,7 +214,7 @@ async function searchShopProducts(shop: TrustedShopifyShop, chase: Chase): Promi
   url.search = '';
   url.searchParams.set('q', chase.queryName?.trim() || chase.cardName);
   url.searchParams.set('resources[type]', 'product');
-  url.searchParams.set('resources[limit]', '10');
+  url.searchParams.set('resources[limit]', String(SHOPIFY_SUGGEST_LIMIT));
 
   let body: ShopifySuggestResponse;
   try {

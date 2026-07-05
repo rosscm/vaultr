@@ -5,9 +5,11 @@ import {
   getChaseLastPollCheckAt,
   getSentAlertForItem,
   getSourceObservationForItem,
+  type SourceObservation,
   getUserAlertSettings,
   getUserPlan,
   hasAlertBeenSent,
+  listRecentSourceObservationsForChase,
   listAllChases
 } from '../services/chase-store.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from '../services/currency.js';
@@ -310,6 +312,71 @@ async function buildChaseDebugLines(chase: Chase, itemId: string): Promise<strin
   return lines;
 }
 
+function observationToListing(observation: SourceObservation): Listing | null {
+  if (!observation.listingTitle || observation.listingPrice === undefined || !observation.listingCurrency) return null;
+  return {
+    source: observation.source,
+    listingId: observation.listingId,
+    title: observation.listingTitle,
+    price: observation.listingPrice,
+    currency: observation.listingCurrency,
+    url: observation.listingId,
+    postedAt: observation.listingPostedAt,
+    region: 'OTHER',
+    listingType: observation.source === 'SHOPIFY' ? 'BUY_IT_NOW' : 'OTHER'
+  };
+}
+
+function summarizeObservationDecision(chase: Chase, observation: SourceObservation): string {
+  const sentAlert = getSentAlertForItem(chase.id, observation.listingId);
+  if (sentAlert) return `Alerted at ${formatTimeWithAge(sentAlert.sentAt)}`;
+
+  const settings = getUserAlertSettings(chase.userId);
+  const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
+  const listing = observationToListing(observation);
+  if (!listing) return 'Stored observation lacks enough detail to replay';
+
+  const normalizedListing = normalizeListingCurrency(listing, targetCurrency);
+  const match = matchChaseToListing(chase, normalizedListing);
+  if (!match.isMatch) return `Rejected: ${match.reasons[0] ?? 'not a match'}`;
+  if (match.score < settings.minScore) return `Rejected: score ${match.score} below min ${settings.minScore}`;
+  return `Would likely alert now (score ${match.score})`;
+}
+
+function buildRecentObservationLines(chase: Chase, limit = 8): string[] {
+  const settings = getUserAlertSettings(chase.userId);
+  const targetCurrency = normalizeSupportedCurrency(settings.alertCurrency);
+  const observations = listRecentSourceObservationsForChase(chase.id, limit);
+  const header = [
+    `**Chase:** ${chase.cardName}`,
+    `**Recent Observations:** ${observations.length}`,
+    `**Alert Currency:** ${targetCurrency}`
+  ];
+  if (observations.length === 0) {
+    header.push('No recent source observations stored for this chase.');
+    return header;
+  }
+
+  return [
+    ...header,
+    '',
+    ...observations.flatMap((observation, index) => {
+      const price = observation.listingPrice === undefined || !observation.listingCurrency
+        ? 'Unknown'
+        : formatMoney(
+            convertCurrencyAmount(observation.listingPrice, observation.listingCurrency, targetCurrency),
+            targetCurrency
+          );
+      return [
+        `**#${String(index + 1).padStart(2, '0')} ${observation.source}** ${formatTimeWithAge(observation.lastSeenAt)}`,
+        `Title: ${truncateValue(observation.listingTitle ?? observation.listingId, 110)}`,
+        `Price: ${price}`,
+        `Decision: ${summarizeObservationDecision(chase, observation)}`
+      ];
+    })
+  ];
+}
+
 export const health = {
   data: new SlashCommandBuilder()
     .setName('health')
@@ -358,9 +425,9 @@ export const health = {
     const chaseId = interaction.options.getString('chase_id');
     const itemId = interaction.options.getString('item_id');
     if (chaseId || itemId) {
-      if (!chaseId || !itemId) {
+      if (!chaseId) {
         await interaction.reply({
-          embeds: [warningEmbed('Missing Debug Input', 'Provide both `chase_id` and `item_id` to inspect a listing')],
+          embeds: [warningEmbed('Missing Debug Input', 'Provide `chase_id`, and optionally `item_id`, to inspect recent listing behavior')],
           flags: MessageFlags.Ephemeral
         });
         return;
@@ -375,9 +442,9 @@ export const health = {
         return;
       }
 
-      const lines = await buildChaseDebugLines(chase, itemId);
+      const lines = itemId ? await buildChaseDebugLines(chase, itemId) : buildRecentObservationLines(chase);
       await interaction.reply({
-        embeds: [infoEmbed('🔎 Chase Debug', lines.join('\n').slice(0, 4000))],
+        embeds: [infoEmbed(itemId ? '🔎 Chase Debug' : '🔎 Recent Observations', lines.join('\n').slice(0, 4000))],
         flags: MessageFlags.Ephemeral
       });
       return;

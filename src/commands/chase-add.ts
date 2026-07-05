@@ -37,6 +37,15 @@ function chaseNameQualityLine(cardName: string): string {
   return 'This one is broad, so it may cast a wider net. Add a set, card number, language, or variant to sharpen it.';
 }
 
+function broadChaseNudge(cardName: string): string {
+  const tokens = cardName.trim().split(/\s+/).filter(Boolean);
+  const hasNumber = /\b\d{1,4}\s*[/#-]\s*\d{1,4}\b|\b[A-Z]{1,4}\d{1,4}\b/i.test(cardName);
+  if (hasNumber && tokens.length >= 2) {
+    return 'Good card choice. With no filters yet, this chase is still wide open, so add a max price, grade, or a few exclusions if results get noisy.';
+  }
+  return 'This chase is wide open right now, so add a set, card number, max price, grade, or a few exclusions if results get noisy.';
+}
+
 function proControlNames(values: {
   conditionRaw: string | null;
   listingTypeRaw: string | null;
@@ -51,6 +60,22 @@ function proControlNames(values: {
     values.targetNote !== undefined ? 'note' : undefined,
     values.hasCustomNegativeKeywords ? 'custom exclusions' : undefined
   ].filter((value): value is string => Boolean(value));
+}
+
+function addedWithoutFilters(values: {
+  maxPrice: number | undefined;
+  grade: string | undefined;
+  condition: string | undefined;
+  listingType: string | undefined;
+  negativeKeywords: string[] | undefined;
+}): boolean {
+  return (
+    values.maxPrice === undefined &&
+    values.grade === undefined &&
+    values.condition === undefined &&
+    (!values.listingType || values.listingType === 'ANY') &&
+    (!values.negativeKeywords || values.negativeKeywords.length === 0)
+  );
 }
 
 export async function handleChaseAddAutocomplete(interaction: any): Promise<boolean> {
@@ -158,10 +183,22 @@ export const chaseAdd = {
       listingType,
       negativeKeywords: tuningTerms && tuningTerms.length > 0 ? tuningTerms : undefined
     });
+    const noFiltersApplied = addedWithoutFilters({
+      maxPrice: chase.maxPrice,
+      grade: chase.grade,
+      condition: chase.condition,
+      listingType: chase.listingType,
+      negativeKeywords: chase.negativeKeywords
+    });
 
     const lines = [
       'Nice pick! Vaultr is on it 🫡',
-      chaseNameQualityLine(chase.cardName),
+      noFiltersApplied ? broadChaseNudge(chase.cardName) : chaseNameQualityLine(chase.cardName),
+      ...(noFiltersApplied
+        ? [
+            'Tip: start broad if you want, then tighten it once you see the kinds of listings that show up.'
+          ]
+        : []),
       '',
       `**Card:** ${chase.cardName}`,
       `**Priority:** ${chase.priority ?? 'NORMAL'}`,
