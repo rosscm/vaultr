@@ -144,17 +144,22 @@ const DEFAULT_EXCLUDED_TITLE_PATTERNS: Array<{ term: string; pattern: RegExp }> 
   { term: 'fan art', pattern: /\bfan\s*art\b|\bfanart\b/ },
   { term: 'novelty', pattern: /\bnovelty\b/ },
   { term: 'keychain', pattern: /\bkey\s*chains?\b|\bkeychains?\b/ },
+  { term: 'sticker', pattern: /\bstickers?\b/ },
   { term: 'extended art', pattern: /\bextended\s+art(?:work)?\b/ },
   { term: 'acrylic case', pattern: /\bacrylic\s+(?:cases?|card|display|holder)\b/ },
   { term: 'magnetic case', pattern: /\bmagnetic\s+(?:cases?|card|display|holder)\b/ },
   { term: 'card case', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+cases?\b|\bcase\s+card\b|\bart\s+case\b/ },
   { term: 'card holder', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+holders?\b/ },
   { term: 'display accessory', pattern: /\b(?:display|protector)\s+cases?\b|\bcases?\s+(?:for|only)\b|\bslab\s+stand\b/ },
+  { term: 'display card', pattern: /\bdisplay\s+cards?\b/ },
+  { term: 'frame', pattern: /\b(?:art|display|photo|magnetic)?\s*frames?\b/ },
+  { term: 'stand', pattern: /\bstands?\b/ },
+  { term: 'no card', pattern: /\bno\s+card\b/ },
   { term: 'handmade art', pattern: /\bhand[ -]?drawn\b|\bsketch\s+card\b/ },
   { term: 'multi-card lot', pattern: /\b\d+x\b|\bx\d+\b|\blot\s+of\b/ }
 ];
 
-function defaultExcludedTitleTerm(title: string): string | undefined {
+export function defaultExcludedTitleTerm(title: string): string | undefined {
   const normalized = normalize(title).replace(/\btoys\s*r\s*us\b/g, 'retail promo');
   return DEFAULT_EXCLUDED_TITLE_PATTERNS.find(({ pattern }) => pattern.test(normalized))?.term;
 }

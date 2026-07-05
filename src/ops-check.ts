@@ -1,11 +1,11 @@
 import 'dotenv/config';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Client, GatewayIntentBits } from 'discord.js';
-import { getChaseLastPollCheckAt, getUserPlan, listAllChases } from './services/chase-store.js';
+import { getChaseLastPollAttemptAt, getUserPlan, listAllChases } from './services/chase-store.js';
+import { failureFingerprint, shouldSuppressDuplicateAlert } from './services/ops-alerts.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from './services/plans.js';
 
 const execFileAsync = promisify(execFile);
@@ -50,11 +50,6 @@ function writeAlertState(state: AlertState): void {
   const statePath = alertStatePath();
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
   fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
-}
-
-function failureFingerprint(failures: CheckResult[]): string {
-  const payload = failures.map((failure) => ({ name: failure.name, details: failure.details }));
-  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
 function alertBody(failures: CheckResult[], fingerprint: string): string {
@@ -105,10 +100,8 @@ async function alertOnFailures(failures: CheckResult[]): Promise<void> {
 
   const fingerprint = failureFingerprint(failures);
   const state = readAlertState();
-  const cooldownMs = positiveNumberEnv('VAULTR_OPS_ALERT_COOLDOWN_MINUTES', 60) * 60 * 1000;
-  const lastAlertedAtMs = state.lastAlertedAt ? new Date(state.lastAlertedAt).getTime() : 0;
-  const stillCoolingDown = state.lastFailureFingerprint === fingerprint && Number.isFinite(lastAlertedAtMs) && Date.now() - lastAlertedAtMs < cooldownMs;
-  if (stillCoolingDown) {
+  const repeatCooldownMinutes = positiveNumberEnv('VAULTR_OPS_ALERT_REPEAT_MINUTES', 0);
+  if (shouldSuppressDuplicateAlert(state, fingerprint, Date.now(), repeatCooldownMinutes)) {
     console.log(`[ops-alert] Suppressed duplicate alert for ${fingerprint.slice(0, 12)}`);
     return;
   }
@@ -195,11 +188,11 @@ function checkChaseFreshness(): CheckResult {
 
     for (const chase of activePlanChases(userChases, plan)) {
       activeChaseCount += 1;
-      const lastCheckedAt = getChaseLastPollCheckAt(chase.id);
-      if (!lastCheckedAt) continue;
-      const lastCheckedAtMs = new Date(lastCheckedAt).getTime();
-      if (!Number.isFinite(lastCheckedAtMs)) continue;
-      const overdueMs = nowMs - (lastCheckedAtMs + intervalSeconds * 1000);
+      const lastAttemptedAt = getChaseLastPollAttemptAt(chase.id);
+      if (!lastAttemptedAt) continue;
+      const lastAttemptedAtMs = new Date(lastAttemptedAt).getTime();
+      if (!Number.isFinite(lastAttemptedAtMs)) continue;
+      const overdueMs = nowMs - (lastAttemptedAtMs + intervalSeconds * 1000);
       if (overdueMs <= maxOverdueMs) continue;
 
       staleChaseCount += 1;
@@ -217,7 +210,7 @@ function checkChaseFreshness(): CheckResult {
   return {
     name: 'chase-freshness',
     ok: false,
-    details: `${staleChaseCount}/${activeChaseCount} active chases over ${maxOverdueMultiple}x interval; worst ${worst.cardName} (${worst.overdueMinutes}m overdue, ${worst.intervalMinutes}m interval)`
+    details: `${staleChaseCount}/${activeChaseCount} active chases over ${maxOverdueMultiple}x interval without poll attempt; worst ${worst.cardName} (${worst.overdueMinutes}m overdue, ${worst.intervalMinutes}m interval)`
   };
 }
 

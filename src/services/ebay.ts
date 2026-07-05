@@ -1,5 +1,6 @@
 import type { Chase, Listing } from '../types.js';
 import { setBackoffUntil } from './poller-state.js';
+import { defaultExcludedTitleTerm } from './matcher.js';
 
 export type ShippingDestination = {
   country?: string;
@@ -415,6 +416,10 @@ function dedupeListingsById(listings: Listing[]): Listing[] {
   return unique;
 }
 
+function filterExcludedListings(listings: Listing[]): Listing[] {
+  return listings.filter((listing) => !defaultExcludedTitleTerm(listing.title));
+}
+
 function collectFindingErrors(json: any): any[] {
   const messages = json?.errorMessage;
   if (!Array.isArray(messages)) return [];
@@ -568,14 +573,15 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
   const listings = items
     .map((item: any) => mapBrowseItemToListing(item, contextualDestination))
     .filter((listing: Listing | null): listing is Listing => listing !== null);
+  const usableListings = filterExcludedListings(listings);
 
-  if (options.enrichMissingShipping === false) return listings;
+  if (options.enrichMissingShipping === false) return usableListings;
 
   const needsDestinationShipping = getDeliveryCountry(destination) !== undefined;
-  const needsEnrichment = listings
+  const needsEnrichment = usableListings
     .filter((listing: Listing) => needsDestinationShipping || listing.shippingCost === undefined)
     .slice(0, ebayMaxEnrichItemsPerSearch());
-  if (needsEnrichment.length === 0) return listings;
+  if (needsEnrichment.length === 0) return usableListings;
 
   const enrichedById = new Map<string, Listing>();
   for (const listing of needsEnrichment) {
@@ -583,7 +589,7 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
     enrichedById.set(listing.listingId, enriched);
   }
 
-  return listings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
+  return usableListings.map((listing: Listing) => enrichedById.get(listing.listingId) ?? listing);
 }
 
 async function enrichListingFromBrowseItemApi(listing: Listing, token: string, destination?: ShippingDestination): Promise<Listing> {
@@ -739,7 +745,7 @@ export async function searchEbaySoldListings(chase: Chase, destination?: Shippin
     if (items.length === 0) break;
   }
 
-  return dedupeListingsById(allListings);
+  return filterExcludedListings(dedupeListingsById(allListings));
 }
 
 export async function searchEbayListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {

@@ -264,6 +264,26 @@ describe('matchChaseToListing', () => {
         term: 'novelty'
       },
       {
+        cardName: 'Gardevoir ex 233/091',
+        title: 'Gardevoir Ex 233/091 Paldean Fates Credit Card Sticker',
+        term: 'sticker'
+      },
+      {
+        cardName: 'Gardevoir ex 233/091',
+        title: 'Gardevoir ex #233/091 Paldean Fates Extended Art Case No card',
+        term: 'extended art'
+      },
+      {
+        cardName: 'Gardevoir ex 233/091',
+        title: 'Gardevoir ex 233/091 Pokemon Extended Art Frame 5x7 Paldean Fates',
+        term: 'extended art'
+      },
+      {
+        cardName: 'Moltres Zapdos Articuno SM210',
+        title: 'Pokemon Moltres Zapdos Articuno GX SM210 Tag Team Stained Display Case',
+        term: 'display accessory'
+      },
+      {
         cardName: 'Umbreon EX 217/187',
         title: '9x Umbreon EX 217/187 Near Mint PSA',
         term: 'multi-card lot'

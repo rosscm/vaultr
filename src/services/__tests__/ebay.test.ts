@@ -256,6 +256,47 @@ describe('searchEbayListings Browse shipping', () => {
     expect(listings[0]?.listingId).toBe('v1|317978401186|0');
   });
 
+  it('filters accessory and display-case Browse results before they enter chase observations', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          itemSummaries: [
+            {
+              itemId: 'v1|bad-case|0',
+              title: 'Gardevoir EX 233/091 Paldean Fates (Ungraded) Display Case',
+              itemWebUrl: 'https://example.com/item/bad-case',
+              price: { value: '24.99', currency: 'CAD' },
+              shippingOptions: [{ shippingCost: { value: '0.00', currency: 'CAD' } }],
+              itemLocation: { country: 'CA' },
+              buyingOptions: ['FIXED_PRICE']
+            },
+            {
+              itemId: 'v1|good-card|0',
+              title: 'Gardevoir ex Paldean Fates 233/091 Special Illustration Rare Holo - NM',
+              itemWebUrl: 'https://example.com/item/good-card',
+              price: { value: '271.15', currency: 'CAD' },
+              shippingOptions: [{ shippingCost: { value: '0.00', currency: 'CAD' } }],
+              itemLocation: { country: 'CA' },
+              condition: 'Ungraded',
+              buyingOptions: ['FIXED_PRICE']
+            }
+          ]
+        })
+      );
+
+    const { searchEbayListings } = await import('../ebay.js');
+    const listings = await searchEbayListings(
+      { ...baseChase(), cardName: 'Gardevoir ex Paldean Fates 233' },
+      { country: 'CA' },
+      { enrichMissingShipping: false }
+    );
+
+    expect(listings).toHaveLength(1);
+    expect(listings[0]?.listingId).toBe('v1|good-card|0');
+  });
+
   it('caps Browse search result windows even when env asks for more', async () => {
     process.env.EBAY_SEARCH_LIMIT = '500';
     const fetchMock = vi.mocked(fetch);

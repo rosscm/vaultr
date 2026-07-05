@@ -828,16 +828,24 @@ const getChaseByIdStmt = db.prepare(`
 `);
 
 const getChasePollStateStmt = db.prepare(`
-  SELECT last_checked_at
+  SELECT last_checked_at, last_attempted_at
   FROM chase_poll_state
   WHERE chase_id = ?
 `);
 
 const upsertChasePollStateStmt = db.prepare(`
-  INSERT INTO chase_poll_state (chase_id, last_checked_at)
-  VALUES (?, ?)
+  INSERT INTO chase_poll_state (chase_id, last_checked_at, last_attempted_at)
+  VALUES (?, ?, ?)
   ON CONFLICT(chase_id) DO UPDATE SET
-    last_checked_at = excluded.last_checked_at
+    last_checked_at = excluded.last_checked_at,
+    last_attempted_at = excluded.last_attempted_at
+`);
+
+const updateChasePollAttemptStmt = db.prepare(`
+  INSERT INTO chase_poll_state (chase_id, last_checked_at, last_attempted_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(chase_id) DO UPDATE SET
+    last_attempted_at = excluded.last_attempted_at
 `);
 
 const deleteChasePollStateStmt = db.prepare(`
@@ -1520,8 +1528,13 @@ export function removeAllChases(userId: string): number {
 }
 
 export function getChaseLastPollCheckAt(chaseId: string): string | undefined {
-  const row = getChasePollStateStmt.get(chaseId) as { last_checked_at: string } | undefined;
+  const row = getChasePollStateStmt.get(chaseId) as { last_checked_at: string; last_attempted_at?: string | null } | undefined;
   return row?.last_checked_at;
+}
+
+export function getChaseLastPollAttemptAt(chaseId: string): string | undefined {
+  const row = getChasePollStateStmt.get(chaseId) as { last_checked_at: string; last_attempted_at?: string | null } | undefined;
+  return row?.last_attempted_at ?? row?.last_checked_at;
 }
 
 export function markChasesPollChecked(chaseIds: string[], checkedAtIso = new Date().toISOString()): void {
@@ -1529,10 +1542,21 @@ export function markChasesPollChecked(chaseIds: string[], checkedAtIso = new Dat
   const uniqueChaseIds = [...new Set(chaseIds)];
   const persist = db.transaction((ids: string[], timestamp: string) => {
     for (const chaseId of ids) {
-      upsertChasePollStateStmt.run(chaseId, timestamp);
+      upsertChasePollStateStmt.run(chaseId, timestamp, timestamp);
     }
   });
   persist(uniqueChaseIds, checkedAtIso);
+}
+
+export function markChasesPollAttempted(chaseIds: string[], attemptedAtIso = new Date().toISOString()): void {
+  if (chaseIds.length === 0) return;
+  const uniqueChaseIds = [...new Set(chaseIds)];
+  const persist = db.transaction((ids: string[], timestamp: string) => {
+    for (const chaseId of ids) {
+      updateChasePollAttemptStmt.run(chaseId, timestamp, timestamp);
+    }
+  });
+  persist(uniqueChaseIds, attemptedAtIso);
 }
 
 export function updateChase(

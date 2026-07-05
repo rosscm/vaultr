@@ -323,7 +323,8 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS chase_poll_state (
     chase_id TEXT PRIMARY KEY,
-    last_checked_at TEXT NOT NULL
+    last_checked_at TEXT NOT NULL,
+    last_attempted_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS discovery_vault_actions (
@@ -374,6 +375,16 @@ try {
   db.exec(`ALTER TABLE chases ADD COLUMN target_note TEXT;`);
 } catch {
   // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chase_poll_state ADD COLUMN last_attempted_at TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`UPDATE chase_poll_state SET last_attempted_at = last_checked_at WHERE last_attempted_at IS NULL;`);
+} catch {
+  // Fresh databases already include the column.
 }
 
 try {

@@ -20,6 +20,7 @@ import {
   claimUserAlertFingerprintForSending,
   markPostedGuildDailyStats,
   markPostedUserWeeklyReflection,
+  markChasesPollAttempted,
   markChasesPollChecked,
   releaseIncompleteAlertSendClaim,
   releaseUserAlertFingerprintSendClaim,
@@ -813,6 +814,7 @@ async function runPoll(client: Client): Promise<void> {
     const representative = group.members[0]?.chase;
     const representativeSettings = group.members[0]?.settings;
     if (!representative || !representativeSettings) continue;
+    const touchedChaseIds = group.members.map(({ chase }) => chase.id);
     let listings: Listing[];
     try {
       const sourceCallsBefore = sourceCallTimestamps.length;
@@ -826,7 +828,7 @@ async function runPoll(client: Client): Promise<void> {
       if (didFetchListings) {
         const checkedAtIso = new Date().toISOString();
         lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
-        markChasesPollChecked(group.members.map(({ chase }) => chase.id), checkedAtIso);
+        markChasesPollChecked(touchedChaseIds, checkedAtIso);
         for (const { chase } of group.members) {
           recordSourceObservations({
             chaseId: chase.id,
@@ -839,6 +841,7 @@ async function runPoll(client: Client): Promise<void> {
         }
         markCoverageChecked(coverage, group);
       } else {
+        markChasesPollAttempted(touchedChaseIds);
         const reason = group.sourceMode !== 'MOCK' && Date.now() < backoffUntilMs ? 'Backoff' : 'Rate limit';
         pruneSourceCallWindow(Date.now());
         const sourceBudgetState = { calls: sourceCallTimestamps.length, budget: maxEbayRequestsPerMinute() };
@@ -846,6 +849,7 @@ async function runPoll(client: Client): Promise<void> {
         logSourceGroupDeferral(queryKey, group, reason, sourceBudgetState);
       }
     } catch (error) {
+      markChasesPollAttempted(touchedChaseIds);
       const reason = listingSourceFailureReason(error);
       pruneSourceCallWindow(Date.now());
       const sourceBudgetState = { calls: sourceCallTimestamps.length, budget: maxEbayRequestsPerMinute() };
