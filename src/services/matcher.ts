@@ -15,6 +15,21 @@ function toTokens(text: string): string[] {
     .filter((t) => t.length >= 2);
 }
 
+const GENERIC_CHASE_TOKENS = new Set([
+  'card',
+  'cards',
+  'pokemon',
+  'promo',
+  'promos',
+  'japanese',
+  'english',
+  'korean',
+  'raw',
+  'ungraded',
+  'holo',
+  'holofoil'
+]);
+
 // Light plural normalization for overlap matching (symmetric, so blastoise→blastois on both sides is fine)
 function normalizeTokenForMatch(t: string): string {
   return t.length >= 5 && t.endsWith('s') ? t.slice(0, -1) : t;
@@ -150,7 +165,7 @@ const DEFAULT_EXCLUDED_TITLE_PATTERNS: Array<{ term: string; pattern: RegExp }> 
   { term: 'magnetic case', pattern: /\bmagnetic\s+(?:cases?|card|display|holder)\b/ },
   { term: 'card case', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+cases?\b|\bcase\s+card\b|\bart\s+case\b/ },
   { term: 'card holder', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+holders?\b/ },
-  { term: 'display accessory', pattern: /\b(?:display|protector)\s+cases?\b|\bcases?\s+(?:for|only)\b|\bslab\s+stand\b/ },
+  { term: 'display accessory', pattern: /\b(?:display|protector)\s+cases?\b|\b(?:display|protector)\s+case\b|\bcases?\s+(?:for|only)\b|\bslab\s+stand\b/ },
   { term: 'display card', pattern: /\bdisplay\s+cards?\b/ },
   { term: 'frame', pattern: /\b(?:art|display|photo|magnetic)?\s*frames?\b/ },
   { term: 'stand', pattern: /\bstands?\b/ },
@@ -164,20 +179,32 @@ export function defaultExcludedTitleTerm(title: string): string | undefined {
   return DEFAULT_EXCLUDED_TITLE_PATTERNS.find(({ pattern }) => pattern.test(normalized))?.term;
 }
 
+function coreSubjectTokens(chaseNameForMatch: string): string[] {
+  return toTokens(chaseNameForMatch).filter((token) => {
+    if (GENERIC_CHASE_TOKENS.has(token)) return false;
+    if (/^\d{1,4}(?:\/\d{1,4})?$/.test(token)) return false;
+    if (/^[a-z]{1,4}\d{1,4}$/i.test(token)) return false;
+    return true;
+  });
+}
+
 export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult {
   const reasons: string[] = [];
   let score = 0;
 
   const title = normalize(listing.title);
+  const listingDebugText = [listing.title, listing.detailsText, listing.condition].filter(Boolean).join(' ');
   const card = normalize(chase.cardName);
   // Use queryName for token matching when available — it's already cleaned of noisy editorial words
   const chaseNameForMatch = chase.queryName?.trim() || chase.cardName;
   const cardTokens = toTokens(chaseNameForMatch);
   const titleTokens = toTokens(listing.title);
+  const listingTokens = toTokens(listingDebugText);
+  const subjectTokens = coreSubjectTokens(chaseNameForMatch);
   const chaseCardNumbers = extractCardNumbers(chase.cardName);
   const listingCardNumbers = extractCardNumbers(listing.title);
 
-  const defaultBlocked = defaultExcludedTitleTerm(listing.title);
+  const defaultBlocked = defaultExcludedTitleTerm(listingDebugText);
   if (defaultBlocked) {
     return { isMatch: false, score: 0, reasons: ['default_exclusion_block', `default_exclusion:${defaultBlocked}`] };
   }
@@ -185,7 +212,7 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
   const blocked = (chase.negativeKeywords ?? [])
     .map((k) => normalize(k))
     .filter(Boolean)
-    .find((k) => title.includes(k));
+    .find((k) => normalize(listingDebugText).includes(k));
   if (blocked) {
     return { isMatch: false, score: 0, reasons: ['negative_keyword_block'] };
   }
@@ -202,6 +229,9 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
     const overlap = tokenOverlapRatio(cardTokens, titleTokens);
     if (overlap < overlapThreshold) {
       return { isMatch: false, score: 0, reasons: ['card_name_miss'] };
+    }
+    if (earlyCardNumberMatch && subjectTokens.length > 0 && !subjectTokens.some((token) => listingTokens.includes(token))) {
+      return { isMatch: false, score: 0, reasons: ['card_subject_miss'] };
     }
     // Perfect token match (all core tokens present) scores same floor as exact name match
     score += overlap >= 1 - Number.EPSILON ? 50 : overlap >= 0.9 ? 45 : 35;

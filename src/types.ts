@@ -23,6 +23,7 @@ export type Listing = {
   source: ListingSource;
   listingId: string;
   title: string;
+  detailsText?: string;
   price: number;
   currency: string;
   shippingCost?: number;

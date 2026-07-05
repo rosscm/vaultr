@@ -305,6 +305,30 @@ describe('matchChaseToListing', () => {
     }
   });
 
+  it('blocks accessory listings when the exclusion term only appears in metadata details', () => {
+    const chase = baseChase({ cardName: 'CoroCoro Shining Mew', negativeKeywords: [] });
+    const listing = baseListing({
+      title: 'CoroCoro Shining Mew Pokemon Card NM',
+      detailsText: 'Type Display Case Brand Vault Acrylic'
+    });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(false);
+    expect(result.reasons).toEqual(['default_exclusion_block', 'default_exclusion:display accessory']);
+  });
+
+  it('rejects number-matching listings when the actual card subject is different', () => {
+    const chase = baseChase({ cardName: 'Squirtle Japanese Promo 007/018', queryName: 'Squirtle Japanese 007/018', negativeKeywords: [] });
+    const listing = baseListing({
+      title: 'Zekrom Japanese Promo 007/018 Pokemon Card NM',
+      condition: 'Near Mint'
+    });
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result.isMatch).toBe(false);
+    expect(result.reasons).toEqual(['card_subject_miss']);
+  });
+
   it('keeps low-risk suspicious terms as risk signals instead of hard failing when not blocked', () => {
     const chase = baseChase({ negativeKeywords: [] });
     const listing = baseListing({ title: 'Squirtle PSA 10 small collection lot' });

@@ -297,6 +297,39 @@ describe('searchEbayListings Browse shipping', () => {
     expect(listings[0]?.listingId).toBe('v1|good-card|0');
   });
 
+  it('filters Browse results when accessory clues only appear in metadata aspects', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          itemSummaries: [
+            {
+              itemId: 'v1|hidden-case|0',
+              title: 'CoroCoro Shining Mew Pokemon Card NM',
+              itemWebUrl: 'https://example.com/item/hidden-case',
+              price: { value: '39.99', currency: 'CAD' },
+              shippingOptions: [{ shippingCost: { value: '0.00', currency: 'CAD' } }],
+              itemLocation: { country: 'CA' },
+              localizedAspects: [
+                { name: 'Type', value: ['Display Case'] }
+              ],
+              buyingOptions: ['FIXED_PRICE']
+            }
+          ]
+        })
+      );
+
+    const { searchEbayListings } = await import('../ebay.js');
+    const listings = await searchEbayListings(
+      { ...baseChase(), cardName: 'CoroCoro Shining Mew' },
+      { country: 'CA' },
+      { enrichMissingShipping: false }
+    );
+
+    expect(listings).toHaveLength(0);
+  });
+
   it('caps Browse search result windows even when env asks for more', async () => {
     process.env.EBAY_SEARCH_LIMIT = '500';
     const fetchMock = vi.mocked(fetch);

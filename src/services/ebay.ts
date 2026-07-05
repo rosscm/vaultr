@@ -224,6 +224,22 @@ function firstNonEmptyString(values: unknown[]): string | undefined {
   return undefined;
 }
 
+function browseAspectDetailsText(item: any): string | undefined {
+  const aspectPairs = Array.isArray(item?.localizedAspects)
+    ? item.localizedAspects.flatMap((aspect: any) => {
+        const name = typeof aspect?.name === 'string' ? aspect.name : '';
+        const values = Array.isArray(aspect?.value) ? aspect.value : Array.isArray(aspect?.values) ? aspect.values : [];
+        return values
+          .map((value: unknown) => `${name} ${String(value ?? '').trim()}`.trim())
+          .filter((text: string) => text.length > 0);
+      })
+    : [];
+  const typeHints = [item?.subtitle, item?.shortDescription]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  const details = [...typeHints, ...aspectPairs].join(' ');
+  return details.trim().length > 0 ? details : undefined;
+}
+
 function parseNumber(value: unknown): number | undefined {
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
@@ -417,7 +433,7 @@ function dedupeListingsById(listings: Listing[]): Listing[] {
 }
 
 function filterExcludedListings(listings: Listing[]): Listing[] {
-  return listings.filter((listing) => !defaultExcludedTitleTerm(listing.title));
+  return listings.filter((listing) => !defaultExcludedTitleTerm([listing.title, listing.detailsText].filter(Boolean).join(' ')));
 }
 
 function collectFindingErrors(json: any): any[] {
@@ -520,6 +536,7 @@ function mapBrowseItemToListing(item: any, destination?: ShippingDestination): L
     source: 'EBAY',
     listingId,
     title,
+    detailsText: browseAspectDetailsText(item),
     price,
     currency,
     shippingCost,
@@ -609,18 +626,21 @@ async function enrichListingFromBrowseItemApi(listing: Listing, token: string, d
     const destinationPostalCode = getDeliveryPostalCode(destination);
     const shipping = browseShippingOptionWithCost(json?.shippingOptions);
     const shippingCost = parseNumber(shipping?.shippingCost?.value);
+    const detailsText = browseAspectDetailsText(json);
     if (shippingCost === undefined) {
       if (destinationCountry && Array.isArray(json?.shippingOptions)) {
         return {
           ...listing,
+          detailsText: detailsText ?? listing.detailsText,
           ...deriveShippingEligibilityFromOptions(json.shippingOptions, destinationCountry, destinationPostalCode)
         };
       }
-      return listing;
+      return { ...listing, detailsText: detailsText ?? listing.detailsText };
     }
 
     return {
       ...listing,
+      detailsText: detailsText ?? listing.detailsText,
       shippingCost,
       shippingCurrency: shipping?.shippingCost?.currency ?? listing.currency,
       shippingDestinationCountry: destinationCountry ?? listing.shippingDestinationCountry,
