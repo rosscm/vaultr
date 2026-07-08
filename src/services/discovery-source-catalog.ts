@@ -1,5 +1,6 @@
 import type { Chase } from '../types.js';
 import type { DiscoverySuggestion } from './discovery-catalog.js';
+import { discoveryImageOverrideForSuggestion } from './discovery-image-overrides.js';
 
 export type SourceCatalogStatus = 'UNSUPPORTED' | 'NOT_FOUND' | 'TIMEOUT' | 'ERROR';
 
@@ -782,6 +783,11 @@ function cardEvidenceSearchTerm(card: PokemonTcgCard): string | undefined {
   return [card.name, card.set?.name, card.number, 'Pokemon card'].filter(Boolean).join(' ');
 }
 
+function pokemonTcgCanonicalImageUrl(card: PokemonTcgCard): string | undefined {
+  const setId = card.id?.split('-')[0];
+  return setId && card.number ? `https://images.pokemontcg.io/${setId}/${encodeURIComponent(card.number)}_hires.png` : undefined;
+}
+
 function requiredCardEvidenceTokens(card: PokemonTcgCard): string[] {
   const tokens = normalizedTokens(card.name ?? '').slice(0, 2);
   if (card.number) tokens.push(card.number.toLowerCase());
@@ -804,8 +810,9 @@ function sourceSuggestionFromPokemonCard(parent: DiscoverySuggestion, card: Poke
   const name = officialName;
   const officialEvidenceSearchTerm = cardEvidenceSearchTerm(card);
   const evidenceSearchTerm = officialEvidenceSearchTerm;
-  const imageUrl = card.images?.large ?? card.images?.small;
   if (!card.id || !name || !evidenceSearchTerm) return null;
+  const imageOverride = discoveryImageOverrideForSuggestion(name);
+  const imageUrl = imageOverride?.imageUrl ?? card.images?.large ?? card.images?.small ?? pokemonTcgCanonicalImageUrl(card);
 
   const setName = card.set?.name;
   const setLabel = setName ? ` from ${setName}` : '';
@@ -822,8 +829,8 @@ function sourceSuggestionFromPokemonCard(parent: DiscoverySuggestion, card: Poke
     requiredEvidenceTokens: requiredCardEvidenceTokens(card),
     sourceTasteTokens,
     referenceImageUrl: imageUrl,
-    referenceSourceName: setName ? `Pokemon TCG (${setName})` : 'Pokemon TCG',
-    referenceSourceCardId: card.id,
+    referenceSourceName: imageOverride?.sourceName ?? (setName ? `Pokemon TCG (${setName})` : 'Pokemon TCG'),
+    referenceSourceCardId: imageOverride?.sourceCardId ?? card.id,
     curiosityScore: (parent.curiosityScore ?? 0) + 2
   };
 }

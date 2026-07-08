@@ -86,6 +86,20 @@ describe('discovery reference cache', () => {
     expect(queries[0]).toBe('name:"Gardevoir VMAX" number:76 set.name:"Champion\'s Path"');
   });
 
+  it('builds Nintendo promo set hints without leaving Nintendo in the card name', () => {
+    const queries = pokemonTcgQueriesForSuggestion({
+      name: 'Gardevoir Nintendo Promo 024/P Japanese',
+      lane: 'promo cards',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Gardevoir Nintendo Promo 024/P Japanese Pokemon card'
+    });
+
+    expect(queries).toContain('name:"Gardevoir" set.name:"Nintendo Black Star Promos"');
+    expect(queries).toContain('name:"Gardevoir" number:24');
+  });
+
   it('builds exact Pokemon TCG queries for current weekly shelf set-number cards', () => {
     const cases: Array<{ name: string; expected: string }> = [
       { name: 'Mew Evolutions 53', expected: 'name:"Mew" number:53 set.name:"Evolutions"' },
@@ -213,6 +227,11 @@ describe('discovery reference cache', () => {
   });
 
   it('uses curated reference image overrides before querying a card database', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      headers: new Headers({ 'content-type': 'image/png' })
+    })));
+
     const reference = await fetchDiscoveryReferenceImage({
       name: 'Ditto Charmander Delta Species',
       lane: 'playful display cards',
@@ -285,12 +304,210 @@ describe('discovery reference cache', () => {
     expect(reference.sourceName).toBe('Pokemon TCG (SWSH Black Star Promos)');
   });
 
+  it('uses TCGdex Japanese clean images for Japanese promo-style suggestions when Pokemon TCG would miss', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'swsh35-76',
+                name: 'Gardevoir',
+                nationalPokedexNumbers: [282]
+              }
+            ]
+          })
+        } as Response;
+      }
+      if (url.includes('api.tcgdex.net') && url.includes('dexId=282')) {
+        return {
+          ok: true,
+          json: async () => ([
+            {
+              id: 'jp-s-p-024',
+              localId: '024/P',
+              image: 'https://assets.tcgdex.net/ja/s-p/024'
+            }
+          ])
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await fetchDiscoveryReferenceImage({
+      name: 'Gardevoir Nintendo Promo 024/P Japanese',
+      lane: 'promo cards',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Gardevoir Nintendo Promo 024/P Japanese Pokemon card',
+      requiredEvidenceTokens: ['gardevoir', 'nintendo', '024', 'japanese']
+    });
+
+    expect(reference.imageUrl).toBe('https://assets.tcgdex.net/ja/s-p/024/high.png');
+    expect(reference.sourceName).toBe('TCGdex Japanese');
+    expect(reference.sourceCardId).toBe('jp-s-p-024');
+  });
+
+  it('uses exact Japanese set-code matches for normal collector cards like Eevee Heroes HRs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === 'HEAD') {
+        return {
+          ok: true,
+          headers: new Headers({ 'content-type': 'image/png' })
+        } as Response;
+      }
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'swsh7-95',
+                name: 'Umbreon VMAX',
+                nationalPokedexNumbers: [197]
+              }
+            ]
+          })
+        } as Response;
+      }
+      if (url.includes('api.tcgdex.net') && url.includes('dexId=197')) {
+        return {
+          ok: true,
+          json: async () => ([
+            {
+              id: 'S6a-094',
+              localId: '094/069',
+              image: 'https://assets.tcgdex.net/ja/S/S6a/094'
+            }
+          ])
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await fetchDiscoveryReferenceImage({
+      name: 'Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese',
+      lane: 'japanese collector trail',
+      laneWhy: 'japanese collector trail',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese',
+      requiredEvidenceTokens: ['umbreon', '094/069', 's6a', 'japanese']
+    });
+
+    expect(reference.imageUrl).toBe('https://assets.tcgdex.net/ja/S/S6a/094/high.png');
+    expect(reference.sourceName).toBe('TCGdex Japanese');
+    expect(reference.sourceCardId).toBe('S6a-094');
+  });
+
+  it('uses exact Japanese promo code matches when the correct localId exists', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'swsh35-76',
+                name: 'Gardevoir',
+                nationalPokedexNumbers: [282]
+              }
+            ]
+          })
+        } as Response;
+      }
+      if (url.includes('api.tcgdex.net') && url.includes('dexId=282')) {
+        return {
+          ok: true,
+          json: async () => ([
+            {
+              id: 'jp-sm-p-408',
+              localId: '408/SM-P',
+              image: 'https://assets.tcgdex.net/ja/sm-p/408'
+            }
+          ])
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await fetchDiscoveryReferenceImage({
+      name: 'Gardevoir 408/SM-P PROMO Limited Illustration Promo Pokemon Card Japanese',
+      lane: 'promo cards',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Gardevoir 408/SM-P PROMO Limited Illustration Promo Pokemon Card Japanese',
+      requiredEvidenceTokens: ['gardevoir', '408/sm-p', 'japanese']
+    });
+
+    expect(reference.imageUrl).toBe('https://pkmhobby.com/cdn/shop/files/57_587a877b-0632-4034-b953-de90cfa8846b.jpg?crop=center&height=1200&v=1738722480&width=1200');
+    expect(reference.sourceName).toBe('PKMhobby');
+    expect(reference.sourceCardId).toBe('408/SM-P');
+  });
+
+  it('does not accept a non-matching Japanese card image when a promo code is present', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'swsh35-76',
+                name: 'Gardevoir',
+                nationalPokedexNumbers: [282]
+              }
+            ]
+          })
+        } as Response;
+      }
+      if (url.includes('api.tcgdex.net') && url.includes('dexId=282')) {
+        return {
+          ok: true,
+          json: async () => ([
+            {
+              id: 'ja_s12a_055',
+              localId: '055',
+              image: 'https://assets.tcgdex.net/ja/S/S12a/055'
+            }
+          ])
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await fetchDiscoveryReferenceImage({
+      name: 'Gardevoir Nintendo Promo 024/P Japanese',
+      lane: 'promo cards',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Gardevoir Nintendo Promo 024/P Japanese Pokemon card',
+      requiredEvidenceTokens: ['gardevoir', 'nintendo', '024', 'japanese']
+    });
+
+    expect(reference.imageUrl).toBeUndefined();
+    expect(reference.sourceStatus).toBe('NOT_FOUND');
+  });
+
   it('refetches transient reference-image failures instead of serving them from cache', async () => {
     upsertDiscoveryReferenceCache({
       cacheKey,
       suggestionName: testName,
       sourceStatus: 'TIMEOUT'
     });
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      headers: new Headers({ 'content-type': 'image/png' })
+    })));
 
     const reference = await getOrFetchDiscoveryReferenceImage({
       name: testName,
@@ -306,6 +523,59 @@ describe('discovery reference cache', () => {
     expect(getDiscoveryReferenceCache(cacheKey)?.sourceStatus).toBeUndefined();
   });
 
+  it('canonicalizes Pokemon TCG reference images to trusted hires art', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'me2pt5-281',
+                name: "Team Rocket's Mewtwo ex",
+                number: '281',
+                set: { name: 'Ascended Heroes' },
+                images: { small: 'https://images.scrydex.com/pokemon/me2pt5-281/small' }
+              }
+            ]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await fetchDiscoveryReferenceImage({
+      name: "Team Rocket's Mewtwo ex Ascended Heroes 281",
+      lane: 'format trail',
+      laneWhy: 'format trail',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: "Team Rocket's Mewtwo ex Ascended Heroes 281 Pokemon card",
+      requiredEvidenceTokens: ['team', 'rocket', '281']
+    });
+
+    expect(reference.imageUrl).toBe('https://cdn11.bigcommerce.com/s-b4ioc4fed9/products/569138/images/3745604/B733QTIMxsUolT8ZRSck3d5rT__08351.1779177196.386.513.jpg?c=1');
+    expect(reference.sourceName).toBe('Magic Madhouse');
+    expect(reference.sourceCardId).toBe('PE-ASC1-281');
+  });
+
+  it('uses curated image overrides for known broken discovery image sources', async () => {
+    const reference = await fetchDiscoveryReferenceImage({
+      name: "Team Rocket's Mewtwo ex Ascended Heroes 281",
+      lane: 'format trail',
+      laneWhy: 'format trail',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: "Team Rocket's Mewtwo ex Ascended Heroes 281 Pokemon card",
+      requiredEvidenceTokens: ['team', 'rocket', '281']
+    });
+
+    expect(reference.imageUrl).toBe('https://cdn11.bigcommerce.com/s-b4ioc4fed9/products/569138/images/3745604/B733QTIMxsUolT8ZRSck3d5rT__08351.1779177196.386.513.jpg?c=1');
+    expect(reference.sourceName).toBe('Magic Madhouse');
+    expect(reference.sourceCardId).toBe('PE-ASC1-281');
+  });
+
   it('refetches malformed cached timestamps instead of treating them as fresh', async () => {
     upsertDiscoveryReferenceCache({
       cacheKey,
@@ -313,6 +583,11 @@ describe('discovery reference cache', () => {
       sourceStatus: 'NOT_FOUND',
       fetchedAt: 'not-a-date'
     });
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      headers: new Headers({ 'content-type': 'image/png' })
+    })));
 
     const reference = await getOrFetchDiscoveryReferenceImage({
       name: testName,
@@ -324,5 +599,45 @@ describe('discovery reference cache', () => {
     }, 60 * 60 * 1000);
 
     expect(reference?.imageUrl).toBe('https://images.pokemontcg.io/test/fresh.png');
+  });
+
+  it('revalidates cached dead image URLs and refetches a fresh reference', async () => {
+    upsertDiscoveryReferenceCache({
+      cacheKey,
+      suggestionName: testName,
+      imageUrl: 'https://images.pokemontcg.io/test/dead.png',
+      sourceName: 'Pokemon TCG',
+      sourceCardId: 'dead-1'
+    });
+
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === 'HEAD' && url.includes('/dead.png')) {
+        return {
+          ok: false,
+          headers: new Headers({ 'content-type': 'image/png' })
+        } as Response;
+      }
+      if (init?.method === 'HEAD' && url.includes('/fresh.png')) {
+        return {
+          ok: true,
+          headers: new Headers({ 'content-type': 'image/png' })
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await getOrFetchDiscoveryReferenceImage({
+      name: testName,
+      lane: 'test',
+      laneWhy: 'test',
+      why: 'test',
+      nearby: [],
+      referenceImageUrl: 'https://images.pokemontcg.io/test/fresh.png',
+      referenceSourceName: 'Curated test reference'
+    }, 60 * 60 * 1000);
+
+    expect(reference?.imageUrl).toBe('https://images.pokemontcg.io/test/fresh.png');
+    expect(getDiscoveryReferenceCache(cacheKey)?.imageUrl).toBe('https://images.pokemontcg.io/test/fresh.png');
   });
 });

@@ -53,6 +53,7 @@ import {
   typicalMarketTotal,
   weeklyDiscoveryShelfSizeForPlan,
   __discoveryLearningTestHooks,
+  __discoveryPersistenceTestHooks,
   type DiscoveryCandidate
 } from '../discover.js';
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
@@ -474,6 +475,20 @@ describe('selectVisibleCandidates', () => {
     expect(learnedScore).toBeGreaterThan(neutralScore);
   });
 
+  it('captures reusable set-family and lane-shape traits for learned discovery signals', () => {
+    const candidateWithStructuredSource = sourceCandidate('Umbreon ex SAR Terastal Festival Japanese 217/187', 'TCGdex Japanese (SV8a)', 0);
+    candidateWithStructuredSource.suggestion.lane = 'Set Companion Trail';
+    candidateWithStructuredSource.suggestion.requiredEvidenceTokens = ['umbreon', 'japanese', 'Terastal Festival', 'special set'];
+
+    const features = collectorDiscoveryFeatures(candidateWithStructuredSource, ['Umbreon ex SAR Terastal Festival Japanese 217/187'].map(chase));
+
+    expect(features.collectorTraits).toMatchObject({
+      setFamily: ['terastal-festival'],
+      laneShape: ['set-companion-trail'],
+      region: ['japanese']
+    });
+  });
+
   it('applies vault-derived trait priors before explicit Discovery feedback exists', () => {
     const profile = [
       { id: 'c1', userId: 'u1', cardName: "Squirtle 007/018 McDonald's Promo e-Reader 2002 Japanese", priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' },
@@ -758,6 +773,28 @@ describe('selectVisibleCandidates', () => {
     );
 
     expect(visible.map((item) => item.suggestion.name)).toEqual(['Mew Expedition Base Set 19']);
+  });
+
+  it('tops off a prepared scheduled shelf with source-backed priced collector rows instead of shrinking it', () => {
+    const readyCandidates = Array.from({ length: 16 }, (_, index) => candidate(`Ready Pick ${index + 1}`, 'market ready path', index, 4));
+    const fallbackCandidates = Array.from({ length: 4 }, (_, index) => {
+      const item = sourceCandidate(`Fallback Collector Pick ${index + 1} Expedition Base Set ${40 + index}`, 'Pokemon TCG (Expedition Base Set)', 16 + index);
+      item.typicalRawAskingTotal = 120 + index;
+      item.marketSampleSize = 3;
+      item.sourceStatus = 'PENDING';
+      return item;
+    });
+
+    const visible = marketReadyShelfCandidatesWithOptions(
+      [...readyCandidates, ...fallbackCandidates],
+      true,
+      strongProfileConfidence,
+      { allowPendingExploration: false }
+    );
+
+    expect(visible).toHaveLength(20);
+    expect(visible.slice(0, 16).map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
+    expect(visible.slice(16).map((item) => item.suggestion.name)).toEqual(fallbackCandidates.map((item) => item.suggestion.name));
   });
 
   it('keeps a thin Japanese-language signal when a Japanese-weighted scheduled shelf has no ready Japanese row', () => {
@@ -1421,6 +1458,16 @@ describe('selectVisibleCandidates', () => {
     expect(visible.map((item) => item.suggestion.name)).toEqual(['Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Umbreon XY Black Star Promos XY96']);
   });
 
+  it('treats holo and promo-shorthand title variants of the same tag team promo as one display card', () => {
+    const sourceImageCandidate = sourceCandidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Pokemon TCG (SM Black Star Promos)', 0);
+    const shorthandHoloCandidate = candidate('Umbreon & Darkrai GX SM241 Sm Holo', 'Promo Trail', 1, 4);
+
+    const visible = selectVisibleCandidatesForCount([sourceImageCandidate, shorthandHoloCandidate], [], 1);
+
+    expect(visible).toHaveLength(1);
+    expect(visible[0].suggestion.name).toBe('Umbreon & Darkrai-GX SM Black Star Promos SM241');
+  });
+
   it('prefers fresh weekly candidates before repeating previous shelf names', () => {
     const visible = selectFreshVisibleCandidatesForCount(
       [
@@ -1745,8 +1792,8 @@ describe('selectVisibleCandidates', () => {
     expect(isActiveChaseEchoText('Meowth character collection', completedChases)).toBe(false);
   });
 
-  it('recognizes broad collector shelf filler while rejecting ordinary modern set filler', () => {
-    const broadCollector = sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 0);
+  it('recognizes profile-aligned broad collector shelf filler while rejecting ordinary modern set filler', () => {
+    const broadCollector = sourceCandidate('Sylveon ex Terastal Festival 205/187 Japanese', 'TCGdex Japanese (SV8a)', 0);
     broadCollector.typicalRawAskingTotal = 210;
     broadCollector.marketSampleSize = 12;
     broadCollector.displayCurrency = 'CAD';
@@ -1756,8 +1803,21 @@ describe('selectVisibleCandidates', () => {
     ordinaryModern.marketSampleSize = 12;
     ordinaryModern.displayCurrency = 'CAD';
 
-    expect(isBroadCollectorShelfFillerCandidate(broadCollector, ['Corocoro Shining Mew', 'Umbreon 217/187 Japanese'].map(chase))).toBe(true);
-    expect(isBroadCollectorShelfFillerCandidate(ordinaryModern, ['Corocoro Shining Mew', 'Umbreon 217/187 Japanese'].map(chase))).toBe(false);
+    expect(isBroadCollectorShelfFillerCandidate(broadCollector, ['Umbreon ex SAR Terastal Festival Japanese 217/187', 'Corocoro Shining Mew'].map(chase))).toBe(true);
+    expect(isBroadCollectorShelfFillerCandidate(ordinaryModern, ['Umbreon ex SAR Terastal Festival Japanese 217/187', 'Corocoro Shining Mew'].map(chase))).toBe(false);
+  });
+
+  it('does not treat unverified Japanese promo-code identities as concrete discovery cards', () => {
+    const candidateWithRiskyPromoIdentity = {
+      ...candidate('Gardevoir Nintendo Promo 024/P Japanese', 'Promo Trail', 0),
+      suggestion: {
+        ...candidate('Gardevoir Nintendo Promo 024/P Japanese', 'Promo Trail', 0).suggestion,
+        referenceSourceName: 'TCGdex Japanese',
+        requiredEvidenceTokens: ['gardevoir', 'nintendo', '024', 'japanese']
+      }
+    } satisfies DiscoveryCandidate;
+
+    expect(marketReadyShelfCandidatesWithOptions([candidateWithRiskyPromoIdentity], true, strongProfileConfidence, { allowPendingExploration: false })).toHaveLength(0);
   });
 });
 
@@ -1863,6 +1923,47 @@ describe('preferFreshWeeklyCandidatesAgainstRecentShelves', () => {
       'Mew Expedition Base Set 19'
     ]);
   });
+
+  it('keeps niche same-subject promos ahead of ordinary same-subject callbacks when recent shelves already leaned on that subject', () => {
+    const nichePromo = sourceCandidate('Gardevoir Nintendo Promo 024/P Japanese', 'TCGdex Japanese (Promos)', 0);
+    nichePromo.suggestion.sourceTasteTokens = ['gardevoir', 'japanese', 'promo', 'exclusive'];
+    const ordinaryCallback = sourceCandidate('Gardevoir ex Paldean Fates 233', 'Pokemon TCG (Paldean Fates)', 1);
+    const recentDrops: ScheduledDiscoveryDrop[] = [
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W27',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-06-30T00:00:00.000Z',
+        generatedAt: '2026-06-30T00:00:00.000Z',
+        updatedAt: '2026-06-30T00:00:00.000Z',
+        marketReadyCount: 2,
+        imageReadyCount: 2,
+        itemCount: 2,
+        items: [
+          {
+            position: 1,
+            suggestion: sourceCandidate('Gardevoir ex Paldean Fates 233', 'Pokemon TCG (Paldean Fates)', 0).suggestion,
+            market: { status: 'READY', currency: 'CAD', askingTotal: 180, askingSampleSize: 12 }
+          },
+          {
+            position: 2,
+            suggestion: sourceCandidate('Gardevoir ex Scarlet & Violet 245', 'Pokemon TCG (Scarlet & Violet)', 1).suggestion,
+            market: { status: 'READY', currency: 'CAD', askingTotal: 160, askingSampleSize: 12 }
+          }
+        ]
+      }
+    ];
+
+    const ordered = preferFreshWeeklyCandidatesAgainstRecentShelves([ordinaryCallback, nichePromo], recentDrops, ['Gardevoir ex Paldean Fates 233', 'Mew CoroCoro Promo 151'].map(chase));
+
+    expect(ordered.map((item) => item.suggestion.name)).toEqual([
+      'Gardevoir Nintendo Promo 024/P Japanese',
+      'Gardevoir ex Paldean Fates 233'
+    ]);
+  });
 });
 
 describe('composeWeeklyShelfCandidates', () => {
@@ -1917,6 +2018,62 @@ describe('orderCandidatesFromPersistedState', () => {
     );
 
     expect(ordered.map((item) => item.suggestion.name)).toEqual(['Mew Japanese S12a 052', 'Squirtle Expedition Base Set 132', 'Mew Expedition Base Set 55']);
+  });
+
+  it('can preserve a prepared weekly shelf order even when a later ranking would reshuffle page boundaries', () => {
+    const ranked = [
+      candidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Promo Trail', 0),
+      candidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Promo Trail', 1),
+      candidate('Team Rocket\'s Mewtwo ex Ascended Heroes 281', 'Format Trail', 2),
+      candidate('Pikachu Expedition Base Set 124', 'Vintage Era Trail', 3),
+      candidate('Pikachu Skyridge 84', 'Vintage Era Trail', 4),
+      candidate('Giovanni\'s Meowth Gym Challenge 74', 'Vintage Era Trail', 5),
+      candidate('Articuno Japanese SV9 102/100', 'Japanese Collector Trail', 6),
+      candidate('Squirtle Stellar Crown 148', 'Modern Spotlight Trail', 7),
+      candidate('Gardevoir ex Paldean Fates 233', 'Modern Spotlight Trail', 8),
+      candidate('Mew Japanese S12a 183', 'Japanese Collector Trail', 9),
+      candidate('Blaine\'s Moltres Gym Heroes 1', 'Vintage Era Trail', 10),
+      candidate('Articuno Skyridge 4', 'Vintage Era Trail', 11),
+      candidate('Zapdos Aquapolis H32', 'Vintage Era Trail', 12),
+      candidate('Gardevoir ex Scarlet & Violet 245', 'Modern Spotlight Trail', 13),
+      candidate('Mew ex Paldean Fates 216', 'Modern Spotlight Trail', 14),
+      candidate('Team Rocket\'s Moltres ex Destined Rivals 229', 'Modern Spotlight Trail', 15),
+      candidate('Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese', 'Japanese Collector Trail', 16),
+      candidate('Umbreon XY Black Star Promos XY96', 'Promo Trail', 17),
+      candidate('Gardevoir Nintendo Promo 024/P Japanese', 'Promo Trail', 18),
+      candidate('Mew Expedition Base Set 19', 'Vintage Era Trail', 19)
+    ];
+
+    const persisted = [
+      'Pikachu Expedition Base Set 124',
+      'Gardevoir ex Paldean Fates 233',
+      'Umbreon & Darkrai-GX SM Black Star Promos SM241',
+      'Mew Japanese S12a 183',
+      'Team Rocket\'s Moltres ex Destined Rivals 229',
+      'Giovanni\'s Meowth Gym Challenge 74',
+      'Articuno Japanese SV9 102/100',
+      'Squirtle Stellar Crown 148',
+      'Gardevoir ex Scarlet & Violet 245',
+      'Team Rocket\'s Mewtwo ex Ascended Heroes 281',
+      'Gardevoir Nintendo Promo 024/P Japanese',
+      'Mewtwo & Mew-GX SM Black Star Promos SM191',
+      'Pikachu Skyridge 84',
+      'Blaine\'s Moltres Gym Heroes 1',
+      'Mew Expedition Base Set 19',
+      'Articuno Skyridge 4',
+      'Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese',
+      'Zapdos Aquapolis H32',
+      'Umbreon XY Black Star Promos XY96',
+      'Mew ex Paldean Fates 216'
+    ];
+
+    const ordered = orderCandidatesFromPersistedState(ranked, persisted, 20);
+
+    expect(ordered.slice(10, 13).map((item) => item.suggestion.name)).toEqual([
+      'Gardevoir Nintendo Promo 024/P Japanese',
+      'Mewtwo & Mew-GX SM Black Star Promos SM191',
+      'Pikachu Skyridge 84'
+    ]);
   });
 
   it('fills missing persisted cards from the current ranked pool', () => {
@@ -2837,7 +2994,7 @@ describe('discoveryEmbed', () => {
     delete process.env.EBAY_AFFILIATE_CAMPAIGN_ID;
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false, 19).toJSON();
 
-    expect(embed.url).toBe('https://www.ebay.ca/sch/i.html?_nkw=Mew%20Southern%20Islands%20Promo%20Pokemon%20card');
+    expect(embed.url).toBe('https://www.ebay.ca/sch/i.html?_nkw=Mew%20Southern%20Islands%20Pokemon%20card');
   });
 
   it('uses an eBay search URL even when a specific listing is attached', () => {
@@ -2852,7 +3009,14 @@ describe('discoveryEmbed', () => {
       1
     ).toJSON();
 
-    expect(embed.url).toBe('https://www.ebay.ca/sch/i.html?_nkw=Mew%20Southern%20Islands%20Promo%20Pokemon%20card');
+    expect(embed.url).toBe('https://www.ebay.ca/sch/i.html?_nkw=Mew%20Southern%20Islands%20Pokemon%20card');
+  });
+
+  it('uses cleaner collector-style eBay searches for Discovery promo cards', () => {
+    delete process.env.EBAY_AFFILIATE_CAMPAIGN_ID;
+    const url = new URL(discoveryCardClickUrl(candidate('Gardevoir Nintendo Promo 024/P Japanese', 'Promo Trail', 0, 4), 'CAD', 11));
+
+    expect(url.searchParams.get('_nkw')).toBe('Gardevoir 024/P Japanese Pokemon card');
   });
 
   it('can decorate Discovery eBay URLs with affiliate parameters when configured', () => {
@@ -3747,6 +3911,45 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     for (const cacheKey of [...randomEraKeys, anchoredKey]) deleteDiscoveryMarketCache(cacheKey);
   });
 
+  it('keeps trait-only cache backfill tied to the current user special-set profile', () => {
+    const suffix = Date.now();
+    const siblingName = `Sylveon Terastal Festival ex SAR 205/187 Japanese ${suffix}`;
+    const dialgaName = `Dialga VSTAR Universe 261/172 Japanese ${suffix}`;
+    const palkiaName = `Palkia VSTAR Universe 259/172 Japanese ${suffix}`;
+    const siblingKey = discoveryMarketCacheKey(siblingName, 'CAD', 'CA');
+    const dialgaKey = discoveryMarketCacheKey(dialgaName, 'CAD', 'CA');
+    const palkiaKey = discoveryMarketCacheKey(palkiaName, 'CAD', 'CA');
+    for (const cacheKey of [siblingKey, dialgaKey, palkiaKey]) deleteDiscoveryMarketCache(cacheKey);
+    for (const [cacheKey, suggestionName, asking] of [
+      [siblingKey, siblingName, 210],
+      [dialgaKey, dialgaName, 190],
+      [palkiaKey, palkiaName, 188]
+    ] as const) {
+      upsertDiscoveryMarketCache({
+        cacheKey,
+        suggestionName,
+        displayCurrency: 'CAD',
+        destinationCountry: 'CA',
+        typicalRawAskingTotal: asking,
+        marketSampleSize: 12,
+        soldSampleSize: 0
+      });
+    }
+
+    const backfilled = backfillMarketReadyDiscoveryCandidates(
+      [],
+      { activeChases: [], destination: { country: 'CA' }, targetCurrency: 'CAD' },
+      3,
+      ['Umbreon ex SAR Terastal Festival Japanese 217/187', 'Corocoro Shining Mew'].map(chase)
+    );
+    const names = backfilled.map((item) => item.suggestion.name);
+
+    expect(names).toContain(siblingName);
+    expect(names).not.toContain(dialgaName);
+    expect(names).not.toContain(palkiaName);
+    for (const cacheKey of [siblingKey, dialgaKey, palkiaKey]) deleteDiscoveryMarketCache(cacheKey);
+  });
+
   it('allows exact niche retail e-reader promos just above the learned max price', () => {
     const suffix = Date.now();
     const nearStretchName = `Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Stretch ${suffix}`;
@@ -3912,6 +4115,101 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(attached?.image?.sourceKind).toBe('CARD_REFERENCE');
     expect(attached?.listing).toBeUndefined();
     deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('persists source-backed reference images into scheduled shelf items when candidate images are missing', () => {
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      {
+        selectionIndex: 0,
+        suggestion: {
+          name: 'Blastoise ex 151 200',
+          lane: 'Artwork Trail',
+          laneWhy: 'profile source match',
+          why: 'try Blastoise ex 151 200',
+          nearby: [],
+          referenceImageUrl: 'https://images.example/blastoise-151.png',
+          referenceSourceName: 'Pokemon TCG (151)',
+          referenceSourceCardId: 'sv3pt5-200'
+        },
+        image: undefined
+      }
+    ], 'CAD');
+
+    expect(items[0]?.imageUrl).toBe('https://images.example/blastoise-151.png');
+    expect(items[0]?.imageSourceName).toBe('Pokemon TCG (151)');
+  });
+
+  it('infers structured source names for concrete cached market cards with obvious set context', () => {
+    const suffix = Date.now();
+    const name = `Umbreon ex SAR Terastal Festival Japanese 217/187 ${suffix}`;
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 420,
+      marketSampleSize: 6,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = candidatesFromDiscoveryMarketCache(
+      [candidate(name, 'Collector Compass', 0, 6)],
+      {
+        userId: 'user-1',
+        activeChases: [],
+        destination: { country: 'CA' },
+        targetCurrency: 'CAD'
+      }
+    );
+
+    expect(attached?.suggestion.referenceSourceName).toBe('TCGdex Japanese (Terastal Festival)');
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('does not treat weak trait-only market cache cards as scheduled shelf priorities without source backing', () => {
+    const candidate: DiscoveryCandidate = {
+      selectionIndex: 0,
+      suggestion: {
+        name: 'Blastoise ex 151 200',
+        lane: 'Format Trail',
+        laneWhy: 'profile source match',
+        why: 'market-ready adjacent card',
+        nearby: [],
+        requiredEvidenceTokens: ['blastoise']
+      },
+      typicalRawAskingTotal: 140,
+      marketSampleSize: 8,
+      displayCurrency: 'CAD'
+    };
+
+    expect(__discoveryPersistenceTestHooks.isScheduledShelfPriorityCandidate(
+      candidate,
+      ['Squirtle Japanese Promo 007/018', 'Mew CoroCoro Promo 151'].map(chase)
+    )).toBe(false);
+  });
+
+  it('does not allow weak trait-only market cache cards as broad collector filler without source backing', () => {
+    const candidate: DiscoveryCandidate = {
+      selectionIndex: 0,
+      suggestion: {
+        name: 'Cinccino ex Chaos Rising 119',
+        lane: 'Format Trail',
+        laneWhy: 'profile source match',
+        why: 'market-ready adjacent card',
+        nearby: [],
+        requiredEvidenceTokens: ['cinccino', 'chaos']
+      },
+      typicalRawAskingTotal: 140,
+      marketSampleSize: 8,
+      displayCurrency: 'CAD'
+    };
+
+    expect(isBroadCollectorShelfFillerCandidate(
+      candidate,
+      ['Umbreon ex SAR Terastal Festival Japanese 217/187', 'Mew CoroCoro Promo 151'].map(chase)
+    )).toBe(false);
   });
 
   it('restores cached market images when a shelf candidate has no image', () => {

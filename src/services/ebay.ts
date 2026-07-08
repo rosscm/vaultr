@@ -382,6 +382,9 @@ export function buildEbaySearchKeywords(chase: Chase): string {
   ];
   for (const re of promoPatterns) s = s.replace(re, ' ');
 
+  // Nintendo promo wording is often omitted by sellers; keep the useful card identity and numbering instead
+  s = s.replace(/\bNintendo\b(?=\s+(?:\d{3}\s*\/\s*P|Japanese)\b)/gi, ' ');
+
   // Compact known promo series+number like "XY 95" -> "XY95"; preserve spacing for non-series combos like "Ex 178/132"
   s = s.replace(/\b([A-Za-z]{1,4})\s*\/?\s*(\d{1,4})\b/g, (_m, a, b) => compactEbaySeriesNumber(a, b));
 

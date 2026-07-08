@@ -59,6 +59,12 @@ describe('buildEbaySearchKeywords', () => {
     expect(buildEbaySearchKeywords({ ...baseChase(), cardName: "Squirtle Japanese McDonald's Promo 007/018" })).toBe("Squirtle Japanese McDonald's 007/018");
     expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Charmander Pokemon Center Promo 004/SV-P' })).toBe('Charmander Pokemon Center 004/SV-P');
   });
+
+  it('drops Nintendo promo wording when the card identity and promo code are enough for eBay', async () => {
+    const { buildEbaySearchKeywords } = await import('../ebay.js');
+
+    expect(buildEbaySearchKeywords({ ...baseChase(), cardName: 'Gardevoir Nintendo Promo 024/P Japanese' })).toBe('Gardevoir 024/P Japanese');
+  });
 });
 
 describe('searchEbayListings Browse shipping', () => {

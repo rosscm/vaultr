@@ -1,5 +1,6 @@
 import { db } from './db.js';
 import type { DiscoverySuggestion } from './discovery-catalog.js';
+import { discoveryImageOverrideForSuggestion } from './discovery-image-overrides.js';
 
 export type DiscoveryReferenceStatus = 'NOT_FOUND' | 'UNSUPPORTED' | 'TIMEOUT' | 'ERROR';
 
@@ -29,8 +30,15 @@ type PokemonTcgCard = {
   id?: string;
   name?: string;
   number?: string;
+  nationalPokedexNumbers?: number[];
   set?: { name?: string };
   images?: { small?: string; large?: string };
+};
+
+type TcgDexCardSummary = {
+  id?: string;
+  localId?: string;
+  image?: string;
 };
 
 type UpsertDiscoveryReferenceCacheInput = {
@@ -44,6 +52,7 @@ type UpsertDiscoveryReferenceCacheInput = {
 };
 
 const POKEMON_TCG_ENDPOINT = 'https://api.pokemontcg.io/v2/cards';
+const TCGDEX_JA_CARDS_ENDPOINT = 'https://api.tcgdex.net/v2/ja/cards';
 const ONE_PIECE_CARD_IMAGE_BASE_URL = 'https://en.onepiece-cardgame.com/images/cardlist/card';
 const REFERENCE_FETCH_TIMEOUT_MS = 12000;
 
@@ -80,7 +89,7 @@ const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /vivid voltage/i, setName: 'Vivid Voltage' },
   { pattern: /sm black star|sun & moon black star/i, setName: 'SM Black Star Promos' },
   { pattern: /swsh black star|sword & shield black star/i, setName: 'SWSH Black Star Promos' },
-  { pattern: /nintendo black star/i, setName: 'Nintendo Black Star Promos' }
+  { pattern: /nintendo(?: black star)? promo/i, setName: 'Nintendo Black Star Promos' }
 ];
 
 const getDiscoveryReferenceCacheStmt = db.prepare(`
@@ -121,6 +130,7 @@ function normalize(value: string): string {
 function compactName(value: string): string {
   return value
     .replace(/\bPokemon\b/gi, '')
+    .replace(/\bnintendo\b(?=\s+promo|\s+black star|\s+japanese|\s+\d{3}\s*\/\s*p\b)/gi, '')
     .replace(/\b(card|cards|promo|holo|secret rare|illustration rare|art rare|trainer gallery|parallel|leader|trading)\b/gi, '')
     .replace(/\bsurging sparks\b\s*\d{1,3}\b/gi, '')
     .replace(/\b(?:sun & moon black star promos?|sm black star promos?|sword & shield black star promos?|swsh black star promos?|xy black star promos?|bw black star promos?|black star promos?|black star|mcdonald'?s|anniversary|vending series|web series)\b/gi, '')
@@ -135,6 +145,8 @@ function quoted(value: string): string {
 function extractNumber(value: string): string | undefined {
   const slashNumber = /\b([A-Z]{0,4}\d{1,3})\s*\/\s*\d{1,3}\b/i.exec(value)?.[1];
   if (slashNumber) return slashNumber.toUpperCase();
+  const japanesePromoNumber = /\b(\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3})\b/i.exec(value)?.[1];
+  if (japanesePromoNumber) return japanesePromoNumber.replace(/\s+/g, '').toUpperCase();
   const codeNumber = /\b(?:GG|TG|RC|XY|SM|SWSH|SVP|BW|DP|HGSS)\s?-?\d{1,4}\b/i.exec(value)?.[0];
   if (codeNumber) return codeNumber.replace(/\s|-/g, '').toUpperCase();
   const holoNumber = /\bH\d{1,2}\b/i.exec(value)?.[0];
@@ -147,8 +159,16 @@ function extractNumber(value: string): string | undefined {
   return standalone;
 }
 
+function referenceSetLocalId(value: string): string | undefined {
+  return /\b(\d{2,3}\s*\/\s*\d{2,3})\b/i.exec(value)?.[1]?.replace(/\s+/g, '');
+}
+
+function referenceSetCode(value: string): string | undefined {
+  return /\b((?:sv|sm|swsh|xy|bw|dp|hgss|pcg|pmcg|s)\d+[a-z]?|sv[a-z]?\d+[a-z]?|[a-z]{1,4}\d+[a-z]?|s-p|sm-p|sv-p)\b/i.exec(value)?.[1]?.toUpperCase();
+}
+
 function leadingName(value: string): string {
-  const beforeNumber = value.split(/\b(?:[A-Z]{0,4}\d{1,3}\s*\/\s*\d{1,3}|(?:GG|TG|RC|XY|SM|SWSH|SVP|BW|DP|HGSS)\s?-?\d{1,4}|H\d{1,2}|0\d{2})\b/i)[0];
+  const beforeNumber = value.split(/\b(?:[A-Z]{0,4}\d{1,3}\s*\/\s*\d{1,3}|\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3}|(?:GG|TG|RC|XY|SM|SWSH|SVP|BW|DP|HGSS)\s?-?\d{1,4}|H\d{1,2}|0\d{2})\b/i)[0];
   return compactName(beforeNumber)
     .replace(/\b(?:southern islands?|champion'?s path|celebrations|classic collection|classic|crown zenith|cosmic eclipse|destined rivals|evolutions|fusion strike|generations|legendary treasures|lost origin|paldean fates|pokemon 151|triplet beat|fossil|aquapolis|expedition|neo discovery|neo destiny|gym challenge|gym heroes|deoxys|fates collide|undaunted|hidden fates|surging sparks|unified minds|vivid voltage)\b/gi, '')
     .replace(/\b(?:base set|skyridge|xy|bw|swsh)\b/gi, '')
@@ -176,6 +196,13 @@ function onePieceSourceText(suggestion: DiscoverySuggestion): string {
 
 function isOnePieceReferenceSuggestion(suggestion: DiscoverySuggestion): boolean {
   return /\b(one piece|luffy|nami|zoro|sabo)\b/i.test(onePieceSourceText(suggestion));
+}
+
+function isJapaneseReferenceSuggestion(suggestion: DiscoverySuggestion): boolean {
+  const text = [suggestion.name, suggestion.evidenceSearchTerm, suggestion.referenceSourceName, ...(suggestion.evidenceAliases ?? []), ...(suggestion.requiredEvidenceTokens ?? [])]
+    .filter(Boolean)
+    .join(' ');
+  return /\bjapanese\b|tcgdex japanese|\/p\b|sv-p|promo/i.test(text);
 }
 
 function extractOnePieceCardCode(value: string): string | undefined {
@@ -288,6 +315,126 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any
   }
 }
 
+async function fetchPokemonCards(query: string, pageSize: number): Promise<PokemonTcgCard[]> {
+  const params = new URLSearchParams({
+    q: query,
+    pageSize: String(pageSize),
+    select: 'id,name,number,nationalPokedexNumbers,set,images'
+  });
+  const json = await fetchJsonWithTimeout(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS);
+  return Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [];
+}
+
+function referenceLocalId(value: string): string | undefined {
+  return /\b(\d{3}\s*\/\s*[a-z-]+)\b/i.exec(value)?.[1]?.replace(/\s+/g, '').toUpperCase();
+}
+
+function normalizeSimpleName(value: string): string {
+  return normalize(value)
+    .replace(/\b(?:ex|gx|v|vmax|vstar|sar|sir|ar|ur|sr|rr|r|hr|chr|csr|pr|promo|promos|japanese|nintendo)\b/g, ' ')
+    .replace(/\b(?:s|sv|sm|swsh|xy|bw|dp|hgss)\d+[a-z]?\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function pokemonIdentityMatches(card: PokemonTcgCard, term: string): boolean {
+  return normalizeSimpleName(card.name ?? '') === normalizeSimpleName(term);
+}
+
+async function fetchTcgDexJapaneseSummariesByDexId(dexId: number): Promise<TcgDexCardSummary[]> {
+  const params = new URLSearchParams({ dexId: String(dexId) });
+  const json = await fetchJsonWithTimeout(`${TCGDEX_JA_CARDS_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS);
+  return Array.isArray(json) ? (json as TcgDexCardSummary[]) : [];
+}
+
+async function fetchTcgDexJapaneseSummariesByName(name: string): Promise<TcgDexCardSummary[]> {
+  const params = new URLSearchParams({ name });
+  const json = await fetchJsonWithTimeout(`${TCGDEX_JA_CARDS_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS);
+  return Array.isArray(json) ? (json as TcgDexCardSummary[]) : [];
+}
+
+function tcgDexImageUrl(summary: TcgDexCardSummary): string | undefined {
+  return summary.image ? `${summary.image}/high.png` : undefined;
+}
+
+function referenceFromTcgDexSummary(summary: TcgDexCardSummary, suggestionName: string): DiscoveryReferenceCacheEntry | null {
+  const imageUrl = tcgDexImageUrl(summary);
+  if (!summary.id || !imageUrl) return null;
+  const now = new Date().toISOString();
+  return {
+    cacheKey: discoveryReferenceCacheKey(suggestionName),
+    suggestionName,
+    imageUrl,
+    sourceName: 'TCGdex Japanese',
+    sourceCardId: summary.id,
+    fetchedAt: now,
+    updatedAt: now
+  };
+}
+
+async function fetchJapaneseReferenceImage(suggestion: DiscoverySuggestion): Promise<DiscoveryReferenceCacheEntry | null> {
+  if (!isJapaneseReferenceSuggestion(suggestion)) return null;
+  const sourceText = [suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
+  const localId = referenceLocalId(sourceText);
+  const setLocalId = referenceSetLocalId(sourceText);
+  const setCode = referenceSetCode(sourceText);
+  const identityName = leadingName(suggestion.name) || leadingName(sourceText);
+  if (!identityName) return null;
+
+  const pokemonCards = await fetchPokemonCards(`name:${quoted(identityName)}`, 5).catch(() => []);
+  const dexIds = [...new Set(
+    pokemonCards
+      .filter((card) => pokemonIdentityMatches(card, identityName))
+      .flatMap((card) => card.nationalPokedexNumbers ?? [])
+      .filter((dex) => Number.isFinite(dex))
+  )];
+
+  const summaries = (
+    await Promise.all(
+      (dexIds.length > 0 ? dexIds.slice(0, 3).map((dexId) => fetchTcgDexJapaneseSummariesByDexId(dexId).catch(() => [])) : [fetchTcgDexJapaneseSummariesByName(identityName).catch(() => [])])
+    )
+  ).flat();
+
+  if (setLocalId || setCode) {
+    const exactSetMatches = summaries.filter((summary) => {
+      const summarySetCode = summary.id?.split('-').slice(0, -1).join('-').toUpperCase();
+      const summarySetLocalId = summary.localId?.replace(/\s+/g, '');
+      const setCodeMatches = !setCode || summarySetCode === setCode;
+      const localIdMatches = !setLocalId || summarySetLocalId === setLocalId;
+      return setCodeMatches && localIdMatches;
+    });
+    for (const summary of exactSetMatches) {
+      const reference = referenceFromTcgDexSummary(summary, suggestion.name);
+      if (reference) return reference;
+    }
+  }
+
+  if (localId) {
+    const exactLocalIdMatches = summaries.filter((summary) => summary.localId?.replace(/\s+/g, '').toUpperCase() === localId);
+    for (const summary of exactLocalIdMatches) {
+      const reference = referenceFromTcgDexSummary(summary, suggestion.name);
+      if (reference) return reference;
+    }
+    return null;
+  }
+
+  const scored = summaries
+    .map((summary) => {
+      const summaryLocalId = summary.localId?.replace(/\s+/g, '').toUpperCase();
+      const score = (localId && summaryLocalId === localId ? 100 : 0)
+        + (summary.image ? 20 : 0)
+        + (summary.id && /promo|sv-p|\/p/i.test(summary.id) ? 10 : 0);
+      return { summary, score };
+    })
+    .sort((left, right) => right.score - left.score);
+
+  for (const { summary } of scored) {
+    const reference = referenceFromTcgDexSummary(summary, suggestion.name);
+    if (reference) return reference;
+  }
+  return null;
+}
+
 async function imageExistsWithTimeout(url: string, timeoutMs: number): Promise<boolean> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -299,8 +446,22 @@ async function imageExistsWithTimeout(url: string, timeoutMs: number): Promise<b
   }
 }
 
+async function validateReferenceImageUrl(url: string | undefined): Promise<boolean> {
+  if (!url) return false;
+  try {
+    return await imageExistsWithTimeout(url, REFERENCE_FETCH_TIMEOUT_MS);
+  } catch {
+    return false;
+  }
+}
+
+function pokemonTcgCanonicalImageUrl(card: PokemonTcgCard): string | undefined {
+  const setId = card.id?.split('-')[0];
+  return setId && card.number ? `https://images.pokemontcg.io/${setId}/${encodeURIComponent(card.number)}_hires.png` : undefined;
+}
+
 function referenceFromCard(card: PokemonTcgCard, suggestionName: string, fallbackSetName?: string): DiscoveryReferenceCacheEntry | null {
-  const imageUrl = card.images?.large ?? card.images?.small;
+  const imageUrl = pokemonTcgCanonicalImageUrl(card) ?? card.images?.large ?? card.images?.small;
   if (!card.id || !card.name || !imageUrl) return null;
   const sourceSetName = card.set?.name ?? fallbackSetName;
   const setName = sourceSetName ? ` (${sourceSetName})` : '';
@@ -347,23 +508,54 @@ async function fetchOnePieceReferenceImage(suggestion: DiscoverySuggestion): Pro
 
 export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion): Promise<DiscoveryReferenceCacheEntry> {
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
-  if (suggestion.referenceImageUrl) {
+  const imageOverride = discoveryImageOverrideForSuggestion(suggestion.name);
+  if (imageOverride) {
     const now = new Date().toISOString();
     return {
       cacheKey,
       suggestionName: suggestion.name,
-      imageUrl: suggestion.referenceImageUrl,
-      sourceName: suggestion.referenceSourceName ?? 'Curated reference',
-      sourceCardId: suggestion.referenceSourceCardId,
+      imageUrl: imageOverride.imageUrl,
+      sourceName: imageOverride.sourceName,
+      sourceCardId: imageOverride.sourceCardId,
       fetchedAt: now,
       updatedAt: now
     };
+  }
+  if (suggestion.referenceImageUrl) {
+    if (await validateReferenceImageUrl(suggestion.referenceImageUrl)) {
+      const now = new Date().toISOString();
+      return {
+        cacheKey,
+        suggestionName: suggestion.name,
+        imageUrl: suggestion.referenceImageUrl,
+        sourceName: suggestion.referenceSourceName ?? 'Curated reference',
+        sourceCardId: suggestion.referenceSourceCardId,
+        fetchedAt: now,
+        updatedAt: now
+      };
+    }
   }
 
   if (isOnePieceReferenceSuggestion(suggestion)) {
     try {
       const onePieceReference = await fetchOnePieceReferenceImage(suggestion);
       if (onePieceReference) return onePieceReference;
+    } catch (error) {
+      const status = error instanceof Error && error.name === 'AbortError' ? 'TIMEOUT' : 'ERROR';
+      return {
+        cacheKey,
+        suggestionName: suggestion.name,
+        sourceStatus: status,
+        fetchedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+    }
+  }
+
+  if (isJapaneseReferenceSuggestion(suggestion)) {
+    try {
+      const japaneseReference = await fetchJapaneseReferenceImage(suggestion);
+      if (japaneseReference) return japaneseReference;
     } catch (error) {
       const status = error instanceof Error && error.name === 'AbortError' ? 'TIMEOUT' : 'ERROR';
       return {
@@ -422,6 +614,16 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
   if (suggestion.referenceImageUrl && !cached?.imageUrl) {
     const fetched = await fetchDiscoveryReferenceImage(suggestion);
     upsertDiscoveryReferenceCache(fetched);
+    return fetched;
+  }
+  if (cached?.sourceStatus === 'NOT_FOUND' && isJapaneseReferenceSuggestion(suggestion)) {
+    const fetched = await fetchDiscoveryReferenceImage(suggestion);
+    if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
+    return fetched;
+  }
+  if (cached?.imageUrl && !(await validateReferenceImageUrl(cached.imageUrl))) {
+    const fetched = await fetchDiscoveryReferenceImage(suggestion);
+    if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
     return fetched;
   }
   const ageMs = cached ? cachedReferenceAgeMs(cached) : undefined;

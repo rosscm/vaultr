@@ -2165,6 +2165,49 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.evidenceSearchTerm).toBe('Pikachu Base 58 Pokemon card');
   });
 
+  it('canonicalizes source-backed Pokemon images to trusted hires art', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'me2pt5-281',
+              name: "Team Rocket's Mewtwo ex",
+              number: '281',
+              supertype: 'Pokemon',
+              subtypes: ['Basic', 'ex'],
+              rarity: 'Special Illustration Rare',
+              types: ['Psychic'],
+              nationalPokedexNumbers: [150],
+              set: { name: 'Ascended Heroes', series: 'Mega Evolution', releaseDate: '2026/01/30' },
+              images: { small: 'https://images.scrydex.com/pokemon/me2pt5-281/small' }
+            }
+          ]
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    ) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Mewtwo special illustration rare Pokemon cards',
+        lane: 'visual-format discovery',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Mewtwo special illustration rare Pokemon cards',
+        requiredEvidenceTokens: ['mewtwo', 'illustration', 'rare'],
+        sourceTasteTokens: ['mewtwo', 'illustration', 'rare']
+      },
+      [],
+      1
+    );
+
+    expect(resolved.suggestions[0]?.referenceImageUrl).toBe('https://cdn11.bigcommerce.com/s-b4ioc4fed9/products/569138/images/3745604/B733QTIMxsUolT8ZRSck3d5rT__08351.1779177196.386.513.jpg?c=1');
+    expect(resolved.suggestions[0]?.referenceSourceName).toBe('Magic Madhouse');
+    expect(resolved.suggestions[0]?.referenceSourceCardId).toBe('PE-ASC1-281');
+  });
+
   it('does not return cards already on the active chase list', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(
