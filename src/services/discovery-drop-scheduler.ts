@@ -18,6 +18,24 @@ const WEEKLY_DROP_TYPE = 'WEEKLY_DISCOVERY' as const;
 let schedulerTimer: NodeJS.Timeout | undefined;
 let schedulerRunning = false;
 
+export type WeeklyDiscoveryPreparationHealth = {
+  periodKey: string;
+  targetDate: Date;
+  availableAt: string;
+  proUsers: number;
+  ready: number;
+  partial: number;
+  preparing: number;
+  stale: number;
+  failed: number;
+  missing: number;
+  prepared: number;
+  refreshDue: number;
+  oldestPreparedUpdatedAt?: string;
+  oldestPendingUpdatedAt?: string;
+  overdueUnprepared: number;
+};
+
 function envFlag(name: string, fallback: boolean): boolean {
   const value = process.env[name];
   if (value === undefined) return fallback;
@@ -86,6 +104,83 @@ function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number)
 
 function proUsersWithChases(): string[] {
   return listUsersWithChases().filter((userId) => activePlanTier(getUserPlan(userId)) === 'PRO');
+}
+
+export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDiscoveryPreparationHealth {
+  const targetDate = weeklyPreparationTargetDate(now);
+  const periodKey = scheduledDiscoveryPeriodKey(WEEKLY_DROP_TYPE, targetDate);
+  const availability = scheduledDiscoveryAvailability(WEEKLY_DROP_TYPE, targetDate);
+  const userIds = proUsersWithChases();
+  const availableAtMs = Date.parse(availability.availableAt);
+
+  let ready = 0;
+  let partial = 0;
+  let preparing = 0;
+  let stale = 0;
+  let failed = 0;
+  let missing = 0;
+  let refreshDue = 0;
+  let overdueUnprepared = 0;
+  let oldestPreparedUpdatedAt: string | undefined;
+  let oldestPendingUpdatedAt: string | undefined;
+
+  for (const userId of userIds) {
+    const drop = getScheduledDiscoveryDrop(userId, WEEKLY_DROP_TYPE, periodKey);
+    if (!drop || drop.itemCount <= 0) {
+      missing += 1;
+      if (now.getTime() >= availableAtMs) overdueUnprepared += 1;
+      continue;
+    }
+
+    if (shouldPrepareWeeklyDrop(drop, targetDate, now)) refreshDue += 1;
+
+    if (drop.status === 'READY' || drop.status === 'PARTIAL') {
+      if (!oldestPreparedUpdatedAt || Date.parse(drop.updatedAt) < Date.parse(oldestPreparedUpdatedAt)) {
+        oldestPreparedUpdatedAt = drop.updatedAt;
+      }
+    } else if (!oldestPendingUpdatedAt || Date.parse(drop.updatedAt) < Date.parse(oldestPendingUpdatedAt)) {
+      oldestPendingUpdatedAt = drop.updatedAt;
+    }
+
+    switch (drop.status) {
+      case 'READY':
+        ready += 1;
+        break;
+      case 'PARTIAL':
+        partial += 1;
+        break;
+      case 'PREPARING':
+        preparing += 1;
+        if (now.getTime() >= availableAtMs) overdueUnprepared += 1;
+        break;
+      case 'STALE':
+        stale += 1;
+        if (now.getTime() >= availableAtMs) overdueUnprepared += 1;
+        break;
+      case 'FAILED':
+        failed += 1;
+        if (now.getTime() >= availableAtMs) overdueUnprepared += 1;
+        break;
+    }
+  }
+
+  return {
+    periodKey,
+    targetDate,
+    availableAt: availability.availableAt,
+    proUsers: userIds.length,
+    ready,
+    partial,
+    preparing,
+    stale,
+    failed,
+    missing,
+    prepared: ready + partial,
+    refreshDue,
+    oldestPreparedUpdatedAt,
+    oldestPendingUpdatedAt,
+    overdueUnprepared
+  };
 }
 
 async function prepareWeeklyDrops(now: Date): Promise<{ periodKey: string; prepared: number; skipped: number; failed: number }> {

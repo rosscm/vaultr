@@ -1,7 +1,6 @@
 import { Client, EmbedBuilder } from 'discord.js';
 import {
   getGuildCommunityStatsToday,
-  getUserWeeklyReflectionSummary,
   countChaseAlertsWithinMinutes,
   countUserAlertsInLastHour,
   getChaseLastPollCheckAt,
@@ -10,16 +9,13 @@ import {
   getGuildCommunityFeedMode,
   hasAlertBeenSent,
   hasPostedGuildDailyStats,
-  hasPostedUserWeeklyReflection,
   listGuildCommandChannels,
-  listUsersWithChases,
   listAllChases,
   isListingFingerprintIgnored,
   getSourceObservationForItem,
   claimAlertForSending,
   claimUserAlertFingerprintForSending,
   markPostedGuildDailyStats,
-  markPostedUserWeeklyReflection,
   markChasesPollAttempted,
   markChasesPollChecked,
   releaseIncompleteAlertSendClaim,
@@ -54,7 +50,6 @@ import {
   setSourceCallsLastMinute
 } from './poller-state.js';
 import { alertFeedbackButtons, keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
-import { buildWeeklyDiscoveryPathPayload } from '../commands/discover.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
 import type { Chase, Listing, ListingSourceModePreference } from '../types.js';
 
@@ -1204,52 +1199,6 @@ export function shouldPostDailyPulse(stats: ReturnType<typeof getGuildCommunityS
   return stats.newVaultrs > 0 || stats.usersAlerted > 0 || stats.matches > 0 || stats.grailsSurfaced > 0 || stats.activeVaults > 0 || stats.activeChases > 0;
 }
 
-function weeklyReflectionIntro(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
-  if (summary.alertsReceived === 0) {
-    return '**Quiet week.** Vaultr kept your chases warm in the background.';
-  }
-  const grailNote = summary.grailsSurfaced > 0 ? `, including ${pluralize(summary.grailsSurfaced, 'grail')}` : '';
-  return `**${pluralize(summary.alertsReceived, 'alert')} sent** this week${grailNote}.`;
-}
-
-function weeklyNextStep(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): string {
-  if (summary.alertsReceived >= 25) return 'If this felt noisy, tighten max price, condition, or custom exclusions on the chases that fired most.';
-  if (summary.newChasesAdded > 0) return 'Your new chases now shape future Discovery recommendations.';
-  if (summary.alertsReceived === 0) return 'Refresh a chase or add another card if you want Discovery to broaden next week.';
-  return 'Keep useful chases active and tune out listings that do not match your collecting intent.';
-}
-
-function weeklyReflectionColor(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): number {
-  if (summary.alertsReceived >= 25) return 0xf97316;
-  if (summary.grailsSurfaced > 0) return 0xf59e0b;
-  if (summary.alertsReceived === 0) return 0x64748b;
-  return 0x0e7490;
-}
-
-function weeklyMetricField(name: string, value: number, label: string): { name: string; value: string; inline: true } {
-  return {
-    name,
-    value: `**${value.toLocaleString()}**\n${label}`,
-    inline: true
-  };
-}
-
-export function buildWeeklyReflectionEmbed(summary: ReturnType<typeof getUserWeeklyReflectionSummary>): EmbedBuilder {
-  return new EmbedBuilder()
-    .setColor(weeklyReflectionColor(summary))
-    .setTitle('📬 Vaultr Weekly')
-    .setDescription(weeklyReflectionIntro(summary))
-    .addFields(
-      weeklyMetricField('📨 Alerts', summary.alertsReceived, 'sent'),
-      weeklyMetricField('💎 Grails', summary.grailsSurfaced, 'high-priority hits'),
-      weeklyMetricField('➕ New Chases', summary.newChasesAdded, 'added taste'),
-      keyValue('🧭 Current Read', `${summary.topTasteTheme} around ${summary.topTasteFamily}`),
-      keyValue('🎯 Next Step', weeklyNextStep(summary))
-    )
-    .setFooter({ text: 'Vaultr • Weekly' })
-    .setTimestamp();
-}
-
 async function maybePostDailyCommunityStats(client: Client): Promise<void> {
   const enabled = (process.env.COMMUNITY_STATS_DAILY_ENABLED ?? 'true').toLowerCase() !== 'false';
   if (!enabled) return;
@@ -1275,42 +1224,6 @@ async function maybePostDailyCommunityStats(client: Client): Promise<void> {
     await channel.send({ embeds: [buildDailyPulseEmbed(stats)] });
 
     markPostedGuildDailyStats(guildId, dayKey);
-  }
-}
-
-async function maybeSendWeeklyReflections(client: Client): Promise<void> {
-  const enabled = (process.env.WEEKLY_REFLECTION_ENABLED ?? 'true').toLowerCase() !== 'false';
-  if (!enabled) return;
-
-  const targetDay = Number(process.env.WEEKLY_REFLECTION_DAY_LOCAL ?? '0');
-  const hour = Number(process.env.WEEKLY_REFLECTION_HOUR_LOCAL ?? '11');
-  const minute = Number(process.env.WEEKLY_REFLECTION_MINUTE_LOCAL ?? '0');
-  const now = new Date();
-  if (now.getDay() !== targetDay || now.getHours() !== hour || now.getMinutes() !== minute) return;
-
-  const weekKey = currentWeekKeyLocal(now);
-  const sinceIso = localStartOfWeekIso(now);
-  const userIds = listUsersWithChases();
-
-  for (const userId of userIds) {
-    if (hasPostedUserWeeklyReflection(userId, weekKey)) continue;
-    const summary = getUserWeeklyReflectionSummary(userId, sinceIso);
-    if (summary.alertsReceived === 0 && summary.newChasesAdded === 0) {
-      markPostedUserWeeklyReflection(userId, weekKey);
-      continue;
-    }
-
-    try {
-      const user = await client.users.fetch(userId);
-      const discovery = await buildWeeklyDiscoveryPathPayload(userId);
-      await user.send({
-        embeds: [buildWeeklyReflectionEmbed(summary), ...(discovery?.embeds ?? [])],
-        components: discovery?.components ?? []
-      });
-      markPostedUserWeeklyReflection(userId, weekKey);
-    } catch (error) {
-      console.error(`Failed to send weekly reflection to user ${userId}`, error);
-    }
   }
 }
 
@@ -1340,10 +1253,6 @@ export function startPoller(client: Client): void {
 
   setInterval(() => {
     void maybePostDailyCommunityStats(client);
-  }, 60 * 1000);
-
-  setInterval(() => {
-    void maybeSendWeeklyReflections(client);
   }, 60 * 1000);
 
   void runWithGuard();

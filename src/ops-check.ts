@@ -5,6 +5,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Client, GatewayIntentBits } from 'discord.js';
 import { getChaseLastPollAttemptAt, getUserPlan, listAllChases } from './services/chase-store.js';
+import { getDiscoveryMarketRefreshQueueStats } from './services/discovery-market-jobs.js';
+import { getWeeklyDiscoveryPreparationHealth } from './services/discovery-drop-scheduler.js';
 import { failureFingerprint, shouldSuppressDuplicateAlert } from './services/ops-alerts.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from './services/plans.js';
 
@@ -30,6 +32,10 @@ function envValue(key: string): string | undefined {
 function positiveNumberEnv(key: string, fallback: number): number {
   const value = Number(envValue(key) ?? String(fallback));
   return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function discoveryWorkerLockTimeoutMs(): number {
+  return Math.max(60_000, Math.floor(Number(envValue('DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS') ?? `${10 * 60 * 1000}`)));
 }
 
 function alertStatePath(): string {
@@ -214,6 +220,43 @@ function checkChaseFreshness(): CheckResult {
   };
 }
 
+function checkDiscoveryHealth(): CheckResult {
+  const nowMs = Date.now();
+  const queue = getDiscoveryMarketRefreshQueueStats(discoveryWorkerLockTimeoutMs(), nowMs);
+  const weekly = getWeeklyDiscoveryPreparationHealth(new Date(nowMs));
+  const readyBacklog = queue.queuedReady + queue.retryReady;
+
+  if (queue.staleRunning > 0) {
+    return {
+      name: 'discovery-health',
+      ok: false,
+      details: `${queue.staleRunning} stale worker lock(s); ready backlog ${readyBacklog}, active workers ${queue.activeWorkers}`
+    };
+  }
+
+  if (readyBacklog >= 10 && queue.activeWorkers === 0) {
+    return {
+      name: 'discovery-health',
+      ok: false,
+      details: `ready backlog ${readyBacklog} with no active discovery worker; last done ${queue.lastCompletedAt ?? 'never'}`
+    };
+  }
+
+  if (weekly.proUsers > 0 && weekly.overdueUnprepared === weekly.proUsers && weekly.prepared === 0) {
+    return {
+      name: 'discovery-health',
+      ok: false,
+      details: `weekly ${weekly.periodKey} has 0/${weekly.proUsers} prepared Pro shelves after release; queue ready ${readyBacklog}, running ${queue.running}`
+    };
+  }
+
+  return {
+    name: 'discovery-health',
+    ok: true,
+    details: `weekly ${weekly.periodKey}: ${weekly.prepared}/${weekly.proUsers} prepared, ${weekly.refreshDue} refresh due, queue ready ${readyBacklog}, running ${queue.running}`
+  };
+}
+
 const services = (envValue('VAULTR_OPS_SERVICES') ?? 'vaultr.service,vaultr-discovery-market-worker.service,vaultr-ebay-webhook.service')
   .split(',')
   .map((serviceName) => serviceName.trim())
@@ -223,7 +266,8 @@ const checks = [
   ...(await Promise.all(services.map((serviceName) => checkSystemdService(serviceName)))),
   checkDatabaseFile(),
   checkRecentBackup(),
-  checkChaseFreshness()
+  checkChaseFreshness(),
+  checkDiscoveryHealth()
 ];
 
 for (const check of checks) {

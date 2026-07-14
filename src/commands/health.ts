@@ -19,7 +19,7 @@ import { alertEbaySearchOptions } from '../services/poller.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { CHASE_ALERT_COOLDOWN_MINUTES } from '../services/alert-policy.js';
 import { getPollerState } from '../services/poller-state.js';
-import { sendWeeklyDropTestAnnouncement } from '../services/discovery-drop-scheduler.js';
+import { getWeeklyDiscoveryPreparationHealth, sendWeeklyDropTestAnnouncement } from '../services/discovery-drop-scheduler.js';
 import { getDiscoveryMarketRefreshQueueStats } from '../services/discovery-market-jobs.js';
 import { getDiscoveryMarketRefreshThrottleState } from './discover.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
@@ -461,6 +461,7 @@ export const health = {
     const isBackoffActive = backoffUntilMs !== undefined && Number.isFinite(backoffUntilMs) && backoffUntilMs > nowMs;
     const discoveryQueue = getDiscoveryMarketRefreshQueueStats(discoveryWorkerLockTimeoutMs(), nowMs);
     const discoveryThrottle = getDiscoveryMarketRefreshThrottleState();
+    const weeklyDiscovery = getWeeklyDiscoveryPreparationHealth(new Date(nowMs));
     const discoveryReady = discoveryQueue.queuedReady + discoveryQueue.retryReady;
     const discoveryScheduled = discoveryQueue.queuedScheduled + discoveryQueue.retryScheduled;
     const lines = [
@@ -514,6 +515,18 @@ export const health = {
       `**Guard Limits:** ${discoveryThrottle.userCooldownSeconds}s/user, ${discoveryThrottle.maxActiveJobs} active jobs`,
       `**Last Guard Skip:** user ${formatQueueTime(discoveryThrottle.lastUserCooldownSkipAt)}, pressure ${formatQueueTime(discoveryThrottle.lastQueuePressureSkipAt)}`,
       `**Last Pressure Depth:** ${discoveryThrottle.lastQueuePressureActiveJobs ?? 'None'}`
+    );
+
+    lines.push(
+      '',
+      '**Weekly Shelf Prep:**',
+      `**Target Drop:** ${weeklyDiscovery.periodKey} (${formatTimeWithAge(weeklyDiscovery.availableAt)})`,
+      `**Prepared Coverage:** ${weeklyDiscovery.prepared}/${weeklyDiscovery.proUsers} Pro collector${weeklyDiscovery.proUsers === 1 ? '' : 's'}`,
+      `**Statuses:** ${weeklyDiscovery.ready} ready, ${weeklyDiscovery.partial} partial, ${weeklyDiscovery.preparing} preparing, ${weeklyDiscovery.stale} stale, ${weeklyDiscovery.failed} failed, ${weeklyDiscovery.missing} missing`,
+      `**Refresh Due:** ${weeklyDiscovery.refreshDue}`,
+      `**Overdue Unprepared:** ${weeklyDiscovery.overdueUnprepared}`,
+      `**Oldest Prepared:** ${formatQueueTime(weeklyDiscovery.oldestPreparedUpdatedAt)}`,
+      `**Oldest Pending:** ${formatQueueTime(weeklyDiscovery.oldestPendingUpdatedAt)}`
     );
 
     lines.push('', ...buildEligibilityLines(chases, nowMs));

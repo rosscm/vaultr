@@ -621,12 +621,13 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
     if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
     return fetched;
   }
+  const ageMs = cached ? cachedReferenceAgeMs(cached) : undefined;
+  if (cached?.imageUrl && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) return cached;
   if (cached?.imageUrl && !(await validateReferenceImageUrl(cached.imageUrl))) {
     const fetched = await fetchDiscoveryReferenceImage(suggestion);
     if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
     return fetched;
   }
-  const ageMs = cached ? cachedReferenceAgeMs(cached) : undefined;
   if (cached && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) return cached;
 
   const fetched = await fetchDiscoveryReferenceImage(suggestion);

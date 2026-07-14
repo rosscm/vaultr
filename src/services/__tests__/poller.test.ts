@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Listing } from '../../types.js';
 import {
   buildDailyPulseEmbed,
-  buildWeeklyReflectionEmbed,
   alertEbaySearchOptions,
   chaseTuningNoticeLines,
   didFetchRequiredListingSource,
@@ -471,56 +470,6 @@ describe('poller coverage state', () => {
       checkedGroups: 0,
       deferredGroups: 0
     });
-  });
-});
-
-describe('buildWeeklyReflectionEmbed', () => {
-  it('frames the weekly DM as a concise collector recap', () => {
-    const embed = buildWeeklyReflectionEmbed({
-      alertsReceived: 4,
-      grailsSurfaced: 1,
-      newChasesAdded: 2,
-      topTasteFamily: 'Eeveelution cards',
-      topTasteTheme: 'moonlit alt art',
-      recentDiscovery: 'Umbreon VMAX Alt Art PSA 10'
-    });
-    const data = embed.toJSON();
-
-    expect(data.title).toBe('📬 Vaultr Weekly');
-    expect(data.description).toContain('4 alerts');
-    expect(data.description).toContain('1 grail');
-    expect(data.fields?.map((field) => field.name)).toEqual([
-      '📨 Alerts',
-      '💎 Grails',
-      '➕ New Chases',
-      '🧭 Current Read',
-      '🎯 Next Step'
-    ]);
-    expect(data.fields?.[0].value).toBe('**4**\nsent');
-    expect(data.fields?.[0].inline).toBe(true);
-    expect(data.fields?.[1].value).toBe('**1**\nhigh-priority hits');
-    expect(data.fields?.[2].value).toBe('**2**\nadded taste');
-    expect(data.fields?.[3].value).toBe('moonlit alt art around Eeveelution cards');
-    expect(data.fields?.[4].value).toContain('new chases now shape future Discovery recommendations');
-    expect(data.footer?.text).toBe('Vaultr • Weekly');
-  });
-
-  it('nudges noisy weeks toward chase tune-outs', () => {
-    const embed = buildWeeklyReflectionEmbed({
-      alertsReceived: 36,
-      grailsSurfaced: 7,
-      newChasesAdded: 5,
-      topTasteFamily: 'Mew line',
-      topTasteTheme: 'Japanese exclusives',
-      recentDiscovery: 'Mewtwo Vending Series'
-    });
-    const data = embed.toJSON();
-
-    expect(data.description).toBe('**36 alerts sent** this week, including 7 grails.');
-    expect(data.fields?.[0].value).toBe('**36**\nsent');
-    expect(data.fields?.[1].value).toBe('**7**\nhigh-priority hits');
-    expect(data.fields?.[4].value).toContain('If this felt noisy');
-    expect(data.fields?.[4].value).toContain('custom exclusions');
   });
 });
 
