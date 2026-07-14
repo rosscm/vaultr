@@ -206,6 +206,25 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS discovery_card_universe (
+    card_key TEXT PRIMARY KEY,
+    canonical_name TEXT NOT NULL,
+    suggestion_json TEXT NOT NULL,
+    lane TEXT,
+    source_name TEXT,
+    image_url TEXT,
+    image_source_name TEXT,
+    source_card_id TEXT,
+    subject_tokens_json TEXT NOT NULL,
+    trait_tokens_json TEXT NOT NULL,
+    market_total REAL,
+    market_currency TEXT,
+    observation_count INTEGER NOT NULL DEFAULT 1,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS discovery_scheduled_drops (
     user_id TEXT NOT NULL,
     drop_type TEXT NOT NULL,

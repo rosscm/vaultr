@@ -41,6 +41,7 @@ import {
   orderCandidatesForMarketConfidence,
   orderCandidatesFromPersistedState,
   preferFreshWeeklyCandidatesAgainstRecentShelves,
+  selectNovelWeeklyCandidates,
   profileSubjectMatchedReliableDiscoveryCandidates,
   profileVariantSourceBackfillParents,
   preserveLanguageSignalFallbackSuggestions,
@@ -60,11 +61,13 @@ import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js'
 import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
+import { deleteDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 
 afterEach(() => {
   resetDiscoveryMarketRefreshThrottleState();
+  deleteDiscoveryUniverseCards();
 });
 
 function candidate(name: string, lane: string, selectionIndex: number, marketSampleSize?: number): DiscoveryCandidate {
@@ -733,6 +736,25 @@ describe('selectVisibleCandidates', () => {
     expect(visible.map((item) => item.suggestion.name)).toEqual(['Mew Expedition Base Set 19']);
   });
 
+  it('does not count low-value ordinary non-premium cards as weekly chase picks', () => {
+    const cheapJapaneseZapdos = sourceCandidate('Zapdos Japanese SVLN 002/022', 'TCGdex Japanese (SVLN)', 0);
+    cheapJapaneseZapdos.typicalRawAskingTotal = 8.02;
+    cheapJapaneseZapdos.marketSampleSize = 7;
+
+    const cheapGiovanniMeowth = sourceCandidate("Giovanni's Meowth Gym Challenge 74", 'Pokemon TCG (Gym Challenge)', 1);
+    cheapGiovanniMeowth.typicalRawAskingTotal = 7.34;
+    cheapGiovanniMeowth.marketSampleSize = 12;
+
+    const premiumPromo = sourceCandidate("Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese", 'TCGdex Japanese (McDonalds Collection)', 2);
+    premiumPromo.typicalRawAskingTotal = 11.5;
+    premiumPromo.marketSampleSize = 2;
+    premiumPromo.suggestion.sourceTasteTokens = ['pikachu', 'promo', 'e-reader', 'mcdonalds', 'japanese'];
+
+    expect(isBroadCollectorShelfFillerCandidate(cheapJapaneseZapdos, ['Zapdos Aquapolis 44'].map(chase))).toBe(false);
+    expect(isBroadCollectorShelfFillerCandidate(cheapGiovanniMeowth, ['Pikachu XY95'].map(chase))).toBe(false);
+    expect(isBroadCollectorShelfFillerCandidate(premiumPromo, ["Squirtle 007/018 McDonald's Promo e-Reader 2002 Japanese"].map(chase))).toBe(true);
+  });
+
   it('keeps low-value modern cards with explicit collector context', () => {
     const specialDelivery = sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 0);
     specialDelivery.typicalRawAskingTotal = 18.5;
@@ -975,6 +997,24 @@ describe('selectVisibleCandidates', () => {
     expect(backfilled.map((item) => item.suggestion.name)).toEqual(['Mew Expedition Base Set 19']);
   });
 
+  it('does not keep generic thread titles when backfilling a finished weekly shelf', () => {
+    const backfilled = backfillScheduledDiscoveryShelfCandidates(
+      [
+        sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 0),
+        candidate('Squirtle Expedition Base Set raw card', 'Collector Compass', 1, 4),
+        candidate('Mew S12a Japanese cards', 'Japanese Collector Trail', 2, 4),
+        sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 3)
+      ],
+      null,
+      20
+    );
+
+    expect(backfilled.map((item) => item.suggestion.name)).toEqual([
+      'Squirtle Expedition Base Set 132',
+      'Zapdos Aquapolis 44'
+    ]);
+  });
+
   it('does not show duplicate card picks that only differ by generic card suffixes', () => {
     const visible = marketReadyShelfCandidates(
       [candidate('Pikachu Skyridge 84', 'E-Reader Era Trail', 0, 4), candidate('Pikachu Skyridge 84 trading card', 'Collector Compass', 1, 4)],
@@ -995,6 +1035,33 @@ describe('selectVisibleCandidates', () => {
     expect(selected).toHaveLength(20);
     expect(visible).toHaveLength(20);
     expect(visible.map((item) => item.suggestion.name)).toEqual(readyCandidates.map((item) => item.suggestion.name));
+  });
+
+  it('rebalances weekly shelves away from one repeated subject when alternatives exist', () => {
+    const selected = selectVisibleCandidatesForCount(
+      [
+        sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 0),
+        sourceCandidate('Squirtle Expedition Base Set 131', 'Pokemon TCG (Expedition Base Set)', 1),
+        sourceCandidate('Squirtle 151 170', 'Pokemon TCG (151)', 2),
+        sourceCandidate('Squirtle McDonalds Promo 007/018 Japanese', 'TCGdex Japanese (McDonalds Collection)', 3),
+        sourceCandidate('Mew Expedition Base Set 55', 'Pokemon TCG (Expedition Base Set)', 4),
+        sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 5),
+        sourceCandidate('Articuno Wizards Black Star Promos 48', 'Pokemon TCG (Wizards Black Star Promos)', 6),
+        sourceCandidate('Umbreon BW Black Star Promos BW93', 'Pokemon TCG (BW Black Star Promos)', 7),
+        sourceCandidate('Moltres Skyridge 21', 'Pokemon TCG (Skyridge)', 8),
+        sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 9)
+      ],
+      ['Squirtle 007/018', 'Mew RC24', 'Umbreon 217/187', 'Pikachu xy95', 'Moltres Zapdos Articuno SM210'].map(chase),
+      10
+    );
+
+    expect(selected.filter((item) => /squirtle/i.test(item.suggestion.name))).toHaveLength(3);
+    expect(selected.map((item) => item.suggestion.name)).toEqual(expect.arrayContaining([
+      'Mew Expedition Base Set 55',
+      'Zapdos Aquapolis 44',
+      'Umbreon BW Black Star Promos BW93',
+      'Pikachu Skyridge 84'
+    ]));
   });
 
   it('holds back VMAX and GX cards when the profile has no format affinity', () => {
@@ -1963,6 +2030,232 @@ describe('preferFreshWeeklyCandidatesAgainstRecentShelves', () => {
       'Gardevoir Nintendo Promo 024/P Japanese',
       'Gardevoir ex Paldean Fates 233'
     ]);
+  });
+
+  it('caps exact repeats from recent shelves when enough fresh weekly alternatives exist', () => {
+    const recentDrops: ScheduledDiscoveryDrop[] = [
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W28',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-07-07T00:00:00.000Z',
+        generatedAt: '2026-07-07T00:00:00.000Z',
+        updatedAt: '2026-07-07T00:00:00.000Z',
+        marketReadyCount: 3,
+        imageReadyCount: 3,
+        itemCount: 3,
+        items: [
+          { position: 1, suggestion: sourceCandidate('Mew Expedition Base Set 19', 'Pokemon TCG (Expedition Base Set)', 0).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 2, suggestion: sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 1).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 3, suggestion: sourceCandidate('Umbreon XY Black Star Promos XY96', 'Pokemon TCG (XY Black Star Promos)', 2).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } }
+        ]
+      }
+    ];
+    const ordered = preferFreshWeeklyCandidatesAgainstRecentShelves([
+      sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0),
+      sourceCandidate('Articuno Skyridge 4', 'Pokemon TCG (Skyridge)', 1),
+      sourceCandidate('Moltres Skyridge 21', 'Pokemon TCG (Skyridge)', 2),
+      sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 3),
+      sourceCandidate('Mew Expedition Base Set 19', 'Pokemon TCG (Expedition Base Set)', 4),
+      sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 5),
+      sourceCandidate('Umbreon XY Black Star Promos XY96', 'Pokemon TCG (XY Black Star Promos)', 6)
+    ], recentDrops, ['Mew RC24', 'Pikachu XY95', 'Umbreon 217/187', 'Squirtle 007/018'].map(chase));
+
+    const selected = selectNovelWeeklyCandidates(ordered, recentDrops, 4, ['Mew RC24', 'Pikachu XY95', 'Umbreon 217/187', 'Squirtle 007/018'].map(chase));
+
+    expect(selected.map((item) => item.suggestion.name)).toEqual([
+      'Zapdos Aquapolis 44',
+      'Articuno Skyridge 4',
+      'Moltres Skyridge 21',
+      'Squirtle Expedition Base Set 132'
+    ]);
+  });
+
+  it('keeps a weekly shelf full by allowing limited older callbacks only after fresh options are exhausted', () => {
+    const recentDrops: ScheduledDiscoveryDrop[] = [
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W28',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-07-07T00:00:00.000Z',
+        generatedAt: '2026-07-07T00:00:00.000Z',
+        updatedAt: '2026-07-07T00:00:00.000Z',
+        marketReadyCount: 4,
+        imageReadyCount: 4,
+        itemCount: 4,
+        items: [
+          { position: 1, suggestion: sourceCandidate('Mew Expedition Base Set 19', 'Pokemon TCG (Expedition Base Set)', 0).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 2, suggestion: sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 1).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 3, suggestion: sourceCandidate('Umbreon XY Black Star Promos XY96', 'Pokemon TCG (XY Black Star Promos)', 2).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 4, suggestion: sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 3).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } }
+        ]
+      }
+    ];
+    const ordered = preferFreshWeeklyCandidatesAgainstRecentShelves([
+      sourceCandidate('Articuno Skyridge 4', 'Pokemon TCG (Skyridge)', 0),
+      sourceCandidate('Moltres Skyridge 21', 'Pokemon TCG (Skyridge)', 1),
+      sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 2),
+      sourceCandidate('Mew Expedition Base Set 19', 'Pokemon TCG (Expedition Base Set)', 3),
+      sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 4),
+      sourceCandidate('Umbreon XY Black Star Promos XY96', 'Pokemon TCG (XY Black Star Promos)', 5),
+      sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 6)
+    ], recentDrops, ['Mew RC24', 'Pikachu XY95', 'Umbreon 217/187', 'Squirtle 007/018'].map(chase));
+
+    const selected = selectNovelWeeklyCandidates(ordered, recentDrops, 6, ['Mew RC24', 'Pikachu XY95', 'Umbreon 217/187', 'Squirtle 007/018'].map(chase));
+
+    expect(selected).toHaveLength(6);
+    expect(selected.map((item) => item.suggestion.name)).toEqual(expect.arrayContaining([
+      'Articuno Skyridge 4',
+      'Moltres Skyridge 21',
+      'Squirtle Expedition Base Set 132'
+    ]));
+    expect(selected.filter((item) => ['Mew Expedition Base Set 19', 'Pikachu Skyridge 84', 'Umbreon XY Black Star Promos XY96', 'Zapdos Aquapolis 44'].includes(item.suggestion.name)).length).toBeLessThanOrEqual(3);
+  });
+
+  it('caps recent-subject overlap when enough fresh weekly alternatives exist', () => {
+    const recentDrops: ScheduledDiscoveryDrop[] = [
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W28',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-07-07T00:00:00.000Z',
+        generatedAt: '2026-07-07T00:00:00.000Z',
+        updatedAt: '2026-07-07T00:00:00.000Z',
+        marketReadyCount: 4,
+        imageReadyCount: 4,
+        itemCount: 4,
+        items: [
+          { position: 1, suggestion: sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 0).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 2, suggestion: sourceCandidate('Squirtle McDonalds Promo 007/018 Japanese', 'TCGdex Japanese (McDonalds Collection)', 1).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 3, suggestion: sourceCandidate('Squirtle 151 170', 'Pokemon TCG (151)', 2).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 4, suggestion: sourceCandidate('Squirtle Expedition Base Set 131', 'Pokemon TCG (Expedition Base Set)', 3).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } }
+        ]
+      }
+    ];
+
+    const selected = selectNovelWeeklyCandidates([
+      sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 0),
+      sourceCandidate('Squirtle Expedition Base Set 131', 'Pokemon TCG (Expedition Base Set)', 1),
+      sourceCandidate('Squirtle 151 170', 'Pokemon TCG (151)', 2),
+      sourceCandidate('Squirtle McDonalds Promo 007/018 Japanese', 'TCGdex Japanese (McDonalds Collection)', 3),
+      sourceCandidate('Mew Expedition Base Set 19', 'Pokemon TCG (Expedition Base Set)', 4),
+      sourceCandidate('Pikachu Skyridge 84', 'Pokemon TCG (Skyridge)', 5),
+      sourceCandidate('Umbreon BW Black Star Promos BW93', 'Pokemon TCG (BW Black Star Promos)', 6),
+      sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 7),
+      sourceCandidate('Articuno Wizards Black Star Promos 48', 'Pokemon TCG (Wizards Black Star Promos)', 8),
+      sourceCandidate('Moltres Skyridge 21', 'Pokemon TCG (Skyridge)', 9)
+    ], recentDrops, 6, ['Squirtle 007/018', 'Mew RC24', 'Umbreon 217/187', 'Pikachu XY95'].map(chase));
+
+    expect(selected.filter((item) => /squirtle/i.test(item.suggestion.name)).length).toBeLessThanOrEqual(2);
+  });
+
+  it('surfaces universe cards that match the collector profile instead of unrelated global cards', () => {
+    upsertDiscoveryUniverseCard({
+      canonicalName: 'Gardevoir Nintendo Promo 019/P Japanese',
+      suggestion: {
+        name: 'Gardevoir Nintendo Promo 019/P Japanese',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'source-backed collector promo',
+        why: 'A niche Japanese promo linked by prior source-backed discovery context',
+        nearby: [],
+        referenceSourceName: 'TCGdex Japanese (Promos)',
+        sourceTasteTokens: ['gardevoir', 'japanese', 'promo']
+      },
+      sourceName: 'TCGdex Japanese (Promos)',
+      imageUrl: 'https://images.example/gardevoir-promo.png',
+      imageSourceName: 'TCGdex Japanese (Promos)',
+      subjectTokens: ['gardevoir'],
+      traitTokens: ['promo', 'japanese'],
+      marketTotal: 65,
+      marketCurrency: 'CAD'
+    });
+    upsertDiscoveryUniverseCard({
+      canonicalName: 'Dialga Japanese Promo 005/PPP',
+      suggestion: {
+        name: 'Dialga Japanese Promo 005/PPP',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'source-backed collector promo',
+        why: 'Another niche Japanese promo',
+        nearby: [],
+        referenceSourceName: 'TCGdex Japanese (Promos)',
+        sourceTasteTokens: ['dialga', 'japanese', 'promo']
+      },
+      sourceName: 'TCGdex Japanese (Promos)',
+      imageUrl: 'https://images.example/dialga-promo.png',
+      imageSourceName: 'TCGdex Japanese (Promos)',
+      subjectTokens: ['dialga'],
+      traitTokens: ['promo', 'japanese'],
+      marketTotal: 70,
+      marketCurrency: 'CAD'
+    });
+
+    const selected = __discoveryPersistenceTestHooks.selectDiscoveryUniverseCandidatesForProfile(
+      ['Gardevoir ex Paldean Fates 233', 'Mew CoroCoro Promo 151'].map(chase),
+      [],
+      5
+    );
+
+    expect(selected.map((item) => item.suggestion.name)).toContain('Gardevoir Nintendo Promo 019/P Japanese');
+    expect(selected.map((item) => item.suggestion.name)).not.toContain('Dialga Japanese Promo 005/PPP');
+  });
+
+  it('lets universe cards ride source-backed taste tokens beyond exact subject overlap', () => {
+    upsertDiscoveryUniverseCard({
+      canonicalName: 'Blastoise Classic Collection 003/025',
+      suggestion: {
+        name: 'Blastoise Classic Collection 003/025',
+        lane: 'Set Companion Trail',
+        laneWhy: 'source-backed profile companion',
+        why: 'A concrete follow-up card remembered from adjacent collector context',
+        nearby: [],
+        referenceSourceName: 'Pokemon TCG (Celebrations: Classic Collection)',
+        sourceTasteTokens: ['squirtle', 'starter', 'classic collection']
+      },
+      sourceName: 'Pokemon TCG (Celebrations: Classic Collection)',
+      imageUrl: 'https://images.example/blastoise-classic.png',
+      imageSourceName: 'Pokemon TCG (Celebrations: Classic Collection)',
+      subjectTokens: ['blastoise'],
+      traitTokens: ['modern'],
+      marketTotal: 28,
+      marketCurrency: 'CAD'
+    });
+
+    const selected = __discoveryPersistenceTestHooks.selectDiscoveryUniverseCandidatesForProfile(
+      ['Squirtle 007/018 Japanese Promo', 'Mew RC24'].map(chase),
+      [],
+      5
+    );
+
+    expect(selected.map((item) => item.suggestion.name)).toContain('Blastoise Classic Collection 003/025');
+  });
+
+  it('builds a broad canonical-universe parent set from profile threads, Japanese signals, and global backfill parents', () => {
+    const parents = __discoveryPersistenceTestHooks.canonicalUniverseSeedParents(
+      [
+        'Umbreon ex SAR Terastal Festival Japanese 217/187',
+        'Corocoro Shining Mew',
+        'Pikachu 26/83 Toys R Us promo',
+        'Squirtle 007/018 McDonalds e-Reader Promo'
+      ].map(chase),
+      40
+    );
+
+    expect(parents.length).toBeGreaterThanOrEqual(20);
+    expect(parents.map((item) => item.name)).toEqual(expect.arrayContaining([
+      'Pokemon promo cards',
+      'Pokemon illustration rare cards',
+      'Umbreon Japanese unique release Pokemon cards',
+      'Umbreon Japanese special set Pokemon cards'
+    ]));
   });
 });
 
@@ -4015,6 +4308,49 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(names).not.toContain(repeatedPikachu.suggestion.name);
   });
 
+  it('does not treat unrelated premium promos as scheduled profile-relevant just because the profile likes promos', () => {
+    const dialgaPromo = sourceCandidate('Origin Forme Dialga V SWSH Black Star Promos SWSH255', 'Pokemon TCG (SWSH Black Star Promos)', 0);
+    const chases = [
+      'Squirtle Japanese Promo 007/018',
+      'Mew CoroCoro Promo 151',
+      'Umbreon ex SAR Terastal Festival Japanese 217/187',
+      'Pikachu 26/83 Toys R Us promo'
+    ].map(chase);
+
+    expect(isScheduledProfileRelevantCandidate(dialgaPromo, chases)).toBe(false);
+  });
+
+  it('does not treat unrelated Japanese ex cards as scheduled profile-relevant from trait-only overlap', () => {
+    const blastoise151: DiscoveryCandidate = {
+      selectionIndex: 0,
+      suggestion: {
+        name: 'Blastoise ex 151 200',
+        lane: 'Format Trail',
+        laneWhy: 'market-ready profile expansion',
+        why: 'A market-ready adjacent card Vaultr connected to this collector profile from prepared pricing data',
+        nearby: [],
+        evidenceSearchTerm: 'Blastoise ex 151 200 Pokemon card',
+        evidenceAliases: ['Blastoise ex 151 200'],
+        requiredEvidenceTokens: ['blastoise'],
+        referenceSourceName: 'Pokemon TCG (151)'
+      },
+      listing: listing({
+        title: 'Venusaur Blastoise ex SAR 200/165 202/165 sv2a Pokemon 151 Card Japanese 332'
+      }),
+      typicalRawAskingTotal: 212.73,
+      marketSampleSize: 12,
+      displayCurrency: 'CAD'
+    };
+    const chases = [
+      'Squirtle Japanese Promo 007/018',
+      'Mew CoroCoro Promo 151',
+      'Umbreon ex SAR Terastal Festival Japanese 217/187',
+      'Mew-EX Legendary Treasures RC24'
+    ].map(chase);
+
+    expect(isScheduledProfileRelevantCandidate(blastoise151, chases)).toBe(false);
+  });
+
   it('attaches cached market values to visible Discovery cards', () => {
     const name = `Mew Southern Islands Promo ${Date.now()}`;
     const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
@@ -4137,6 +4473,27 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(items[0]?.imageUrl).toBe('https://images.example/blastoise-151.png');
     expect(items[0]?.imageSourceName).toBe('Pokemon TCG (151)');
+  });
+
+  it('persists clean marketplace images for saved shelf cards when no card reference image exists', () => {
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      {
+        ...candidate('Gardevoir Nintendo Promo 019/P Japanese', 'Japanese Collector Trail', 0, 4),
+        listing: listing({
+          title: 'Gardevoir Nintendo Promo 019/P Japanese Pokemon Card NM',
+          imageUrl: 'https://i.ebayimg.example/gardevoir.jpg'
+        }),
+        image: {
+          name: 'Gardevoir Nintendo Promo 019/P Japanese',
+          url: 'https://i.ebayimg.example/gardevoir.jpg',
+          sourceName: 'eBay listing image',
+          sourceKind: 'MARKET_LISTING'
+        }
+      }
+    ], 'CAD');
+
+    expect(items[0]?.imageUrl).toBe('https://i.ebayimg.example/gardevoir.jpg');
+    expect(items[0]?.imageSourceName).toBe('eBay vetted marketplace image');
   });
 
   it('infers structured source names for concrete cached market cards with obvious set context', () => {
