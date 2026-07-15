@@ -225,6 +225,26 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS discovery_user_universe (
+    user_id TEXT NOT NULL,
+    card_key TEXT NOT NULL,
+    canonical_name TEXT NOT NULL,
+    score REAL NOT NULL,
+    score_components_json TEXT NOT NULL,
+    suggestion_json TEXT NOT NULL,
+    image_url TEXT,
+    image_source_name TEXT,
+    source_card_id TEXT,
+    market_total REAL,
+    market_currency TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, card_key)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_discovery_user_universe_user_score
+    ON discovery_user_universe(user_id, score DESC, updated_at DESC);
+
   CREATE TABLE IF NOT EXISTS discovery_scheduled_drops (
     user_id TEXT NOT NULL,
     drop_type TEXT NOT NULL,

@@ -552,7 +552,7 @@ describe('buildDailyPulseEmbed', () => {
     expect(data.fields?.[0].value).toContain('• Grail watch: 1 grail surfaced');
     expect(data.fields?.[0].value).toContain('• 18 chases stayed active across 4 Vaults');
     expect(data.fields?.[1]).toMatchObject({ name: 'Collector Signal' });
-    expect(data.fields?.[1].value).toContain('Today leaned moonlit alt art in Umbreon line; the board still centers on Eeveelution cards');
+    expect(data.fields?.[1].value).toContain("Today's alerts leaned moonlit alt art in Umbreon line, while the wider board still sits around Eeveelution cards.");
     expect(data.fields?.[2]).toMatchObject({ name: 'Spotlight', value: 'Umbreon VMAX Alt Art PSA 10' });
     expect(data.footer?.text).toBe('Vaultr • Pulse');
     expect(JSON.stringify(data)).not.toContain('📡');
@@ -580,8 +580,11 @@ describe('buildDailyPulseEmbed', () => {
     expect(data.description).toContain('Quiet day in the Vault');
     expect(data.description).toContain('No new alerts or joins today');
     expect(data.fields?.[0].value).toContain('• 11 chases stayed active across 3 Vaults');
-    expect(data.fields?.[1].value).toContain('The board stayed mixed; no single path led today');
-    expect(data.fields?.[2]).toMatchObject({ name: 'Spotlight', value: 'No standout listing today' });
+    expect(data.fields?.[1].value).toContain('11 chases are still spread across 3 Vaults; no single collector lane took over today.');
+    expect(data.fields?.[2]).toMatchObject({
+      name: 'Spotlight',
+      value: '11 chases stayed active across 3 Vaults, even without a single standout listing today.'
+    });
   });
 
   it('does not frame broad tracked families as today-specific alert activity', () => {
@@ -603,7 +606,7 @@ describe('buildDailyPulseEmbed', () => {
     expect(data.description).toContain('1 chase alert reached 1 collector');
     expect(data.description).toContain('Fresh listings crossed the feed today');
     expect(data.fields?.[0].value).toContain('• 4 chases stayed active across 1 Vault');
-    expect(data.fields?.[1].value).toContain('Today leaned Base Set / starter-era cards in Blastoise line; the board still centers on Mew line');
+    expect(data.fields?.[1].value).toContain('Fresh movement came through Base Set / starter-era cards in Blastoise line; the watchlist behind it is still steady around Mew line.');
     expect(JSON.stringify(data)).not.toContain('starter-era nostalgia across Mew line');
     expect(JSON.stringify(data)).not.toContain('Mew line collectors had something to inspect today.');
   });

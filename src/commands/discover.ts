@@ -34,6 +34,7 @@ import { convertCurrencyAmount, roundConvertedMaxPrice, type SupportedCurrency }
 import { buildEbaySearchKeywords, searchEbayListings, searchEbaySoldListings } from '../services/ebay.js';
 import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
 import { listDiscoveryUniverseCards, upsertDiscoveryUniverseCard, type DiscoveryUniverseCard } from '../services/discovery-card-universe.js';
+import { listDiscoveryUserUniverseCards, replaceDiscoveryUserUniverseCards, type DiscoveryUserUniverseCard } from '../services/discovery-user-universe.js';
 import {
   discoveryMarketCacheKey,
   getDiscoveryMarketCache,
@@ -1969,6 +1970,9 @@ export const __discoveryPersistenceTestHooks = {
   scheduledDropItemsFromCandidates,
   isScheduledShelfPriorityCandidate,
   selectDiscoveryUniverseCandidatesForProfile,
+  selectDiscoveryUserUniverseCandidatesFromEntries,
+  buildFreshWeeklyShelfFromPool,
+  weeklyJapaneseSignalTargetCount,
   scoreDiscoveryUniverseCardForProfile,
   saveWeeklyDiscoveryDrop,
   canonicalUniverseSeedParents
@@ -3130,8 +3134,8 @@ function hasJapaneseWeightedProfile(chases: Chase[]): boolean {
 function weeklyJapaneseSignalTargetCount(chases: Chase[], maxShelfSize: number): number {
   if (!hasJapaneseWeightedProfile(chases)) return 0;
   const ratio = japaneseSignalWeightRatio(chases);
-  const targetRatio = Math.max(0.2, Math.min(0.35, ratio));
-  return Math.max(3, Math.min(6, Math.ceil(maxShelfSize * targetRatio)));
+  const targetRatio = Math.max(0.08, Math.min(0.18, ratio * 0.6));
+  return Math.max(1, Math.min(3, Math.ceil(maxShelfSize * targetRatio)));
 }
 
 export function preserveLanguageSignalFallbackSuggestions(sourceBackedSuggestions: DiscoverySuggestion[], freshSuggestions: DiscoverySuggestion[], chases: Chase[]): DiscoverySuggestion[] {
@@ -3272,6 +3276,7 @@ function universeTraitTokensForCandidate(candidate: DiscoveryCandidate): string[
 function persistDiscoveryUniverseCandidate(candidate: DiscoveryCandidate): void {
   if (!isFinishedShelfCandidate(candidate)) return;
   if (!isCollectorWorthyWeeklyCandidate(candidate)) return;
+  if (isMarketplaceStyleDiscoveryName(candidate.suggestion.name)) return;
   upsertDiscoveryUniverseCard({
     canonicalName: candidate.suggestion.name,
     suggestion: candidate.suggestion,
@@ -3337,7 +3342,7 @@ function candidateFromDiscoveryUniverseCard(entry: DiscoveryUniverseCard, select
   };
 }
 
-function scoreDiscoveryUniverseCardForProfile(entry: DiscoveryUniverseCard, chases: Chase[]): number {
+function discoveryUniverseScoreComponents(entry: DiscoveryUniverseCard, chases: Chase[]): Record<string, number> {
   const profileSubjects = distinctProfileKeys(positiveTasteSubjectChases(chases), (value) => expandedProfileSubjectTokens(value).slice(0, 3));
   const profileTraits = distinctProfileKeys(positiveTasteSubjectChases(chases), profileTraitKeys);
   const profileSpecialSets = profileSpecialSetLabels(positiveTasteSubjectChases(chases));
@@ -3350,14 +3355,31 @@ function scoreDiscoveryUniverseCardForProfile(entry: DiscoveryUniverseCard, chas
   const contextOverlap = [...profileSubjects].filter((token) => entryContextTokens.has(token)).length;
   const traitOverlap = [...profileTraits].filter((token) => entryTraits.has(token)).length;
   const setOverlap = [...profileSpecialSets].some((label) => cardTextHasToken(normalize([entry.canonicalName, entry.sourceName, entry.lane, entry.suggestion.referenceSourceName].filter(Boolean).join(' ')), label)) ? 1 : 0;
+  const observation = Math.min(6, entry.observationCount);
+  const image = entry.imageUrl ? 4 : 0;
+  const market = entry.marketTotal !== undefined ? 4 : 0;
+  return {
+    subjectOverlap,
+    contextOverlap,
+    traitOverlap,
+    setOverlap,
+    observation,
+    image,
+    market
+  };
+}
+
+function scoreDiscoveryUniverseCardForProfile(entry: DiscoveryUniverseCard, chases: Chase[]): number {
+  const components = discoveryUniverseScoreComponents(entry, chases);
+  const { subjectOverlap, contextOverlap, traitOverlap, setOverlap, observation, image, market } = components;
   if (subjectOverlap === 0 && contextOverlap === 0 && setOverlap === 0) return Number.NEGATIVE_INFINITY;
   return subjectOverlap * 18
     + contextOverlap * 10
     + traitOverlap * 7
     + setOverlap * 8
-    + Math.min(6, entry.observationCount)
-    + (entry.imageUrl ? 4 : 0)
-    + (entry.marketTotal !== undefined ? 4 : 0);
+    + observation
+    + image
+    + market;
 }
 
 function selectDiscoveryUniverseCandidatesForProfile(
@@ -3384,6 +3406,7 @@ function selectDiscoveryUniverseCandidatesForProfile(
     const candidate = candidateFromDiscoveryUniverseCard(entry, selected.length);
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     if (seenNames.has(nameKey)) continue;
+    if (isMarketplaceStyleDiscoveryName(candidate.suggestion.name)) continue;
     if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
     if (!isDisplayableDiscoveryCandidate(candidate)) continue;
     if (!isCollectorWorthyWeeklyCandidate(candidate)) continue;
@@ -3391,6 +3414,116 @@ function selectDiscoveryUniverseCandidatesForProfile(
     seenNames.add(nameKey);
   }
   return selected;
+}
+
+function rebuildUserDiscoveryUniverse(userId: string, chases: Chase[], repeatGuardChases: Chase[] = chases): void {
+  const ranked = listDiscoveryUniverseCards(2000)
+    .map((entry) => ({
+      entry,
+      score: scoreDiscoveryUniverseCardForProfile(entry, chases)
+    }))
+    .filter(({ score }) => Number.isFinite(score))
+    .sort((left, right) => right.score - left.score || right.entry.observationCount - left.entry.observationCount || left.entry.canonicalName.localeCompare(right.entry.canonicalName));
+  const selected: DiscoveryUniverseCard[] = [];
+  const seenNames = new Set<string>();
+  for (const { entry } of ranked) {
+    if (selected.length >= 800) break;
+    const candidate = candidateFromDiscoveryUniverseCard(entry, selected.length);
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    if (seenNames.has(nameKey)) continue;
+    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
+    if (!isDisplayableDiscoveryCandidate(candidate)) continue;
+    if (!isCollectorWorthyWeeklyCandidate(candidate)) continue;
+    selected.push(entry);
+    seenNames.add(nameKey);
+  }
+  replaceDiscoveryUserUniverseCards(userId, selected.map((entry) => ({
+    userId,
+    cardKey: entry.cardKey,
+    canonicalName: entry.canonicalName,
+    score: scoreDiscoveryUniverseCardForProfile(entry, chases),
+    scoreComponents: discoveryUniverseScoreComponents(entry, chases),
+    suggestion: entry.suggestion,
+    imageUrl: entry.imageUrl,
+    imageSourceName: entry.imageSourceName,
+    sourceCardId: entry.sourceCardId,
+    marketTotal: entry.marketTotal,
+    marketCurrency: entry.marketCurrency
+  })));
+}
+
+function selectDiscoveryUserUniverseCandidatesFromEntries(
+  entries: DiscoveryUserUniverseCard[],
+  excludedNames: string[],
+  targetCount: number,
+  profileChases: Chase[],
+  repeatGuardChases: Chase[]
+): DiscoveryCandidate[] {
+  const excludedNameKeys = discoveryExclusionNameKeys(excludedNames);
+  const eligible: DiscoveryCandidate[] = [];
+  const seenNames = new Set<string>();
+  for (const entry of entries) {
+    if (isDiscoveryNameExcluded(entry.canonicalName, excludedNameKeys)) continue;
+    const candidate: DiscoveryCandidate = {
+      suggestion: {
+        ...marketCacheSuggestionFromCardName(entry.canonicalName),
+        ...entry.suggestion,
+        referenceImageUrl: entry.suggestion.referenceImageUrl ?? entry.imageUrl,
+        referenceSourceName: entry.suggestion.referenceSourceName ?? entry.imageSourceName,
+        referenceSourceCardId: entry.suggestion.referenceSourceCardId ?? entry.sourceCardId
+      },
+      image: entry.imageUrl
+        ? {
+            name: entry.canonicalName,
+            url: entry.imageUrl,
+            sourceName: entry.imageSourceName,
+            sourceCardId: entry.sourceCardId,
+            sourceKind: 'CARD_REFERENCE'
+          }
+        : undefined,
+      typicalRawAskingTotal: entry.marketTotal,
+      marketSampleSize: entry.marketTotal === undefined ? undefined : MIN_ASK_ONLY_MARKET_SAMPLE_SIZE,
+      displayCurrency: entry.marketCurrency as SupportedCurrency | undefined,
+      selectionIndex: eligible.length
+    };
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    if (seenNames.has(nameKey)) continue;
+    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
+    if (!isDisplayableDiscoveryCandidate(candidate)) continue;
+    if (!isCollectorWorthyWeeklyCandidate(candidate)) continue;
+    eligible.push(candidate);
+    seenNames.add(nameKey);
+  }
+  if (eligible.length <= targetCount) return eligible;
+  const prioritized = eligible.slice(0, Math.min(eligible.length, Math.max(targetCount * 4, DISCOVERY_SHELF_PAGE_SIZE * 4)));
+  const diversifiedSeeds = takeDistinctThemes(
+    prioritized,
+    profileChases,
+    Math.min(prioritized.length, Math.max(targetCount * 3, DISCOVERY_SHELF_PAGE_SIZE * 3))
+  );
+  const diversifiedNameKeys = new Set(diversifiedSeeds.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
+  const supportPool = prioritized.filter((candidate) => !diversifiedNameKeys.has(discoveryDisplayNameKey(candidate.suggestion.name)));
+  return orderCandidatesForCollectorPresentation(
+    [...diversifiedSeeds, ...supportPool],
+    profileChases,
+    targetCount
+  ).slice(0, targetCount);
+}
+
+function selectDiscoveryUserUniverseCandidates(
+  userId: string,
+  excludedNames: string[],
+  targetCount: number,
+  profileChases: Chase[],
+  repeatGuardChases: Chase[]
+): DiscoveryCandidate[] {
+  return selectDiscoveryUserUniverseCandidatesFromEntries(
+    listDiscoveryUserUniverseCards(userId, Math.max(300, targetCount * 20)),
+    excludedNames,
+    targetCount,
+    profileChases,
+    repeatGuardChases
+  );
 }
 
 function canonicalUniverseSeedParents(chases: Chase[], targetCount = DISCOVERY_CANDIDATE_POOL_SIZE): DiscoverySuggestion[] {
@@ -3482,6 +3615,7 @@ async function ingestCanonicalDiscoveryUniverseForUser(
     parentLimit: 48,
     perParentLimit: 8
   });
+  rebuildUserDiscoveryUniverse(userId, tasteProfileChases, [...activeChases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(userId))]);
 }
 
 export function concreteDiscoveryFallbackSuggestions(names: string[], excludedNames: string[] = []): DiscoverySuggestion[] {
@@ -3823,6 +3957,36 @@ function isJapaneseDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
   );
 }
 
+function isMarketplaceStyleDiscoveryName(name: string): boolean {
+  const normalized = normalize(name);
+  if (/^20\d{2}\s+pokemon tcg\b/.test(normalized)) return true;
+  if (/^pokemon card\b/.test(normalized)) return true;
+  if (/\b(?:near mint|raw card|pokemon card raw|pokemon card nm|common|rare)\b/.test(normalized)) return true;
+  if (/_{3,}/.test(name)) return true;
+  return false;
+}
+
+function scheduledShelfImageFromCandidate(candidate: DiscoveryCandidate): DiscoveryCardImage | undefined {
+  if (candidate.image?.sourceKind === 'CARD_REFERENCE') return candidate.image;
+  if (isVettedMarketplaceImageCandidate(candidate)) return candidate.image;
+  if (candidate.image?.sourceKind === 'MARKET_LISTING' && candidate.listing && looksLikeCleanMarketplaceCardPhoto(candidate.listing)) {
+    return {
+      ...candidate.image,
+      sourceName: VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME
+    };
+  }
+  if (candidate.suggestion.referenceImageUrl) {
+    return {
+      name: candidate.suggestion.name,
+      url: candidate.suggestion.referenceImageUrl,
+      sourceName: candidate.suggestion.referenceSourceName,
+      sourceCardId: candidate.suggestion.referenceSourceCardId,
+      sourceKind: 'CARD_REFERENCE'
+    };
+  }
+  return undefined;
+}
+
 function ebaySearchHost(currencyHint: SupportedCurrency): string {
   return currencyHint === 'CAD' ? 'www.ebay.ca' : 'www.ebay.com';
 }
@@ -3873,11 +4037,11 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
   const subjectCounts = new Map<string, number>();
   const japaneseAffinity = japaneseSignalWeightRatio(chases);
   const shouldLeaveRoomForNonJapanese = japaneseAffinity > 0 && japaneseAffinity < 0.85 && candidates.some((candidate) => !isJapaneseDiscoveryCandidate(candidate));
-  const japaneseLimit = shouldLeaveRoomForNonJapanese ? Math.max(1, count - 1) : count;
+  const japaneseLimit = shouldLeaveRoomForNonJapanese ? Math.max(1, Math.min(3, Math.ceil(count * 0.15))) : count;
   const trailLimit = Math.max(1, Math.ceil(count / 3));
   const profileSubjectCount = distinctProfileKeys(chases, (value) => expandedProfileSubjectTokens(value).slice(0, 2)).size;
   const subjectLimit = count >= DISCOVERY_SHELF_PAGE_SIZE
-    ? (profileSubjectCount >= 8 ? 2 : 3)
+    ? 2
     : count >= 5 ? 2 : count;
   let japaneseCount = 0;
   const candidateSubjectIsUnderLimit = (candidate: DiscoveryCandidate): boolean => {
@@ -4096,8 +4260,7 @@ export function composeWeeklyShelfCandidates(candidates: DiscoveryCandidate[], c
 
 function rebalanceWeeklySubjectDiversity(candidates: DiscoveryCandidate[], chases: Chase[], count: number): DiscoveryCandidate[] {
   if (count < DISCOVERY_SHELF_PAGE_SIZE || candidates.length <= DISCOVERY_SHELF_PAGE_SIZE) return candidates.slice(0, count);
-  const profileSubjectCount = distinctProfileKeys(chases, (value) => expandedProfileSubjectTokens(value).slice(0, 2)).size;
-  const subjectLimit = profileSubjectCount >= 8 ? 2 : 3;
+  const subjectLimit = 2;
   const selected: DiscoveryCandidate[] = [];
   const selectedNameKeys = new Set<string>();
   const subjectCounts = new Map<string, number>();
@@ -4321,7 +4484,8 @@ export function backfillScheduledDiscoveryShelfCandidates(
   fallbackDrop: ScheduledDiscoveryDrop | null,
   targetCount: number,
   repeatGuardChases: Chase[] = [],
-  profileChases: Chase[] = repeatGuardChases
+  profileChases: Chase[] = repeatGuardChases,
+  options: { maxImmediateNameCarryovers?: number } = {}
 ): DiscoveryCandidate[] {
   const merged = candidates
     .filter(isFinishedShelfCandidate)
@@ -4329,6 +4493,8 @@ export function backfillScheduledDiscoveryShelfCandidates(
   if (!fallbackDrop || merged.length >= targetCount) return rebalanceWeeklySubjectDiversity(merged, profileChases, targetCount);
   const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
   const seenVariantFamilies = new Set(merged.map(candidateVariantFamilyKey).filter((key): key is string => !!key));
+  const maxImmediateNameCarryovers = Math.max(0, options.maxImmediateNameCarryovers ?? Number.POSITIVE_INFINITY);
+  let immediateNameCarryovers = 0;
   for (const candidate of candidatesFromScheduledDiscoveryDrop(fallbackDrop)) {
     if (merged.length >= targetCount) break;
     if (!isFinishedShelfCandidate(candidate) || !hasEnoughRawMarketData(candidate)) continue;
@@ -4336,9 +4502,11 @@ export function backfillScheduledDiscoveryShelfCandidates(
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     const variantKey = candidateVariantFamilyKey(candidate);
     if (seenNames.has(nameKey) || (variantKey && seenVariantFamilies.has(variantKey))) continue;
+    if (immediateNameCarryovers >= maxImmediateNameCarryovers) continue;
     merged.push(candidate);
     seenNames.add(nameKey);
     if (variantKey) seenVariantFamilies.add(variantKey);
+    immediateNameCarryovers += 1;
   }
   return rebalanceWeeklySubjectDiversity(merged, profileChases, targetCount);
 }
@@ -4517,37 +4685,34 @@ export function selectNovelWeeklyCandidates(
   return rebalanceWeeklySubjectDiversity(selected, chases, targetCount);
 }
 
+function buildFreshWeeklyShelfFromPool(
+  candidates: DiscoveryCandidate[],
+  pool: DiscoveryCandidate[],
+  recentDrops: ScheduledDiscoveryDrop[],
+  targetCount: number,
+  chases: Chase[] = []
+): DiscoveryCandidate[] {
+  const mergedPool = uniqueCandidatesByDisplayName([...candidates, ...pool]).filter(isFinishedShelfCandidate);
+  if (mergedPool.length === 0) return [];
+  return selectNovelWeeklyCandidates(
+    preferFreshWeeklyCandidatesAgainstRecentShelves(mergedPool, recentDrops, chases),
+    recentDrops,
+    targetCount,
+    chases
+  );
+}
+
 function scheduledMarketStatusFromCandidate(candidate: DiscoveryCandidate): string {
   if (hasEnoughRawMarketData(candidate)) return 'READY';
   return candidate.sourceStatus ?? 'PENDING';
 }
 
 function scheduledDropItemsFromCandidates(candidates: DiscoveryCandidate[], currency: SupportedCurrency): ScheduledDiscoveryDropItem[] {
-  const scheduledImage = (candidate: DiscoveryCandidate): DiscoveryCardImage | undefined => {
-    if (candidate.image?.sourceKind === 'CARD_REFERENCE') return candidate.image;
-    if (isVettedMarketplaceImageCandidate(candidate)) return candidate.image;
-    if (candidate.image?.sourceKind === 'MARKET_LISTING' && candidate.listing && looksLikeCleanMarketplaceCardPhoto(candidate.listing)) {
-      return {
-        ...candidate.image,
-        sourceName: VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME
-      };
-    }
-    if (candidate.suggestion.referenceImageUrl) {
-      return {
-        name: candidate.suggestion.name,
-        url: candidate.suggestion.referenceImageUrl,
-        sourceName: candidate.suggestion.referenceSourceName,
-        sourceCardId: candidate.suggestion.referenceSourceCardId,
-        sourceKind: 'CARD_REFERENCE'
-      };
-    }
-    return undefined;
-  };
   return candidates.map((candidate, index) => ({
     position: index + 1,
     suggestion: candidate.suggestion,
-    imageUrl: scheduledImage(candidate)?.url,
-    imageSourceName: scheduledImage(candidate)?.sourceName,
+    imageUrl: scheduledShelfImageFromCandidate(candidate)?.url,
+    imageSourceName: scheduledShelfImageFromCandidate(candidate)?.sourceName,
     market: {
       status: scheduledMarketStatusFromCandidate(candidate),
       currency: candidate.displayCurrency ?? currency,
@@ -4572,14 +4737,14 @@ function saveWeeklyDiscoveryDrop(userId: string, candidates: DiscoveryCandidate[
   const finishedCandidates = candidates
     .filter(isFinishedShelfCandidate)
     .filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, rejectedNameKeys));
-  const imageBackedCandidates = finishedCandidates.filter((candidate) =>
-    !!candidate.image
-    || !!candidate.suggestion.referenceImageUrl
-    || (!!candidate.listing && looksLikeCleanMarketplaceCardPhoto(candidate.listing))
-  );
-  const polishedCandidates = imageBackedCandidates.length >= Math.min(finishedCandidates.length, DISCOVERY_SHELF_PAGE_SIZE)
-    ? [...imageBackedCandidates, ...finishedCandidates.filter((candidate) => !imageBackedCandidates.includes(candidate))]
+  const cleanNamedCandidates = finishedCandidates.filter((candidate) => !isMarketplaceStyleDiscoveryName(candidate.suggestion.name));
+  const namePolishedCandidates = cleanNamedCandidates.length >= DISCOVERY_SHELF_PAGE_SIZE
+    ? [...cleanNamedCandidates, ...finishedCandidates.filter((candidate) => !cleanNamedCandidates.includes(candidate))]
     : finishedCandidates;
+  const imagePolishedCandidates = namePolishedCandidates.filter((candidate) => !!scheduledShelfImageFromCandidate(candidate));
+  const polishedCandidates = imagePolishedCandidates.length >= DISCOVERY_SHELF_PAGE_SIZE
+    ? [...imagePolishedCandidates, ...namePolishedCandidates.filter((candidate) => !imagePolishedCandidates.includes(candidate))]
+    : namePolishedCandidates;
   for (const candidate of polishedCandidates) persistDiscoveryUniverseCandidate(candidate);
   const items = scheduledDropItemsFromCandidates(polishedCandidates, currency);
   if (items.length === 0) return;
@@ -4667,7 +4832,7 @@ export function orderCandidatesFromPersistedState(
 async function discoverCandidatesForUser(
   userId: string,
   count: number,
-  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean } = {}
+  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean } = {}
 ): Promise<{
   chases: Chase[];
   tasteProfileChases: Chase[];
@@ -4690,6 +4855,7 @@ async function discoverCandidatesForUser(
   const skipSourceCatalogFetch = options.skipSourceCatalogFetch ?? false;
   const skipReferenceImageFetch = options.skipReferenceImageFetch ?? false;
   const ingestCanonicalUniverse = options.ingestCanonicalUniverse ?? false;
+  const ignoreSeenExclusions = options.ignoreSeenExclusions ?? false;
   const softAvoidNames = uniqueValuesPreservingOrder(options.softAvoidNames ?? []);
   const hardAvoidNames = uniqueValuesPreservingOrder(options.hardAvoidNames ?? []);
   const allowSoftAvoidFiller = options.allowSoftAvoidFiller ?? true;
@@ -4722,7 +4888,7 @@ async function discoverCandidatesForUser(
         };
       })()
     : undefined;
-  const recentlySeenNames = listRecentUserDiscoverySeenNames(userId, DISCOVERY_SEEN_EXCLUSION_LIMIT);
+  const recentlySeenNames = ignoreSeenExclusions ? [] : listRecentUserDiscoverySeenNames(userId, DISCOVERY_SEEN_EXCLUSION_LIMIT);
   const seenExcludedNames = uniqueValuesPreservingOrder([...rejectedNames, ...recentlySeenNames, ...hardAvoidNames]);
   const scheduledSeenExcludedNames = shouldSaveScheduledDrop
     ? uniqueValuesPreservingOrder([
@@ -4842,12 +5008,23 @@ async function discoverCandidatesForUser(
       discoverySelectionCount
     );
     persistDiscoveryUniverseSuggestions(concreteSourceBackedSuggestions);
-    const universeCandidates = selectDiscoveryUniverseCandidatesForProfile(
-      tasteProfileChases,
-      combinedSourceExcludedNames,
-      discoverySelectionCount,
-      repeatGuardChases
-    );
+    const indexedUniverseCandidates = hasFullDiscovery
+      ? selectDiscoveryUserUniverseCandidates(
+          userId,
+          combinedSourceExcludedNames,
+          discoverySelectionCount,
+          tasteProfileChases,
+          repeatGuardChases
+        )
+      : [];
+    const universeCandidates = indexedUniverseCandidates.length > 0
+      ? indexedUniverseCandidates
+      : selectDiscoveryUniverseCandidatesForProfile(
+          tasteProfileChases,
+          combinedSourceExcludedNames,
+          discoverySelectionCount,
+          repeatGuardChases
+        );
     const enriched = [
       ...universeCandidates,
       ...freshSourceBackedSuggestions.map((suggestion, index) => tasteOnlyCandidate(suggestion, index + universeCandidates.length))
@@ -5046,12 +5223,18 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
       hasFullDiscovery: discovery.hasFullDiscovery
     };
   }
-  const shelfCandidates = marketReadyShelfCandidatesWithOptions(discovery.candidates, discovery.hasFullDiscovery, discovery.profileConfidence, {
-    allowPendingExploration: !discovery.usesScheduledDrop,
-    allowLanguageSignalFallback: discovery.usesScheduledDrop && hasJapaneseWeightedProfile(discovery.tasteProfileChases),
-    allowSourceBackedRetailEReaderFallback: discovery.usesScheduledDrop && hasRetailEReaderPromoProfileSignal(discovery.tasteProfileChases),
-    languageSignalTargetCount: weeklyJapaneseSignalTargetCount(discovery.tasteProfileChases, discovery.profileConfidence.maxShelfSize)
-  });
+  const scheduledDisplayCandidates = discovery.usesScheduledDrop
+    ? discovery.candidates
+        .filter(isCollectorWorthyWeeklyCandidate)
+    : [];
+  const shelfCandidates = discovery.usesScheduledDrop && scheduledDisplayCandidates.length > 0
+    ? scheduledDisplayCandidates
+    : marketReadyShelfCandidatesWithOptions(discovery.candidates, discovery.hasFullDiscovery, discovery.profileConfidence, {
+        allowPendingExploration: !discovery.usesScheduledDrop,
+        allowLanguageSignalFallback: discovery.usesScheduledDrop && hasJapaneseWeightedProfile(discovery.tasteProfileChases),
+        allowSourceBackedRetailEReaderFallback: discovery.usesScheduledDrop && hasRetailEReaderPromoProfileSignal(discovery.tasteProfileChases),
+        languageSignalTargetCount: weeklyJapaneseSignalTargetCount(discovery.tasteProfileChases, discovery.profileConfidence.maxShelfSize)
+      });
   if (shelfCandidates.length === 0) {
     return {
       embeds: [infoEmbed('Weekly Shelf', '🔮 Your Weekly Shelf is still being curated\nVaultr is waiting for fresh, market-ready picks instead of repeating cards you have already seen').setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Weekly Shelf' })],
@@ -5168,6 +5351,7 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     scheduledDate: date,
     hydrateScheduledMarketInline: options.hydrateMarketInline ?? true,
     usePersistedState: false,
+    ignoreSeenExclusions: true,
     hardAvoidNames: immediatePreviousDropNames,
     softAvoidNames: previousDropNames,
     allowSoftAvoidFiller: options.allowRecentRepeatFiller ?? false,
@@ -5175,7 +5359,7 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     skipReferenceImageFetch: quickRefresh,
     ingestCanonicalUniverse: !quickRefresh
   });
-  const targetCount = discovery.hasFullDiscovery ? Math.min(DISCOVERY_WEEKLY_DROP_SIZE, discovery.profileConfidence.maxShelfSize) : discovery.candidates.length;
+  const targetCount = discovery.hasFullDiscovery ? DISCOVERY_WEEKLY_DROP_SIZE : discovery.candidates.length;
   const marketContext = {
     activeChases: discovery.chases,
     destination: discovery.settings.shippingCountry
@@ -5185,44 +5369,118 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     range: discoveryMarketRangeFromChases(discovery.tasteProfileChases)
   };
   const repeatGuardChases = [...discovery.chases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(userId))];
-  let candidates = backfillScheduledDiscoveryShelfCandidates(
-    selectNovelWeeklyCandidates(
-      preferFreshWeeklyCandidatesAgainstRecentShelves(discovery.candidates, recentDrops, discovery.tasteProfileChases),
-      recentDrops,
+  const freshExcludedNames = uniqueValuesPreservingOrder(previousDropNames);
+  const supplementalUniverseTarget = Math.max(targetCount * 8, DISCOVERY_SHELF_PAGE_SIZE * 8);
+  const supplementalCacheTarget = Math.max(targetCount * 6, DISCOVERY_SHELF_PAGE_SIZE * 6);
+  const indexedSupplementalUniverseCandidates = discovery.hasFullDiscovery
+    ? selectDiscoveryUserUniverseCandidates(
+        userId,
+        freshExcludedNames,
+        supplementalUniverseTarget,
+        discovery.tasteProfileChases,
+        repeatGuardChases
+      )
+    : [];
+  const supplementalUniverseCandidates = indexedSupplementalUniverseCandidates.length > 0
+    ? indexedSupplementalUniverseCandidates
+    : discovery.hasFullDiscovery
+      ? selectDiscoveryUniverseCandidatesForProfile(
+          discovery.tasteProfileChases,
+          freshExcludedNames,
+          supplementalUniverseTarget,
+          repeatGuardChases
+        )
+      : [];
+  const supplementalCacheCandidates = discovery.hasFullDiscovery
+    ? backfillMarketReadyDiscoveryCandidates(
+        [],
+        marketContext,
+        supplementalCacheTarget,
+        discovery.tasteProfileChases,
+        discovery.profileConfidence,
+        discovery.negativeProfile,
+        repeatGuardChases,
+        freshExcludedNames
+      )
+    : [];
+  const weeklyCandidatePool = orderCandidatesForCollectorPresentation(
+    uniqueCandidatesByDisplayName([
+      ...supplementalUniverseCandidates,
+      ...supplementalCacheCandidates,
+      ...discovery.candidates
+    ]),
+    discovery.tasteProfileChases,
+    Math.max(
       targetCount,
-      discovery.tasteProfileChases
+      supplementalUniverseCandidates.length + supplementalCacheCandidates.length + discovery.candidates.length
     ),
-    fallbackDrop,
+    discovery.negativeProfile,
+    discovery.learnedRankContext
+  );
+  const carryoverCap = options.allowRecentRepeatFiller === true ? Math.max(4, Math.floor(targetCount * 0.2)) : Math.max(2, Math.floor(targetCount * 0.1));
+  let candidates = buildFreshWeeklyShelfFromPool(
+    [],
+    weeklyCandidatePool,
+    recentDrops,
     targetCount,
-    repeatGuardChases,
     discovery.tasteProfileChases
   );
   if (discovery.hasFullDiscovery && candidates.length < targetCount) {
-    const toppedUpCandidates = backfillMarketReadyDiscoveryCandidates(
+    const freshRescuePool = uniqueCandidatesByDisplayName([
+      ...weeklyCandidatePool,
+      ...backfillMarketReadyDiscoveryCandidates(
+        [],
+        marketContext,
+        supplementalCacheTarget,
+        discovery.tasteProfileChases,
+        discovery.profileConfidence,
+        discovery.negativeProfile,
+        repeatGuardChases,
+        uniqueValuesPreservingOrder([
+          ...previousDropNames,
+          ...freshExcludedNames,
+          ...candidates.map((candidate) => candidate.suggestion.name)
+        ])
+      )
+    ]);
+    candidates = buildFreshWeeklyShelfFromPool(
       candidates,
-      marketContext,
+      freshRescuePool,
+      recentDrops,
       targetCount,
+      discovery.tasteProfileChases
+    );
+  }
+  if (discovery.hasFullDiscovery && candidates.length < targetCount) {
+    const toppedUpCandidates = backfillMarketReadyDiscoveryCandidates(
+      [],
+      marketContext,
+      supplementalCacheTarget,
       discovery.tasteProfileChases,
       discovery.profileConfidence,
       discovery.negativeProfile,
       repeatGuardChases,
       uniqueValuesPreservingOrder([
         ...previousDropNames,
-        ...candidates.map((candidate) => candidate.suggestion.name),
-        ...listRecentUserDiscoverySeenNames(userId, DISCOVERY_SEEN_EXCLUSION_LIMIT)
+        ...candidates.map((candidate) => candidate.suggestion.name)
       ])
     );
+    candidates = buildFreshWeeklyShelfFromPool(
+      candidates,
+      toppedUpCandidates,
+      recentDrops,
+      targetCount,
+      discovery.tasteProfileChases
+    );
+  }
+  if (candidates.length < targetCount) {
     candidates = backfillScheduledDiscoveryShelfCandidates(
-      selectNovelWeeklyCandidates(
-        preferFreshWeeklyCandidatesAgainstRecentShelves(toppedUpCandidates, recentDrops, discovery.tasteProfileChases),
-        recentDrops,
-        targetCount,
-        discovery.tasteProfileChases
-      ),
+      candidates,
       fallbackDrop,
       targetCount,
       repeatGuardChases,
-      discovery.tasteProfileChases
+      discovery.tasteProfileChases,
+      { maxImmediateNameCarryovers: carryoverCap }
     );
   }
   if (!quickRefresh) candidates = await hydrateShelfCandidateImages(candidates);
@@ -5235,10 +5493,7 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
       discovery.profileConfidence,
       discovery.negativeProfile,
       discovery.chases,
-      uniqueValuesPreservingOrder([
-        ...previousDropNames,
-        ...listRecentUserDiscoverySeenNames(userId, DISCOVERY_SEEN_EXCLUSION_LIMIT)
-      ])
+      uniqueValuesPreservingOrder(previousDropNames)
     );
     const freshRepairCandidates = quickRefresh ? repairedCandidates : await hydrateShelfCandidateImages(repairedCandidates);
     if (freshRepairCandidates.length > 0) {
@@ -5252,7 +5507,8 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
         fallbackDrop,
         targetCount,
         repeatGuardChases,
-        discovery.tasteProfileChases
+        discovery.tasteProfileChases,
+        { maxImmediateNameCarryovers: carryoverCap }
       );
       saveWeeklyDiscoveryDrop(userId, freshnessOrderedRepairCandidates, discovery.settings.alertCurrency, undefined, date);
       return {

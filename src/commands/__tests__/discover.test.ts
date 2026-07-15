@@ -62,6 +62,7 @@ import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscov
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import { deleteDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
+import type { DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 
@@ -128,6 +129,31 @@ function sourceCandidate(name: string, sourceName: string, selectionIndex: numbe
       sourceName,
       sourceKind: 'CARD_REFERENCE'
     }
+  };
+}
+
+function userUniverseCard(name: string, score: number, updatedAt: string, sourceName: string): DiscoveryUserUniverseCard {
+  return {
+    userId: 'u1',
+    cardKey: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    canonicalName: name,
+    score,
+    scoreComponents: { total: score },
+    suggestion: {
+      name,
+      lane: 'Promo Trail',
+      laneWhy: 'profile source match',
+      why: `try ${name}`,
+      nearby: [],
+      referenceSourceName: sourceName
+    },
+    imageUrl: 'https://images.example/card.png',
+    imageSourceName: sourceName,
+    sourceCardId: `ref-${score}`,
+    marketTotal: 120,
+    marketCurrency: 'CAD',
+    createdAt: updatedAt,
+    updatedAt
   };
 }
 
@@ -1791,6 +1817,106 @@ describe('selectVisibleCandidates', () => {
     expect(backfilled[2]?.listing?.url).toBe('https://www.ebay.ca/itm/articuno-listing');
   });
 
+  it('caps immediate previous-week carryovers during scheduled shelf fallback', () => {
+    const backfilled = backfillScheduledDiscoveryShelfCandidates(
+      [sourceCandidate('Umbreon Neo Discovery 13', 'Pokemon TCG (Neo Discovery)', 0)],
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W28',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-07-07T00:00:00.000Z',
+        expiresAt: '2026-07-14T00:00:00.000Z',
+        generatedAt: '2026-07-07T00:00:00.000Z',
+        updatedAt: '2026-07-07T00:00:00.000Z',
+        sourceStateUpdatedAt: '2026-07-07T00:00:00.000Z',
+        itemCount: 4,
+        imageReadyCount: 4,
+        marketReadyCount: 4,
+        items: [
+          { position: 1, suggestion: sourceCandidate('Pikachu Expedition Base Set 124', 'Pokemon TCG (Expedition Base Set)', 1).suggestion, imageUrl: 'https://images.example/p1.png', imageSourceName: 'Pokemon TCG (Expedition Base Set)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } },
+          { position: 2, suggestion: sourceCandidate('Gardevoir ex Paldean Fates 233', 'Pokemon TCG (Paldean Fates)', 2).suggestion, imageUrl: 'https://images.example/g1.png', imageSourceName: 'Pokemon TCG (Paldean Fates)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } },
+          { position: 3, suggestion: sourceCandidate('Mew Japanese S12a 183', 'TCGdex Japanese (S12a)', 3).suggestion, imageUrl: 'https://images.example/m1.png', imageSourceName: 'TCGdex Japanese (S12a)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } },
+          { position: 4, suggestion: sourceCandidate('Blaine\'s Moltres Gym Heroes 1', 'Pokemon TCG (Gym Heroes)', 4).suggestion, imageUrl: 'https://images.example/b1.png', imageSourceName: 'Pokemon TCG (Gym Heroes)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } }
+        ]
+      },
+      4,
+      [],
+      [],
+      { maxImmediateNameCarryovers: 2 }
+    );
+
+    expect(backfilled.map((candidate) => candidate.suggestion.name)).toEqual([
+      'Umbreon Neo Discovery 13',
+      'Pikachu Expedition Base Set 124',
+      'Gardevoir ex Paldean Fates 233'
+    ]);
+  });
+
+  it('can still refill a shelf after a capped carryover pass would otherwise leave it undersized', () => {
+    const capped = backfillScheduledDiscoveryShelfCandidates(
+      [sourceCandidate('Umbreon Neo Discovery 13', 'Pokemon TCG (Neo Discovery)', 0)],
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W28',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-07-07T00:00:00.000Z',
+        expiresAt: '2026-07-14T00:00:00.000Z',
+        generatedAt: '2026-07-07T00:00:00.000Z',
+        updatedAt: '2026-07-07T00:00:00.000Z',
+        sourceStateUpdatedAt: '2026-07-07T00:00:00.000Z',
+        itemCount: 4,
+        imageReadyCount: 4,
+        marketReadyCount: 4,
+        items: [
+          { position: 1, suggestion: sourceCandidate('Pikachu Expedition Base Set 124', 'Pokemon TCG (Expedition Base Set)', 1).suggestion, imageUrl: 'https://images.example/p1.png', imageSourceName: 'Pokemon TCG (Expedition Base Set)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } },
+          { position: 2, suggestion: sourceCandidate('Gardevoir ex Paldean Fates 233', 'Pokemon TCG (Paldean Fates)', 2).suggestion, imageUrl: 'https://images.example/g1.png', imageSourceName: 'Pokemon TCG (Paldean Fates)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } },
+          { position: 3, suggestion: sourceCandidate('Mew Japanese S12a 183', 'TCGdex Japanese (S12a)', 3).suggestion, imageUrl: 'https://images.example/m1.png', imageSourceName: 'TCGdex Japanese (S12a)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } },
+          { position: 4, suggestion: sourceCandidate('Blaine\'s Moltres Gym Heroes 1', 'Pokemon TCG (Gym Heroes)', 4).suggestion, imageUrl: 'https://images.example/b1.png', imageSourceName: 'Pokemon TCG (Gym Heroes)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } }
+        ]
+      },
+      4,
+      [],
+      [],
+      { maxImmediateNameCarryovers: 2 }
+    );
+
+    const refilled = backfillScheduledDiscoveryShelfCandidates(
+      capped,
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W28',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-07-07T00:00:00.000Z',
+        expiresAt: '2026-07-14T00:00:00.000Z',
+        generatedAt: '2026-07-07T00:00:00.000Z',
+        updatedAt: '2026-07-07T00:00:00.000Z',
+        sourceStateUpdatedAt: '2026-07-07T00:00:00.000Z',
+        itemCount: 4,
+        imageReadyCount: 4,
+        marketReadyCount: 4,
+        items: [
+          { position: 1, suggestion: sourceCandidate('Pikachu Expedition Base Set 124', 'Pokemon TCG (Expedition Base Set)', 1).suggestion, imageUrl: 'https://images.example/p1.png', imageSourceName: 'Pokemon TCG (Expedition Base Set)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } },
+          { position: 2, suggestion: sourceCandidate('Gardevoir ex Paldean Fates 233', 'Pokemon TCG (Paldean Fates)', 2).suggestion, imageUrl: 'https://images.example/g1.png', imageSourceName: 'Pokemon TCG (Paldean Fates)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } },
+          { position: 3, suggestion: sourceCandidate('Mew Japanese S12a 183', 'TCGdex Japanese (S12a)', 3).suggestion, imageUrl: 'https://images.example/m1.png', imageSourceName: 'TCGdex Japanese (S12a)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } },
+          { position: 4, suggestion: sourceCandidate('Blaine\'s Moltres Gym Heroes 1', 'Pokemon TCG (Gym Heroes)', 4).suggestion, imageUrl: 'https://images.example/b1.png', imageSourceName: 'Pokemon TCG (Gym Heroes)', market: { status: 'READY', currency: 'CAD', askingTotal: 120, askingSampleSize: 4 } }
+        ]
+      },
+      4
+    );
+
+    expect(capped).toHaveLength(3);
+    expect(refilled).toHaveLength(4);
+  });
+
   it('rehydrates vetted marketplace images from scheduled niche promo rows', () => {
     const name = `Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Scheduled ${Date.now()}`;
     const backfilled = backfillScheduledDiscoveryShelfCandidates(
@@ -2292,6 +2418,108 @@ describe('composeWeeklyShelfCandidates', () => {
     expect(names).toContain('Sylveon Terastal Festival Pokemon cards');
     expect(names).toContain('Zapdos Aquapolis 44');
     expect(modernCount).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('selectDiscoveryUserUniverseCandidatesFromEntries', () => {
+  it('diversifies a user-ranked index before taking the final shelf slice', () => {
+    const chases = [
+      'Squirtle 007/018 McDonalds Promo Japanese',
+      'Mew RC24 Legendary Treasures',
+      'Umbreon ex SAR Terastal Festival Japanese 217/187',
+      'Gardevoir ex 233/091 Paldean Fates'
+    ].map(chase);
+    const entries = [
+      userUniverseCard('Squirtle Expedition Base Set 131', 120, '2026-07-15T00:00:00.000Z', 'Pokemon TCG (Expedition Base Set)'),
+      userUniverseCard('Squirtle Expedition Base Set 132', 119, '2026-07-15T00:00:01.000Z', 'Pokemon TCG (Expedition Base Set)'),
+      userUniverseCard('Squirtle 007/018 McDonalds Promo Japanese', 118, '2026-07-15T00:00:02.000Z', 'Pokemon Japanese Promo'),
+      userUniverseCard('Dark Blastoise Team Rocket 3', 117, '2026-07-15T00:00:03.000Z', 'Pokemon TCG (Team Rocket)'),
+      userUniverseCard('Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese', 111, '2026-07-15T00:00:04.000Z', 'TCGdex Japanese (S6a)'),
+      userUniverseCard('Gardevoir ex Paldean Fates 233', 110, '2026-07-15T00:00:05.000Z', 'Pokemon TCG (Paldean Fates)'),
+      userUniverseCard('Mew Expedition Base Set 19', 109, '2026-07-15T00:00:06.000Z', 'Pokemon TCG (Expedition Base Set)'),
+      userUniverseCard('Zapdos Aquapolis 44', 108, '2026-07-15T00:00:07.000Z', 'Pokemon TCG (Aquapolis)')
+    ];
+
+    const selected = __discoveryPersistenceTestHooks.selectDiscoveryUserUniverseCandidatesFromEntries(entries, [], 4, chases, chases);
+    const names = selected.map((item) => item.suggestion.name);
+    const squirtleCount = names.filter((name) => /squirtle/i.test(name)).length;
+
+    expect(names).toHaveLength(4);
+    expect(squirtleCount).toBeLessThanOrEqual(2);
+    expect(names).toContain('Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese');
+    expect(
+      names.some((name) => /gardevoir|mew|zapdos/i.test(name))
+    ).toBe(true);
+  });
+});
+
+describe('buildFreshWeeklyShelfFromPool', () => {
+  it('prefers a substantially fresh weekly shelf before allowing fallback repeats', () => {
+    const recentDrops: ScheduledDiscoveryDrop[] = [
+      {
+        userId: 'u1',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W28',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-07-07T00:00:00.000Z',
+        generatedAt: '2026-07-07T00:00:00.000Z',
+        updatedAt: '2026-07-07T00:00:00.000Z',
+        marketReadyCount: 6,
+        imageReadyCount: 6,
+        itemCount: 6,
+        items: [
+          { position: 1, suggestion: sourceCandidate('Pikachu Expedition Base Set 124', 'Pokemon TCG (Expedition Base Set)', 0).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 2, suggestion: sourceCandidate('Gardevoir ex Paldean Fates 233', 'Pokemon TCG (Paldean Fates)', 1).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 3, suggestion: sourceCandidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Pokemon TCG (SM Black Star Promos)', 2).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 4, suggestion: sourceCandidate('Mew Japanese S12a 183', 'TCGdex Japanese (S12a)', 3).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 5, suggestion: sourceCandidate('Team Rocket\'s Moltres ex Destined Rivals 229', 'Pokemon TCG (Destined Rivals)', 4).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } },
+          { position: 6, suggestion: sourceCandidate('Giovanni\'s Meowth Gym Challenge 74', 'Pokemon TCG (Gym Challenge)', 5).suggestion, market: { status: 'READY', currency: 'CAD', askingTotal: 100, askingSampleSize: 12 } }
+        ]
+      }
+    ];
+    const chases = ['Mew RC24', 'Umbreon 217/187', 'Squirtle 007/018', 'Gardevoir ex 233/091'].map(chase);
+    const pool = [
+      sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0),
+      sourceCandidate('Articuno Skyridge 4', 'Pokemon TCG (Skyridge)', 1),
+      sourceCandidate('Moltres Skyridge 21', 'Pokemon TCG (Skyridge)', 2),
+      sourceCandidate('Squirtle Expedition Base Set 132', 'Pokemon TCG (Expedition Base Set)', 3),
+      sourceCandidate('Gardevoir 408/SM-P PROMO Limited Illustration Promo Pokemon Card Japanese', 'Pokemon Japanese Promo', 4),
+      sourceCandidate('Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese', 'TCGdex Japanese (S6a)', 5),
+      sourceCandidate('Team Rocket\'s Mewtwo ex Ascended Heroes 281', 'Pokemon TCG (Ascended Heroes)', 6),
+      sourceCandidate('Pikachu Expedition Base Set 124', 'Pokemon TCG (Expedition Base Set)', 7),
+      sourceCandidate('Gardevoir ex Paldean Fates 233', 'Pokemon TCG (Paldean Fates)', 8),
+      sourceCandidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Pokemon TCG (SM Black Star Promos)', 9),
+      sourceCandidate('Mew Japanese S12a 183', 'TCGdex Japanese (S12a)', 10),
+      sourceCandidate('Team Rocket\'s Moltres ex Destined Rivals 229', 'Pokemon TCG (Destined Rivals)', 11)
+    ];
+
+    const selected = __discoveryPersistenceTestHooks.buildFreshWeeklyShelfFromPool([], pool, recentDrops, 6, chases);
+    const names = selected.map((item) => item.suggestion.name);
+    const repeatedFromW28 = names.filter((name) => recentDrops[0].items.some((item) => item.suggestion.name === name));
+
+    expect(names).toHaveLength(6);
+    expect(repeatedFromW28).toHaveLength(0);
+    expect(names).toEqual(expect.arrayContaining([
+      'Zapdos Aquapolis 44',
+      'Articuno Skyridge 4',
+      'Moltres Skyridge 21',
+      'Squirtle Expedition Base Set 132'
+    ]));
+  });
+});
+
+describe('weeklyJapaneseSignalTargetCount', () => {
+  it('keeps weekly Japanese texture as a supporting signal rather than taking over the shelf', () => {
+    const chases = [
+      'Umbreon ex SAR Terastal Festival Japanese 217/187',
+      'Mew Japanese S12a 052',
+      'Squirtle Expedition Base Set 132',
+      'Gardevoir ex Paldean Fates 233'
+    ].map(chase);
+
+    expect(__discoveryPersistenceTestHooks.weeklyJapaneseSignalTargetCount(chases, 20)).toBeLessThanOrEqual(3);
   });
 });
 

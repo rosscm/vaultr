@@ -1165,20 +1165,82 @@ function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStats
   return lines.length > 0 ? lines : ['• No active watchlist yet'];
 }
 
+function dailyPulseWatchlistDensity(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
+  if (stats.activeVaults <= 0 || stats.activeChases <= 0) return 'light';
+  const density = stats.activeChases / Math.max(1, stats.activeVaults);
+  if (density >= 8) return 'stacked';
+  if (density >= 5) return 'busy';
+  if (density >= 3) return 'steady';
+  return 'light';
+}
+
+function dailyPulseCollectorBoardShape(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
+  if (stats.activeTrackedFamily !== 'Mixed collections') return stats.activeTrackedFamily;
+  if (stats.topTrackedFamily !== 'Mixed collections') return stats.topTrackedFamily;
+  return 'Mixed collections';
+}
+
 function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   const hasAlertsToday = stats.matches > 0 || stats.usersAlerted > 0 || stats.grailsSurfaced > 0;
-  if (hasAlertsToday) {
-    const alertSignal = stats.todayAlertFamily === 'Mixed finds'
-      ? stats.todayAlertTheme
-      : `${stats.todayAlertTheme} in ${stats.todayAlertFamily}`;
-    if (stats.activeTrackedFamily !== 'Mixed collections') return `Today leaned ${alertSignal}; the board still centers on ${stats.activeTrackedFamily}`;
-    return `Today leaned ${alertSignal}; the board stayed broad`;
+  const boardShape = dailyPulseCollectorBoardShape(stats);
+  const density = dailyPulseWatchlistDensity(stats);
+  const boardIsMixed = boardShape === 'Mixed collections';
+  const themeIsMixed = stats.topTrackedTheme === 'Varied styles';
+  const alertSignal = stats.todayAlertFamily === 'Mixed finds'
+    ? stats.todayAlertTheme
+    : `${stats.todayAlertTheme} in ${stats.todayAlertFamily}`;
+
+  if (hasAlertsToday && !boardIsMixed) {
+    if (stats.grailsSurfaced > 0) {
+      return `Today's alerts leaned ${alertSignal}, while the wider board still sits around ${boardShape}.`;
+    }
+    return `Fresh movement came through ${alertSignal}; the watchlist behind it is still ${density} around ${boardShape}.`;
   }
-  if (stats.activeTrackedFamily !== 'Mixed collections') return `The board is still centered on ${stats.activeTrackedFamily}`;
-  if (stats.topTrackedFamily === 'Mixed collections' && stats.topTrackedTheme === 'Varied styles') {
-    return 'The board stayed mixed; no single path led today';
+
+  if (hasAlertsToday && boardIsMixed) {
+    if (themeIsMixed) return `Fresh movement came through ${alertSignal}, but the board still reads broad rather than locked onto one lane.`;
+    return `Fresh movement came through ${alertSignal}; the wider board still tilts toward ${stats.topTrackedTheme.toLowerCase()}.`;
   }
-  return `The board leans ${stats.topTrackedTheme} in ${stats.topTrackedFamily}`;
+
+  if (!boardIsMixed) {
+    if (stats.activeVaults > 0 && stats.activeChases > 0) {
+      return `${pluralize(stats.activeChases, 'chase', 'chases')} are keeping the board ${density} around ${boardShape}, even on a quieter day.`;
+    }
+    return `The board is still centered on ${boardShape}.`;
+  }
+
+  if (themeIsMixed) {
+    if (stats.activeVaults > 0 && stats.activeChases > 0) {
+      return `${pluralize(stats.activeChases, 'chase', 'chases')} are still spread across ${pluralize(stats.activeVaults, 'Vault')}; no single collector lane took over today.`;
+    }
+    return 'The board stayed mixed; no single path led today.';
+  }
+
+  return `The board stayed broad, with the strongest pull still landing around ${stats.topTrackedTheme.toLowerCase()}.`;
+}
+
+function dailyPulseSpotlight(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
+  const spotlight = truncateForEmbed(stats.hiddenDiscovery, 180).replace(/\.+$/, '');
+  if (spotlight !== 'No standout listing today') return spotlight;
+
+  const boardShape = dailyPulseCollectorBoardShape(stats);
+  const density = dailyPulseWatchlistDensity(stats);
+  const boardIsMixed = boardShape === 'Mixed collections';
+  const themeIsMixed = stats.topTrackedTheme === 'Varied styles';
+
+  if (!boardIsMixed && stats.activeChases > 0) {
+    return `Quiet alert-wise, but ${boardShape} still carries the board with a ${density} watchlist behind it.`;
+  }
+
+  if (!themeIsMixed && stats.activeChases > 0) {
+    return `Quiet alert-wise, but the board still leans ${stats.topTrackedTheme.toLowerCase()} across ${pluralize(stats.activeChases, 'chase', 'chases')}.`;
+  }
+
+  if (stats.activeVaults > 0 && stats.activeChases > 0) {
+    return `${pluralize(stats.activeChases, 'chase', 'chases')} stayed active across ${pluralize(stats.activeVaults, 'Vault')}, even without a single standout listing today.`;
+  }
+
+  return spotlight;
 }
 
 export function buildDailyPulseEmbed(stats: ReturnType<typeof getGuildCommunityStatsToday>): EmbedBuilder {
@@ -1189,7 +1251,7 @@ export function buildDailyPulseEmbed(stats: ReturnType<typeof getGuildCommunityS
     .addFields(
       keyValue('Today’s Movement', dailyPulseActivityLines(stats).join('\n')),
       keyValue('Collector Signal', dailyPulseCollectorCurrent(stats)),
-      keyValue('Spotlight', truncateForEmbed(stats.hiddenDiscovery, 180).replace(/\.+$/, ''))
+      keyValue('Spotlight', dailyPulseSpotlight(stats))
     )
     .setFooter({ text: 'Vaultr • Pulse' })
     .setTimestamp();
