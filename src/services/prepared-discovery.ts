@@ -48,6 +48,8 @@ export type PreparedDiscoveryShelf = {
 
 export const PREPARED_DISCOVERY_SELECTION_VERSION = 4;
 export const PREPARED_DISCOVERY_STATE_BASE_KEY = 'ambient';
+const PREPARED_DISCOVERY_MIN_RAW_MARKET_SAMPLE_SIZE = 2;
+const PREPARED_DISCOVERY_MIN_ASK_ONLY_MARKET_SAMPLE_SIZE = 4;
 
 export function preparedDiscoveryVisibleCountForPlan(tier: PlanTier): number {
   return getEntitlementsForTier(tier).discoveryVisibleCards;
@@ -68,8 +70,10 @@ function marketStatusFromCache(entry: DiscoveryMarketCacheEntry | null): Prepare
   if (entry.sourceStatus === 'RATE_LIMITED') return 'RATE_LIMITED';
   if (entry.sourceStatus === 'TIMEOUT') return 'TIMEOUT';
   if (entry.sourceStatus === 'ERROR') return 'ERROR';
-  if (entry.typicalRawAskingTotal !== undefined || entry.typicalRawSoldTotal !== undefined || entry.listingUrl) return 'READY';
-  return 'THIN';
+  if (entry.typicalRawSoldTotal !== undefined && (entry.soldSampleSize ?? 0) >= PREPARED_DISCOVERY_MIN_RAW_MARKET_SAMPLE_SIZE) return 'READY';
+  if (entry.typicalRawAskingTotal !== undefined && (entry.marketSampleSize ?? 0) >= PREPARED_DISCOVERY_MIN_ASK_ONLY_MARKET_SAMPLE_SIZE) return 'READY';
+  if (entry.typicalRawAskingTotal !== undefined || entry.typicalRawSoldTotal !== undefined || entry.listingUrl) return 'THIN';
+  return 'PENDING';
 }
 
 function itemFromPreparedCaches(input: {
@@ -85,7 +89,7 @@ function itemFromPreparedCaches(input: {
   return {
     position: input.position,
     name: input.name,
-    imageUrl: reference?.imageUrl ?? market?.imageUrl,
+    imageUrl: reference?.imageUrl,
     imageSourceName: reference?.sourceName,
     market: {
       status: marketStatusFromCache(market),

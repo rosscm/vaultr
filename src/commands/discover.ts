@@ -154,6 +154,22 @@ type MarketReadyShelfOptions = {
   allowSourceBackedRetailEReaderFallback?: boolean;
   languageSignalTargetCount?: number;
 };
+type DiscoveryScheduledMarketStatus = 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'MISSING';
+type DiscoveryShelfValidationFailure = {
+  code:
+    | 'WRONG_SIZE'
+    | 'BAD_POSITIONS'
+    | 'DUPLICATE_CANONICAL_IDS'
+    | 'MISSING_CANONICAL_ID'
+    | 'BAD_DISPLAY_NAME'
+    | 'MISSING_IMAGE'
+    | 'BAD_IMAGE_PROVENANCE'
+    | 'MISSING_RATIONALE'
+    | 'UNRESOLVED_MARKET_STATUS';
+  message: string;
+  positions?: number[];
+  details?: string[];
+};
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
 const MIN_STRONG_PROFILE_CHASES = 9;
@@ -1508,15 +1524,13 @@ function applyMarketplaceImageFallback(candidate: DiscoveryCandidate): Discovery
 }
 
 async function hydrateShelfCandidateImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
-  const referenced = await attachReferenceImages(candidates);
-  return referenced.map(applyMarketplaceImageFallback);
+  return attachReferenceImages(candidates);
 }
 
 function hasEnoughRawMarketData(candidate: DiscoveryCandidate): boolean {
   return (
     (candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) >= MIN_RAW_MARKET_SAMPLE_SIZE) ||
-    (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE) ||
-    (isExactNicheDiscoveryCandidate(candidate) && hasSomeRawMarketData(candidate))
+    (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) >= MIN_ASK_ONLY_MARKET_SAMPLE_SIZE)
   );
 }
 
@@ -1973,7 +1987,9 @@ export const __discoveryPersistenceTestHooks = {
   selectDiscoveryUserUniverseCandidatesFromEntries,
   buildFreshWeeklyShelfFromPool,
   weeklyJapaneseSignalTargetCount,
+  validatePublishableDiscoveryShelf,
   scoreDiscoveryUniverseCardForProfile,
+  persistValidatedWeeklyDiscoveryDrop,
   saveWeeklyDiscoveryDrop,
   canonicalUniverseSeedParents
 };
@@ -3968,13 +3984,6 @@ function isMarketplaceStyleDiscoveryName(name: string): boolean {
 
 function scheduledShelfImageFromCandidate(candidate: DiscoveryCandidate): DiscoveryCardImage | undefined {
   if (candidate.image?.sourceKind === 'CARD_REFERENCE') return candidate.image;
-  if (isVettedMarketplaceImageCandidate(candidate)) return candidate.image;
-  if (candidate.image?.sourceKind === 'MARKET_LISTING' && candidate.listing && looksLikeCleanMarketplaceCardPhoto(candidate.listing)) {
-    return {
-      ...candidate.image,
-      sourceName: VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME
-    };
-  }
   if (candidate.suggestion.referenceImageUrl) {
     return {
       name: candidate.suggestion.name,
@@ -4429,7 +4438,7 @@ function discoveryStateKey(tier: PlanTier, visibleCount: number): string {
 
 function sourceStatusFromScheduledMarketStatus(status: string): DiscoveryCandidate['sourceStatus'] | undefined {
   if (status === 'RATE_LIMITED' || status === 'TIMEOUT' || status === 'ERROR') return status;
-  if (status === 'PENDING' || status === 'MISSING') return 'PENDING';
+  if (status === 'THIN' || status === 'PENDING' || status === 'MISSING') return 'PENDING';
   return undefined;
 }
 
@@ -4702,15 +4711,27 @@ function buildFreshWeeklyShelfFromPool(
   );
 }
 
-function scheduledMarketStatusFromCandidate(candidate: DiscoveryCandidate): string {
+function scheduledMarketStatusFromCandidate(candidate: DiscoveryCandidate): DiscoveryScheduledMarketStatus {
   if (hasEnoughRawMarketData(candidate)) return 'READY';
-  return candidate.sourceStatus ?? 'PENDING';
+  if (candidate.sourceStatus === 'RATE_LIMITED' || candidate.sourceStatus === 'TIMEOUT' || candidate.sourceStatus === 'ERROR') return candidate.sourceStatus;
+  if (candidate.typicalRawAskingTotal !== undefined || candidate.typicalRawSoldTotal !== undefined || candidate.listing?.url) return 'THIN';
+  return candidate.sourceStatus ?? 'MISSING';
+}
+
+function canonicalScheduledSuggestion(candidate: DiscoveryCandidate): DiscoverySuggestion {
+  const canonicalImage = scheduledShelfImageFromCandidate(candidate);
+  return {
+    ...candidate.suggestion,
+    referenceImageUrl: canonicalImage?.url ?? candidate.suggestion.referenceImageUrl,
+    referenceSourceName: canonicalImage?.sourceName ?? candidate.suggestion.referenceSourceName,
+    referenceSourceCardId: canonicalImage?.sourceCardId ?? candidate.suggestion.referenceSourceCardId
+  };
 }
 
 function scheduledDropItemsFromCandidates(candidates: DiscoveryCandidate[], currency: SupportedCurrency): ScheduledDiscoveryDropItem[] {
   return candidates.map((candidate, index) => ({
     position: index + 1,
-    suggestion: candidate.suggestion,
+    suggestion: canonicalScheduledSuggestion(candidate),
     imageUrl: scheduledShelfImageFromCandidate(candidate)?.url,
     imageSourceName: scheduledShelfImageFromCandidate(candidate)?.sourceName,
     market: {
@@ -4731,8 +4752,125 @@ function scheduledDropItemsFromCandidates(candidates: DiscoveryCandidate[], curr
   }));
 }
 
-function saveWeeklyDiscoveryDrop(userId: string, candidates: DiscoveryCandidate[], currency: SupportedCurrency, sourceStateUpdatedAt?: string, date = new Date()): void {
-  if (candidates.length === 0) return;
+function scheduledItemCanonicalId(item: ScheduledDiscoveryDropItem): string | undefined {
+  return item.suggestion.referenceSourceCardId?.trim() || undefined;
+}
+
+function hasTrustedReferenceImage(item: ScheduledDiscoveryDropItem): boolean {
+  if (!item.imageUrl || !item.imageSourceName) return false;
+  return !/ebay/i.test(item.imageSourceName);
+}
+
+function validatePublishableDiscoveryShelf(items: ScheduledDiscoveryDropItem[], expectedSize = DISCOVERY_WEEKLY_DROP_SIZE): DiscoveryShelfValidationFailure[] {
+  const failures: DiscoveryShelfValidationFailure[] = [];
+  if (items.length !== expectedSize) {
+    failures.push({ code: 'WRONG_SIZE', message: `Expected ${expectedSize} items, received ${items.length}.` });
+  }
+
+  const positions = items.map((item) => item.position).sort((left, right) => left - right);
+  const expectedPositions = Array.from({ length: expectedSize }, (_, index) => index + 1);
+  if (positions.length !== expectedSize || positions.some((position, index) => position !== expectedPositions[index])) {
+    failures.push({
+      code: 'BAD_POSITIONS',
+      message: `Positions must cover 1-${expectedSize} exactly.`,
+      details: positions.map(String)
+    });
+  }
+
+  const canonicalIds = items.map(scheduledItemCanonicalId);
+  const missingCanonicalIdPositions = canonicalIds
+    .map((value, index) => value ? null : items[index]?.position)
+    .filter((value): value is number => value !== null);
+  if (missingCanonicalIdPositions.length > 0) {
+    failures.push({
+      code: 'MISSING_CANONICAL_ID',
+      message: 'Every shelf item must carry a stable canonical card/printing ID.',
+      positions: missingCanonicalIdPositions
+    });
+  }
+
+  const seenCanonicalIds = new Set<string>();
+  const duplicateCanonicalIds = new Set<string>();
+  for (const canonicalId of canonicalIds.filter((value): value is string => !!value)) {
+    if (seenCanonicalIds.has(canonicalId)) duplicateCanonicalIds.add(canonicalId);
+    seenCanonicalIds.add(canonicalId);
+  }
+  if (duplicateCanonicalIds.size > 0) {
+    failures.push({
+      code: 'DUPLICATE_CANONICAL_IDS',
+      message: 'Canonical card/printing IDs must be unique across the shelf.',
+      details: [...duplicateCanonicalIds]
+    });
+  }
+
+  const badNamePositions = items
+    .filter((item) => isGenericDiscoveryCardTitle(item.suggestion.name) || isMarketplaceStyleDiscoveryName(item.suggestion.name))
+    .map((item) => item.position);
+  if (badNamePositions.length > 0) {
+    failures.push({
+      code: 'BAD_DISPLAY_NAME',
+      message: 'Final shelf names must be canonical card names, not raw marketplace titles.',
+      positions: badNamePositions
+    });
+  }
+
+  const missingImagePositions = items.filter((item) => !item.imageUrl).map((item) => item.position);
+  if (missingImagePositions.length > 0) {
+    failures.push({
+      code: 'MISSING_IMAGE',
+      message: 'Every publishable shelf item must have a trusted reference image.',
+      positions: missingImagePositions
+    });
+  }
+
+  const badImagePositions = items.filter((item) => !hasTrustedReferenceImage(item)).map((item) => item.position);
+  if (badImagePositions.length > 0) {
+    failures.push({
+      code: 'BAD_IMAGE_PROVENANCE',
+      message: 'Primary shelf images must come from a trusted reference source, never marketplace images.',
+      positions: badImagePositions
+    });
+  }
+
+  const missingRationalePositions = items
+    .filter((item) => !item.suggestion.why?.trim() || !item.suggestion.laneWhy?.trim())
+    .map((item) => item.position);
+  if (missingRationalePositions.length > 0) {
+    failures.push({
+      code: 'MISSING_RATIONALE',
+      message: 'Every shelf item must include recommendation explanations.',
+      positions: missingRationalePositions
+    });
+  }
+
+  const unresolvedMarketPositions = items
+    .filter((item) => item.market.status === 'RATE_LIMITED' || item.market.status === 'TIMEOUT' || item.market.status === 'ERROR')
+    .map((item) => item.position);
+  if (unresolvedMarketPositions.length > 0) {
+    failures.push({
+      code: 'UNRESOLVED_MARKET_STATUS',
+      message: 'Publishable shelf items cannot carry unresolved market lookup errors.',
+      positions: unresolvedMarketPositions
+    });
+  }
+
+  return failures;
+}
+
+function persistValidatedWeeklyDiscoveryDrop(
+  userId: string,
+  candidates: DiscoveryCandidate[],
+  currency: SupportedCurrency,
+  sourceStateUpdatedAt?: string,
+  date = new Date()
+): { saved: boolean; itemCount: number; failures: DiscoveryShelfValidationFailure[] } {
+  if (candidates.length === 0) {
+    return {
+      saved: false,
+      itemCount: 0,
+      failures: [{ code: 'WRONG_SIZE', message: `Expected ${DISCOVERY_WEEKLY_DROP_SIZE} items, received 0.` }]
+    };
+  }
   const rejectedNameKeys = discoveryExclusionNameKeys(listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME').map((item) => item.suggestionName));
   const finishedCandidates = candidates
     .filter(isFinishedShelfCandidate)
@@ -4745,9 +4883,18 @@ function saveWeeklyDiscoveryDrop(userId: string, candidates: DiscoveryCandidate[
   const polishedCandidates = imagePolishedCandidates.length >= DISCOVERY_SHELF_PAGE_SIZE
     ? [...imagePolishedCandidates, ...namePolishedCandidates.filter((candidate) => !imagePolishedCandidates.includes(candidate))]
     : namePolishedCandidates;
-  for (const candidate of polishedCandidates) persistDiscoveryUniverseCandidate(candidate);
   const items = scheduledDropItemsFromCandidates(polishedCandidates, currency);
-  if (items.length === 0) return;
+  const failures = validatePublishableDiscoveryShelf(items, DISCOVERY_WEEKLY_DROP_SIZE);
+  if (failures.length > 0) {
+    console.warn(`[DiscoveryShelf] Validation failed for ${userId}`, {
+      itemCount: items.length,
+      readyCount: items.filter((item) => item.market.status === 'READY').length,
+      imageCount: items.filter((item) => !!item.imageUrl).length,
+      failures
+    });
+    return { saved: false, itemCount: items.length, failures };
+  }
+  for (const candidate of polishedCandidates) persistDiscoveryUniverseCandidate(candidate);
   const readyCount = items.filter((item) => item.market.status === 'READY').length;
   const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
   const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
@@ -4764,6 +4911,11 @@ function saveWeeklyDiscoveryDrop(userId: string, candidates: DiscoveryCandidate[
     sourceStateUpdatedAt,
     items
   });
+  return { saved: true, itemCount: items.length, failures: [] };
+}
+
+function saveWeeklyDiscoveryDrop(userId: string, candidates: DiscoveryCandidate[], currency: SupportedCurrency, sourceStateUpdatedAt?: string, date = new Date()): void {
+  persistValidatedWeeklyDiscoveryDrop(userId, candidates, currency, sourceStateUpdatedAt, date);
 }
 
 function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames: string[], tier: PlanTier, visibleCount: number): string {
@@ -5338,7 +5490,7 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     .slice(0, 3)
     .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
   const existing = !options.force ? getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date)) : null;
-  if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0) {
+  if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0 && validatePublishableDiscoveryShelf(existing.items, DISCOVERY_WEEKLY_DROP_SIZE).length === 0) {
     return {
       prepared: true,
       itemCount: existing.itemCount,
@@ -5510,18 +5662,20 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
         discovery.tasteProfileChases,
         { maxImmediateNameCarryovers: carryoverCap }
       );
-      saveWeeklyDiscoveryDrop(userId, freshnessOrderedRepairCandidates, discovery.settings.alertCurrency, undefined, date);
+      const persisted = persistValidatedWeeklyDiscoveryDrop(userId, freshnessOrderedRepairCandidates, discovery.settings.alertCurrency, undefined, date);
       return {
-        prepared: true,
-        itemCount: freshnessOrderedRepairCandidates.length,
+        prepared: persisted.saved,
+        itemCount: persisted.saved ? persisted.itemCount : 0,
         hasFullDiscovery: true
       };
     }
   }
-  if (candidates.length > 0) saveWeeklyDiscoveryDrop(userId, candidates, discovery.settings.alertCurrency, undefined, date);
+  const persisted = candidates.length > 0
+    ? persistValidatedWeeklyDiscoveryDrop(userId, candidates, discovery.settings.alertCurrency, undefined, date)
+    : { saved: false, itemCount: 0, failures: [] as DiscoveryShelfValidationFailure[] };
   return {
-    prepared: candidates.length > 0 && discovery.hasFullDiscovery,
-    itemCount: candidates.length,
+    prepared: persisted.saved && discovery.hasFullDiscovery,
+    itemCount: persisted.saved ? persisted.itemCount : 0,
     hasFullDiscovery: discovery.hasFullDiscovery
   };
 }

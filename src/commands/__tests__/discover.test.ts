@@ -62,6 +62,7 @@ import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscov
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import { deleteDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
+import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import type { DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
@@ -154,6 +155,29 @@ function userUniverseCard(name: string, score: number, updatedAt: string, source
     marketCurrency: 'CAD',
     createdAt: updatedAt,
     updatedAt
+  };
+}
+
+function publishableCandidate(name: string, canonicalId: string, selectionIndex: number): DiscoveryCandidate {
+  return {
+    selectionIndex,
+    suggestion: {
+      name,
+      lane: 'Collector Compass',
+      laneWhy: 'profile source match',
+      why: `try ${name}`,
+      nearby: [],
+      referenceImageUrl: `https://images.example/${canonicalId}.png`,
+      referenceSourceName: 'Pokemon TCG API',
+      referenceSourceCardId: canonicalId
+    },
+    image: {
+      name,
+      url: `https://images.example/${canonicalId}.png`,
+      sourceName: 'Pokemon TCG API',
+      sourceCardId: canonicalId,
+      sourceKind: 'CARD_REFERENCE'
+    }
   };
 }
 
@@ -1722,7 +1746,7 @@ describe('selectVisibleCandidates', () => {
     expect(ranked[0]?.suggestion.name).toBe('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
   });
 
-  it('selects exact niche Japanese grail cards before conventional GX and format rows', () => {
+  it('does not let exact niche Japanese grail cards with only thin market data displace reliable rows', () => {
     const raichuIntroPackBase = candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 8, 1);
     const raichuIntroPack = {
       ...raichuIntroPackBase,
@@ -1752,7 +1776,7 @@ describe('selectVisibleCandidates', () => {
       5
     );
 
-    expect(visible[0]?.suggestion.name).toBe('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
+    expect(visible.map((item) => item.suggestion.name)).not.toContain('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese');
     expect(visible.map((item) => item.suggestion.name)).not.toContain('Mew VMAX Fusion Strike 269');
   });
 
@@ -4703,7 +4727,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(items[0]?.imageSourceName).toBe('Pokemon TCG (151)');
   });
 
-  it('persists clean marketplace images for saved shelf cards when no card reference image exists', () => {
+  it('does not use marketplace images as canonical saved shelf images when no card reference image exists', () => {
     const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
       {
         ...candidate('Gardevoir Nintendo Promo 019/P Japanese', 'Japanese Collector Trail', 0, 4),
@@ -4720,8 +4744,8 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       }
     ], 'CAD');
 
-    expect(items[0]?.imageUrl).toBe('https://i.ebayimg.example/gardevoir.jpg');
-    expect(items[0]?.imageSourceName).toBe('eBay vetted marketplace image');
+    expect(items[0]?.imageUrl).toBeUndefined();
+    expect(items[0]?.imageSourceName).toBeUndefined();
   });
 
   it('infers structured source names for concrete cached market cards with obvious set context', () => {
@@ -4751,6 +4775,143 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(attached?.suggestion.referenceSourceName).toBe('TCGdex Japanese (Terastal Festival)');
     deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('does not treat a listing URL alone as fully market-ready for saved weekly shelf items', () => {
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      {
+        ...publishableCandidate('Mew ex Paldean Fates 232', 'sv4pt5-232', 0),
+        listing: listing({
+          listingId: 'listing-thin-1',
+          title: 'Mew ex Paldean Fates 232 Pokemon card',
+          url: 'https://example.com/mew-thin'
+        }),
+        image: undefined
+      }
+    ], 'CAD');
+
+    expect(items[0]?.market.status).toBe('THIN');
+  });
+
+  it('allows a strong canonical candidate with missing market data to remain publishable as non-shoppable', () => {
+    const items = Array.from({ length: 20 }, (_, index) => {
+      const item = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+        publishableCandidate(`Mew Card ${index + 1}`, `canonical-${index + 1}`, index)
+      ], 'CAD')[0]!;
+      return {
+        ...item,
+        position: index + 1,
+        market: { ...item.market, status: 'MISSING' as const, listing: undefined }
+      };
+    });
+
+    expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 20)).toEqual([]);
+  });
+
+  it('rejects a candidate without a trusted reference image from publishable weekly shelves', () => {
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      {
+        ...publishableCandidate('Mew ex Paldean Fates 232', 'sv4pt5-232', 0),
+        image: undefined,
+        suggestion: {
+          name: 'Mew ex Paldean Fates 232',
+          lane: 'Collector Compass',
+          laneWhy: 'profile source match',
+          why: 'try mew',
+          nearby: [],
+          referenceSourceName: 'Pokemon TCG API',
+          referenceSourceCardId: 'sv4pt5-232'
+        }
+      }
+    ], 'CAD');
+
+    const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 1);
+    expect(failures.some((failure) => failure.code === 'MISSING_IMAGE')).toBe(true);
+  });
+
+  it('rejects a raw marketplace title as a final publishable display name', () => {
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      publishableCandidate('Pokemon Card Expedition Base Set Mew 55/165 Rare', 'exp1-55', 0)
+    ], 'CAD');
+
+    const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 1);
+    expect(failures.some((failure) => failure.code === 'BAD_DISPLAY_NAME')).toBe(true);
+  });
+
+  it('fails validation for a 19-card shelf', () => {
+    const items = Array.from({ length: 19 }, (_, index) =>
+      __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+        publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index)
+      ], 'CAD')[0]!
+    );
+
+    const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 20);
+    expect(failures.some((failure) => failure.code === 'WRONG_SIZE')).toBe(true);
+  });
+
+  it('fails validation for duplicate canonical IDs', () => {
+    const items = Array.from({ length: 20 }, (_, index) =>
+      __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+        publishableCandidate(`Card ${index + 1}`, index < 2 ? 'dup-id' : `card-${index + 1}`, index)
+      ], 'CAD')[0]!
+    );
+
+    const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 20);
+    expect(failures.some((failure) => failure.code === 'DUPLICATE_CANONICAL_IDS')).toBe(true);
+  });
+
+  it('passes validation for a complete 20-card publishable shelf', () => {
+    const items = Array.from({ length: 20 }, (_, index) => {
+      const item = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+        {
+          ...publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index),
+          typicalRawAskingTotal: 75,
+          marketSampleSize: 4
+        }
+      ], 'CAD')[0]!;
+      return { ...item, position: index + 1 };
+    });
+
+    expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 20)).toEqual([]);
+  });
+
+  it('does not replace the previous valid weekly shelf when validation fails', () => {
+    const userId = `weekly-persist-${Date.now()}`;
+    const date = new Date('2026-07-14T12:00:00.000Z');
+    const validCandidates = Array.from({ length: 20 }, (_, index) => ({
+      ...publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index),
+      typicalRawAskingTotal: 75,
+      marketSampleSize: 4
+    }));
+    const invalidCandidates = validCandidates.slice(0, 19);
+
+    const saved = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, validCandidates, 'CAD', undefined, date);
+    expect(saved.saved).toBe(true);
+
+    const rejected = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, invalidCandidates, 'CAD', undefined, date);
+    expect(rejected.saved).toBe(false);
+
+    const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+    expect(drop?.itemCount).toBe(20);
+    expect(drop?.items).toHaveLength(20);
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+  });
+
+  it('reports weekly shelf persistence success only for a validated 20-card shelf', () => {
+    const userId = `weekly-result-${Date.now()}`;
+    const date = new Date('2026-07-14T12:00:00.000Z');
+    const invalidCandidates = Array.from({ length: 19 }, (_, index) => ({
+      ...publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index),
+      typicalRawAskingTotal: 75,
+      marketSampleSize: 4
+    }));
+
+    const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, invalidCandidates, 'CAD', undefined, date);
+    expect(result.saved).toBe(false);
+    expect(result.itemCount).toBe(19);
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
   });
 
   it('does not treat weak trait-only market cache cards as scheduled shelf priorities without source backing', () => {

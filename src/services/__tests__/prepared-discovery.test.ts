@@ -85,4 +85,46 @@ describe('prepared discovery shelf', () => {
     });
     expect(shelf?.items[1].market.status).toBe('MISSING');
   });
+
+  it('does not use marketplace images as the prepared shelf image fallback and treats listing-only rows as thin', () => {
+    const userId = `prepared-thin-${Date.now()}`;
+    userIds.push(userId);
+    setUserPlan(userId, 'PRO');
+    setUserAlertSettings(userId, { alertCurrency: 'CAD', shippingCountry: 'CA' });
+    addChase({ userId, cardName: 'Zapdos ex Scarlet & Violet Black Star Promos 49', priority: 'HIGH', maxPrice: 500 });
+
+    const mode = preparedDiscoveryStateKey('PRO', 7);
+    upsertUserDiscoveryState({
+      userId,
+      mode,
+      profileFingerprint: 'fingerprint-thin',
+      suggestionNames: ['Zapdos ex Scarlet & Violet Black Star Promos 49']
+    });
+
+    const marketKey = discoveryMarketCacheKey('Zapdos ex Scarlet & Violet Black Star Promos 49', 'CAD', 'CA', undefined, { min: 0, max: 500 });
+    cacheKeys.push(marketKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: marketKey,
+      suggestionName: 'Zapdos ex Scarlet & Violet Black Star Promos 49',
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      listing: {
+        source: 'EBAY',
+        listingId: 'listing-thin',
+        title: 'Zapdos ex Scarlet & Violet Black Star Promos 49 Pokemon card',
+        price: 41,
+        currency: 'CAD',
+        url: 'https://example.com/zapdos-thin',
+        imageUrl: 'https://example.com/zapdos-listing.jpg',
+        region: 'CA',
+        listingType: 'BUY_IT_NOW'
+      },
+      fetchedAt: '2026-06-10T00:00:00.000Z'
+    });
+
+    const shelf = getPreparedDiscoveryShelf(userId);
+
+    expect(shelf?.items[0]?.imageUrl).toBeUndefined();
+    expect(shelf?.items[0]?.market.status).toBe('THIN');
+  });
 });
