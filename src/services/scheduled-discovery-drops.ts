@@ -10,6 +10,7 @@ export type ScheduledDiscoveryDropItem = {
   suggestion: DiscoverySuggestion;
   imageUrl?: string;
   imageSourceName?: string;
+  imageSourceKind?: 'CARD_REFERENCE' | 'MARKET_LISTING';
   market: {
     status: string;
     currency: SupportedCurrency;
@@ -69,6 +70,7 @@ type ScheduledDiscoveryDropItemRow = {
   suggestion_json: string;
   image_url: string | null;
   image_source_name: string | null;
+  image_source_kind: 'CARD_REFERENCE' | 'MARKET_LISTING' | null;
   market_status: string;
   market_currency: SupportedCurrency;
   asking_total: number | null;
@@ -126,12 +128,12 @@ const deleteScheduledDiscoveryDropItemsStmt = db.prepare(`
 const insertScheduledDiscoveryDropItemStmt = db.prepare(`
   INSERT INTO discovery_scheduled_drop_items (
     user_id, drop_type, period_key, position, suggestion_name, suggestion_json, image_url, image_source_name,
-    market_status, market_currency, asking_total, asking_sample_size, sold_total, sold_sample_size,
+    image_source_kind, market_status, market_currency, asking_total, asking_sample_size, sold_total, sold_sample_size,
     listing_id, listing_title, listing_url, market_updated_at, created_at, updated_at
   )
   VALUES (
     @user_id, @drop_type, @period_key, @position, @suggestion_name, @suggestion_json, @image_url, @image_source_name,
-    @market_status, @market_currency, @asking_total, @asking_sample_size, @sold_total, @sold_sample_size,
+    @image_source_kind, @market_status, @market_currency, @asking_total, @asking_sample_size, @sold_total, @sold_sample_size,
     @listing_id, @listing_title, @listing_url, @market_updated_at, @created_at, @updated_at
   )
 `);
@@ -170,7 +172,7 @@ const listRecentScheduledDiscoveryDropsStmt = db.prepare(`
 
 const listScheduledDiscoveryDropItemsStmt = db.prepare(`
   SELECT position, suggestion_name, suggestion_json, image_url, image_source_name, market_status, market_currency,
-         asking_total, asking_sample_size, sold_total, sold_sample_size, listing_id, listing_title, listing_url, market_updated_at
+         image_source_kind, asking_total, asking_sample_size, sold_total, sold_sample_size, listing_id, listing_title, listing_url, market_updated_at
   FROM discovery_scheduled_drop_items
   WHERE user_id = ? AND drop_type = ? AND period_key = ?
   ORDER BY position ASC
@@ -298,6 +300,7 @@ function mapScheduledDiscoveryDropItemRow(row: ScheduledDiscoveryDropItemRow): S
     suggestion,
     imageUrl: row.image_url ?? undefined,
     imageSourceName: row.image_source_name ?? undefined,
+    imageSourceKind: row.image_source_kind ?? (row.image_source_name?.toLowerCase().includes('ebay') ? 'MARKET_LISTING' : row.image_url ? 'CARD_REFERENCE' : undefined),
     market: {
       status: row.market_status,
       currency: row.market_currency,
@@ -391,6 +394,7 @@ export function upsertScheduledDiscoveryDrop(input: UpsertScheduledDiscoveryDrop
         suggestion_json: JSON.stringify(item.suggestion),
         image_url: item.imageUrl ?? null,
         image_source_name: item.imageSourceName ?? null,
+        image_source_kind: item.imageSourceKind ?? null,
         market_status: item.market.status,
         market_currency: item.market.currency,
         asking_total: item.market.askingTotal ?? null,

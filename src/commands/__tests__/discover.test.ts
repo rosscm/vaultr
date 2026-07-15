@@ -61,7 +61,7 @@ import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js'
 import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
-import { deleteDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
+import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
 import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import type { DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
 import type { Chase, Listing } from '../../types.js';
@@ -179,6 +179,13 @@ function publishableCandidate(name: string, canonicalId: string, selectionIndex:
       sourceKind: 'CARD_REFERENCE'
     }
   };
+}
+
+function publishableShelfCandidates(count: number, overrides?: (candidate: DiscoveryCandidate, index: number) => DiscoveryCandidate): DiscoveryCandidate[] {
+  return Array.from({ length: count }, (_, index) => {
+    const base = publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index);
+    return overrides ? overrides(base, index) : base;
+  });
 }
 
 function listing(overrides: Partial<Listing>): Listing {
@@ -4808,6 +4815,120 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 20)).toEqual([]);
   });
 
+  it('backfills one invalid early candidate with the next qualified reserve candidate', () => {
+    const pool = publishableShelfCandidates(21, (candidate, index) => {
+      if (index !== 5) return candidate;
+      return {
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          referenceImageUrl: undefined
+        },
+        image: {
+          ...candidate.image!,
+          sourceKind: 'MARKET_LISTING',
+          sourceName: 'Pokemon TCG API',
+          sourceCardId: undefined
+        }
+      };
+    });
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20);
+    expect(result.items).toHaveLength(20);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-6')).toBe(false);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-21')).toBe(true);
+    expect(result.rejectionCounts.BAD_IMAGE).toBe(1);
+  });
+
+  it('backfills multiple invalid candidates from the reserve pool', () => {
+    const pool = publishableShelfCandidates(24, (candidate, index) => {
+      if (index === 1) {
+        return {
+          ...candidate,
+          suggestion: { ...candidate.suggestion, referenceSourceCardId: undefined },
+          image: { ...candidate.image!, sourceCardId: undefined }
+        };
+      }
+      if (index === 7) {
+        return {
+          ...candidate,
+          suggestion: { ...candidate.suggestion, name: 'Pokemon Card Collector Rare' }
+        };
+      }
+      if (index === 12) {
+        return {
+          ...candidate,
+          suggestion: { ...candidate.suggestion, why: '   ' }
+        };
+      }
+      return candidate;
+    });
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20);
+    expect(result.items).toHaveLength(20);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-2')).toBe(false);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-8')).toBe(false);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-13')).toBe(false);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-21')).toBe(true);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-22')).toBe(true);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-23')).toBe(true);
+  });
+
+  it('skips duplicate canonical IDs during final selection and replaces them from reserve', () => {
+    const pool = publishableShelfCandidates(21, (candidate, index) => {
+      if (index !== 4) return candidate;
+      return {
+        ...candidate,
+        suggestion: { ...candidate.suggestion, referenceSourceCardId: 'card-4' },
+        image: { ...candidate.image!, sourceCardId: 'card-4' }
+      };
+    });
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20);
+    expect(result.items).toHaveLength(20);
+    expect(result.rejectionCounts.DUPLICATE_CANONICAL_ID).toBe(1);
+    expect(result.items.filter((item) => item.suggestion.referenceSourceCardId === 'card-4')).toHaveLength(1);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-21')).toBe(true);
+  });
+
+  it('does not make a market timeout card unpublishable when the card is otherwise canonical', () => {
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      {
+        ...publishableCandidate('Timed Out Card', 'timeout-card', 0),
+        sourceStatus: 'TIMEOUT'
+      }
+    ], 'CAD');
+
+    expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 1)).toEqual([]);
+  });
+
+  it('persists market error cards as non-shoppable when the full shelf is otherwise valid', () => {
+    const userId = `weekly-market-error-${Date.now()}`;
+    const date = new Date('2026-07-14T12:00:00.000Z');
+    const candidates = publishableShelfCandidates(20, (candidate, index) =>
+      index === 0
+        ? {
+            ...candidate,
+            sourceStatus: 'ERROR',
+            listing: listing({
+              listingId: 'should-not-surface',
+              title: 'Card 1 listing',
+              url: 'https://example.com/card-1'
+            })
+          }
+        : { ...candidate, typicalRawAskingTotal: 75, marketSampleSize: 4 }
+    );
+
+    const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, candidates, 'CAD', undefined, date);
+    expect(result.saved).toBe(true);
+
+    const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+    expect(drop?.items[0]?.market.status).toBe('ERROR');
+    expect(drop?.items[0]?.market.listing).toBeUndefined();
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+  });
+
   it('rejects a candidate without a trusted reference image from publishable weekly shelves', () => {
     const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
       {
@@ -4827,6 +4948,30 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 1);
     expect(failures.some((failure) => failure.code === 'MISSING_IMAGE')).toBe(true);
+  });
+
+  it('rejects explicit MARKET_LISTING images even when the source name looks trusted', () => {
+    const [item] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      publishableCandidate('Mew ex Paldean Fates 232', 'sv4pt5-232', 0)
+    ], 'CAD');
+    const items = [
+      {
+        ...item!,
+        imageSourceKind: 'MARKET_LISTING' as const,
+        imageSourceName: 'Pokemon TCG API'
+      }
+    ];
+
+    const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 1);
+    expect(failures.some((failure) => failure.code === 'BAD_IMAGE_PROVENANCE')).toBe(true);
+  });
+
+  it('accepts explicit CARD_REFERENCE images as trusted shelf art', () => {
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      publishableCandidate('Mew ex Paldean Fates 232', 'sv4pt5-232', 0)
+    ], 'CAD');
+
+    expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 1)).toEqual([]);
   });
 
   it('rejects a raw marketplace title as a final publishable display name', () => {
@@ -4875,11 +5020,21 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 20)).toEqual([]);
   });
 
+  it('builds exactly 20 items from a ranked pool when at least 20 qualified candidates exist', () => {
+    const pool = publishableShelfCandidates(28, (candidate, index) =>
+      index % 5 === 0 ? { ...candidate, sourceStatus: 'RATE_LIMITED' } : candidate
+    );
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20);
+    expect(result.items).toHaveLength(20);
+    expect(result.inspectedCount).toBe(20);
+  });
+
   it('does not replace the previous valid weekly shelf when validation fails', () => {
     const userId = `weekly-persist-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');
-    const validCandidates = Array.from({ length: 20 }, (_, index) => ({
-      ...publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index),
+    const validCandidates = publishableShelfCandidates(20, (candidate, index) => ({
+      ...candidate,
       typicalRawAskingTotal: 75,
       marketSampleSize: 4
     }));
@@ -4890,6 +5045,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const rejected = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, invalidCandidates, 'CAD', undefined, date);
     expect(rejected.saved).toBe(false);
+    expect(rejected.retainedPreviousShelf).toBe(true);
 
     const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
     expect(drop?.itemCount).toBe(20);
@@ -4901,8 +5057,8 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   it('reports weekly shelf persistence success only for a validated 20-card shelf', () => {
     const userId = `weekly-result-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');
-    const invalidCandidates = Array.from({ length: 19 }, (_, index) => ({
-      ...publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index),
+    const invalidCandidates = publishableShelfCandidates(19, (candidate) => ({
+      ...candidate,
       typicalRawAskingTotal: 75,
       marketSampleSize: 4
     }));
@@ -4912,6 +5068,68 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.itemCount).toBe(19);
 
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+  });
+
+  it('still persists qualified canonical candidates into the discovery universe when weekly shelf publication fails', () => {
+    const userId = `weekly-universe-${Date.now()}`;
+    const date = new Date('2026-07-14T12:00:00.000Z');
+    const invalidCandidates = publishableShelfCandidates(19, (candidate, index) => ({
+      ...candidate,
+      typicalRawAskingTotal: 75 + index,
+      marketSampleSize: 4
+    }));
+
+    const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, invalidCandidates, 'CAD', undefined, date);
+    expect(result.saved).toBe(false);
+    expect(listDiscoveryUniverseCards(25)).toHaveLength(19);
+  });
+
+  it('reports grouped rejection metrics for selection failures', () => {
+    const missingId = publishableCandidate('Missing ID', 'missing-id', 0);
+    const badImage = publishableCandidate('Bad Image', 'bad-image', 1);
+    const badName = publishableCandidate('Pokemon Card Raw Rare', 'bad-name', 2);
+    const noWhy = publishableCandidate('No Why', 'no-why', 3);
+    const dupOne = publishableCandidate('Valid 1', 'dup-shared', 4);
+    const dupTwo = publishableCandidate('Valid 2', 'dup-two', 5);
+    const pool: DiscoveryCandidate[] = [
+      {
+        ...missingId,
+        suggestion: { ...missingId.suggestion, referenceSourceCardId: undefined },
+        image: { ...missingId.image!, sourceCardId: undefined }
+      },
+      {
+        ...badImage,
+        suggestion: { ...badImage.suggestion, referenceImageUrl: undefined },
+        image: {
+          ...badImage.image!,
+          sourceKind: 'MARKET_LISTING',
+          sourceName: 'Pokemon TCG API',
+          sourceCardId: undefined
+        }
+      },
+      {
+        ...badName
+      },
+      {
+        ...noWhy,
+        suggestion: { ...noWhy.suggestion, why: '' }
+      },
+      dupOne,
+      {
+        ...dupTwo,
+        suggestion: { ...dupTwo.suggestion, referenceSourceCardId: 'dup-shared' },
+        image: { ...dupTwo.image!, sourceCardId: 'dup-shared' }
+      }
+    ];
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20);
+    expect(result.rejectionCounts).toMatchObject({
+      MISSING_CANONICAL_ID: 1,
+      BAD_IMAGE: 1,
+      BAD_DISPLAY_NAME: 1,
+      MISSING_RATIONALE: 1,
+      DUPLICATE_CANONICAL_ID: 1
+    });
   });
 
   it('does not treat weak trait-only market cache cards as scheduled shelf priorities without source backing', () => {

@@ -170,6 +170,28 @@ type DiscoveryShelfValidationFailure = {
   positions?: number[];
   details?: string[];
 };
+type DiscoveryShelfSelectionRejectionCode =
+  | 'MISSING_CANONICAL_ID'
+  | 'BAD_IMAGE'
+  | 'BAD_DISPLAY_NAME'
+  | 'DUPLICATE_CANONICAL_ID'
+  | 'MISSING_RATIONALE';
+type DiscoveryShelfSelectionResult = {
+  items: ScheduledDiscoveryDropItem[];
+  selectedCandidates: DiscoveryCandidate[];
+  inspectedCount: number;
+  qualifiedCount: number;
+  rejectionCounts: Record<DiscoveryShelfSelectionRejectionCode, number>;
+};
+type PersistValidatedWeeklyDiscoveryDropResult = {
+  saved: boolean;
+  itemCount: number;
+  failures: DiscoveryShelfValidationFailure[];
+  inspectedCount: number;
+  qualifiedCount: number;
+  rejectionCounts: Record<DiscoveryShelfSelectionRejectionCode, number>;
+  retainedPreviousShelf: boolean;
+};
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
 const MIN_STRONG_PROFILE_CHASES = 9;
@@ -1989,6 +2011,7 @@ export const __discoveryPersistenceTestHooks = {
   weeklyJapaneseSignalTargetCount,
   validatePublishableDiscoveryShelf,
   scoreDiscoveryUniverseCardForProfile,
+  selectPublishableWeeklyDiscoveryShelf,
   persistValidatedWeeklyDiscoveryDrop,
   saveWeeklyDiscoveryDrop,
   canonicalUniverseSeedParents
@@ -3293,14 +3316,20 @@ function persistDiscoveryUniverseCandidate(candidate: DiscoveryCandidate): void 
   if (!isFinishedShelfCandidate(candidate)) return;
   if (!isCollectorWorthyWeeklyCandidate(candidate)) return;
   if (isMarketplaceStyleDiscoveryName(candidate.suggestion.name)) return;
+  if (isGenericDiscoveryCardTitle(candidate.suggestion.name)) return;
+  if (!candidate.suggestion.why?.trim() || !candidate.suggestion.laneWhy?.trim()) return;
+  const canonicalId = candidate.suggestion.referenceSourceCardId?.trim() || candidate.image?.sourceCardId?.trim();
+  if (!canonicalId) return;
+  const canonicalImage = scheduledShelfImageFromCandidate(candidate);
+  if (!canonicalImage || canonicalImage.sourceKind !== 'CARD_REFERENCE') return;
   upsertDiscoveryUniverseCard({
     canonicalName: candidate.suggestion.name,
     suggestion: candidate.suggestion,
     lane: candidate.suggestion.lane,
-    sourceName: candidate.image?.sourceName ?? candidate.suggestion.referenceSourceName,
-    imageUrl: candidate.image?.url ?? candidate.suggestion.referenceImageUrl,
-    imageSourceName: candidate.image?.sourceName,
-    sourceCardId: candidate.image?.sourceCardId ?? candidate.suggestion.referenceSourceCardId,
+    sourceName: canonicalImage.sourceName ?? candidate.suggestion.referenceSourceName,
+    imageUrl: canonicalImage.url ?? candidate.suggestion.referenceImageUrl,
+    imageSourceName: canonicalImage.sourceName,
+    sourceCardId: canonicalId,
     subjectTokens: universeSubjectTokensForCandidate(candidate),
     traitTokens: universeTraitTokensForCandidate(candidate),
     marketTotal: discoveryMarketTotal(candidate),
@@ -4463,12 +4492,12 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
     suggestion: item.suggestion,
     selectionIndex: item.position - 1,
     listing: listingFromScheduledDiscoveryDropItem(item),
-    image: item.imageUrl && item.imageSourceName !== EBAY_LISTING_IMAGE_SOURCE_NAME
+    image: item.imageUrl && item.imageSourceName
       ? {
           name: item.suggestion.name,
           url: item.imageUrl,
           sourceName: item.imageSourceName,
-          sourceKind: item.imageSourceName === VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME ? 'MARKET_LISTING' as const : 'CARD_REFERENCE' as const
+          sourceKind: item.imageSourceKind ?? (item.imageSourceName === VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME ? 'MARKET_LISTING' as const : 'CARD_REFERENCE' as const)
         }
       : undefined,
     typicalRawAskingTotal: item.market.askingTotal,
@@ -4734,6 +4763,7 @@ function scheduledDropItemsFromCandidates(candidates: DiscoveryCandidate[], curr
     suggestion: canonicalScheduledSuggestion(candidate),
     imageUrl: scheduledShelfImageFromCandidate(candidate)?.url,
     imageSourceName: scheduledShelfImageFromCandidate(candidate)?.sourceName,
+    imageSourceKind: scheduledShelfImageFromCandidate(candidate)?.sourceKind,
     market: {
       status: scheduledMarketStatusFromCandidate(candidate),
       currency: candidate.displayCurrency ?? currency,
@@ -4741,7 +4771,7 @@ function scheduledDropItemsFromCandidates(candidates: DiscoveryCandidate[], curr
       askingSampleSize: candidate.marketSampleSize,
       soldTotal: candidate.typicalRawSoldTotal,
       soldSampleSize: candidate.soldSampleSize,
-      listing: candidate.listing
+      listing: (candidate.sourceStatus === 'RATE_LIMITED' || candidate.sourceStatus === 'TIMEOUT' || candidate.sourceStatus === 'ERROR') ? undefined : candidate.listing
         ? {
             id: candidate.listing.listingId,
             title: candidate.listing.title,
@@ -4757,8 +4787,7 @@ function scheduledItemCanonicalId(item: ScheduledDiscoveryDropItem): string | un
 }
 
 function hasTrustedReferenceImage(item: ScheduledDiscoveryDropItem): boolean {
-  if (!item.imageUrl || !item.imageSourceName) return false;
-  return !/ebay/i.test(item.imageSourceName);
+  return !!item.imageUrl && !!item.imageSourceName && item.imageSourceKind === 'CARD_REFERENCE';
 }
 
 function validatePublishableDiscoveryShelf(items: ScheduledDiscoveryDropItem[], expectedSize = DISCOVERY_WEEKLY_DROP_SIZE): DiscoveryShelfValidationFailure[] {
@@ -4843,18 +4872,66 @@ function validatePublishableDiscoveryShelf(items: ScheduledDiscoveryDropItem[], 
     });
   }
 
-  const unresolvedMarketPositions = items
-    .filter((item) => item.market.status === 'RATE_LIMITED' || item.market.status === 'TIMEOUT' || item.market.status === 'ERROR')
-    .map((item) => item.position);
-  if (unresolvedMarketPositions.length > 0) {
-    failures.push({
-      code: 'UNRESOLVED_MARKET_STATUS',
-      message: 'Publishable shelf items cannot carry unresolved market lookup errors.',
-      positions: unresolvedMarketPositions
-    });
+  return failures;
+}
+
+function emptyDiscoveryShelfRejectionCounts(): Record<DiscoveryShelfSelectionRejectionCode, number> {
+  return {
+    MISSING_CANONICAL_ID: 0,
+    BAD_IMAGE: 0,
+    BAD_DISPLAY_NAME: 0,
+    DUPLICATE_CANONICAL_ID: 0,
+    MISSING_RATIONALE: 0
+  };
+}
+
+function candidateItemSelectionRejection(
+  item: ScheduledDiscoveryDropItem,
+  seenCanonicalIds: Set<string>
+): DiscoveryShelfSelectionRejectionCode | null {
+  const canonicalId = scheduledItemCanonicalId(item);
+  if (!canonicalId) return 'MISSING_CANONICAL_ID';
+  if (!hasTrustedReferenceImage(item)) return 'BAD_IMAGE';
+  if (isGenericDiscoveryCardTitle(item.suggestion.name) || isMarketplaceStyleDiscoveryName(item.suggestion.name)) return 'BAD_DISPLAY_NAME';
+  if (!item.suggestion.why?.trim() || !item.suggestion.laneWhy?.trim()) return 'MISSING_RATIONALE';
+  if (seenCanonicalIds.has(canonicalId)) return 'DUPLICATE_CANONICAL_ID';
+  return null;
+}
+
+function selectPublishableWeeklyDiscoveryShelf(
+  candidates: DiscoveryCandidate[],
+  currency: SupportedCurrency,
+  expectedSize = DISCOVERY_WEEKLY_DROP_SIZE
+): DiscoveryShelfSelectionResult {
+  const rejectionCounts = emptyDiscoveryShelfRejectionCounts();
+  const selectedCandidates: DiscoveryCandidate[] = [];
+  const items: ScheduledDiscoveryDropItem[] = [];
+  const seenCanonicalIds = new Set<string>();
+  let inspectedCount = 0;
+  let qualifiedCount = 0;
+
+  for (const candidate of candidates) {
+    inspectedCount += 1;
+    const [item] = scheduledDropItemsFromCandidates([candidate], currency);
+    if (!item) continue;
+    const rejection = candidateItemSelectionRejection(item, seenCanonicalIds);
+    if (rejection) {
+      rejectionCounts[rejection] += 1;
+      continue;
+    }
+    const canonicalId = scheduledItemCanonicalId(item);
+    if (!canonicalId) {
+      rejectionCounts.MISSING_CANONICAL_ID += 1;
+      continue;
+    }
+    qualifiedCount += 1;
+    seenCanonicalIds.add(canonicalId);
+    selectedCandidates.push(candidate);
+    items.push({ ...item, position: items.length + 1 });
+    if (items.length >= expectedSize) break;
   }
 
-  return failures;
+  return { items, selectedCandidates, inspectedCount, qualifiedCount, rejectionCounts };
 }
 
 function persistValidatedWeeklyDiscoveryDrop(
@@ -4863,38 +4940,48 @@ function persistValidatedWeeklyDiscoveryDrop(
   currency: SupportedCurrency,
   sourceStateUpdatedAt?: string,
   date = new Date()
-): { saved: boolean; itemCount: number; failures: DiscoveryShelfValidationFailure[] } {
+): PersistValidatedWeeklyDiscoveryDropResult {
   if (candidates.length === 0) {
     return {
       saved: false,
       itemCount: 0,
-      failures: [{ code: 'WRONG_SIZE', message: `Expected ${DISCOVERY_WEEKLY_DROP_SIZE} items, received 0.` }]
+      failures: [{ code: 'WRONG_SIZE', message: `Expected ${DISCOVERY_WEEKLY_DROP_SIZE} items, received 0.` }],
+      inspectedCount: 0,
+      qualifiedCount: 0,
+      rejectionCounts: emptyDiscoveryShelfRejectionCounts(),
+      retainedPreviousShelf: !!getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date))
     };
   }
   const rejectedNameKeys = discoveryExclusionNameKeys(listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME').map((item) => item.suggestionName));
   const finishedCandidates = candidates
     .filter(isFinishedShelfCandidate)
     .filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, rejectedNameKeys));
-  const cleanNamedCandidates = finishedCandidates.filter((candidate) => !isMarketplaceStyleDiscoveryName(candidate.suggestion.name));
-  const namePolishedCandidates = cleanNamedCandidates.length >= DISCOVERY_SHELF_PAGE_SIZE
-    ? [...cleanNamedCandidates, ...finishedCandidates.filter((candidate) => !cleanNamedCandidates.includes(candidate))]
-    : finishedCandidates;
-  const imagePolishedCandidates = namePolishedCandidates.filter((candidate) => !!scheduledShelfImageFromCandidate(candidate));
-  const polishedCandidates = imagePolishedCandidates.length >= DISCOVERY_SHELF_PAGE_SIZE
-    ? [...imagePolishedCandidates, ...namePolishedCandidates.filter((candidate) => !imagePolishedCandidates.includes(candidate))]
-    : namePolishedCandidates;
-  const items = scheduledDropItemsFromCandidates(polishedCandidates, currency);
+  for (const candidate of finishedCandidates) persistDiscoveryUniverseCandidate(candidate);
+  const selection = selectPublishableWeeklyDiscoveryShelf(finishedCandidates, currency, DISCOVERY_WEEKLY_DROP_SIZE);
+  const items = selection.items;
   const failures = validatePublishableDiscoveryShelf(items, DISCOVERY_WEEKLY_DROP_SIZE);
   if (failures.length > 0) {
+    const previousDropExists = !!getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date));
     console.warn(`[DiscoveryShelf] Validation failed for ${userId}`, {
+      inspectedCount: selection.inspectedCount,
+      qualifiedCount: selection.qualifiedCount,
+      retainedPreviousShelf: previousDropExists,
       itemCount: items.length,
       readyCount: items.filter((item) => item.market.status === 'READY').length,
       imageCount: items.filter((item) => !!item.imageUrl).length,
+      rejectionCounts: selection.rejectionCounts,
       failures
     });
-    return { saved: false, itemCount: items.length, failures };
+    return {
+      saved: false,
+      itemCount: items.length,
+      failures,
+      inspectedCount: selection.inspectedCount,
+      qualifiedCount: selection.qualifiedCount,
+      rejectionCounts: selection.rejectionCounts,
+      retainedPreviousShelf: previousDropExists
+    };
   }
-  for (const candidate of polishedCandidates) persistDiscoveryUniverseCandidate(candidate);
   const readyCount = items.filter((item) => item.market.status === 'READY').length;
   const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
   const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
@@ -4911,7 +4998,15 @@ function persistValidatedWeeklyDiscoveryDrop(
     sourceStateUpdatedAt,
     items
   });
-  return { saved: true, itemCount: items.length, failures: [] };
+  return {
+    saved: true,
+    itemCount: items.length,
+    failures: [],
+    inspectedCount: selection.inspectedCount,
+    qualifiedCount: selection.qualifiedCount,
+    rejectionCounts: selection.rejectionCounts,
+    retainedPreviousShelf: false
+  };
 }
 
 function saveWeeklyDiscoveryDrop(userId: string, candidates: DiscoveryCandidate[], currency: SupportedCurrency, sourceStateUpdatedAt?: string, date = new Date()): void {

@@ -273,6 +273,7 @@ db.exec(`
     suggestion_json TEXT NOT NULL,
     image_url TEXT,
     image_source_name TEXT,
+    image_source_kind TEXT,
     market_status TEXT NOT NULL,
     market_currency TEXT NOT NULL,
     asking_total REAL,
@@ -503,6 +504,11 @@ try {
 }
 try {
   db.exec(`ALTER TABLE user_alert_settings ADD COLUMN shipping_postal_code TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE discovery_scheduled_drop_items ADD COLUMN image_source_kind TEXT;`);
 } catch {
   // Column already exists on upgraded databases.
 }
