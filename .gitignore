@@ -1,6 +1,5 @@
 node_modules
 dist
-.env
 .DS_Store
 coverage
 logs/
@@ -8,3 +7,16 @@ logs/
 data/*
 !data/.gitkeep
 !data/mock-listings.example.json
+
+# Local environment variants
+.env.*
+!.env.example
+
+# Private/local Discovery captures and human evaluations
+data/discovery-replays/
+data/discovery-judgments/
+
+# Accidental repository-root Discovery diagnostics
+/discovery-debug-*.json
+/weekly-discovery-*.raw.json
+/w29-live-finalization-input*.json
