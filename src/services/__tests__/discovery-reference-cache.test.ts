@@ -226,26 +226,49 @@ describe('discovery reference cache', () => {
     expect(queries).toEqual(['name:"Totodile" number:073', 'name:"Totodile" number:73']);
   });
 
-  it('uses curated reference image overrides before querying a card database', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      headers: new Headers({ 'content-type': 'image/png' })
-    })));
+  it('does not promote an arbitrary Pokemon suggestion image URL into trusted reference art', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'sv3pt5-170',
+                name: 'Squirtle',
+                number: '170',
+                set: { name: '151' },
+                images: { small: 'https://marketplace.example/squirtle-listing-photo.png' }
+              }
+            ]
+          })
+        } as Response;
+      }
+      if (url.includes('marketplace.example')) {
+        return {
+          ok: true,
+          headers: new Headers({ 'content-type': 'image/png' })
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
 
     const reference = await fetchDiscoveryReferenceImage({
-      name: 'Ditto Charmander Delta Species',
-      lane: 'playful display cards',
-      laneWhy: 'cards with visual charm',
-      why: 'try this',
+      name: 'Squirtle 151 170',
+      lane: 'collector path',
+      laneWhy: 'test',
+      why: 'test',
       nearby: [],
-      referenceImageUrl: 'https://images.pokemontcg.io/ex11/37_hires.png',
-      referenceSourceName: 'Pokemon TCG (EX Delta Species)',
-      referenceSourceCardId: 'ex11-37'
+      evidenceSearchTerm: 'Squirtle 151 170 Pokemon card',
+      referenceImageUrl: 'https://marketplace.example/squirtle-listing-photo.png',
+      referenceSourceName: 'Curated reference',
+      referenceSourceCardId: 'sv3pt5-170'
     });
 
-    expect(reference.imageUrl).toBe('https://images.pokemontcg.io/ex11/37_hires.png');
-    expect(reference.sourceCardId).toBe('ex11-37');
-    expect(reference.sourceName).toBe('Pokemon TCG (EX Delta Species)');
+    expect(reference.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+    expect(reference.sourceCardId).toBe('sv3pt5-170');
+    expect(reference.sourceName).toBe('Pokemon TCG (151)');
   });
 
   it('uses exact set hints in source labels when Pokemon TCG omits set metadata', async () => {
@@ -639,5 +662,94 @@ describe('discovery reference cache', () => {
 
     expect(reference?.imageUrl).toBe('https://images.pokemontcg.io/test/fresh.png');
     expect(getDiscoveryReferenceCache(cacheKey)?.imageUrl).toBe('https://images.pokemontcg.io/test/fresh.png');
+  });
+
+  it('replaces a cached Pokemon marketplace photo when the exact resolved printing disagrees', async () => {
+    const suggestionName = 'Squirtle 151 170';
+    const suggestionCacheKey = discoveryReferenceCacheKey(suggestionName);
+    deleteDiscoveryReferenceCache(suggestionCacheKey);
+    upsertDiscoveryReferenceCache({
+      cacheKey: suggestionCacheKey,
+      suggestionName,
+      imageUrl: 'https://marketplace.example/squirtle-old-photo.png',
+      sourceName: 'Curated reference',
+      sourceCardId: 'sv3pt5-170'
+    });
+
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'sv3pt5-170',
+                name: 'Squirtle',
+                number: '170',
+                set: { name: '151' }
+              }
+            ]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await getOrFetchDiscoveryReferenceImage({
+      name: suggestionName,
+      lane: 'collector path',
+      laneWhy: 'test',
+      why: 'test',
+      nearby: [],
+      evidenceSearchTerm: 'Squirtle 151 170 Pokemon card',
+      referenceImageUrl: 'https://marketplace.example/squirtle-old-photo.png',
+      referenceSourceName: 'Curated reference',
+      referenceSourceCardId: 'sv3pt5-170'
+    }, 60 * 60 * 1000);
+
+    expect(reference?.diagnosticReason).toBe('REFERENCE_IMAGE_IDENTITY_MISMATCH');
+    expect(reference?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+    expect(getDiscoveryReferenceCache(suggestionCacheKey)?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+
+    deleteDiscoveryReferenceCache(suggestionCacheKey);
+  });
+
+  it('refreshes Squirtle 151 170 to canonical API artwork instead of preserving a listing-style photograph', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'sv3pt5-170',
+                name: 'Squirtle',
+                number: '170',
+                set: { name: '151' },
+                images: { large: 'https://listing.example/wrong-squirtle-photo.jpg' }
+              }
+            ]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await fetchDiscoveryReferenceImage({
+      name: 'Squirtle 151 170',
+      lane: 'collector path',
+      laneWhy: 'test',
+      why: 'test',
+      nearby: [],
+      evidenceSearchTerm: 'Squirtle 151 170 Pokemon card',
+      referenceImageUrl: 'https://listing.example/wrong-squirtle-photo.jpg',
+      referenceSourceName: 'Listing photo',
+      referenceSourceCardId: 'sv3pt5-170'
+    });
+
+    expect(reference.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+    expect(reference.imageUrl?.includes('listing.example')).toBe(false);
   });
 });

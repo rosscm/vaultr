@@ -11,6 +11,7 @@ export type DiscoveryReferenceCacheEntry = {
   sourceName?: string;
   sourceCardId?: string;
   sourceStatus?: DiscoveryReferenceStatus;
+  diagnosticReason?: 'REFERENCE_IMAGE_IDENTITY_MISMATCH';
   fetchedAt: string;
   updatedAt: string;
 };
@@ -55,6 +56,8 @@ const POKEMON_TCG_ENDPOINT = 'https://api.pokemontcg.io/v2/cards';
 const TCGDEX_JA_CARDS_ENDPOINT = 'https://api.tcgdex.net/v2/ja/cards';
 const ONE_PIECE_CARD_IMAGE_BASE_URL = 'https://en.onepiece-cardgame.com/images/cardlist/card';
 const REFERENCE_FETCH_TIMEOUT_MS = 12000;
+const TCGDEX_REFERENCE_HOST = 'assets.tcgdex.net';
+const POKEMON_TCG_REFERENCE_HOST = 'images.pokemontcg.io';
 
 const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /southern islands?/i, setName: 'Southern Islands' },
@@ -194,6 +197,10 @@ function onePieceSourceText(suggestion: DiscoverySuggestion): string {
   return [suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
 }
 
+function suggestionSourceText(suggestion: DiscoverySuggestion): string {
+  return [suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
+}
+
 function isOnePieceReferenceSuggestion(suggestion: DiscoverySuggestion): boolean {
   return /\b(one piece|luffy|nami|zoro|sabo)\b/i.test(onePieceSourceText(suggestion));
 }
@@ -202,7 +209,17 @@ function isJapaneseReferenceSuggestion(suggestion: DiscoverySuggestion): boolean
   const text = [suggestion.name, suggestion.evidenceSearchTerm, suggestion.referenceSourceName, ...(suggestion.evidenceAliases ?? []), ...(suggestion.requiredEvidenceTokens ?? [])]
     .filter(Boolean)
     .join(' ');
-  return /\bjapanese\b|tcgdex japanese|\/p\b|sv-p|promo/i.test(text);
+  return /\bjapanese\b|tcgdex japanese|\/p\b|\b(?:xy|sm|sv|s)-p\b/i.test(text);
+}
+
+function isPokemonReferenceSuggestion(suggestion: DiscoverySuggestion): boolean {
+  if (isOnePieceReferenceSuggestion(suggestion)) return false;
+  const text = [suggestionSourceText(suggestion), suggestion.referenceSourceName, suggestion.referenceSourceCardId].filter(Boolean).join(' ');
+  const hasPokemonMarkers = /\bpokemon\b|\bpokemontcg\b|tcgdex japanese|\b(?:xy|sm|sv|swsh|bw|dp|hgss)\b/i.test(text)
+    || !!setHintForSuggestion(text)
+    || !!extractNumber(text)
+    || isJapaneseReferenceSuggestion(suggestion);
+  return hasPokemonMarkers && pokemonTcgQueriesForSuggestion(suggestion).length > 0 || isJapaneseReferenceSuggestion(suggestion);
 }
 
 function extractOnePieceCardCode(value: string): string | undefined {
@@ -460,6 +477,75 @@ function pokemonTcgCanonicalImageUrl(card: PokemonTcgCard): string | undefined {
   return setId && card.number ? `https://images.pokemontcg.io/${setId}/${encodeURIComponent(card.number)}_hires.png` : undefined;
 }
 
+function trustedOverrideReference(suggestion: DiscoverySuggestion): DiscoveryReferenceCacheEntry | null {
+  const imageOverride = discoveryImageOverrideForSuggestion(suggestion.name);
+  if (!imageOverride) return null;
+  const now = new Date().toISOString();
+  return {
+    cacheKey: discoveryReferenceCacheKey(suggestion.name),
+    suggestionName: suggestion.name,
+    imageUrl: imageOverride.imageUrl,
+    sourceName: imageOverride.sourceName,
+    sourceCardId: imageOverride.sourceCardId,
+    fetchedAt: now,
+    updatedAt: now
+  };
+}
+
+function sourceCardIdSetPrefix(sourceCardId: string | undefined): string | undefined {
+  const trimmed = sourceCardId?.trim();
+  if (!trimmed) return undefined;
+  const dashIndex = trimmed.indexOf('-');
+  return dashIndex > 0 ? trimmed.slice(0, dashIndex) : undefined;
+}
+
+function expectedPokemonTcgCanonicalUrlForSuggestion(suggestion: DiscoverySuggestion, sourceCardId: string | undefined): string | undefined {
+  const setPrefix = sourceCardIdSetPrefix(sourceCardId);
+  const requestedNumber = extractNumber(suggestionSourceText(suggestion));
+  if (!setPrefix || !requestedNumber) return undefined;
+  return `https://${POKEMON_TCG_REFERENCE_HOST}/${setPrefix}/${encodeURIComponent(requestedNumber)}_hires.png`;
+}
+
+function isHostUrl(url: string | undefined, host: string): boolean {
+  if (!url) return false;
+  try {
+    return new URL(url).hostname === host;
+  } catch {
+    return false;
+  }
+}
+
+function matchesTrustedOverride(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
+  const override = discoveryImageOverrideForSuggestion(suggestion.name);
+  return !!override
+    && entry.imageUrl === override.imageUrl
+    && entry.sourceName === override.sourceName
+    && entry.sourceCardId === override.sourceCardId;
+}
+
+function isTrustedJapaneseReference(entry: DiscoveryReferenceCacheEntry): boolean {
+  return !!entry.imageUrl
+    && !!entry.sourceCardId?.trim()
+    && /^TCGdex Japanese(?:\s*\(|$)/i.test(entry.sourceName ?? '')
+    && isHostUrl(entry.imageUrl, TCGDEX_REFERENCE_HOST);
+}
+
+function isTrustedPokemonTcgReference(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
+  const expectedUrl = expectedPokemonTcgCanonicalUrlForSuggestion(suggestion, entry.sourceCardId);
+  return !!entry.imageUrl
+    && !!entry.sourceCardId?.trim()
+    && /^Pokemon TCG(?:\s*\(|$)/i.test(entry.sourceName ?? '')
+    && !!expectedUrl
+    && entry.imageUrl === expectedUrl
+    && isHostUrl(entry.imageUrl, POKEMON_TCG_REFERENCE_HOST);
+}
+
+function hasTrustedPokemonReferenceProvenance(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
+  if (matchesTrustedOverride(entry, suggestion)) return true;
+  if (isJapaneseReferenceSuggestion(suggestion)) return isTrustedJapaneseReference(entry);
+  return isTrustedPokemonTcgReference(entry, suggestion);
+}
+
 function referenceFromCard(card: PokemonTcgCard, suggestionName: string, fallbackSetName?: string): DiscoveryReferenceCacheEntry | null {
   const imageUrl = pokemonTcgCanonicalImageUrl(card) ?? card.images?.large ?? card.images?.small;
   if (!card.id || !card.name || !imageUrl) return null;
@@ -508,20 +594,9 @@ async function fetchOnePieceReferenceImage(suggestion: DiscoverySuggestion): Pro
 
 export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion): Promise<DiscoveryReferenceCacheEntry> {
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
-  const imageOverride = discoveryImageOverrideForSuggestion(suggestion.name);
-  if (imageOverride) {
-    const now = new Date().toISOString();
-    return {
-      cacheKey,
-      suggestionName: suggestion.name,
-      imageUrl: imageOverride.imageUrl,
-      sourceName: imageOverride.sourceName,
-      sourceCardId: imageOverride.sourceCardId,
-      fetchedAt: now,
-      updatedAt: now
-    };
-  }
-  if (suggestion.referenceImageUrl) {
+  const overrideReference = trustedOverrideReference(suggestion);
+  if (overrideReference) return overrideReference;
+  if (!isPokemonReferenceSuggestion(suggestion) && suggestion.referenceImageUrl) {
     if (await validateReferenceImageUrl(suggestion.referenceImageUrl)) {
       const now = new Date().toISOString();
       return {
@@ -568,7 +643,7 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
     }
   }
 
-  const sourceText = [suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
+  const sourceText = suggestionSourceText(suggestion);
   const sourceSetName = setHintForSuggestion(sourceText);
   const queries = pokemonTcgQueriesForSuggestion(suggestion);
   if (queries.length === 0) {
@@ -610,10 +685,37 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
 
 export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion, ttlMs: number): Promise<DiscoveryReferenceCacheEntry | null> {
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
+  const pokemonSuggestion = isPokemonReferenceSuggestion(suggestion);
   const cached = getDiscoveryReferenceCache(cacheKey);
-  if (suggestion.referenceImageUrl && !cached?.imageUrl) {
+  if (!pokemonSuggestion && suggestion.referenceImageUrl && !cached?.imageUrl) {
     const fetched = await fetchDiscoveryReferenceImage(suggestion);
     upsertDiscoveryReferenceCache(fetched);
+    return fetched;
+  }
+  if (pokemonSuggestion && cached?.imageUrl && !hasTrustedPokemonReferenceProvenance(cached, suggestion)) {
+    const fetched = await fetchDiscoveryReferenceImage(suggestion);
+    const mismatch = fetched.imageUrl !== cached.imageUrl
+      || fetched.sourceCardId !== cached.sourceCardId
+      || fetched.sourceName !== cached.sourceName;
+    deleteDiscoveryReferenceCache(cacheKey);
+    if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
+    if (mismatch) {
+      console.warn('[DiscoveryReference] Repaired mismatched Pokemon reference image', {
+        suggestionName: suggestion.name,
+        cacheKey,
+        previousImageUrl: cached.imageUrl,
+        previousSourceName: cached.sourceName,
+        previousSourceCardId: cached.sourceCardId,
+        repairedImageUrl: fetched.imageUrl,
+        repairedSourceName: fetched.sourceName,
+        repairedSourceCardId: fetched.sourceCardId,
+        diagnosticReason: 'REFERENCE_IMAGE_IDENTITY_MISMATCH'
+      });
+      return {
+        ...fetched,
+        diagnosticReason: 'REFERENCE_IMAGE_IDENTITY_MISMATCH'
+      };
+    }
     return fetched;
   }
   if (cached?.sourceStatus === 'NOT_FOUND' && isJapaneseReferenceSuggestion(suggestion)) {
@@ -622,12 +724,13 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
     return fetched;
   }
   const ageMs = cached ? cachedReferenceAgeMs(cached) : undefined;
-  if (cached?.imageUrl && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) return cached;
-  if (cached?.imageUrl && !(await validateReferenceImageUrl(cached.imageUrl))) {
+  const shouldRevalidateCachedImage = !!cached?.imageUrl && (!pokemonSuggestion || !hasTrustedPokemonReferenceProvenance(cached, suggestion));
+  if (shouldRevalidateCachedImage && !(await validateReferenceImageUrl(cached.imageUrl))) {
     const fetched = await fetchDiscoveryReferenceImage(suggestion);
     if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
     return fetched;
   }
+  if (cached?.imageUrl && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) return cached;
   if (cached && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) return cached;
 
   const fetched = await fetchDiscoveryReferenceImage(suggestion);

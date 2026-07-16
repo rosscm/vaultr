@@ -181,6 +181,23 @@ function publishableCandidate(name: string, canonicalId: string, selectionIndex:
   };
 }
 
+function publishableSourceCandidate(name: string, canonicalId: string, sourceName: string, selectionIndex: number, lane = 'Collector Compass'): DiscoveryCandidate {
+  const base = publishableCandidate(name, canonicalId, selectionIndex);
+  return {
+    ...base,
+    suggestion: {
+      ...base.suggestion,
+      lane,
+      referenceSourceName: sourceName
+    },
+    image: {
+      ...base.image!,
+      sourceName,
+      sourceCardId: canonicalId
+    }
+  };
+}
+
 function publishableShelfCandidates(count: number, overrides?: (candidate: DiscoveryCandidate, index: number) => DiscoveryCandidate): DiscoveryCandidate[] {
   return Array.from({ length: count }, (_, index) => {
     const base = publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index);
@@ -4722,7 +4739,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
           laneWhy: 'profile source match',
           why: 'try Blastoise ex 151 200',
           nearby: [],
-          referenceImageUrl: 'https://images.example/blastoise-151.png',
+          referenceImageUrl: 'https://images.pokemontcg.io/sv3pt5/200_hires.png',
           referenceSourceName: 'Pokemon TCG (151)',
           referenceSourceCardId: 'sv3pt5-200'
         },
@@ -4730,7 +4747,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       }
     ], 'CAD');
 
-    expect(items[0]?.imageUrl).toBe('https://images.example/blastoise-151.png');
+    expect(items[0]?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/200_hires.png');
     expect(items[0]?.imageSourceName).toBe('Pokemon TCG (151)');
   });
 
@@ -4889,6 +4906,92 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.rejectionCounts.DUPLICATE_CANONICAL_ID).toBe(1);
     expect(result.items.filter((item) => item.suggestion.referenceSourceCardId === 'card-4')).toHaveLength(1);
     expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-21')).toBe(true);
+  });
+
+  it('skips the third same-subject card and backfills from later reserve candidates', () => {
+    const repeatedSubjectPool: DiscoveryCandidate[] = [
+      { ...publishableSourceCandidate('Mew Expedition Base Set 55', 'mew-exp-55', 'Pokemon TCG (Expedition Base Set)', 0), typicalRawSoldTotal: 120, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Mew Southern Islands Promo', 'mew-si-1', 'Pokemon TCG (Southern Islands)', 1), typicalRawSoldTotal: 121, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Mew ex Paldean Fates 232', 'mew-paf-232', 'Pokemon TCG (Paldean Fates)', 2), typicalRawSoldTotal: 122, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      ...publishableShelfCandidates(18, (candidate, index) => ({
+        ...candidate,
+        typicalRawSoldTotal: 70 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }))
+    ].map((candidate, index) => index < 3 ? candidate : ({ ...candidate, typicalRawSoldTotal: 90 + index, soldSampleSize: 3, displayCurrency: 'CAD' as const }));
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(repeatedSubjectPool, 'CAD', 20);
+    expect(result.items).toHaveLength(20);
+    expect(result.rejectionCounts.SUBJECT_SHELF_CAP).toBe(1);
+    expect(result.items.filter((item) => /^Mew\b/.test(item.suggestion.name))).toHaveLength(2);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-18')).toBe(true);
+  });
+
+  it('enforces evolution-family, format, and lane caps during final selection', () => {
+    const pool: DiscoveryCandidate[] = [
+      { ...publishableSourceCandidate('Squirtle Expedition Base Set 132', 'sq-132', 'Pokemon TCG (Expedition Base Set)', 0, 'Vintage Era Trail'), typicalRawSoldTotal: 110, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Wartortle Expedition Base Set 82', 'war-82', 'Pokemon TCG (Expedition Base Set)', 1, 'Vintage Era Trail'), typicalRawSoldTotal: 111, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Blastoise Wizards Black Star Promos 12', 'blast-12', 'Pokemon TCG (Wizards Black Star Promos)', 2, 'Promo Trail'), typicalRawSoldTotal: 112, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Squirtle 151 170', 'sq-170', 'Pokemon TCG (151)', 3, 'Modern Spotlight Trail'), typicalRawSoldTotal: 113, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Pikachu V Crown Zenith 160', 'pik-v-160', 'Pokemon TCG (Crown Zenith)', 4, 'Format Trail'), typicalRawSoldTotal: 114, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Umbreon VMAX Evolving Skies 95', 'umb-vmax-95', 'Pokemon TCG (Evolving Skies)', 5, 'Format Trail'), typicalRawSoldTotal: 115, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Sylveon VMAX Evolving Skies 75', 'syl-vmax-75', 'Pokemon TCG (Evolving Skies)', 6, 'Format Trail'), typicalRawSoldTotal: 116, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Rayquaza VMAX Silver Tempest 102', 'ray-vmax-102', 'Pokemon TCG (Silver Tempest)', 7, 'Format Trail'), typicalRawSoldTotal: 117, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Mew V Fusion Strike 113', 'mew-v-113', 'Pokemon TCG (Fusion Strike)', 8, 'Format Trail'), typicalRawSoldTotal: 118, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Zapdos Aquapolis 44', 'zap-44', 'Pokemon TCG (Aquapolis)', 9, 'Vintage Era Trail'), typicalRawSoldTotal: 119, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Articuno Skyridge H3', 'art-h3', 'Pokemon TCG (Skyridge)', 10, 'Vintage Era Trail'), typicalRawSoldTotal: 120, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Moltres Wizards Black Star Promos 21', 'mol-21', 'Pokemon TCG (Wizards Black Star Promos)', 11, 'Vintage Era Trail'), typicalRawSoldTotal: 121, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      ...publishableShelfCandidates(20, (candidate, index) => ({
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          lane: index < 4
+            ? 'Vintage Era Trail'
+            : index % 4 === 0
+            ? 'Collector Compass'
+            : index % 4 === 1
+              ? 'Artwork Trail'
+              : index % 4 === 2
+                ? 'Japanese Collector Trail'
+                : 'Modern Spotlight Trail'
+        },
+        typicalRawSoldTotal: 120 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }))
+    ].map((candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: candidate.typicalRawSoldTotal ?? 80 + index,
+      soldSampleSize: candidate.soldSampleSize ?? 3,
+      displayCurrency: candidate.displayCurrency ?? 'CAD'
+    }));
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20);
+    expect(result.items).toHaveLength(20);
+    expect(result.rejectionCounts.FAMILY_SHELF_CAP).toBeGreaterThanOrEqual(1);
+    expect(result.rejectionCounts.FORMAT_SHELF_CAP).toBeGreaterThanOrEqual(1);
+    expect(result.rejectionCounts.LANE_SHELF_CAP).toBeGreaterThanOrEqual(1);
+  });
+
+  it('keeps different subjects unaffected when diversity caps apply', () => {
+    const pool = [
+      { ...publishableSourceCandidate('Pikachu Expedition Base Set 124', 'pik-exp-124', 'Pokemon TCG (Expedition Base Set)', 0), typicalRawSoldTotal: 100, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Mew Expedition Base Set 55', 'mew-exp-55', 'Pokemon TCG (Expedition Base Set)', 1), typicalRawSoldTotal: 101, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Gardevoir ex Paldean Fates 233', 'gar-paf-233', 'Pokemon TCG (Paldean Fates)', 2), typicalRawSoldTotal: 102, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      ...publishableShelfCandidates(17).map((candidate, index) => ({
+        ...candidate,
+        typicalRawSoldTotal: 80 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }))
+    ];
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20);
+    expect(result.items).toHaveLength(20);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'pik-exp-124')).toBe(true);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'mew-exp-55')).toBe(true);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'gar-paf-233')).toBe(true);
   });
 
   it('does not make a market timeout card unpublishable when the card is otherwise canonical', () => {
@@ -5111,6 +5214,54 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'exp1-132')).toBe(true);
   });
 
+  it('excludes an English counterpart when an equivalent Japanese parallel print is already in the active Vault', () => {
+    const counterpart = publishableSourceCandidate('Mew ex Paldean Fates 232', 'paf-232', 'Pokemon TCG (Paldean Fates)', 0);
+    const fillers = publishableShelfCandidates(20).map((candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 90 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [counterpart, ...fillers],
+      'CAD',
+      20,
+      [],
+      [{ id: 'vault-1', userId: 'u1', cardName: 'Mew ex Shiny Treasure ex 232 Japanese', priority: 'HIGH', createdAt: '2026-07-01T00:00:00.000Z' }]
+    );
+
+    expect(result.rejectionCounts.VAULT_PARALLEL_PRINT).toBe(1);
+    expect(result.rejectionSamples.VAULT_PARALLEL_PRINT[0]).toMatchObject({
+      suggestionName: 'Mew ex Paldean Fates 232',
+      matchingVaultCard: 'Mew ex Shiny Treasure ex 232 Japanese',
+      candidateLanguage: 'ENGLISH',
+      vaultLanguage: 'JAPANESE'
+    });
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'paf-232')).toBe(false);
+  });
+
+  it('does not falsely exclude an unrelated printing of the same Pokemon', () => {
+    const unrelated = publishableSourceCandidate('Mew Expedition Base Set 55', 'exp1-55', 'Pokemon TCG (Expedition Base Set)', 0);
+    const fillers = publishableShelfCandidates(19).map((candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 90 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [unrelated, ...fillers],
+      'CAD',
+      20,
+      [],
+      [{ id: 'vault-1', userId: 'u1', cardName: 'Mew ex Shiny Treasure ex 232 Japanese', priority: 'HIGH', createdAt: '2026-07-01T00:00:00.000Z' }]
+    );
+
+    expect(result.rejectionCounts.VAULT_PARALLEL_PRINT).toBe(0);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'exp1-55')).toBe(true);
+  });
+
   it('applies a freshness penalty to cards shown 7 to 12 shelves ago', () => {
     const penalized = publishableCandidate('Older Repeat', 'older-repeat', 0);
     const fresh = publishableCandidate('Fresh Card', 'fresh-card', 1);
@@ -5167,6 +5318,27 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([repeated, ...publishableShelfCandidates(20)], 'CAD', 20, [previousDrop]);
     expect(result.rejectionCounts.EXACT_REPEAT_COOLDOWN).toBe(1);
+  });
+
+  it('does not let more like this style affinity bypass parallel-print exclusion', () => {
+    const counterpart = {
+      ...publishableSourceCandidate('Mew ex Paldean Fates 232', 'paf-232', 'Pokemon TCG (Paldean Fates)', 0),
+      suggestion: {
+        ...publishableSourceCandidate('Mew ex Paldean Fates 232', 'paf-232', 'Pokemon TCG (Paldean Fates)', 0).suggestion,
+        sourceTasteTokens: ['mew', 'parallel']
+      }
+    };
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [counterpart, ...publishableShelfCandidates(20)],
+      'CAD',
+      20,
+      [],
+      [{ id: 'vault-1', userId: 'u1', cardName: 'Mew ex Shiny Treasure ex 232 Japanese', priority: 'HIGH', createdAt: '2026-07-01T00:00:00.000Z' }]
+    );
+
+    expect(result.rejectionCounts.VAULT_PARALLEL_PRINT).toBe(1);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'paf-232')).toBe(false);
   });
 
   it('excludes reliably priced cards below the weekly CAD floor', () => {

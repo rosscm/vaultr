@@ -46,6 +46,7 @@ import {
 } from '../services/discovery-market-cache.js';
 import { completeDiscoveryMarketRefreshJob, enqueueDiscoveryMarketRefreshJobs, getDiscoveryMarketRefreshQueueStats } from '../services/discovery-market-jobs.js';
 import { getOrFetchDiscoveryReferenceImage } from '../services/discovery-reference-cache.js';
+import { discoveryImageOverrideForSuggestion } from '../services/discovery-image-overrides.js';
 import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from '../services/plans.js';
@@ -179,7 +180,12 @@ type DiscoveryShelfSelectionRejectionCode =
   | 'MISSING_RATIONALE'
   | 'REFERENCE_PRINTING_MISMATCH'
   | 'EXACT_REPEAT_COOLDOWN'
-  | 'BELOW_CHASE_VALUE_FLOOR';
+  | 'BELOW_CHASE_VALUE_FLOOR'
+  | 'SUBJECT_SHELF_CAP'
+  | 'FAMILY_SHELF_CAP'
+  | 'FORMAT_SHELF_CAP'
+  | 'LANE_SHELF_CAP'
+  | 'VAULT_PARALLEL_PRINT';
 type DiscoveryShelfSelectionResult = {
   items: ScheduledDiscoveryDropItem[];
   selectedCandidates: DiscoveryCandidate[];
@@ -202,6 +208,12 @@ type DiscoveryShelfSelectionResult = {
     repeatPolicy?: 'HARD_EXCLUDE' | 'PENALTY';
     evaluatedPrice?: number;
     evaluatedCurrency?: SupportedCurrency;
+    matchedKey?: string;
+    matchingVaultCard?: string;
+    candidateSet?: string;
+    candidateLanguage?: string;
+    vaultSet?: string;
+    vaultLanguage?: string;
   }>>;
 };
 type PersistValidatedWeeklyDiscoveryDropResult = {
@@ -250,6 +262,10 @@ const WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED = Math.max(1, Number(process.env.WEEK
 const WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE = Math.max(0, Number(process.env.WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE ?? '2'));
 const WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES ?? '6'));
 const WEEKLY_DISCOVERY_EXACT_REPEAT_PENALTY_SHELVES = Math.max(WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES, Number(process.env.WEEKLY_DISCOVERY_EXACT_REPEAT_PENALTY_SHELVES ?? '12'));
+const WEEKLY_DISCOVERY_SUBJECT_CAP = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_SUBJECT_CAP ?? '2'));
+const WEEKLY_DISCOVERY_FAMILY_CAP = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_FAMILY_CAP ?? '3'));
+const WEEKLY_DISCOVERY_FORMAT_CAP = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_FORMAT_CAP ?? '4'));
+const WEEKLY_DISCOVERY_LANE_CAP = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_LANE_CAP ?? '5'));
 const NON_CARD_TERMS = [
   'acrylic case',
   'blanket',
@@ -3132,6 +3148,14 @@ const SET_SIBLING_FAMILIES: string[][] = [
   ['eevee', 'vaporeon', 'jolteon', 'flareon', 'espeon', 'umbreon', 'leafeon', 'glaceon', 'sylveon']
 ];
 
+const EVOLUTION_FAMILY_GROUPS: string[][] = [
+  ['ralts', 'kirlia', 'gardevoir', 'gallade'],
+  ['squirtle', 'wartortle', 'blastoise'],
+  ['bulbasaur', 'ivysaur', 'venusaur'],
+  ['charmander', 'charmeleon', 'charizard'],
+  ['eevee', 'vaporeon', 'jolteon', 'flareon', 'espeon', 'umbreon', 'leafeon', 'glaceon', 'sylveon']
+];
+
 const SPECIAL_SET_LABEL_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: 'Terastal Festival', pattern: /\bterastal festival\b|\bsv8a\b/i },
   { label: 'Eevee Heroes', pattern: /\beevee heroes\b|\bs6a\b/i },
@@ -3140,6 +3164,18 @@ const SPECIAL_SET_LABEL_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: 'Paldean Fates', pattern: /\bpaldean fates\b/i },
   { label: 'Crown Zenith', pattern: /\bcrown zenith\b/i },
   { label: 'Shiny Treasure ex', pattern: /\bshiny treasure ex\b|\bsv4a\b/i }
+];
+
+const PARALLEL_PRINT_SET_FAMILIES: Array<{ key: string; tokens: string[] }> = [
+  { key: 'pokemon-151', tokens: ['151', 'pokemon card 151', 'pokemon 151', 'sv2a'] },
+  { key: 'crown-zenith-vstar-universe', tokens: ['crown zenith', 'vstar universe', 's12a'] },
+  { key: 'paldean-fates-shiny-treasure-ex', tokens: ['paldean fates', 'shiny treasure ex', 'sv4a'] },
+  { key: 'prismatic-evolutions-terastal-festival', tokens: ['prismatic evolutions', 'terastal festival', 'sv8a'] },
+  { key: 'evolving-skies-eevee-heroes', tokens: ['evolving skies', 'eevee heroes', 's6a'] },
+  { key: 'obsidian-flames-ruler-of-the-black-flame', tokens: ['obsidian flames', 'ruler of the black flame', 'sv3'] },
+  { key: 'surging-sparks-super-electric-breaker', tokens: ['surging sparks', 'super electric breaker', 'sv8'] },
+  { key: 'twilight-masquerade-crimson-haze', tokens: ['twilight masquerade', 'crimson haze', 'sv5a'] },
+  { key: 'temporal-forces-wild-force-cyber-judge', tokens: ['temporal forces', 'wild force', 'cyber judge', 'sv5k', 'sv5m'] }
 ];
 
 function chaseSpecialSetLabel(chase: Chase): string | undefined {
@@ -3939,6 +3975,95 @@ function sourceCardText(candidate: DiscoveryCandidate): string {
     .join(' ');
 }
 
+function normalizedSubjectIdentity(value: string): string | undefined {
+  const normalized = discoveryNameKey(value)
+    .replace(/\b(?:pokemon|japanese|english|promo|promos|card|cards|trading|tcg|holo|illustration|special|limited|collector|raw|rare|art|full|gallery)\b/g, ' ')
+    .replace(/\b(?:ex|gx|vmax|vstar|v|sar|sir|ar|ur|sr|rr|hr|chr|csr|tg|gg|rc)\b/g, ' ')
+    .replace(/\b(?:sm|swsh|xy|bw|dp|hgss|sv)\d+[a-z]?\b/g, ' ')
+    .replace(/\b\d{1,3}(?:\/\d{1,3})?\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized || undefined;
+}
+
+function stripParallelSetTokens(value: string): string {
+  let stripped = value;
+  const explicitSet = setHintForPrinting(value);
+  if (explicitSet) stripped = stripped.replace(new RegExp(`\\b${escapeRegExp(explicitSet)}\\b`, 'ig'), ' ');
+  for (const family of PARALLEL_PRINT_SET_FAMILIES) {
+    for (const token of family.tokens) {
+      stripped = stripped.replace(new RegExp(`\\b${escapeRegExp(token)}\\b`, 'ig'), ' ');
+    }
+  }
+  return stripped.replace(/\s+/g, ' ').trim();
+}
+
+function candidateShelfSubjectKey(candidate: DiscoveryCandidate): string | undefined {
+  return normalizedSubjectIdentity(sourceCardSubject(candidate, sourceSetLabel(candidate)));
+}
+
+function candidateEvolutionFamilyKey(candidate: DiscoveryCandidate): string | undefined {
+  const subjectKey = candidateShelfSubjectKey(candidate);
+  if (!subjectKey) return undefined;
+  const subjectTokens = subjectKey.split(/\s+/).filter(Boolean);
+  for (const family of EVOLUTION_FAMILY_GROUPS) {
+    if (subjectTokens.some((token) => family.includes(token))) return family[0];
+  }
+  return undefined;
+}
+
+function candidateFormatShelfKey(candidate: DiscoveryCandidate): string | undefined {
+  const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, ...(candidate.suggestion.sourceTasteTokens ?? [])].filter(Boolean).join(' '));
+  if (/\btag team\b|\bgx\b/.test(text)) return 'GX';
+  if (/\bvmax\b|\bvstar\b|\b(?:^|[^a-z])v(?:[^a-z]|$)/.test(text)) return 'V';
+  if (/\b(?:mega\s+)?ex\b/.test(text)) return 'EX';
+  return undefined;
+}
+
+function candidateLaneShelfKey(candidate: DiscoveryCandidate): string {
+  return discoveryTrailLabel(candidate.suggestion.lane);
+}
+
+function printingContextKeyFromText(value: string): string | undefined {
+  const normalized = normalize(value);
+  const context: string[] = [];
+  if (/\bpromo|black star\b/.test(normalized)) context.push('promo');
+  if (/\btag team\b/.test(normalized)) context.push('tag-team');
+  else if (/\bgx\b/.test(normalized)) context.push('gx');
+  else if (/\bvmax\b/.test(normalized)) context.push('vmax');
+  else if (/\bvstar\b/.test(normalized)) context.push('vstar');
+  else if (/\b(?:mega\s+)?ex\b/.test(normalized)) context.push('ex');
+  else if (/\b(?:^|[^a-z])v(?:[^a-z]|$)/.test(normalized)) context.push('v');
+  if (/\billustration rare\b|\bsir\b|\bsar\b/.test(normalized)) context.push('premium-art');
+  else if (/\bart rare\b|\bar\b|\btrainer gallery\b|\btg\d+\b|\bgg\d+\b/.test(normalized)) context.push('art');
+  return context.length > 0 ? context.join('|') : undefined;
+}
+
+function setFamilyKeyFromText(value: string): string | undefined {
+  const explicitSet = setHintForPrinting(value);
+  const normalized = normalize([value, explicitSet].filter(Boolean).join(' '));
+  for (const family of PARALLEL_PRINT_SET_FAMILIES) {
+    if (family.tokens.some((token) => normalized.includes(normalize(token)))) return family.key;
+  }
+  return explicitSet ? discoveryNameKey(explicitSet) : undefined;
+}
+
+function cardLanguageFromText(value: string): 'JAPANESE' | 'ENGLISH' | undefined {
+  return requestedLanguage(value);
+}
+
+function chaseReferenceText(chase: Pick<Chase, 'cardName' | 'targetNote'>): string {
+  return [chase.cardName, chase.targetNote].filter(Boolean).join(' ');
+}
+
+function parallelPrintGroupKeyFromText(value: string): string | undefined {
+  const subjectKey = normalizedSubjectIdentity(stripParallelSetTokens(value));
+  const setFamilyKey = setFamilyKeyFromText(value);
+  const printingContextKey = printingContextKeyFromText(value);
+  if (!subjectKey || !setFamilyKey || !printingContextKey) return undefined;
+  return `${subjectKey}|${setFamilyKey}|${printingContextKey}`;
+}
+
 function hasJapaneseCardEvidence(normalizedCardText: string): boolean {
   return /\bjapanese\b|tcgdex japanese/.test(normalizedCardText);
 }
@@ -4099,9 +4224,40 @@ function isMarketplaceStyleDiscoveryName(name: string): boolean {
   return false;
 }
 
+function expectedPokemonSuggestionReferenceImageUrl(candidate: DiscoveryCandidate): string | undefined {
+  const sourceCardId = candidate.suggestion.referenceSourceCardId?.trim();
+  const requestedNumber = extractRequestedCardNumber([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, ...(candidate.suggestion.evidenceAliases ?? [])].filter(Boolean).join(' '))
+    ?? sourceCardId?.split('-').pop()?.trim();
+  if (!sourceCardId || !requestedNumber) return undefined;
+  const setId = sourceCardId.split('-')[0];
+  return setId ? `https://images.pokemontcg.io/${setId}/${encodeURIComponent(requestedNumber)}_hires.png` : undefined;
+}
+
+function isTrustedSuggestionReferenceImage(candidate: DiscoveryCandidate): boolean {
+  const imageOverride = discoveryImageOverrideForSuggestion(candidate.suggestion.name);
+  if (
+    imageOverride
+    && candidate.suggestion.referenceImageUrl === imageOverride.imageUrl
+    && candidate.suggestion.referenceSourceName === imageOverride.sourceName
+    && candidate.suggestion.referenceSourceCardId === imageOverride.sourceCardId
+  ) {
+    return true;
+  }
+  if (!candidate.suggestion.referenceImageUrl || !candidate.suggestion.referenceSourceName || !candidate.suggestion.referenceSourceCardId) return false;
+  if (/^TCGdex Japanese(?:\s*\(|$)/i.test(candidate.suggestion.referenceSourceName)) {
+    try {
+      return new URL(candidate.suggestion.referenceImageUrl).hostname === 'assets.tcgdex.net';
+    } catch {
+      return false;
+    }
+  }
+  if (!/^Pokemon TCG(?:\s*\(|$)/i.test(candidate.suggestion.referenceSourceName)) return false;
+  return candidate.suggestion.referenceImageUrl === expectedPokemonSuggestionReferenceImageUrl(candidate);
+}
+
 function scheduledShelfImageFromCandidate(candidate: DiscoveryCandidate): DiscoveryCardImage | undefined {
   if (candidate.image?.sourceKind === 'CARD_REFERENCE') return candidate.image;
-  if (candidate.suggestion.referenceImageUrl) {
+  if (isTrustedSuggestionReferenceImage(candidate) && candidate.suggestion.referenceImageUrl) {
     return {
       name: candidate.suggestion.name,
       url: candidate.suggestion.referenceImageUrl,
@@ -5164,7 +5320,12 @@ function emptyDiscoveryShelfRejectionCounts(): Record<DiscoveryShelfSelectionRej
     MISSING_RATIONALE: 0,
     REFERENCE_PRINTING_MISMATCH: 0,
     EXACT_REPEAT_COOLDOWN: 0,
-    BELOW_CHASE_VALUE_FLOOR: 0
+    BELOW_CHASE_VALUE_FLOOR: 0,
+    SUBJECT_SHELF_CAP: 0,
+    FAMILY_SHELF_CAP: 0,
+    FORMAT_SHELF_CAP: 0,
+    LANE_SHELF_CAP: 0,
+    VAULT_PARALLEL_PRINT: 0
   };
 }
 
@@ -5177,13 +5338,125 @@ function emptyDiscoveryShelfRejectionSamples(): DiscoveryShelfSelectionResult['r
     MISSING_RATIONALE: [],
     REFERENCE_PRINTING_MISMATCH: [],
     EXACT_REPEAT_COOLDOWN: [],
-    BELOW_CHASE_VALUE_FLOOR: []
+    BELOW_CHASE_VALUE_FLOOR: [],
+    SUBJECT_SHELF_CAP: [],
+    FAMILY_SHELF_CAP: [],
+    FORMAT_SHELF_CAP: [],
+    LANE_SHELF_CAP: [],
+    VAULT_PARALLEL_PRINT: []
   };
+}
+
+type DiscoveryShelfSelectionRejection = {
+  code: DiscoveryShelfSelectionRejectionCode;
+  matchedKey?: string;
+  matchingVaultCard?: string;
+  candidateSet?: string;
+  candidateLanguage?: string;
+  vaultSet?: string;
+  vaultLanguage?: string;
+};
+
+type WeeklyShelfSelectionState = {
+  subjectCounts: Map<string, number>;
+  familyCounts: Map<string, number>;
+  formatCounts: Map<string, number>;
+  laneCounts: Map<string, number>;
+  laneCapEnabled: boolean;
+};
+
+type ParallelPrintVaultEntry = {
+  chaseName: string;
+  key: string;
+  setKey?: string;
+  language?: 'JAPANESE' | 'ENGLISH';
+};
+
+function emptyWeeklyShelfSelectionState(): WeeklyShelfSelectionState {
+  return {
+    subjectCounts: new Map<string, number>(),
+    familyCounts: new Map<string, number>(),
+    formatCounts: new Map<string, number>(),
+    laneCounts: new Map<string, number>(),
+    laneCapEnabled: false
+  };
+}
+
+function parallelPrintVaultEntries(chases: Chase[]): ParallelPrintVaultEntry[] {
+  const entries: Array<ParallelPrintVaultEntry | null> = chases.map((chase) => {
+    const text = chaseReferenceText(chase);
+    const key = parallelPrintGroupKeyFromText(text);
+    return key
+      ? {
+          chaseName: chase.cardName,
+          key,
+          setKey: setFamilyKeyFromText(text),
+          language: cardLanguageFromText(text)
+        }
+      : null;
+  });
+  return entries.filter((entry): entry is ParallelPrintVaultEntry => entry !== null);
+}
+
+function candidateParallelPrintRejection(candidate: DiscoveryCandidate, vaultEntries: ParallelPrintVaultEntry[]): DiscoveryShelfSelectionRejection | null {
+  if (vaultEntries.length === 0) return null;
+  const candidateText = sourceCardText(candidate);
+  const candidateKey = parallelPrintGroupKeyFromText(candidateText);
+  if (!candidateKey) return null;
+  const candidateLanguage = cardLanguageFromText(candidateText);
+  const candidateSet = setFamilyKeyFromText(candidateText);
+  if (!candidateLanguage || !candidateSet) return null;
+  for (const vaultEntry of vaultEntries) {
+    if (vaultEntry.key !== candidateKey) continue;
+    if (!vaultEntry.language || vaultEntry.language === candidateLanguage) continue;
+    return {
+      code: 'VAULT_PARALLEL_PRINT',
+      matchedKey: vaultEntry.key,
+      matchingVaultCard: vaultEntry.chaseName,
+      candidateSet,
+      candidateLanguage,
+      vaultSet: vaultEntry.setKey,
+      vaultLanguage: vaultEntry.language
+    };
+  }
+  return null;
+}
+
+function candidateShelfCapRejection(candidate: DiscoveryCandidate, selectionState: WeeklyShelfSelectionState): DiscoveryShelfSelectionRejection | null {
+  const subjectKey = candidateShelfSubjectKey(candidate);
+  if (subjectKey && (selectionState.subjectCounts.get(subjectKey) ?? 0) >= WEEKLY_DISCOVERY_SUBJECT_CAP) {
+    return { code: 'SUBJECT_SHELF_CAP', matchedKey: subjectKey };
+  }
+  const familyKey = candidateEvolutionFamilyKey(candidate);
+  if (familyKey && (selectionState.familyCounts.get(familyKey) ?? 0) >= WEEKLY_DISCOVERY_FAMILY_CAP) {
+    return { code: 'FAMILY_SHELF_CAP', matchedKey: familyKey };
+  }
+  const formatKey = candidateFormatShelfKey(candidate);
+  if (formatKey && (selectionState.formatCounts.get(formatKey) ?? 0) >= WEEKLY_DISCOVERY_FORMAT_CAP) {
+    return { code: 'FORMAT_SHELF_CAP', matchedKey: formatKey };
+  }
+  const laneKey = candidateLaneShelfKey(candidate);
+  if (selectionState.laneCapEnabled && (selectionState.laneCounts.get(laneKey) ?? 0) >= WEEKLY_DISCOVERY_LANE_CAP) {
+    return { code: 'LANE_SHELF_CAP', matchedKey: laneKey };
+  }
+  return null;
+}
+
+function recordSelectedCandidate(candidate: DiscoveryCandidate, selectionState: WeeklyShelfSelectionState): void {
+  const subjectKey = candidateShelfSubjectKey(candidate);
+  if (subjectKey) selectionState.subjectCounts.set(subjectKey, (selectionState.subjectCounts.get(subjectKey) ?? 0) + 1);
+  const familyKey = candidateEvolutionFamilyKey(candidate);
+  if (familyKey) selectionState.familyCounts.set(familyKey, (selectionState.familyCounts.get(familyKey) ?? 0) + 1);
+  const formatKey = candidateFormatShelfKey(candidate);
+  if (formatKey) selectionState.formatCounts.set(formatKey, (selectionState.formatCounts.get(formatKey) ?? 0) + 1);
+  const laneKey = candidateLaneShelfKey(candidate);
+  selectionState.laneCounts.set(laneKey, (selectionState.laneCounts.get(laneKey) ?? 0) + 1);
 }
 
 function selectionDiagnosticSample(
   candidate: DiscoveryCandidate,
-  rejectionReason: DiscoveryShelfSelectionRejectionCode
+  rejectionReason: DiscoveryShelfSelectionRejectionCode,
+  extra: Partial<DiscoveryShelfSelectionResult['rejectionSamples'][DiscoveryShelfSelectionRejectionCode][number]> = {}
 ): DiscoveryShelfSelectionResult['rejectionSamples'][DiscoveryShelfSelectionRejectionCode][number] {
   const referenceSourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
   const hasReferenceImage = !!candidate.suggestion.referenceImageUrl || candidate.image?.sourceKind === 'CARD_REFERENCE';
@@ -5195,7 +5468,8 @@ function selectionDiagnosticSample(
     referenceSourceStatus: referenceSourceName || hasReferenceImage || hasReferenceSourceCardId ? 'RESOLVED' : 'MISSING',
     referenceSourceName,
     hasReferenceImage,
-    hasReferenceSourceCardId
+    hasReferenceSourceCardId,
+    ...extra
   };
 }
 
@@ -5204,19 +5478,25 @@ function candidateItemSelectionRejection(
   item: ScheduledDiscoveryDropItem,
   seenCanonicalIds: Set<string>,
   recentRepeatHistory: Map<string, ExactRepeatHistoryEntry>,
-  targetCurrency: SupportedCurrency
-): DiscoveryShelfSelectionRejectionCode | null {
+  targetCurrency: SupportedCurrency,
+  selectionState: WeeklyShelfSelectionState,
+  vaultEntries: ParallelPrintVaultEntry[]
+): DiscoveryShelfSelectionRejection | null {
   const canonicalId = scheduledItemCanonicalId(item);
-  if (!canonicalId) return 'MISSING_CANONICAL_ID';
-  if (!verifyExactPrintingConsistency(candidate)) return 'REFERENCE_PRINTING_MISMATCH';
+  if (!canonicalId) return { code: 'MISSING_CANONICAL_ID' };
+  if (!verifyExactPrintingConsistency(candidate)) return { code: 'REFERENCE_PRINTING_MISMATCH' };
   const repeatHistory = recentRepeatHistory.get(canonicalId);
-  if (repeatHistory && repeatHistory.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return 'EXACT_REPEAT_COOLDOWN';
+  if (repeatHistory && repeatHistory.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return { code: 'EXACT_REPEAT_COOLDOWN' };
   const reliableEstimate = reliableWeeklyDiscoveryMarketEstimate(candidate, targetCurrency);
-  if (reliableEstimate && reliableEstimate.amount < weeklyDiscoveryValueFloor(targetCurrency)) return 'BELOW_CHASE_VALUE_FLOOR';
-  if (!hasTrustedReferenceImage(item)) return 'BAD_IMAGE';
-  if (isGenericDiscoveryCardTitle(item.suggestion.name) || isMarketplaceStyleDiscoveryName(item.suggestion.name)) return 'BAD_DISPLAY_NAME';
-  if (!item.suggestion.why?.trim() || !item.suggestion.laneWhy?.trim()) return 'MISSING_RATIONALE';
-  if (seenCanonicalIds.has(canonicalId)) return 'DUPLICATE_CANONICAL_ID';
+  if (reliableEstimate && reliableEstimate.amount < weeklyDiscoveryValueFloor(targetCurrency)) return { code: 'BELOW_CHASE_VALUE_FLOOR' };
+  if (!hasTrustedReferenceImage(item)) return { code: 'BAD_IMAGE' };
+  if (isGenericDiscoveryCardTitle(item.suggestion.name) || isMarketplaceStyleDiscoveryName(item.suggestion.name)) return { code: 'BAD_DISPLAY_NAME' };
+  if (!item.suggestion.why?.trim() || !item.suggestion.laneWhy?.trim()) return { code: 'MISSING_RATIONALE' };
+  if (seenCanonicalIds.has(canonicalId)) return { code: 'DUPLICATE_CANONICAL_ID' };
+  const parallelPrintRejection = candidateParallelPrintRejection(candidate, vaultEntries);
+  if (parallelPrintRejection) return parallelPrintRejection;
+  const shelfCapRejection = candidateShelfCapRejection(candidate, selectionState);
+  if (shelfCapRejection) return shelfCapRejection;
   return null;
 }
 
@@ -5224,7 +5504,8 @@ function selectPublishableWeeklyDiscoveryShelf(
   candidates: DiscoveryCandidate[],
   currency: SupportedCurrency,
   expectedSize = DISCOVERY_WEEKLY_DROP_SIZE,
-  recentDrops: ScheduledDiscoveryDrop[] = []
+  recentDrops: ScheduledDiscoveryDrop[] = [],
+  activeVaultChases: Chase[] = []
 ): DiscoveryShelfSelectionResult {
   const rejectionCounts = emptyDiscoveryShelfRejectionCounts();
   const rejectionSamples = emptyDiscoveryShelfRejectionSamples();
@@ -5232,30 +5513,37 @@ function selectPublishableWeeklyDiscoveryShelf(
   const resolvedSelected: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }> = [];
   const incompleteSelected: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }> = [];
   const seenCanonicalIds = new Set<string>();
+  const selectionState = emptyWeeklyShelfSelectionState();
+  selectionState.laneCapEnabled = new Set(candidates.map(candidateLaneShelfKey)).size > 1;
   let inspectedCount = 0;
   let qualifiedCount = 0;
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
+  const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
 
   for (const candidate of candidates) {
     inspectedCount += 1;
     const [item] = scheduledDropItemsFromCandidates([candidate], currency);
     if (!item) continue;
-    const rejection = candidateItemSelectionRejection(candidate, item, seenCanonicalIds, repeatHistory, currency);
+    const rejection = candidateItemSelectionRejection(candidate, item, seenCanonicalIds, repeatHistory, currency, selectionState, vaultEntries);
     if (rejection) {
-      rejectionCounts[rejection] += 1;
-      if (rejectionSamples[rejection].length < 3) {
-        const sample = selectionDiagnosticSample(candidate, rejection);
+      rejectionCounts[rejection.code] += 1;
+      if (rejectionSamples[rejection.code].length < 3) {
         const repeat = item.suggestion.referenceSourceCardId ? repeatHistory.get(item.suggestion.referenceSourceCardId) : undefined;
         const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
-        rejectionSamples[rejection].push({
-          ...sample,
+        rejectionSamples[rejection.code].push(selectionDiagnosticSample(candidate, rejection.code, {
           canonicalCardId: item.suggestion.referenceSourceCardId,
           mostRecentPeriodShown: repeat?.mostRecentPeriodShown,
           priorAppearances: repeat?.priorAppearances,
           repeatPolicy: repeat ? 'HARD_EXCLUDE' : undefined,
           evaluatedPrice: estimate?.amount,
-          evaluatedCurrency: estimate?.currency
-        });
+          evaluatedCurrency: estimate?.currency,
+          matchedKey: rejection.matchedKey,
+          matchingVaultCard: rejection.matchingVaultCard,
+          candidateSet: rejection.candidateSet,
+          candidateLanguage: rejection.candidateLanguage,
+          vaultSet: rejection.vaultSet,
+          vaultLanguage: rejection.vaultLanguage
+        }));
       }
       continue;
     }
@@ -5269,6 +5557,7 @@ function selectPublishableWeeklyDiscoveryShelf(
     seenCanonicalIds.add(canonicalId);
     if (item.market.status === 'READY') {
       resolvedSelected.push({ candidate, item });
+      recordSelectedCandidate(candidate, selectionState);
     } else if (incompleteSelected.length < WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) {
       incompleteSelected.push({ candidate, item: { ...item, market: { ...item.market, listing: undefined } } });
     }
@@ -5276,8 +5565,15 @@ function selectPublishableWeeklyDiscoveryShelf(
   }
 
   const selected = [...resolvedSelected.slice(0, expectedSize)];
+  const finalSelectionState = emptyWeeklyShelfSelectionState();
+  for (const entry of selected) recordSelectedCandidate(entry.candidate, finalSelectionState);
   if (selected.length < expectedSize) {
-    selected.push(...incompleteSelected.slice(0, Math.min(WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE, expectedSize - selected.length)));
+    for (const entry of incompleteSelected) {
+      if (selected.length >= expectedSize) break;
+      if (candidateShelfCapRejection(entry.candidate, finalSelectionState)) continue;
+      selected.push(entry);
+      recordSelectedCandidate(entry.candidate, finalSelectionState);
+    }
   }
   const items = selected.map(({ item }, index) => ({ ...item, position: index + 1 }));
   for (const { candidate } of selected) selectedCandidates.push(candidate);
@@ -5319,11 +5615,12 @@ function persistValidatedWeeklyDiscoveryDrop(
     };
   }
   const rejectedNameKeys = discoveryExclusionNameKeys(listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME').map((item) => item.suggestionName));
+  const activeVaultChases = listChases(userId);
   const finishedCandidates = candidates
     .filter(isFinishedShelfCandidate)
     .filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, rejectedNameKeys));
   for (const candidate of finishedCandidates) persistDiscoveryUniverseCandidate(candidate);
-  const selection = selectPublishableWeeklyDiscoveryShelf(finishedCandidates, currency, DISCOVERY_WEEKLY_DROP_SIZE, recentDrops);
+  const selection = selectPublishableWeeklyDiscoveryShelf(finishedCandidates, currency, DISCOVERY_WEEKLY_DROP_SIZE, recentDrops, activeVaultChases);
   const items = selection.items;
   const failures = validatePublishableDiscoveryShelf(items, DISCOVERY_WEEKLY_DROP_SIZE);
   if (selection.marketResolvedCount < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED) {
