@@ -47,6 +47,17 @@ import {
 import { completeDiscoveryMarketRefreshJob, enqueueDiscoveryMarketRefreshJobs, getDiscoveryMarketRefreshQueueStats } from '../services/discovery-market-jobs.js';
 import { getOrFetchDiscoveryReferenceImage } from '../services/discovery-reference-cache.js';
 import { discoveryImageOverrideForSuggestion } from '../services/discovery-image-overrides.js';
+import {
+  analyzeWeeklyDiscoveryCandidateReserve,
+  buildCollectorTasteProfile,
+  finalizeWeeklyDiscoveryAnalytics,
+  rerankWeeklyDiscoveryReserve,
+  type CollectorTasteProfile,
+  type WeeklyDiscoveryCandidateAnalysis,
+  type WeeklyDiscoveryCandidateOutcome,
+  type WeeklyDiscoveryFinalizationInput,
+  type WeeklyDiscoveryFinalizationResult
+} from '../services/weekly-discovery-ranking.js';
 import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from '../services/plans.js';
@@ -78,6 +89,7 @@ export type DiscoveryCandidate = {
   displayCurrency?: SupportedCurrency;
   selectionIndex?: number;
   sourceStatus?: 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR';
+  weeklyDiscovery?: WeeklyDiscoveryCandidateAnalysis;
 };
 
 export type DiscoveryCollectorFeatures = {
@@ -238,6 +250,19 @@ type PersistValidatedWeeklyDiscoveryDropResult = {
   rejectionCounts: Record<DiscoveryShelfSelectionRejectionCode, number>;
   rejectionSamples: DiscoveryShelfSelectionResult['rejectionSamples'];
   retainedPreviousShelf: boolean;
+};
+
+export type WeeklyDiscoveryCandidateOutcomeRecord = {
+  suggestionName: string;
+  canonicalCardId?: string;
+  outcome: WeeklyDiscoveryCandidateOutcome;
+  detail?: string;
+  discoveryRole?: DiscoverySuggestion['discoveryRole'];
+};
+
+export type WeeklyDiscoveryFinalizerResult = WeeklyDiscoveryFinalizationResult & {
+  selection: DiscoveryShelfSelectionResult;
+  candidateOutcomes: WeeklyDiscoveryCandidateOutcomeRecord[];
 };
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
@@ -2131,7 +2156,8 @@ export const __discoveryPersistenceTestHooks = {
   verifyExactPrintingConsistency,
   applyExactCardRepeatFreshnessOrdering,
   reliableWeeklyDiscoveryMarketEstimate,
-  repairExistingScheduledWeeklyDropReferences
+  repairExistingScheduledWeeklyDropReferences,
+  finalizeWeeklyDiscoveryShelf
 };
 
 function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
@@ -4795,7 +4821,7 @@ export async function repairScheduledDiscoveryShelfImages(candidates: DiscoveryC
   });
 }
 
-function listPriorWeeklyDiscoveryDropsForTargetPeriod(
+export function listPriorWeeklyDiscoveryDropsForTargetPeriod(
   userId: string,
   date: Date,
   limit = 12
@@ -5693,12 +5719,16 @@ function selectPublishableWeeklyDiscoveryShelf(
     qualifiedCount += 1;
     seenCanonicalIds.add(canonicalId);
     if (item.market.status === 'READY') {
-      resolvedSelected.push({ candidate, item });
-      recordSelectedCandidate(candidate, selectionState);
-    } else if (incompleteSelected.length < WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) {
+      if (resolvedSelected.length < expectedSize) {
+        resolvedSelected.push({ candidate, item });
+        recordSelectedCandidate(candidate, selectionState);
+      }
+    } else if (
+      incompleteSelected.length < WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE
+      && resolvedSelected.length + incompleteSelected.length < expectedSize
+    ) {
       incompleteSelected.push({ candidate, item: { ...item, market: { ...item.market, listing: undefined } } });
     }
-    if (resolvedSelected.length >= expectedSize) break;
   }
 
   const selected = [...resolvedSelected.slice(0, expectedSize)];
@@ -5724,6 +5754,139 @@ function selectPublishableWeeklyDiscoveryShelf(
     marketIncompleteCount: Math.max(0, items.length - Math.min(items.length, resolvedSelected.length)),
     rejectionCounts,
     rejectionSamples
+  };
+}
+
+function weeklyDiscoveryCandidateOutcome(
+  candidate: DiscoveryCandidate,
+  selectedCanonicalIds: Set<string>,
+  recentRepeatHistory: Map<string, ExactRepeatHistoryEntry>,
+  targetCurrency: SupportedCurrency,
+  selectionState: WeeklyShelfSelectionState,
+  vaultEntries: ParallelPrintVaultEntry[]
+): WeeklyDiscoveryCandidateOutcomeRecord {
+  const [item] = scheduledDropItemsFromCandidates([candidate], targetCurrency);
+  const canonicalId = item ? scheduledItemCanonicalId(item) : candidate.suggestion.referenceSourceCardId?.trim();
+  if (canonicalId && selectedCanonicalIds.has(canonicalId)) {
+    return {
+      suggestionName: candidate.suggestion.name,
+      canonicalCardId: canonicalId,
+      outcome: 'SELECTED',
+      discoveryRole: candidate.suggestion.discoveryRole
+    };
+  }
+  if (!canonicalId) {
+    return {
+      suggestionName: candidate.suggestion.name,
+      outcome: 'REJECTED_IDENTITY',
+      detail: 'missing canonical card identity',
+      discoveryRole: candidate.suggestion.discoveryRole
+    };
+  }
+  if (!item || !hasTrustedReferenceImage(item) || !candidate.weeklyDiscovery?.canonicalReference) {
+    return {
+      suggestionName: candidate.suggestion.name,
+      canonicalCardId: canonicalId,
+      outcome: 'REJECTED_PROVENANCE',
+      detail: 'untrusted or incomplete canonical reference provenance',
+      discoveryRole: candidate.suggestion.discoveryRole
+    };
+  }
+  if (!verifyExactPrintingConsistency(candidate)) {
+    return {
+      suggestionName: candidate.suggestion.name,
+      canonicalCardId: canonicalId,
+      outcome: 'REJECTED_IDENTITY',
+      detail: 'exact printing mismatch',
+      discoveryRole: candidate.suggestion.discoveryRole
+    };
+  }
+  const repeatHistory = recentRepeatHistory.get(canonicalId);
+  if (repeatHistory && repeatHistory.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) {
+    return {
+      suggestionName: candidate.suggestion.name,
+      canonicalCardId: canonicalId,
+      outcome: 'REJECTED_HISTORY',
+      detail: `cooldown from ${repeatHistory.mostRecentPeriodShown}`,
+      discoveryRole: candidate.suggestion.discoveryRole
+    };
+  }
+  const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, targetCurrency);
+  if (estimate && estimate.amount < weeklyDiscoveryValueFloor(targetCurrency)) {
+    return {
+      suggestionName: candidate.suggestion.name,
+      canonicalCardId: canonicalId,
+      outcome: 'REJECTED_VALUE',
+      detail: `below configured floor ${weeklyDiscoveryValueFloor(targetCurrency)}`,
+      discoveryRole: candidate.suggestion.discoveryRole
+    };
+  }
+  const parallelPrintRejection = candidateParallelPrintRejection(candidate, vaultEntries);
+  if (parallelPrintRejection) {
+    return {
+      suggestionName: candidate.suggestion.name,
+      canonicalCardId: canonicalId,
+      outcome: 'REJECTED_VAULT_PARALLEL',
+      detail: parallelPrintRejection.matchingVaultCard,
+      discoveryRole: candidate.suggestion.discoveryRole
+    };
+  }
+  if (candidateShelfCapRejection(candidate, selectionState)) {
+    return {
+      suggestionName: candidate.suggestion.name,
+      canonicalCardId: canonicalId,
+      outcome: 'REJECTED_DIVERSITY',
+      detail: 'subject/family/format/lane cap',
+      discoveryRole: candidate.suggestion.discoveryRole
+    };
+  }
+  if (item.market.status !== 'READY') {
+    return {
+      suggestionName: candidate.suggestion.name,
+      canonicalCardId: canonicalId,
+      outcome: 'MARKET_INCOMPLETE_LIMIT',
+      detail: item.market.status,
+      discoveryRole: candidate.suggestion.discoveryRole
+    };
+  }
+  return {
+    suggestionName: candidate.suggestion.name,
+    canonicalCardId: canonicalId,
+    outcome: 'LOWER_RANKED',
+    detail: 'not selected after slate reranking',
+    discoveryRole: candidate.suggestion.discoveryRole
+  };
+}
+
+export function finalizeWeeklyDiscoveryShelf(input: WeeklyDiscoveryFinalizationInput): WeeklyDiscoveryFinalizerResult {
+  const analyzedReserve = analyzeWeeklyDiscoveryCandidateReserve(
+    input.orderedCandidateReserve,
+    input.collectorProfile,
+    input.policies,
+    input.stableTieBreakerSeed ?? input.targetPeriod
+  );
+  const rerankedReserve = rerankWeeklyDiscoveryReserve(analyzedReserve, input.policies);
+  const selection = selectPublishableWeeklyDiscoveryShelf(
+    rerankedReserve,
+    input.userCurrency,
+    DISCOVERY_WEEKLY_DROP_SIZE,
+    input.priorShelfHistory,
+    input.activeVault
+  );
+  const selectedCanonicalIds = new Set(selection.items.map((item) => item.suggestion.referenceSourceCardId?.trim()).filter((value): value is string => !!value));
+  const recentRepeatHistory = exactRepeatHistoryByCanonicalId(input.priorShelfHistory);
+  const selectionState = emptyWeeklyShelfSelectionState();
+  selectionState.laneCapEnabled = new Set(rerankedReserve.map(candidateLaneShelfKey)).size > 1;
+  for (const candidate of selection.selectedCandidates) recordSelectedCandidate(candidate, selectionState);
+  const vaultEntries = parallelPrintVaultEntries(input.activeVault);
+  const candidateOutcomes = rerankedReserve.map((candidate) =>
+    weeklyDiscoveryCandidateOutcome(candidate, selectedCanonicalIds, recentRepeatHistory, input.userCurrency, selectionState, vaultEntries)
+  );
+  const analytics = finalizeWeeklyDiscoveryAnalytics(input, rerankedReserve, selection.items);
+  return {
+    ...analytics,
+    selection,
+    candidateOutcomes
   };
 }
 
@@ -5756,7 +5919,24 @@ function persistValidatedWeeklyDiscoveryDrop(
     .filter(isFinishedShelfCandidate)
     .filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, rejectedNameKeys));
   for (const candidate of finishedCandidates) persistDiscoveryUniverseCandidate(candidate);
-  const selection = selectPublishableWeeklyDiscoveryShelf(finishedCandidates, currency, DISCOVERY_WEEKLY_DROP_SIZE, recentDrops, activeVaultChases);
+  const collectorProfile = buildCollectorTasteProfile(activeVaultChases, {
+    budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
+  });
+  const finalization = finalizeWeeklyDiscoveryShelf({
+    targetPeriod: scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date),
+    frozenTime: date.toISOString(),
+    userCurrency: currency,
+    exchangeRates: {},
+    activeVault: activeVaultChases,
+    collectorProfile,
+    priorShelfHistory: recentDrops,
+    orderedCandidateReserve: finishedCandidates,
+    feedbackPreferences: {
+      budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
+    },
+    stableTieBreakerSeed: userId
+  });
+  const selection = finalization.selection;
   const items = selection.items;
   const failures = validatePublishableDiscoveryShelf(items, DISCOVERY_WEEKLY_DROP_SIZE);
   if (selection.marketResolvedCount < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED) {
@@ -5896,7 +6076,7 @@ export function orderCandidatesFromPersistedState(
   return selected;
 }
 
-async function discoverCandidatesForUser(
+export async function discoverCandidatesForUser(
   userId: string,
   count: number,
   options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean } = {}

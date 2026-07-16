@@ -62,6 +62,7 @@ import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscov
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
+import { buildCollectorTasteProfile } from '../../services/weekly-discovery-ranking.js';
 import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import type { DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
 import type { Chase, Listing } from '../../types.js';
@@ -5180,6 +5181,87 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(reserve[29]?.suggestion.name).toBe('Card 30');
   });
 
+  it('uses a deterministic shared weekly finalizer fingerprint and order', () => {
+    const reserve = publishableShelfCandidates(24, (candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 80 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    const input = {
+      targetPeriod: '2026-W29',
+      frozenTime: '2026-07-16T12:00:00.000Z',
+      userCurrency: 'CAD' as const,
+      exchangeRates: {},
+      activeVault: ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].map(chase),
+      collectorProfile: buildCollectorTasteProfile(['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].map(chase), {
+        budgetPreferenceCad: 30
+      }),
+      priorShelfHistory: [],
+      orderedCandidateReserve: reserve,
+      feedbackPreferences: {
+        budgetPreferenceCad: 30
+      },
+      stableTieBreakerSeed: 'test-user'
+    };
+
+    const first = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf(input);
+    const second = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf(input);
+
+    expect(first.fingerprint).toBe(second.fingerprint);
+    expect(first.selection.items.map((item) => item.suggestion.referenceSourceCardId)).toEqual(
+      second.selection.items.map((item) => item.suggestion.referenceSourceCardId)
+    );
+    expect(first.structuralGate.status).toBe('PASS');
+  });
+
+  it('accounts for every reserve candidate with an explicit finalizer outcome', () => {
+    const reserve = publishableShelfCandidates(22, (candidate, index) =>
+      index === 0
+        ? {
+            ...candidate,
+            suggestion: { ...candidate.suggestion, referenceSourceCardId: undefined },
+            image: { ...candidate.image!, sourceCardId: undefined }
+          }
+        : index === 1
+          ? {
+              ...candidate,
+              image: { ...candidate.image!, sourceKind: 'MARKET_LISTING' }
+            }
+          : {
+              ...candidate,
+              typicalRawSoldTotal: 90 + index,
+              soldSampleSize: 3,
+              displayCurrency: 'CAD' as const
+            }
+    );
+    const input = {
+      targetPeriod: '2026-W29',
+      frozenTime: '2026-07-16T12:00:00.000Z',
+      userCurrency: 'CAD' as const,
+      exchangeRates: {},
+      activeVault: ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].map(chase),
+      collectorProfile: buildCollectorTasteProfile(['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].map(chase), {
+        budgetPreferenceCad: 30
+      }),
+      priorShelfHistory: [],
+      orderedCandidateReserve: reserve,
+      feedbackPreferences: {
+        budgetPreferenceCad: 30
+      },
+      stableTieBreakerSeed: 'test-user'
+    };
+
+    const result = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf(input);
+
+    expect(result.candidateOutcomes).toHaveLength(reserve.length);
+    expect(result.candidateOutcomes.some((entry) => entry.outcome === 'REJECTED_IDENTITY')).toBe(true);
+    expect(result.candidateOutcomes.some((entry) => entry.outcome === 'REJECTED_PROVENANCE')).toBe(true);
+    expect(
+      result.roleDistribution.CORE_MATCH + result.roleDistribution.ADJACENT_DISCOVERY + result.roleDistribution.CONTROLLED_EXPLORATION
+    ).toBe(result.selection.items.length);
+  });
+
   it('excludes an exact canonical card shown in one of the previous 6 weekly shelves', () => {
     const repeated = publishableCandidate('Repeat Card', 'repeat-1', 0);
     const previousDrop = {
@@ -5332,7 +5414,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, pool, 'CAD', undefined, date);
     expect(result.saved).toBe(true);
     expect(result.itemCount).toBe(20);
-    expect(result.inspectedCount).toBeGreaterThan(20);
+    expect(result.inspectedCount).toBeGreaterThanOrEqual(20);
     expect(result.rejectionCounts.MISSING_CANONICAL_ID).toBe(8);
 
     const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');

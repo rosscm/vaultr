@@ -1,3 +1,10 @@
+import type {
+  CanonicalCardReference,
+  WeeklyDiscoveryGenerationReason,
+  WeeklyDiscoveryGenerationStrategy,
+  WeeklyDiscoveryRankExplanation,
+  WeeklyDiscoveryRole
+} from './weekly-discovery-ranking.js';
 import type { Chase } from '../types.js';
 
 export type DiscoverySuggestion = {
@@ -15,6 +22,11 @@ export type DiscoverySuggestion = {
   sourceTasteTokens?: string[];
   minimumExampleTotalCad?: number;
   curiosityScore?: number;
+  canonicalReference?: CanonicalCardReference;
+  generationStrategies?: WeeklyDiscoveryGenerationStrategy[];
+  generationReasons?: WeeklyDiscoveryGenerationReason[];
+  discoveryRole?: WeeklyDiscoveryRole;
+  rankExplanation?: WeeklyDiscoveryRankExplanation;
 };
 
 export type DiscoverySelection = {
