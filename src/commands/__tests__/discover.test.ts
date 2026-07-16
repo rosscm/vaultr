@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   attachReferenceImages,
   backfillMarketReadyDiscoveryCandidates,
@@ -62,7 +62,7 @@ import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscov
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
-import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
+import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import type { DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
@@ -5194,6 +5194,46 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.rejectionCounts.EXACT_REPEAT_COOLDOWN).toBe(1);
   });
 
+  it('excludes the target period itself from prior weekly cooldown history', () => {
+    const userId = `weekly-history-${Date.now()}`;
+    const date = new Date('2026-07-14T12:00:00.000Z');
+    const currentPeriod = '2026-W29';
+    const priorPeriod = '2026-W28';
+    const currentItems = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([publishableCandidate('Current Card', 'current-card', 0)], 'CAD');
+    const priorItems = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([publishableCandidate('Prior Card', 'prior-card', 0)], 'CAD');
+
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey: currentPeriod,
+      status: 'READY',
+      title: 'Weekly Shelf',
+      summary: 'current',
+      currency: 'CAD',
+      availableAt: '2026-07-13T12:00:00.000Z',
+      expiresAt: '2026-07-20T12:00:00.000Z',
+      items: currentItems
+    });
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey: priorPeriod,
+      status: 'READY',
+      title: 'Weekly Shelf',
+      summary: 'prior',
+      currency: 'CAD',
+      availableAt: '2026-07-06T12:00:00.000Z',
+      expiresAt: '2026-07-13T12:00:00.000Z',
+      items: priorItems
+    });
+
+    const history = __discoveryPersistenceTestHooks.listPriorWeeklyDiscoveryDropsForTargetPeriod(userId, date, 12);
+    expect(history.map((drop) => drop.periodKey)).toEqual(['2026-W28']);
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', currentPeriod);
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', priorPeriod);
+  });
+
   it('does not treat a different printing of the same pokemon as the same canonical card', () => {
     const oldPrinting = publishableCandidate('Squirtle 170/165 Pokemon 151', 'sv3pt5-170', 0);
     const newPrinting: DiscoveryCandidate = {
@@ -5404,6 +5444,93 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
   });
 
+  it('repairs existing shelf reference fields even when a replacement shelf later fails validation', async () => {
+    const userId = `weekly-repair-${Date.now()}`;
+    const periodKey = '2026-W29';
+    const date = new Date('2026-07-14T12:00:00.000Z');
+    const validItems = Array.from({ length: 20 }, (_, index) => {
+      const [item] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+        {
+          ...publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index),
+          typicalRawAskingTotal: 75,
+          marketSampleSize: 4
+        }
+      ], 'CAD');
+      return { ...item!, position: index + 1 };
+    });
+    validItems[0] = {
+      ...validItems[0]!,
+      suggestion: {
+        ...validItems[0]!.suggestion,
+        name: 'Squirtle 151 170',
+        referenceImageUrl: 'https://marketplace.example/squirtle-old-photo.png',
+        referenceSourceName: 'Curated reference',
+        referenceSourceCardId: 'sv3pt5-170'
+      },
+      imageUrl: 'https://marketplace.example/squirtle-old-photo.png',
+      imageSourceName: 'Curated reference',
+      imageSourceKind: 'CARD_REFERENCE'
+    };
+
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey,
+      status: 'READY',
+      title: 'Weekly Shelf',
+      summary: 'existing shelf',
+      currency: 'CAD',
+      availableAt: '2026-07-13T12:00:00.000Z',
+      expiresAt: '2026-07-20T12:00:00.000Z',
+      items: validItems
+    });
+
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === 'HEAD' && url.includes('sv3pt5/170_hires.png')) {
+        return {
+          ok: true,
+          headers: new Headers({ 'content-type': 'image/png' })
+        } as Response;
+      }
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'sv3pt5-170',
+                name: 'Squirtle',
+                number: '170',
+                set: { name: '151' }
+              }
+            ]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    await __discoveryPersistenceTestHooks.repairExistingScheduledWeeklyDropReferences(
+      getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey)!
+    );
+
+    const invalidCandidates = publishableShelfCandidates(19, (candidate, index) => ({
+      ...candidate,
+      typicalRawAskingTotal: 75 + index,
+      marketSampleSize: 4
+    }));
+    const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, invalidCandidates, 'CAD', undefined, date);
+    expect(result.saved).toBe(false);
+    expect(result.retainedPreviousShelf).toBe(true);
+
+    const repairedDrop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+    expect(repairedDrop?.items[0]?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+    expect(repairedDrop?.items[0]?.suggestion.referenceImageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+  });
+
   it('reports weekly shelf persistence success only for a validated 20-card shelf', () => {
     const userId = `weekly-result-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');
@@ -5489,6 +5616,11 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.rejectionSamples.BAD_DISPLAY_NAME[0]).toMatchObject({
       suggestionName: 'Pokemon Card Raw Rare',
       rejectionReason: 'BAD_DISPLAY_NAME'
+    });
+    expect(result.rejectionSamples.BAD_IMAGE[0]).toMatchObject({
+      imageSourceKind: 'MARKET_LISTING',
+      marketStatus: 'MISSING',
+      configuredValueFloor: 30
     });
   });
 

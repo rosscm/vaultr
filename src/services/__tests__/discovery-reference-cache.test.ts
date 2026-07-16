@@ -227,8 +227,14 @@ describe('discovery reference cache', () => {
   });
 
   it('does not promote an arbitrary Pokemon suggestion image URL into trusted reference art', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
+      if (init?.method === 'HEAD' && url.includes('/sv3pt5/170_hires.png')) {
+        return {
+          ok: true,
+          headers: new Headers({ 'content-type': 'image/png' })
+        } as Response;
+      }
       if (url.includes('api.pokemontcg.io')) {
         return {
           ok: true,
@@ -328,8 +334,14 @@ describe('discovery reference cache', () => {
   });
 
   it('uses TCGdex Japanese clean images for Japanese promo-style suggestions when Pokemon TCG would miss', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
+      if (init?.method === 'HEAD' && url.includes('/sv3pt5/170_hires.png')) {
+        return {
+          ok: true,
+          headers: new Headers({ 'content-type': 'image/png' })
+        } as Response;
+      }
       if (url.includes('api.pokemontcg.io')) {
         return {
           ok: true,
@@ -428,8 +440,14 @@ describe('discovery reference cache', () => {
   });
 
   it('uses exact Japanese promo code matches when the correct localId exists', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
+      if (init?.method === 'HEAD' && url.includes('/sv3pt5/170_hires.png')) {
+        return {
+          ok: true,
+          headers: new Headers({ 'content-type': 'image/png' })
+        } as Response;
+      }
       if (url.includes('api.pokemontcg.io')) {
         return {
           ok: true,
@@ -676,6 +694,7 @@ describe('discovery reference cache', () => {
       sourceCardId: 'sv3pt5-170'
     });
 
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
       const url = String(input);
       if (url.includes('api.pokemontcg.io')) {
@@ -708,9 +727,109 @@ describe('discovery reference cache', () => {
       referenceSourceCardId: 'sv3pt5-170'
     }, 60 * 60 * 1000);
 
-    expect(reference?.diagnosticReason).toBe('REFERENCE_IMAGE_IDENTITY_MISMATCH');
     expect(reference?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+    expect(reference?.sourceCardId).toBe('sv3pt5-170');
     expect(getDiscoveryReferenceCache(suggestionCacheKey)?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[DiscoveryReference] Repaired mismatched Pokemon reference image',
+      expect.objectContaining({
+        suggestionName,
+        diagnosticReason: 'REFERENCE_IMAGE_IDENTITY_MISMATCH'
+      })
+    );
+
+    deleteDiscoveryReferenceCache(suggestionCacheKey);
+  });
+
+  it('repairs a fresh reachable cached Pokemon marketplace photo instead of returning it', async () => {
+    const suggestionName = 'Squirtle 151 170';
+    const suggestionCacheKey = discoveryReferenceCacheKey(suggestionName);
+    deleteDiscoveryReferenceCache(suggestionCacheKey);
+    upsertDiscoveryReferenceCache({
+      cacheKey: suggestionCacheKey,
+      suggestionName,
+      imageUrl: 'https://marketplace.example/squirtle-fresh-photo.png',
+      sourceName: 'Curated reference',
+      sourceCardId: 'sv3pt5-170',
+      fetchedAt: new Date().toISOString()
+    });
+
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === 'HEAD' && url === 'https://marketplace.example/squirtle-fresh-photo.png') {
+        return {
+          ok: true,
+          headers: new Headers({ 'content-type': 'image/png' })
+        } as Response;
+      }
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'sv3pt5-170',
+                name: 'Squirtle',
+                number: '170',
+                set: { name: '151' }
+              }
+            ]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await getOrFetchDiscoveryReferenceImage({
+      name: suggestionName,
+      lane: 'collector path',
+      laneWhy: 'test',
+      why: 'test',
+      nearby: [],
+      evidenceSearchTerm: 'Squirtle 151 170 Pokemon card',
+      referenceImageUrl: 'https://marketplace.example/squirtle-fresh-photo.png',
+      referenceSourceName: 'Curated reference',
+      referenceSourceCardId: 'sv3pt5-170'
+    }, 60 * 60 * 1000);
+
+    expect(reference?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+    expect(reference?.diagnosticReason).toBe('REFERENCE_IMAGE_IDENTITY_MISMATCH');
+
+    deleteDiscoveryReferenceCache(suggestionCacheKey);
+  });
+
+  it('reuses a verified exact Pokemon TCG cache hit without refetching', async () => {
+    const suggestionName = 'Squirtle 151 170';
+    const suggestionCacheKey = discoveryReferenceCacheKey(suggestionName);
+    deleteDiscoveryReferenceCache(suggestionCacheKey);
+    upsertDiscoveryReferenceCache({
+      cacheKey: suggestionCacheKey,
+      suggestionName,
+      imageUrl: 'https://images.pokemontcg.io/sv3pt5/170_hires.png',
+      sourceName: 'Pokemon TCG (151)',
+      sourceCardId: 'sv3pt5-170',
+      fetchedAt: new Date().toISOString()
+    });
+
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('should not refetch verified canonical art');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const reference = await getOrFetchDiscoveryReferenceImage({
+      name: suggestionName,
+      lane: 'collector path',
+      laneWhy: 'test',
+      why: 'test',
+      nearby: [],
+      evidenceSearchTerm: 'Squirtle 151 170 Pokemon card',
+      referenceImageUrl: 'https://images.pokemontcg.io/sv3pt5/170_hires.png',
+      referenceSourceName: 'Pokemon TCG (151)',
+      referenceSourceCardId: 'sv3pt5-170'
+    }, 60 * 60 * 1000);
+
+    expect(reference?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+    expect(fetchSpy).not.toHaveBeenCalled();
 
     deleteDiscoveryReferenceCache(suggestionCacheKey);
   });
@@ -751,5 +870,41 @@ describe('discovery reference cache', () => {
 
     expect(reference.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
     expect(reference.imageUrl?.includes('listing.example')).toBe(false);
+  });
+
+  it('preserves exact Pokemon TCG variant image URLs with suffix identifiers', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: 'cel25c-24_A',
+                name: "_____'s Pikachu",
+                number: '24_A',
+                set: { name: 'Celebrations: Classic Collection' },
+                images: { large: 'https://images.pokemontcg.io/cel25c/24_A_hires.png' }
+              }
+            ]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const reference = await fetchDiscoveryReferenceImage({
+      name: "_____'s Pikachu Celebrations: Classic Collection 24",
+      lane: 'classic collection',
+      laneWhy: 'test',
+      why: 'test',
+      nearby: [],
+      evidenceSearchTerm: "_____'s Pikachu Celebrations Classic Collection 24 Pokemon card",
+      referenceSourceCardId: 'cel25c-24_A'
+    });
+
+    expect(reference.sourceCardId).toBe('cel25c-24_A');
+    expect(reference.imageUrl).toBe('https://images.pokemontcg.io/cel25c/24_A_hires.png');
   });
 });

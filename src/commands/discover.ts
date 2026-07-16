@@ -206,14 +206,25 @@ type DiscoveryShelfSelectionResult = {
     mostRecentPeriodShown?: string;
     priorAppearances?: number;
     repeatPolicy?: 'HARD_EXCLUDE' | 'PENALTY';
+    cooldownShelves?: number;
     evaluatedPrice?: number;
     evaluatedCurrency?: SupportedCurrency;
+    configuredValueFloor?: number;
     matchedKey?: string;
     matchingVaultCard?: string;
     candidateSet?: string;
     candidateLanguage?: string;
     vaultSet?: string;
     vaultLanguage?: string;
+    resolvedSet?: string;
+    resolvedCardNumber?: string;
+    resolvedLanguage?: string;
+    imageUrl?: string;
+    imageSourceKind?: DiscoveryCardImage['sourceKind'];
+    marketStatus?: string;
+    subjectKey?: string;
+    familyKey?: string;
+    formatKey?: string;
   }>>;
 };
 type PersistValidatedWeeklyDiscoveryDropResult = {
@@ -1624,7 +1635,7 @@ export async function attachReferenceImages(candidates: DiscoveryCandidate[]): P
         url: reference.imageUrl,
         sourceName: reference.sourceName,
         sourceCardId: reference.sourceCardId,
-        sourceKind: 'CARD_REFERENCE'
+        sourceKind: 'CARD_REFERENCE' as const
       }
     };
   });
@@ -2109,6 +2120,7 @@ export const __discoveryPersistenceTestHooks = {
   selectDiscoveryUserUniverseCandidatesFromEntries,
   buildFreshWeeklyShelfFromPool,
   orderFreshWeeklyPublicationReserve,
+  listPriorWeeklyDiscoveryDropsForTargetPeriod,
   weeklyJapaneseSignalTargetCount,
   validatePublishableDiscoveryShelf,
   scoreDiscoveryUniverseCardForProfile,
@@ -2118,7 +2130,8 @@ export const __discoveryPersistenceTestHooks = {
   canonicalUniverseSeedParents,
   verifyExactPrintingConsistency,
   applyExactCardRepeatFreshnessOrdering,
-  reliableWeeklyDiscoveryMarketEstimate
+  reliableWeeklyDiscoveryMarketEstimate,
+  repairExistingScheduledWeeklyDropReferences
 };
 
 function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
@@ -4732,18 +4745,23 @@ function listingFromScheduledDiscoveryDropItem(item: ScheduledDiscoveryDrop['ite
 }
 
 function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): DiscoveryCandidate[] {
+  const scheduledImageForItem = (item: ScheduledDiscoveryDrop['items'][number]): DiscoveryCardImage | undefined => {
+    const sourceKind = item.imageSourceKind
+      ?? (item.imageSourceName === VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME ? 'MARKET_LISTING' as const : undefined);
+    if (!item.imageUrl || !item.imageSourceName || !sourceKind) return undefined;
+    return {
+      name: item.suggestion.name,
+      url: item.imageUrl,
+      sourceName: item.imageSourceName,
+      sourceCardId: item.suggestion.referenceSourceCardId,
+      sourceKind
+    };
+  };
   return drop.items.map((item) => ({
     suggestion: item.suggestion,
     selectionIndex: item.position - 1,
     listing: listingFromScheduledDiscoveryDropItem(item),
-    image: item.imageUrl && item.imageSourceName
-      ? {
-          name: item.suggestion.name,
-          url: item.imageUrl,
-          sourceName: item.imageSourceName,
-          sourceKind: item.imageSourceKind ?? (item.imageSourceName === VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME ? 'MARKET_LISTING' as const : 'CARD_REFERENCE' as const)
-        }
-      : undefined,
+    image: scheduledImageForItem(item),
     typicalRawAskingTotal: item.market.askingTotal,
     marketSampleSize: item.market.askingSampleSize,
     typicalRawSoldTotal: item.market.soldTotal,
@@ -4754,11 +4772,126 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
 }
 
 export async function repairScheduledDiscoveryShelfImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
-  const repaired = await hydrateShelfCandidateImages(candidates);
-  return repaired.map((candidate, index) => {
-    if (candidate.image || !candidates[index]?.image) return candidate;
-    return { ...candidate, image: candidates[index]?.image };
-  }).filter(isFinishedShelfCandidate);
+  return mapWithConcurrency(candidates, VISIBLE_DISCOVERY_COUNT, async (candidate): Promise<DiscoveryCandidate> => {
+    const reference = await getOrFetchDiscoveryReferenceImage(candidate.suggestion, DISCOVERY_REFERENCE_CACHE_TTL_MS);
+    if (!reference?.imageUrl) return candidate;
+    const repairedCandidate: DiscoveryCandidate = {
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        referenceImageUrl: reference.imageUrl,
+        referenceSourceName: reference.sourceName ?? candidate.suggestion.referenceSourceName,
+        referenceSourceCardId: reference.sourceCardId ?? candidate.suggestion.referenceSourceCardId
+      },
+      image: {
+        name: candidate.suggestion.name,
+        url: reference.imageUrl,
+        sourceName: reference.sourceName,
+        sourceCardId: reference.sourceCardId,
+        sourceKind: 'CARD_REFERENCE'
+      }
+    };
+    return repairedCandidate;
+  });
+}
+
+function listPriorWeeklyDiscoveryDropsForTargetPeriod(
+  userId: string,
+  date: Date,
+  limit = 12
+): ScheduledDiscoveryDrop[] {
+  const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
+  const previousDropLookupDate = new Date(Date.parse(availability.availableAt) - 1).toISOString();
+  const targetPeriodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
+  const seenPeriodKeys = new Set<string>();
+  return listRecentAvailableScheduledDiscoveryDrops(userId, 'WEEKLY_DISCOVERY', previousDropLookupDate, limit)
+    .filter((drop) => drop.periodKey < targetPeriodKey)
+    .filter((drop) => {
+      if (seenPeriodKeys.has(drop.periodKey)) return false;
+      seenPeriodKeys.add(drop.periodKey);
+      return true;
+    });
+}
+
+function repairableScheduledReferenceUpdate(
+  item: ScheduledDiscoveryDropItem,
+  candidate: DiscoveryCandidate
+): ScheduledDiscoveryDropItem | null {
+  const canonicalImage = scheduledShelfImageFromCandidate(candidate);
+  const existingCanonicalId = item.suggestion.referenceSourceCardId?.trim();
+  const repairedCanonicalId = candidate.suggestion.referenceSourceCardId?.trim() ?? canonicalImage?.sourceCardId?.trim();
+  if (!existingCanonicalId || !repairedCanonicalId || existingCanonicalId !== repairedCanonicalId) return null;
+  if (!canonicalImage || canonicalImage.sourceKind !== 'CARD_REFERENCE') return null;
+  if (!verifyExactPrintingConsistency(candidate)) return null;
+
+  const nextSuggestion = {
+    ...item.suggestion,
+    referenceImageUrl: canonicalImage.url,
+    referenceSourceName: canonicalImage.sourceName ?? item.suggestion.referenceSourceName,
+    referenceSourceCardId: repairedCanonicalId
+  };
+  const changed = item.imageUrl !== canonicalImage.url
+    || item.imageSourceName !== canonicalImage.sourceName
+    || item.imageSourceKind !== 'CARD_REFERENCE'
+    || item.suggestion.referenceImageUrl !== nextSuggestion.referenceImageUrl
+    || item.suggestion.referenceSourceName !== nextSuggestion.referenceSourceName;
+  if (!changed) return null;
+
+  return {
+    ...item,
+    suggestion: nextSuggestion,
+    imageUrl: canonicalImage.url,
+    imageSourceName: canonicalImage.sourceName,
+    imageSourceKind: 'CARD_REFERENCE'
+  };
+}
+
+async function repairExistingScheduledWeeklyDropReferences(existing: ScheduledDiscoveryDrop): Promise<ScheduledDiscoveryDrop> {
+  const candidates = candidatesFromScheduledDiscoveryDrop(existing);
+  if (candidates.length === 0) return existing;
+  const repairedCandidates = await repairScheduledDiscoveryShelfImages(candidates);
+  const repairedItems = existing.items.map((item, index) => repairableScheduledReferenceUpdate(item, repairedCandidates[index]!) ?? item);
+  const changedEntries = repairedItems
+    .map((item, index) => ({ previous: existing.items[index]!, next: item }))
+    .filter(({ previous, next }) =>
+      previous.imageUrl !== next.imageUrl
+      || previous.imageSourceName !== next.imageSourceName
+      || previous.imageSourceKind !== next.imageSourceKind
+      || previous.suggestion.referenceImageUrl !== next.suggestion.referenceImageUrl
+      || previous.suggestion.referenceSourceName !== next.suggestion.referenceSourceName
+      || previous.suggestion.referenceSourceCardId !== next.suggestion.referenceSourceCardId
+    );
+  if (changedEntries.length === 0) return existing;
+
+  const repairedDrop = upsertScheduledDiscoveryDrop({
+    userId: existing.userId,
+    dropType: existing.dropType,
+    periodKey: existing.periodKey,
+    status: existing.status,
+    title: existing.title,
+    summary: existing.summary,
+    currency: existing.currency,
+    availableAt: existing.availableAt,
+    expiresAt: existing.expiresAt,
+    sourceStateUpdatedAt: existing.sourceStateUpdatedAt,
+    items: repairedItems
+  });
+
+  for (const { previous, next } of changedEntries) {
+    console.info(`[DiscoveryShelf] ${JSON.stringify({
+      event: 'EXISTING_SHELF_REFERENCE_REPAIRED',
+      userId: existing.userId,
+      weeklyPeriod: existing.periodKey,
+      suggestionName: next.suggestion.name,
+      sourceCardId: next.suggestion.referenceSourceCardId,
+      priorImageUrl: previous.imageUrl,
+      repairedImageUrl: next.imageUrl,
+      referenceSource: next.imageSourceName,
+      diagnosticReason: 'REFERENCE_IMAGE_IDENTITY_MISMATCH'
+    })}`);
+  }
+
+  return repairedDrop;
 }
 
 export function backfillScheduledDiscoveryShelfCandidates(
@@ -5070,6 +5203,20 @@ function exactRepeatHistoryByCanonicalId(recentDrops: ScheduledDiscoveryDrop[]):
   return history;
 }
 
+function exactRepeatHistorySample(
+  candidate: DiscoveryCandidate,
+  history: ExactRepeatHistoryEntry,
+  repeatPolicy: 'HARD_EXCLUDE' | 'PENALTY'
+): DiscoveryShelfSelectionResult['rejectionSamples']['EXACT_REPEAT_COOLDOWN'][number] {
+  return selectionDiagnosticSample(candidate, 'EXACT_REPEAT_COOLDOWN', {
+    canonicalCardId: candidate.suggestion.referenceSourceCardId?.trim() ?? candidate.image?.sourceCardId?.trim(),
+    mostRecentPeriodShown: history.mostRecentPeriodShown,
+    priorAppearances: history.priorAppearances,
+    repeatPolicy,
+    cooldownShelves: WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES
+  });
+}
+
 function applyExactCardRepeatFreshnessOrdering(
   candidates: DiscoveryCandidate[],
   recentDrops: ScheduledDiscoveryDrop[]
@@ -5094,38 +5241,14 @@ function applyExactCardRepeatFreshnessOrdering(
     if (history.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) {
       hardExcluded.push(candidate);
       if (penaltySamples.length < 6) {
-        penaltySamples.push({
-          suggestionName: candidate.suggestion.name,
-          lane: candidate.suggestion.lane,
-          rejectionReason: 'EXACT_REPEAT_COOLDOWN',
-          referenceSourceStatus: 'RESOLVED',
-          referenceSourceName: candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName,
-          hasReferenceImage: !!candidate.suggestion.referenceImageUrl || candidate.image?.sourceKind === 'CARD_REFERENCE',
-          hasReferenceSourceCardId: true,
-          canonicalCardId,
-          mostRecentPeriodShown: history.mostRecentPeriodShown,
-          priorAppearances: history.priorAppearances,
-          repeatPolicy: 'HARD_EXCLUDE'
-        });
+        penaltySamples.push(exactRepeatHistorySample(candidate, history, 'HARD_EXCLUDE'));
       }
       continue;
     }
     if (history.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_PENALTY_SHELVES) {
       penalized.push(candidate);
       if (penaltySamples.length < 6) {
-        penaltySamples.push({
-          suggestionName: candidate.suggestion.name,
-          lane: candidate.suggestion.lane,
-          rejectionReason: 'EXACT_REPEAT_COOLDOWN',
-          referenceSourceStatus: 'RESOLVED',
-          referenceSourceName: candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName,
-          hasReferenceImage: !!candidate.suggestion.referenceImageUrl || candidate.image?.sourceKind === 'CARD_REFERENCE',
-          hasReferenceSourceCardId: true,
-          canonicalCardId,
-          mostRecentPeriodShown: history.mostRecentPeriodShown,
-          priorAppearances: history.priorAppearances,
-          repeatPolicy: 'PENALTY'
-        });
+        penaltySamples.push(exactRepeatHistorySample(candidate, history, 'PENALTY'));
       }
       continue;
     }
@@ -5458,9 +5581,12 @@ function selectionDiagnosticSample(
   rejectionReason: DiscoveryShelfSelectionRejectionCode,
   extra: Partial<DiscoveryShelfSelectionResult['rejectionSamples'][DiscoveryShelfSelectionRejectionCode][number]> = {}
 ): DiscoveryShelfSelectionResult['rejectionSamples'][DiscoveryShelfSelectionRejectionCode][number] {
+  const canonicalImage = scheduledShelfImageFromCandidate(candidate);
+  const diagnosticImage = canonicalImage ?? candidate.image;
   const referenceSourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
   const hasReferenceImage = !!candidate.suggestion.referenceImageUrl || candidate.image?.sourceKind === 'CARD_REFERENCE';
   const hasReferenceSourceCardId = !!candidate.suggestion.referenceSourceCardId?.trim() || !!candidate.image?.sourceCardId?.trim();
+  const targetCurrency = candidate.displayCurrency ?? 'CAD';
   return {
     suggestionName: candidate.suggestion.name,
     lane: candidate.suggestion.lane,
@@ -5469,6 +5595,16 @@ function selectionDiagnosticSample(
     referenceSourceName,
     hasReferenceImage,
     hasReferenceSourceCardId,
+    resolvedSet: resolvedReferenceSetIdentity(candidate),
+    resolvedCardNumber: resolvedReferenceCardNumber(candidate),
+    resolvedLanguage: resolvedReferenceLanguage(candidate),
+    imageUrl: diagnosticImage?.url ?? candidate.suggestion.referenceImageUrl,
+    imageSourceKind: diagnosticImage?.sourceKind,
+    marketStatus: scheduledMarketStatusFromCandidate(candidate),
+    configuredValueFloor: weeklyDiscoveryValueFloor(targetCurrency),
+    subjectKey: candidateShelfSubjectKey(candidate),
+    familyKey: candidateEvolutionFamilyKey(candidate),
+    formatKey: candidateFormatShelfKey(candidate),
     ...extra
   };
 }
@@ -5535,6 +5671,7 @@ function selectPublishableWeeklyDiscoveryShelf(
           mostRecentPeriodShown: repeat?.mostRecentPeriodShown,
           priorAppearances: repeat?.priorAppearances,
           repeatPolicy: repeat ? 'HARD_EXCLUDE' : undefined,
+          cooldownShelves: repeat ? WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES : undefined,
           evaluatedPrice: estimate?.amount,
           evaluatedCurrency: estimate?.currency,
           matchedKey: rejection.matchedKey,
@@ -5598,8 +5735,7 @@ function persistValidatedWeeklyDiscoveryDrop(
   date = new Date()
 ): PersistValidatedWeeklyDiscoveryDropResult {
   const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
-  const previousDropLookupDate = new Date(Date.parse(availability.availableAt) - 1).toISOString();
-  const recentDrops = listRecentAvailableScheduledDiscoveryDrops(userId, 'WEEKLY_DISCOVERY', previousDropLookupDate, 12);
+  const recentDrops = listPriorWeeklyDiscoveryDropsForTargetPeriod(userId, date, 12);
   if (candidates.length === 0) {
     return {
       saved: false,
@@ -5636,7 +5772,7 @@ function persistValidatedWeeklyDiscoveryDrop(
       .filter((value): value is number => value !== undefined && Number.isFinite(value));
     const sortedValues = [...finalValues].sort((a, b) => a - b);
     const medianValue = sortedValues.length === 0 ? undefined : sortedValues[Math.floor(sortedValues.length / 2)];
-    console.warn(`[DiscoveryShelf] Validation failed for ${userId}`, {
+    console.warn(`[DiscoveryShelf] Validation failed for ${userId}\n${JSON.stringify({
       inspectedCount: selection.inspectedCount,
       qualifiedCount: selection.qualifiedCount,
       marketResolvedCount: selection.marketResolvedCount,
@@ -5650,7 +5786,7 @@ function persistValidatedWeeklyDiscoveryDrop(
       finalMinimumValue: sortedValues[0],
       finalMedianValue: medianValue,
       failures
-    });
+    }, null, 2)}`);
     return {
       saved: false,
       itemCount: items.length,
@@ -6260,21 +6396,25 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
   const quickRefresh = options.hydrateMarketInline === false;
   const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
   const previousDropLookupDate = new Date(Date.parse(availability.availableAt) - 1);
+  const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
   const fallbackDrop = getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', previousDropLookupDate.toISOString());
-  const recentDrops = listRecentAvailableScheduledDiscoveryDrops(userId, 'WEEKLY_DISCOVERY', previousDropLookupDate.toISOString(), 12);
+  const recentDrops = listPriorWeeklyDiscoveryDropsForTargetPeriod(userId, date, 12);
   const immediatePreviousDropNames = recentDrops
     .slice(0, 1)
     .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
   const previousDropNames = recentDrops
     .slice(0, 3)
     .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
-  const existing = !options.force ? getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date)) : null;
+  let existing = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+  if (existing && !quickRefresh) existing = await repairExistingScheduledWeeklyDropReferences(existing);
   if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0 && validatePublishableDiscoveryShelf(existing.items, DISCOVERY_WEEKLY_DROP_SIZE).length === 0) {
-    return {
-      prepared: true,
-      itemCount: existing.itemCount,
-      hasFullDiscovery: getEntitlementsForTier(activePlanTier(getUserPlan(userId))).discoveryDepth === 'full'
-    };
+    if (options.force !== true) {
+      return {
+        prepared: true,
+        itemCount: existing.itemCount,
+        hasFullDiscovery: getEntitlementsForTier(activePlanTier(getUserPlan(userId))).discoveryDepth === 'full'
+      };
+    }
   }
   const discovery = await discoverCandidatesForUser(userId, DISCOVERY_WEEKLY_DROP_SIZE, {
     preferScheduledDrop: false,

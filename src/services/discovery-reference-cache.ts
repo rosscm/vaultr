@@ -212,6 +212,11 @@ function isJapaneseReferenceSuggestion(suggestion: DiscoverySuggestion): boolean
   return /\bjapanese\b|tcgdex japanese|\/p\b|\b(?:xy|sm|sv|s)-p\b/i.test(text);
 }
 
+function hasExactJapanesePrintingRequest(suggestion: DiscoverySuggestion): boolean {
+  const sourceText = [suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
+  return !!referenceLocalId(sourceText) || !!referenceSetLocalId(sourceText) || !!referenceSetCode(sourceText);
+}
+
 function isPokemonReferenceSuggestion(suggestion: DiscoverySuggestion): boolean {
   if (isOnePieceReferenceSuggestion(suggestion)) return false;
   const text = [suggestionSourceText(suggestion), suggestion.referenceSourceName, suggestion.referenceSourceCardId].filter(Boolean).join(' ');
@@ -472,9 +477,24 @@ async function validateReferenceImageUrl(url: string | undefined): Promise<boole
   }
 }
 
+function pokemonTcgImageNumberFromSourceCardId(sourceCardId: string | undefined): string | undefined {
+  const trimmed = sourceCardId?.trim();
+  if (!trimmed) return undefined;
+  const dashIndex = trimmed.indexOf('-');
+  if (dashIndex < 0 || dashIndex >= trimmed.length - 1) return undefined;
+  return trimmed.slice(dashIndex + 1);
+}
+
+function pokemonTcgCanonicalImageUrlFromSourceCardId(sourceCardId: string | undefined): string | undefined {
+  const setId = sourceCardIdSetPrefix(sourceCardId);
+  const imageNumber = pokemonTcgImageNumberFromSourceCardId(sourceCardId);
+  return setId && imageNumber
+    ? `https://${POKEMON_TCG_REFERENCE_HOST}/${setId}/${encodeURIComponent(imageNumber)}_hires.png`
+    : undefined;
+}
+
 function pokemonTcgCanonicalImageUrl(card: PokemonTcgCard): string | undefined {
-  const setId = card.id?.split('-')[0];
-  return setId && card.number ? `https://images.pokemontcg.io/${setId}/${encodeURIComponent(card.number)}_hires.png` : undefined;
+  return pokemonTcgCanonicalImageUrlFromSourceCardId(card.id);
 }
 
 function trustedOverrideReference(suggestion: DiscoverySuggestion): DiscoveryReferenceCacheEntry | null {
@@ -497,13 +517,6 @@ function sourceCardIdSetPrefix(sourceCardId: string | undefined): string | undef
   if (!trimmed) return undefined;
   const dashIndex = trimmed.indexOf('-');
   return dashIndex > 0 ? trimmed.slice(0, dashIndex) : undefined;
-}
-
-function expectedPokemonTcgCanonicalUrlForSuggestion(suggestion: DiscoverySuggestion, sourceCardId: string | undefined): string | undefined {
-  const setPrefix = sourceCardIdSetPrefix(sourceCardId);
-  const requestedNumber = extractNumber(suggestionSourceText(suggestion));
-  if (!setPrefix || !requestedNumber) return undefined;
-  return `https://${POKEMON_TCG_REFERENCE_HOST}/${setPrefix}/${encodeURIComponent(requestedNumber)}_hires.png`;
 }
 
 function isHostUrl(url: string | undefined, host: string): boolean {
@@ -530,8 +543,8 @@ function isTrustedJapaneseReference(entry: DiscoveryReferenceCacheEntry): boolea
     && isHostUrl(entry.imageUrl, TCGDEX_REFERENCE_HOST);
 }
 
-function isTrustedPokemonTcgReference(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
-  const expectedUrl = expectedPokemonTcgCanonicalUrlForSuggestion(suggestion, entry.sourceCardId);
+function isTrustedPokemonTcgReference(entry: DiscoveryReferenceCacheEntry, _suggestion: DiscoverySuggestion): boolean {
+  const expectedUrl = pokemonTcgCanonicalImageUrlFromSourceCardId(entry.sourceCardId);
   return !!entry.imageUrl
     && !!entry.sourceCardId?.trim()
     && /^Pokemon TCG(?:\s*\(|$)/i.test(entry.sourceName ?? '')
@@ -546,8 +559,21 @@ function hasTrustedPokemonReferenceProvenance(entry: DiscoveryReferenceCacheEntr
   return isTrustedPokemonTcgReference(entry, suggestion);
 }
 
+function shouldBypassReferenceImageReachabilityCheck(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
+  return hasTrustedPokemonReferenceProvenance(entry, suggestion);
+}
+
+function suggestionReferenceMismatch(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
+  return !!entry.imageUrl
+    && !!suggestion.referenceImageUrl
+    && entry.imageUrl !== suggestion.referenceImageUrl;
+}
+
 function referenceFromCard(card: PokemonTcgCard, suggestionName: string, fallbackSetName?: string): DiscoveryReferenceCacheEntry | null {
-  const imageUrl = pokemonTcgCanonicalImageUrl(card) ?? card.images?.large ?? card.images?.small;
+  const exactImageUrl = card.images?.large ?? card.images?.small;
+  const imageUrl = isHostUrl(exactImageUrl, POKEMON_TCG_REFERENCE_HOST)
+    ? exactImageUrl
+    : pokemonTcgCanonicalImageUrl(card) ?? exactImageUrl;
   if (!card.id || !card.name || !imageUrl) return null;
   const sourceSetName = card.set?.name ?? fallbackSetName;
   const setName = sourceSetName ? ` (${sourceSetName})` : '';
@@ -631,6 +657,15 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
     try {
       const japaneseReference = await fetchJapaneseReferenceImage(suggestion);
       if (japaneseReference) return japaneseReference;
+      if (hasExactJapanesePrintingRequest(suggestion)) {
+        return {
+          cacheKey,
+          suggestionName: suggestion.name,
+          sourceStatus: 'NOT_FOUND',
+          fetchedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+      }
     } catch (error) {
       const status = error instanceof Error && error.name === 'AbortError' ? 'TIMEOUT' : 'ERROR';
       return {
@@ -687,17 +722,27 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
   const pokemonSuggestion = isPokemonReferenceSuggestion(suggestion);
   const cached = getDiscoveryReferenceCache(cacheKey);
+  const cachedPokemonMismatch = pokemonSuggestion && !!cached?.imageUrl && !hasTrustedPokemonReferenceProvenance(cached, suggestion);
   if (!pokemonSuggestion && suggestion.referenceImageUrl && !cached?.imageUrl) {
     const fetched = await fetchDiscoveryReferenceImage(suggestion);
     upsertDiscoveryReferenceCache(fetched);
     return fetched;
   }
-  if (pokemonSuggestion && cached?.imageUrl && !hasTrustedPokemonReferenceProvenance(cached, suggestion)) {
+  if (cachedPokemonMismatch) {
     const fetched = await fetchDiscoveryReferenceImage(suggestion);
+    const skipReachabilityValidation = shouldBypassReferenceImageReachabilityCheck(fetched, suggestion);
+    if (
+      fetched.imageUrl
+      && fetched.imageUrl !== cached.imageUrl
+      && !skipReachabilityValidation
+      && !(await validateReferenceImageUrl(fetched.imageUrl))
+    ) {
+      return cached;
+    }
     const mismatch = fetched.imageUrl !== cached.imageUrl
       || fetched.sourceCardId !== cached.sourceCardId
       || fetched.sourceName !== cached.sourceName;
-    deleteDiscoveryReferenceCache(cacheKey);
+    if (mismatch) deleteDiscoveryReferenceCache(cacheKey);
     if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
     if (mismatch) {
       console.warn('[DiscoveryReference] Repaired mismatched Pokemon reference image', {
@@ -711,6 +756,12 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
         repairedSourceCardId: fetched.sourceCardId,
         diagnosticReason: 'REFERENCE_IMAGE_IDENTITY_MISMATCH'
       });
+      return {
+        ...fetched,
+        diagnosticReason: 'REFERENCE_IMAGE_IDENTITY_MISMATCH'
+      };
+    }
+    if (suggestionReferenceMismatch(fetched, suggestion)) {
       return {
         ...fetched,
         diagnosticReason: 'REFERENCE_IMAGE_IDENTITY_MISMATCH'
@@ -735,5 +786,21 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
 
   const fetched = await fetchDiscoveryReferenceImage(suggestion);
   if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
+  if (cachedPokemonMismatch && cached && (
+    fetched.imageUrl !== cached.imageUrl
+    || fetched.sourceCardId !== cached.sourceCardId
+    || fetched.sourceName !== cached.sourceName
+  )) {
+    return {
+      ...fetched,
+      diagnosticReason: 'REFERENCE_IMAGE_IDENTITY_MISMATCH'
+    };
+  }
+  if (pokemonSuggestion && suggestionReferenceMismatch(fetched, suggestion)) {
+    return {
+      ...fetched,
+      diagnosticReason: 'REFERENCE_IMAGE_IDENTITY_MISMATCH'
+    };
+  }
   return fetched;
 }
