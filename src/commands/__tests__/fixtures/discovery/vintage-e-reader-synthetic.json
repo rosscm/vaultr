@@ -1,0 +1,734 @@
+{
+  "schemaVersion": 1,
+  "input": {
+    "targetPeriod": "2026-W29",
+    "frozenTime": "2026-07-16T12:00:00.000Z",
+    "userCurrency": "CAD",
+    "exchangeRates": {},
+    "activeVault": [
+      {
+        "id": "v1",
+        "userId": "user-vintage",
+        "cardName": "Pikachu Skyridge 84",
+        "priority": "HIGH",
+        "createdAt": "2026-07-16T12:00:00.000Z"
+      },
+      {
+        "id": "v2",
+        "userId": "user-vintage",
+        "cardName": "Zapdos Aquapolis 44",
+        "priority": "HIGH",
+        "createdAt": "2026-07-16T12:00:00.000Z"
+      },
+      {
+        "id": "v3",
+        "userId": "user-vintage",
+        "cardName": "Mew Expedition Base Set 55",
+        "priority": "HIGH",
+        "createdAt": "2026-07-16T12:00:00.000Z"
+      },
+      {
+        "id": "v4",
+        "userId": "user-vintage",
+        "cardName": "Wartortle Expedition Base Set 82",
+        "priority": "HIGH",
+        "createdAt": "2026-07-16T12:00:00.000Z"
+      }
+    ],
+    "collectorProfile": {
+      "subjects": {
+        "pikachu": 5,
+        "mew": 4,
+        "zapdos": 4,
+        "wartortle": 3
+      },
+      "evolutionFamilies": {
+        "pikachu": 5,
+        "mew": 4,
+        "zapdos": 4,
+        "wartortle": 3
+      },
+      "artists": {},
+      "eras": {
+        "WOTC": 6
+      },
+      "sets": {
+        "Skyridge": 3,
+        "Aquapolis": 4,
+        "Expedition Base Set": 5
+      },
+      "setFamilies": {
+        "skyridge": 3,
+        "aquapolis": 4,
+        "expedition": 5
+      },
+      "languages": {
+        "ENGLISH": 5
+      },
+      "formats": {
+        "e-reader": 6,
+        "promo": 2
+      },
+      "rarityTiers": {
+        "premium": 2
+      },
+      "artTiers": {},
+      "promoTypes": {
+        "black-star": 1
+      },
+      "releaseTypes": {
+        "promo-release": 2
+      },
+      "aestheticTags": {},
+      "sceneTags": {},
+      "themeTags": {
+        "vintage": 6
+      },
+      "budgetPreferenceCad": 30
+    },
+    "priorShelfHistory": [
+      {
+        "userId": "user-vintage",
+        "dropType": "WEEKLY_DISCOVERY",
+        "periodKey": "2026-W28",
+        "status": "READY",
+        "title": "Weekly Shelf",
+        "summary": "prior shelf",
+        "currency": "CAD",
+        "availableAt": "2026-07-09T12:00:00.000Z",
+        "expiresAt": "2026-07-16T12:00:00.000Z",
+        "generatedAt": "2026-07-09T12:00:00.000Z",
+        "updatedAt": "2026-07-09T12:00:00.000Z",
+        "marketReadyCount": 1,
+        "imageReadyCount": 1,
+        "itemCount": 1,
+        "items": [
+          {
+            "position": 1,
+            "suggestion": {
+              "name": "Mew Southern Islands Promo",
+              "lane": "Prior Shelf",
+              "laneWhy": "prior",
+              "why": "prior",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Southern Islands)",
+              "referenceImageUrl": "https://images.pokemontcg.io/si1/10_hires.png",
+              "referenceSourceCardId": "si1-10"
+            },
+            "imageUrl": "https://images.pokemontcg.io/si1/10_hires.png",
+            "imageSourceName": "Pokemon TCG (Southern Islands)",
+            "imageSourceKind": "CARD_REFERENCE",
+            "market": {
+              "status": "READY",
+              "currency": "CAD",
+              "askingTotal": 115,
+              "askingSampleSize": 4,
+              "soldTotal": 115,
+              "soldSampleSize": 4
+            }
+          }
+        ]
+      }
+    ],
+    "orderedCandidateReserve": [
+      {
+        "selectionIndex": 0,
+        "suggestion": {
+          "name": "Pikachu Expedition Base Set 124",
+          "lane": "Vintage Lane 1",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard1/124_hires.png",
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "ecard1-124",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "124",
+            "expedition"
+          ]
+        },
+        "image": {
+          "name": "Pikachu Expedition Base Set 124",
+          "url": "https://images.pokemontcg.io/ecard1/124_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "ecard1-124",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 165,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 1,
+        "suggestion": {
+          "name": "Mewtwo Expedition Base Set 20",
+          "lane": "Vintage Lane 2",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/exp1/20_hires.png",
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "exp1-20",
+          "requiredEvidenceTokens": [
+            "mewtwo",
+            "20",
+            "expedition"
+          ]
+        },
+        "image": {
+          "name": "Mewtwo Expedition Base Set 20",
+          "url": "https://images.pokemontcg.io/exp1/20_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "exp1-20",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 120,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 2,
+        "suggestion": {
+          "name": "Dragonite Expedition Base Set 9",
+          "lane": "Vintage Lane 3",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/exp1/9_hires.png",
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "exp1-9",
+          "requiredEvidenceTokens": [
+            "dragonite",
+            "9",
+            "expedition"
+          ]
+        },
+        "image": {
+          "name": "Dragonite Expedition Base Set 9",
+          "url": "https://images.pokemontcg.io/exp1/9_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "exp1-9",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 180,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 3,
+        "suggestion": {
+          "name": "Kabutops Skyridge 14",
+          "lane": "Vintage Lane 4",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/skyridge/14_hires.png",
+          "referenceSourceName": "Pokemon TCG (Skyridge)",
+          "referenceSourceCardId": "skyridge-14",
+          "requiredEvidenceTokens": [
+            "kabutops",
+            "14",
+            "skyridge"
+          ]
+        },
+        "image": {
+          "name": "Kabutops Skyridge 14",
+          "url": "https://images.pokemontcg.io/skyridge/14_hires.png",
+          "sourceName": "Pokemon TCG (Skyridge)",
+          "sourceCardId": "skyridge-14",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 140,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 4,
+        "suggestion": {
+          "name": "Houndoom Aquapolis H11",
+          "lane": "Vintage Lane 5",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard2/H11_hires.png",
+          "referenceSourceName": "Pokemon TCG (Aquapolis)",
+          "referenceSourceCardId": "ecard2-H11",
+          "requiredEvidenceTokens": [
+            "houndoom",
+            "h11",
+            "aquapolis"
+          ]
+        },
+        "image": {
+          "name": "Houndoom Aquapolis H11",
+          "url": "https://images.pokemontcg.io/ecard2/H11_hires.png",
+          "sourceName": "Pokemon TCG (Aquapolis)",
+          "sourceCardId": "ecard2-H11",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 260,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 5,
+        "suggestion": {
+          "name": "Tyranitar Aquapolis H28",
+          "lane": "Vintage Lane 6",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard2/H28_hires.png",
+          "referenceSourceName": "Pokemon TCG (Aquapolis)",
+          "referenceSourceCardId": "ecard2-H28",
+          "requiredEvidenceTokens": [
+            "tyranitar",
+            "h28",
+            "aquapolis"
+          ]
+        },
+        "image": {
+          "name": "Tyranitar Aquapolis H28",
+          "url": "https://images.pokemontcg.io/ecard2/H28_hires.png",
+          "sourceName": "Pokemon TCG (Aquapolis)",
+          "sourceCardId": "ecard2-H28",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 420,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 6,
+        "suggestion": {
+          "name": "Espeon Aquapolis H9",
+          "lane": "Vintage Lane 7",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard2/H9_hires.png",
+          "referenceSourceName": "Pokemon TCG (Aquapolis)",
+          "referenceSourceCardId": "ecard2-H9",
+          "requiredEvidenceTokens": [
+            "espeon",
+            "h9",
+            "aquapolis"
+          ]
+        },
+        "image": {
+          "name": "Espeon Aquapolis H9",
+          "url": "https://images.pokemontcg.io/ecard2/H9_hires.png",
+          "sourceName": "Pokemon TCG (Aquapolis)",
+          "sourceCardId": "ecard2-H9",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 380,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 7,
+        "suggestion": {
+          "name": "Lugia Neo Genesis 9",
+          "lane": "Vintage Lane 8",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/neo1/9_hires.png",
+          "referenceSourceName": "Pokemon TCG (Neo Genesis)",
+          "referenceSourceCardId": "neo1-9",
+          "requiredEvidenceTokens": [
+            "lugia",
+            "9",
+            "neo"
+          ]
+        },
+        "image": {
+          "name": "Lugia Neo Genesis 9",
+          "url": "https://images.pokemontcg.io/neo1/9_hires.png",
+          "sourceName": "Pokemon TCG (Neo Genesis)",
+          "sourceCardId": "neo1-9",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 210,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 8,
+        "suggestion": {
+          "name": "Raikou Neo Revelation 13",
+          "lane": "Vintage Lane 9",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/neo3/13_hires.png",
+          "referenceSourceName": "Pokemon TCG (Neo Revelation)",
+          "referenceSourceCardId": "neo3-13",
+          "requiredEvidenceTokens": [
+            "raikou",
+            "13",
+            "neo"
+          ]
+        },
+        "image": {
+          "name": "Raikou Neo Revelation 13",
+          "url": "https://images.pokemontcg.io/neo3/13_hires.png",
+          "sourceName": "Pokemon TCG (Neo Revelation)",
+          "sourceCardId": "neo3-13",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 110,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 9,
+        "suggestion": {
+          "name": "Celebi Neo Revelation 3",
+          "lane": "Vintage Lane 10",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/neo3/3_hires.png",
+          "referenceSourceName": "Pokemon TCG (Neo Revelation)",
+          "referenceSourceCardId": "neo3-3",
+          "requiredEvidenceTokens": [
+            "celebi",
+            "3",
+            "neo"
+          ]
+        },
+        "image": {
+          "name": "Celebi Neo Revelation 3",
+          "url": "https://images.pokemontcg.io/neo3/3_hires.png",
+          "sourceName": "Pokemon TCG (Neo Revelation)",
+          "sourceCardId": "neo3-3",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 105,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 10,
+        "suggestion": {
+          "name": "Entei Neo Revelation 6",
+          "lane": "Vintage Lane 11",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/neo3/6_hires.png",
+          "referenceSourceName": "Pokemon TCG (Neo Revelation)",
+          "referenceSourceCardId": "neo3-6",
+          "requiredEvidenceTokens": [
+            "entei",
+            "6",
+            "neo"
+          ]
+        },
+        "image": {
+          "name": "Entei Neo Revelation 6",
+          "url": "https://images.pokemontcg.io/neo3/6_hires.png",
+          "sourceName": "Pokemon TCG (Neo Revelation)",
+          "sourceCardId": "neo3-6",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 108,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 11,
+        "suggestion": {
+          "name": "Suicune Neo Revelation 14",
+          "lane": "Vintage Lane 12",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/neo3/14_hires.png",
+          "referenceSourceName": "Pokemon TCG (Neo Revelation)",
+          "referenceSourceCardId": "neo3-14",
+          "requiredEvidenceTokens": [
+            "suicune",
+            "14",
+            "neo"
+          ]
+        },
+        "image": {
+          "name": "Suicune Neo Revelation 14",
+          "url": "https://images.pokemontcg.io/neo3/14_hires.png",
+          "sourceName": "Pokemon TCG (Neo Revelation)",
+          "sourceCardId": "neo3-14",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 112,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 12,
+        "suggestion": {
+          "name": "Blastoise Wizards Black Star Promos 12",
+          "lane": "Vintage Lane 13",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/12_hires.png",
+          "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "referenceSourceCardId": "wsp-12",
+          "requiredEvidenceTokens": [
+            "blastoise",
+            "12",
+            "promo"
+          ]
+        },
+        "image": {
+          "name": "Blastoise Wizards Black Star Promos 12",
+          "url": "https://images.pokemontcg.io/basep/12_hires.png",
+          "sourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "sourceCardId": "wsp-12",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 130,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 13,
+        "suggestion": {
+          "name": "Dark Blastoise Team Rocket 3",
+          "lane": "Vintage Lane 14",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/base5/3_hires.png",
+          "referenceSourceName": "Pokemon TCG (Team Rocket)",
+          "referenceSourceCardId": "rocket-3",
+          "requiredEvidenceTokens": [
+            "dark",
+            "blastoise",
+            "3"
+          ]
+        },
+        "image": {
+          "name": "Dark Blastoise Team Rocket 3",
+          "url": "https://images.pokemontcg.io/base5/3_hires.png",
+          "sourceName": "Pokemon TCG (Team Rocket)",
+          "sourceCardId": "rocket-3",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 145,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 14,
+        "suggestion": {
+          "name": "Wartortle Expedition Base Set 82",
+          "lane": "Vintage Lane 15",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/exp1/82_hires.png",
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "exp1-82",
+          "requiredEvidenceTokens": [
+            "wartortle",
+            "82",
+            "expedition"
+          ]
+        },
+        "image": {
+          "name": "Wartortle Expedition Base Set 82",
+          "url": "https://images.pokemontcg.io/exp1/82_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "exp1-82",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 50,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 15,
+        "suggestion": {
+          "name": "Charmander Expedition Base Set 98",
+          "lane": "Vintage Lane 16",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/exp1/98_hires.png",
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "exp1-98",
+          "requiredEvidenceTokens": [
+            "charmander",
+            "98",
+            "expedition"
+          ]
+        },
+        "image": {
+          "name": "Charmander Expedition Base Set 98",
+          "url": "https://images.pokemontcg.io/exp1/98_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "exp1-98",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 65,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 16,
+        "suggestion": {
+          "name": "Articuno Skyridge 4",
+          "lane": "Vintage Lane 17",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard3/4_hires.png",
+          "referenceSourceName": "Pokemon TCG (Skyridge)",
+          "referenceSourceCardId": "ecard3-4",
+          "requiredEvidenceTokens": [
+            "articuno",
+            "4",
+            "skyridge"
+          ]
+        },
+        "image": {
+          "name": "Articuno Skyridge 4",
+          "url": "https://images.pokemontcg.io/ecard3/4_hires.png",
+          "sourceName": "Pokemon TCG (Skyridge)",
+          "sourceCardId": "ecard3-4",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 150,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 17,
+        "suggestion": {
+          "name": "Moltres Wizards Black Star Promos 21",
+          "lane": "Vintage Lane 18",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/21_hires.png",
+          "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "referenceSourceCardId": "basep-21",
+          "requiredEvidenceTokens": [
+            "moltres",
+            "21",
+            "promo"
+          ]
+        },
+        "image": {
+          "name": "Moltres Wizards Black Star Promos 21",
+          "url": "https://images.pokemontcg.io/basep/21_hires.png",
+          "sourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "sourceCardId": "basep-21",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 60,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 18,
+        "suggestion": {
+          "name": "Zapdos Wizards Black Star Promos 23",
+          "lane": "Vintage Lane 19",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/23_hires.png",
+          "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "referenceSourceCardId": "basep-23",
+          "requiredEvidenceTokens": [
+            "zapdos",
+            "23",
+            "promo"
+          ]
+        },
+        "image": {
+          "name": "Zapdos Wizards Black Star Promos 23",
+          "url": "https://images.pokemontcg.io/basep/23_hires.png",
+          "sourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "sourceCardId": "basep-23",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 55,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 19,
+        "suggestion": {
+          "name": "Pichu Neo Genesis 12",
+          "lane": "Vintage Lane 20",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/neo1/12_hires.png",
+          "referenceSourceName": "Pokemon TCG (Neo Genesis)",
+          "referenceSourceCardId": "neo1-12",
+          "requiredEvidenceTokens": [
+            "pichu",
+            "12",
+            "neo"
+          ]
+        },
+        "image": {
+          "name": "Pichu Neo Genesis 12",
+          "url": "https://images.pokemontcg.io/neo1/12_hires.png",
+          "sourceName": "Pokemon TCG (Neo Genesis)",
+          "sourceCardId": "neo1-12",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 88,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 20,
+        "suggestion": {
+          "name": "Mew Southern Islands Promo",
+          "lane": "Vintage Lane 21",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/si1/10_hires.png",
+          "referenceSourceName": "Pokemon TCG (Southern Islands)",
+          "referenceSourceCardId": "si1-10",
+          "requiredEvidenceTokens": [
+            "mew",
+            "southern",
+            "promo"
+          ]
+        },
+        "image": {
+          "name": "Mew Southern Islands Promo",
+          "url": "https://images.pokemontcg.io/si1/10_hires.png",
+          "sourceName": "Pokemon TCG (Southern Islands)",
+          "sourceCardId": "si1-10",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 115,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      }
+    ],
+    "feedbackPreferences": {
+      "preferredEras": [
+        "WOTC"
+      ],
+      "preferredLanguages": [
+        "ENGLISH"
+      ],
+      "budgetPreferenceCad": 30
+    },
+    "stableTieBreakerSeed": "fixture-seed"
+  }
+}

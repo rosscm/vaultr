@@ -1389,8 +1389,9 @@ describe('chase command', () => {
 
     const payload = interaction.reply.mock.calls[0]![0] as any;
     const text = payload.embeds[0].toJSON().description;
-    expect(text).toContain('This one is broad, so it may cast a wider net');
-    expect(text).toContain('Add a set, card number, language, or variant to sharpen it');
+    expect(text).toContain('This chase is wide open right now');
+    expect(text).toContain('add a set, card number, max price, grade, or a few exclusions if results get noisy');
+    expect(text).toContain('Tip: start broad if you want, then tighten it once you see the kinds of listings that show up.');
   });
 
   it('does not add the same chase twice from repeated submissions', async () => {
@@ -1667,7 +1668,8 @@ describe('chase command', () => {
 
     expect(data.title).toBe('📭 No Active Chases');
     expect(data.description).toContain('Add one specific card to start shaping your Vault.');
-    expect(data.description).toContain('`Umbreon 217/187 Japanese`');
+    expect(data.description).toContain('Open `/chase add`, start typing your card, and pick the match if it looks right.');
+    expect(data.description).toContain('If it does not show up, you can still enter it yourself.');
     expect(data.description).toContain('Quiet days are normal. Vaultr only sends alerts when a listing clears your match settings.');
   });
 

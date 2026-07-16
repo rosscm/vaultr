@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -45,7 +47,7 @@ import {
   type DiscoveryMarketCacheEntry
 } from '../services/discovery-market-cache.js';
 import { completeDiscoveryMarketRefreshJob, enqueueDiscoveryMarketRefreshJobs, getDiscoveryMarketRefreshQueueStats } from '../services/discovery-market-jobs.js';
-import { getOrFetchDiscoveryReferenceImage } from '../services/discovery-reference-cache.js';
+import { getOrFetchDiscoveryReferenceImage, hasTrustedDiscoveryReferenceProvenance, type DiscoveryReferenceCacheEntry } from '../services/discovery-reference-cache.js';
 import { discoveryImageOverrideForSuggestion } from '../services/discovery-image-overrides.js';
 import {
   analyzeWeeklyDiscoveryCandidateReserve,
@@ -59,6 +61,7 @@ import {
   type WeeklyDiscoveryFinalizationResult
 } from '../services/weekly-discovery-ranking.js';
 import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
+import { resolveWeeklyDiscoveryCanonicalReferences, type CanonicalLookupEvidenceMap } from '../services/discovery-canonical-resolution.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { getPollerState } from '../services/poller-state.js';
@@ -231,6 +234,10 @@ type DiscoveryShelfSelectionResult = {
     resolvedSet?: string;
     resolvedCardNumber?: string;
     resolvedLanguage?: string;
+    mismatchFields?: string[];
+    requestedNumber?: string;
+    requestedSet?: string;
+    requestedLanguage?: string;
     imageUrl?: string;
     imageSourceKind?: DiscoveryCardImage['sourceKind'];
     marketStatus?: string;
@@ -252,6 +259,21 @@ type PersistValidatedWeeklyDiscoveryDropResult = {
   retainedPreviousShelf: boolean;
 };
 
+type ExactPrintingComparison = {
+  ok: boolean;
+  mismatchFields: string[];
+  requested: {
+    number?: string;
+    set?: string;
+    language?: 'JAPANESE' | 'ENGLISH';
+  };
+  resolved: {
+    number?: string;
+    set?: string;
+    language?: 'JAPANESE' | 'ENGLISH';
+  };
+};
+
 export type WeeklyDiscoveryCandidateOutcomeRecord = {
   suggestionName: string;
   canonicalCardId?: string;
@@ -260,9 +282,106 @@ export type WeeklyDiscoveryCandidateOutcomeRecord = {
   discoveryRole?: DiscoverySuggestion['discoveryRole'];
 };
 
+function serializedWeeklyDiscoveryInput(input: WeeklyDiscoveryFinalizationInput): Record<string, unknown> {
+  return {
+    targetPeriod: input.targetPeriod,
+    frozenTime: input.frozenTime,
+    userCurrency: input.userCurrency,
+    activeVault: input.activeVault.map((chase) => ({
+      cardName: chase.cardName,
+      priority: chase.priority ?? 'NORMAL',
+      targetNote: chase.targetNote ?? null,
+      maxPrice: chase.maxPrice ?? null,
+      grade: chase.grade ?? null,
+      condition: chase.condition ?? null,
+      listingType: chase.listingType ?? null
+    })),
+    priorShelfHistory: input.priorShelfHistory.map((drop) => ({
+      periodKey: drop.periodKey,
+      itemCount: drop.itemCount,
+      marketReadyCount: drop.marketReadyCount,
+      imageReadyCount: drop.imageReadyCount,
+      items: drop.items.map((item) => ({
+        position: item.position,
+        name: item.suggestion.name,
+        referenceSourceName: item.suggestion.referenceSourceName,
+        referenceSourceCardId: item.suggestion.referenceSourceCardId,
+        imageSourceName: item.imageSourceName,
+        imageSourceKind: item.imageSourceKind,
+        imageUrl: item.imageUrl,
+        marketStatus: item.market.status
+      }))
+    })),
+    orderedCandidateReserve: input.orderedCandidateReserve.map((candidate, index) => ({
+      index,
+      name: candidate.suggestion.name,
+      lane: candidate.suggestion.lane,
+      referenceSourceName: candidate.suggestion.referenceSourceName,
+      referenceSourceCardId: candidate.suggestion.referenceSourceCardId,
+      referenceImageUrl: candidate.suggestion.referenceImageUrl,
+      evidenceSearchTerm: candidate.suggestion.evidenceSearchTerm,
+      requiredEvidenceTokens: candidate.suggestion.requiredEvidenceTokens ?? [],
+      image: candidate.image
+        ? {
+            url: candidate.image.url,
+            sourceName: candidate.image.sourceName,
+            sourceCardId: candidate.image.sourceCardId,
+            sourceKind: candidate.image.sourceKind
+          }
+        : null,
+      sourceStatus: candidate.sourceStatus ?? null,
+      typicalRawAskingTotal: candidate.typicalRawAskingTotal ?? null,
+      marketSampleSize: candidate.marketSampleSize ?? null,
+      typicalRawSoldTotal: candidate.typicalRawSoldTotal ?? null,
+      soldSampleSize: candidate.soldSampleSize ?? null,
+      displayCurrency: candidate.displayCurrency ?? null
+    }))
+  };
+}
+
+function serializedCanonicalLookupEvidence(evidence: CanonicalLookupEvidenceMap | undefined): Record<string, unknown> | undefined {
+  if (!evidence) return undefined;
+  return Object.fromEntries(Object.entries(evidence).map(([key, value]) => [key, value]));
+}
+
+function weeklyDiscoveryInputFingerprint(input: WeeklyDiscoveryFinalizationInput): string {
+  return createHash('sha256').update(JSON.stringify(serializedWeeklyDiscoveryInput(input))).digest('hex');
+}
+
+function maybeWriteWeeklyDiscoveryFinalizationSnapshot(
+  userId: string,
+  input: WeeklyDiscoveryFinalizationInput,
+  stage: 'LIVE_PRE_FINALIZE',
+  canonicalLookupEvidence?: CanonicalLookupEvidenceMap
+): void {
+  const outPath = process.env.DISCOVERY_DEBUG_FINALIZATION_INPUT_OUT?.trim();
+  if (!outPath) return;
+  const payload = {
+    stage,
+    userId,
+    fingerprint: weeklyDiscoveryInputFingerprint(input),
+    capturedAt: new Date().toISOString(),
+    input: serializedWeeklyDiscoveryInput(input),
+    canonicalLookupEvidence: serializedCanonicalLookupEvidence(canonicalLookupEvidence)
+  };
+  const absolutePath = resolve(outPath);
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, JSON.stringify(payload, null, 2));
+}
+
 export type WeeklyDiscoveryFinalizerResult = WeeklyDiscoveryFinalizationResult & {
   selection: DiscoveryShelfSelectionResult;
   candidateOutcomes: WeeklyDiscoveryCandidateOutcomeRecord[];
+};
+
+export type WeeklyDiscoveryBuildMode = 'LIVE' | 'CAPTURE';
+
+export type WeeklyDiscoveryBuildContext = {
+  userId: string;
+  date: Date;
+  mode: WeeklyDiscoveryBuildMode;
+  hydrateMarketInline?: boolean;
+  allowRecentRepeatFiller?: boolean;
 };
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
@@ -542,6 +661,7 @@ function setHintForPrinting(value: string): string | undefined {
     { pattern: /pokemon\s+151|\b151\b/i, value: '151' },
     { pattern: /paldean fates/i, value: 'Paldean Fates' },
     { pattern: /sws?h black star/i, value: 'SWSH Black Star Promos' },
+    { pattern: /wizards black star/i, value: 'Wizards Black Star Promos' },
     { pattern: /nintendo(?: black star)? promos?/i, value: 'Nintendo Black Star Promos' },
     { pattern: /terastal festival/i, value: 'Terastal Festival ex' },
     { pattern: /vstar universe/i, value: 'VSTAR Universe' },
@@ -1650,11 +1770,36 @@ function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: Supported
 
 export async function attachReferenceImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
   return mapWithConcurrency(candidates, VISIBLE_DISCOVERY_COUNT, async (candidate) => {
-    if (candidate.image?.sourceKind === 'CARD_REFERENCE') return candidate;
+    const trustedExisting = trustedCandidateReferenceImage(candidate.image, candidate.suggestion);
+    if (trustedExisting) {
+      return {
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          referenceImageUrl: trustedExisting.url,
+          referenceSourceName: trustedExisting.sourceName,
+          referenceSourceCardId: trustedExisting.sourceCardId
+        },
+        image: trustedExisting
+      };
+    }
     const reference = await getOrFetchDiscoveryReferenceImage(candidate.suggestion, DISCOVERY_REFERENCE_CACHE_TTL_MS);
-    if (!reference?.imageUrl) return candidate.image?.sourceKind === 'MARKET_LISTING' && !isVettedMarketplaceImageCandidate(candidate) ? { ...candidate, image: undefined } : candidate;
+    if (!reference?.imageUrl || !hasTrustedDiscoveryReferenceProvenance(reference, candidate.suggestion)) {
+      const downgradedImage = marketplaceCandidateImage(candidate.image, candidate.suggestion.name);
+      return downgradedImage
+        ? { ...candidate, image: downgradedImage }
+        : candidate.image?.sourceKind === 'MARKET_LISTING' && !isVettedMarketplaceImageCandidate(candidate)
+          ? { ...candidate, image: undefined }
+          : { ...candidate, image: undefined };
+    }
     return {
       ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        referenceImageUrl: reference.imageUrl,
+        referenceSourceName: reference.sourceName,
+        referenceSourceCardId: reference.sourceCardId
+      },
       image: {
         name: candidate.suggestion.name,
         url: reference.imageUrl,
@@ -2157,7 +2302,8 @@ export const __discoveryPersistenceTestHooks = {
   applyExactCardRepeatFreshnessOrdering,
   reliableWeeklyDiscoveryMarketEstimate,
   repairExistingScheduledWeeklyDropReferences,
-  finalizeWeeklyDiscoveryShelf
+  finalizeWeeklyDiscoveryShelf,
+  buildWeeklyDiscoveryFinalizationInput
 };
 
 function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
@@ -3113,19 +3259,21 @@ function rankDiscoveryCandidatesForProfile(candidates: DiscoveryCandidate[], cha
 }
 
 function tasteOnlyCandidate(suggestion: DiscoverySuggestion, selectionIndex: number): DiscoveryCandidate {
-  const imageUrl = suggestion.referenceImageUrl;
   return {
     suggestion,
     selectionIndex,
-    image: imageUrl
-      ? {
-          name: suggestion.name,
-          url: imageUrl,
-          sourceName: suggestion.referenceSourceName,
-          sourceCardId: suggestion.referenceSourceCardId,
-          sourceKind: 'CARD_REFERENCE'
-        }
-      : undefined
+    image: normalizedStoredCandidateImage(
+      suggestion,
+      suggestion.referenceImageUrl
+        ? {
+            name: suggestion.name,
+            url: suggestion.referenceImageUrl,
+            sourceName: suggestion.referenceSourceName,
+            sourceCardId: suggestion.referenceSourceCardId,
+            sourceKind: 'CARD_REFERENCE'
+          }
+        : undefined
+    )
   };
 }
 
@@ -3525,24 +3673,28 @@ function persistDiscoveryUniverseSuggestions(suggestions: DiscoverySuggestion[])
 }
 
 function candidateFromDiscoveryUniverseCard(entry: DiscoveryUniverseCard, selectionIndex: number): DiscoveryCandidate {
+  const suggestion: DiscoverySuggestion = {
+    ...marketCacheSuggestionFromCardName(entry.canonicalName),
+    ...entry.suggestion,
+    lane: entry.suggestion.lane ?? entry.lane ?? marketCacheExpansionLane(entry.canonicalName),
+    referenceSourceName: entry.suggestion.referenceSourceName ?? entry.sourceName,
+    referenceImageUrl: entry.suggestion.referenceImageUrl ?? entry.imageUrl,
+    referenceSourceCardId: entry.suggestion.referenceSourceCardId ?? entry.sourceCardId
+  };
   return {
-    suggestion: {
-      ...marketCacheSuggestionFromCardName(entry.canonicalName),
-      ...entry.suggestion,
-      lane: entry.suggestion.lane ?? entry.lane ?? marketCacheExpansionLane(entry.canonicalName),
-      referenceSourceName: entry.suggestion.referenceSourceName ?? entry.sourceName,
-      referenceImageUrl: entry.suggestion.referenceImageUrl ?? entry.imageUrl,
-      referenceSourceCardId: entry.suggestion.referenceSourceCardId ?? entry.sourceCardId
-    },
-    image: entry.imageUrl
-      ? {
-          name: entry.canonicalName,
-          url: entry.imageUrl,
-          sourceName: entry.imageSourceName ?? entry.sourceName,
-          sourceCardId: entry.sourceCardId,
-          sourceKind: 'CARD_REFERENCE'
-        }
-      : undefined,
+    suggestion,
+    image: normalizedStoredCandidateImage(
+      suggestion,
+      entry.imageUrl
+        ? {
+            name: entry.canonicalName,
+            url: entry.imageUrl,
+            sourceName: entry.imageSourceName ?? entry.sourceName,
+            sourceCardId: entry.sourceCardId,
+            sourceKind: 'CARD_REFERENCE'
+          }
+        : undefined
+    ),
     typicalRawAskingTotal: entry.marketTotal,
     marketSampleSize: entry.marketTotal === undefined ? undefined : Math.max(MIN_ASK_ONLY_MARKET_SAMPLE_SIZE, Math.min(12, entry.observationCount)),
     displayCurrency: entry.marketCurrency as SupportedCurrency | undefined,
@@ -3672,23 +3824,27 @@ function selectDiscoveryUserUniverseCandidatesFromEntries(
   const seenNames = new Set<string>();
   for (const entry of entries) {
     if (isDiscoveryNameExcluded(entry.canonicalName, excludedNameKeys)) continue;
+    const suggestion: DiscoverySuggestion = {
+      ...marketCacheSuggestionFromCardName(entry.canonicalName),
+      ...entry.suggestion,
+      referenceImageUrl: entry.suggestion.referenceImageUrl ?? entry.imageUrl,
+      referenceSourceName: entry.suggestion.referenceSourceName ?? entry.imageSourceName,
+      referenceSourceCardId: entry.suggestion.referenceSourceCardId ?? entry.sourceCardId
+    };
     const candidate: DiscoveryCandidate = {
-      suggestion: {
-        ...marketCacheSuggestionFromCardName(entry.canonicalName),
-        ...entry.suggestion,
-        referenceImageUrl: entry.suggestion.referenceImageUrl ?? entry.imageUrl,
-        referenceSourceName: entry.suggestion.referenceSourceName ?? entry.imageSourceName,
-        referenceSourceCardId: entry.suggestion.referenceSourceCardId ?? entry.sourceCardId
-      },
-      image: entry.imageUrl
-        ? {
-            name: entry.canonicalName,
-            url: entry.imageUrl,
-            sourceName: entry.imageSourceName,
-            sourceCardId: entry.sourceCardId,
-            sourceKind: 'CARD_REFERENCE'
-          }
-        : undefined,
+      suggestion,
+      image: normalizedStoredCandidateImage(
+        suggestion,
+        entry.imageUrl
+          ? {
+              name: entry.canonicalName,
+              url: entry.imageUrl,
+              sourceName: entry.imageSourceName,
+              sourceCardId: entry.sourceCardId,
+              sourceKind: 'CARD_REFERENCE'
+            }
+          : undefined
+      ),
       typicalRawAskingTotal: entry.marketTotal,
       marketSampleSize: entry.marketTotal === undefined ? undefined : MIN_ASK_ONLY_MARKET_SAMPLE_SIZE,
       displayCurrency: entry.marketCurrency as SupportedCurrency | undefined,
@@ -4272,6 +4428,122 @@ function expectedPokemonSuggestionReferenceImageUrl(candidate: DiscoveryCandidat
   return setId ? `https://images.pokemontcg.io/${setId}/${encodeURIComponent(requestedNumber)}_hires.png` : undefined;
 }
 
+function expectedTcgdexJapaneseSuggestionReferenceImageUrl(candidate: DiscoveryCandidate): string | undefined {
+  const sourceCardId = candidate.suggestion.referenceSourceCardId?.trim();
+  if (!sourceCardId) return undefined;
+  const [setId, localId] = sourceCardId.split('-');
+  if (!setId || !localId) return undefined;
+  const family = /^([A-Z]+)/.exec(setId)?.[1];
+  if (!family) return undefined;
+  return `https://assets.tcgdex.net/ja/${family}/${setId}/${encodeURIComponent(localId)}/high.png`;
+}
+
+function isMarketplaceLikeSourceName(sourceName: string | undefined): boolean {
+  return !!sourceName && /ebay|marketplace|auction|seller|listing|magic madhouse|pkmhobby/i.test(sourceName);
+}
+
+function isMarketplaceLikeImageUrl(url: string | undefined): boolean {
+  return !!url && /ebayimg|ebay\.|marketplace|bigcommerce|shopify|cdn\/shop|seller/i.test(url);
+}
+
+function isAllowlistedCatalogueReferenceSource(sourceName: string | undefined): boolean {
+  return !!sourceName && (
+    /^Pokemon TCG(?:\s*\(|$)/i.test(sourceName)
+    || /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName)
+  );
+}
+
+function trustedCandidateReferenceImage(image: Partial<DiscoveryCardImage> | undefined, suggestion: DiscoverySuggestion): DiscoveryCardImage | undefined {
+  if (!image?.url || !image.sourceName || !image.sourceCardId || image.sourceKind !== 'CARD_REFERENCE') return undefined;
+  if (!isAllowlistedCatalogueReferenceSource(image.sourceName)) return undefined;
+  if (isMarketplaceLikeSourceName(image.sourceName) || isMarketplaceLikeImageUrl(image.url)) return undefined;
+  const referenceEntry: DiscoveryReferenceCacheEntry = {
+    cacheKey: suggestion.name,
+    suggestionName: suggestion.name,
+    imageUrl: image.url,
+    sourceName: image.sourceName,
+    sourceCardId: image.sourceCardId,
+    fetchedAt: '',
+    updatedAt: ''
+  };
+  return hasTrustedDiscoveryReferenceProvenance(referenceEntry, {
+    ...suggestion,
+    referenceImageUrl: image.url,
+    referenceSourceName: image.sourceName,
+    referenceSourceCardId: image.sourceCardId
+  })
+    ? {
+        name: image.name ?? suggestion.name,
+        url: image.url,
+        sourceName: image.sourceName,
+        sourceCardId: image.sourceCardId,
+        sourceKind: 'CARD_REFERENCE'
+      }
+    : undefined;
+}
+
+function marketplaceCandidateImage(image: Partial<DiscoveryCardImage> | undefined, suggestionName: string): DiscoveryCardImage | undefined {
+  if (!image?.url) return undefined;
+  if (!isMarketplaceLikeImageUrl(image.url) && !isMarketplaceLikeSourceName(image.sourceName)) return undefined;
+  return {
+    name: image.name ?? suggestionName,
+    url: image.url,
+    sourceName: image.sourceName,
+    sourceCardId: image.sourceCardId,
+    sourceKind: 'MARKET_LISTING'
+  };
+}
+
+function normalizedStoredCandidateImage(
+  suggestion: DiscoverySuggestion,
+  image: Partial<DiscoveryCardImage> | undefined
+): DiscoveryCardImage | undefined {
+  return trustedCandidateReferenceImage(image, suggestion) ?? marketplaceCandidateImage(image, suggestion.name);
+}
+
+function trustedReferenceImageFromSuggestion(candidate: DiscoveryCandidate): DiscoveryCardImage | undefined {
+  if (!isTrustedSuggestionReferenceImage(candidate) || !candidate.suggestion.referenceImageUrl || !candidate.suggestion.referenceSourceName || !candidate.suggestion.referenceSourceCardId) {
+    return undefined;
+  }
+  return trustedCandidateReferenceImage({
+    name: candidate.suggestion.name,
+    url: candidate.suggestion.referenceImageUrl,
+    sourceName: candidate.suggestion.referenceSourceName,
+    sourceCardId: candidate.suggestion.referenceSourceCardId,
+    sourceKind: 'CARD_REFERENCE'
+  }, candidate.suggestion);
+}
+
+function exactProviderReferenceImageFromSuggestion(candidate: DiscoveryCandidate): DiscoveryCardImage | undefined {
+  const sourceCardId = candidate.suggestion.referenceSourceCardId?.trim();
+  if (!sourceCardId) return undefined;
+  const requestedLang = requestedLanguage([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, ...(candidate.suggestion.evidenceAliases ?? [])].filter(Boolean).join(' '));
+  if (requestedLang === 'JAPANESE') {
+    const url = expectedTcgdexJapaneseSuggestionReferenceImageUrl(candidate);
+    if (!url) return undefined;
+    return {
+      name: candidate.suggestion.name,
+      url,
+      sourceName: /^TCGdex Japanese(?:\s*\(|$)/i.test(candidate.suggestion.referenceSourceName ?? '')
+        ? candidate.suggestion.referenceSourceName!
+        : `TCGdex Japanese (${sourceCardId.split('-')[0]})`,
+      sourceCardId,
+      sourceKind: 'CARD_REFERENCE'
+    };
+  }
+  const url = expectedPokemonSuggestionReferenceImageUrl(candidate);
+  if (!url) return undefined;
+  return {
+    name: candidate.suggestion.name,
+    url,
+    sourceName: /^Pokemon TCG(?:\s*\(|$)/i.test(candidate.suggestion.referenceSourceName ?? '')
+      ? candidate.suggestion.referenceSourceName!
+      : `Pokemon TCG (${sourceCardId.split('-')[0]})`,
+    sourceCardId,
+    sourceKind: 'CARD_REFERENCE'
+  };
+}
+
 function isTrustedSuggestionReferenceImage(candidate: DiscoveryCandidate): boolean {
   const imageOverride = discoveryImageOverrideForSuggestion(candidate.suggestion.name);
   if (
@@ -4295,17 +4567,9 @@ function isTrustedSuggestionReferenceImage(candidate: DiscoveryCandidate): boole
 }
 
 function scheduledShelfImageFromCandidate(candidate: DiscoveryCandidate): DiscoveryCardImage | undefined {
-  if (candidate.image?.sourceKind === 'CARD_REFERENCE') return candidate.image;
-  if (isTrustedSuggestionReferenceImage(candidate) && candidate.suggestion.referenceImageUrl) {
-    return {
-      name: candidate.suggestion.name,
-      url: candidate.suggestion.referenceImageUrl,
-      sourceName: candidate.suggestion.referenceSourceName,
-      sourceCardId: candidate.suggestion.referenceSourceCardId,
-      sourceKind: 'CARD_REFERENCE'
-    };
-  }
-  return undefined;
+  return trustedCandidateReferenceImage(candidate.image, candidate.suggestion)
+    ?? trustedReferenceImageFromSuggestion(candidate)
+    ?? exactProviderReferenceImageFromSuggestion(candidate);
 }
 
 function ebaySearchHost(currencyHint: SupportedCurrency): string {
@@ -4772,16 +5036,14 @@ function listingFromScheduledDiscoveryDropItem(item: ScheduledDiscoveryDrop['ite
 
 function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): DiscoveryCandidate[] {
   const scheduledImageForItem = (item: ScheduledDiscoveryDrop['items'][number]): DiscoveryCardImage | undefined => {
-    const sourceKind = item.imageSourceKind
-      ?? (item.imageSourceName === VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME ? 'MARKET_LISTING' as const : undefined);
-    if (!item.imageUrl || !item.imageSourceName || !sourceKind) return undefined;
-    return {
+    if (!item.imageUrl || !item.imageSourceName || !item.imageSourceKind) return undefined;
+    return normalizedStoredCandidateImage(item.suggestion, {
       name: item.suggestion.name,
       url: item.imageUrl,
       sourceName: item.imageSourceName,
       sourceCardId: item.suggestion.referenceSourceCardId,
-      sourceKind
-    };
+      sourceKind: item.imageSourceKind
+    });
   };
   return drop.items.map((item) => ({
     suggestion: item.suggestion,
@@ -4800,7 +5062,7 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
 export async function repairScheduledDiscoveryShelfImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
   return mapWithConcurrency(candidates, VISIBLE_DISCOVERY_COUNT, async (candidate): Promise<DiscoveryCandidate> => {
     const reference = await getOrFetchDiscoveryReferenceImage(candidate.suggestion, DISCOVERY_REFERENCE_CACHE_TTL_MS);
-    if (!reference?.imageUrl) return candidate;
+    if (!reference?.imageUrl || !hasTrustedDiscoveryReferenceProvenance(reference, candidate.suggestion)) return candidate;
     const repairedCandidate: DiscoveryCandidate = {
       ...candidate,
       suggestion: {
@@ -5305,7 +5567,7 @@ function weeklyDiscoveryValueFloor(currency: SupportedCurrency): number {
   return convertCurrencyAmount(WEEKLY_DISCOVERY_VALUE_FLOOR_CAD, 'CAD', currency);
 }
 
-function verifyExactPrintingConsistency(candidate: DiscoveryCandidate): boolean {
+function exactPrintingComparison(candidate: DiscoveryCandidate): ExactPrintingComparison {
   const canonicalImage = scheduledShelfImageFromCandidate(candidate);
   const sourceText = [candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, ...(candidate.suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
   const requestedNumber = extractRequestedCardNumber(sourceText);
@@ -5314,15 +5576,32 @@ function verifyExactPrintingConsistency(candidate: DiscoveryCandidate): boolean 
   const resolvedNumber = resolvedReferenceCardNumber(candidate);
   const resolvedSet = resolvedReferenceSetIdentity(candidate);
   const resolvedLang = resolvedReferenceLanguage(candidate);
-  const suggestionImage = candidate.suggestion.referenceImageUrl;
+  const mismatchFields: string[] = [];
 
-  if (candidate.suggestion.referenceSourceCardId && candidate.image?.sourceCardId && candidate.suggestion.referenceSourceCardId !== candidate.image.sourceCardId) return false;
-  if (canonicalImage?.sourceKind === 'CARD_REFERENCE' && suggestionImage && canonicalImage.url !== suggestionImage) return false;
-  if (requestedNumber && (!resolvedNumber || requestedNumber !== resolvedNumber)) return false;
-  if (requestedSet && (!resolvedSet || !normalize(resolvedSet).includes(normalize(requestedSet)))) return false;
-  if (requestedLang && resolvedLang && requestedLang !== resolvedLang) return false;
-  if ((requestedNumber || requestedSet) && !candidate.suggestion.referenceSourceCardId?.trim()) return false;
-  return true;
+  if (requestedNumber && (!resolvedNumber || requestedNumber !== resolvedNumber)) mismatchFields.push('number');
+  if (requestedSet && (!resolvedSet || !normalize(resolvedSet).includes(normalize(requestedSet)))) mismatchFields.push('set');
+  if (requestedLang && resolvedLang && requestedLang !== resolvedLang) mismatchFields.push('language');
+  if ((requestedNumber || requestedSet) && !candidate.suggestion.referenceSourceCardId?.trim()) mismatchFields.push('canonicalId');
+  if (!canonicalImage && (requestedNumber || requestedSet || requestedLang)) mismatchFields.push('trustedReference');
+
+  return {
+    ok: mismatchFields.length === 0,
+    mismatchFields,
+    requested: {
+      number: requestedNumber,
+      set: requestedSet,
+      language: requestedLang
+    },
+    resolved: {
+      number: resolvedNumber,
+      set: resolvedSet,
+      language: resolvedLang
+    }
+  };
+}
+
+function verifyExactPrintingConsistency(candidate: DiscoveryCandidate): boolean {
+  return exactPrintingComparison(candidate).ok;
 }
 
 function scheduledMarketStatusFromCandidate(candidate: DiscoveryCandidate): DiscoveryScheduledMarketStatus {
@@ -5613,6 +5892,7 @@ function selectionDiagnosticSample(
   const hasReferenceImage = !!candidate.suggestion.referenceImageUrl || candidate.image?.sourceKind === 'CARD_REFERENCE';
   const hasReferenceSourceCardId = !!candidate.suggestion.referenceSourceCardId?.trim() || !!candidate.image?.sourceCardId?.trim();
   const targetCurrency = candidate.displayCurrency ?? 'CAD';
+  const printing = exactPrintingComparison(candidate);
   return {
     suggestionName: candidate.suggestion.name,
     lane: candidate.suggestion.lane,
@@ -5624,6 +5904,10 @@ function selectionDiagnosticSample(
     resolvedSet: resolvedReferenceSetIdentity(candidate),
     resolvedCardNumber: resolvedReferenceCardNumber(candidate),
     resolvedLanguage: resolvedReferenceLanguage(candidate),
+    mismatchFields: printing.ok ? undefined : printing.mismatchFields,
+    requestedNumber: printing.requested.number,
+    requestedSet: printing.requested.set,
+    requestedLanguage: printing.requested.language,
     imageUrl: diagnosticImage?.url ?? candidate.suggestion.referenceImageUrl,
     imageSourceKind: diagnosticImage?.sourceKind,
     marketStatus: scheduledMarketStatusFromCandidate(candidate),
@@ -5645,14 +5929,16 @@ function candidateItemSelectionRejection(
   vaultEntries: ParallelPrintVaultEntry[]
 ): DiscoveryShelfSelectionRejection | null {
   const canonicalId = scheduledItemCanonicalId(item);
+  const providerBackedDisplayName = !!candidate.weeklyDiscovery?.canonicalReference
+    && normalize(item.suggestion.name).startsWith(normalize(candidate.weeklyDiscovery.canonicalReference.canonicalName));
   if (!canonicalId) return { code: 'MISSING_CANONICAL_ID' };
-  if (!verifyExactPrintingConsistency(candidate)) return { code: 'REFERENCE_PRINTING_MISMATCH' };
+  if (!exactPrintingComparison(candidate).ok) return { code: 'REFERENCE_PRINTING_MISMATCH' };
   const repeatHistory = recentRepeatHistory.get(canonicalId);
   if (repeatHistory && repeatHistory.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return { code: 'EXACT_REPEAT_COOLDOWN' };
   const reliableEstimate = reliableWeeklyDiscoveryMarketEstimate(candidate, targetCurrency);
   if (reliableEstimate && reliableEstimate.amount < weeklyDiscoveryValueFloor(targetCurrency)) return { code: 'BELOW_CHASE_VALUE_FLOOR' };
   if (!hasTrustedReferenceImage(item)) return { code: 'BAD_IMAGE' };
-  if (isGenericDiscoveryCardTitle(item.suggestion.name) || isMarketplaceStyleDiscoveryName(item.suggestion.name)) return { code: 'BAD_DISPLAY_NAME' };
+  if (isGenericDiscoveryCardTitle(item.suggestion.name) || (isMarketplaceStyleDiscoveryName(item.suggestion.name) && !providerBackedDisplayName)) return { code: 'BAD_DISPLAY_NAME' };
   if (!item.suggestion.why?.trim() || !item.suggestion.laneWhy?.trim()) return { code: 'MISSING_RATIONALE' };
   if (seenCanonicalIds.has(canonicalId)) return { code: 'DUPLICATE_CANONICAL_ID' };
   const parallelPrintRejection = candidateParallelPrintRejection(candidate, vaultEntries);
@@ -5792,12 +6078,13 @@ function weeklyDiscoveryCandidateOutcome(
       discoveryRole: candidate.suggestion.discoveryRole
     };
   }
-  if (!verifyExactPrintingConsistency(candidate)) {
+  const printing = exactPrintingComparison(candidate);
+  if (!printing.ok) {
     return {
       suggestionName: candidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'REJECTED_IDENTITY',
-      detail: 'exact printing mismatch',
+      detail: `exact printing mismatch (${printing.mismatchFields.join(', ')})`,
       discoveryRole: candidate.suggestion.discoveryRole
     };
   }
@@ -5890,12 +6177,203 @@ export function finalizeWeeklyDiscoveryShelf(input: WeeklyDiscoveryFinalizationI
   };
 }
 
+export async function buildWeeklyDiscoveryFinalizationInput(
+  context: WeeklyDiscoveryBuildContext
+): Promise<{
+  input: WeeklyDiscoveryFinalizationInput;
+  canonicalLookupEvidence: CanonicalLookupEvidenceMap;
+  discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>>;
+  fallbackDrop: ScheduledDiscoveryDrop | null;
+  existingDrop: ScheduledDiscoveryDrop | null;
+}> {
+  const quickRefresh = context.hydrateMarketInline === false;
+  const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', context.date);
+  const previousDropLookupDate = new Date(Date.parse(availability.availableAt) - 1);
+  const previousDropLookupIso = previousDropLookupDate.toISOString();
+  const fallbackDrop = getLatestAvailableScheduledDiscoveryDrop(context.userId, 'WEEKLY_DISCOVERY', previousDropLookupIso);
+  const recentDrops = listPriorWeeklyDiscoveryDropsForTargetPeriod(context.userId, context.date, 12);
+  const immediatePreviousDropNames = recentDrops
+    .slice(0, 1)
+    .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
+  const previousDropNames = recentDrops
+    .slice(0, 3)
+    .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
+  const existingDrop = getScheduledDiscoveryDrop(context.userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', context.date));
+  const discovery = await discoverCandidatesForUser(context.userId, DISCOVERY_WEEKLY_DROP_SIZE, {
+    preferScheduledDrop: false,
+    saveScheduledDrop: false,
+    scheduledDate: context.date,
+    hydrateScheduledMarketInline: context.hydrateMarketInline ?? true,
+    usePersistedState: false,
+    ignoreSeenExclusions: true,
+    hardAvoidNames: immediatePreviousDropNames,
+    softAvoidNames: previousDropNames,
+    allowSoftAvoidFiller: context.allowRecentRepeatFiller ?? false,
+    skipSourceCatalogFetch: quickRefresh,
+    skipReferenceImageFetch: quickRefresh,
+    ingestCanonicalUniverse: !quickRefresh,
+    persistDiscoveryArtifacts: context.mode === 'LIVE'
+  });
+  const targetCount = discovery.hasFullDiscovery ? DISCOVERY_WEEKLY_DROP_SIZE : discovery.candidates.length;
+  const marketContext = {
+    activeChases: discovery.chases,
+    destination: discovery.settings.shippingCountry
+      ? { country: discovery.settings.shippingCountry, postalCode: discovery.settings.shippingPostalCode }
+      : undefined,
+    targetCurrency: discovery.settings.alertCurrency,
+    range: discoveryMarketRangeFromChases(discovery.tasteProfileChases)
+  };
+  const repeatGuardChases = [...discovery.chases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(context.userId))];
+  const freshExcludedNames = uniqueValuesPreservingOrder(previousDropNames);
+  const supplementalUniverseTarget = Math.max(targetCount * 8, DISCOVERY_SHELF_PAGE_SIZE * 8);
+  const supplementalCacheTarget = Math.max(targetCount * 6, DISCOVERY_SHELF_PAGE_SIZE * 6);
+  const indexedSupplementalUniverseCandidates = discovery.hasFullDiscovery
+    ? selectDiscoveryUserUniverseCandidates(
+        context.userId,
+        freshExcludedNames,
+        supplementalUniverseTarget,
+        discovery.tasteProfileChases,
+        repeatGuardChases
+      )
+    : [];
+  const supplementalUniverseCandidates = indexedSupplementalUniverseCandidates.length > 0
+    ? indexedSupplementalUniverseCandidates
+    : discovery.hasFullDiscovery
+      ? selectDiscoveryUniverseCandidatesForProfile(
+          discovery.tasteProfileChases,
+          freshExcludedNames,
+          supplementalUniverseTarget,
+          repeatGuardChases
+        )
+      : [];
+  const supplementalCacheCandidates = discovery.hasFullDiscovery
+    ? backfillMarketReadyDiscoveryCandidates(
+        [],
+        marketContext,
+        supplementalCacheTarget,
+        discovery.tasteProfileChases,
+        discovery.profileConfidence,
+        discovery.negativeProfile,
+        repeatGuardChases,
+        freshExcludedNames
+      )
+    : [];
+  const weeklyCandidatePool = orderCandidatesForCollectorPresentation(
+    uniqueCandidatesByDisplayName([
+      ...supplementalUniverseCandidates,
+      ...supplementalCacheCandidates,
+      ...discovery.candidates
+    ]),
+    discovery.tasteProfileChases,
+    Math.max(
+      targetCount,
+      supplementalUniverseCandidates.length + supplementalCacheCandidates.length + discovery.candidates.length
+    ),
+    discovery.negativeProfile,
+    discovery.learnedRankContext
+  );
+  const exactFreshnessOrderedPool = applyExactCardRepeatFreshnessOrdering(weeklyCandidatePool, recentDrops).orderedCandidates;
+  const carryoverCap = context.allowRecentRepeatFiller === true ? Math.max(4, Math.floor(targetCount * 0.2)) : Math.max(2, Math.floor(targetCount * 0.1));
+  let candidateReserve = orderFreshWeeklyPublicationReserve(
+    [],
+    exactFreshnessOrderedPool,
+    recentDrops,
+    targetCount,
+    discovery.tasteProfileChases
+  );
+  if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
+    const freshRescuePool = uniqueCandidatesByDisplayName([
+      ...exactFreshnessOrderedPool,
+      ...backfillMarketReadyDiscoveryCandidates(
+        [],
+        marketContext,
+        supplementalCacheTarget,
+        discovery.tasteProfileChases,
+        discovery.profileConfidence,
+        discovery.negativeProfile,
+        repeatGuardChases,
+        uniqueValuesPreservingOrder([
+          ...previousDropNames,
+          ...freshExcludedNames,
+          ...candidateReserve.map((candidate) => candidate.suggestion.name)
+        ])
+      )
+    ]);
+    candidateReserve = orderFreshWeeklyPublicationReserve(
+      candidateReserve,
+      freshRescuePool,
+      recentDrops,
+      targetCount,
+      discovery.tasteProfileChases
+    );
+  }
+  if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
+    const toppedUpCandidates = backfillMarketReadyDiscoveryCandidates(
+      [],
+      marketContext,
+      supplementalCacheTarget,
+      discovery.tasteProfileChases,
+      discovery.profileConfidence,
+      discovery.negativeProfile,
+      repeatGuardChases,
+      uniqueValuesPreservingOrder([
+        ...previousDropNames,
+        ...candidateReserve.map((candidate) => candidate.suggestion.name)
+      ])
+    );
+    candidateReserve = orderFreshWeeklyPublicationReserve(
+      candidateReserve,
+      toppedUpCandidates,
+      recentDrops,
+      targetCount,
+      discovery.tasteProfileChases
+    );
+  }
+  if (candidateReserve.length < targetCount) {
+    candidateReserve = orderScheduledDiscoveryShelfFallbackReserve(
+      candidateReserve,
+      fallbackDrop,
+      targetCount,
+      repeatGuardChases,
+      discovery.tasteProfileChases,
+      { maxImmediateNameCarryovers: carryoverCap }
+    );
+  }
+  if (!quickRefresh) candidateReserve = await hydrateShelfCandidateImages(candidateReserve);
+  const canonicalResolution = await resolveWeeklyDiscoveryCanonicalReferences(candidateReserve);
+  candidateReserve = canonicalResolution.candidates;
+
+  return {
+    input: {
+      targetPeriod: scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', context.date),
+      frozenTime: context.date.toISOString(),
+      userCurrency: discovery.settings.alertCurrency,
+      exchangeRates: {},
+      activeVault: listChases(context.userId),
+      collectorProfile: buildCollectorTasteProfile(discovery.tasteProfileChases, {
+        budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
+      }),
+      priorShelfHistory: recentDrops,
+      orderedCandidateReserve: candidateReserve,
+      feedbackPreferences: {
+        budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
+      },
+      stableTieBreakerSeed: context.userId
+    },
+    canonicalLookupEvidence: canonicalResolution.evidence,
+    discovery,
+    fallbackDrop,
+    existingDrop
+  };
+}
+
 function persistValidatedWeeklyDiscoveryDrop(
   userId: string,
   candidates: DiscoveryCandidate[],
   currency: SupportedCurrency,
   sourceStateUpdatedAt?: string,
-  date = new Date()
+  date = new Date(),
+  canonicalLookupEvidence?: CanonicalLookupEvidenceMap
 ): PersistValidatedWeeklyDiscoveryDropResult {
   const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
   const recentDrops = listPriorWeeklyDiscoveryDropsForTargetPeriod(userId, date, 12);
@@ -5922,7 +6400,7 @@ function persistValidatedWeeklyDiscoveryDrop(
   const collectorProfile = buildCollectorTasteProfile(activeVaultChases, {
     budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
   });
-  const finalization = finalizeWeeklyDiscoveryShelf({
+  const finalizationInput: WeeklyDiscoveryFinalizationInput = {
     targetPeriod: scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date),
     frozenTime: date.toISOString(),
     userCurrency: currency,
@@ -5935,7 +6413,9 @@ function persistValidatedWeeklyDiscoveryDrop(
       budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
     },
     stableTieBreakerSeed: userId
-  });
+  };
+  maybeWriteWeeklyDiscoveryFinalizationSnapshot(userId, finalizationInput, 'LIVE_PRE_FINALIZE', canonicalLookupEvidence);
+  const finalization = finalizeWeeklyDiscoveryShelf(finalizationInput);
   const selection = finalization.selection;
   const items = selection.items;
   const failures = validatePublishableDiscoveryShelf(items, DISCOVERY_WEEKLY_DROP_SIZE);
@@ -6009,8 +6489,15 @@ function persistValidatedWeeklyDiscoveryDrop(
   };
 }
 
-function saveWeeklyDiscoveryDrop(userId: string, candidates: DiscoveryCandidate[], currency: SupportedCurrency, sourceStateUpdatedAt?: string, date = new Date()): void {
-  persistValidatedWeeklyDiscoveryDrop(userId, candidates, currency, sourceStateUpdatedAt, date);
+function saveWeeklyDiscoveryDrop(
+  userId: string,
+  candidates: DiscoveryCandidate[],
+  currency: SupportedCurrency,
+  sourceStateUpdatedAt?: string,
+  date = new Date(),
+  canonicalLookupEvidence?: CanonicalLookupEvidenceMap
+): void {
+  persistValidatedWeeklyDiscoveryDrop(userId, candidates, currency, sourceStateUpdatedAt, date, canonicalLookupEvidence);
 }
 
 function discoveryProfileFingerprint(tasteProfileChases: Chase[], rejectedNames: string[], tier: PlanTier, visibleCount: number): string {
@@ -6079,7 +6566,7 @@ export function orderCandidatesFromPersistedState(
 export async function discoverCandidatesForUser(
   userId: string,
   count: number,
-  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean } = {}
+  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean; persistDiscoveryArtifacts?: boolean } = {}
 ): Promise<{
   chases: Chase[];
   tasteProfileChases: Chase[];
@@ -6103,6 +6590,7 @@ export async function discoverCandidatesForUser(
   const skipReferenceImageFetch = options.skipReferenceImageFetch ?? false;
   const ingestCanonicalUniverse = options.ingestCanonicalUniverse ?? false;
   const ignoreSeenExclusions = options.ignoreSeenExclusions ?? false;
+  const persistDiscoveryArtifacts = options.persistDiscoveryArtifacts ?? true;
   const softAvoidNames = uniqueValuesPreservingOrder(options.softAvoidNames ?? []);
   const hardAvoidNames = uniqueValuesPreservingOrder(options.hardAvoidNames ?? []);
   const allowSoftAvoidFiller = options.allowSoftAvoidFiller ?? true;
@@ -6191,10 +6679,10 @@ export async function discoverCandidatesForUser(
     };
   }
   const selectAndEnrich = async () => {
-    if (hasFullDiscovery && tasteProfileChases.length > 0) {
+    if (hasFullDiscovery && tasteProfileChases.length > 0 && persistDiscoveryArtifacts) {
       bootstrapDiscoveryUniverseForUser(userId, tasteProfileChases, settings.alertCurrency, settings.shippingCountry);
     }
-    if (hasFullDiscovery && ingestCanonicalUniverse && !skipSourceCatalogFetch && tasteProfileChases.length > 0) {
+    if (hasFullDiscovery && ingestCanonicalUniverse && !skipSourceCatalogFetch && tasteProfileChases.length > 0 && persistDiscoveryArtifacts) {
       await ingestCanonicalDiscoveryUniverseForUser(userId, chases, tasteProfileChases, settings.alertCurrency, settings.shippingCountry);
     }
     const combinedExcludedNames = uniqueValuesPreservingOrder(seenExcludedNames);
@@ -6254,7 +6742,7 @@ export async function discoverCandidatesForUser(
       concreteFallbackSuggestions,
       discoverySelectionCount
     );
-    persistDiscoveryUniverseSuggestions(concreteSourceBackedSuggestions);
+    if (persistDiscoveryArtifacts) persistDiscoveryUniverseSuggestions(concreteSourceBackedSuggestions);
     const indexedUniverseCandidates = hasFullDiscovery
       ? selectDiscoveryUserUniverseCandidates(
           userId,
@@ -6406,7 +6894,7 @@ export async function discoverCandidatesForUser(
       negativeProfile,
       learnedRankContext
     );
-    if (hasFullDiscovery && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT && candidates.length >= targetVisibleCount) {
+    if (persistDiscoveryArtifacts && hasFullDiscovery && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT && candidates.length >= targetVisibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: candidates.map((candidate) => candidate.suggestion.name) });
     }
     if (hasFullDiscovery && shouldSaveScheduledDrop && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT) {
@@ -6574,17 +7062,7 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
   hasFullDiscovery: boolean;
 }> {
   const quickRefresh = options.hydrateMarketInline === false;
-  const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
-  const previousDropLookupDate = new Date(Date.parse(availability.availableAt) - 1);
   const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
-  const fallbackDrop = getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', previousDropLookupDate.toISOString());
-  const recentDrops = listPriorWeeklyDiscoveryDropsForTargetPeriod(userId, date, 12);
-  const immediatePreviousDropNames = recentDrops
-    .slice(0, 1)
-    .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
-  const previousDropNames = recentDrops
-    .slice(0, 3)
-    .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
   let existing = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
   if (existing && !quickRefresh) existing = await repairExistingScheduledWeeklyDropReferences(existing);
   if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0 && validatePublishableDiscoveryShelf(existing.items, DISCOVERY_WEEKLY_DROP_SIZE).length === 0) {
@@ -6596,147 +7074,31 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
       };
     }
   }
-  const discovery = await discoverCandidatesForUser(userId, DISCOVERY_WEEKLY_DROP_SIZE, {
-    preferScheduledDrop: false,
-    saveScheduledDrop: false,
-    scheduledDate: date,
-    hydrateScheduledMarketInline: options.hydrateMarketInline ?? true,
-    usePersistedState: false,
-    ignoreSeenExclusions: true,
-    hardAvoidNames: immediatePreviousDropNames,
-    softAvoidNames: previousDropNames,
-    allowSoftAvoidFiller: options.allowRecentRepeatFiller ?? false,
-    skipSourceCatalogFetch: quickRefresh,
-    skipReferenceImageFetch: quickRefresh,
-    ingestCanonicalUniverse: !quickRefresh
+  const assembled = await buildWeeklyDiscoveryFinalizationInput({
+    userId,
+    date,
+    mode: 'LIVE',
+    hydrateMarketInline: options.hydrateMarketInline ?? true,
+    allowRecentRepeatFiller: options.allowRecentRepeatFiller ?? false
   });
-  const targetCount = discovery.hasFullDiscovery ? DISCOVERY_WEEKLY_DROP_SIZE : discovery.candidates.length;
-  const marketContext = {
-    activeChases: discovery.chases,
-    destination: discovery.settings.shippingCountry
-      ? { country: discovery.settings.shippingCountry, postalCode: discovery.settings.shippingPostalCode }
-      : undefined,
-    targetCurrency: discovery.settings.alertCurrency,
-    range: discoveryMarketRangeFromChases(discovery.tasteProfileChases)
-  };
-  const repeatGuardChases = [...discovery.chases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(userId))];
-  const freshExcludedNames = uniqueValuesPreservingOrder(previousDropNames);
-  const supplementalUniverseTarget = Math.max(targetCount * 8, DISCOVERY_SHELF_PAGE_SIZE * 8);
-  const supplementalCacheTarget = Math.max(targetCount * 6, DISCOVERY_SHELF_PAGE_SIZE * 6);
-  const indexedSupplementalUniverseCandidates = discovery.hasFullDiscovery
-    ? selectDiscoveryUserUniverseCandidates(
-        userId,
-        freshExcludedNames,
-        supplementalUniverseTarget,
-        discovery.tasteProfileChases,
-        repeatGuardChases
-      )
-    : [];
-  const supplementalUniverseCandidates = indexedSupplementalUniverseCandidates.length > 0
-    ? indexedSupplementalUniverseCandidates
-    : discovery.hasFullDiscovery
-      ? selectDiscoveryUniverseCandidatesForProfile(
-          discovery.tasteProfileChases,
-          freshExcludedNames,
-          supplementalUniverseTarget,
-          repeatGuardChases
-        )
-      : [];
-  const supplementalCacheCandidates = discovery.hasFullDiscovery
-    ? backfillMarketReadyDiscoveryCandidates(
-        [],
-        marketContext,
-        supplementalCacheTarget,
-        discovery.tasteProfileChases,
-        discovery.profileConfidence,
-        discovery.negativeProfile,
-        repeatGuardChases,
-        freshExcludedNames
-      )
-    : [];
-  const weeklyCandidatePool = orderCandidatesForCollectorPresentation(
-    uniqueCandidatesByDisplayName([
-      ...supplementalUniverseCandidates,
-      ...supplementalCacheCandidates,
-      ...discovery.candidates
-    ]),
-    discovery.tasteProfileChases,
-    Math.max(
-      targetCount,
-      supplementalUniverseCandidates.length + supplementalCacheCandidates.length + discovery.candidates.length
-    ),
-    discovery.negativeProfile,
-    discovery.learnedRankContext
-  );
-  const exactFreshnessOrderedPool = applyExactCardRepeatFreshnessOrdering(weeklyCandidatePool, recentDrops).orderedCandidates;
-  const carryoverCap = options.allowRecentRepeatFiller === true ? Math.max(4, Math.floor(targetCount * 0.2)) : Math.max(2, Math.floor(targetCount * 0.1));
-  let candidateReserve = orderFreshWeeklyPublicationReserve(
-    [],
-    exactFreshnessOrderedPool,
-    recentDrops,
-    targetCount,
-    discovery.tasteProfileChases
-  );
-  if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
-    const freshRescuePool = uniqueCandidatesByDisplayName([
-      ...exactFreshnessOrderedPool,
-      ...backfillMarketReadyDiscoveryCandidates(
-        [],
-        marketContext,
-        supplementalCacheTarget,
-        discovery.tasteProfileChases,
-        discovery.profileConfidence,
-        discovery.negativeProfile,
-        repeatGuardChases,
-        uniqueValuesPreservingOrder([
-          ...previousDropNames,
-          ...freshExcludedNames,
-          ...candidateReserve.map((candidate) => candidate.suggestion.name)
-        ])
-      )
-    ]);
-    candidateReserve = orderFreshWeeklyPublicationReserve(
-      candidateReserve,
-      freshRescuePool,
-      recentDrops,
-      targetCount,
-      discovery.tasteProfileChases
-    );
-  }
-  if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
-    const toppedUpCandidates = backfillMarketReadyDiscoveryCandidates(
-      [],
-      marketContext,
-      supplementalCacheTarget,
-      discovery.tasteProfileChases,
-      discovery.profileConfidence,
-      discovery.negativeProfile,
-      repeatGuardChases,
-      uniqueValuesPreservingOrder([
-        ...previousDropNames,
-        ...candidateReserve.map((candidate) => candidate.suggestion.name)
-      ])
-    );
-    candidateReserve = orderFreshWeeklyPublicationReserve(
-      candidateReserve,
-      toppedUpCandidates,
-      recentDrops,
-      targetCount,
-      discovery.tasteProfileChases
-    );
-  }
-  if (candidateReserve.length < targetCount) {
-    candidateReserve = orderScheduledDiscoveryShelfFallbackReserve(
-      candidateReserve,
-      fallbackDrop,
-      targetCount,
-      repeatGuardChases,
-      discovery.tasteProfileChases,
-      { maxImmediateNameCarryovers: carryoverCap }
-    );
-  }
-  if (!quickRefresh) candidateReserve = await hydrateShelfCandidateImages(candidateReserve);
+  const discovery = assembled.discovery;
+  const candidateReserve = assembled.input.orderedCandidateReserve;
   if (options.force === true && discovery.hasFullDiscovery && candidateReserve.length === 0 && options.allowRecentRepeatFiller !== true) {
+    const recentDrops = assembled.input.priorShelfHistory;
+    const previousDropNames = recentDrops
+      .slice(0, 3)
+      .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
+    const targetCount = discovery.hasFullDiscovery ? DISCOVERY_WEEKLY_DROP_SIZE : discovery.candidates.length;
+    const marketContext = {
+      activeChases: discovery.chases,
+      destination: discovery.settings.shippingCountry
+        ? { country: discovery.settings.shippingCountry, postalCode: discovery.settings.shippingPostalCode }
+        : undefined,
+      targetCurrency: discovery.settings.alertCurrency,
+      range: discoveryMarketRangeFromChases(discovery.tasteProfileChases)
+    };
+    const repeatGuardChases = [...discovery.chases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(userId))];
+    const carryoverCap = Math.max(2, Math.floor(targetCount * 0.1));
     const repairedCandidates = backfillMarketReadyDiscoveryCandidates(
       [],
       marketContext,
@@ -6756,13 +7118,20 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
           targetCount,
           discovery.tasteProfileChases
         ),
-        fallbackDrop,
+        assembled.fallbackDrop,
         targetCount,
         repeatGuardChases,
         discovery.tasteProfileChases,
         { maxImmediateNameCarryovers: carryoverCap }
       );
-      const persisted = persistValidatedWeeklyDiscoveryDrop(userId, freshnessOrderedRepairCandidates, discovery.settings.alertCurrency, undefined, date);
+      const persisted = persistValidatedWeeklyDiscoveryDrop(
+        userId,
+        freshnessOrderedRepairCandidates,
+        discovery.settings.alertCurrency,
+        undefined,
+        date,
+        assembled.canonicalLookupEvidence
+      );
       return {
         prepared: persisted.saved,
         itemCount: persisted.saved ? persisted.itemCount : 0,
@@ -6771,7 +7140,14 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     }
   }
   const persisted = candidateReserve.length > 0
-    ? persistValidatedWeeklyDiscoveryDrop(userId, candidateReserve, discovery.settings.alertCurrency, undefined, date)
+    ? persistValidatedWeeklyDiscoveryDrop(
+        userId,
+        candidateReserve,
+        discovery.settings.alertCurrency,
+        undefined,
+        date,
+        assembled.canonicalLookupEvidence
+      )
     : {
         saved: false,
         itemCount: 0,

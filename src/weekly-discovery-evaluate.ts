@@ -1,7 +1,8 @@
 import 'dotenv/config';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { finalizeWeeklyDiscoveryShelf } from './commands/discover.js';
+import { resolveWeeklyDiscoveryCanonicalReferences, type CanonicalLookupEvidenceMap } from './services/discovery-canonical-resolution.js';
 import type { WeeklyDiscoveryFinalizationInput } from './services/weekly-discovery-ranking.js';
 
 type HumanDiscoveryJudgment = {
@@ -14,6 +15,7 @@ type HumanDiscoveryJudgment = {
 type CaptureFixture = {
   schemaVersion: number;
   input: WeeklyDiscoveryFinalizationInput;
+  canonicalLookupEvidence?: CanonicalLookupEvidenceMap;
 };
 
 function dcg(scores: number[]): number {
@@ -29,15 +31,42 @@ function ndcg(scores: number[]): number {
 const args = process.argv.slice(2);
 const fixtureIndex = args.indexOf('--fixture');
 const judgmentsIndex = args.indexOf('--judgments');
-if (fixtureIndex < 0 || !args[fixtureIndex + 1] || judgmentsIndex < 0 || !args[judgmentsIndex + 1]) {
-  console.log('Usage: npm run weekly:evaluate -- --fixture path.json --judgments path.json');
+const templateIndex = args.indexOf('--write-template');
+if (fixtureIndex < 0 || !args[fixtureIndex + 1]) {
+  console.log('Usage: npm run weekly:evaluate -- --fixture path.json [--judgments path.json] [--write-template path.json]');
   process.exit(1);
 }
 
 const fixture = JSON.parse(readFileSync(resolve(args[fixtureIndex + 1]!), 'utf8')) as CaptureFixture;
-const judgments = JSON.parse(readFileSync(resolve(args[judgmentsIndex + 1]!), 'utf8')) as HumanDiscoveryJudgment[];
-const result = finalizeWeeklyDiscoveryShelf(fixture.input);
+const canonicalResolution = await resolveWeeklyDiscoveryCanonicalReferences(
+  fixture.input.orderedCandidateReserve,
+  fixture.canonicalLookupEvidence ? { replayEvidence: fixture.canonicalLookupEvidence } : {}
+);
+const result = finalizeWeeklyDiscoveryShelf({
+  ...fixture.input,
+  orderedCandidateReserve: canonicalResolution.candidates
+});
 const selectedIds = result.selection.items.map((item) => item.suggestion.referenceSourceCardId).filter((value): value is string => !!value);
+if (templateIndex >= 0 && args[templateIndex + 1]) {
+  const template = selectedIds.map((canonicalCardId) => ({
+    canonicalCardId,
+    relevance: null,
+    novelty: null,
+    notes: ''
+  }));
+  writeFileSync(resolve(args[templateIndex + 1]!), JSON.stringify(template, null, 2));
+}
+if (judgmentsIndex < 0 || !args[judgmentsIndex + 1]) {
+  console.log(`Fingerprint: ${result.fingerprint}`);
+  console.log(`Selected canonical IDs: ${selectedIds.join(', ')}`);
+  console.log(`Core/Adjacent/Exploration: ${result.roleDistribution.CORE_MATCH}/${result.roleDistribution.ADJACENT_DISCOVERY}/${result.roleDistribution.CONTROLLED_EXPLORATION}`);
+  console.log(`Subject concentration: ${result.subjectConcentration}`);
+  console.log(`Family concentration: ${result.familyConcentration}`);
+  console.log('STRUCTURAL_GATE: ' + result.structuralGate.status);
+  console.log('QUALITY_GATE: UNLABELED');
+  process.exit(0);
+}
+const judgments = JSON.parse(readFileSync(resolve(args[judgmentsIndex + 1]!), 'utf8')) as HumanDiscoveryJudgment[];
 const relevanceScores = selectedIds.map((id) => judgments.find((entry) => entry.canonicalCardId === id)?.relevance ?? 0);
 const noveltyScores = selectedIds.map((id) => judgments.find((entry) => entry.canonicalCardId === id)?.novelty ?? 0);
 const ratedThree = relevanceScores.filter((score) => score === 3).length;

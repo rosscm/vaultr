@@ -1,0 +1,880 @@
+{
+  "schemaVersion": 1,
+  "input": {
+    "targetPeriod": "2026-W29",
+    "frozenTime": "2026-07-16T12:00:00.000Z",
+    "userCurrency": "CAD",
+    "exchangeRates": {},
+    "activeVault": [
+      {
+        "id": "m1",
+        "userId": "user-modern",
+        "cardName": "Umbreon ex SAR Terastal Festival Japanese 217/187",
+        "priority": "GRAIL",
+        "createdAt": "2026-07-16T12:00:00.000Z"
+      },
+      {
+        "id": "m2",
+        "userId": "user-modern",
+        "cardName": "Mew CoroCoro Promo 151",
+        "priority": "HIGH",
+        "createdAt": "2026-07-16T12:00:00.000Z"
+      },
+      {
+        "id": "m3",
+        "userId": "user-modern",
+        "cardName": "Gardevoir ex Paldean Fates 233",
+        "priority": "HIGH",
+        "createdAt": "2026-07-16T12:00:00.000Z"
+      },
+      {
+        "id": "m4",
+        "userId": "user-modern",
+        "cardName": "Pikachu XY Black Star Promos XY95",
+        "priority": "HIGH",
+        "createdAt": "2026-07-16T12:00:00.000Z"
+      }
+    ],
+    "collectorProfile": {
+      "subjects": {
+        "umbreon": 5,
+        "mew": 5,
+        "gardevoir": 4,
+        "pikachu": 4
+      },
+      "evolutionFamilies": {
+        "eevee": 5,
+        "mew": 5,
+        "gardevoir": 4,
+        "pikachu": 4
+      },
+      "artists": {},
+      "eras": {
+        "SV": 5,
+        "SWSH": 4,
+        "SM": 3,
+        "WOTC": 1
+      },
+      "sets": {
+        "151": 2,
+        "Paldean Fates": 3,
+        "Evolving Skies": 3,
+        "Crown Zenith": 2
+      },
+      "setFamilies": {
+        "paldean": 3,
+        "eevee": 3,
+        "kanto": 2,
+        "zenith": 2
+      },
+      "languages": {
+        "ENGLISH": 4,
+        "JAPANESE": 4
+      },
+      "formats": {
+        "promo": 3,
+        "illustration": 4,
+        "japanese": 3
+      },
+      "rarityTiers": {
+        "premium": 4
+      },
+      "artTiers": {
+        "illustration": 4
+      },
+      "promoTypes": {
+        "limited": 2
+      },
+      "releaseTypes": {
+        "special": 2
+      },
+      "aestheticTags": {
+        "vibrant": 3
+      },
+      "sceneTags": {},
+      "themeTags": {
+        "modern": 5,
+        "art": 4
+      },
+      "budgetPreferenceCad": 30
+    },
+    "priorShelfHistory": [
+      {
+        "userId": "user-modern",
+        "dropType": "WEEKLY_DISCOVERY",
+        "periodKey": "2026-W28",
+        "status": "READY",
+        "title": "Weekly Shelf",
+        "summary": "prior shelf",
+        "currency": "CAD",
+        "availableAt": "2026-07-09T12:00:00.000Z",
+        "expiresAt": "2026-07-16T12:00:00.000Z",
+        "generatedAt": "2026-07-09T12:00:00.000Z",
+        "updatedAt": "2026-07-09T12:00:00.000Z",
+        "marketReadyCount": 3,
+        "imageReadyCount": 3,
+        "itemCount": 3,
+        "items": [
+          {
+            "position": 1,
+            "suggestion": {
+              "name": "Special Delivery Pikachu SWSH074",
+              "lane": "Prior Shelf",
+              "laneWhy": "prior shelf history",
+              "why": "prior shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (SWSH Black Star Promos)",
+              "referenceImageUrl": "https://images.pokemontcg.io/swshp/SWSH074_hires.png",
+              "referenceSourceCardId": "swshp-SWSH074"
+            },
+            "imageUrl": "https://images.pokemontcg.io/swshp/SWSH074_hires.png",
+            "imageSourceName": "Pokemon TCG (SWSH Black Star Promos)",
+            "imageSourceKind": "CARD_REFERENCE",
+            "market": {
+              "status": "READY",
+              "currency": "CAD",
+              "askingTotal": 180,
+              "askingSampleSize": 4,
+              "soldTotal": 180,
+              "soldSampleSize": 4
+            }
+          },
+          {
+            "position": 2,
+            "suggestion": {
+              "name": "Gardevoir ex Scarlet & Violet 245",
+              "lane": "Prior Shelf",
+              "laneWhy": "prior shelf history",
+              "why": "prior shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Scarlet & Violet)",
+              "referenceImageUrl": "https://images.pokemontcg.io/sv1/245_hires.png",
+              "referenceSourceCardId": "sv1-245"
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv1/245_hires.png",
+            "imageSourceName": "Pokemon TCG (Scarlet & Violet)",
+            "imageSourceKind": "CARD_REFERENCE",
+            "market": {
+              "status": "READY",
+              "currency": "CAD",
+              "askingTotal": 115,
+              "askingSampleSize": 4,
+              "soldTotal": 115,
+              "soldSampleSize": 4
+            }
+          },
+          {
+            "position": 3,
+            "suggestion": {
+              "name": "Mew ex Paldean Fates 232",
+              "lane": "Prior Shelf",
+              "laneWhy": "prior shelf history",
+              "why": "prior shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Paldean Fates)",
+              "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/232_hires.png",
+              "referenceSourceCardId": "sv4pt5-232"
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv4pt5/232_hires.png",
+            "imageSourceName": "Pokemon TCG (Paldean Fates)",
+            "imageSourceKind": "CARD_REFERENCE",
+            "market": {
+              "status": "READY",
+              "currency": "CAD",
+              "askingTotal": 82,
+              "askingSampleSize": 4,
+              "soldTotal": 82,
+              "soldSampleSize": 4
+            }
+          }
+        ]
+      }
+    ],
+    "orderedCandidateReserve": [
+      {
+        "selectionIndex": 0,
+        "suggestion": {
+          "name": "Raichu No.026 Intro Pack Japanese",
+          "lane": "Collector Compass",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/base/base3/026/high.png",
+          "referenceSourceName": "TCGdex Japanese (Intro Pack)",
+          "referenceSourceCardId": "intro-026",
+          "requiredEvidenceTokens": [
+            "raichu",
+            "no",
+            "026"
+          ]
+        },
+        "image": {
+          "name": "Raichu No.026 Intro Pack Japanese",
+          "url": "https://assets.tcgdex.net/ja/base/base3/026/high.png",
+          "sourceName": "TCGdex Japanese (Intro Pack)",
+          "sourceCardId": "intro-026",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 95,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 1,
+        "suggestion": {
+          "name": "Vaporeon VMAX Evolving Skies 30",
+          "lane": "Japanese Collector Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh7/30_hires.png",
+          "referenceSourceName": "Pokemon TCG (Evolving Skies)",
+          "referenceSourceCardId": "evs-30",
+          "requiredEvidenceTokens": [
+            "vaporeon",
+            "vmax",
+            "evolving"
+          ]
+        },
+        "image": {
+          "name": "Vaporeon VMAX Evolving Skies 30",
+          "url": "https://images.pokemontcg.io/swsh7/30_hires.png",
+          "sourceName": "Pokemon TCG (Evolving Skies)",
+          "sourceCardId": "evs-30",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 40,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 2,
+        "suggestion": {
+          "name": "Mew Southern Islands Promo",
+          "lane": "Set Companion Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/si1/10_hires.png",
+          "referenceSourceName": "Pokemon TCG (Southern Islands)",
+          "referenceSourceCardId": "si1-10",
+          "requiredEvidenceTokens": [
+            "mew",
+            "southern",
+            "islands"
+          ]
+        },
+        "image": {
+          "name": "Mew Southern Islands Promo",
+          "url": "https://images.pokemontcg.io/si1/10_hires.png",
+          "sourceName": "Pokemon TCG (Southern Islands)",
+          "sourceCardId": "si1-10",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 115,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 3,
+        "suggestion": {
+          "name": "Charmander Obsidian Flames 168",
+          "lane": "Special Release Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3/168_hires.png",
+          "referenceSourceName": "Pokemon TCG (Obsidian Flames)",
+          "referenceSourceCardId": "sv3-168",
+          "requiredEvidenceTokens": [
+            "charmander",
+            "obsidian",
+            "flames"
+          ]
+        },
+        "image": {
+          "name": "Charmander Obsidian Flames 168",
+          "url": "https://images.pokemontcg.io/sv3/168_hires.png",
+          "sourceName": "Pokemon TCG (Obsidian Flames)",
+          "sourceCardId": "sv3-168",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 55,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 4,
+        "suggestion": {
+          "name": "Pikachu Skyridge 84",
+          "lane": "Vintage Echo Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard3/84_hires.png",
+          "referenceSourceName": "Pokemon TCG (Skyridge)",
+          "referenceSourceCardId": "ecard3-84",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "skyridge",
+            "84"
+          ]
+        },
+        "image": {
+          "name": "Pikachu Skyridge 84",
+          "url": "https://images.pokemontcg.io/ecard3/84_hires.png",
+          "sourceName": "Pokemon TCG (Skyridge)",
+          "sourceCardId": "ecard3-84",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 340,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 5,
+        "suggestion": {
+          "name": "Tyranitar Paldea Evolved 222",
+          "lane": "Modern Art Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv2/222_hires.png",
+          "referenceSourceName": "Pokemon TCG (Paldea Evolved)",
+          "referenceSourceCardId": "pal-222",
+          "requiredEvidenceTokens": [
+            "tyranitar",
+            "paldea",
+            "evolved"
+          ]
+        },
+        "image": {
+          "name": "Tyranitar Paldea Evolved 222",
+          "url": "https://images.pokemontcg.io/sv2/222_hires.png",
+          "sourceName": "Pokemon TCG (Paldea Evolved)",
+          "sourceCardId": "pal-222",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 70,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 6,
+        "suggestion": {
+          "name": "Squirtle Stellar Crown 148",
+          "lane": "Collector Compass",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv7/148_hires.png",
+          "referenceSourceName": "Pokemon TCG (Stellar Crown)",
+          "referenceSourceCardId": "sv7-148",
+          "requiredEvidenceTokens": [
+            "squirtle",
+            "stellar",
+            "crown"
+          ]
+        },
+        "image": {
+          "name": "Squirtle Stellar Crown 148",
+          "url": "https://images.pokemontcg.io/sv7/148_hires.png",
+          "sourceName": "Pokemon TCG (Stellar Crown)",
+          "sourceCardId": "sv7-148",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 52,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 7,
+        "suggestion": {
+          "name": "Articuno Japanese SV9 102",
+          "lane": "Japanese Collector Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/SV/SV9/102/high.png",
+          "referenceSourceName": "TCGdex Japanese (SV9)",
+          "referenceSourceCardId": "sv9-102",
+          "requiredEvidenceTokens": [
+            "articuno",
+            "japanese",
+            "sv9"
+          ]
+        },
+        "image": {
+          "name": "Articuno Japanese SV9 102",
+          "url": "https://assets.tcgdex.net/ja/SV/SV9/102/high.png",
+          "sourceName": "TCGdex Japanese (SV9)",
+          "sourceCardId": "sv9-102",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 55,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 8,
+        "suggestion": {
+          "name": "Lucario VSTAR Crown Zenith GG41",
+          "lane": "Set Companion Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/crz/GG41_hires.png",
+          "referenceSourceName": "Pokemon TCG (Crown Zenith)",
+          "referenceSourceCardId": "crz-GG41",
+          "requiredEvidenceTokens": [
+            "lucario",
+            "vstar",
+            "crown"
+          ]
+        },
+        "image": {
+          "name": "Lucario VSTAR Crown Zenith GG41",
+          "url": "https://images.pokemontcg.io/crz/GG41_hires.png",
+          "sourceName": "Pokemon TCG (Crown Zenith)",
+          "sourceCardId": "crz-GG41",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 62,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 9,
+        "suggestion": {
+          "name": "Bulbasaur 151 166",
+          "lane": "Special Release Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/166_hires.png",
+          "referenceSourceName": "Pokemon TCG (151)",
+          "referenceSourceCardId": "sv3pt5-166",
+          "requiredEvidenceTokens": [
+            "bulbasaur",
+            "151",
+            "166"
+          ]
+        },
+        "image": {
+          "name": "Bulbasaur 151 166",
+          "url": "https://images.pokemontcg.io/sv3pt5/166_hires.png",
+          "sourceName": "Pokemon TCG (151)",
+          "sourceCardId": "sv3pt5-166",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 42,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 10,
+        "suggestion": {
+          "name": "Palkia VSTAR Crown Zenith GG67",
+          "lane": "Vintage Echo Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/crz/GG67_hires.png",
+          "referenceSourceName": "Pokemon TCG (Crown Zenith)",
+          "referenceSourceCardId": "crz-GG67",
+          "requiredEvidenceTokens": [
+            "palkia",
+            "vstar",
+            "crown"
+          ]
+        },
+        "image": {
+          "name": "Palkia VSTAR Crown Zenith GG67",
+          "url": "https://images.pokemontcg.io/crz/GG67_hires.png",
+          "sourceName": "Pokemon TCG (Crown Zenith)",
+          "sourceCardId": "crz-GG67",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 120,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 11,
+        "suggestion": {
+          "name": "Dragonair 151 181",
+          "lane": "Modern Art Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/181_hires.png",
+          "referenceSourceName": "Pokemon TCG (151)",
+          "referenceSourceCardId": "sv3pt5-181",
+          "requiredEvidenceTokens": [
+            "dragonair",
+            "151",
+            "181"
+          ]
+        },
+        "image": {
+          "name": "Dragonair 151 181",
+          "url": "https://images.pokemontcg.io/sv3pt5/181_hires.png",
+          "sourceName": "Pokemon TCG (151)",
+          "sourceCardId": "sv3pt5-181",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 50,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 12,
+        "suggestion": {
+          "name": "Mew Japanese S12a 183",
+          "lane": "Collector Compass",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/S/S12a/183/high.png",
+          "referenceSourceName": "TCGdex Japanese (S12a)",
+          "referenceSourceCardId": "s12a-183",
+          "requiredEvidenceTokens": [
+            "mew",
+            "japanese",
+            "s12a"
+          ]
+        },
+        "image": {
+          "name": "Mew Japanese S12a 183",
+          "url": "https://assets.tcgdex.net/ja/S/S12a/183/high.png",
+          "sourceName": "TCGdex Japanese (S12a)",
+          "sourceCardId": "s12a-183",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 62,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 13,
+        "suggestion": {
+          "name": "Pikachu Crown Zenith 160",
+          "lane": "Japanese Collector Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/crz/160_hires.png",
+          "referenceSourceName": "Pokemon TCG (Crown Zenith)",
+          "referenceSourceCardId": "crz-160",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "crown",
+            "zenith"
+          ]
+        },
+        "image": {
+          "name": "Pikachu Crown Zenith 160",
+          "url": "https://images.pokemontcg.io/crz/160_hires.png",
+          "sourceName": "Pokemon TCG (Crown Zenith)",
+          "sourceCardId": "crz-160",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 36,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 14,
+        "suggestion": {
+          "name": "Latias ex Surging Sparks 239",
+          "lane": "Set Companion Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv8/239_hires.png",
+          "referenceSourceName": "Pokemon TCG (Surging Sparks)",
+          "referenceSourceCardId": "ssp-239",
+          "requiredEvidenceTokens": [
+            "latias",
+            "ex",
+            "surging"
+          ]
+        },
+        "image": {
+          "name": "Latias ex Surging Sparks 239",
+          "url": "https://images.pokemontcg.io/sv8/239_hires.png",
+          "sourceName": "Pokemon TCG (Surging Sparks)",
+          "sourceCardId": "ssp-239",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 58,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 15,
+        "suggestion": {
+          "name": "Team Rocket's Mewtwo ex Ascended Heroes 281",
+          "lane": "Special Release Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/asc1/281_hires.png",
+          "referenceSourceName": "Pokemon TCG (Ascended Heroes)",
+          "referenceSourceCardId": "asc1-281",
+          "requiredEvidenceTokens": [
+            "team",
+            "rocket",
+            "s"
+          ]
+        },
+        "image": {
+          "name": "Team Rocket's Mewtwo ex Ascended Heroes 281",
+          "url": "https://images.pokemontcg.io/asc1/281_hires.png",
+          "sourceName": "Pokemon TCG (Ascended Heroes)",
+          "sourceCardId": "asc1-281",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 175,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 16,
+        "suggestion": {
+          "name": "Mewtwo & Mew-GX SM Black Star Promos SM191",
+          "lane": "Vintage Echo Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/smp/SM191_hires.png",
+          "referenceSourceName": "Pokemon TCG (SM Black Star Promos)",
+          "referenceSourceCardId": "smp-SM191",
+          "requiredEvidenceTokens": [
+            "mewtwo",
+            "mew",
+            "gx"
+          ]
+        },
+        "image": {
+          "name": "Mewtwo & Mew-GX SM Black Star Promos SM191",
+          "url": "https://images.pokemontcg.io/smp/SM191_hires.png",
+          "sourceName": "Pokemon TCG (SM Black Star Promos)",
+          "sourceCardId": "smp-SM191",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 90,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 17,
+        "suggestion": {
+          "name": "Sylveon VMAX Evolving Skies 75",
+          "lane": "Modern Art Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh7/75_hires.png",
+          "referenceSourceName": "Pokemon TCG (Evolving Skies)",
+          "referenceSourceCardId": "evs-75",
+          "requiredEvidenceTokens": [
+            "sylveon",
+            "vmax",
+            "evolving"
+          ]
+        },
+        "image": {
+          "name": "Sylveon VMAX Evolving Skies 75",
+          "url": "https://images.pokemontcg.io/swsh7/75_hires.png",
+          "sourceName": "Pokemon TCG (Evolving Skies)",
+          "sourceCardId": "evs-75",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 44,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 18,
+        "suggestion": {
+          "name": "Gardevoir ex Scarlet & Violet 245",
+          "lane": "Collector Compass",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv1/245_hires.png",
+          "referenceSourceName": "Pokemon TCG (Scarlet & Violet)",
+          "referenceSourceCardId": "sv1-245",
+          "requiredEvidenceTokens": [
+            "gardevoir",
+            "ex",
+            "scarlet"
+          ]
+        },
+        "image": {
+          "name": "Gardevoir ex Scarlet & Violet 245",
+          "url": "https://images.pokemontcg.io/sv1/245_hires.png",
+          "sourceName": "Pokemon TCG (Scarlet & Violet)",
+          "sourceCardId": "sv1-245",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 115,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 19,
+        "suggestion": {
+          "name": "Gardevoir ex Paldean Fates 233",
+          "lane": "Japanese Collector Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/233_hires.png",
+          "referenceSourceName": "Pokemon TCG (Paldean Fates)",
+          "referenceSourceCardId": "sv4pt5-233",
+          "requiredEvidenceTokens": [
+            "gardevoir",
+            "ex",
+            "paldean"
+          ]
+        },
+        "image": {
+          "name": "Gardevoir ex Paldean Fates 233",
+          "url": "https://images.pokemontcg.io/sv4pt5/233_hires.png",
+          "sourceName": "Pokemon TCG (Paldean Fates)",
+          "sourceCardId": "sv4pt5-233",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 220,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 20,
+        "suggestion": {
+          "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+          "lane": "Set Companion Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/smp/SM241_hires.png",
+          "referenceSourceName": "Pokemon TCG (SM Black Star Promos)",
+          "referenceSourceCardId": "smp-SM241",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "darkrai",
+            "gx"
+          ]
+        },
+        "image": {
+          "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+          "url": "https://images.pokemontcg.io/smp/SM241_hires.png",
+          "sourceName": "Pokemon TCG (SM Black Star Promos)",
+          "sourceCardId": "smp-SM241",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 95,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 21,
+        "suggestion": {
+          "name": "Mew ex Paldean Fates 232",
+          "lane": "Special Release Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/232_hires.png",
+          "referenceSourceName": "Pokemon TCG (Paldean Fates)",
+          "referenceSourceCardId": "sv4pt5-232",
+          "requiredEvidenceTokens": [
+            "mew",
+            "ex",
+            "paldean"
+          ]
+        },
+        "image": {
+          "name": "Mew ex Paldean Fates 232",
+          "url": "https://images.pokemontcg.io/sv4pt5/232_hires.png",
+          "sourceName": "Pokemon TCG (Paldean Fates)",
+          "sourceCardId": "sv4pt5-232",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 82,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 22,
+        "suggestion": {
+          "name": "Umbreon XY Black Star Promos XY96",
+          "lane": "Vintage Echo Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/xyp/XY96_hires.png",
+          "referenceSourceName": "Pokemon TCG (XY Black Star Promos)",
+          "referenceSourceCardId": "xyp-XY96",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "xy",
+            "black"
+          ]
+        },
+        "image": {
+          "name": "Umbreon XY Black Star Promos XY96",
+          "url": "https://images.pokemontcg.io/xyp/XY96_hires.png",
+          "sourceName": "Pokemon TCG (XY Black Star Promos)",
+          "sourceCardId": "xyp-XY96",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 145,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 23,
+        "suggestion": {
+          "name": "Mewtwo & Mew-GX Unified Minds 222",
+          "lane": "Modern Art Trail",
+          "laneWhy": "Carries the same collector signals without repeating the exact chase",
+          "why": "A collector-shaped follow-on from Umbreon ex SAR Terastal Festival Japanese 217/187",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sm11/222_hires.png",
+          "referenceSourceName": "Pokemon TCG (Unified Minds)",
+          "referenceSourceCardId": "sm11-222",
+          "requiredEvidenceTokens": [
+            "mewtwo",
+            "mew",
+            "gx"
+          ]
+        },
+        "image": {
+          "name": "Mewtwo & Mew-GX Unified Minds 222",
+          "url": "https://images.pokemontcg.io/sm11/222_hires.png",
+          "sourceName": "Pokemon TCG (Unified Minds)",
+          "sourceCardId": "sm11-222",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 160,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      }
+    ],
+    "feedbackPreferences": {
+      "preferredLanguages": [
+        "ENGLISH",
+        "JAPANESE"
+      ],
+      "preferredEras": [
+        "SV",
+        "SWSH"
+      ],
+      "budgetPreferenceCad": 30
+    },
+    "stableTieBreakerSeed": "fixture-seed"
+  }
+}

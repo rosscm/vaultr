@@ -2,11 +2,13 @@ import 'dotenv/config';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { finalizeWeeklyDiscoveryShelf, type WeeklyDiscoveryFinalizerResult } from './commands/discover.js';
+import { resolveWeeklyDiscoveryCanonicalReferences, type CanonicalLookupEvidenceMap } from './services/discovery-canonical-resolution.js';
 import type { WeeklyDiscoveryFinalizationInput } from './services/weekly-discovery-ranking.js';
 
 type CaptureFixture = {
   schemaVersion: number;
   input: WeeklyDiscoveryFinalizationInput;
+  canonicalLookupEvidence?: CanonicalLookupEvidenceMap;
 };
 
 type Options = {
@@ -103,7 +105,14 @@ function summarize(result: WeeklyDiscoveryFinalizerResult): Record<string, unkno
 
 const options = parseArgs(process.argv.slice(2));
 const fixture = JSON.parse(readFileSync(resolve(options.fixture), 'utf8')) as CaptureFixture;
-const result = finalizeWeeklyDiscoveryShelf(fixture.input);
+const canonicalResolution = await resolveWeeklyDiscoveryCanonicalReferences(
+  fixture.input.orderedCandidateReserve,
+  fixture.canonicalLookupEvidence ? { replayEvidence: fixture.canonicalLookupEvidence } : {}
+);
+const result = finalizeWeeklyDiscoveryShelf({
+  ...fixture.input,
+  orderedCandidateReserve: canonicalResolution.candidates
+});
 const summary = summarize(result);
 
 if (options.writeResult) {

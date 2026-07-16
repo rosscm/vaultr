@@ -82,8 +82,12 @@ const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /skyridge/i, setName: 'Skyridge' },
   { pattern: /neo discovery/i, setName: 'Neo Discovery' },
   { pattern: /neo destiny/i, setName: 'Neo Destiny' },
+  { pattern: /jungle/i, setName: 'Jungle' },
   { pattern: /gym challenge/i, setName: 'Gym Challenge' },
   { pattern: /gym heroes/i, setName: 'Gym Heroes' },
+  { pattern: /celestial storm/i, setName: 'Celestial Storm' },
+  { pattern: /team rocket/i, setName: 'Team Rocket' },
+  { pattern: /secret wonders/i, setName: 'Secret Wonders' },
   { pattern: /deoxys/i, setName: 'Deoxys' },
   { pattern: /undaunted/i, setName: 'Undaunted' },
   { pattern: /hidden fates/i, setName: 'Hidden Fates' },
@@ -92,6 +96,7 @@ const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /vivid voltage/i, setName: 'Vivid Voltage' },
   { pattern: /sm black star|sun & moon black star/i, setName: 'SM Black Star Promos' },
   { pattern: /swsh black star|sword & shield black star/i, setName: 'SWSH Black Star Promos' },
+  { pattern: /wizards black star/i, setName: 'Wizards Black Star Promos' },
   { pattern: /nintendo(?: black star)? promo/i, setName: 'Nintendo Black Star Promos' }
 ];
 
@@ -133,10 +138,24 @@ function normalize(value: string): string {
 function compactName(value: string): string {
   return value
     .replace(/\bPokemon\b/gi, '')
+    .replace(/\bTCG\b/gi, '')
+    .replace(/\b\d{4}\b/g, '')
+    .replace(/\bsun\s*&\s*moon\b/gi, '')
     .replace(/\bnintendo\b(?=\s+promo|\s+black star|\s+japanese|\s+\d{3}\s*\/\s*p\b)/gi, '')
     .replace(/\b(card|cards|promo|holo|secret rare|illustration rare|art rare|trainer gallery|parallel|leader|trading)\b/gi, '')
+    .replace(/\bwizards\b(?=\s+black star)/gi, '')
     .replace(/\bsurging sparks\b\s*\d{1,3}\b/gi, '')
-    .replace(/\b(?:sun & moon black star promos?|sm black star promos?|sword & shield black star promos?|swsh black star promos?|xy black star promos?|bw black star promos?|black star promos?|black star|mcdonald'?s|anniversary|vending series|web series)\b/gi, '')
+    .replace(/\b(?:sun & moon black star promos?|sm black star promos?|sm promos?|sword & shield black star promos?|swsh black star promos?|xy black star promos?|bw black star promos?|black star promos?|black star|mcdonald'?s|anniversary|vending series|web series|smp)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeCardIdentityName(value: string): string {
+  return value
+    .replace(/\band\b/gi, '&')
+    .replace(/\b([A-Za-z][A-Za-z.'’&\s]+?)\s+GX\b/g, '$1-GX')
+    .replace(/\b([A-Za-z][A-Za-z.'’&\s]+?)\s+EX\b/g, '$1-EX')
+    .replace(/\b([A-Za-z][A-Za-z.'’&\s]+?)\s+VMAX\b/g, '$1 VMAX')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -145,7 +164,7 @@ function quoted(value: string): string {
   return `"${value.replaceAll('"', '')}"`;
 }
 
-function extractNumber(value: string): string | undefined {
+export function extractNumber(value: string): string | undefined {
   const slashNumber = /\b([A-Z]{0,4}\d{1,3})\s*\/\s*\d{1,3}\b/i.exec(value)?.[1];
   if (slashNumber) return slashNumber.toUpperCase();
   const japanesePromoNumber = /\b(\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3})\b/i.exec(value)?.[1];
@@ -156,7 +175,7 @@ function extractNumber(value: string): string | undefined {
   if (holoNumber) return holoNumber.toUpperCase();
   const surgingSparksNumber = /\bsurging sparks\b.*\b([1-9]\d{1,2})\b/i.exec(value)?.[1];
   if (surgingSparksNumber) return surgingSparksNumber;
-  const setNumber = /\b(?:base set|champion'?s path|celebrations|classic collection|destined rivals|evolutions|fusion strike|generations|legendary treasures|lost origin|paldean fates|surging sparks|unified minds|vivid voltage|expedition|aquapolis|skyridge|gym heroes|gym challenge|neo discovery|neo destiny|fossil|jungle|team rocket|xy black star promos?|bw black star promos?|swsh black star promos?)\b.*\b([1-9]\d{0,2})\b/i.exec(value)?.[1];
+  const setNumber = /\b(?:base set|champion'?s path|celebrations|classic collection|destined rivals|evolutions|fusion strike|generations|legendary treasures|lost origin|paldean fates|surging sparks|unified minds|vivid voltage|expedition|aquapolis|skyridge|gym heroes|gym challenge|neo discovery|neo destiny|fossil|jungle|team rocket|secret wonders|celestial storm|151|xy black star promos?|bw black star promos?|swsh black star promos?|wizards black star promos?)\b.*\b([1-9]\d{0,2})\b/i.exec(value)?.[1];
   if (setNumber) return setNumber;
   const standalone = /\b0\d{2}\b/.exec(value)?.[0];
   return standalone;
@@ -170,19 +189,34 @@ function referenceSetCode(value: string): string | undefined {
   return /\b((?:sv|sm|swsh|xy|bw|dp|hgss|pcg|pmcg|s)\d+[a-z]?|sv[a-z]?\d+[a-z]?|[a-z]{1,4}\d+[a-z]?|s-p|sm-p|sv-p)\b/i.exec(value)?.[1]?.toUpperCase();
 }
 
-function leadingName(value: string): string {
+export function leadingName(value: string): string {
   const beforeNumber = value.split(/\b(?:[A-Z]{0,4}\d{1,3}\s*\/\s*\d{1,3}|\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3}|(?:GG|TG|RC|XY|SM|SWSH|SVP|BW|DP|HGSS)\s?-?\d{1,4}|H\d{1,2}|0\d{2})\b/i)[0];
-  return compactName(beforeNumber)
-    .replace(/\b(?:southern islands?|champion'?s path|celebrations|classic collection|classic|crown zenith|cosmic eclipse|destined rivals|evolutions|fusion strike|generations|legendary treasures|lost origin|paldean fates|pokemon 151|triplet beat|fossil|aquapolis|expedition|neo discovery|neo destiny|gym challenge|gym heroes|deoxys|fates collide|undaunted|hidden fates|surging sparks|unified minds|vivid voltage)\b/gi, '')
-    .replace(/\b(?:base set|skyridge|xy|bw|swsh)\b/gi, '')
+  return normalizeCardIdentityName(compactName(beforeNumber)
+    .replace(/\b(?:southern islands?|champion'?s path|celebrations|classic collection|classic|crown zenith|cosmic eclipse|destined rivals|evolutions|fusion strike|generations|legendary treasures|lost origin|paldean fates|pokemon 151|triplet beat|fossil|aquapolis|expedition|neo discovery|neo destiny|gym challenge|gym heroes|deoxys|fates collide|undaunted|hidden fates|surging sparks|unified minds|vivid voltage|celestial storm)\b/gi, '')
+    .replace(/\b(?:base set|skyridge|jungle|xy|bw|swsh|secret wonders|151)\b/gi, '')
+    .replace(/\bteam rocket\b(?!')/gi, '')
+    .replace(/\bwizards\b(?=\s+black star)/gi, '')
+    .replace(/\s*-\s*$/g, '')
     .replace(/\s*:\s*/g, ' ')
     .replace(/\b[1-9]\d{0,2}\b\s*$/g, '')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim());
 }
 
-function setHintForSuggestion(value: string): string | undefined {
-  return SET_HINTS.find((hint) => hint.pattern.test(value))?.setName;
+function promoSetHintForSuggestion(value: string): string | undefined {
+  const number = extractNumber(value)?.toUpperCase();
+  const hasPromoContext = /\bpromo|promos|black star\b/i.test(value);
+  if (!number || !hasPromoContext) return undefined;
+  if (number.startsWith('SM')) return 'SM Black Star Promos';
+  if (number.startsWith('SWSH')) return 'SWSH Black Star Promos';
+  if (number.startsWith('XY')) return 'XY Black Star Promos';
+  if (number.startsWith('BW')) return 'BW Black Star Promos';
+  return undefined;
+}
+
+export function setHintForSuggestion(value: string): string | undefined {
+  return SET_HINTS.find((hint) => hint.pattern.test(value))?.setName
+    ?? promoSetHintForSuggestion(value);
 }
 
 function isUnsupportedReferenceSuggestion(value: string): boolean {
@@ -205,7 +239,7 @@ function isOnePieceReferenceSuggestion(suggestion: DiscoverySuggestion): boolean
   return /\b(one piece|luffy|nami|zoro|sabo)\b/i.test(onePieceSourceText(suggestion));
 }
 
-function isJapaneseReferenceSuggestion(suggestion: DiscoverySuggestion): boolean {
+export function isJapaneseReferenceSuggestion(suggestion: DiscoverySuggestion): boolean {
   const text = [suggestion.name, suggestion.evidenceSearchTerm, suggestion.referenceSourceName, ...(suggestion.evidenceAliases ?? []), ...(suggestion.requiredEvidenceTokens ?? [])]
     .filter(Boolean)
     .join(' ');
@@ -553,14 +587,14 @@ function isTrustedPokemonTcgReference(entry: DiscoveryReferenceCacheEntry, _sugg
     && isHostUrl(entry.imageUrl, POKEMON_TCG_REFERENCE_HOST);
 }
 
-function hasTrustedPokemonReferenceProvenance(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
+export function hasTrustedDiscoveryReferenceProvenance(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
   if (matchesTrustedOverride(entry, suggestion)) return true;
   if (isJapaneseReferenceSuggestion(suggestion)) return isTrustedJapaneseReference(entry);
   return isTrustedPokemonTcgReference(entry, suggestion);
 }
 
 function shouldBypassReferenceImageReachabilityCheck(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
-  return hasTrustedPokemonReferenceProvenance(entry, suggestion);
+  return hasTrustedDiscoveryReferenceProvenance(entry, suggestion);
 }
 
 function suggestionReferenceMismatch(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
@@ -722,7 +756,7 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
   const pokemonSuggestion = isPokemonReferenceSuggestion(suggestion);
   const cached = getDiscoveryReferenceCache(cacheKey);
-  const cachedPokemonMismatch = pokemonSuggestion && !!cached?.imageUrl && !hasTrustedPokemonReferenceProvenance(cached, suggestion);
+  const cachedPokemonMismatch = pokemonSuggestion && !!cached?.imageUrl && !hasTrustedDiscoveryReferenceProvenance(cached, suggestion);
   if (!pokemonSuggestion && suggestion.referenceImageUrl && !cached?.imageUrl) {
     const fetched = await fetchDiscoveryReferenceImage(suggestion);
     upsertDiscoveryReferenceCache(fetched);
@@ -775,7 +809,7 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
     return fetched;
   }
   const ageMs = cached ? cachedReferenceAgeMs(cached) : undefined;
-  const shouldRevalidateCachedImage = !!cached?.imageUrl && (!pokemonSuggestion || !hasTrustedPokemonReferenceProvenance(cached, suggestion));
+  const shouldRevalidateCachedImage = !!cached?.imageUrl && (!pokemonSuggestion || !hasTrustedDiscoveryReferenceProvenance(cached, suggestion));
   if (shouldRevalidateCachedImage && !(await validateReferenceImageUrl(cached.imageUrl))) {
     const fetched = await fetchDiscoveryReferenceImage(suggestion);
     if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);

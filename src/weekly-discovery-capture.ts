@@ -1,10 +1,9 @@
 import 'dotenv/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { discoverCandidatesForUser, finalizeWeeklyDiscoveryShelf, listPriorWeeklyDiscoveryDropsForTargetPeriod } from './commands/discover.js';
-import { listChases } from './services/chase-store.js';
-import { buildCollectorTasteProfile, type WeeklyDiscoveryFinalizationInput } from './services/weekly-discovery-ranking.js';
-import { scheduledDiscoveryPeriodKey } from './services/scheduled-discovery-drops.js';
+import { buildWeeklyDiscoveryFinalizationInput, finalizeWeeklyDiscoveryShelf } from './commands/discover.js';
+import type { CanonicalLookupEvidenceMap } from './services/discovery-canonical-resolution.js';
+import type { WeeklyDiscoveryFinalizationInput } from './services/weekly-discovery-ranking.js';
 
 type Options = {
   date: Date;
@@ -107,32 +106,15 @@ function ensureParentDir(path: string): void {
 }
 
 const options = parseArgs(process.argv.slice(2));
-const discovery = await discoverCandidatesForUser(options.userId, 20, {
-  preferScheduledDrop: false,
-  requireScheduledDrop: false,
-  saveScheduledDrop: false,
-  scheduledDate: options.date,
-  hydrateScheduledMarketInline: true,
-  usePersistedState: false,
-  ignoreSeenExclusions: true
+const assembled = await buildWeeklyDiscoveryFinalizationInput({
+  userId: options.userId,
+  date: options.date,
+  mode: 'CAPTURE',
+  hydrateMarketInline: true,
+  allowRecentRepeatFiller: false
 });
-const activeVault = listChases(options.userId);
-const input: WeeklyDiscoveryFinalizationInput = {
-  targetPeriod: scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', options.date),
-  frozenTime: options.date.toISOString(),
-  userCurrency: discovery.settings.alertCurrency,
-  exchangeRates: {},
-  activeVault,
-  collectorProfile: buildCollectorTasteProfile(discovery.tasteProfileChases, {
-    budgetPreferenceCad: 30
-  }),
-  priorShelfHistory: listPriorWeeklyDiscoveryDropsForTargetPeriod(options.userId, options.date, 12),
-  orderedCandidateReserve: discovery.candidates,
-  feedbackPreferences: {
-    budgetPreferenceCad: 30
-  },
-  stableTieBreakerSeed: options.userId
-};
+const input: WeeklyDiscoveryFinalizationInput = assembled.input;
+const canonicalLookupEvidence: CanonicalLookupEvidenceMap = assembled.canonicalLookupEvidence;
 const preview = finalizeWeeklyDiscoveryShelf(input);
 ensureParentDir(options.out);
 writeFileSync(resolve(options.out), JSON.stringify({
@@ -140,6 +122,7 @@ writeFileSync(resolve(options.out), JSON.stringify({
   capturedAt: new Date().toISOString(),
   userId: options.userId,
   input,
+  canonicalLookupEvidence,
   preview: {
     fingerprint: preview.fingerprint,
     selectedCanonicalIds: preview.selection.items.map((item) => item.suggestion.referenceSourceCardId),
@@ -155,6 +138,7 @@ if (options.sanitizeOut) {
     capturedAt: 'SANITIZED',
     userId: 'user-synthetic-owner',
     input: sanitizeCapture(input),
+    canonicalLookupEvidence,
     preview: {
       fingerprint: preview.fingerprint,
       selectedCanonicalIds: preview.selection.items.map((item) => item.suggestion.referenceSourceCardId),

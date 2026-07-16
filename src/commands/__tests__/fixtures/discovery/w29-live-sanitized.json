@@ -1,0 +1,4427 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "SANITIZED",
+  "userId": "user-synthetic-owner",
+  "input": {
+    "targetPeriod": "2026-W29",
+    "frozenTime": "2026-07-16T12:00:00.000Z",
+    "userCurrency": "CAD",
+    "exchangeRates": {},
+    "activeVault": [
+      {
+        "id": "chase-1",
+        "userId": "user-synthetic-owner",
+        "cardName": "Squirtle Japanese Promo 007/018",
+        "priority": "GRAIL",
+        "maxPrice": 1200,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "createdAt": "2026-06-01T00:00:00.000Z"
+      },
+      {
+        "id": "chase-2",
+        "userId": "user-synthetic-owner",
+        "cardName": "Umbreon ex SAR Terastal Festival Japanese 217/187",
+        "priority": "GRAIL",
+        "maxPrice": 550,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "createdAt": "2026-06-02T00:00:00.000Z"
+      },
+      {
+        "id": "chase-3",
+        "userId": "user-synthetic-owner",
+        "cardName": "Mew CoroCoro Promo 151",
+        "priority": "HIGH",
+        "maxPrice": 990,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "createdAt": "2026-06-03T00:00:00.000Z"
+      },
+      {
+        "id": "chase-4",
+        "userId": "user-synthetic-owner",
+        "cardName": "Mew-EX Legendary Treasures RC24",
+        "priority": "HIGH",
+        "maxPrice": 80,
+        "grade": "UNGRADED",
+        "listingType": "BUY_IT_NOW",
+        "createdAt": "2026-06-04T00:00:00.000Z"
+      },
+      {
+        "id": "chase-5",
+        "userId": "user-synthetic-owner",
+        "cardName": "Pikachu 26/83 Toys R Us promo",
+        "priority": "HIGH",
+        "maxPrice": 100,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "createdAt": "2026-06-05T00:00:00.000Z"
+      },
+      {
+        "id": "chase-6",
+        "userId": "user-synthetic-owner",
+        "cardName": "Pikachu XY Black Star Promos XY95",
+        "priority": "HIGH",
+        "maxPrice": 100,
+        "grade": "UNGRADED",
+        "listingType": "BUY_IT_NOW",
+        "createdAt": "2026-06-06T00:00:00.000Z"
+      },
+      {
+        "id": "chase-7",
+        "userId": "user-synthetic-owner",
+        "cardName": "Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210",
+        "priority": "NORMAL",
+        "maxPrice": 200,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "createdAt": "2026-06-07T00:00:00.000Z"
+      },
+      {
+        "id": "chase-8",
+        "userId": "user-synthetic-owner",
+        "cardName": "Mew Japanese 347/190",
+        "priority": "NORMAL",
+        "maxPrice": 500,
+        "grade": "UNGRADED",
+        "listingType": "BUY_IT_NOW",
+        "createdAt": "2026-06-08T00:00:00.000Z"
+      },
+      {
+        "id": "chase-9",
+        "userId": "user-synthetic-owner",
+        "cardName": "Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063",
+        "priority": "NORMAL",
+        "maxPrice": 100,
+        "grade": "UNGRADED",
+        "listingType": "BUY_IT_NOW",
+        "createdAt": "2026-06-09T00:00:00.000Z"
+      },
+      {
+        "id": "chase-10",
+        "userId": "user-synthetic-owner",
+        "cardName": "Mew XY Black Star Promos XY192",
+        "priority": "NORMAL",
+        "maxPrice": 90,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "createdAt": "2026-06-10T00:00:00.000Z"
+      }
+    ],
+    "collectorProfile": {
+      "subjects": {
+        "squirtle": 20,
+        "umbreon": 18,
+        "mew": 38,
+        "pikachu": 22,
+        "moltres": 8,
+        "mega": 4
+      },
+      "evolutionFamilies": {
+        "squirtle": 15,
+        "umbreon": 13.5,
+        "mew": 28.5,
+        "pikachu": 16.5,
+        "moltres": 6,
+        "mega": 3
+      },
+      "artists": {},
+      "eras": {
+        "EX": 21.599999999999998,
+        "SV": 20.4,
+        "SM": 4.8
+      },
+      "sets": {},
+      "setFamilies": {},
+      "languages": {
+        "JAPANESE": 60
+      },
+      "formats": {
+        "promo": 34,
+        "special-art": 22
+      },
+      "rarityTiers": {
+        "promo": 24,
+        "premium": 11
+      },
+      "artTiers": {
+        "premium": 11
+      },
+      "promoTypes": {
+        "black-star": 10
+      },
+      "releaseTypes": {
+        "japanese-release": 24,
+        "promo-release": 24
+      },
+      "aestheticTags": {},
+      "sceneTags": {},
+      "themeTags": {
+        "character-driven": 40.8,
+        "collector-release": 34.4,
+        "modern": 7.2
+      },
+      "budgetPreferenceCad": 30
+    },
+    "priorShelfHistory": [
+      {
+        "userId": "user-synthetic-owner",
+        "dropType": "WEEKLY_DISCOVERY",
+        "periodKey": "2026-W28",
+        "status": "READY",
+        "title": "Weekly Shelf",
+        "currency": "CAD",
+        "availableAt": "2026-01-01T00:00:00.000Z",
+        "generatedAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "marketReadyCount": 20,
+        "imageReadyCount": 19,
+        "itemCount": 20,
+        "items": [
+          {
+            "position": 1,
+            "suggestion": {
+              "name": "Pikachu Expedition Base Set 124",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Expedition Base Set)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard1/124_hires.png",
+            "imageSourceName": "Pokemon TCG (Expedition Base Set)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 2,
+            "suggestion": {
+              "name": "Gardevoir ex Paldean Fates 233",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Paldean Fates)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv4pt5/233_hires.png",
+            "imageSourceName": "Pokemon TCG (Paldean Fates)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 3,
+            "suggestion": {
+              "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (SM Black Star Promos)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/smp/SM241_hires.png",
+            "imageSourceName": "Pokemon TCG (SM Black Star Promos)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 4,
+            "suggestion": {
+              "name": "Mew Japanese S12a 183",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "TCGdex Japanese (VSTAR Universe)"
+            },
+            "imageUrl": "https://assets.tcgdex.net/ja/S/S12a/183/high.png",
+            "imageSourceName": "TCGdex Japanese (S12a)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 5,
+            "suggestion": {
+              "name": "Team Rocket's Moltres ex Destined Rivals 229",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Destined Rivals)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv10/229_hires.png",
+            "imageSourceName": "Pokemon TCG (Destined Rivals)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 6,
+            "suggestion": {
+              "name": "Giovanni's Meowth Gym Challenge 74",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/gym2/74_hires.png",
+            "imageSourceName": "Pokemon TCG (Gym Challenge)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 7,
+            "suggestion": {
+              "name": "Articuno Japanese SV9 102/100",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "TCGdex Japanese (SV9)"
+            },
+            "imageUrl": "https://assets.tcgdex.net/ja/SV/SV9/102/high.png",
+            "imageSourceName": "TCGdex Japanese (SV9)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 8,
+            "suggestion": {
+              "name": "Squirtle Stellar Crown 148",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Stellar Crown)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv7/148_hires.png",
+            "imageSourceName": "Pokemon TCG (Stellar Crown)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 9,
+            "suggestion": {
+              "name": "Gardevoir ex Scarlet & Violet 245",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Scarlet & Violet)",
+              "referenceSourceCardId": "sv1-245"
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv1/245_hires.png",
+            "imageSourceName": "Pokemon TCG (Scarlet & Violet)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 10,
+            "suggestion": {
+              "name": "Team Rocket's Mewtwo ex Ascended Heroes 281",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Magic Madhouse",
+              "referenceSourceCardId": "PE-ASC1-281"
+            },
+            "imageUrl": "https://cdn11.bigcommerce.com/s-b4ioc4fed9/products/569138/images/3745604/B733QTIMxsUolT8ZRSck3d5rT__08351.1779177196.386.513.jpg?c=1",
+            "imageSourceName": "Magic Madhouse",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 11,
+            "suggestion": {
+              "name": "Gardevoir 408/SM-P PROMO Limited Illustration Promo Pokemon Card Japanese",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "PKMhobby",
+              "referenceSourceCardId": "408/SM-P"
+            },
+            "imageUrl": "https://pkmhobby.com/cdn/shop/files/57_587a877b-0632-4034-b953-de90cfa8846b.jpg?crop=center&height=1200&v=1738722480&width=1200",
+            "imageSourceName": "PKMhobby",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 12,
+            "suggestion": {
+              "name": "Mewtwo & Mew-GX SM Black Star Promos SM191",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (SM Black Star Promos)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/smp/SM191_hires.png",
+            "imageSourceName": "Pokemon TCG (SM Black Star Promos)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 13,
+            "suggestion": {
+              "name": "Pikachu Skyridge 84",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Skyridge)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard3/84_hires.png",
+            "imageSourceName": "Pokemon TCG (Skyridge)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 14,
+            "suggestion": {
+              "name": "Blaine's Moltres Gym Heroes 1",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/gym1/1_hires.png",
+            "imageSourceName": "Pokemon TCG (Gym Heroes)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 15,
+            "suggestion": {
+              "name": "Mew Expedition Base Set 19",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Expedition Base Set)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard1/19_hires.png",
+            "imageSourceName": "Pokemon TCG (Expedition Base Set)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 16,
+            "suggestion": {
+              "name": "Articuno Skyridge 4",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Skyridge)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard3/4_hires.png",
+            "imageSourceName": "Pokemon TCG",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 17,
+            "suggestion": {
+              "name": "Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "TCGdex Japanese (Eevee Heroes)"
+            },
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 18,
+            "suggestion": {
+              "name": "Zapdos Aquapolis H32",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Aquapolis)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard2/H32_hires.png",
+            "imageSourceName": "Pokemon TCG",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 19,
+            "suggestion": {
+              "name": "Umbreon XY Black Star Promos XY96",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (XY Black Star Promos)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/xyp/XY96_hires.png",
+            "imageSourceName": "Pokemon TCG",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 20,
+            "suggestion": {
+              "name": "Mew ex Paldean Fates 216",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Paldean Fates)"
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv4pt5/216_hires.png",
+            "imageSourceName": "Pokemon TCG (Paldean Fates)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          }
+        ]
+      },
+      {
+        "userId": "user-synthetic-owner",
+        "dropType": "WEEKLY_DISCOVERY",
+        "periodKey": "2026-W27",
+        "status": "READY",
+        "title": "Weekly Shelf",
+        "currency": "CAD",
+        "availableAt": "2026-01-02T00:00:00.000Z",
+        "generatedAt": "2026-01-02T00:00:00.000Z",
+        "updatedAt": "2026-01-02T00:00:00.000Z",
+        "marketReadyCount": 20,
+        "imageReadyCount": 16,
+        "itemCount": 20,
+        "items": [
+          {
+            "position": 1,
+            "suggestion": {
+              "name": "Mew Japanese S12a 183",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://assets.tcgdex.net/ja/S/S12a/183/high.png",
+            "imageSourceName": "TCGdex Japanese (S12a)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 2,
+            "suggestion": {
+              "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/smp/SM241_hires.png",
+            "imageSourceName": "Pokemon TCG (SM Black Star Promos)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 3,
+            "suggestion": {
+              "name": "Pikachu Expedition Base Set 124",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard1/124_hires.png",
+            "imageSourceName": "Pokemon TCG (Expedition Base Set)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 4,
+            "suggestion": {
+              "name": "Gardevoir ex Paldean Fates 233",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv4pt5/233_hires.png",
+            "imageSourceName": "Pokemon TCG (Paldean Fates)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 5,
+            "suggestion": {
+              "name": "Rocket's Moltres Gym Heroes 12",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/gym1/12_hires.png",
+            "imageSourceName": "Pokemon TCG (Gym Heroes)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 6,
+            "suggestion": {
+              "name": "Mew VMAX Lost Origin Trainer Gallery TG30",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/swsh11tg/TG30_hires.png",
+            "imageSourceName": "Pokemon TCG (Lost Origin)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 7,
+            "suggestion": {
+              "name": "Pokemon Card Expedition Base Set Mew 55/165 Rare",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard1/55_hires.png",
+            "imageSourceName": "Pokemon TCG (Expedition Base Set)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 8,
+            "suggestion": {
+              "name": "_____'s Pikachu Celebrations: Classic Collection 24",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/cel25c/24_A_hires.png",
+            "imageSourceName": "Pokemon TCG (Celebrations: Classic Collection)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 9,
+            "suggestion": {
+              "name": "Umbreon Skyridge 32",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard3/32_hires.png",
+            "imageSourceName": "Pokemon TCG (Skyridge)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 10,
+            "suggestion": {
+              "name": "Team Rocket's Moltres ex Destined Rivals 229",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv10/229_hires.png",
+            "imageSourceName": "Pokemon TCG (Destined Rivals)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 11,
+            "suggestion": {
+              "name": "WARTORTLE 171/165 SV2A: POKEMON CARD 151 POKEMON JAPANESE HOLO NM/M SV2A",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 12,
+            "suggestion": {
+              "name": "Gardevoir ex Scarlet & Violet 245",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 13,
+            "suggestion": {
+              "name": "Articuno Journey Together 161",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 14,
+            "suggestion": {
+              "name": "Mew Expedition Base Set 19",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard1/19_hires.png",
+            "imageSourceName": "Pokemon TCG (Expedition Base Set)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 15,
+            "suggestion": {
+              "name": "Mewtwo & Mew-GX Unified Minds 222",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/sm11/222_hires.png",
+            "imageSourceName": "Pokemon TCG (Unified Minds)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 16,
+            "suggestion": {
+              "name": "Mew VMAX Fusion Strike 268",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/swsh8/268_hires.png",
+            "imageSourceName": "Pokemon TCG (Fusion Strike)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 17,
+            "suggestion": {
+              "name": "Mew ex Paldean Fates 216",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv4pt5/216_hires.png",
+            "imageSourceName": "Pokemon TCG (Paldean Fates)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 18,
+            "suggestion": {
+              "name": "Pikachu ex Surging Sparks 238",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv8/238_hires.png",
+            "imageSourceName": "Pokemon TCG (Surging Sparks)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 19,
+            "suggestion": {
+              "name": "Blaine's Moltres Gym Heroes 1",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://images.pokemontcg.io/gym1/1_hires.png",
+            "imageSourceName": "Pokemon TCG (Gym Heroes)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 20,
+            "suggestion": {
+              "name": "Umbreon VMAX HR 094/069 s6a Eevee Heroes Pokemon Card Japanese",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          }
+        ]
+      },
+      {
+        "userId": "user-synthetic-owner",
+        "dropType": "WEEKLY_DISCOVERY",
+        "periodKey": "2026-W26",
+        "status": "READY",
+        "title": "Weekly Shelf",
+        "currency": "CAD",
+        "availableAt": "2026-01-03T00:00:00.000Z",
+        "generatedAt": "2026-01-03T00:00:00.000Z",
+        "updatedAt": "2026-01-03T00:00:00.000Z",
+        "marketReadyCount": 1,
+        "imageReadyCount": 1,
+        "itemCount": 1,
+        "items": [
+          {
+            "position": 1,
+            "suggestion": {
+              "name": "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": []
+            },
+            "imageUrl": "https://i.ebayimg.com/images/g/2YAAAeSwmT1qD~fi/s-l1600.jpg",
+            "imageSourceName": "eBay vetted marketplace image",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          }
+        ]
+      },
+      {
+        "userId": "user-synthetic-owner",
+        "dropType": "WEEKLY_DISCOVERY",
+        "periodKey": "2026-W25",
+        "status": "READY",
+        "title": "Weekly Shelf",
+        "currency": "CAD",
+        "availableAt": "2026-01-04T00:00:00.000Z",
+        "generatedAt": "2026-01-04T00:00:00.000Z",
+        "updatedAt": "2026-01-04T00:00:00.000Z",
+        "marketReadyCount": 1,
+        "imageReadyCount": 1,
+        "itemCount": 1,
+        "items": [
+          {
+            "position": 1,
+            "suggestion": {
+              "name": "Mew Expedition Base Set 55",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+              "referenceSourceCardId": "ecard1-55"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard1/55_hires.png",
+            "imageSourceName": "Pokemon TCG (Expedition Base Set)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          }
+        ]
+      },
+      {
+        "userId": "user-synthetic-owner",
+        "dropType": "WEEKLY_DISCOVERY",
+        "periodKey": "2026-W24",
+        "status": "READY",
+        "title": "Weekly Shelf",
+        "currency": "CAD",
+        "availableAt": "2026-01-05T00:00:00.000Z",
+        "generatedAt": "2026-01-05T00:00:00.000Z",
+        "updatedAt": "2026-01-05T00:00:00.000Z",
+        "marketReadyCount": 16,
+        "imageReadyCount": 16,
+        "itemCount": 16,
+        "items": [
+          {
+            "position": 1,
+            "suggestion": {
+              "name": "Mew Expedition Base Set 55",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+              "referenceSourceCardId": "ecard1-55"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard1/55_hires.png",
+            "imageSourceName": "Pokemon TCG (Expedition Base Set)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 2,
+            "suggestion": {
+              "name": "Moltres Skyridge 21",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Skyridge)",
+              "referenceSourceCardId": "ecard3-21"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard3/21_hires.png",
+            "imageSourceName": "Pokemon TCG (Skyridge)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 3,
+            "suggestion": {
+              "name": "Pikachu ex Ascended Heroes 277",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Ascended Heroes)",
+              "referenceSourceCardId": "me2pt5-277"
+            },
+            "imageUrl": "https://images.scrydex.com/pokemon/me2pt5-277/large",
+            "imageSourceName": "Pokemon TCG (Ascended Heroes)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 4,
+            "suggestion": {
+              "name": "Umbreon XY Black Star Promos XY96",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (XY Black Star Promos)",
+              "referenceSourceCardId": "xyp-XY96"
+            },
+            "imageUrl": "https://images.pokemontcg.io/xyp/XY96_hires.png",
+            "imageSourceName": "Pokemon TCG (XY Black Star Promos)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 5,
+            "suggestion": {
+              "name": "Articuno Skyridge 4",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Skyridge)",
+              "referenceSourceCardId": "ecard3-4"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard3/4_hires.png",
+            "imageSourceName": "Pokemon TCG (Skyridge)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 6,
+            "suggestion": {
+              "name": "Pikachu Skyridge 84",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Skyridge)",
+              "referenceSourceCardId": "ecard3-84"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard3/84_hires.png",
+            "imageSourceName": "Pokemon TCG (Skyridge)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 7,
+            "suggestion": {
+              "name": "Squirtle Expedition Base Set 132",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+              "referenceSourceCardId": "ecard1-132"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard1/132_hires.png",
+            "imageSourceName": "Pokemon TCG (Expedition Base Set)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 8,
+            "suggestion": {
+              "name": "Squirtle Expedition Base Set 131",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+              "referenceSourceCardId": "ecard1-131"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard1/131_hires.png",
+            "imageSourceName": "Pokemon TCG (Expedition Base Set)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 9,
+            "suggestion": {
+              "name": "Mew Wizards Black Star Promos 8",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+              "referenceSourceCardId": "basep-8"
+            },
+            "imageUrl": "https://images.pokemontcg.io/basep/8_hires.png",
+            "imageSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 10,
+            "suggestion": {
+              "name": "Zapdos Aquapolis 44",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Aquapolis)",
+              "referenceSourceCardId": "ecard2-44"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard2/44_hires.png",
+            "imageSourceName": "Pokemon TCG (Aquapolis)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 11,
+            "suggestion": {
+              "name": "Zapdos Aquapolis H32",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Aquapolis)",
+              "referenceSourceCardId": "ecard2-H32"
+            },
+            "imageUrl": "https://images.pokemontcg.io/ecard2/H32_hires.png",
+            "imageSourceName": "Pokemon TCG (Aquapolis)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 12,
+            "suggestion": {
+              "name": "Umbreon BW Black Star Promos BW93",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (BW Black Star Promos)",
+              "referenceSourceCardId": "bwp-BW93"
+            },
+            "imageUrl": "https://images.pokemontcg.io/bwp/BW93_hires.png",
+            "imageSourceName": "Pokemon TCG (BW Black Star Promos)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 13,
+            "suggestion": {
+              "name": "Moltres Wizards Black Star Promos 21",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+              "referenceSourceCardId": "basep-21"
+            },
+            "imageUrl": "https://images.pokemontcg.io/basep/21_hires.png",
+            "imageSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 14,
+            "suggestion": {
+              "name": "Pikachu 151 173",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (151)",
+              "referenceSourceCardId": "sv3pt5-173"
+            },
+            "imageUrl": "https://images.pokemontcg.io/sv3pt5/173_hires.png",
+            "imageSourceName": "Pokemon TCG (151)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 15,
+            "suggestion": {
+              "name": "Mew XY Black Star Promos XY192",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (XY Black Star Promos)",
+              "referenceSourceCardId": "xyp-XY192"
+            },
+            "imageUrl": "https://images.pokemontcg.io/xyp/XY192_hires.png",
+            "imageSourceName": "Pokemon TCG (XY Black Star Promos)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          },
+          {
+            "position": 16,
+            "suggestion": {
+              "name": "Mew XY Black Star Promos XY110",
+              "lane": "Historical Shelf",
+              "laneWhy": "prior weekly shelf history",
+              "why": "prior weekly shelf history",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (XY Black Star Promos)",
+              "referenceSourceCardId": "xyp-XY110"
+            },
+            "imageUrl": "https://images.pokemontcg.io/xyp/XY110_hires.png",
+            "imageSourceName": "Pokemon TCG (XY Black Star Promos)",
+            "market": {
+              "status": "READY",
+              "currency": "CAD"
+            }
+          }
+        ]
+      }
+    ],
+    "orderedCandidateReserve": [
+      {
+        "selectionIndex": 0,
+        "suggestion": {
+          "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+          "lane": "Promo Trail",
+          "laneWhy": "Promo Trail lane",
+          "why": "Weekly discovery candidate: 2020 Pokemon TCG SUN & MOON Promo Umbreon and Darkrai GX SM241",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (SM Black Star Promos)",
+          "referenceSourceCardId": "smp-SM241",
+          "referenceImageUrl": "https://images.pokemontcg.io/smp/SM241_hires.png",
+          "evidenceSearchTerm": "2020 Pokemon TCG SUN & MOON Promo Umbreon and Darkrai GX SM241 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "darkrai"
+          ]
+        },
+        "image": {
+          "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+          "url": "https://images.pokemontcg.io/smp/SM241_hires.png",
+          "sourceName": "Pokemon TCG (SM Black Star Promos)",
+          "sourceCardId": "smp-SM241",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 375.11,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 1,
+        "suggestion": {
+          "name": "Vaporeon Japanese SV8a 030/187",
+          "lane": "source-backed matches",
+          "laneWhy": "source-backed matches lane",
+          "why": "Weekly discovery candidate: Vaporeon Japanese SV8a 030/187",
+          "nearby": [],
+          "referenceSourceName": "TCGdex Japanese (SV8a)",
+          "referenceSourceCardId": "SV8a-030",
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/SV/SV8a/030/high.png",
+          "evidenceSearchTerm": "Vaporeon Japanese Pokemon card SV8a 030/187",
+          "requiredEvidenceTokens": [
+            "vaporeon-sv8a-030/187",
+            "japanese",
+            "030/187"
+          ]
+        },
+        "image": {
+          "name": "Vaporeon Japanese SV8a 030/187",
+          "url": "https://assets.tcgdex.net/ja/SV/SV8a/030/high.png",
+          "sourceName": "TCGdex Japanese (SV8a)",
+          "sourceCardId": "SV8a-030",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 2,
+        "suggestion": {
+          "name": "Light Vaporeon Neo Destiny 52",
+          "lane": "era-wide discovery",
+          "laneWhy": "era-wide discovery lane",
+          "why": "Weekly discovery candidate: Light Vaporeon Neo Destiny 52",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Neo Destiny)",
+          "referenceSourceCardId": "neo4-52",
+          "referenceImageUrl": "https://images.pokemontcg.io/neo4/52_hires.png",
+          "evidenceSearchTerm": "Light Vaporeon Neo Destiny 52 Pokemon card",
+          "requiredEvidenceTokens": [
+            "light",
+            "vaporeon",
+            "52"
+          ]
+        },
+        "image": {
+          "name": "Light Vaporeon Neo Destiny 52",
+          "url": "https://images.pokemontcg.io/neo4/52_hires.png",
+          "sourceName": "Pokemon TCG (Neo Destiny)",
+          "sourceCardId": "neo4-52",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 42.47,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 3,
+        "suggestion": {
+          "name": "Meowth Team Rocket 62",
+          "lane": "Vintage Era Trail",
+          "laneWhy": "Vintage Era Trail lane",
+          "why": "Weekly discovery candidate: Meowth Team Rocket 62",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Team Rocket)",
+          "referenceSourceCardId": "base5-62",
+          "referenceImageUrl": "https://images.pokemontcg.io/base5/62_hires.png",
+          "evidenceSearchTerm": "Meowth Team Rocket 62 Pokemon card",
+          "requiredEvidenceTokens": [
+            "meowth",
+            "62"
+          ]
+        },
+        "image": {
+          "name": "Meowth Team Rocket 62",
+          "url": "https://images.pokemontcg.io/base5/62_hires.png",
+          "sourceName": "Pokemon TCG (Team Rocket)",
+          "sourceCardId": "base5-62",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 15.68,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 4,
+        "suggestion": {
+          "name": "Meowth ex Perfect Order 121",
+          "lane": "Artwork Trail",
+          "laneWhy": "Artwork Trail lane",
+          "why": "Weekly discovery candidate: Meowth ex 121/088 SIR Special Illustration Rare Perfect Order Pokemon Card NM",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Perfect Order)",
+          "referenceSourceCardId": "me3-121",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me3-121/large",
+          "evidenceSearchTerm": "Meowth ex 121/088 SIR Special Illustration Rare Perfect Order Pokemon Card NM Pokemon card",
+          "requiredEvidenceTokens": [
+            "meowth",
+            "rare"
+          ]
+        },
+        "image": {
+          "name": "Meowth ex Perfect Order 121",
+          "url": "https://images.scrydex.com/pokemon/me3-121/large",
+          "sourceName": "Pokemon TCG (Perfect Order)",
+          "sourceCardId": "me3-121",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 55.870000000000005,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 5,
+        "suggestion": {
+          "name": "Zapdos ex Scarlet & Violet Black Star Promos 49",
+          "lane": "Japanese Collector Trail",
+          "laneWhy": "Japanese Collector Trail lane",
+          "why": "Weekly discovery candidate: Zapdos ex Scarlet & Violet Black Star Promos 49",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Scarlet & Violet Black Star Promos)",
+          "referenceSourceCardId": "svp-49",
+          "referenceImageUrl": "https://images.pokemontcg.io/svp/49_hires.png",
+          "evidenceSearchTerm": "Zapdos ex Scarlet & Violet Black Star Promos 49 Pokemon card",
+          "requiredEvidenceTokens": [
+            "zapdos",
+            "ex",
+            "49"
+          ]
+        },
+        "image": {
+          "name": "Zapdos ex Scarlet & Violet Black Star Promos 49",
+          "url": "https://images.pokemontcg.io/svp/49_hires.png",
+          "sourceName": "Pokemon TCG (Scarlet & Violet Black Star Promos)",
+          "sourceCardId": "svp-49",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 6,
+        "suggestion": {
+          "name": "Zapdos Wizards Black Star Promos 23",
+          "lane": "Promo Trail",
+          "laneWhy": "Promo Trail lane",
+          "why": "Weekly discovery candidate: Zapdos Wizards Black Star Promos 23",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "referenceSourceCardId": "basep-23",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/23_hires.png",
+          "evidenceSearchTerm": "Zapdos Wizards Black Star Promos 23 Pokemon card",
+          "requiredEvidenceTokens": [
+            "zapdos",
+            "wizards"
+          ]
+        },
+        "image": {
+          "name": "Zapdos Wizards Black Star Promos 23",
+          "url": "https://images.pokemontcg.io/basep/23_hires.png",
+          "sourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "sourceCardId": "basep-23",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 35.015,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 7,
+        "suggestion": {
+          "name": "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese",
+          "lane": "Japanese Collector Trail",
+          "laneWhy": "Japanese Collector Trail lane",
+          "why": "Weekly discovery candidate: Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese",
+          "nearby": [],
+          "referenceSourceName": "eBay vetted marketplace image",
+          "referenceImageUrl": "https://i.ebayimg.com/images/g/2YAAAeSwmT1qD~fi/s-l1600.jpg",
+          "evidenceSearchTerm": "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "mcdonald"
+          ]
+        },
+        "image": {
+          "name": "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese",
+          "url": "https://i.ebayimg.com/images/g/2YAAAeSwmT1qD~fi/s-l1600.jpg",
+          "sourceName": "eBay vetted marketplace image",
+          "sourceKind": "MARKET_LISTING"
+        },
+        "typicalRawAskingTotal": 1252.885,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 8,
+        "suggestion": {
+          "name": "_____'s Pikachu Celebrations: Classic Collection 24",
+          "lane": "Promo Trail",
+          "laneWhy": "Promo Trail lane",
+          "why": "Weekly discovery candidate: _____'s Pikachu Celebrations: Classic Collection 24",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Celebrations: Classic Collection)",
+          "referenceSourceCardId": "cel25c-24_A",
+          "referenceImageUrl": "https://images.pokemontcg.io/cel25c/24_A_hires.png",
+          "evidenceSearchTerm": "_____'s Pikachu Celebrations: Classic Collection 24 Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "celebrations"
+          ]
+        },
+        "image": {
+          "name": "_____'s Pikachu Celebrations: Classic Collection 24",
+          "url": "https://images.pokemontcg.io/cel25c/24_A_hires.png",
+          "sourceName": "Pokemon TCG (Celebrations: Classic Collection)",
+          "sourceCardId": "cel25c-24_A",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 72.89,
+        "marketSampleSize": 12,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 9,
+        "suggestion": {
+          "name": "Mew Expedition Base Set 55",
+          "lane": "E-Reader Era Trail",
+          "laneWhy": "E-Reader Era Trail lane",
+          "why": "Weekly discovery candidate: Pokemon Card Expedition Base Set Mew 55/165 Rare",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "ecard1-55",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard1/55_hires.png",
+          "evidenceSearchTerm": "Pokemon Card Expedition Base Set Mew 55/165 Rare Pokemon card",
+          "requiredEvidenceTokens": [
+            "expedition",
+            "base"
+          ]
+        },
+        "image": {
+          "name": "Mew Expedition Base Set 55",
+          "url": "https://images.pokemontcg.io/ecard1/55_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "ecard1-55",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 182.53,
+        "marketSampleSize": 5,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 10,
+        "suggestion": {
+          "name": "Rocket's Moltres Gym Heroes 12",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Rocket's Moltres Gym Heroes 12",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Gym Heroes)",
+          "referenceSourceCardId": "gym1-12",
+          "referenceImageUrl": "https://images.pokemontcg.io/gym1/12_hires.png",
+          "evidenceSearchTerm": "Rocket's Moltres Gym Heroes 12 Pokemon card",
+          "requiredEvidenceTokens": [
+            "rocket",
+            "moltres"
+          ]
+        },
+        "image": {
+          "name": "Rocket's Moltres Gym Heroes 12",
+          "url": "https://images.pokemontcg.io/gym1/12_hires.png",
+          "sourceName": "Pokemon TCG (Gym Heroes)",
+          "sourceCardId": "gym1-12",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 114.89,
+        "marketSampleSize": 12,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 11,
+        "suggestion": {
+          "name": "Squirtle 151 170",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Squirtle 151 170",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (151)",
+          "referenceSourceCardId": "sv3pt5-170",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/170_hires.png",
+          "evidenceSearchTerm": "Squirtle 151 170 Pokemon card",
+          "requiredEvidenceTokens": [
+            "squirtle"
+          ]
+        },
+        "image": {
+          "name": "Squirtle 151 170",
+          "url": "https://images.pokemontcg.io/sv3pt5/170_hires.png",
+          "sourceName": "Pokemon TCG (151)",
+          "sourceCardId": "sv3pt5-170",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 55.325,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 12,
+        "suggestion": {
+          "name": "Squirtle Expedition Base Set 132",
+          "lane": "E-Reader Era Trail",
+          "laneWhy": "E-Reader Era Trail lane",
+          "why": "Weekly discovery candidate: Squirtle 132/165 Common Expedition Base Set Pokemon Near Mint",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "ecard1-132",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard1/132_hires.png",
+          "evidenceSearchTerm": "Squirtle 132/165 Common Expedition Base Set Pokemon Near Mint Pokemon card",
+          "requiredEvidenceTokens": [
+            "squirtle",
+            "expedition"
+          ]
+        },
+        "image": {
+          "name": "Squirtle Expedition Base Set 132",
+          "url": "https://images.pokemontcg.io/ecard1/132_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "ecard1-132",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 83.905,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 13,
+        "suggestion": {
+          "name": "Dark Blastoise Team Rocket 20",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Dark Blastoise Team Rocket 20",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Team Rocket)",
+          "referenceSourceCardId": "base5-20",
+          "referenceImageUrl": "https://images.pokemontcg.io/base5/20_hires.png",
+          "evidenceSearchTerm": "Dark Blastoise Team Rocket 20 Pokemon card",
+          "requiredEvidenceTokens": [
+            "dark",
+            "blastoise"
+          ]
+        },
+        "image": {
+          "name": "Dark Blastoise Team Rocket 20",
+          "url": "https://images.pokemontcg.io/base5/20_hires.png",
+          "sourceName": "Pokemon TCG (Team Rocket)",
+          "sourceCardId": "base5-20",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 58.379999999999995,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 14,
+        "suggestion": {
+          "name": "Articuno Legendary Treasures 32",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Articuno Legendary Treasures 32",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Legendary Treasures)",
+          "referenceSourceCardId": "bw11-32",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw11/32_hires.png",
+          "evidenceSearchTerm": "Articuno Legendary Treasures 32 Pokemon card",
+          "requiredEvidenceTokens": [
+            "articuno",
+            "legendary"
+          ]
+        },
+        "image": {
+          "name": "Articuno Legendary Treasures 32",
+          "url": "https://images.pokemontcg.io/bw11/32_hires.png",
+          "sourceName": "Pokemon TCG (Legendary Treasures)",
+          "sourceCardId": "bw11-32",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 16.03,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 15,
+        "suggestion": {
+          "name": "Articuno Wizards Black Star Promos 22",
+          "lane": "Promo Trail",
+          "laneWhy": "Promo Trail lane",
+          "why": "Weekly discovery candidate: Articuno Wizards Black Star Promos 22",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "referenceSourceCardId": "basep-22",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/22_hires.png",
+          "evidenceSearchTerm": "Articuno Wizards Black Star Promos 22 Pokemon card",
+          "requiredEvidenceTokens": [
+            "articuno",
+            "wizards"
+          ]
+        },
+        "image": {
+          "name": "Articuno Wizards Black Star Promos 22",
+          "url": "https://images.pokemontcg.io/basep/22_hires.png",
+          "sourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "sourceCardId": "basep-22",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 31.595,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 16,
+        "suggestion": {
+          "name": "Gardevoir-GX Hidden Fates Shiny Vault SV75",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Gardevoir-GX Hidden Fates Shiny Vault SV75",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Hidden Fates Shiny Vault)",
+          "referenceSourceCardId": "sma-SV75",
+          "referenceImageUrl": "https://images.pokemontcg.io/sma/SV75_hires.png",
+          "evidenceSearchTerm": "Gardevoir-GX Hidden Fates Shiny Vault SV75 Pokemon card",
+          "requiredEvidenceTokens": [
+            "gardevoir",
+            "hidden"
+          ]
+        },
+        "image": {
+          "name": "Gardevoir-GX Hidden Fates Shiny Vault SV75",
+          "url": "https://images.pokemontcg.io/sma/SV75_hires.png",
+          "sourceName": "Pokemon TCG (Hidden Fates Shiny Vault)",
+          "sourceCardId": "sma-SV75",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 115.97,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 17,
+        "suggestion": {
+          "name": "Gardevoir LV.X Secret Wonders 131",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Gardevoir LV.X Secret Wonders 131",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Secret Wonders)",
+          "referenceSourceCardId": "dp3-131",
+          "referenceImageUrl": "https://images.pokemontcg.io/dp3/131_hires.png",
+          "evidenceSearchTerm": "Gardevoir LV.X Secret Wonders 131 Pokemon card",
+          "requiredEvidenceTokens": [
+            "gardevoir",
+            "secret"
+          ]
+        },
+        "image": {
+          "name": "Gardevoir LV.X Secret Wonders 131",
+          "url": "https://images.pokemontcg.io/dp3/131_hires.png",
+          "sourceName": "Pokemon TCG (Secret Wonders)",
+          "sourceCardId": "dp3-131",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 145.79999999999998,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 18,
+        "suggestion": {
+          "name": "Umbreon Aquapolis H29",
+          "lane": "Special Release Trail",
+          "laneWhy": "Special Release Trail lane",
+          "why": "Weekly discovery candidate: Umbreon Aquapolis H29",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Aquapolis)",
+          "referenceSourceCardId": "ecard2-H29",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard2/H29_hires.png",
+          "evidenceSearchTerm": "Umbreon Aquapolis H29 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "h29"
+          ]
+        },
+        "image": {
+          "name": "Umbreon Aquapolis H29",
+          "url": "https://images.pokemontcg.io/ecard2/H29_hires.png",
+          "sourceName": "Pokemon TCG (Aquapolis)",
+          "sourceCardId": "ecard2-H29",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 1917.75,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 19,
+        "suggestion": {
+          "name": "Umbreon Neo Discovery 13",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Umbreon Neo Discovery 13",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Neo Discovery)",
+          "referenceSourceCardId": "neo2-13",
+          "referenceImageUrl": "https://images.pokemontcg.io/neo2/13_hires.png",
+          "evidenceSearchTerm": "Umbreon Neo Discovery 13 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "neo"
+          ]
+        },
+        "image": {
+          "name": "Umbreon Neo Discovery 13",
+          "url": "https://images.pokemontcg.io/neo2/13_hires.png",
+          "sourceName": "Pokemon TCG (Neo Discovery)",
+          "sourceCardId": "neo2-13",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 762.3050000000001,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 20,
+        "suggestion": {
+          "name": "Mew HS—Triumphant 97",
+          "lane": "Collector Compass",
+          "laneWhy": "Collector Compass lane",
+          "why": "Weekly discovery candidate: Mew HS—Triumphant 97",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (HS—Triumphant)",
+          "referenceSourceCardId": "hgss4-97",
+          "referenceImageUrl": "https://images.pokemontcg.io/hgss4/97_hires.png",
+          "evidenceSearchTerm": "Mew HS—Triumphant 97 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "97"
+          ]
+        },
+        "image": {
+          "name": "Mew HS—Triumphant 97",
+          "url": "https://images.pokemontcg.io/hgss4/97_hires.png",
+          "sourceName": "Pokemon TCG (HS—Triumphant)",
+          "sourceCardId": "hgss4-97",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 21,
+        "suggestion": {
+          "name": "Mew-EX Dragons Exalted 46",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Mew-EX Dragons Exalted 46",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Dragons Exalted)",
+          "referenceSourceCardId": "bw6-46",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw6/46_hires.png",
+          "evidenceSearchTerm": "Mew-EX Dragons Exalted 46 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "dragons"
+          ]
+        },
+        "image": {
+          "name": "Mew-EX Dragons Exalted 46",
+          "url": "https://images.pokemontcg.io/bw6/46_hires.png",
+          "sourceName": "Pokemon TCG (Dragons Exalted)",
+          "sourceCardId": "bw6-46",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 121.77,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 22,
+        "suggestion": {
+          "name": "Mew Evolutions 53",
+          "lane": "Collector Compass",
+          "laneWhy": "Collector Compass lane",
+          "why": "Weekly discovery candidate: Mew Evolutions 53",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Evolutions)",
+          "referenceSourceCardId": "xy12-53",
+          "referenceImageUrl": "https://images.pokemontcg.io/xy12/53_hires.png",
+          "evidenceSearchTerm": "Mew Evolutions 53 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "53"
+          ]
+        },
+        "image": {
+          "name": "Mew Evolutions 53",
+          "url": "https://images.pokemontcg.io/xy12/53_hires.png",
+          "sourceName": "Pokemon TCG (Evolutions)",
+          "sourceCardId": "xy12-53",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 47.519999999999996,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 23,
+        "suggestion": {
+          "name": "Mew-EX Dragons Exalted 120",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Mew-EX Dragons Exalted 120",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Dragons Exalted)",
+          "referenceSourceCardId": "bw6-120",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw6/120_hires.png",
+          "evidenceSearchTerm": "Mew-EX Dragons Exalted 120 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "dragons"
+          ]
+        },
+        "image": {
+          "name": "Mew-EX Dragons Exalted 120",
+          "url": "https://images.pokemontcg.io/bw6/120_hires.png",
+          "sourceName": "Pokemon TCG (Dragons Exalted)",
+          "sourceCardId": "bw6-120",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 333.92,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 24,
+        "suggestion": {
+          "name": "Mew-EX XY Black Star Promos XY126",
+          "lane": "multi-card discovery",
+          "laneWhy": "multi-card discovery lane",
+          "why": "Weekly discovery candidate: Mew-EX XY Black Star Promos XY126",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (XY Black Star Promos)",
+          "referenceSourceCardId": "xyp-XY126",
+          "referenceImageUrl": "https://images.pokemontcg.io/xyp/XY126_hires.png",
+          "evidenceSearchTerm": "Mew-EX XY Black Star Promos XY126 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew-ex",
+            "xy126"
+          ]
+        },
+        "image": {
+          "name": "Mew-EX XY Black Star Promos XY126",
+          "url": "https://images.pokemontcg.io/xyp/XY126_hires.png",
+          "sourceName": "Pokemon TCG (XY Black Star Promos)",
+          "sourceCardId": "xyp-XY126",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 443.23,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 25,
+        "suggestion": {
+          "name": "Mew Fates Collide 29",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Mew Fates Collide 29",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Fates Collide)",
+          "referenceSourceCardId": "xy10-29",
+          "referenceImageUrl": "https://images.pokemontcg.io/xy10/29_hires.png",
+          "evidenceSearchTerm": "Mew Fates Collide 29 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "fates"
+          ]
+        },
+        "image": {
+          "name": "Mew Fates Collide 29",
+          "url": "https://images.pokemontcg.io/xy10/29_hires.png",
+          "sourceName": "Pokemon TCG (Fates Collide)",
+          "sourceCardId": "xy10-29",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 36.69,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 26,
+        "suggestion": {
+          "name": "Mew VMAX Fusion Strike 269",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Mew VMAX Fusion Strike 269",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Fusion Strike)",
+          "referenceSourceCardId": "swsh8-269",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh8/269_hires.png",
+          "evidenceSearchTerm": "Mew VMAX Fusion Strike 269 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "fusion"
+          ]
+        },
+        "image": {
+          "name": "Mew VMAX Fusion Strike 269",
+          "url": "https://images.pokemontcg.io/swsh8/269_hires.png",
+          "sourceName": "Pokemon TCG (Fusion Strike)",
+          "sourceCardId": "swsh8-269",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 396.33500000000004,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 27,
+        "suggestion": {
+          "name": "Mewtwo & Mew-GX Unified Minds 71",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Mewtwo & Mew-GX Unified Minds 71",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Unified Minds)",
+          "referenceSourceCardId": "sm11-71",
+          "referenceImageUrl": "https://images.pokemontcg.io/sm11/71_hires.png",
+          "evidenceSearchTerm": "Mewtwo & Mew-GX Unified Minds 71 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mewtwo",
+            "mew"
+          ]
+        },
+        "image": {
+          "name": "Mewtwo & Mew-GX Unified Minds 71",
+          "url": "https://images.pokemontcg.io/sm11/71_hires.png",
+          "sourceName": "Pokemon TCG (Unified Minds)",
+          "sourceCardId": "sm11-71",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 105.44,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 28,
+        "suggestion": {
+          "name": "Pikachu ex Ascended Heroes 276",
+          "lane": "Illustration Rarity Trail",
+          "laneWhy": "Illustration Rarity Trail lane",
+          "why": "Weekly discovery candidate: Pikachu ex Ascended Heroes 276",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Ascended Heroes)",
+          "referenceSourceCardId": "me2pt5-276",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me2pt5-276/large",
+          "evidenceSearchTerm": "Pikachu ex Ascended Heroes 276 Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "ex",
+            "276"
+          ]
+        },
+        "image": {
+          "name": "Pikachu ex Ascended Heroes 276",
+          "url": "https://images.scrydex.com/pokemon/me2pt5-276/large",
+          "sourceName": "Pokemon TCG (Ascended Heroes)",
+          "sourceCardId": "me2pt5-276",
+          "sourceKind": "CARD_REFERENCE"
+        }
+      },
+      {
+        "selectionIndex": 29,
+        "suggestion": {
+          "name": "Squirtle Expedition Base Set 131",
+          "lane": "release-history source match",
+          "laneWhy": "release-history source match lane",
+          "why": "Weekly discovery candidate: Squirtle Expedition Base Set 131",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "ecard1-131",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard1/131_hires.png",
+          "evidenceSearchTerm": "Squirtle Expedition Base Set 131 Pokemon card",
+          "requiredEvidenceTokens": [
+            "squirtle",
+            "131"
+          ]
+        },
+        "image": {
+          "name": "Squirtle Expedition Base Set 131",
+          "url": "https://images.pokemontcg.io/ecard1/131_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "ecard1-131",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 99.97,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 30,
+        "suggestion": {
+          "name": "Squirtle Expedition Base Set 132",
+          "lane": "release-history source match",
+          "laneWhy": "release-history source match lane",
+          "why": "Weekly discovery candidate: Squirtle Expedition Base Set 132",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "ecard1-132",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard1/132_hires.png",
+          "evidenceSearchTerm": "Squirtle Expedition Base Set 132 Pokemon card",
+          "requiredEvidenceTokens": [
+            "squirtle",
+            "132"
+          ]
+        },
+        "image": {
+          "name": "Squirtle Expedition Base Set 132",
+          "url": "https://images.pokemontcg.io/ecard1/132_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "ecard1-132",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 65.47999999999999,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 31,
+        "suggestion": {
+          "name": "Umbreon BW Black Star Promos BW93",
+          "lane": "release-history source match",
+          "laneWhy": "release-history source match lane",
+          "why": "Weekly discovery candidate: Umbreon BW Black Star Promos BW93",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (BW Black Star Promos)",
+          "referenceSourceCardId": "bwp-BW93",
+          "referenceImageUrl": "https://images.pokemontcg.io/bwp/BW93_hires.png",
+          "evidenceSearchTerm": "Umbreon BW Black Star Promos BW93 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "bw93"
+          ]
+        },
+        "image": {
+          "name": "Umbreon BW Black Star Promos BW93",
+          "url": "https://images.pokemontcg.io/bwp/BW93_hires.png",
+          "sourceName": "Pokemon TCG (BW Black Star Promos)",
+          "sourceCardId": "bwp-BW93",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 241.41,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 32,
+        "suggestion": {
+          "name": "Pikachu ex Ascended Heroes 277",
+          "lane": "visual variant source match",
+          "laneWhy": "visual variant source match lane",
+          "why": "Weekly discovery candidate: Pikachu ex Ascended Heroes 277",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Ascended Heroes)",
+          "referenceSourceCardId": "me2pt5-277",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me2pt5-277/large",
+          "evidenceSearchTerm": "Pikachu ex Ascended Heroes 277 Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "ex",
+            "277"
+          ]
+        },
+        "image": {
+          "name": "Pikachu ex Ascended Heroes 277",
+          "url": "https://images.scrydex.com/pokemon/me2pt5-277/large",
+          "sourceName": "Pokemon TCG (Ascended Heroes)",
+          "sourceCardId": "me2pt5-277",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 744.6700000000001,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 33,
+        "suggestion": {
+          "name": "Pikachu 151 173",
+          "lane": "visual variant source match",
+          "laneWhy": "visual variant source match lane",
+          "why": "Weekly discovery candidate: Pikachu 151 173",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (151)",
+          "referenceSourceCardId": "sv3pt5-173",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/173_hires.png",
+          "evidenceSearchTerm": "Pikachu 151 173 Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "173"
+          ]
+        },
+        "image": {
+          "name": "Pikachu 151 173",
+          "url": "https://images.pokemontcg.io/sv3pt5/173_hires.png",
+          "sourceName": "Pokemon TCG (151)",
+          "sourceCardId": "sv3pt5-173",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 111.05000000000001,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 34,
+        "suggestion": {
+          "name": "Moltres Skyridge 21",
+          "lane": "source-backed matches",
+          "laneWhy": "source-backed matches lane",
+          "why": "Weekly discovery candidate: Moltres Skyridge 21",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Skyridge)",
+          "referenceSourceCardId": "ecard3-21",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard3/21_hires.png",
+          "evidenceSearchTerm": "Moltres Skyridge 21 Pokemon card",
+          "requiredEvidenceTokens": [
+            "moltres",
+            "21"
+          ]
+        },
+        "image": {
+          "name": "Moltres Skyridge 21",
+          "url": "https://images.pokemontcg.io/ecard3/21_hires.png",
+          "sourceName": "Pokemon TCG (Skyridge)",
+          "sourceCardId": "ecard3-21",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 83.93,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 35,
+        "suggestion": {
+          "name": "Zapdos Aquapolis 44",
+          "lane": "source-backed matches",
+          "laneWhy": "source-backed matches lane",
+          "why": "Weekly discovery candidate: Zapdos Aquapolis 44",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Aquapolis)",
+          "referenceSourceCardId": "ecard2-44",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard2/44_hires.png",
+          "evidenceSearchTerm": "Zapdos Aquapolis 44 Pokemon card",
+          "requiredEvidenceTokens": [
+            "zapdos",
+            "44"
+          ]
+        },
+        "image": {
+          "name": "Zapdos Aquapolis 44",
+          "url": "https://images.pokemontcg.io/ecard2/44_hires.png",
+          "sourceName": "Pokemon TCG (Aquapolis)",
+          "sourceCardId": "ecard2-44",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 183.10000000000002,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 36,
+        "suggestion": {
+          "name": "Umbreon Skyridge H30",
+          "lane": "era-wide discovery",
+          "laneWhy": "era-wide discovery lane",
+          "why": "Weekly discovery candidate: Umbreon Skyridge H30",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Skyridge)",
+          "referenceSourceCardId": "ecard3-H30",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard3/H30_hires.png",
+          "evidenceSearchTerm": "Umbreon Skyridge H30 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "h30"
+          ]
+        },
+        "image": {
+          "name": "Umbreon Skyridge H30",
+          "url": "https://images.pokemontcg.io/ecard3/H30_hires.png",
+          "sourceName": "Pokemon TCG (Skyridge)",
+          "sourceCardId": "ecard3-H30",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 2959.1549999999997,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 37,
+        "suggestion": {
+          "name": "Pikachu Skyridge 84",
+          "lane": "E-Reader Era Trail",
+          "laneWhy": "E-Reader Era Trail lane",
+          "why": "Weekly discovery candidate: Pikachu 84/144 Skyridge Regular Non-Holo Rare Pokemon TCG Nintendo #84 LP/MP",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Skyridge)",
+          "referenceSourceCardId": "ecard3-84",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard3/84_hires.png",
+          "evidenceSearchTerm": "Pikachu 84/144 Skyridge Regular Non-Holo Rare Pokemon TCG Nintendo #84 LP/MP Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "skyridge"
+          ]
+        },
+        "image": {
+          "name": "Pikachu Skyridge 84",
+          "url": "https://images.pokemontcg.io/ecard3/84_hires.png",
+          "sourceName": "Pokemon TCG (Skyridge)",
+          "sourceCardId": "ecard3-84",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 209.82,
+        "marketSampleSize": 12,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 38,
+        "suggestion": {
+          "name": "Mew Japanese S12a 052/172",
+          "lane": "source-backed matches",
+          "laneWhy": "source-backed matches lane",
+          "why": "Weekly discovery candidate: Mew Japanese S12a 052/172",
+          "nearby": [],
+          "referenceSourceName": "TCGdex Japanese (S12a)",
+          "referenceSourceCardId": "S12a-052",
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/S/S12a/052/high.png",
+          "evidenceSearchTerm": "Mew Japanese Pokemon card S12a 052/172",
+          "requiredEvidenceTokens": [
+            "mew-s12a-052/172",
+            "japanese",
+            "052/172"
+          ]
+        },
+        "image": {
+          "name": "Mew Japanese S12a 052/172",
+          "url": "https://assets.tcgdex.net/ja/S/S12a/052/high.png",
+          "sourceName": "TCGdex Japanese (S12a)",
+          "sourceCardId": "S12a-052",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 39,
+        "suggestion": {
+          "name": "Mew VMAX Lost Origin Trainer Gallery TG30",
+          "lane": "Artwork Trail",
+          "laneWhy": "Artwork Trail lane",
+          "why": "Weekly discovery candidate: Mew VMAX Lost Origin Trainer Gallery TG30",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Lost Origin)",
+          "referenceSourceCardId": "swsh11tg-TG30",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh11tg/TG30_hires.png",
+          "evidenceSearchTerm": "Mew VMAX Lost Origin Trainer Gallery TG30 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "lost"
+          ]
+        },
+        "image": {
+          "name": "Mew VMAX Lost Origin Trainer Gallery TG30",
+          "url": "https://images.pokemontcg.io/swsh11tg/TG30_hires.png",
+          "sourceName": "Pokemon TCG (Lost Origin)",
+          "sourceCardId": "swsh11tg-TG30",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 68.675,
+        "marketSampleSize": 12,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 40,
+        "suggestion": {
+          "name": "Umbreon Skyridge 32",
+          "lane": "E-Reader Era Trail",
+          "laneWhy": "E-Reader Era Trail lane",
+          "why": "Weekly discovery candidate: Umbreon Skyridge 32",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Skyridge)",
+          "referenceSourceCardId": "ecard3-32",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard3/32_hires.png",
+          "evidenceSearchTerm": "Umbreon Skyridge 32 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "skyridge"
+          ]
+        },
+        "image": {
+          "name": "Umbreon Skyridge 32",
+          "url": "https://images.pokemontcg.io/ecard3/32_hires.png",
+          "sourceName": "Pokemon TCG (Skyridge)",
+          "sourceCardId": "ecard3-32",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 635.03,
+        "marketSampleSize": 8,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 41,
+        "suggestion": {
+          "name": "Mew ex Paldean Fates 232",
+          "lane": "Collector Compass",
+          "laneWhy": "Collector Compass lane",
+          "why": "Weekly discovery candidate: Mew ex Paldean Fates 232",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Paldean Fates)",
+          "referenceSourceCardId": "sv4pt5-232",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/232_hires.png",
+          "evidenceSearchTerm": "Mew ex Paldean Fates 232 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "ex",
+            "232"
+          ]
+        },
+        "image": {
+          "name": "Mew ex Paldean Fates 232",
+          "url": "https://images.pokemontcg.io/sv4pt5/232_hires.png",
+          "sourceName": "Pokemon TCG (Paldean Fates)",
+          "sourceCardId": "sv4pt5-232",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 1607.6799999999998,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 42,
+        "suggestion": {
+          "name": "Mew Expedition Base Set 55",
+          "lane": "E-Reader Era Trail",
+          "laneWhy": "E-Reader Era Trail lane",
+          "why": "Weekly discovery candidate: Mew 55/165 Expedition Base Set Regular Rare MP",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "ecard1-55",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard1/55_hires.png",
+          "evidenceSearchTerm": "Mew 55/165 Expedition Base Set Regular Rare MP Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "expedition"
+          ]
+        },
+        "image": {
+          "name": "Mew Expedition Base Set 55",
+          "url": "https://images.pokemontcg.io/ecard1/55_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "ecard1-55",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 153,
+        "marketSampleSize": 11,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 43,
+        "suggestion": {
+          "name": "Mew Expedition Base Set 55",
+          "lane": "E-Reader Era Trail",
+          "laneWhy": "E-Reader Era Trail lane",
+          "why": "Weekly discovery candidate: Mew Expedition Base Set 55",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Expedition Base Set)",
+          "referenceSourceCardId": "ecard1-55",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard1/55_hires.png",
+          "evidenceSearchTerm": "Mew Expedition Base Set 55 Pokemon card",
+          "requiredEvidenceTokens": [
+            "mew",
+            "55"
+          ]
+        },
+        "image": {
+          "name": "Mew Expedition Base Set 55",
+          "url": "https://images.pokemontcg.io/ecard1/55_hires.png",
+          "sourceName": "Pokemon TCG (Expedition Base Set)",
+          "sourceCardId": "ecard1-55",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 174.42,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 44,
+        "suggestion": {
+          "name": "Dark Vaporeon Team Rocket 45",
+          "lane": "Vintage Era Trail",
+          "laneWhy": "Vintage Era Trail lane",
+          "why": "Weekly discovery candidate: Dark Vaporeon Team Rocket 45",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Team Rocket)",
+          "referenceSourceCardId": "base5-45",
+          "referenceImageUrl": "https://images.pokemontcg.io/base5/45_hires.png",
+          "evidenceSearchTerm": "Dark Vaporeon Team Rocket 45 Pokemon card",
+          "requiredEvidenceTokens": [
+            "dark",
+            "vaporeon",
+            "45"
+          ]
+        },
+        "image": {
+          "name": "Dark Vaporeon Team Rocket 45",
+          "url": "https://images.pokemontcg.io/base5/45_hires.png",
+          "sourceName": "Pokemon TCG (Team Rocket)",
+          "sourceCardId": "base5-45",
+          "sourceKind": "CARD_REFERENCE"
+        }
+      },
+      {
+        "selectionIndex": 45,
+        "suggestion": {
+          "name": "Vaporeon ★ Power Keepers 102",
+          "lane": "Vintage Era Trail",
+          "laneWhy": "Vintage Era Trail lane",
+          "why": "Weekly discovery candidate: Vaporeon ★ Power Keepers 102",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Power Keepers)",
+          "referenceSourceCardId": "ex16-102",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex16/102_hires.png",
+          "evidenceSearchTerm": "Vaporeon ★ Power Keepers 102 Pokemon card",
+          "requiredEvidenceTokens": [
+            "vaporeon",
+            "102"
+          ]
+        },
+        "image": {
+          "name": "Vaporeon ★ Power Keepers 102",
+          "url": "https://images.pokemontcg.io/ex16/102_hires.png",
+          "sourceName": "Pokemon TCG (Power Keepers)",
+          "sourceCardId": "ex16-102",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 46,
+        "suggestion": {
+          "name": "Meowth ex Perfect Order 121",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Meowth ex Perfect Order 121",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Perfect Order)",
+          "referenceSourceCardId": "me3-121",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me3-121/large",
+          "evidenceSearchTerm": "Meowth ex Perfect Order 121 Pokemon card",
+          "requiredEvidenceTokens": [
+            "meowth",
+            "perfect"
+          ]
+        },
+        "image": {
+          "name": "Meowth ex Perfect Order 121",
+          "url": "https://images.scrydex.com/pokemon/me3-121/large",
+          "sourceName": "Pokemon TCG (Perfect Order)",
+          "sourceCardId": "me3-121",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 267.025,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 47,
+        "suggestion": {
+          "name": "Meowth Jungle 56",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Meowth Jungle 56/64 Pokemon Card Raw",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Jungle)",
+          "referenceSourceCardId": "base2-56",
+          "referenceImageUrl": "https://images.pokemontcg.io/base2/56_hires.png",
+          "evidenceSearchTerm": "Meowth Jungle 56/64 Pokemon Card Raw Pokemon card",
+          "requiredEvidenceTokens": [
+            "meowth",
+            "jungle"
+          ]
+        },
+        "image": {
+          "name": "Meowth Jungle 56",
+          "url": "https://images.pokemontcg.io/base2/56_hires.png",
+          "sourceName": "Pokemon TCG (Jungle)",
+          "sourceCardId": "base2-56",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 21.27,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 48,
+        "suggestion": {
+          "name": "Zapdos ex Nintendo Black Star Promos 33",
+          "lane": "retail-promo discovery",
+          "laneWhy": "retail-promo discovery lane",
+          "why": "Weekly discovery candidate: Zapdos ex Nintendo Black Star Promos 33",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Nintendo Black Star Promos)",
+          "referenceSourceCardId": "np-33",
+          "referenceImageUrl": "https://images.pokemontcg.io/np/33_hires.png",
+          "evidenceSearchTerm": "Zapdos ex Nintendo Black Star Promos 33 Pokemon card",
+          "requiredEvidenceTokens": [
+            "zapdos",
+            "ex",
+            "33"
+          ]
+        },
+        "image": {
+          "name": "Zapdos ex Nintendo Black Star Promos 33",
+          "url": "https://images.pokemontcg.io/np/33_hires.png",
+          "sourceName": "Pokemon TCG (Nintendo Black Star Promos)",
+          "sourceCardId": "np-33",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 49,
+        "suggestion": {
+          "name": "Zapdos ex 151 202",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Zapdos ex 151 202",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (151)",
+          "referenceSourceCardId": "sv3pt5-202",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/202_hires.png",
+          "evidenceSearchTerm": "Zapdos ex 151 202 Pokemon card",
+          "requiredEvidenceTokens": [
+            "zapdos"
+          ]
+        },
+        "image": {
+          "name": "Zapdos ex 151 202",
+          "url": "https://images.pokemontcg.io/sv3pt5/202_hires.png",
+          "sourceName": "Pokemon TCG (151)",
+          "sourceCardId": "sv3pt5-202",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 166.06,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 50,
+        "suggestion": {
+          "name": "Zapdos Legendary Treasures 46",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Zapdos Legendary Treasures 46",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Legendary Treasures)",
+          "referenceSourceCardId": "bw11-46",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw11/46_hires.png",
+          "evidenceSearchTerm": "Zapdos Legendary Treasures 46 Pokemon card",
+          "requiredEvidenceTokens": [
+            "zapdos",
+            "legendary"
+          ]
+        },
+        "image": {
+          "name": "Zapdos Legendary Treasures 46",
+          "url": "https://images.pokemontcg.io/bw11/46_hires.png",
+          "sourceName": "Pokemon TCG (Legendary Treasures)",
+          "sourceCardId": "bw11-46",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 15.765,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 51,
+        "suggestion": {
+          "name": "Zapdos Japanese SVLN 002/022",
+          "lane": "source-backed matches",
+          "laneWhy": "source-backed matches lane",
+          "why": "Weekly discovery candidate: Zapdos Japanese SVLN 002/022",
+          "nearby": [],
+          "referenceSourceName": "TCGdex Japanese (SVLN)",
+          "referenceSourceCardId": "SVLN-002",
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/SV/SVLN/002/high.png",
+          "evidenceSearchTerm": "Zapdos Japanese Pokemon card SVLN 002/022",
+          "requiredEvidenceTokens": [
+            "zapdos-svln-002/022",
+            "japanese",
+            "002/022"
+          ]
+        },
+        "image": {
+          "name": "Zapdos Japanese SVLN 002/022",
+          "url": "https://assets.tcgdex.net/ja/SV/SVLN/002/high.png",
+          "sourceName": "TCGdex Japanese (SVLN)",
+          "sourceCardId": "SVLN-002",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 52,
+        "suggestion": {
+          "name": "Articuno-GX Celestial Storm 154",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Articuno-GX Celestial Storm 154",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Celestial Storm)",
+          "referenceSourceCardId": "sm7-154",
+          "referenceImageUrl": "https://images.pokemontcg.io/sm7/154_hires.png",
+          "evidenceSearchTerm": "Articuno-GX Celestial Storm 154 Pokemon card",
+          "requiredEvidenceTokens": [
+            "articuno",
+            "celestial"
+          ]
+        },
+        "image": {
+          "name": "Articuno-GX Celestial Storm 154",
+          "url": "https://images.pokemontcg.io/sm7/154_hires.png",
+          "sourceName": "Pokemon TCG (Celestial Storm)",
+          "sourceCardId": "sm7-154",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 56.22,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 53,
+        "suggestion": {
+          "name": "Articuno Wizards Black Star Promos 48",
+          "lane": "Promo Trail",
+          "laneWhy": "Promo Trail lane",
+          "why": "Weekly discovery candidate: Articuno Wizards Black Star Promos 48",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "referenceSourceCardId": "basep-48",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/48_hires.png",
+          "evidenceSearchTerm": "Articuno Wizards Black Star Promos 48 Pokemon card",
+          "requiredEvidenceTokens": [
+            "articuno",
+            "wizards"
+          ]
+        },
+        "image": {
+          "name": "Articuno Wizards Black Star Promos 48",
+          "url": "https://images.pokemontcg.io/basep/48_hires.png",
+          "sourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "sourceCardId": "basep-48",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 205.94,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 54,
+        "suggestion": {
+          "name": "Articuno Japanese S12a 049/172",
+          "lane": "Japanese Collector Trail",
+          "laneWhy": "Japanese Collector Trail lane",
+          "why": "Weekly discovery candidate: Articuno Japanese S12a 049/172",
+          "nearby": [],
+          "referenceSourceName": "TCGdex Japanese (S12a)",
+          "referenceSourceCardId": "S12a-049",
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/S/S12a/049/high.png",
+          "evidenceSearchTerm": "Articuno Japanese Pokemon card S12a 049/172",
+          "requiredEvidenceTokens": [
+            "articuno-s12a-049/172",
+            "japanese",
+            "049/172"
+          ]
+        },
+        "image": {
+          "name": "Articuno Japanese S12a 049/172",
+          "url": "https://assets.tcgdex.net/ja/S/S12a/049/high.png",
+          "sourceName": "TCGdex Japanese (S12a)",
+          "sourceCardId": "S12a-049",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 55,
+        "suggestion": {
+          "name": "Pokemon card Gardevoir Spirit Link 033/048 XY 2019 Pokémon TCG Japanese Nintendo",
+          "lane": "Japanese Collector Trail",
+          "laneWhy": "Japanese Collector Trail lane",
+          "why": "Weekly discovery candidate: Pokemon card Gardevoir Spirit Link 033/048 XY 2019 Pokémon TCG Japanese Nintendo",
+          "nearby": [],
+          "evidenceSearchTerm": "Pokemon card Gardevoir Spirit Link 033/048 XY 2019 Pokémon TCG Japanese Nintendo Pokemon card",
+          "requiredEvidenceTokens": [
+            "gardevoir"
+          ]
+        },
+        "image": {
+          "name": "Pokemon card Gardevoir Spirit Link 033/048 XY 2019 Pokémon TCG Japanese Nintendo",
+          "url": "https://i.ebayimg.com/images/g/ASkAAOSwEjpidN73/s-l1600.jpg",
+          "sourceName": "eBay listing image",
+          "sourceKind": "MARKET_LISTING"
+        },
+        "typicalRawAskingTotal": 56.545,
+        "marketSampleSize": 12,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 56,
+        "suggestion": {
+          "name": "Pikachu Power Keepers 57",
+          "lane": "Vintage Era Trail",
+          "laneWhy": "Vintage Era Trail lane",
+          "why": "Weekly discovery candidate: Pikachu Power Keepers 57",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Power Keepers)",
+          "referenceSourceCardId": "ex16-57",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex16/57_hires.png",
+          "evidenceSearchTerm": "Pikachu Power Keepers 57 Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "57"
+          ]
+        },
+        "image": {
+          "name": "Pikachu Power Keepers 57",
+          "url": "https://images.pokemontcg.io/ex16/57_hires.png",
+          "sourceName": "Pokemon TCG (Power Keepers)",
+          "sourceCardId": "ex16-57",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 23.735,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 57,
+        "suggestion": {
+          "name": "Pikachu-GX SM Black Star Promos SM232",
+          "lane": "multi-card discovery",
+          "laneWhy": "multi-card discovery lane",
+          "why": "Weekly discovery candidate: Pikachu-GX SM Black Star Promos SM232",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (SM Black Star Promos)",
+          "referenceSourceCardId": "smp-SM232",
+          "referenceImageUrl": "https://images.pokemontcg.io/smp/SM232_hires.png",
+          "evidenceSearchTerm": "Pikachu-GX SM Black Star Promos SM232 Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu-gx",
+            "sm232"
+          ]
+        },
+        "image": {
+          "name": "Pikachu-GX SM Black Star Promos SM232",
+          "url": "https://images.pokemontcg.io/smp/SM232_hires.png",
+          "sourceName": "Pokemon TCG (SM Black Star Promos)",
+          "sourceCardId": "smp-SM232",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 34.16,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 58,
+        "suggestion": {
+          "name": "Pikachu Crown Zenith 160",
+          "lane": "Value Watch",
+          "laneWhy": "Value Watch lane",
+          "why": "Weekly discovery candidate: Pikachu Crown Zenith 160",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Crown Zenith)",
+          "referenceSourceCardId": "swsh12pt5-160",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh12pt5/160_hires.png",
+          "evidenceSearchTerm": "Pikachu Crown Zenith 160 Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "crown"
+          ]
+        },
+        "image": {
+          "name": "Pikachu Crown Zenith 160",
+          "url": "https://images.pokemontcg.io/swsh12pt5/160_hires.png",
+          "sourceName": "Pokemon TCG (Crown Zenith)",
+          "sourceCardId": "swsh12pt5-160",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 97.53999999999999,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 59,
+        "suggestion": {
+          "name": "Pikachu VMAX Vivid Voltage 188",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Pikachu VMAX Vivid Voltage 188",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Vivid Voltage)",
+          "referenceSourceCardId": "swsh4-188",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh4/188_hires.png",
+          "evidenceSearchTerm": "Pikachu VMAX Vivid Voltage 188 Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "vivid"
+          ]
+        },
+        "image": {
+          "name": "Pikachu VMAX Vivid Voltage 188",
+          "url": "https://images.pokemontcg.io/swsh4/188_hires.png",
+          "sourceName": "Pokemon TCG (Vivid Voltage)",
+          "sourceCardId": "swsh4-188",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 267.53,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 60,
+        "suggestion": {
+          "name": "Pikachu-EX XY Black Star Promos XY174",
+          "lane": "multi-card discovery",
+          "laneWhy": "multi-card discovery lane",
+          "why": "Weekly discovery candidate: Pikachu-EX XY Black Star Promos XY174",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (XY Black Star Promos)",
+          "referenceSourceCardId": "xyp-XY174",
+          "referenceImageUrl": "https://images.pokemontcg.io/xyp/XY174_hires.png",
+          "evidenceSearchTerm": "Pikachu-EX XY Black Star Promos XY174 Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu-ex",
+            "xy174"
+          ]
+        },
+        "image": {
+          "name": "Pikachu-EX XY Black Star Promos XY174",
+          "url": "https://images.pokemontcg.io/xyp/XY174_hires.png",
+          "sourceName": "Pokemon TCG (XY Black Star Promos)",
+          "sourceCardId": "xyp-XY174",
+          "sourceKind": "CARD_REFERENCE"
+        }
+      },
+      {
+        "selectionIndex": 61,
+        "suggestion": {
+          "name": "Umbreon ex Prismatic Evolutions 161",
+          "lane": "Collector Compass",
+          "laneWhy": "Collector Compass lane",
+          "why": "Weekly discovery candidate: Umbreon ex Prismatic Evolutions 161",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Prismatic Evolutions)",
+          "referenceSourceCardId": "sv8pt5-161",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv8pt5/161_hires.png",
+          "evidenceSearchTerm": "Umbreon ex Prismatic Evolutions 161 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "ex",
+            "161"
+          ]
+        },
+        "image": {
+          "name": "Umbreon ex Prismatic Evolutions 161",
+          "url": "https://images.pokemontcg.io/sv8pt5/161_hires.png",
+          "sourceName": "Pokemon TCG (Prismatic Evolutions)",
+          "sourceCardId": "sv8pt5-161",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 2287.99,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 62,
+        "suggestion": {
+          "name": "Umbreon-EX Fates Collide 119",
+          "lane": "Collector Compass",
+          "laneWhy": "Collector Compass lane",
+          "why": "Weekly discovery candidate: Umbreon-EX Fates Collide 119",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Fates Collide)",
+          "referenceSourceCardId": "xy10-119",
+          "referenceImageUrl": "https://images.pokemontcg.io/xy10/119_hires.png",
+          "evidenceSearchTerm": "Umbreon-EX Fates Collide 119 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon-ex",
+            "119"
+          ]
+        },
+        "image": {
+          "name": "Umbreon-EX Fates Collide 119",
+          "url": "https://images.pokemontcg.io/xy10/119_hires.png",
+          "sourceName": "Pokemon TCG (Fates Collide)",
+          "sourceCardId": "xy10-119",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 191.94,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 63,
+        "suggestion": {
+          "name": "Umbreon-EX Fates Collide 55",
+          "lane": "Collector Compass",
+          "laneWhy": "Collector Compass lane",
+          "why": "Weekly discovery candidate: Umbreon-EX Fates Collide 55",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Fates Collide)",
+          "referenceSourceCardId": "xy10-55",
+          "referenceImageUrl": "https://images.pokemontcg.io/xy10/55_hires.png",
+          "evidenceSearchTerm": "Umbreon-EX Fates Collide 55 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon-ex",
+            "55"
+          ]
+        },
+        "image": {
+          "name": "Umbreon-EX Fates Collide 55",
+          "url": "https://images.pokemontcg.io/xy10/55_hires.png",
+          "sourceName": "Pokemon TCG (Fates Collide)",
+          "sourceCardId": "xy10-55",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 84.44,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 64,
+        "suggestion": {
+          "name": "Umbreon Japanese SV8a 092/187",
+          "lane": "Japanese Collector Trail",
+          "laneWhy": "Japanese Collector Trail lane",
+          "why": "Weekly discovery candidate: Umbreon Japanese SV8a 092/187",
+          "nearby": [],
+          "referenceSourceName": "eBay listing image",
+          "referenceSourceCardId": "SV8a-092",
+          "referenceImageUrl": "https://i.ebayimg.com/images/g/JKMAAeSwWZtqV7~e/s-l1600.jpg",
+          "evidenceSearchTerm": "Umbreon Japanese SV8a 092/187 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "sv8a"
+          ]
+        },
+        "image": {
+          "name": "Umbreon Japanese SV8a 092/187",
+          "url": "https://i.ebayimg.com/images/g/JKMAAeSwWZtqV7~e/s-l1600.jpg",
+          "sourceName": "eBay listing image",
+          "sourceCardId": "SV8a-092",
+          "sourceKind": "MARKET_LISTING"
+        },
+        "typicalRawAskingTotal": 421.78000000000003,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 65,
+        "suggestion": {
+          "name": "Umbreon-GX Sun & Moon 154",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Umbreon-GX Sun & Moon 154",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Sun & Moon)",
+          "referenceSourceCardId": "sm1-154",
+          "referenceImageUrl": "https://images.pokemontcg.io/sm1/154_hires.png",
+          "evidenceSearchTerm": "Umbreon-GX Sun & Moon 154 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "sun"
+          ]
+        },
+        "image": {
+          "name": "Umbreon-GX Sun & Moon 154",
+          "url": "https://images.pokemontcg.io/sm1/154_hires.png",
+          "sourceName": "Pokemon TCG (Sun & Moon)",
+          "sourceCardId": "sm1-154",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 168.875,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 66,
+        "suggestion": {
+          "name": "Umbreon ex Prismatic Evolutions 60",
+          "lane": "Collector Compass",
+          "laneWhy": "Collector Compass lane",
+          "why": "Weekly discovery candidate: Umbreon ex Prismatic Evolutions 60",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Prismatic Evolutions)",
+          "referenceSourceCardId": "sv8pt5-60",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv8pt5/60_hires.png",
+          "evidenceSearchTerm": "Umbreon ex Prismatic Evolutions 60 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "ex",
+            "60"
+          ]
+        },
+        "image": {
+          "name": "Umbreon ex Prismatic Evolutions 60",
+          "url": "https://images.pokemontcg.io/sv8pt5/60_hires.png",
+          "sourceName": "Pokemon TCG (Prismatic Evolutions)",
+          "sourceCardId": "sv8pt5-60",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 67,
+        "suggestion": {
+          "name": "Umbreon-GX Hidden Fates Shiny Vault SV69",
+          "lane": "Collector Compass",
+          "laneWhy": "Collector Compass lane",
+          "why": "Weekly discovery candidate: Umbreon-GX Hidden Fates Shiny Vault SV69",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Hidden Fates Shiny Vault)",
+          "referenceSourceCardId": "sma-SV69",
+          "referenceImageUrl": "https://images.pokemontcg.io/sma/SV69_hires.png",
+          "evidenceSearchTerm": "Umbreon-GX Hidden Fates Shiny Vault SV69 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon-gx",
+            "sv69"
+          ]
+        },
+        "image": {
+          "name": "Umbreon-GX Hidden Fates Shiny Vault SV69",
+          "url": "https://images.pokemontcg.io/sma/SV69_hires.png",
+          "sourceName": "Pokemon TCG (Hidden Fates Shiny Vault)",
+          "sourceCardId": "sma-SV69",
+          "sourceKind": "CARD_REFERENCE"
+        }
+      },
+      {
+        "selectionIndex": 68,
+        "suggestion": {
+          "name": "Pikachu Mcdonald E-reader 2002 010/018 trading card",
+          "lane": "E-Reader Era Trail",
+          "laneWhy": "E-Reader Era Trail lane",
+          "why": "Weekly discovery candidate: Pikachu Mcdonald E-reader 2002 010/018 trading card",
+          "nearby": [],
+          "evidenceSearchTerm": "Pikachu Mcdonald E-reader 2002 010/018 trading card Pokemon card",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "mcdonald"
+          ]
+        },
+        "image": {
+          "name": "Pikachu Mcdonald E-reader 2002 010/018 trading card",
+          "url": "https://i.ebayimg.com/images/g/~CIAAeSwqZ9qOuC3/s-l1600.jpg",
+          "sourceName": "eBay vetted marketplace image",
+          "sourceKind": "MARKET_LISTING"
+        },
+        "typicalRawAskingTotal": 1252.13,
+        "marketSampleSize": 4,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 69,
+        "suggestion": {
+          "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+          "lane": "Promo Trail",
+          "laneWhy": "Promo Trail lane",
+          "why": "Weekly discovery candidate: Umbreon & Darkrai GX - SM241 - Black Star Promo - Pokemon Card - NM/M",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (SM Black Star Promos)",
+          "referenceSourceCardId": "smp-SM241",
+          "referenceImageUrl": "https://images.pokemontcg.io/smp/SM241_hires.png",
+          "evidenceSearchTerm": "Umbreon & Darkrai GX - SM241 - Black Star Promo - Pokemon Card - NM/M Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "darkrai"
+          ]
+        },
+        "image": {
+          "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+          "url": "https://images.pokemontcg.io/smp/SM241_hires.png",
+          "sourceName": "Pokemon TCG (SM Black Star Promos)",
+          "sourceCardId": "smp-SM241",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 334.5,
+        "marketSampleSize": 12,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 70,
+        "suggestion": {
+          "name": "Umbreon & Darkrai-GX Unified Minds 125",
+          "lane": "Format Trail",
+          "laneWhy": "Format Trail lane",
+          "why": "Weekly discovery candidate: Umbreon & Darkrai-GX Unified Minds 125",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (Unified Minds)",
+          "referenceSourceCardId": "sm11-125",
+          "referenceImageUrl": "https://images.pokemontcg.io/sm11/125_hires.png",
+          "evidenceSearchTerm": "Umbreon & Darkrai-GX Unified Minds 125 Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "darkrai"
+          ]
+        },
+        "image": {
+          "name": "Umbreon & Darkrai-GX Unified Minds 125",
+          "url": "https://images.pokemontcg.io/sm11/125_hires.png",
+          "sourceName": "Pokemon TCG (Unified Minds)",
+          "sourceCardId": "sm11-125",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawAskingTotal": 163.865,
+        "marketSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 71,
+        "suggestion": {
+          "name": "2016 Umbreon & Darkrai GX - Promo SM Promos SMP Darkness Holo SM241 LP",
+          "lane": "Promo Trail",
+          "laneWhy": "Promo Trail lane",
+          "why": "Weekly discovery candidate: 2016 Umbreon & Darkrai GX - Promo SM Promos SMP Darkness Holo SM241 LP",
+          "nearby": [],
+          "referenceSourceName": "Pokemon TCG (SM Black Star Promos)",
+          "evidenceSearchTerm": "2016 Umbreon & Darkrai GX - Promo SM Promos SMP Darkness Holo SM241 LP Pokemon card",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "darkrai"
+          ]
+        },
+        "image": {
+          "name": "2016 Umbreon & Darkrai GX - Promo SM Promos SMP Darkness Holo SM241 LP",
+          "url": "https://i.ebayimg.com/images/g/n-kAAeSwoi5qUU6b/s-l1600.jpg",
+          "sourceName": "eBay listing image",
+          "sourceKind": "MARKET_LISTING"
+        },
+        "typicalRawAskingTotal": 371.90999999999997,
+        "marketSampleSize": 12,
+        "soldSampleSize": 0,
+        "displayCurrency": "CAD"
+      }
+    ],
+    "feedbackPreferences": {
+      "budgetPreferenceCad": 30
+    },
+    "stableTieBreakerSeed": "user-synthetic-owner"
+  },
+  "canonicalLookupEvidence": {
+    "JAPANESE|pikachu|mcdonald s collection 2021|10|018": {
+      "lookupKey": "JAPANESE|pikachu|mcdonald s collection 2021|10|018",
+      "normalizedIdentity": {
+        "name": "Pikachu",
+        "set": "McDonald's Collection 2021",
+        "number": "10",
+        "denominator": "018",
+        "language": "JAPANESE"
+      },
+      "queryVariants": [],
+      "provider": "Pokemon TCG",
+      "providerResults": [],
+      "outcome": "NO_RESULTS"
+    },
+    "ENGLISH|mew|expedition base set|55|165": {
+      "lookupKey": "ENGLISH|mew|expedition base set|55|165",
+      "normalizedIdentity": {
+        "name": "Mew",
+        "set": "Expedition Base Set",
+        "number": "55",
+        "denominator": "165",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Mew\" number:55 set.name:\"Expedition Base Set\"",
+        "name:\"Mew\" number:55",
+        "name:\"Mew\" set.name:\"Expedition Base Set\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "ecard1-55",
+          "canonicalCardId": "ecard1-55",
+          "canonicalName": "Mew",
+          "setId": "ecard1",
+          "setName": "Expedition Base Set",
+          "cardNumber": "55",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/ecard1/55_hires.png"
+        }
+      ],
+      "acceptedSourceCardId": "ecard1-55",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|meowth ex||121|088": {
+      "lookupKey": "ENGLISH|meowth ex||121|088",
+      "normalizedIdentity": {
+        "name": "Meowth ex",
+        "number": "121",
+        "denominator": "088",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Meowth ex\" number:121"
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "me3-121",
+          "canonicalCardId": "me3-121",
+          "canonicalName": "Meowth ex",
+          "setId": "me3",
+          "setName": "Perfect Order",
+          "cardNumber": "121",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.scrydex.com/pokemon/me3-121/large"
+        }
+      ],
+      "acceptedSourceCardId": "me3-121",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|squirtle|expedition base set|132|165": {
+      "lookupKey": "ENGLISH|squirtle|expedition base set|132|165",
+      "normalizedIdentity": {
+        "name": "Squirtle",
+        "set": "Expedition Base Set",
+        "number": "132",
+        "denominator": "165",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Squirtle\" number:132 set.name:\"Expedition Base Set\"",
+        "name:\"Squirtle\" number:132",
+        "name:\"Squirtle\" set.name:\"Expedition Base Set\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "ecard1-132",
+          "canonicalCardId": "ecard1-132",
+          "canonicalName": "Squirtle",
+          "setId": "ecard1",
+          "setName": "Expedition Base Set",
+          "cardNumber": "132",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/ecard1/132_hires.png"
+        }
+      ],
+      "acceptedSourceCardId": "ecard1-132",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|s pikachu|celebrations classic collection|24|": {
+      "lookupKey": "ENGLISH|s pikachu|celebrations classic collection|24|",
+      "normalizedIdentity": {
+        "name": "_____'s Pikachu",
+        "set": "Celebrations: Classic Collection",
+        "number": "24",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"_____'s Pikachu\" number:24 set.name:\"Celebrations: Classic Collection\"",
+        "name:\"_____'s Pikachu\" number:24",
+        "name:\"_____'s Pikachu\" set.name:\"Celebrations: Classic Collection\"",
+        "name:\"_____'s Pikachu Celebrations: Classic Collection 24\"",
+        "name:\"_____'s Pikachu\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "cel25c-24_A",
+          "canonicalCardId": "cel25c-24_A",
+          "canonicalName": "_____'s Pikachu",
+          "setId": "cel25c",
+          "setName": "Celebrations: Classic Collection",
+          "cardNumber": "24",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/cel25c/24_A_hires.png"
+        }
+      ],
+      "acceptedSourceCardId": "cel25c-24_A",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|mew ex dragons exalted|||": {
+      "lookupKey": "ENGLISH|mew ex dragons exalted|||",
+      "normalizedIdentity": {
+        "name": "Mew-EX Dragons Exalted",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Mew-EX Dragons Exalted 120\"",
+        "name:\"Mew-EX Dragons Exalted\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "bw6-120",
+          "canonicalCardId": "bw6-120",
+          "canonicalName": "Mew-EX",
+          "setId": "bw6",
+          "setName": "Dragons Exalted",
+          "cardNumber": "120",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/bw6/120_hires.png"
+        }
+      ],
+      "acceptedSourceCardId": "bw6-120",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|pikachu ex ascended heroes|||": {
+      "lookupKey": "ENGLISH|pikachu ex ascended heroes|||",
+      "normalizedIdentity": {
+        "name": "Pikachu ex Ascended Heroes",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Pikachu ex Ascended Heroes 277\"",
+        "name:\"Pikachu ex Ascended Heroes\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "me2pt5-277",
+          "canonicalCardId": "me2pt5-277",
+          "canonicalName": "Pikachu ex",
+          "setId": "me2pt5",
+          "setName": "Ascended Heroes",
+          "cardNumber": "277",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.scrydex.com/pokemon/me2pt5-277/large"
+        }
+      ],
+      "acceptedSourceCardId": "me2pt5-277",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|pikachu|skyridge|84|144": {
+      "lookupKey": "ENGLISH|pikachu|skyridge|84|144",
+      "normalizedIdentity": {
+        "name": "Pikachu",
+        "set": "Skyridge",
+        "number": "84",
+        "denominator": "144",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Pikachu\" number:84 set.name:\"Skyridge\"",
+        "name:\"Pikachu\" number:84",
+        "name:\"Pikachu\" set.name:\"Skyridge\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "ecard3-84",
+          "canonicalCardId": "ecard3-84",
+          "canonicalName": "Pikachu",
+          "setId": "ecard3",
+          "setName": "Skyridge",
+          "cardNumber": "84",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/ecard3/84_hires.png"
+        }
+      ],
+      "acceptedSourceCardId": "ecard3-84",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|umbreon darkrai gx|sm black star promos|SM241|": {
+      "lookupKey": "ENGLISH|umbreon darkrai gx|sm black star promos|SM241|",
+      "normalizedIdentity": {
+        "name": "Umbreon & Darkrai-GX",
+        "set": "SM Black Star Promos",
+        "number": "SM241",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Umbreon & Darkrai-GX\" number:SM241 set.name:\"SM Black Star Promos\"",
+        "name:\"Umbreon & Darkrai-GX\" number:SM241",
+        "name:\"Umbreon & Darkrai-GX\" set.name:\"SM Black Star Promos\"",
+        "name:\"Umbreon & Darkrai GX - SM241 - - - NM/M\"",
+        "name:\"Umbreon & Darkrai-GX\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "smp-SM241",
+          "canonicalCardId": "smp-SM241",
+          "canonicalName": "Umbreon & Darkrai-GX",
+          "setId": "smp",
+          "setName": "SM Black Star Promos",
+          "cardNumber": "SM241",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/smp/SM241_hires.png"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sm11-125",
+          "canonicalCardId": "sm11-125",
+          "canonicalName": "Umbreon & Darkrai-GX",
+          "setId": "sm11",
+          "setName": "Unified Minds",
+          "cardNumber": "125",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sm11/125_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        }
+      ],
+      "acceptedSourceCardId": "smp-SM241",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|dark blastoise|team rocket|20|": {
+      "lookupKey": "ENGLISH|dark blastoise|team rocket|20|",
+      "normalizedIdentity": {
+        "name": "Dark Blastoise",
+        "set": "Team Rocket",
+        "number": "20",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Dark Blastoise\" number:20 set.name:\"Team Rocket\"",
+        "name:\"Dark Blastoise\" number:20",
+        "name:\"Dark Blastoise\" set.name:\"Team Rocket\"",
+        "name:\"Dark Blastoise Team Rocket 20\"",
+        "name:\"Dark Blastoise\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base5-20",
+          "canonicalCardId": "base5-20",
+          "canonicalName": "Dark Blastoise",
+          "setId": "base5",
+          "setName": "Team Rocket",
+          "cardNumber": "20",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base5/20_hires.png"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base5-3",
+          "canonicalCardId": "base5-3",
+          "canonicalName": "Dark Blastoise",
+          "setId": "base5",
+          "setName": "Team Rocket",
+          "cardNumber": "3",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base5/3_hires.png",
+          "rejectionReason": "card-number mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base6-4",
+          "canonicalCardId": "base6-4",
+          "canonicalName": "Dark Blastoise",
+          "setId": "base6",
+          "setName": "Legendary Collection",
+          "cardNumber": "4",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base6/4_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        }
+      ],
+      "acceptedSourceCardId": "base5-20",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|articuno|wizards black star promos|22|": {
+      "lookupKey": "ENGLISH|articuno|wizards black star promos|22|",
+      "normalizedIdentity": {
+        "name": "Articuno",
+        "set": "Wizards Black Star Promos",
+        "number": "22",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Articuno\" number:22 set.name:\"Wizards Black Star Promos\"",
+        "name:\"Articuno\" number:22",
+        "name:\"Articuno\" set.name:\"Wizards Black Star Promos\"",
+        "name:\"Articuno 22\"",
+        "name:\"Articuno\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "basep-22",
+          "canonicalCardId": "basep-22",
+          "canonicalName": "Articuno",
+          "setId": "basep",
+          "setName": "Wizards Black Star Promos",
+          "cardNumber": "22",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/basep/22_hires.png"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "basep-48",
+          "canonicalCardId": "basep-48",
+          "canonicalName": "Articuno",
+          "setId": "basep",
+          "setName": "Wizards Black Star Promos",
+          "cardNumber": "48",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/basep/48_hires.png",
+          "rejectionReason": "card-number mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base3-2",
+          "canonicalCardId": "base3-2",
+          "canonicalName": "Articuno",
+          "setId": "base3",
+          "setName": "Fossil",
+          "cardNumber": "2",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base3/2_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base6-2",
+          "canonicalCardId": "base6-2",
+          "canonicalName": "Articuno",
+          "setId": "base6",
+          "setName": "Legendary Collection",
+          "cardNumber": "2",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base6/2_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "ecard3-H3",
+          "canonicalCardId": "ecard3-H3",
+          "canonicalName": "Articuno",
+          "setId": "ecard3",
+          "setName": "Skyridge",
+          "cardNumber": "H3",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/ecard3/H3_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "dp5-1",
+          "canonicalCardId": "dp5-1",
+          "canonicalName": "Articuno",
+          "setId": "dp5",
+          "setName": "Majestic Dawn",
+          "cardNumber": "1",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/dp5/1_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base3-17",
+          "canonicalCardId": "base3-17",
+          "canonicalName": "Articuno",
+          "setId": "base3",
+          "setName": "Fossil",
+          "cardNumber": "17",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base3/17_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "pl3-16",
+          "canonicalCardId": "pl3-16",
+          "canonicalName": "Articuno",
+          "setId": "pl3",
+          "setName": "Supreme Victors",
+          "cardNumber": "16",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/pl3/16_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "xy6-16",
+          "canonicalCardId": "xy6-16",
+          "canonicalName": "Articuno",
+          "setId": "xy6",
+          "setName": "Roaring Skies",
+          "cardNumber": "16",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/xy6/16_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "xy6-17",
+          "canonicalCardId": "xy6-17",
+          "canonicalName": "Articuno",
+          "setId": "xy6",
+          "setName": "Roaring Skies",
+          "cardNumber": "17",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/xy6/17_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        }
+      ],
+      "acceptedSourceCardId": "basep-22",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|meowth ex perfect order|||": {
+      "lookupKey": "ENGLISH|meowth ex perfect order|||",
+      "normalizedIdentity": {
+        "name": "Meowth ex Perfect Order",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Meowth ex Perfect Order 121\"",
+        "name:\"Meowth ex Perfect Order\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "me3-121",
+          "canonicalCardId": "me3-121",
+          "canonicalName": "Meowth ex",
+          "setId": "me3",
+          "setName": "Perfect Order",
+          "cardNumber": "121",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.scrydex.com/pokemon/me3-121/large"
+        }
+      ],
+      "acceptedSourceCardId": "me3-121",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|gardevoir lv x|secret wonders|131|": {
+      "lookupKey": "ENGLISH|gardevoir lv x|secret wonders|131|",
+      "normalizedIdentity": {
+        "name": "Gardevoir LV.X",
+        "set": "Secret Wonders",
+        "number": "131",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Gardevoir LV.X\" number:131 set.name:\"Secret Wonders\"",
+        "name:\"Gardevoir LV.X\" number:131",
+        "name:\"Gardevoir LV.X\" set.name:\"Secret Wonders\"",
+        "name:\"Gardevoir LV.X Secret Wonders 131\"",
+        "name:\"Gardevoir LV.X\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "dp3-131",
+          "canonicalCardId": "dp3-131",
+          "canonicalName": "Gardevoir LV.X",
+          "setId": "dp3",
+          "setName": "Secret Wonders",
+          "cardNumber": "131",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/dp3/131_hires.png"
+        }
+      ],
+      "acceptedSourceCardId": "dp3-131",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|zapdos|wizards black star promos|23|": {
+      "lookupKey": "ENGLISH|zapdos|wizards black star promos|23|",
+      "normalizedIdentity": {
+        "name": "Zapdos",
+        "set": "Wizards Black Star Promos",
+        "number": "23",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Zapdos\" number:23 set.name:\"Wizards Black Star Promos\"",
+        "name:\"Zapdos\" number:23",
+        "name:\"Zapdos\" set.name:\"Wizards Black Star Promos\"",
+        "name:\"Zapdos 23\"",
+        "name:\"Zapdos\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "basep-23",
+          "canonicalCardId": "basep-23",
+          "canonicalName": "Zapdos",
+          "setId": "basep",
+          "setName": "Wizards Black Star Promos",
+          "cardNumber": "23",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/basep/23_hires.png"
+        }
+      ],
+      "acceptedSourceCardId": "basep-23",
+      "outcome": "RESOLVED"
+    },
+    "JAPANESE|gardevoir spirit link||33|048": {
+      "lookupKey": "JAPANESE|gardevoir spirit link||33|048",
+      "normalizedIdentity": {
+        "name": "Gardevoir Spirit Link",
+        "number": "33",
+        "denominator": "048",
+        "language": "JAPANESE"
+      },
+      "queryVariants": [
+        "name:\"Gardevoir Spirit Link\" number:033",
+        "name:\"Gardevoir Spirit Link\" number:33"
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [],
+      "outcome": "NO_RESULTS"
+    },
+    "JAPANESE|umbreon japanese sv8a||92|187": {
+      "lookupKey": "JAPANESE|umbreon japanese sv8a||92|187",
+      "normalizedIdentity": {
+        "name": "Umbreon Japanese SV8a",
+        "number": "92",
+        "denominator": "187",
+        "language": "JAPANESE"
+      },
+      "queryVariants": [
+        "name:\"Umbreon Japanese SV8a\" number:092",
+        "name:\"Umbreon Japanese SV8a\" number:92"
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [],
+      "outcome": "NO_RESULTS"
+    },
+    "ENGLISH|umbreon gx|||": {
+      "lookupKey": "ENGLISH|umbreon gx|||",
+      "normalizedIdentity": {
+        "name": "Umbreon-GX",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Umbreon-GX 154\"",
+        "name:\"Umbreon-GX\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sm1-154",
+          "canonicalCardId": "sm1-154",
+          "canonicalName": "Umbreon-GX",
+          "setId": "sm1",
+          "setName": "Sun & Moon",
+          "cardNumber": "154",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sm1/154_hires.png"
+        }
+      ],
+      "acceptedSourceCardId": "sm1-154",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|zapdos|legendary treasures|46|": {
+      "lookupKey": "ENGLISH|zapdos|legendary treasures|46|",
+      "normalizedIdentity": {
+        "name": "Zapdos",
+        "set": "Legendary Treasures",
+        "number": "46",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Zapdos\" number:46 set.name:\"Legendary Treasures\"",
+        "name:\"Zapdos\" number:46",
+        "name:\"Zapdos\" set.name:\"Legendary Treasures\"",
+        "name:\"Zapdos Legendary Treasures 46\"",
+        "name:\"Zapdos\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "bw11-46",
+          "canonicalCardId": "bw11-46",
+          "canonicalName": "Zapdos",
+          "setId": "bw11",
+          "setName": "Legendary Treasures",
+          "cardNumber": "46",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/bw11/46_hires.png"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "ru1-8",
+          "canonicalCardId": "ru1-8",
+          "canonicalName": "Zapdos",
+          "setId": "ru1",
+          "setName": "Pokémon Rumble",
+          "cardNumber": "8",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/ru1/8_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "pl4-12",
+          "canonicalCardId": "pl4-12",
+          "canonicalName": "Zapdos G",
+          "setId": "pl4",
+          "setName": "Arceus",
+          "cardNumber": "12",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/pl4/12_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "gym2-15",
+          "canonicalCardId": "gym2-15",
+          "canonicalName": "Rocket's Zapdos",
+          "setId": "gym2",
+          "setName": "Gym Challenge",
+          "cardNumber": "15",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/gym2/15_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base3-15",
+          "canonicalCardId": "base3-15",
+          "canonicalName": "Zapdos",
+          "setId": "base3",
+          "setName": "Fossil",
+          "cardNumber": "15",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base3/15_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base1-16",
+          "canonicalCardId": "base1-16",
+          "canonicalName": "Zapdos",
+          "setId": "base1",
+          "setName": "Base",
+          "cardNumber": "16",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base1/16_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base4-20",
+          "canonicalCardId": "base4-20",
+          "canonicalName": "Zapdos",
+          "setId": "base4",
+          "setName": "Base Set 2",
+          "cardNumber": "20",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base4/20_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base6-19",
+          "canonicalCardId": "base6-19",
+          "canonicalName": "Zapdos",
+          "setId": "base6",
+          "setName": "Legendary Collection",
+          "cardNumber": "19",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base6/19_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sm115-24",
+          "canonicalCardId": "sm115-24",
+          "canonicalName": "Zapdos",
+          "setId": "sm115",
+          "setName": "Hidden Fates",
+          "cardNumber": "24",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sm115/24_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        }
+      ],
+      "acceptedSourceCardId": "bw11-46",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|pikachu mcdonald e reader||10|018": {
+      "lookupKey": "ENGLISH|pikachu mcdonald e reader||10|018",
+      "normalizedIdentity": {
+        "name": "Pikachu Mcdonald E-reader",
+        "number": "10",
+        "denominator": "018",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Pikachu Mcdonald E-reader\" number:010",
+        "name:\"Pikachu Mcdonald E-reader\" number:10"
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [],
+      "outcome": "NO_RESULTS"
+    },
+    "ENGLISH|zapdos ex|151|202|": {
+      "lookupKey": "ENGLISH|zapdos ex|151|202|",
+      "normalizedIdentity": {
+        "name": "Zapdos ex",
+        "set": "151",
+        "number": "202",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Zapdos ex\" number:202 set.name:\"151\"",
+        "name:\"Zapdos ex\" number:202",
+        "name:\"Zapdos ex\" set.name:\"151\"",
+        "name:\"Zapdos ex 151 202\"",
+        "name:\"Zapdos ex\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sv3pt5-202",
+          "canonicalCardId": "sv3pt5-202",
+          "canonicalName": "Zapdos ex",
+          "setId": "sv3pt5",
+          "setName": "151",
+          "cardNumber": "202",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sv3pt5/202_hires.png"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "np-33",
+          "canonicalCardId": "np-33",
+          "canonicalName": "Zapdos ex",
+          "setId": "np",
+          "setName": "Nintendo Black Star Promos",
+          "cardNumber": "33",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/np/33_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "ex7-106",
+          "canonicalCardId": "ex7-106",
+          "canonicalName": "Rocket's Zapdos ex",
+          "setId": "ex7",
+          "setName": "Team Rocket Returns",
+          "cardNumber": "106",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/ex7/106_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "ex6-116",
+          "canonicalCardId": "ex6-116",
+          "canonicalName": "Zapdos ex",
+          "setId": "ex6",
+          "setName": "FireRed & LeafGreen",
+          "cardNumber": "116",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/ex6/116_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sv3pt5-145",
+          "canonicalCardId": "sv3pt5-145",
+          "canonicalName": "Zapdos ex",
+          "setId": "sv3pt5",
+          "setName": "151",
+          "cardNumber": "145",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sv3pt5/145_hires.png",
+          "rejectionReason": "card-number mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sv3pt5-192",
+          "canonicalCardId": "sv3pt5-192",
+          "canonicalName": "Zapdos ex",
+          "setId": "sv3pt5",
+          "setName": "151",
+          "cardNumber": "192",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sv3pt5/192_hires.png",
+          "rejectionReason": "card-number mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "svp-49",
+          "canonicalCardId": "svp-49",
+          "canonicalName": "Zapdos ex",
+          "setId": "svp",
+          "setName": "Scarlet & Violet Black Star Promos",
+          "cardNumber": "49",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/svp/49_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        }
+      ],
+      "acceptedSourceCardId": "sv3pt5-202",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|meowth|jungle|56|64": {
+      "lookupKey": "ENGLISH|meowth|jungle|56|64",
+      "normalizedIdentity": {
+        "name": "Meowth",
+        "set": "Jungle",
+        "number": "56",
+        "denominator": "64",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Meowth\" number:56 set.name:\"Jungle\"",
+        "name:\"Meowth\" number:56",
+        "name:\"Meowth\" set.name:\"Jungle\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base2-56",
+          "canonicalCardId": "base2-56",
+          "canonicalName": "Meowth",
+          "setId": "base2",
+          "setName": "Jungle",
+          "cardNumber": "56",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base2/56_hires.png"
+        }
+      ],
+      "acceptedSourceCardId": "base2-56",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|articuno gx|celestial storm|154|": {
+      "lookupKey": "ENGLISH|articuno gx|celestial storm|154|",
+      "normalizedIdentity": {
+        "name": "Articuno-GX",
+        "set": "Celestial Storm",
+        "number": "154",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Articuno-GX\" number:154 set.name:\"Celestial Storm\"",
+        "name:\"Articuno-GX\" number:154",
+        "name:\"Articuno-GX\" set.name:\"Celestial Storm\"",
+        "name:\"Articuno-GX Celestial Storm 154\"",
+        "name:\"Articuno-GX\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sm7-154",
+          "canonicalCardId": "sm7-154",
+          "canonicalName": "Articuno-GX",
+          "setId": "sm7",
+          "setName": "Celestial Storm",
+          "cardNumber": "154",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sm7/154_hires.png"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sm7-31",
+          "canonicalCardId": "sm7-31",
+          "canonicalName": "Articuno-GX",
+          "setId": "sm7",
+          "setName": "Celestial Storm",
+          "cardNumber": "31",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sm7/31_hires.png",
+          "rejectionReason": "card-number mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sm7-171",
+          "canonicalCardId": "sm7-171",
+          "canonicalName": "Articuno-GX",
+          "setId": "sm7",
+          "setName": "Celestial Storm",
+          "cardNumber": "171",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sm7/171_hires.png",
+          "rejectionReason": "card-number mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sm115-44",
+          "canonicalCardId": "sm115-44",
+          "canonicalName": "Moltres & Zapdos & Articuno-GX",
+          "setId": "sm115",
+          "setName": "Hidden Fates",
+          "cardNumber": "44",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sm115/44_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sma-SV54",
+          "canonicalCardId": "sma-SV54",
+          "canonicalName": "Articuno-GX",
+          "setId": "sma",
+          "setName": "Hidden Fates Shiny Vault",
+          "cardNumber": "SV54",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sma/SV54_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sm115-66",
+          "canonicalCardId": "sm115-66",
+          "canonicalName": "Moltres & Zapdos & Articuno-GX",
+          "setId": "sm115",
+          "setName": "Hidden Fates",
+          "cardNumber": "66",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sm115/66_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "sm115-69",
+          "canonicalCardId": "sm115-69",
+          "canonicalName": "Moltres & Zapdos & Articuno-GX",
+          "setId": "sm115",
+          "setName": "Hidden Fates",
+          "cardNumber": "69",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/sm115/69_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "smp-SM210",
+          "canonicalCardId": "smp-SM210",
+          "canonicalName": "Moltres & Zapdos & Articuno-GX",
+          "setId": "smp",
+          "setName": "SM Black Star Promos",
+          "cardNumber": "SM210",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/smp/SM210_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        }
+      ],
+      "acceptedSourceCardId": "sm7-154",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|articuno|wizards black star promos|48|": {
+      "lookupKey": "ENGLISH|articuno|wizards black star promos|48|",
+      "normalizedIdentity": {
+        "name": "Articuno",
+        "set": "Wizards Black Star Promos",
+        "number": "48",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Articuno\" number:48 set.name:\"Wizards Black Star Promos\"",
+        "name:\"Articuno\" number:48",
+        "name:\"Articuno\" set.name:\"Wizards Black Star Promos\"",
+        "name:\"Articuno 48\"",
+        "name:\"Articuno\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "basep-48",
+          "canonicalCardId": "basep-48",
+          "canonicalName": "Articuno",
+          "setId": "basep",
+          "setName": "Wizards Black Star Promos",
+          "cardNumber": "48",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/basep/48_hires.png"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "basep-22",
+          "canonicalCardId": "basep-22",
+          "canonicalName": "Articuno",
+          "setId": "basep",
+          "setName": "Wizards Black Star Promos",
+          "cardNumber": "22",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/basep/22_hires.png",
+          "rejectionReason": "card-number mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base3-2",
+          "canonicalCardId": "base3-2",
+          "canonicalName": "Articuno",
+          "setId": "base3",
+          "setName": "Fossil",
+          "cardNumber": "2",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base3/2_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base6-2",
+          "canonicalCardId": "base6-2",
+          "canonicalName": "Articuno",
+          "setId": "base6",
+          "setName": "Legendary Collection",
+          "cardNumber": "2",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base6/2_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "ecard3-H3",
+          "canonicalCardId": "ecard3-H3",
+          "canonicalName": "Articuno",
+          "setId": "ecard3",
+          "setName": "Skyridge",
+          "cardNumber": "H3",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/ecard3/H3_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "dp5-1",
+          "canonicalCardId": "dp5-1",
+          "canonicalName": "Articuno",
+          "setId": "dp5",
+          "setName": "Majestic Dawn",
+          "cardNumber": "1",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/dp5/1_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "base3-17",
+          "canonicalCardId": "base3-17",
+          "canonicalName": "Articuno",
+          "setId": "base3",
+          "setName": "Fossil",
+          "cardNumber": "17",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/base3/17_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "pl3-16",
+          "canonicalCardId": "pl3-16",
+          "canonicalName": "Articuno",
+          "setId": "pl3",
+          "setName": "Supreme Victors",
+          "cardNumber": "16",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/pl3/16_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "xy6-16",
+          "canonicalCardId": "xy6-16",
+          "canonicalName": "Articuno",
+          "setId": "xy6",
+          "setName": "Roaring Skies",
+          "cardNumber": "16",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/xy6/16_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        },
+        {
+          "provider": "Pokemon TCG",
+          "sourceCardId": "xy6-17",
+          "canonicalCardId": "xy6-17",
+          "canonicalName": "Articuno",
+          "setId": "xy6",
+          "setName": "Roaring Skies",
+          "cardNumber": "17",
+          "language": "ENGLISH",
+          "imageUrl": "https://images.pokemontcg.io/xy6/17_hires.png",
+          "rejectionReason": "card-number mismatch, set mismatch"
+        }
+      ],
+      "acceptedSourceCardId": "basep-48",
+      "outcome": "RESOLVED"
+    },
+    "ENGLISH|umbreon darkrai gx darkness|sm black star promos|SM241|": {
+      "lookupKey": "ENGLISH|umbreon darkrai gx darkness|sm black star promos|SM241|",
+      "normalizedIdentity": {
+        "name": "Umbreon & Darkrai-GX - Darkness",
+        "set": "SM Black Star Promos",
+        "number": "SM241",
+        "language": "ENGLISH"
+      },
+      "queryVariants": [
+        "name:\"Umbreon & Darkrai-GX - Darkness\" number:SM241 set.name:\"SM Black Star Promos\"",
+        "name:\"Umbreon & Darkrai-GX - Darkness\" number:SM241",
+        "name:\"Umbreon & Darkrai-GX - Darkness\" set.name:\"SM Black Star Promos\"",
+        "name:\"Umbreon & Darkrai GX - Darkness SM241 LP\"",
+        "name:\"Umbreon & Darkrai-GX - Darkness\""
+      ],
+      "provider": "Pokemon TCG",
+      "providerResults": [],
+      "outcome": "NO_RESULTS"
+    }
+  },
+  "preview": {
+    "fingerprint": "91e1c3687b532b16669cfa1baabb805e17a0d78d24a4ff55ace271b98a703490",
+    "selectedCanonicalIds": [
+      "basep-48",
+      "sm1-154",
+      "base5-20",
+      "dp3-131",
+      "cel25c-24_A",
+      "xy12-53",
+      "sm11-71",
+      "neo4-52",
+      "gym1-12",
+      "xy10-29",
+      "swsh12pt5-160",
+      "SV8a-092",
+      "me3-121",
+      "basep-23",
+      "basep-22",
+      "sma-SV75",
+      "swsh4-188",
+      "svp-49"
+    ],
+    "roleDistribution": {
+      "CORE_MATCH": 6,
+      "ADJACENT_DISCOVERY": 11,
+      "CONTROLLED_EXPLORATION": 2
+    },
+    "structuralGate": {
+      "status": "FAIL",
+      "failures": [
+        "expected 20 items, found 18",
+        "market resolved below 18"
+      ]
+    }
+  },
+  "sourceFingerprint": "a40779e038b56d10e1bf733af76597f016887796f671bf3738a84cf936716d8b",
+  "fixtureInputFingerprint": "df9c8ed5926aa85d424f6aeed69b162d8213217f84a0a5afdb4ba1ba93f1c663"
+}

@@ -23,7 +23,7 @@ describe('discovery reference cache', () => {
     const suggestion = (name: string) => ({ name, lane: 'test', laneWhy: 'test', why: 'test', nearby: [], evidenceSearchTerm: `${name} Pokemon card` });
 
     expect(pokemonTcgQueriesForSuggestion(suggestion('Mew Expedition Base Set 55'))[0]).toBe('name:"Mew" number:55 set.name:"Expedition Base Set"');
-    expect(pokemonTcgQueriesForSuggestion(suggestion('Umbreon XY Black Star Promos XY96'))[0]).toBe('name:"Umbreon" number:XY96');
+    expect(pokemonTcgQueriesForSuggestion(suggestion('Umbreon XY Black Star Promos XY96'))[0]).toBe('name:"Umbreon" number:XY96 set.name:"XY Black Star Promos"');
     expect(pokemonTcgQueriesForSuggestion(suggestion('Pikachu Skyridge 84 trading card'))[0]).toBe('name:"Pikachu" number:84 set.name:"Skyridge"');
   });
 
@@ -143,6 +143,82 @@ describe('discovery reference cache', () => {
 
     expect(queries).toContain('name:"Umbreon & Darkrai-GX" number:SM241 set.name:"SM Black Star Promos"');
     expect(queries).not.toContain('name:"Umbreon & Darkrai-GX SM" number:SM241');
+  });
+
+  it('normalizes marketplace-styled SM promo titles into exact Black Star promo queries', () => {
+    const queries = pokemonTcgQueriesForSuggestion({
+      name: '2020 Pokemon TCG SUN & MOON Promo Umbreon and Darkrai GX SM241',
+      lane: 'promo cards',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: '2020 Pokemon TCG SUN & MOON Promo Umbreon and Darkrai GX SM241 Pokemon card',
+      requiredEvidenceTokens: ['umbreon', 'darkrai', 'sm241']
+    });
+
+    expect(queries).toContain('name:"Umbreon & Darkrai-GX" number:SM241 set.name:"SM Black Star Promos"');
+  });
+
+  it('builds exact Team Rocket and Secret Wonders queries from marketplace-style names', () => {
+    const darkBlastoiseQueries = pokemonTcgQueriesForSuggestion({
+      name: 'Dark Blastoise Team Rocket 20',
+      lane: 'vintage cards',
+      laneWhy: 'vintage cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Dark Blastoise Team Rocket 20 Pokemon card'
+    });
+    const gardevoirQueries = pokemonTcgQueriesForSuggestion({
+      name: 'Gardevoir LV.X Secret Wonders 131',
+      lane: 'vintage cards',
+      laneWhy: 'vintage cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Gardevoir LV.X Secret Wonders 131 Pokemon card'
+    });
+
+    expect(darkBlastoiseQueries).toContain('name:"Dark Blastoise" number:20 set.name:"Team Rocket"');
+    expect(gardevoirQueries).toContain('name:"Gardevoir LV.X" number:131 set.name:"Secret Wonders"');
+  });
+
+  it('strips set wording from Wizards promo, Jungle, 151, and Celestial Storm marketplace titles', () => {
+    const articunoPromoQueries = pokemonTcgQueriesForSuggestion({
+      name: 'Articuno Wizards Black Star Promos 48',
+      lane: 'promo cards',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Articuno Wizards Black Star Promos 48 Pokemon card'
+    });
+    const meowthJungleQueries = pokemonTcgQueriesForSuggestion({
+      name: 'Meowth Jungle 56/64 Pokemon Card Raw',
+      lane: 'vintage cards',
+      laneWhy: 'vintage cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Meowth Jungle 56/64 Pokemon Card Raw Pokemon card'
+    });
+    const zapdos151Queries = pokemonTcgQueriesForSuggestion({
+      name: 'Zapdos ex 151 202',
+      lane: 'format cards',
+      laneWhy: 'format cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Zapdos ex 151 202 Pokemon card'
+    });
+    const articunoGxQueries = pokemonTcgQueriesForSuggestion({
+      name: 'Articuno-GX Celestial Storm 154',
+      lane: 'format cards',
+      laneWhy: 'format cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Articuno-GX Celestial Storm 154 Pokemon card'
+    });
+
+    expect(articunoPromoQueries).toContain('name:"Articuno" number:48 set.name:"Wizards Black Star Promos"');
+    expect(meowthJungleQueries).toContain('name:"Meowth" number:56 set.name:"Jungle"');
+    expect(zapdos151Queries).toContain('name:"Zapdos ex" number:202 set.name:"151"');
+    expect(articunoGxQueries).toContain('name:"Articuno-GX" number:154 set.name:"Celestial Storm"');
   });
 
   it('does not send One Piece cards to the Pokemon TCG API', () => {

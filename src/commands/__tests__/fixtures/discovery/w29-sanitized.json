@@ -1,0 +1,979 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "SANITIZED",
+  "userId": "user-synthetic-owner",
+  "input": {
+    "targetPeriod": "2026-W29",
+    "frozenTime": "2026-07-16T12:00:00.000Z",
+    "userCurrency": "CAD",
+    "exchangeRates": {},
+    "activeVault": [
+      {
+        "id": "chase-1",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Squirtle Japanese Promo 007/018",
+        "queryName": "Squirtle Japanese 007/018",
+        "priority": "GRAIL",
+        "maxPrice": 1200,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "negativeKeywords": [
+          "proxy",
+          "custom",
+          "reprint",
+          "lot",
+          "orica",
+          "replica"
+        ],
+        "createdAt": "2026-05-24T20:59:39.622Z"
+      },
+      {
+        "id": "chase-2",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Umbreon ex SAR Terastal Festival Japanese 217/187",
+        "queryName": "Umbreon ex SAR Terastal Festival Japanese 217/187",
+        "priority": "GRAIL",
+        "maxPrice": 550,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "negativeKeywords": [
+          "proxy",
+          "custom",
+          "reprint",
+          "lot",
+          "orica",
+          "replica"
+        ],
+        "createdAt": "2026-06-14T01:24:48.394Z"
+      },
+      {
+        "id": "chase-3",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Mew CoroCoro Promo 151",
+        "queryName": "CoroCoro Shining Mew",
+        "priority": "HIGH",
+        "maxPrice": 990,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "negativeKeywords": [
+          "proxy",
+          "custom",
+          "reprint",
+          "lot",
+          "orica",
+          "replica"
+        ],
+        "createdAt": "2026-05-27T19:24:54.690Z"
+      },
+      {
+        "id": "chase-4",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Mew-EX Legendary Treasures RC24",
+        "queryName": "Mew-EX Legendary Treasures RC24",
+        "priority": "HIGH",
+        "maxPrice": 80,
+        "grade": "UNGRADED",
+        "listingType": "BUY_IT_NOW",
+        "negativeKeywords": [
+          "proxy",
+          "custom",
+          "reprint",
+          "lot",
+          "orica",
+          "replica"
+        ],
+        "createdAt": "2026-05-28T01:18:06.727Z"
+      },
+      {
+        "id": "chase-5",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Pikachu 26/83 Toys R Us promo",
+        "queryName": "Pikachu 26/83 Toys R Us",
+        "priority": "HIGH",
+        "maxPrice": 100,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "negativeKeywords": [
+          "proxy",
+          "custom",
+          "reprint",
+          "lot",
+          "orica",
+          "replica"
+        ],
+        "createdAt": "2026-06-01T20:44:54.488Z"
+      },
+      {
+        "id": "chase-6",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Pikachu XY Black Star Promos XY95",
+        "queryName": "Pikachu XY95",
+        "priority": "HIGH",
+        "maxPrice": 100,
+        "grade": "UNGRADED",
+        "listingType": "BUY_IT_NOW",
+        "createdAt": "2026-06-14T17:00:18.089Z"
+      },
+      {
+        "id": "chase-7",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210",
+        "queryName": "Moltres & Zapdos & Articuno-GX SM210",
+        "priority": "NORMAL",
+        "maxPrice": 200,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "negativeKeywords": [
+          "proxy",
+          "custom",
+          "reprint",
+          "lot",
+          "orica",
+          "replica"
+        ],
+        "createdAt": "2026-05-26T04:00:38.474Z"
+      },
+      {
+        "id": "chase-8",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Mew Japanese 347/190",
+        "queryName": "Mew Japanese 347/190",
+        "priority": "NORMAL",
+        "maxPrice": 500,
+        "grade": "UNGRADED",
+        "listingType": "BUY_IT_NOW",
+        "negativeKeywords": [
+          "Korean",
+          "Chinese"
+        ],
+        "createdAt": "2026-05-28T04:12:00.729Z"
+      },
+      {
+        "id": "chase-9",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063",
+        "queryName": "Mega Gardevoir ex 087/063 M1S Japanese",
+        "priority": "NORMAL",
+        "maxPrice": 100,
+        "grade": "UNGRADED",
+        "listingType": "BUY_IT_NOW",
+        "negativeKeywords": [
+          "proxy",
+          "custom",
+          "reprint",
+          "lot",
+          "orica",
+          "replica"
+        ],
+        "createdAt": "2026-05-31T00:53:14.735Z"
+      },
+      {
+        "id": "chase-10",
+        "userId": "user-synthetic-owner",
+        "guildId": "1503870208891162624",
+        "cardName": "Mew XY Black Star Promos XY192",
+        "queryName": "Mew XY192",
+        "priority": "NORMAL",
+        "maxPrice": 90,
+        "grade": "UNGRADED",
+        "listingType": "ANY",
+        "createdAt": "2026-06-17T15:56:32.944Z"
+      }
+    ],
+    "collectorProfile": {
+      "subjects": {
+        "squirtle": 46,
+        "umbreon": 42,
+        "mew": 120,
+        "pikachu": 60,
+        "moltres": 24,
+        "mega": 20,
+        "dark": 16,
+        "meowth": 14
+      },
+      "evolutionFamilies": {
+        "squirtle": 34.5,
+        "umbreon": 31.5,
+        "mew": 90,
+        "pikachu": 45,
+        "moltres": 18,
+        "mega": 15,
+        "dark": 12,
+        "meowth": 10.5
+      },
+      "artists": {},
+      "eras": {
+        "EX": 50.4,
+        "SV": 39.599999999999994,
+        "SM": 19.2,
+        "WOTC": 13.2
+      },
+      "sets": {},
+      "setFamilies": {},
+      "languages": {
+        "JAPANESE": 152.5
+      },
+      "formats": {
+        "promo": 88,
+        "special-art": 58,
+        "e-reader": 13
+      },
+      "rarityTiers": {
+        "promo": 50,
+        "premium": 27
+      },
+      "artTiers": {
+        "premium": 27
+      },
+      "promoTypes": {
+        "black-star": 38,
+        "mcdonalds": 2
+      },
+      "releaseTypes": {
+        "japanese-release": 61,
+        "promo-release": 50,
+        "special-release": 8
+      },
+      "aestheticTags": {},
+      "sceneTags": {},
+      "themeTags": {
+        "character-driven": 115.2,
+        "collector-release": 90.4,
+        "modern": 13.600000000000001,
+        "vintage": 8.8
+      },
+      "budgetPreferenceCad": 30
+    },
+    "priorShelfHistory": [
+      {
+        "userId": "user-synthetic-owner",
+        "dropType": "WEEKLY_DISCOVERY",
+        "periodKey": "2026-W28",
+        "status": "READY",
+        "title": "Weekly Shelf",
+        "summary": "prior shelf",
+        "currency": "CAD",
+        "availableAt": "2026-07-09T12:00:00.000Z",
+        "expiresAt": "2026-07-16T12:00:00.000Z",
+        "generatedAt": "2026-07-09T12:00:00.000Z",
+        "updatedAt": "2026-07-09T12:00:00.000Z",
+        "marketReadyCount": 1,
+        "imageReadyCount": 1,
+        "itemCount": 1,
+        "items": [
+          {
+            "position": 1,
+            "suggestion": {
+              "name": "Special Delivery Pikachu SWSH074",
+              "lane": "Prior Shelf",
+              "laneWhy": "prior",
+              "why": "prior",
+              "nearby": [],
+              "referenceSourceName": "Pokemon TCG (SWSH Black Star Promos)",
+              "referenceImageUrl": "https://images.pokemontcg.io/swshp/SWSH074_hires.png",
+              "referenceSourceCardId": "swshp-SWSH074"
+            },
+            "imageUrl": "https://images.pokemontcg.io/swshp/SWSH074_hires.png",
+            "imageSourceName": "Pokemon TCG (SWSH Black Star Promos)",
+            "imageSourceKind": "CARD_REFERENCE",
+            "market": {
+              "status": "READY",
+              "currency": "CAD",
+              "askingTotal": 180,
+              "askingSampleSize": 4,
+              "soldTotal": 180,
+              "soldSampleSize": 4
+            }
+          }
+        ]
+      }
+    ],
+    "orderedCandidateReserve": [
+      {
+        "selectionIndex": 0,
+        "suggestion": {
+          "name": "Gardevoir ex Paldean Fates 233",
+          "lane": "W29 Lane 1",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/233_hires.png",
+          "referenceSourceName": "Pokemon TCG (Paldean Fates)",
+          "referenceSourceCardId": "sv4pt5-233",
+          "requiredEvidenceTokens": [
+            "gardevoir",
+            "233",
+            "paldean"
+          ]
+        },
+        "image": {
+          "name": "Gardevoir ex Paldean Fates 233",
+          "url": "https://images.pokemontcg.io/sv4pt5/233_hires.png",
+          "sourceName": "Pokemon TCG (Paldean Fates)",
+          "sourceCardId": "sv4pt5-233",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 220,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 1,
+        "suggestion": {
+          "name": "Pikachu Skyridge 84",
+          "lane": "W29 Lane 2",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard3/84_hires.png",
+          "referenceSourceName": "Pokemon TCG (Skyridge)",
+          "referenceSourceCardId": "ecard3-84",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "84",
+            "skyridge"
+          ]
+        },
+        "image": {
+          "name": "Pikachu Skyridge 84",
+          "url": "https://images.pokemontcg.io/ecard3/84_hires.png",
+          "sourceName": "Pokemon TCG (Skyridge)",
+          "sourceCardId": "ecard3-84",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 340,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 2,
+        "suggestion": {
+          "name": "Zapdos Wizards Black Star Promos 23",
+          "lane": "W29 Lane 3",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/23_hires.png",
+          "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "referenceSourceCardId": "basep-23",
+          "requiredEvidenceTokens": [
+            "zapdos",
+            "23",
+            "promo"
+          ]
+        },
+        "image": {
+          "name": "Zapdos Wizards Black Star Promos 23",
+          "url": "https://images.pokemontcg.io/basep/23_hires.png",
+          "sourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "sourceCardId": "basep-23",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 55,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 3,
+        "suggestion": {
+          "name": "Umbreon Japanese SV8a 092/187",
+          "lane": "W29 Lane 4",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/SV8a/SV8a/092/high.png",
+          "referenceSourceName": "TCGdex Japanese (SV8a)",
+          "referenceSourceCardId": "SV8a-092",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "092",
+            "japanese"
+          ]
+        },
+        "image": {
+          "name": "Umbreon Japanese SV8a 092/187",
+          "url": "https://assets.tcgdex.net/ja/SV8a/SV8a/092/high.png",
+          "sourceName": "TCGdex Japanese (SV8a)",
+          "sourceCardId": "SV8a-092",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 45,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 4,
+        "suggestion": {
+          "name": "Moltres Wizards Black Star Promos 21",
+          "lane": "W29 Lane 5",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/21_hires.png",
+          "referenceSourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "referenceSourceCardId": "basep-21",
+          "requiredEvidenceTokens": [
+            "moltres",
+            "21",
+            "promo"
+          ]
+        },
+        "image": {
+          "name": "Moltres Wizards Black Star Promos 21",
+          "url": "https://images.pokemontcg.io/basep/21_hires.png",
+          "sourceName": "Pokemon TCG (Wizards Black Star Promos)",
+          "sourceCardId": "basep-21",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 60,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 5,
+        "suggestion": {
+          "name": "Articuno Japanese SV9 102",
+          "lane": "W29 Lane 6",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/SV/SV9/102/high.png",
+          "referenceSourceName": "TCGdex Japanese (SV9)",
+          "referenceSourceCardId": "sv9-102",
+          "requiredEvidenceTokens": [
+            "articuno",
+            "102",
+            "japanese"
+          ]
+        },
+        "image": {
+          "name": "Articuno Japanese SV9 102",
+          "url": "https://assets.tcgdex.net/ja/SV/SV9/102/high.png",
+          "sourceName": "TCGdex Japanese (SV9)",
+          "sourceCardId": "sv9-102",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 55,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 6,
+        "suggestion": {
+          "name": "Squirtle 151 170",
+          "lane": "W29 Lane 7",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/170_hires.png",
+          "referenceSourceName": "Pokemon TCG (151)",
+          "referenceSourceCardId": "sv3pt5-170",
+          "requiredEvidenceTokens": [
+            "squirtle",
+            "170",
+            "151"
+          ]
+        },
+        "image": {
+          "name": "Squirtle 151 170",
+          "url": "https://images.pokemontcg.io/sv3pt5/170_hires.png",
+          "sourceName": "Pokemon TCG (151)",
+          "sourceCardId": "sv3pt5-170",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 85,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 7,
+        "suggestion": {
+          "name": "Lucario VSTAR Crown Zenith GG41",
+          "lane": "W29 Lane 8",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/crz/GG41_hires.png",
+          "referenceSourceName": "Pokemon TCG (Crown Zenith)",
+          "referenceSourceCardId": "crz-GG41",
+          "requiredEvidenceTokens": [
+            "lucario",
+            "gg41",
+            "zenith"
+          ]
+        },
+        "image": {
+          "name": "Lucario VSTAR Crown Zenith GG41",
+          "url": "https://images.pokemontcg.io/crz/GG41_hires.png",
+          "sourceName": "Pokemon TCG (Crown Zenith)",
+          "sourceCardId": "crz-GG41",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 62,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 8,
+        "suggestion": {
+          "name": "Meowth ex Perfect Order 121",
+          "lane": "W29 Lane 9",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/me3/121_hires.png",
+          "referenceSourceName": "Pokemon TCG (Perfect Order)",
+          "referenceSourceCardId": "me3-121",
+          "requiredEvidenceTokens": [
+            "meowth",
+            "121",
+            "perfect"
+          ]
+        },
+        "image": {
+          "name": "Meowth ex Perfect Order 121",
+          "url": "https://images.pokemontcg.io/me3/121_hires.png",
+          "sourceName": "Pokemon TCG (Perfect Order)",
+          "sourceCardId": "me3-121",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 75,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 9,
+        "suggestion": {
+          "name": "Latias ex Surging Sparks 239",
+          "lane": "W29 Lane 10",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv8/239_hires.png",
+          "referenceSourceName": "Pokemon TCG (Surging Sparks)",
+          "referenceSourceCardId": "ssp-239",
+          "requiredEvidenceTokens": [
+            "latias",
+            "239",
+            "surging"
+          ]
+        },
+        "image": {
+          "name": "Latias ex Surging Sparks 239",
+          "url": "https://images.pokemontcg.io/sv8/239_hires.png",
+          "sourceName": "Pokemon TCG (Surging Sparks)",
+          "sourceCardId": "ssp-239",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 58,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 10,
+        "suggestion": {
+          "name": "Tyranitar Paldea Evolved 222",
+          "lane": "W29 Lane 11",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv2/222_hires.png",
+          "referenceSourceName": "Pokemon TCG (Paldea Evolved)",
+          "referenceSourceCardId": "pal-222",
+          "requiredEvidenceTokens": [
+            "tyranitar",
+            "222",
+            "paldea"
+          ]
+        },
+        "image": {
+          "name": "Tyranitar Paldea Evolved 222",
+          "url": "https://images.pokemontcg.io/sv2/222_hires.png",
+          "sourceName": "Pokemon TCG (Paldea Evolved)",
+          "sourceCardId": "pal-222",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 70,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 11,
+        "suggestion": {
+          "name": "Bulbasaur 151 166",
+          "lane": "W29 Lane 12",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/166_hires.png",
+          "referenceSourceName": "Pokemon TCG (151)",
+          "referenceSourceCardId": "sv3pt5-166",
+          "requiredEvidenceTokens": [
+            "bulbasaur",
+            "166",
+            "151"
+          ]
+        },
+        "image": {
+          "name": "Bulbasaur 151 166",
+          "url": "https://images.pokemontcg.io/sv3pt5/166_hires.png",
+          "sourceName": "Pokemon TCG (151)",
+          "sourceCardId": "sv3pt5-166",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 42,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 12,
+        "suggestion": {
+          "name": "Dragonair 151 181",
+          "lane": "W29 Lane 13",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/181_hires.png",
+          "referenceSourceName": "Pokemon TCG (151)",
+          "referenceSourceCardId": "sv3pt5-181",
+          "requiredEvidenceTokens": [
+            "dragonair",
+            "181",
+            "151"
+          ]
+        },
+        "image": {
+          "name": "Dragonair 151 181",
+          "url": "https://images.pokemontcg.io/sv3pt5/181_hires.png",
+          "sourceName": "Pokemon TCG (151)",
+          "sourceCardId": "sv3pt5-181",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 50,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 13,
+        "suggestion": {
+          "name": "Vaporeon VMAX Evolving Skies 30",
+          "lane": "W29 Lane 14",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh7/30_hires.png",
+          "referenceSourceName": "Pokemon TCG (Evolving Skies)",
+          "referenceSourceCardId": "evs-30",
+          "requiredEvidenceTokens": [
+            "vaporeon",
+            "30",
+            "evolving"
+          ]
+        },
+        "image": {
+          "name": "Vaporeon VMAX Evolving Skies 30",
+          "url": "https://images.pokemontcg.io/swsh7/30_hires.png",
+          "sourceName": "Pokemon TCG (Evolving Skies)",
+          "sourceCardId": "evs-30",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 40,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 14,
+        "suggestion": {
+          "name": "Raichu No.026 Intro Pack Japanese",
+          "lane": "W29 Lane 15",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://assets.tcgdex.net/ja/base/base3/026/high.png",
+          "referenceSourceName": "TCGdex Japanese (Intro Pack)",
+          "referenceSourceCardId": "intro-026",
+          "requiredEvidenceTokens": [
+            "raichu",
+            "026",
+            "japanese"
+          ]
+        },
+        "image": {
+          "name": "Raichu No.026 Intro Pack Japanese",
+          "url": "https://assets.tcgdex.net/ja/base/base3/026/high.png",
+          "sourceName": "TCGdex Japanese (Intro Pack)",
+          "sourceCardId": "intro-026",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 95,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 15,
+        "suggestion": {
+          "name": "Team Rocket's Mewtwo ex Ascended Heroes 281",
+          "lane": "W29 Lane 16",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/asc1/281_hires.png",
+          "referenceSourceName": "Pokemon TCG (Ascended Heroes)",
+          "referenceSourceCardId": "asc1-281",
+          "requiredEvidenceTokens": [
+            "mewtwo",
+            "281",
+            "heroes"
+          ]
+        },
+        "image": {
+          "name": "Team Rocket's Mewtwo ex Ascended Heroes 281",
+          "url": "https://images.pokemontcg.io/asc1/281_hires.png",
+          "sourceName": "Pokemon TCG (Ascended Heroes)",
+          "sourceCardId": "asc1-281",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 175,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 16,
+        "suggestion": {
+          "name": "Umbreon & Darkrai-GX Unified Minds 125",
+          "lane": "W29 Lane 17",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sm11/125_hires.png",
+          "referenceSourceName": "Pokemon TCG (Unified Minds)",
+          "referenceSourceCardId": "sm11-125",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "darkrai",
+            "125"
+          ]
+        },
+        "image": {
+          "name": "Umbreon & Darkrai-GX Unified Minds 125",
+          "url": "https://images.pokemontcg.io/sm11/125_hires.png",
+          "sourceName": "Pokemon TCG (Unified Minds)",
+          "sourceCardId": "sm11-125",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 65,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 17,
+        "suggestion": {
+          "name": "Gardevoir-GX Hidden Fates Shiny Vault SV75",
+          "lane": "W29 Lane 18",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sma/SV75_hires.png",
+          "referenceSourceName": "Pokemon TCG (Hidden Fates Shiny Vault)",
+          "referenceSourceCardId": "sma-SV75",
+          "requiredEvidenceTokens": [
+            "gardevoir",
+            "sv75",
+            "shiny"
+          ]
+        },
+        "image": {
+          "name": "Gardevoir-GX Hidden Fates Shiny Vault SV75",
+          "url": "https://images.pokemontcg.io/sma/SV75_hires.png",
+          "sourceName": "Pokemon TCG (Hidden Fates Shiny Vault)",
+          "sourceCardId": "sma-SV75",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 70,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 18,
+        "suggestion": {
+          "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+          "lane": "W29 Lane 19",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/smp/SM241_hires.png",
+          "referenceSourceName": "Pokemon TCG (SM Black Star Promos)",
+          "referenceSourceCardId": "smp-SM241",
+          "requiredEvidenceTokens": [
+            "umbreon",
+            "darkrai",
+            "sm241"
+          ]
+        },
+        "image": {
+          "name": "Umbreon & Darkrai-GX SM Black Star Promos SM241",
+          "url": "https://images.pokemontcg.io/smp/SM241_hires.png",
+          "sourceName": "Pokemon TCG (SM Black Star Promos)",
+          "sourceCardId": "smp-SM241",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 95,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 19,
+        "suggestion": {
+          "name": "Mew ex Paldean Fates 232",
+          "lane": "W29 Lane 20",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/232_hires.png",
+          "referenceSourceName": "Pokemon TCG (Paldean Fates)",
+          "referenceSourceCardId": "sv4pt5-232",
+          "requiredEvidenceTokens": [
+            "mew",
+            "232",
+            "paldean"
+          ]
+        },
+        "image": {
+          "name": "Mew ex Paldean Fates 232",
+          "url": "https://images.pokemontcg.io/sv4pt5/232_hires.png",
+          "sourceName": "Pokemon TCG (Paldean Fates)",
+          "sourceCardId": "sv4pt5-232",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 82,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 20,
+        "suggestion": {
+          "name": "Special Delivery Pikachu SWSH074",
+          "lane": "W29 Lane 21",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean reserve candidate for deterministic replay coverage",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/swshp/SWSH074_hires.png",
+          "referenceSourceName": "Pokemon TCG (SWSH Black Star Promos)",
+          "referenceSourceCardId": "swshp-SWSH074",
+          "requiredEvidenceTokens": [
+            "pikachu",
+            "swsh074",
+            "promo"
+          ]
+        },
+        "image": {
+          "name": "Special Delivery Pikachu SWSH074",
+          "url": "https://images.pokemontcg.io/swshp/SWSH074_hires.png",
+          "sourceName": "Pokemon TCG (SWSH Black Star Promos)",
+          "sourceCardId": "swshp-SWSH074",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 180,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 21,
+        "suggestion": {
+          "name": "Charmander Obsidian Flames 168",
+          "lane": "Cinder Sketch Trail",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A clean art-first modern branch with a fresh family and non-promo format signal",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3/168_hires.png",
+          "referenceSourceName": "Pokemon TCG (Obsidian Flames)",
+          "referenceSourceCardId": "sv3-168",
+          "requiredEvidenceTokens": [
+            "charmander",
+            "168",
+            "obsidian"
+          ]
+        },
+        "image": {
+          "name": "Charmander Obsidian Flames 168",
+          "url": "https://images.pokemontcg.io/sv3/168_hires.png",
+          "sourceName": "Pokemon TCG (Obsidian Flames)",
+          "sourceCardId": "sv3-168",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 55,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 22,
+        "suggestion": {
+          "name": "Lugia Neo Genesis 9",
+          "lane": "Silver Echo Trail",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A vintage adjacent branch that keeps the reserve broad and clearly collectible",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/neo1/9_hires.png",
+          "referenceSourceName": "Pokemon TCG (Neo Genesis)",
+          "referenceSourceCardId": "neo1-9",
+          "requiredEvidenceTokens": [
+            "lugia",
+            "9",
+            "neo"
+          ]
+        },
+        "image": {
+          "name": "Lugia Neo Genesis 9",
+          "url": "https://images.pokemontcg.io/neo1/9_hires.png",
+          "sourceName": "Pokemon TCG (Neo Genesis)",
+          "sourceCardId": "neo1-9",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 210,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      },
+      {
+        "selectionIndex": 23,
+        "suggestion": {
+          "name": "Celebi Neo Revelation 3",
+          "lane": "Forest Glint Trail",
+          "laneWhy": "Carries the same collector pattern while widening the weekly shelf",
+          "why": "A final vintage side path that gives the reserve another clean subject if needed",
+          "nearby": [],
+          "referenceImageUrl": "https://images.pokemontcg.io/neo3/3_hires.png",
+          "referenceSourceName": "Pokemon TCG (Neo Revelation)",
+          "referenceSourceCardId": "neo3-3",
+          "requiredEvidenceTokens": [
+            "celebi",
+            "3",
+            "neo"
+          ]
+        },
+        "image": {
+          "name": "Celebi Neo Revelation 3",
+          "url": "https://images.pokemontcg.io/neo3/3_hires.png",
+          "sourceName": "Pokemon TCG (Neo Revelation)",
+          "sourceCardId": "neo3-3",
+          "sourceKind": "CARD_REFERENCE"
+        },
+        "typicalRawSoldTotal": 105,
+        "soldSampleSize": 4,
+        "displayCurrency": "CAD"
+      }
+    ],
+    "feedbackPreferences": {
+      "budgetPreferenceCad": 30
+    },
+    "stableTieBreakerSeed": "875643283995500625"
+  }
+}

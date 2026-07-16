@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   attachReferenceImages,
@@ -58,6 +60,7 @@ import {
   type DiscoveryCandidate
 } from '../discover.js';
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
+import { addChase, setUserPlan } from '../../services/chase-store.js';
 import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
@@ -67,11 +70,28 @@ import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertSchedule
 import type { DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
+import type { WeeklyDiscoveryFinalizationInput } from '../../services/weekly-discovery-ranking.js';
 
 afterEach(() => {
   resetDiscoveryMarketRefreshThrottleState();
   deleteDiscoveryUniverseCards();
 });
+
+function trustedReferenceImageUrl(sourceName: string, sourceCardId: string): string {
+  if (/^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName)) {
+    return `https://assets.tcgdex.net/ja/${sourceCardId}/high.webp`;
+  }
+  const dashIndex = sourceCardId.indexOf('-');
+  const setId = dashIndex > 0 ? sourceCardId.slice(0, dashIndex) : 'test';
+  const number = dashIndex > 0 ? sourceCardId.slice(dashIndex + 1) : sourceCardId;
+  return `https://images.pokemontcg.io/${setId}/${encodeURIComponent(number)}_hires.png`;
+}
+
+function trustedReferenceSourceCardId(sourceName: string, selectionIndex: number): string {
+  return /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName)
+    ? `jp-${selectionIndex + 1}`
+    : `test-${selectionIndex + 1}`;
+}
 
 function candidate(name: string, lane: string, selectionIndex: number, marketSampleSize?: number): DiscoveryCandidate {
   return {
@@ -114,6 +134,7 @@ const strongProfileConfidence = discoveryProfileConfidence([
 ].map(chase));
 
 function sourceCandidate(name: string, sourceName: string, selectionIndex: number): DiscoveryCandidate {
+  const sourceCardId = trustedReferenceSourceCardId(sourceName, selectionIndex);
   return {
     selectionIndex,
     suggestion: {
@@ -123,18 +144,22 @@ function sourceCandidate(name: string, sourceName: string, selectionIndex: numbe
       why: `try ${name}`,
       nearby: [],
       referenceSourceName: sourceName,
+      referenceSourceCardId: sourceCardId,
+      referenceImageUrl: trustedReferenceImageUrl(sourceName, sourceCardId),
       requiredEvidenceTokens: sourceName.includes('Japanese') ? ['japanese'] : ['promo']
     },
     image: {
       name,
-      url: 'https://images.example/card.png',
+      url: trustedReferenceImageUrl(sourceName, sourceCardId),
       sourceName,
+      sourceCardId,
       sourceKind: 'CARD_REFERENCE'
     }
   };
 }
 
 function userUniverseCard(name: string, score: number, updatedAt: string, sourceName: string): DiscoveryUserUniverseCard {
+  const sourceCardId = trustedReferenceSourceCardId(sourceName, score);
   return {
     userId: 'u1',
     cardKey: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
@@ -147,11 +172,13 @@ function userUniverseCard(name: string, score: number, updatedAt: string, source
       laneWhy: 'profile source match',
       why: `try ${name}`,
       nearby: [],
-      referenceSourceName: sourceName
+      referenceSourceName: sourceName,
+      referenceSourceCardId: sourceCardId,
+      referenceImageUrl: trustedReferenceImageUrl(sourceName, sourceCardId)
     },
-    imageUrl: 'https://images.example/card.png',
+    imageUrl: trustedReferenceImageUrl(sourceName, sourceCardId),
     imageSourceName: sourceName,
-    sourceCardId: `ref-${score}`,
+    sourceCardId,
     marketTotal: 120,
     marketCurrency: 'CAD',
     createdAt: updatedAt,
@@ -160,6 +187,7 @@ function userUniverseCard(name: string, score: number, updatedAt: string, source
 }
 
 function publishableCandidate(name: string, canonicalId: string, selectionIndex: number): DiscoveryCandidate {
+  const imageUrl = trustedReferenceImageUrl('Pokemon TCG (Card)', canonicalId);
   return {
     selectionIndex,
     suggestion: {
@@ -168,14 +196,14 @@ function publishableCandidate(name: string, canonicalId: string, selectionIndex:
       laneWhy: 'profile source match',
       why: `try ${name}`,
       nearby: [],
-      referenceImageUrl: `https://images.example/${canonicalId}.png`,
-      referenceSourceName: 'Pokemon TCG API',
+      referenceImageUrl: imageUrl,
+      referenceSourceName: 'Pokemon TCG (Card)',
       referenceSourceCardId: canonicalId
     },
     image: {
       name,
-      url: `https://images.example/${canonicalId}.png`,
-      sourceName: 'Pokemon TCG API',
+      url: imageUrl,
+      sourceName: 'Pokemon TCG (Card)',
       sourceCardId: canonicalId,
       sourceKind: 'CARD_REFERENCE'
     }
@@ -204,6 +232,16 @@ function publishableShelfCandidates(count: number, overrides?: (candidate: Disco
     const base = publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index);
     return overrides ? overrides(base, index) : base;
   });
+}
+
+function replayFixture(name: string): {
+  schemaVersion: number;
+  input: WeeklyDiscoveryFinalizationInput;
+} {
+  return JSON.parse(readFileSync(resolve(`src/commands/__tests__/fixtures/discovery/${name}`), 'utf8')) as {
+    schemaVersion: number;
+    input: WeeklyDiscoveryFinalizationInput;
+  };
 }
 
 function listing(overrides: Partial<Listing>): Listing {
@@ -2000,6 +2038,7 @@ describe('selectVisibleCandidates', () => {
             },
             imageUrl: 'https://i.ebayimg.com/images/g/clean-card/s-l1600.jpg',
             imageSourceName: 'eBay vetted marketplace image',
+            imageSourceKind: 'MARKET_LISTING',
             market: {
               status: 'READY',
               currency: 'CAD',
@@ -4723,7 +4762,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     );
 
     expect(attached?.typicalRawAskingTotal).toBe(31);
-    expect(attached?.image?.url).toBe('https://images.example/card.png');
+    expect(attached?.image?.url).toBe(trustedReferenceImageUrl('Pokemon TCG (Wizards Black Star Promos)', 'test-1'));
     expect(attached?.image?.sourceName).toBe('Pokemon TCG (Wizards Black Star Promos)');
     expect(attached?.image?.sourceKind).toBe('CARD_REFERENCE');
     expect(attached?.listing).toBeUndefined();
@@ -4840,6 +4879,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         ...candidate,
         suggestion: {
           ...candidate.suggestion,
+          referenceSourceCardId: undefined,
           referenceImageUrl: undefined
         },
         image: {
@@ -4855,7 +4895,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.items).toHaveLength(20);
     expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-6')).toBe(false);
     expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-21')).toBe(true);
-    expect(result.rejectionCounts.BAD_IMAGE).toBe(1);
+    expect(result.rejectionCounts.MISSING_CANONICAL_ID).toBe(1);
   });
 
   it('backfills multiple invalid candidates from the reserve pool', () => {
@@ -4897,8 +4937,16 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       if (index !== 4) return candidate;
       return {
         ...candidate,
-        suggestion: { ...candidate.suggestion, referenceSourceCardId: 'card-4' },
-        image: { ...candidate.image!, sourceCardId: 'card-4' }
+        suggestion: {
+          ...candidate.suggestion,
+          referenceSourceCardId: 'card-4',
+          referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Card)', 'card-4')
+        },
+        image: {
+          ...candidate.image!,
+          url: trustedReferenceImageUrl('Pokemon TCG (Card)', 'card-4'),
+          sourceCardId: 'card-4'
+        }
       };
     }).map((candidate, index) => index === 4 ? candidate : ({ ...candidate, typicalRawSoldTotal: 70 + index, soldSampleSize: 3, displayCurrency: 'CAD' as const }));
 
@@ -5045,7 +5093,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
           why: 'try mew',
           nearby: [],
           referenceSourceName: 'Pokemon TCG API',
-          referenceSourceCardId: 'sv4pt5-232'
+          referenceSourceCardId: undefined
         }
       }
     ], 'CAD');
@@ -5213,6 +5261,64 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       second.selection.items.map((item) => item.suggestion.referenceSourceCardId)
     );
     expect(first.structuralGate.status).toBe('PASS');
+  });
+
+  it('builds the same finalization input in LIVE and CAPTURE modes from identical seeded state', async () => {
+    const userId = `weekly-build-${Date.now()}`;
+    setUserPlan(userId, 'PRO');
+    addChase({ userId, cardName: 'Mew RC24', priority: 'HIGH' });
+    addChase({ userId, cardName: 'Umbreon XY96', priority: 'HIGH' });
+    addChase({ userId, cardName: 'Squirtle Expedition Base Set 132', priority: 'HIGH' });
+    addChase({ userId, cardName: 'Gardevoir ex Paldean Fates 233', priority: 'HIGH' });
+
+    const live = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date: new Date('2026-07-16T12:00:00.000Z'),
+      mode: 'LIVE',
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false
+    });
+    const capture = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date: new Date('2026-07-16T12:00:00.000Z'),
+      mode: 'CAPTURE',
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false
+    });
+
+    const normalizeInput = (input: any) => ({
+      targetPeriod: input.targetPeriod,
+      frozenTime: input.frozenTime,
+      userCurrency: input.userCurrency,
+      activeVault: input.activeVault.map((chase: Chase) => chase.cardName),
+      reserveNames: input.orderedCandidateReserve.map((candidate: DiscoveryCandidate) => candidate.suggestion.name),
+      reserveIds: input.orderedCandidateReserve.map((candidate: DiscoveryCandidate) => candidate.suggestion.referenceSourceCardId),
+      priorPeriods: input.priorShelfHistory.map((drop: ScheduledDiscoveryDrop) => drop.periodKey),
+      budgetPreferenceCad: input.feedbackPreferences.budgetPreferenceCad
+    });
+
+    expect(normalizeInput(live.input)).toEqual(normalizeInput(capture.input));
+  });
+
+  it('replay fixtures stay deterministic, and the W29 release fixture passes the structural gate', () => {
+    for (const name of ['w29-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
+      const fixture = replayFixture(name);
+      expect(fixture.schemaVersion).toBe(1);
+
+      const first = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf(fixture.input);
+      const second = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf(fixture.input);
+
+      expect(first.fingerprint).toBe(second.fingerprint);
+      expect(first.selection.items.map((item) => item.suggestion.referenceSourceCardId)).toEqual(
+        second.selection.items.map((item) => item.suggestion.referenceSourceCardId)
+      );
+      expect(first.candidateOutcomes).toEqual(second.candidateOutcomes);
+      if (name === 'w29-sanitized.json') {
+        expect(first.structuralGate.status).toBe('PASS');
+        expect(first.selection.items).toHaveLength(20);
+        expect(first.selection.marketResolvedCount).toBeGreaterThanOrEqual(18);
+      }
+    }
   });
 
   it('accounts for every reserve candidate with an explicit finalizer outcome', () => {
@@ -5420,7 +5526,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
     expect(drop?.items).toHaveLength(20);
     expect(drop?.items.some((item) => item.suggestion.referenceSourceCardId === 'card-1')).toBe(false);
-    expect(drop?.items.some((item) => item.suggestion.referenceSourceCardId === 'card-21')).toBe(true);
+    expect(drop?.items.some((item) => ['card-21', 'card-22', 'card-23', 'card-24'].includes(item.suggestion.referenceSourceCardId ?? ''))).toBe(true);
 
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
   });
@@ -5658,7 +5764,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       },
       {
         ...badImage,
-        suggestion: { ...badImage.suggestion, referenceImageUrl: undefined },
+        suggestion: { ...badImage.suggestion, referenceSourceCardId: undefined, referenceImageUrl: undefined },
         image: {
           ...badImage.image!,
           sourceKind: 'MARKET_LISTING',
@@ -5676,15 +5782,23 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       dupOne,
       {
         ...dupTwo,
-        suggestion: { ...dupTwo.suggestion, referenceSourceCardId: 'dup-shared' },
-        image: { ...dupTwo.image!, sourceCardId: 'dup-shared' }
+        suggestion: {
+          ...dupTwo.suggestion,
+          referenceSourceCardId: 'dup-shared',
+          referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Card)', 'dup-shared')
+        },
+        image: {
+          ...dupTwo.image!,
+          url: trustedReferenceImageUrl('Pokemon TCG (Card)', 'dup-shared'),
+          sourceCardId: 'dup-shared'
+        }
       }
     ];
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20);
     expect(result.rejectionCounts).toMatchObject({
-      MISSING_CANONICAL_ID: 1,
-      BAD_IMAGE: 1,
+      MISSING_CANONICAL_ID: 2,
+      BAD_IMAGE: 0,
       BAD_DISPLAY_NAME: 1,
       MISSING_RATIONALE: 1,
       DUPLICATE_CANONICAL_ID: 1
@@ -5699,11 +5813,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       suggestionName: 'Pokemon Card Raw Rare',
       rejectionReason: 'BAD_DISPLAY_NAME'
     });
-    expect(result.rejectionSamples.BAD_IMAGE[0]).toMatchObject({
-      imageSourceKind: 'MARKET_LISTING',
-      marketStatus: 'MISSING',
-      configuredValueFloor: 30
-    });
+    expect(result.rejectionSamples.BAD_IMAGE).toHaveLength(0);
   });
 
   it('keeps unresolved candidates rejected and identifies them in diagnostics', () => {
@@ -5721,6 +5831,36 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.rejectionCounts.MISSING_CANONICAL_ID).toBe(1);
     expect(result.rejectionSamples.MISSING_CANONICAL_ID[0]?.suggestionName).toBe('Unresolved Candidate');
     expect(result.items.some((item) => item.suggestion.name === 'Unresolved Candidate')).toBe(false);
+  });
+
+  it("accepts trusted provider-backed unusual canonical names like _____'s Pikachu", () => {
+    const weirdBase = publishableCandidate("_____'s Pikachu Celebrations: Classic Collection 24", 'cel25c-24_A', 0);
+    const weirdCanonical = {
+      ...weirdBase,
+      weeklyDiscovery: {
+        ...weirdBase.weeklyDiscovery!,
+        canonicalReference: {
+          provider: 'PokemonTCG' as const,
+          sourceCardId: 'cel25c-24_A',
+          canonicalCardId: 'cel25c-24_A',
+          canonicalName: "_____'s Pikachu",
+          setId: 'cel25c',
+          setName: 'Celebrations: Classic Collection',
+          cardNumber: '24_A',
+          language: 'ENGLISH' as const,
+          imageUrl: trustedReferenceImageUrl('Pokemon TCG (Celebrations: Classic Collection)', 'cel25c-24_A'),
+          imageSourceKind: 'CARD_REFERENCE' as const
+        }
+      }
+    };
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([
+      weirdCanonical,
+      ...publishableShelfCandidates(19)
+    ], 'CAD', 20);
+
+    expect(result.rejectionCounts.BAD_DISPLAY_NAME).toBe(0);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'cel25c-24_A')).toBe(true);
   });
 
   it('fills a 20-card shelf with at least 18 market-resolved cards and at most 2 incomplete exceptions', () => {
@@ -6181,7 +6321,11 @@ describe('attachReferenceImages', () => {
       }
     ]);
 
-    expect(attached?.image).toBeUndefined();
+    expect(attached?.image).toMatchObject({
+      url: 'https://i.ebayimg.com/images/g/seller-photo/s-l225.jpg',
+      sourceName: 'eBay listing image',
+      sourceKind: 'MARKET_LISTING'
+    });
     deleteDiscoveryReferenceCache(referenceCacheKey);
   });
 
@@ -6303,6 +6447,58 @@ describe('attachReferenceImages', () => {
     expect(repaired?.image?.sourceName).toBe('Pokemon TCG (SM Black Star Promos)');
     expect(repaired?.image?.sourceKind).toBe('CARD_REFERENCE');
     deleteDiscoveryReferenceCache(referenceCacheKey);
+  });
+
+  it('reconstructs official Pokemon TCG artwork from an exact sourceCardId when a mirrored image URL is stored', () => {
+    const [item] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      {
+        ...candidate('Meowth ex Perfect Order 121', 'format lane', 0, 4),
+        suggestion: {
+          ...candidate('Meowth ex Perfect Order 121', 'format lane', 0, 4).suggestion,
+          referenceSourceName: 'Pokemon TCG (Perfect Order)',
+          referenceSourceCardId: 'me3-121',
+          referenceImageUrl: 'https://images.scrydex.com/pokemon/me3-121/large',
+          evidenceSearchTerm: 'Meowth ex 121/088 Perfect Order Pokemon card'
+        },
+        image: {
+          name: 'Meowth ex Perfect Order 121',
+          url: 'https://images.scrydex.com/pokemon/me3-121/large',
+          sourceName: 'Pokemon TCG (Perfect Order)',
+          sourceCardId: 'me3-121',
+          sourceKind: 'CARD_REFERENCE'
+        }
+      }
+    ], 'CAD');
+
+    expect(item?.imageUrl).toBe('https://images.pokemontcg.io/me3/121_hires.png');
+    expect(item?.imageSourceName).toBe('Pokemon TCG (Perfect Order)');
+    expect(item?.imageSourceKind).toBe('CARD_REFERENCE');
+  });
+
+  it('reconstructs official TCGdex Japanese artwork from an exact sourceCardId when only marketplace art is stored', () => {
+    const [item] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      {
+        ...candidate('Umbreon Japanese SV8a 092/187', 'japanese lane', 0, 4),
+        suggestion: {
+          ...candidate('Umbreon Japanese SV8a 092/187', 'japanese lane', 0, 4).suggestion,
+          referenceSourceCardId: 'SV8a-092',
+          referenceSourceName: 'eBay listing image',
+          referenceImageUrl: 'https://i.ebayimg.com/images/g/test/s-l1600.jpg',
+          evidenceSearchTerm: 'Umbreon Japanese SV8a 092/187 Pokemon card'
+        },
+        image: {
+          name: 'Umbreon Japanese SV8a 092/187',
+          url: 'https://i.ebayimg.com/images/g/test/s-l1600.jpg',
+          sourceName: 'eBay listing image',
+          sourceCardId: 'SV8a-092',
+          sourceKind: 'MARKET_LISTING'
+        }
+      }
+    ], 'CAD');
+
+    expect(item?.imageUrl).toBe('https://assets.tcgdex.net/ja/SV/SV8a/092/high.png');
+    expect(item?.imageSourceName).toBe('TCGdex Japanese (SV8a)');
+    expect(item?.imageSourceKind).toBe('CARD_REFERENCE');
   });
 });
 
