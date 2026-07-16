@@ -5030,6 +5030,43 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.inspectedCount).toBe(20);
   });
 
+  it('keeps a ranked reserve pool larger than 20 available to final publication selection', () => {
+    const pool = publishableShelfCandidates(30);
+    const reserve = __discoveryPersistenceTestHooks.orderFreshWeeklyPublicationReserve([], pool, [], 20, []);
+
+    expect(reserve).toHaveLength(30);
+    expect(reserve[0]?.suggestion.name).toBe('Card 1');
+    expect(reserve[29]?.suggestion.name).toBe('Card 30');
+  });
+
+  it('replaces invalid candidates in the first 20 from later reserve candidates during publication', () => {
+    const userId = `weekly-reserve-publish-${Date.now()}`;
+    const date = new Date('2026-07-14T12:00:00.000Z');
+    const pool = publishableShelfCandidates(30, (candidate, index) => {
+      if (index < 8) {
+        return {
+          ...candidate,
+          suggestion: { ...candidate.suggestion, referenceSourceCardId: undefined },
+          image: { ...candidate.image!, sourceCardId: undefined }
+        };
+      }
+      return { ...candidate, typicalRawAskingTotal: 75, marketSampleSize: 4 };
+    });
+
+    const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, pool, 'CAD', undefined, date);
+    expect(result.saved).toBe(true);
+    expect(result.itemCount).toBe(20);
+    expect(result.inspectedCount).toBeGreaterThan(20);
+    expect(result.rejectionCounts.MISSING_CANONICAL_ID).toBe(8);
+
+    const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+    expect(drop?.items).toHaveLength(20);
+    expect(drop?.items.some((item) => item.suggestion.referenceSourceCardId === 'card-1')).toBe(false);
+    expect(drop?.items.some((item) => item.suggestion.referenceSourceCardId === 'card-21')).toBe(true);
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+  });
+
   it('does not replace the previous valid weekly shelf when validation fails', () => {
     const userId = `weekly-persist-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');
@@ -5130,6 +5167,33 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       MISSING_RATIONALE: 1,
       DUPLICATE_CANONICAL_ID: 1
     });
+    expect(result.rejectionSamples.MISSING_CANONICAL_ID[0]).toMatchObject({
+      suggestionName: 'Missing ID',
+      lane: 'Collector Compass',
+      rejectionReason: 'MISSING_CANONICAL_ID',
+      hasReferenceSourceCardId: false
+    });
+    expect(result.rejectionSamples.BAD_DISPLAY_NAME[0]).toMatchObject({
+      suggestionName: 'Pokemon Card Raw Rare',
+      rejectionReason: 'BAD_DISPLAY_NAME'
+    });
+  });
+
+  it('keeps unresolved candidates rejected and identifies them in diagnostics', () => {
+    const unresolved = {
+      ...publishableCandidate('Unresolved Candidate', 'unresolved-card', 0),
+      suggestion: { ...publishableCandidate('Unresolved Candidate', 'unresolved-card', 0).suggestion, referenceSourceCardId: undefined },
+      image: { ...publishableCandidate('Unresolved Candidate', 'unresolved-card', 0).image!, sourceCardId: undefined }
+    };
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([
+      unresolved,
+      ...publishableShelfCandidates(20).slice(0, 20)
+    ], 'CAD', 20);
+
+    expect(result.rejectionCounts.MISSING_CANONICAL_ID).toBe(1);
+    expect(result.rejectionSamples.MISSING_CANONICAL_ID[0]?.suggestionName).toBe('Unresolved Candidate');
+    expect(result.items.some((item) => item.suggestion.name === 'Unresolved Candidate')).toBe(false);
   });
 
   it('does not treat weak trait-only market cache cards as scheduled shelf priorities without source backing', () => {

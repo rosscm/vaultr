@@ -182,6 +182,15 @@ type DiscoveryShelfSelectionResult = {
   inspectedCount: number;
   qualifiedCount: number;
   rejectionCounts: Record<DiscoveryShelfSelectionRejectionCode, number>;
+  rejectionSamples: Record<DiscoveryShelfSelectionRejectionCode, Array<{
+    suggestionName: string;
+    lane: string;
+    rejectionReason: DiscoveryShelfSelectionRejectionCode;
+    referenceSourceStatus: 'RESOLVED' | 'MISSING';
+    referenceSourceName?: string;
+    hasReferenceImage: boolean;
+    hasReferenceSourceCardId: boolean;
+  }>>;
 };
 type PersistValidatedWeeklyDiscoveryDropResult = {
   saved: boolean;
@@ -190,6 +199,7 @@ type PersistValidatedWeeklyDiscoveryDropResult = {
   inspectedCount: number;
   qualifiedCount: number;
   rejectionCounts: Record<DiscoveryShelfSelectionRejectionCode, number>;
+  rejectionSamples: DiscoveryShelfSelectionResult['rejectionSamples'];
   retainedPreviousShelf: boolean;
 };
 
@@ -2008,6 +2018,7 @@ export const __discoveryPersistenceTestHooks = {
   selectDiscoveryUniverseCandidatesForProfile,
   selectDiscoveryUserUniverseCandidatesFromEntries,
   buildFreshWeeklyShelfFromPool,
+  orderFreshWeeklyPublicationReserve,
   weeklyJapaneseSignalTargetCount,
   validatePublishableDiscoveryShelf,
   scoreDiscoveryUniverseCardForProfile,
@@ -4549,6 +4560,37 @@ export function backfillScheduledDiscoveryShelfCandidates(
   return rebalanceWeeklySubjectDiversity(merged, profileChases, targetCount);
 }
 
+function orderScheduledDiscoveryShelfFallbackReserve(
+  candidates: DiscoveryCandidate[],
+  fallbackDrop: ScheduledDiscoveryDrop | null,
+  targetCount: number,
+  repeatGuardChases: Chase[] = [],
+  profileChases: Chase[] = repeatGuardChases,
+  options: { maxImmediateNameCarryovers?: number } = {}
+): DiscoveryCandidate[] {
+  const merged = candidates
+    .filter(isFinishedShelfCandidate)
+    .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases));
+  if (!fallbackDrop || merged.length >= targetCount) return merged;
+  const seenNames = new Set(merged.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
+  const seenVariantFamilies = new Set(merged.map(candidateVariantFamilyKey).filter((key): key is string => !!key));
+  const maxImmediateNameCarryovers = Math.max(0, options.maxImmediateNameCarryovers ?? Number.POSITIVE_INFINITY);
+  let immediateNameCarryovers = 0;
+  for (const candidate of candidatesFromScheduledDiscoveryDrop(fallbackDrop)) {
+    if (!isFinishedShelfCandidate(candidate) || !hasEnoughRawMarketData(candidate)) continue;
+    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const variantKey = candidateVariantFamilyKey(candidate);
+    if (seenNames.has(nameKey) || (variantKey && seenVariantFamilies.has(variantKey))) continue;
+    if (immediateNameCarryovers >= maxImmediateNameCarryovers) continue;
+    merged.push(candidate);
+    seenNames.add(nameKey);
+    if (variantKey) seenVariantFamilies.add(variantKey);
+    immediateNameCarryovers += 1;
+  }
+  return merged.length > targetCount ? rebalanceWeeklySubjectDiversity(merged, profileChases, merged.length) : merged;
+}
+
 export function preferFreshWeeklyCandidatesAgainstRecentShelves(candidates: DiscoveryCandidate[], recentDrops: ScheduledDiscoveryDrop[], chases: Chase[] = []): DiscoveryCandidate[] {
   if (candidates.length <= 1 || recentDrops.length === 0) return candidates;
   const recentNameKeys = new Set<string>();
@@ -4639,6 +4681,16 @@ export function selectNovelWeeklyCandidates(
   chases: Chase[] = []
 ): DiscoveryCandidate[] {
   if (targetCount <= 0 || candidates.length <= targetCount || recentDrops.length === 0) return candidates.slice(0, targetCount);
+  return orderNovelWeeklyCandidatesForPublication(candidates, recentDrops, targetCount, chases).slice(0, targetCount);
+}
+
+function orderNovelWeeklyCandidatesForPublication(
+  candidates: DiscoveryCandidate[],
+  recentDrops: ScheduledDiscoveryDrop[],
+  targetCount: number,
+  chases: Chase[] = []
+): DiscoveryCandidate[] {
+  if (candidates.length <= 1 || recentDrops.length === 0) return candidates;
   const recentWindow = recentDrops.slice(0, 3);
   const immediateNameKeys = new Set<string>();
   const recentNameKeys = new Set<string>();
@@ -4709,18 +4761,15 @@ export function selectNovelWeeklyCandidates(
 
   for (const mode of ['strict-fresh', 'variant-fresh', 'recent-repeat', 'immediate-repeat'] as const) {
     for (const candidate of candidates) {
-      if (selected.length >= targetCount) break;
       if (mode === 'variant-fresh' && recentVariantRepeatCount >= maxRecentVariantRepeats) break;
       if (!candidateIsAllowed(candidate, mode)) continue;
       pushCandidate(candidate);
     }
-    if (selected.length >= targetCount) break;
   }
   for (const candidate of candidates) {
-    if (selected.length >= targetCount) break;
     pushCandidate(candidate);
   }
-  return rebalanceWeeklySubjectDiversity(selected, chases, targetCount);
+  return selected.length > targetCount ? rebalanceWeeklySubjectDiversity(selected, chases, selected.length) : selected;
 }
 
 function buildFreshWeeklyShelfFromPool(
@@ -4733,6 +4782,23 @@ function buildFreshWeeklyShelfFromPool(
   const mergedPool = uniqueCandidatesByDisplayName([...candidates, ...pool]).filter(isFinishedShelfCandidate);
   if (mergedPool.length === 0) return [];
   return selectNovelWeeklyCandidates(
+    preferFreshWeeklyCandidatesAgainstRecentShelves(mergedPool, recentDrops, chases),
+    recentDrops,
+    targetCount,
+    chases
+  );
+}
+
+function orderFreshWeeklyPublicationReserve(
+  candidates: DiscoveryCandidate[],
+  pool: DiscoveryCandidate[],
+  recentDrops: ScheduledDiscoveryDrop[],
+  targetCount: number,
+  chases: Chase[] = []
+): DiscoveryCandidate[] {
+  const mergedPool = uniqueCandidatesByDisplayName([...candidates, ...pool]).filter(isFinishedShelfCandidate);
+  if (mergedPool.length === 0) return [];
+  return orderNovelWeeklyCandidatesForPublication(
     preferFreshWeeklyCandidatesAgainstRecentShelves(mergedPool, recentDrops, chases),
     recentDrops,
     targetCount,
@@ -4885,6 +4951,34 @@ function emptyDiscoveryShelfRejectionCounts(): Record<DiscoveryShelfSelectionRej
   };
 }
 
+function emptyDiscoveryShelfRejectionSamples(): DiscoveryShelfSelectionResult['rejectionSamples'] {
+  return {
+    MISSING_CANONICAL_ID: [],
+    BAD_IMAGE: [],
+    BAD_DISPLAY_NAME: [],
+    DUPLICATE_CANONICAL_ID: [],
+    MISSING_RATIONALE: []
+  };
+}
+
+function selectionDiagnosticSample(
+  candidate: DiscoveryCandidate,
+  rejectionReason: DiscoveryShelfSelectionRejectionCode
+): DiscoveryShelfSelectionResult['rejectionSamples'][DiscoveryShelfSelectionRejectionCode][number] {
+  const referenceSourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
+  const hasReferenceImage = !!candidate.suggestion.referenceImageUrl || candidate.image?.sourceKind === 'CARD_REFERENCE';
+  const hasReferenceSourceCardId = !!candidate.suggestion.referenceSourceCardId?.trim() || !!candidate.image?.sourceCardId?.trim();
+  return {
+    suggestionName: candidate.suggestion.name,
+    lane: candidate.suggestion.lane,
+    rejectionReason,
+    referenceSourceStatus: referenceSourceName || hasReferenceImage || hasReferenceSourceCardId ? 'RESOLVED' : 'MISSING',
+    referenceSourceName,
+    hasReferenceImage,
+    hasReferenceSourceCardId
+  };
+}
+
 function candidateItemSelectionRejection(
   item: ScheduledDiscoveryDropItem,
   seenCanonicalIds: Set<string>
@@ -4904,6 +4998,7 @@ function selectPublishableWeeklyDiscoveryShelf(
   expectedSize = DISCOVERY_WEEKLY_DROP_SIZE
 ): DiscoveryShelfSelectionResult {
   const rejectionCounts = emptyDiscoveryShelfRejectionCounts();
+  const rejectionSamples = emptyDiscoveryShelfRejectionSamples();
   const selectedCandidates: DiscoveryCandidate[] = [];
   const items: ScheduledDiscoveryDropItem[] = [];
   const seenCanonicalIds = new Set<string>();
@@ -4917,11 +5012,13 @@ function selectPublishableWeeklyDiscoveryShelf(
     const rejection = candidateItemSelectionRejection(item, seenCanonicalIds);
     if (rejection) {
       rejectionCounts[rejection] += 1;
+      if (rejectionSamples[rejection].length < 3) rejectionSamples[rejection].push(selectionDiagnosticSample(candidate, rejection));
       continue;
     }
     const canonicalId = scheduledItemCanonicalId(item);
     if (!canonicalId) {
       rejectionCounts.MISSING_CANONICAL_ID += 1;
+      if (rejectionSamples.MISSING_CANONICAL_ID.length < 3) rejectionSamples.MISSING_CANONICAL_ID.push(selectionDiagnosticSample(candidate, 'MISSING_CANONICAL_ID'));
       continue;
     }
     qualifiedCount += 1;
@@ -4931,7 +5028,7 @@ function selectPublishableWeeklyDiscoveryShelf(
     if (items.length >= expectedSize) break;
   }
 
-  return { items, selectedCandidates, inspectedCount, qualifiedCount, rejectionCounts };
+  return { items, selectedCandidates, inspectedCount, qualifiedCount, rejectionCounts, rejectionSamples };
 }
 
 function persistValidatedWeeklyDiscoveryDrop(
@@ -4949,6 +5046,7 @@ function persistValidatedWeeklyDiscoveryDrop(
       inspectedCount: 0,
       qualifiedCount: 0,
       rejectionCounts: emptyDiscoveryShelfRejectionCounts(),
+      rejectionSamples: emptyDiscoveryShelfRejectionSamples(),
       retainedPreviousShelf: !!getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date))
     };
   }
@@ -4970,6 +5068,7 @@ function persistValidatedWeeklyDiscoveryDrop(
       readyCount: items.filter((item) => item.market.status === 'READY').length,
       imageCount: items.filter((item) => !!item.imageUrl).length,
       rejectionCounts: selection.rejectionCounts,
+      rejectionSamples: selection.rejectionSamples,
       failures
     });
     return {
@@ -4979,6 +5078,7 @@ function persistValidatedWeeklyDiscoveryDrop(
       inspectedCount: selection.inspectedCount,
       qualifiedCount: selection.qualifiedCount,
       rejectionCounts: selection.rejectionCounts,
+      rejectionSamples: selection.rejectionSamples,
       retainedPreviousShelf: previousDropExists
     };
   }
@@ -5005,6 +5105,7 @@ function persistValidatedWeeklyDiscoveryDrop(
     inspectedCount: selection.inspectedCount,
     qualifiedCount: selection.qualifiedCount,
     rejectionCounts: selection.rejectionCounts,
+    rejectionSamples: selection.rejectionSamples,
     retainedPreviousShelf: false
   };
 }
@@ -5665,14 +5766,14 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     discovery.learnedRankContext
   );
   const carryoverCap = options.allowRecentRepeatFiller === true ? Math.max(4, Math.floor(targetCount * 0.2)) : Math.max(2, Math.floor(targetCount * 0.1));
-  let candidates = buildFreshWeeklyShelfFromPool(
+  let candidateReserve = orderFreshWeeklyPublicationReserve(
     [],
     weeklyCandidatePool,
     recentDrops,
     targetCount,
     discovery.tasteProfileChases
   );
-  if (discovery.hasFullDiscovery && candidates.length < targetCount) {
+  if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
     const freshRescuePool = uniqueCandidatesByDisplayName([
       ...weeklyCandidatePool,
       ...backfillMarketReadyDiscoveryCandidates(
@@ -5686,19 +5787,19 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
         uniqueValuesPreservingOrder([
           ...previousDropNames,
           ...freshExcludedNames,
-          ...candidates.map((candidate) => candidate.suggestion.name)
+          ...candidateReserve.map((candidate) => candidate.suggestion.name)
         ])
       )
     ]);
-    candidates = buildFreshWeeklyShelfFromPool(
-      candidates,
+    candidateReserve = orderFreshWeeklyPublicationReserve(
+      candidateReserve,
       freshRescuePool,
       recentDrops,
       targetCount,
       discovery.tasteProfileChases
     );
   }
-  if (discovery.hasFullDiscovery && candidates.length < targetCount) {
+  if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
     const toppedUpCandidates = backfillMarketReadyDiscoveryCandidates(
       [],
       marketContext,
@@ -5709,20 +5810,20 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
       repeatGuardChases,
       uniqueValuesPreservingOrder([
         ...previousDropNames,
-        ...candidates.map((candidate) => candidate.suggestion.name)
+        ...candidateReserve.map((candidate) => candidate.suggestion.name)
       ])
     );
-    candidates = buildFreshWeeklyShelfFromPool(
-      candidates,
+    candidateReserve = orderFreshWeeklyPublicationReserve(
+      candidateReserve,
       toppedUpCandidates,
       recentDrops,
       targetCount,
       discovery.tasteProfileChases
     );
   }
-  if (candidates.length < targetCount) {
-    candidates = backfillScheduledDiscoveryShelfCandidates(
-      candidates,
+  if (candidateReserve.length < targetCount) {
+    candidateReserve = orderScheduledDiscoveryShelfFallbackReserve(
+      candidateReserve,
       fallbackDrop,
       targetCount,
       repeatGuardChases,
@@ -5730,8 +5831,8 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
       { maxImmediateNameCarryovers: carryoverCap }
     );
   }
-  if (!quickRefresh) candidates = await hydrateShelfCandidateImages(candidates);
-  if (options.force === true && discovery.hasFullDiscovery && candidates.length === 0 && options.allowRecentRepeatFiller !== true) {
+  if (!quickRefresh) candidateReserve = await hydrateShelfCandidateImages(candidateReserve);
+  if (options.force === true && discovery.hasFullDiscovery && candidateReserve.length === 0 && options.allowRecentRepeatFiller !== true) {
     const repairedCandidates = backfillMarketReadyDiscoveryCandidates(
       [],
       marketContext,
@@ -5744,8 +5845,8 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     );
     const freshRepairCandidates = quickRefresh ? repairedCandidates : await hydrateShelfCandidateImages(repairedCandidates);
     if (freshRepairCandidates.length > 0) {
-      const freshnessOrderedRepairCandidates = backfillScheduledDiscoveryShelfCandidates(
-        selectNovelWeeklyCandidates(
+      const freshnessOrderedRepairCandidates = orderScheduledDiscoveryShelfFallbackReserve(
+        orderNovelWeeklyCandidatesForPublication(
           preferFreshWeeklyCandidatesAgainstRecentShelves(freshRepairCandidates, recentDrops, discovery.tasteProfileChases),
           recentDrops,
           targetCount,
@@ -5765,9 +5866,18 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
       };
     }
   }
-  const persisted = candidates.length > 0
-    ? persistValidatedWeeklyDiscoveryDrop(userId, candidates, discovery.settings.alertCurrency, undefined, date)
-    : { saved: false, itemCount: 0, failures: [] as DiscoveryShelfValidationFailure[] };
+  const persisted = candidateReserve.length > 0
+    ? persistValidatedWeeklyDiscoveryDrop(userId, candidateReserve, discovery.settings.alertCurrency, undefined, date)
+    : {
+        saved: false,
+        itemCount: 0,
+        failures: [] as DiscoveryShelfValidationFailure[],
+        inspectedCount: 0,
+        qualifiedCount: 0,
+        rejectionCounts: emptyDiscoveryShelfRejectionCounts(),
+        rejectionSamples: emptyDiscoveryShelfRejectionSamples(),
+        retainedPreviousShelf: false
+      };
   return {
     prepared: persisted.saved && discovery.hasFullDiscovery,
     itemCount: persisted.saved ? persisted.itemCount : 0,
