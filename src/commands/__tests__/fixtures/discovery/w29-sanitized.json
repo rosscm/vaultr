@@ -11,7 +11,7 @@
       {
         "id": "chase-1",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Squirtle Japanese Promo 007/018",
         "queryName": "Squirtle Japanese 007/018",
         "priority": "GRAIL",
@@ -31,7 +31,7 @@
       {
         "id": "chase-2",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Umbreon ex SAR Terastal Festival Japanese 217/187",
         "queryName": "Umbreon ex SAR Terastal Festival Japanese 217/187",
         "priority": "GRAIL",
@@ -51,7 +51,7 @@
       {
         "id": "chase-3",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Mew CoroCoro Promo 151",
         "queryName": "CoroCoro Shining Mew",
         "priority": "HIGH",
@@ -71,7 +71,7 @@
       {
         "id": "chase-4",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Mew-EX Legendary Treasures RC24",
         "queryName": "Mew-EX Legendary Treasures RC24",
         "priority": "HIGH",
@@ -91,7 +91,7 @@
       {
         "id": "chase-5",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Pikachu 26/83 Toys R Us promo",
         "queryName": "Pikachu 26/83 Toys R Us",
         "priority": "HIGH",
@@ -111,7 +111,7 @@
       {
         "id": "chase-6",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Pikachu XY Black Star Promos XY95",
         "queryName": "Pikachu XY95",
         "priority": "HIGH",
@@ -123,7 +123,7 @@
       {
         "id": "chase-7",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210",
         "queryName": "Moltres & Zapdos & Articuno-GX SM210",
         "priority": "NORMAL",
@@ -143,7 +143,7 @@
       {
         "id": "chase-8",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Mew Japanese 347/190",
         "queryName": "Mew Japanese 347/190",
         "priority": "NORMAL",
@@ -159,7 +159,7 @@
       {
         "id": "chase-9",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063",
         "queryName": "Mega Gardevoir ex 087/063 M1S Japanese",
         "priority": "NORMAL",
@@ -179,7 +179,7 @@
       {
         "id": "chase-10",
         "userId": "user-synthetic-owner",
-        "guildId": "1503870208891162624",
+        "guildId": "fixture-guild-w29",
         "cardName": "Mew XY Black Star Promos XY192",
         "queryName": "Mew XY192",
         "priority": "NORMAL",
@@ -974,6 +974,6 @@
     "feedbackPreferences": {
       "budgetPreferenceCad": 30
     },
-    "stableTieBreakerSeed": "875643283995500625"
+    "stableTieBreakerSeed": "fixture-user-seed-w29"
   }
 }
