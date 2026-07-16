@@ -300,7 +300,9 @@ function mapScheduledDiscoveryDropItemRow(row: ScheduledDiscoveryDropItemRow): S
     suggestion,
     imageUrl: row.image_url ?? undefined,
     imageSourceName: row.image_source_name ?? undefined,
-    imageSourceKind: row.image_source_kind ?? (row.image_source_name?.toLowerCase().includes('ebay') ? 'MARKET_LISTING' : row.image_url ? 'CARD_REFERENCE' : undefined),
+    imageSourceKind: row.image_source_kind === 'CARD_REFERENCE' || row.image_source_kind === 'MARKET_LISTING'
+      ? row.image_source_kind
+      : undefined,
     market: {
       status: row.market_status,
       currency: row.market_currency,
@@ -363,7 +365,7 @@ export function scheduledDiscoveryAvailability(dropType: ScheduledDiscoveryDropT
 
 export function upsertScheduledDiscoveryDrop(input: UpsertScheduledDiscoveryDropInput, now = new Date().toISOString()): ScheduledDiscoveryDrop {
   const marketReadyCount = input.items.filter((item) => item.market.status === 'READY').length;
-  const imageReadyCount = input.items.filter((item) => !!item.imageUrl).length;
+  const imageReadyCount = input.items.filter((item) => !!item.imageUrl && item.imageSourceKind === 'CARD_REFERENCE').length;
   const itemCount = input.items.length;
   const write = db.transaction(() => {
     upsertScheduledDiscoveryDropStmt.run({

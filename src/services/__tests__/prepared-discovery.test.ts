@@ -76,6 +76,7 @@ describe('prepared discovery shelf', () => {
       position: 1,
       name: 'Mew ex Paldean Fates 232',
       imageUrl: 'https://images.pokemontcg.io/sv4pt5/232_hires.png',
+      imageSourceKind: 'CARD_REFERENCE',
       market: {
         status: 'READY',
         currency: 'CAD',

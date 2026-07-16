@@ -13,6 +13,7 @@ export type PreparedDiscoveryShelfItem = {
   name: string;
   imageUrl?: string;
   imageSourceName?: string;
+  imageSourceKind?: 'CARD_REFERENCE';
   market: {
     status: PreparedDiscoveryMarketStatus;
     currency: SupportedCurrency;
@@ -91,6 +92,7 @@ function itemFromPreparedCaches(input: {
     name: input.name,
     imageUrl: reference?.imageUrl,
     imageSourceName: reference?.sourceName,
+    imageSourceKind: reference?.imageUrl ? 'CARD_REFERENCE' : undefined,
     market: {
       status: marketStatusFromCache(market),
       currency: market?.displayCurrency ?? input.currency,
@@ -148,6 +150,6 @@ export function getPreparedDiscoveryShelf(userId: string, requestedCount?: numbe
     activeChaseCount: activeChases.length,
     items,
     marketReadyCount: items.filter((item) => item.market.status === 'READY').length,
-    imageReadyCount: items.filter((item) => !!item.imageUrl).length
+    imageReadyCount: items.filter((item) => !!item.imageUrl && item.imageSourceKind === 'CARD_REFERENCE').length
   };
 }

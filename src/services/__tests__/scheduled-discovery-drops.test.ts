@@ -82,6 +82,7 @@ describe('scheduled discovery drops', () => {
             },
             imageUrl: 'https://images.example/mew.png',
             imageSourceName: 'Pokemon TCG API',
+            imageSourceKind: 'CARD_REFERENCE',
             market: {
               status: 'READY',
               currency: 'CAD',
@@ -107,12 +108,133 @@ describe('scheduled discovery drops', () => {
       position: 1,
       suggestion: { name: 'Mew ex Paldean Fates 232' },
       imageUrl: 'https://images.example/mew.png',
+      imageSourceKind: 'CARD_REFERENCE',
       market: { status: 'READY', currency: 'CAD', askingTotal: 1330, askingSampleSize: 5 }
     });
 
     const latest = getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-06-10T16:01:00.000Z');
     expect(latest?.periodKey).toBe(periodKey);
     expect(latest?.items[0].market.listing?.id).toBe('listing-1');
+  });
+
+  it('keeps legacy or unknown image provenance untrusted on scheduled drop reads', () => {
+    const userId = `legacy-image-user-${Date.now()}`;
+    const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', new Date('2026-06-10T16:00:00.000Z'));
+    track(userId, periodKey);
+
+    const legacy = upsertScheduledDiscoveryDrop(
+      {
+        userId,
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey,
+        status: 'READY',
+        title: 'Weekly Discovery',
+        currency: 'CAD',
+        availableAt: '2026-06-08T00:00:00.000Z',
+        expiresAt: '2026-06-15T00:00:00.000Z',
+        items: [
+          {
+            position: 1,
+            suggestion: {
+              name: 'Legacy Card',
+              lane: 'Collector Compass',
+              laneWhy: 'legacy row',
+              why: 'legacy row',
+              nearby: []
+            },
+            imageUrl: 'https://images.example/legacy.png',
+            imageSourceName: 'Pokemon TCG API',
+            market: { status: 'READY', currency: 'CAD' }
+          }
+        ]
+      },
+      '2026-06-10T16:00:00.000Z'
+    );
+
+    expect(legacy.imageReadyCount).toBe(0);
+    expect(legacy.items[0]?.imageSourceKind).toBeUndefined();
+
+    const unknown = upsertScheduledDiscoveryDrop(
+      {
+        userId,
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey,
+        status: 'READY',
+        title: 'Weekly Discovery',
+        currency: 'CAD',
+        availableAt: '2026-06-08T00:00:00.000Z',
+        expiresAt: '2026-06-15T00:00:00.000Z',
+        items: [
+          {
+            position: 1,
+            suggestion: {
+              name: 'Unknown Provider Card',
+              lane: 'Collector Compass',
+              laneWhy: 'unknown provider',
+              why: 'unknown provider',
+              nearby: []
+            },
+            imageUrl: 'https://images.example/unknown.png',
+            imageSourceName: 'Some Card Site',
+            market: { status: 'READY', currency: 'CAD' }
+          }
+        ]
+      },
+      '2026-06-10T16:00:01.000Z'
+    );
+
+    expect(unknown.imageReadyCount).toBe(0);
+    expect(unknown.items[0]?.imageSourceKind).toBeUndefined();
+  });
+
+  it('counts only CARD_REFERENCE images as image-ready', () => {
+    const userId = `image-kind-count-user-${Date.now()}`;
+    const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', new Date('2026-06-10T16:00:00.000Z'));
+    track(userId, periodKey);
+
+    const saved = upsertScheduledDiscoveryDrop(
+      {
+        userId,
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey,
+        status: 'READY',
+        title: 'Weekly Discovery',
+        currency: 'CAD',
+        availableAt: '2026-06-08T00:00:00.000Z',
+        expiresAt: '2026-06-15T00:00:00.000Z',
+        items: [
+          {
+            position: 1,
+            suggestion: { name: 'Reference Card', lane: 'Collector Compass', laneWhy: 'reference', why: 'reference', nearby: [] },
+            imageUrl: 'https://images.example/reference.png',
+            imageSourceName: 'Pokemon TCG API',
+            imageSourceKind: 'CARD_REFERENCE',
+            market: { status: 'READY', currency: 'CAD' }
+          },
+          {
+            position: 2,
+            suggestion: { name: 'Marketplace Card', lane: 'Collector Compass', laneWhy: 'listing', why: 'listing', nearby: [] },
+            imageUrl: 'https://images.example/market.png',
+            imageSourceName: 'eBay listing image',
+            imageSourceKind: 'MARKET_LISTING',
+            market: { status: 'READY', currency: 'CAD' }
+          },
+          {
+            position: 3,
+            suggestion: { name: 'Unknown Card', lane: 'Collector Compass', laneWhy: 'unknown', why: 'unknown', nearby: [] },
+            imageUrl: 'https://images.example/unknown.png',
+            imageSourceName: 'Some Card Site',
+            market: { status: 'READY', currency: 'CAD' }
+          }
+        ]
+      },
+      '2026-06-10T16:00:00.000Z'
+    );
+
+    expect(saved.imageReadyCount).toBe(1);
+    expect(saved.items[0]?.imageSourceKind).toBe('CARD_REFERENCE');
+    expect(saved.items[1]?.imageSourceKind).toBe('MARKET_LISTING');
+    expect(saved.items[2]?.imageSourceKind).toBeUndefined();
   });
 
   it('does not return a drop before its available window', () => {
