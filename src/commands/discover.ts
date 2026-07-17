@@ -425,6 +425,76 @@ function maybeWriteWeeklyDiscoveryFinalizationSnapshot(
   writeFileSync(absolutePath, JSON.stringify(payload, null, 2));
 }
 
+type WeeklyDiscoveryStageStatus = 'STARTED' | 'SUCCESS' | 'TIMEOUT' | 'ERROR';
+
+type WeeklyDiscoveryStageLog = {
+  event: 'WEEKLY_DISCOVERY_STAGE';
+  userId: string;
+  weeklyPeriod: string;
+  stage: string;
+  status: WeeklyDiscoveryStageStatus;
+  elapsedMs?: number;
+  inputCount?: number;
+  outputCount?: number;
+  counters?: Record<string, number | string | boolean | null | undefined>;
+  message?: string;
+};
+
+function logWeeklyDiscoveryStage(entry: WeeklyDiscoveryStageLog): void {
+  console.info(`[DiscoveryShelf] ${JSON.stringify(entry)}`);
+}
+
+async function runWeeklyDiscoveryStage<T>(
+  meta: { userId: string; weeklyPeriod: string; stage: string; inputCount?: number; counters?: Record<string, number | string | boolean | null | undefined> },
+  work: () => Promise<T>,
+  options: { outputCount?: (value: T) => number | undefined } = {}
+): Promise<T> {
+  const startedAt = Date.now();
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId: meta.userId,
+    weeklyPeriod: meta.weeklyPeriod,
+    stage: meta.stage,
+    status: 'STARTED',
+    inputCount: meta.inputCount,
+    counters: meta.counters
+  });
+  try {
+    const value = await work();
+    logWeeklyDiscoveryStage({
+      event: 'WEEKLY_DISCOVERY_STAGE',
+      userId: meta.userId,
+      weeklyPeriod: meta.weeklyPeriod,
+      stage: meta.stage,
+      status: 'SUCCESS',
+      elapsedMs: Date.now() - startedAt,
+      inputCount: meta.inputCount,
+      outputCount: options.outputCount?.(value),
+      counters: meta.counters
+    });
+    return value;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logWeeklyDiscoveryStage({
+      event: 'WEEKLY_DISCOVERY_STAGE',
+      userId: meta.userId,
+      weeklyPeriod: meta.weeklyPeriod,
+      stage: meta.stage,
+      status: /timeout/i.test(message) ? 'TIMEOUT' : 'ERROR',
+      elapsedMs: Date.now() - startedAt,
+      inputCount: meta.inputCount,
+      counters: meta.counters,
+      message
+    });
+    throw error;
+  }
+}
+
+function remainingDeadlineMs(deadlineAtMs: number | undefined, fallbackMs: number): number {
+  if (!deadlineAtMs) return fallbackMs;
+  return Math.max(1, Math.min(fallbackMs, deadlineAtMs - Date.now()));
+}
+
 export type WeeklyDiscoveryFinalizerResult = WeeklyDiscoveryFinalizationResult & {
   selection: DiscoveryShelfSelectionResult;
   candidateOutcomes: WeeklyDiscoveryCandidateOutcomeRecord[];
@@ -451,6 +521,10 @@ const DISCOVERY_ENRICHMENT_CONCURRENCY = 4;
 const DISCOVERY_BACKGROUND_ENRICHMENT_CONCURRENCY = 1;
 const DISCOVERY_SOURCE_TIMEOUT_MS = Math.max(30000, Math.min(90000, Math.floor(Number(process.env.DISCOVERY_SOURCE_TIMEOUT_MS ?? '60000'))));
 const DISCOVERY_MARKET_FIRST_RESPONSE_WAIT_MS = Math.max(0, Math.min(20000, Math.floor(Number(process.env.DISCOVERY_MARKET_FIRST_RESPONSE_WAIT_MS ?? '12000'))));
+const DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS = Math.max(60000, Math.min(15 * 60 * 1000, Math.floor(Number(process.env.DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS ?? `${4 * 60 * 1000}`))));
+const DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS = Math.max(15000, Math.min(5 * 60 * 1000, Math.floor(Number(process.env.DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS ?? '90000'))));
+const DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS = Math.max(10000, Math.min(5 * 60 * 1000, Math.floor(Number(process.env.DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS ?? '45000'))));
+const DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY = Math.max(1, Math.min(6, Math.floor(Number(process.env.DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY ?? '3'))));
 const DISCOVERY_MARKET_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DISCOVERY_SOURCE_STATUS_RETRY_MS = 15 * 60 * 1000;
@@ -1126,10 +1200,10 @@ export function looksLikeVisualDiscoveryListing(suggestion: DiscoverySuggestion,
   return hasCoreSuggestionTokens(suggestion, listing) && looksLikeDiscoveryCardListing(suggestion, listing) && imageUrlFromListing(listing) !== undefined;
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage = 'Discovery source timeout'): Promise<T> {
   let timeoutHandle: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<T>((_, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error('Discovery source timeout')), timeoutMs);
+    timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
   });
 
   try {
@@ -1424,14 +1498,24 @@ async function hydratePendingDiscoveryMarketCandidates(
     destination?: { country?: string; postalCode?: string };
     targetCurrency: SupportedCurrency;
     range?: { min: number; max: number };
-  }
+  },
+  options: {
+    timeoutMs?: number;
+    maxCandidates?: number;
+  } = {}
 ): Promise<DiscoveryCandidate[]> {
   const hydratedByIndex = new Map<number, DiscoveryCandidate>();
   const pendingCandidates = candidates
     .map((candidate, index) => ({ candidate, index }))
     .filter(({ candidate }) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate));
+  const selectedPendingCandidates = pendingCandidates.slice(0, Math.max(0, options.maxCandidates ?? pendingCandidates.length));
+  if (selectedPendingCandidates.length === 0) return candidates;
+  const timeoutMs = Math.max(1, options.timeoutMs ?? DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS);
+  let timedOut = false;
+  let timeoutHandle: NodeJS.Timeout | undefined;
 
-  await mapWithConcurrency(pendingCandidates, Math.min(2, DISCOVERY_ENRICHMENT_CONCURRENCY), async ({ candidate, index }) => {
+  const workers = mapWithConcurrency(selectedPendingCandidates, Math.min(2, DISCOVERY_ENRICHMENT_CONCURRENCY), async ({ candidate, index }) => {
+    if (timedOut) return;
     try {
       const hydrated = await enrichSuggestion(
         candidate.suggestion,
@@ -1476,6 +1560,14 @@ async function hydratePendingDiscoveryMarketCandidates(
       // Background refresh still owns retry/status handling; foreground hydration is best-effort.
     }
   });
+  const deadline = new Promise<void>((resolve) => {
+    timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      resolve();
+    }, timeoutMs);
+  });
+  await Promise.race([workers.then(() => undefined), deadline]);
+  if (timeoutHandle) clearTimeout(timeoutHandle);
 
   return candidates.map((candidate, index) => hydratedByIndex.get(index) ?? candidate);
 }
@@ -2363,7 +2455,9 @@ export const __discoveryPersistenceTestHooks = {
   repairExistingScheduledWeeklyDropReferences,
   finalizeWeeklyDiscoveryShelf,
   buildWeeklyDiscoveryFinalizationInput,
-  buildWeeklyDiscoverySupplyReadiness
+  buildWeeklyDiscoverySupplyReadiness,
+  hydratePendingDiscoveryMarketCandidates,
+  prepareWeeklyDiscoveryDropForUser
 };
 
 function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
@@ -4070,6 +4164,8 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   currentReserve: DiscoveryCandidate[];
   readiness: WeeklyDiscoverySupplyReadiness;
   recentDrops: ScheduledDiscoveryDrop[];
+  weeklyPeriod: string;
+  deadlineAtMs?: number;
   marketContext: {
     userId: string;
     activeChases: Chase[];
@@ -4093,7 +4189,9 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     marketContext,
     repeatGuardChases,
     freshExcludedNames,
-    skipSourceCatalogFetch
+    skipSourceCatalogFetch,
+    weeklyPeriod,
+    deadlineAtMs
   } = input;
   const targetCount = DISCOVERY_WEEKLY_DROP_SIZE;
   const existingKeys = new Set(currentReserve.map(topOffCandidateKey));
@@ -4122,6 +4220,26 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     supplySource: 'TOP_OFF_GLOBAL_UNIVERSE' as const,
     selectionIndex: currentReserve.length + rawUserUniverseCandidates.length + index
   }));
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId,
+    weeklyPeriod,
+    stage: 'topoff-collection',
+    status: 'SUCCESS',
+    inputCount: currentReserve.length,
+    outputCount: rawUserUniverseCandidates.length + rawGlobalUniverseCandidates.length,
+    counters: {
+      initialCanonicalTrusted: readiness.canonicalReserveCount,
+      initialHardEligible: readiness.hardEligibleReserveCount,
+      initialMarketResolvedEligible: readiness.marketResolvedEligibleCount,
+      initialProjectedSelected: readiness.projectedSelectedCount,
+      initialViableAlternatives: readiness.viableAlternativeCount,
+      triggerSelectedShortfall: readiness.selectedShortfall,
+      triggerMarketShortfall: readiness.marketResolvedShortfall,
+      userUniverseCandidates: rawUserUniverseCandidates.length,
+      globalUniverseCandidates: rawGlobalUniverseCandidates.length
+    }
+  });
 
   const sourceBackedParents = skipSourceCatalogFetch
     ? []
@@ -4129,11 +4247,39 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
       .filter((suggestion) => !isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames)))
       .slice(0, Math.min(48, Math.max(24, targetCount * 2)));
   const sourceBackedSuggestions: DiscoverySuggestion[] = [];
-  for (const parent of sourceBackedParents) {
-    const resolved = await resolveSourceBackedDiscoveryCards(parent, discovery.chases, 8, discovery.tasteProfileChases).catch(() => ({ suggestions: [] }));
-    for (const suggestion of resolved.suggestions) {
-      if (isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames))) continue;
-      sourceBackedSuggestions.push(suggestion);
+  let sourceTopOffTimedOut = false;
+  if (sourceBackedParents.length > 0) {
+    const settled = await runWeeklyDiscoveryStage({
+      userId,
+      weeklyPeriod,
+      stage: 'topoff-source-catalog',
+      inputCount: sourceBackedParents.length,
+      counters: {
+        concurrency: DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY,
+        timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS)
+      }
+    }, async () => {
+      const timeoutMs = remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS);
+      let timeoutHandle: NodeJS.Timeout | undefined;
+      const deadline = new Promise<void>((resolve) => {
+        timeoutHandle = setTimeout(() => {
+          sourceTopOffTimedOut = true;
+          resolve();
+        }, timeoutMs);
+      });
+      const workers = mapWithConcurrency(sourceBackedParents, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY, async (parent) => {
+        if (sourceTopOffTimedOut) return [];
+        const resolved = await resolveSourceBackedDiscoveryCards(parent, discovery.chases, 8, discovery.tasteProfileChases).catch(() => ({ suggestions: [] }));
+        return resolved.suggestions.filter((suggestion) => !isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames)));
+      });
+      const settled = await Promise.race([workers, deadline.then(() => null as DiscoverySuggestion[][] | null)]);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      return settled;
+    }, {
+      outputCount: (value) => value ? value.flat().length : 0
+    });
+    if (settled) {
+      for (const group of settled) sourceBackedSuggestions.push(...group);
     }
   }
   const rawSourceCandidates = uniqueValuesByName(sourceBackedSuggestions)
@@ -4164,8 +4310,35 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     recentDrops,
     Math.max(targetCount * 4, 64)
   );
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId,
+    weeklyPeriod,
+    stage: 'topoff-dedup-selection',
+    status: 'SUCCESS',
+    inputCount: rawTopOffCandidates.length,
+    outputCount: prioritizedTopOff.length,
+    counters: {
+      sourceCatalogCandidates: rawSourceCandidates.length,
+      deduplicatedTopOffCandidates: rawTopOffCandidates.length,
+      timedOutSourceCatalog: sourceTopOffTimedOut
+    }
+  });
   const hydrationTarget = prioritizedTopOff.slice(0, Math.min(36, Math.max(12, targetCount * 2)));
-  const hydratedPriority = await hydratePendingDiscoveryMarketCandidates(hydrationTarget, marketContext);
+  const hydratedPriority = await runWeeklyDiscoveryStage({
+    userId,
+    weeklyPeriod,
+    stage: 'topoff-market-hydration',
+    inputCount: hydrationTarget.length,
+    counters: {
+      timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
+    }
+  }, () => hydratePendingDiscoveryMarketCandidates(hydrationTarget, marketContext, {
+    timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS),
+    maxCandidates: hydrationTarget.length
+  }), {
+    outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
+  });
   const hydratedByKey = new Map(hydratedPriority.map((candidate) => [topOffCandidateKey(candidate), candidate]));
   return {
     candidates: prioritizedTopOff.map((candidate) => hydratedByKey.get(topOffCandidateKey(candidate)) ?? candidate),
@@ -6675,6 +6848,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   topOffApplied: boolean;
 }> {
   const quickRefresh = context.hydrateMarketInline === false;
+  const weeklyPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', context.date);
+  const deadlineAtMs = context.mode === 'LIVE' ? Date.now() + DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS : undefined;
   const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', context.date);
   const previousDropLookupDate = new Date(Date.parse(availability.availableAt) - 1);
   const previousDropLookupIso = previousDropLookupDate.toISOString();
@@ -6686,8 +6861,17 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   const previousDropNames = recentDrops
     .slice(0, 3)
     .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
-  const existingDrop = getScheduledDiscoveryDrop(context.userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', context.date));
-  const discovery = await discoverCandidatesForUser(context.userId, DISCOVERY_WEEKLY_DROP_SIZE, {
+  const existingDrop = getScheduledDiscoveryDrop(context.userId, 'WEEKLY_DISCOVERY', weeklyPeriod);
+  const discovery = await runWeeklyDiscoveryStage({
+    userId: context.userId,
+    weeklyPeriod,
+    stage: 'initial-reserve-assembly',
+    inputCount: DISCOVERY_WEEKLY_DROP_SIZE,
+    counters: {
+      quickRefresh,
+      overallDeadlineMs: deadlineAtMs ? Math.max(0, deadlineAtMs - Date.now()) : null
+    }
+  }, () => withTimeout(discoverCandidatesForUser(context.userId, DISCOVERY_WEEKLY_DROP_SIZE, {
     preferScheduledDrop: false,
     saveScheduledDrop: false,
     scheduledDate: context.date,
@@ -6701,6 +6885,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     skipReferenceImageFetch: quickRefresh,
     ingestCanonicalUniverse: !quickRefresh,
     persistDiscoveryArtifacts: context.mode === 'LIVE'
+  }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS), 'Weekly discovery initial reserve assembly timeout'), {
+    outputCount: (value) => value.candidates.length
   });
   const targetCount = discovery.hasFullDiscovery ? DISCOVERY_WEEKLY_DROP_SIZE : discovery.candidates.length;
   const marketContext = {
@@ -6838,8 +7024,24 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       { maxImmediateNameCarryovers: carryoverCap }
     );
   }
-  if (!quickRefresh) candidateReserve = await hydrateShelfCandidateImages(candidateReserve);
-  const canonicalResolution = await resolveWeeklyDiscoveryCanonicalReferences(candidateReserve);
+  if (!quickRefresh) {
+    candidateReserve = await runWeeklyDiscoveryStage({
+      userId: context.userId,
+      weeklyPeriod,
+      stage: 'initial-reference-hydration',
+      inputCount: candidateReserve.length
+    }, () => withTimeout(hydrateShelfCandidateImages(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery reference hydration timeout'), {
+      outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
+    });
+  }
+  const canonicalResolution = await runWeeklyDiscoveryStage({
+    userId: context.userId,
+    weeklyPeriod,
+    stage: 'canonical-resolution',
+    inputCount: candidateReserve.length
+  }, () => withTimeout(resolveWeeklyDiscoveryCanonicalReferences(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS), 'Weekly discovery canonical resolution timeout'), {
+    outputCount: (value) => value.candidates.filter((candidate) => candidate.suggestion.referenceSourceCardId).length
+  });
   candidateReserve = canonicalResolution.candidates;
   const supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
@@ -6851,16 +7053,46 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     listChases(context.userId),
     baseStageCounts
   );
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId: context.userId,
+    weeklyPeriod,
+    stage: 'initial-supply-readiness',
+    status: 'SUCCESS',
+    inputCount: candidateReserve.length,
+    outputCount: supplyReadinessBeforeTopOff.projectedSelectedCount,
+    counters: {
+      canonicalTrusted: supplyReadinessBeforeTopOff.canonicalReserveCount,
+      hardEligible: supplyReadinessBeforeTopOff.hardEligibleReserveCount,
+      marketResolvedEligible: supplyReadinessBeforeTopOff.marketResolvedEligibleCount,
+      projectedSelected: supplyReadinessBeforeTopOff.projectedSelectedCount,
+      projectedMarketResolved: supplyReadinessBeforeTopOff.projectedMarketResolvedCount,
+      viableAlternatives: supplyReadinessBeforeTopOff.viableAlternativeCount,
+      shouldTopOff: supplyReadinessBeforeTopOff.shouldTopOff
+    }
+  });
   let topOffApplied = false;
   let finalStageCounts = baseStageCounts;
   let finalCanonicalResolution = canonicalResolution;
   if (discovery.hasFullDiscovery && supplyReadinessBeforeTopOff.shouldTopOff) {
-    const topOff = await expandWeeklyDiscoveryCanonicalSupplyTopOff({
+    const topOff = await runWeeklyDiscoveryStage({
+      userId: context.userId,
+      weeklyPeriod,
+      stage: 'topoff-trigger',
+      inputCount: candidateReserve.length,
+      counters: {
+        reasonSelectedShortfall: supplyReadinessBeforeTopOff.selectedShortfall,
+        reasonMarketShortfall: supplyReadinessBeforeTopOff.marketResolvedShortfall,
+        reasonLowHeadroom: !supplyReadinessBeforeTopOff.hasViableHeadroom
+      }
+    }, () => expandWeeklyDiscoveryCanonicalSupplyTopOff({
       userId: context.userId,
       discovery,
       currentReserve: candidateReserve,
       readiness: supplyReadinessBeforeTopOff,
       recentDrops,
+      weeklyPeriod,
+      deadlineAtMs,
       marketContext: {
         userId: context.userId,
         ...marketContext
@@ -6868,6 +7100,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       repeatGuardChases,
       freshExcludedNames,
       skipSourceCatalogFetch: quickRefresh
+    }), {
+      outputCount: (value) => value.candidates.length
     });
     if (topOff.candidates.length > 0) {
       topOffApplied = true;
@@ -6899,8 +7133,24 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         expandedFreshPool.length,
         discovery.tasteProfileChases
       );
-      if (!quickRefresh) candidateReserve = await hydrateShelfCandidateImages(candidateReserve);
-      finalCanonicalResolution = await resolveWeeklyDiscoveryCanonicalReferences(candidateReserve);
+      if (!quickRefresh) {
+        candidateReserve = await runWeeklyDiscoveryStage({
+          userId: context.userId,
+          weeklyPeriod,
+          stage: 'topoff-reference-hydration',
+          inputCount: candidateReserve.length
+        }, () => withTimeout(hydrateShelfCandidateImages(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery topoff reference hydration timeout'), {
+          outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
+        });
+      }
+      finalCanonicalResolution = await runWeeklyDiscoveryStage({
+        userId: context.userId,
+        weeklyPeriod,
+        stage: 'topoff-canonical-rebinding',
+        inputCount: candidateReserve.length
+      }, () => withTimeout(resolveWeeklyDiscoveryCanonicalReferences(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS), 'Weekly discovery topoff canonical rebinding timeout'), {
+        outputCount: (value) => value.candidates.filter((candidate) => candidate.suggestion.referenceSourceCardId).length
+      });
       candidateReserve = finalCanonicalResolution.candidates;
     }
   }
@@ -6916,10 +7166,28 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     activeVault,
     finalStageCounts
   );
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId: context.userId,
+    weeklyPeriod,
+    stage: 'post-topoff-supply-readiness',
+    status: 'SUCCESS',
+    inputCount: candidateReserve.length,
+    outputCount: supplyReadinessAfterTopOff.projectedSelectedCount,
+    counters: {
+      topOffApplied,
+      canonicalTrusted: supplyReadinessAfterTopOff.canonicalReserveCount,
+      hardEligible: supplyReadinessAfterTopOff.hardEligibleReserveCount,
+      marketResolvedEligible: supplyReadinessAfterTopOff.marketResolvedEligibleCount,
+      projectedSelected: supplyReadinessAfterTopOff.projectedSelectedCount,
+      projectedMarketResolved: supplyReadinessAfterTopOff.projectedMarketResolvedCount,
+      viableAlternatives: supplyReadinessAfterTopOff.viableAlternativeCount
+    }
+  });
 
   return {
     input: {
-      targetPeriod: scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', context.date),
+      targetPeriod: weeklyPeriod,
       frozenTime: context.date.toISOString(),
       userCurrency: discovery.settings.alertCurrency,
       exchangeRates: {},
@@ -7662,8 +7930,19 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
 }> {
   const quickRefresh = options.hydrateMarketInline === false;
   const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
+  const deadlineAtMs = Date.now() + DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS;
   let existing = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
-  if (existing && !quickRefresh) existing = await repairExistingScheduledWeeklyDropReferences(existing);
+  if (existing && !quickRefresh) {
+    const repairTarget = existing;
+    existing = await runWeeklyDiscoveryStage({
+      userId,
+      weeklyPeriod: periodKey,
+      stage: 'existing-reference-repair',
+      inputCount: repairTarget.itemCount
+    }, () => withTimeout(repairExistingScheduledWeeklyDropReferences(repairTarget), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery existing reference repair timeout'), {
+      outputCount: (value) => value.itemCount
+    });
+  }
   if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0 && validatePublishableDiscoveryShelf(existing.items, DISCOVERY_WEEKLY_DROP_SIZE).length === 0) {
     if (options.force !== true) {
       return {
@@ -7673,13 +7952,31 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
       };
     }
   }
-  const assembled = await buildWeeklyDiscoveryFinalizationInput({
-    userId,
-    date,
-    mode: 'LIVE',
-    hydrateMarketInline: options.hydrateMarketInline ?? true,
-    allowRecentRepeatFiller: options.allowRecentRepeatFiller ?? false
-  });
+  let assembled;
+  try {
+    assembled = await runWeeklyDiscoveryStage({
+      userId,
+      weeklyPeriod: periodKey,
+      stage: 'build-finalization-input',
+      counters: {
+        overallDeadlineMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS)
+      }
+    }, () => withTimeout(buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date,
+      mode: 'LIVE',
+      hydrateMarketInline: options.hydrateMarketInline ?? true,
+      allowRecentRepeatFiller: options.allowRecentRepeatFiller ?? false
+    }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS), 'Weekly discovery refresh deadline exceeded'), {
+      outputCount: (value) => value.input.orderedCandidateReserve.length
+    });
+  } catch {
+    return {
+      prepared: false,
+      itemCount: existing?.itemCount ?? 0,
+      hasFullDiscovery: getEntitlementsForTier(activePlanTier(getUserPlan(userId))).discoveryDepth === 'full'
+    };
+  }
   const discovery = assembled.discovery;
   const candidateReserve = assembled.input.orderedCandidateReserve;
   if (options.force === true && discovery.hasFullDiscovery && candidateReserve.length === 0 && options.allowRecentRepeatFiller !== true) {
@@ -7723,14 +8020,21 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
         discovery.tasteProfileChases,
         { maxImmediateNameCarryovers: carryoverCap }
       );
-      const persisted = persistValidatedWeeklyDiscoveryDrop(
+      const persisted = await runWeeklyDiscoveryStage({
+        userId,
+        weeklyPeriod: periodKey,
+        stage: 'persistence',
+        inputCount: freshnessOrderedRepairCandidates.length
+      }, async () => persistValidatedWeeklyDiscoveryDrop(
         userId,
         freshnessOrderedRepairCandidates,
         discovery.settings.alertCurrency,
         undefined,
         date,
         assembled.canonicalLookupEvidence
-      );
+      ), {
+        outputCount: (value) => value.itemCount
+      });
       return {
         prepared: persisted.saved,
         itemCount: persisted.saved ? persisted.itemCount : 0,
@@ -7739,14 +8043,21 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     }
   }
   const persisted = candidateReserve.length > 0
-    ? persistValidatedWeeklyDiscoveryDrop(
+    ? await runWeeklyDiscoveryStage({
+        userId,
+        weeklyPeriod: periodKey,
+        stage: 'persistence',
+        inputCount: candidateReserve.length
+      }, async () => persistValidatedWeeklyDiscoveryDrop(
         userId,
         candidateReserve,
         discovery.settings.alertCurrency,
         undefined,
         date,
         assembled.canonicalLookupEvidence
-      )
+      ), {
+        outputCount: (value) => value.itemCount
+      })
     : {
         saved: false,
         itemCount: 0,

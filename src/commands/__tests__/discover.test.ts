@@ -71,10 +71,14 @@ import type { DiscoveryUserUniverseCard } from '../../services/discovery-user-un
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import type { WeeklyDiscoveryFinalizationInput } from '../../services/weekly-discovery-ranking.js';
+import * as ebayService from '../../services/ebay.js';
 
 afterEach(() => {
   resetDiscoveryMarketRefreshThrottleState();
   deleteDiscoveryUniverseCards();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  delete process.env.DISCOVERY_DEBUG_FINALIZATION_INPUT_OUT;
 });
 
 function trustedReferenceImageUrl(sourceName: string, sourceCardId: string): string {
@@ -5737,7 +5741,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
   it('replaces invalid candidates in the first 20 from later reserve candidates during publication', () => {
     const userId = `weekly-reserve-publish-${Date.now()}`;
-    const date = new Date('2026-07-14T12:00:00.000Z');
+    const date = new Date('2026-07-17T12:00:00.000Z');
     const pool = publishableShelfCandidates(30, (candidate, index) => {
       if (index < 8) {
         return {
@@ -5761,6 +5765,80 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(drop?.items.some((item) => ['card-21', 'card-22', 'card-23', 'card-24'].includes(item.suggestion.referenceSourceCardId ?? ''))).toBe(true);
 
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+  });
+
+  it('captures the full post-assembly reserve immediately before weekly finalization', () => {
+    const userId = `weekly-capture-${Date.now()}`;
+    const date = new Date('2026-07-17T12:00:00.000Z');
+    const capturePath = `/tmp/vaultr-weekly-finalization-${Date.now()}.json`;
+    process.env.DISCOVERY_DEBUG_FINALIZATION_INPUT_OUT = capturePath;
+
+    const pool = publishableShelfCandidates(24, (candidate, index) =>
+      index < 20
+        ? { ...candidate, typicalRawSoldTotal: 60 + index, soldSampleSize: 3, displayCurrency: 'CAD' as const }
+        : { ...candidate, sourceStatus: 'TIMEOUT' }
+    );
+
+    const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, pool, 'CAD', undefined, date);
+    expect(result.saved).toBe(true);
+
+    const captured = JSON.parse(readFileSync(capturePath, 'utf8')) as {
+      input: {
+        orderedCandidateReserve: Array<{
+          referenceSourceCardId?: string;
+        }>;
+      };
+      stage: string;
+    };
+    expect(captured.stage).toBe('LIVE_PRE_FINALIZE');
+    expect(captured.input.orderedCandidateReserve).toHaveLength(24);
+    expect(captured.input.orderedCandidateReserve.map((candidate) => candidate.referenceSourceCardId)).toEqual(
+      pool.map((candidate) => candidate.suggestion.referenceSourceCardId)
+    );
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+  });
+
+  it('returns from bounded foreground market hydration when an external provider hangs', async () => {
+    vi.spyOn(ebayService, 'searchEbayListings').mockImplementation(
+      () => new Promise(() => undefined)
+    );
+    vi.spyOn(ebayService, 'searchEbaySoldListings').mockImplementation(
+      () => new Promise(() => undefined)
+    );
+
+    const pending = {
+      ...publishableCandidate('Hung Market Card', 'hung-market-card', 0),
+      sourceStatus: 'PENDING' as const
+    };
+    const stable = {
+      ...publishableCandidate('Stable Card', 'stable-card', 1),
+      typicalRawSoldTotal: 90,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+
+    const startedAt = Date.now();
+    const hydrated = await __discoveryPersistenceTestHooks.hydratePendingDiscoveryMarketCandidates(
+      [pending, stable],
+      {
+        userId: 'weekly-timeout-user',
+        activeChases: [chase('Mew RC24', 0)],
+        targetCurrency: 'CAD'
+      },
+      {
+        timeoutMs: 25,
+        maxCandidates: 1
+      }
+    );
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(elapsedMs).toBeLessThan(500);
+    expect(hydrated).toHaveLength(2);
+    expect(hydrated[0]?.suggestion.referenceSourceCardId).toBe('hung-market-card');
+    expect(hydrated[0]?.sourceStatus).toBe('PENDING');
+    expect(hydrated[1]?.suggestion.referenceSourceCardId).toBe('stable-card');
+    expect(ebayService.searchEbayListings).toHaveBeenCalled();
   });
 
   it('does not let more like this style affinity bypass exact-card cooldown', () => {
