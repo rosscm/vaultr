@@ -5229,6 +5229,238 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(reserve[29]?.suggestion.name).toBe('Card 30');
   });
 
+  it('triggers bounded top-off readiness when a large raw reserve still lacks enough hard-eligible supply', () => {
+    const chases = ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132'].map(chase);
+    const reserve = [
+      ...publishableShelfCandidates(18, (candidate, index) => ({
+        ...candidate,
+        typicalRawSoldTotal: 80 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      })),
+      ...publishableShelfCandidates(54, (candidate, index) => ({
+        ...candidate,
+        selectionIndex: index + 18,
+        suggestion: {
+          ...candidate.suggestion,
+          name: `Loose Listing ${index + 1}`,
+          referenceSourceCardId: undefined,
+          referenceImageUrl: undefined
+        },
+        image: {
+          ...candidate.image!,
+          sourceKind: 'MARKET_LISTING' as const,
+          sourceName: 'eBay Seller Photo',
+          sourceCardId: undefined
+        }
+      }))
+    ];
+
+    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
+      reserve,
+      buildCollectorTasteProfile(chases, { budgetPreferenceCad: 30 }),
+      'CAD',
+      [],
+      [],
+      {
+        rawGeneratedSuggestions: 72,
+        sourceBackedSuggestions: 12,
+        globalUniverseConsidered: 20,
+        userUniverseConsidered: 8,
+        deduplicatedCandidates: 72
+      }
+    );
+
+    expect(readiness.stages.deduplicatedCandidates).toBe(72);
+    expect(readiness.canonicalReserveCount).toBe(18);
+    expect(readiness.hardEligibleReserveCount).toBe(18);
+    expect(readiness.projectedSelectedCount).toBe(18);
+    expect(readiness.shouldTopOff).toBe(true);
+    expect(readiness.selectedShortfall).toBe(2);
+  });
+
+  it('does not trigger top-off when canonical trusted headroom is already healthy', () => {
+    const chases = ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132'].map(chase);
+    const reserve = publishableShelfCandidates(28, (candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 80 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+
+    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
+      reserve,
+      buildCollectorTasteProfile(chases, { budgetPreferenceCad: 30 }),
+      'CAD',
+      [],
+      [],
+      {
+        rawGeneratedSuggestions: 28,
+        sourceBackedSuggestions: 10,
+        globalUniverseConsidered: 10,
+        userUniverseConsidered: 8,
+        deduplicatedCandidates: 28
+      }
+    );
+
+    expect(readiness.projectedSelectedCount).toBe(20);
+    expect(readiness.marketResolvedEligibleCount).toBeGreaterThanOrEqual(18);
+    expect(readiness.viableAlternativeCount).toBeGreaterThanOrEqual(2);
+    expect(readiness.shouldTopOff).toBe(false);
+  });
+
+  it('does not count active-vault or cooldown-blocked cards toward hard-eligible readiness', () => {
+    const activeVault = ['Mew RC24', 'Umbreon XY96'].map(chase);
+    const activeEcho = {
+      ...publishableCandidate('Mew RC24', 'mew-rc24', 0),
+      typicalRawSoldTotal: 120,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+    const repeatCandidate = {
+      ...publishableCandidate('Repeat Card', 'repeat-card', 1),
+      typicalRawSoldTotal: 125,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+    const reserve = [
+      activeEcho,
+      repeatCandidate,
+      ...publishableShelfCandidates(20, (candidate, index) => ({
+        ...candidate,
+        selectionIndex: index + 2,
+        typicalRawSoldTotal: 80 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }))
+    ];
+    const priorDrop = {
+      periodKey: '2026-W28',
+      items: __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([repeatCandidate], 'CAD')
+    } as unknown as ScheduledDiscoveryDrop;
+
+    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
+      reserve,
+      buildCollectorTasteProfile(activeVault, { budgetPreferenceCad: 30 }),
+      'CAD',
+      [priorDrop],
+      activeVault,
+      {
+        rawGeneratedSuggestions: 22,
+        sourceBackedSuggestions: 8,
+        globalUniverseConsidered: 6,
+        userUniverseConsidered: 4,
+        deduplicatedCandidates: 22
+      }
+    );
+
+    expect(readiness.stages.activeVaultEligibleCandidates).toBe(21);
+    expect(readiness.hardEligibleReserveCount).toBe(20);
+    expect(readiness.selectedCandidates.some((candidate) => candidate.suggestion.name === 'Mew RC24')).toBe(false);
+    expect(readiness.selectedCandidates.some((candidate) => candidate.suggestion.name === 'Repeat Card')).toBe(false);
+  });
+
+  it('selects deterministic trusted top-off candidates and excludes untrusted marketplace-image rows from the bounded slice', () => {
+    const profileChases = ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].map(chase);
+    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
+      [
+        publishableSourceCandidate('Mew Expedition Base Set 55', 'exp1-55', 'Pokemon TCG (Card)', 0),
+        publishableSourceCandidate('Mew ex Paldean Fates 232', 'sv4pt5-232', 'Pokemon TCG (Card)', 1),
+        publishableSourceCandidate('Umbreon XY96', 'xy96', 'Pokemon TCG (Card)', 2),
+        publishableSourceCandidate('Umbreon VMAX TG23', 'swsh11tg-tg23', 'Pokemon TCG (Card)', 3),
+        ...publishableShelfCandidates(20, (candidate, index) => ({
+          ...candidate,
+          selectionIndex: index + 4,
+          typicalRawSoldTotal: 90 + index,
+          soldSampleSize: 3,
+          displayCurrency: 'CAD' as const
+        }))
+      ],
+      buildCollectorTasteProfile(profileChases, { budgetPreferenceCad: 30 }),
+      'CAD',
+      [],
+      [],
+      {
+        rawGeneratedSuggestions: 24,
+        sourceBackedSuggestions: 10,
+        globalUniverseConsidered: 8,
+        userUniverseConsidered: 6,
+        deduplicatedCandidates: 24
+      }
+    );
+
+    const candidates = [
+      {
+        ...publishableSourceCandidate('Umbreon Promo', 'umbreon-promo', 'Pokemon TCG (Card)', 100, 'Promo Trail'),
+        sourceStatus: 'ERROR' as const,
+        supplySource: 'TOP_OFF_GLOBAL_UNIVERSE' as const
+      },
+      {
+        ...publishableSourceCandidate('Gardevoir Nintendo Promo', 'pcg-p-027', 'Pokemon TCG (Card)', 101, 'Promo Trail'),
+        typicalRawSoldTotal: 110,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const,
+        supplySource: 'TOP_OFF_USER_UNIVERSE' as const
+      },
+      {
+        ...publishableSourceCandidate('Gardevoir ex Japanese SAR', 'sv4a-348', 'TCGdex Japanese (Card)', 102, 'Japanese Spotlight'),
+        typicalRawSoldTotal: 140,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const,
+        supplySource: 'TOP_OFF_SOURCE_CATALOG' as const
+      },
+      {
+        ...publishableSourceCandidate('Loose Seller Image', 'loose-seller', 'Pokemon TCG (Card)', 103, 'Promo Trail'),
+        suggestion: {
+          ...publishableSourceCandidate('Loose Seller Image', 'loose-seller', 'Pokemon TCG (Card)', 103, 'Promo Trail').suggestion,
+          referenceSourceCardId: undefined,
+          referenceImageUrl: undefined
+        },
+        image: {
+          ...publishableSourceCandidate('Loose Seller Image', 'loose-seller', 'Pokemon TCG (Card)', 103, 'Promo Trail').image!,
+          sourceKind: 'MARKET_LISTING' as const,
+          sourceCardId: undefined
+        },
+        typicalRawSoldTotal: 115,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const,
+        supplySource: 'TOP_OFF_MARKET_CACHE' as const
+      }
+    ];
+
+    const first = __discoveryPersistenceTestHooks.selectDeficitAwareTopOffCandidates(
+      candidates,
+      readiness,
+      profileChases,
+      [],
+      'CAD',
+      undefined,
+      [],
+      2
+    );
+    const second = __discoveryPersistenceTestHooks.selectDeficitAwareTopOffCandidates(
+      candidates,
+      readiness,
+      profileChases,
+      [],
+      'CAD',
+      undefined,
+      [],
+      2
+    );
+
+    expect(first.map((candidate) => candidate.suggestion.name)).toEqual(second.map((candidate) => candidate.suggestion.name));
+    expect(first.length).toBeGreaterThanOrEqual(1);
+    expect(first.length).toBeLessThanOrEqual(2);
+    expect(first.some((candidate) => candidate.suggestion.name === 'Loose Seller Image')).toBe(false);
+    expect(first.every((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE')).toBe(true);
+    expect(first.every((candidate) => candidate.suggestion.referenceSourceCardId)).toBe(true);
+    expect(first.every((candidate) =>
+      candidate.suggestion.referenceSourceName === 'Pokemon TCG (Card)'
+      || candidate.suggestion.referenceSourceName === 'TCGdex Japanese (Card)'
+    )).toBe(true);
+  });
+
   it('uses a deterministic shared weekly finalizer fingerprint and order', () => {
     const reserve = publishableShelfCandidates(24, (candidate, index) => ({
       ...candidate,
