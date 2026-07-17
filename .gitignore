@@ -9,6 +9,7 @@ data/*
 !data/mock-listings.example.json
 
 # Local environment variants
+.env
 .env.*
 !.env.example
 
