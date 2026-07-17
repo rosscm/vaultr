@@ -106,6 +106,39 @@ describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
     expect(result.evidence[discoveryCanonicalLookupKey(result.candidates[0]!.suggestion)]?.outcome).toBe('RESOLVED');
   });
 
+  it('repairs the live W29 Umbreon and Darkrai marketplace title into the trusted promo record', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected URL: ${url}`);
+      if (url.includes('SM241')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [{
+              id: 'smp-SM241',
+              name: 'Umbreon & Darkrai-GX',
+              number: 'SM241',
+              set: { id: 'smp', name: 'SM Black Star Promos' },
+              images: { large: 'https://images.pokemontcg.io/smp/SM241_hires.png' }
+            }]
+          })
+        } as Response;
+      }
+      return { ok: true, json: async () => ({ data: [] }) } as Response;
+    }));
+
+    const result = await resolveWeeklyDiscoveryCanonicalReferences([
+      candidate(
+        '2016 Umbreon & Darkrai GX - Promo SM Promos SMP Darkness Holo SM241 LP',
+        '2016 Umbreon & Darkrai GX - Promo SM Promos SMP Darkness Holo SM241 LP Pokemon card'
+      )
+    ]);
+
+    expect(result.candidates[0]?.suggestion.referenceSourceCardId).toBe('smp-SM241');
+    expect(result.candidates[0]?.suggestion.name).toBe('Umbreon & Darkrai-GX SM Black Star Promos SM241');
+    expect(result.candidates[0]?.image?.sourceKind).toBe('CARD_REFERENCE');
+  });
+
   it('uses replay evidence without making network calls', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new Error('fetch should not be called in replay mode');

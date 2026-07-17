@@ -146,6 +146,7 @@ function compactName(value: string): string {
     .replace(/\bwizards\b(?=\s+black star)/gi, '')
     .replace(/\bsurging sparks\b\s*\d{1,3}\b/gi, '')
     .replace(/\b(?:sun & moon black star promos?|sm black star promos?|sm promos?|sword & shield black star promos?|swsh black star promos?|xy black star promos?|bw black star promos?|black star promos?|black star|mcdonald'?s|anniversary|vending series|web series|smp)\b/gi, '')
+    .replace(/\s*-\s*(?:darkness|dragon|fairy|psychic|lightning|fighting|metal|steel|grass|fire|water|colorless)\s*$/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

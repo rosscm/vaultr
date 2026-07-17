@@ -276,6 +276,21 @@ describe('discovery reference cache', () => {
     expect(queries).toEqual([]);
   });
 
+  it('strips trailing marketplace energy descriptors from promo titles before canonical Pokemon lookups', () => {
+    const queries = pokemonTcgQueriesForSuggestion({
+      name: '2016 Umbreon & Darkrai GX - Promo SM Promos SMP Darkness Holo SM241 LP',
+      lane: 'Promo Trail',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: '2016 Umbreon & Darkrai GX - Promo SM Promos SMP Darkness Holo SM241 LP Pokemon card',
+      requiredEvidenceTokens: ['umbreon', 'darkrai', 'sm241']
+    });
+
+    expect(queries[0]).toBe('name:"Umbreon & Darkrai-GX" number:SM241 set.name:"SM Black Star Promos"');
+    expect(queries).toContain('name:"Umbreon & Darkrai-GX" number:SM241');
+  });
+
   it('does not map Raichu No.026 Intro Pack to modern Raichu 026 reference images', () => {
     const queries = pokemonTcgQueriesForSuggestion({
       name: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese',
