@@ -62,6 +62,7 @@ import {
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
 import { addChase, setUserPlan } from '../../services/chase-store.js';
 import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
+import * as discoveryReferenceCacheService from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
@@ -6813,6 +6814,31 @@ describe('attachReferenceImages', () => {
     expect(attached?.image?.sourceName).toBe('eBay vetted marketplace image');
     expect(attached?.image?.sourceKind).toBe('MARKET_LISTING');
     deleteDiscoveryReferenceCache(referenceCacheKey);
+  });
+
+  it('uses a complete trusted suggestion binding without re-fetching reference data', async () => {
+    const seeded = candidate(`Mewtwo GX Hidden Fates SV59 ${Date.now()}`, 'modern texture', 0, 4);
+    const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage');
+
+    const [attached] = await attachReferenceImages([
+      {
+        ...seeded,
+        suggestion: {
+          ...seeded.suggestion,
+          referenceImageUrl: 'https://images.pokemontcg.io/svsv49/SV59_hires.png',
+          referenceSourceName: 'Pokemon TCG (Hidden Fates Shiny Vault)',
+          referenceSourceCardId: 'svsv49-SV59'
+        }
+      }
+    ]);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(attached?.image).toMatchObject({
+      url: 'https://images.pokemontcg.io/svsv49/SV59_hires.png',
+      sourceName: 'Pokemon TCG (Hidden Fates Shiny Vault)',
+      sourceCardId: 'svsv49-SV59',
+      sourceKind: 'CARD_REFERENCE'
+    });
   });
 
   it('repairs missing images on saved scheduled shelf cards', async () => {

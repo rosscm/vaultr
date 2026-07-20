@@ -47,7 +47,13 @@ import {
   type DiscoveryMarketCacheEntry
 } from '../services/discovery-market-cache.js';
 import { completeDiscoveryMarketRefreshJob, enqueueDiscoveryMarketRefreshJobs, getDiscoveryMarketRefreshQueueStats } from '../services/discovery-market-jobs.js';
-import { getOrFetchDiscoveryReferenceImage, hasTrustedDiscoveryReferenceProvenance, type DiscoveryReferenceCacheEntry } from '../services/discovery-reference-cache.js';
+import {
+  getOrFetchDiscoveryReferenceImage,
+  hasTrustedDiscoveryReferenceProvenance,
+  snapshotDiscoveryReferenceRuntimeStats,
+  type DiscoveryReferenceCacheEntry,
+  type DiscoveryReferenceRuntimeStats
+} from '../services/discovery-reference-cache.js';
 import { discoveryImageOverrideForSuggestion } from '../services/discovery-image-overrides.js';
 import {
   analyzeWeeklyDiscoveryCandidateReserve,
@@ -503,17 +509,41 @@ type DiscoveryAssemblyRuntimeContext = {
 type DiscoveryAssemblyExternalStatsSnapshot = {
   ebay: EbayRuntimeStats;
   sourceCatalog: DiscoverySourceCatalogRuntimeStats;
+  reference: DiscoveryReferenceRuntimeStats;
 };
 
 function snapshotDiscoveryAssemblyExternalStats(): DiscoveryAssemblyExternalStatsSnapshot {
   return {
     ebay: snapshotEbayRuntimeStats(),
-    sourceCatalog: snapshotDiscoverySourceCatalogRuntimeStats()
+    sourceCatalog: snapshotDiscoverySourceCatalogRuntimeStats(),
+    reference: snapshotDiscoveryReferenceRuntimeStats()
   };
 }
 
 function diffNumber(after: number, before: number): number {
   return after - before;
+}
+
+function diffDiscoveryReferenceRuntimeStats(
+  before: DiscoveryReferenceRuntimeStats,
+  after: DiscoveryReferenceRuntimeStats
+): Record<string, number> {
+  return {
+    referenceGetCalls: diffNumber(after.getCalls, before.getCalls),
+    referenceCacheFreshHits: diffNumber(after.cacheFreshHits, before.cacheFreshHits),
+    referenceCacheStaleHits: diffNumber(after.cacheStaleHits, before.cacheStaleHits),
+    referenceCacheMisses: diffNumber(after.cacheMisses, before.cacheMisses),
+    referenceCacheMismatchRepairs: diffNumber(after.cacheMismatchRepairs, before.cacheMismatchRepairs),
+    referenceFetchCalls: diffNumber(after.fetchCalls, before.fetchCalls),
+    referencePokemonRequests: diffNumber(after.providerPokemonRequests, before.providerPokemonRequests),
+    referenceTcgdexRequests: diffNumber(after.providerTcgdexRequests, before.providerTcgdexRequests),
+    referenceOnePieceChecks: diffNumber(after.providerOnePieceChecks, before.providerOnePieceChecks),
+    referenceProviderTimeouts: diffNumber(after.providerTimeouts, before.providerTimeouts),
+    referenceProviderFailures: diffNumber(after.providerFailures, before.providerFailures),
+    referenceProviderNotFound: diffNumber(after.providerNotFound, before.providerNotFound),
+    referenceProviderUnsupported: diffNumber(after.providerUnsupported, before.providerUnsupported),
+    referenceProviderResolved: diffNumber(after.providerResolved, before.providerResolved)
+  };
 }
 
 function diffDiscoveryAssemblyExternalStats(
@@ -539,7 +569,8 @@ function diffDiscoveryAssemblyExternalStats(
     sourceApiFailures: diffNumber(after.sourceCatalog.apiFailures, before.sourceCatalog.apiFailures),
     sourceApiTimeouts: diffNumber(after.sourceCatalog.apiTimeouts, before.sourceCatalog.apiTimeouts),
     sourceTasteProfileCacheHits: diffNumber(after.sourceCatalog.tasteProfileCacheHits, before.sourceCatalog.tasteProfileCacheHits),
-    sourceTasteProfileCacheMisses: diffNumber(after.sourceCatalog.tasteProfileCacheMisses, before.sourceCatalog.tasteProfileCacheMisses)
+    sourceTasteProfileCacheMisses: diffNumber(after.sourceCatalog.tasteProfileCacheMisses, before.sourceCatalog.tasteProfileCacheMisses),
+    ...diffDiscoveryReferenceRuntimeStats(before.reference, after.reference)
   };
 }
 
@@ -2180,10 +2211,36 @@ function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: Supported
   return `${formatMoney(candidate.typicalRawAskingTotal, currency)} active raw ask`;
 }
 
-export async function attachReferenceImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
+type ReferenceHydrationDiagnostics = {
+  candidateCount: number;
+  trustedImageFastPathCount: number;
+  trustedSuggestionFastPathCount: number;
+  externalLookupCount: number;
+  trustedReferenceResultCount: number;
+  marketplaceFallbackCount: number;
+  imageClearedCount: number;
+};
+
+function emptyReferenceHydrationDiagnostics(candidateCount: number): ReferenceHydrationDiagnostics {
+  return {
+    candidateCount,
+    trustedImageFastPathCount: 0,
+    trustedSuggestionFastPathCount: 0,
+    externalLookupCount: 0,
+    trustedReferenceResultCount: 0,
+    marketplaceFallbackCount: 0,
+    imageClearedCount: 0
+  };
+}
+
+export async function attachReferenceImages(
+  candidates: DiscoveryCandidate[],
+  diagnostics: ReferenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidates.length)
+): Promise<DiscoveryCandidate[]> {
   return mapWithConcurrency(candidates, VISIBLE_DISCOVERY_COUNT, async (candidate) => {
     const trustedExisting = trustedCandidateReferenceImage(candidate.image, candidate.suggestion);
     if (trustedExisting) {
+      diagnostics.trustedImageFastPathCount += 1;
       return {
         ...candidate,
         suggestion: {
@@ -2195,15 +2252,34 @@ export async function attachReferenceImages(candidates: DiscoveryCandidate[]): P
         image: trustedExisting
       };
     }
+    const trustedSuggestionReference = trustedReferenceImageFromSuggestion(candidate);
+    if (trustedSuggestionReference) {
+      diagnostics.trustedSuggestionFastPathCount += 1;
+      return {
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          referenceImageUrl: trustedSuggestionReference.url,
+          referenceSourceName: trustedSuggestionReference.sourceName,
+          referenceSourceCardId: trustedSuggestionReference.sourceCardId
+        },
+        image: trustedSuggestionReference
+      };
+    }
+    diagnostics.externalLookupCount += 1;
     const reference = await getOrFetchDiscoveryReferenceImage(candidate.suggestion, DISCOVERY_REFERENCE_CACHE_TTL_MS);
     if (!reference?.imageUrl || !hasTrustedDiscoveryReferenceProvenance(reference, candidate.suggestion)) {
       const downgradedImage = marketplaceCandidateImage(candidate.image, candidate.suggestion.name);
-      return downgradedImage
-        ? { ...candidate, image: downgradedImage }
-        : candidate.image?.sourceKind === 'MARKET_LISTING' && !isVettedMarketplaceImageCandidate(candidate)
-          ? { ...candidate, image: undefined }
-          : { ...candidate, image: undefined };
+      if (downgradedImage) {
+        diagnostics.marketplaceFallbackCount += 1;
+        return { ...candidate, image: downgradedImage };
+      }
+      diagnostics.imageClearedCount += 1;
+      return candidate.image?.sourceKind === 'MARKET_LISTING' && !isVettedMarketplaceImageCandidate(candidate)
+        ? { ...candidate, image: undefined }
+        : { ...candidate, image: undefined };
     }
+    diagnostics.trustedReferenceResultCount += 1;
     return {
       ...candidate,
       suggestion: {
@@ -7308,13 +7384,28 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     }
   });
   if (!quickRefresh) {
+    const referenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidateReserve.length);
+    const referenceStatsBefore = snapshotDiscoveryReferenceRuntimeStats();
     candidateReserve = await runWeeklyDiscoveryStage({
       userId: context.userId,
       weeklyPeriod,
       stage: 'initial-reference-hydration',
       inputCount: candidateReserve.length
-    }, () => withTimeout(hydrateShelfCandidateImages(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery reference hydration timeout'), {
+    }, () => withTimeout(attachReferenceImages(candidateReserve, referenceHydrationDiagnostics), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery reference hydration timeout'), {
       outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
+    });
+    logWeeklyDiscoveryStage({
+      event: 'WEEKLY_DISCOVERY_STAGE',
+      userId: context.userId,
+      weeklyPeriod,
+      stage: 'initial-reference-hydration-diagnostics',
+      status: 'SUCCESS',
+      inputCount: referenceHydrationDiagnostics.candidateCount,
+      outputCount: candidateReserve.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length,
+      counters: {
+        ...referenceHydrationDiagnostics,
+        ...diffDiscoveryReferenceRuntimeStats(referenceStatsBefore, snapshotDiscoveryReferenceRuntimeStats())
+      }
     });
   }
   const canonicalResolution = await runWeeklyDiscoveryStage({
@@ -7417,13 +7508,28 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         discovery.tasteProfileChases
       );
       if (!quickRefresh) {
+        const topOffReferenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidateReserve.length);
+        const topOffReferenceStatsBefore = snapshotDiscoveryReferenceRuntimeStats();
         candidateReserve = await runWeeklyDiscoveryStage({
           userId: context.userId,
           weeklyPeriod,
           stage: 'topoff-reference-hydration',
           inputCount: candidateReserve.length
-        }, () => withTimeout(hydrateShelfCandidateImages(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery topoff reference hydration timeout'), {
+        }, () => withTimeout(attachReferenceImages(candidateReserve, topOffReferenceHydrationDiagnostics), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery topoff reference hydration timeout'), {
           outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
+        });
+        logWeeklyDiscoveryStage({
+          event: 'WEEKLY_DISCOVERY_STAGE',
+          userId: context.userId,
+          weeklyPeriod,
+          stage: 'topoff-reference-hydration-diagnostics',
+          status: 'SUCCESS',
+          inputCount: topOffReferenceHydrationDiagnostics.candidateCount,
+          outputCount: candidateReserve.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length,
+          counters: {
+            ...topOffReferenceHydrationDiagnostics,
+            ...diffDiscoveryReferenceRuntimeStats(topOffReferenceStatsBefore, snapshotDiscoveryReferenceRuntimeStats())
+          }
         });
       }
       finalCanonicalResolution = await runWeeklyDiscoveryStage({

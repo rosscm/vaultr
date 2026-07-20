@@ -16,6 +16,23 @@ export type DiscoveryReferenceCacheEntry = {
   updatedAt: string;
 };
 
+export type DiscoveryReferenceRuntimeStats = {
+  getCalls: number;
+  cacheFreshHits: number;
+  cacheStaleHits: number;
+  cacheMisses: number;
+  cacheMismatchRepairs: number;
+  fetchCalls: number;
+  providerPokemonRequests: number;
+  providerTcgdexRequests: number;
+  providerOnePieceChecks: number;
+  providerTimeouts: number;
+  providerFailures: number;
+  providerNotFound: number;
+  providerUnsupported: number;
+  providerResolved: number;
+};
+
 type DiscoveryReferenceCacheRow = {
   cache_key: string;
   suggestion_name: string;
@@ -58,6 +75,27 @@ const ONE_PIECE_CARD_IMAGE_BASE_URL = 'https://en.onepiece-cardgame.com/images/c
 const REFERENCE_FETCH_TIMEOUT_MS = 12000;
 const TCGDEX_REFERENCE_HOST = 'assets.tcgdex.net';
 const POKEMON_TCG_REFERENCE_HOST = 'images.pokemontcg.io';
+
+const discoveryReferenceRuntimeStats: DiscoveryReferenceRuntimeStats = {
+  getCalls: 0,
+  cacheFreshHits: 0,
+  cacheStaleHits: 0,
+  cacheMisses: 0,
+  cacheMismatchRepairs: 0,
+  fetchCalls: 0,
+  providerPokemonRequests: 0,
+  providerTcgdexRequests: 0,
+  providerOnePieceChecks: 0,
+  providerTimeouts: 0,
+  providerFailures: 0,
+  providerNotFound: 0,
+  providerUnsupported: 0,
+  providerResolved: 0
+};
+
+export function snapshotDiscoveryReferenceRuntimeStats(): DiscoveryReferenceRuntimeStats {
+  return { ...discoveryReferenceRuntimeStats };
+}
 
 const SET_HINTS: Array<{ pattern: RegExp; setName: string }> = [
   { pattern: /southern islands?/i, setName: 'Southern Islands' },
@@ -361,12 +399,24 @@ export function upsertDiscoveryReferenceCache(input: UpsertDiscoveryReferenceCac
 }
 
 async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any> {
+  if (url.startsWith(POKEMON_TCG_ENDPOINT)) {
+    discoveryReferenceRuntimeStats.providerPokemonRequests += 1;
+  } else if (url.startsWith(TCGDEX_JA_CARDS_ENDPOINT)) {
+    discoveryReferenceRuntimeStats.providerTcgdexRequests += 1;
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) throw new Error(`Pokemon TCG request failed: ${response.status}`);
     return await response.json();
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      discoveryReferenceRuntimeStats.providerTimeouts += 1;
+    } else {
+      discoveryReferenceRuntimeStats.providerFailures += 1;
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -493,11 +543,19 @@ async function fetchJapaneseReferenceImage(suggestion: DiscoverySuggestion): Pro
 }
 
 async function imageExistsWithTimeout(url: string, timeoutMs: number): Promise<boolean> {
+  discoveryReferenceRuntimeStats.providerOnePieceChecks += 1;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
     return response.ok && /^image\//i.test(response.headers.get('content-type') ?? '');
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      discoveryReferenceRuntimeStats.providerTimeouts += 1;
+    } else {
+      discoveryReferenceRuntimeStats.providerFailures += 1;
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -654,12 +712,17 @@ async function fetchOnePieceReferenceImage(suggestion: DiscoverySuggestion): Pro
 }
 
 export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion): Promise<DiscoveryReferenceCacheEntry> {
+  discoveryReferenceRuntimeStats.fetchCalls += 1;
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
   const overrideReference = trustedOverrideReference(suggestion);
-  if (overrideReference) return overrideReference;
+  if (overrideReference) {
+    discoveryReferenceRuntimeStats.providerResolved += 1;
+    return overrideReference;
+  }
   if (!isPokemonReferenceSuggestion(suggestion) && suggestion.referenceImageUrl) {
     if (await validateReferenceImageUrl(suggestion.referenceImageUrl)) {
       const now = new Date().toISOString();
+      discoveryReferenceRuntimeStats.providerResolved += 1;
       return {
         cacheKey,
         suggestionName: suggestion.name,
@@ -675,7 +738,11 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
   if (isOnePieceReferenceSuggestion(suggestion)) {
     try {
       const onePieceReference = await fetchOnePieceReferenceImage(suggestion);
-      if (onePieceReference) return onePieceReference;
+      if (onePieceReference) {
+        if (onePieceReference.imageUrl) discoveryReferenceRuntimeStats.providerResolved += 1;
+        else if (onePieceReference.sourceStatus === 'NOT_FOUND') discoveryReferenceRuntimeStats.providerNotFound += 1;
+        return onePieceReference;
+      }
     } catch (error) {
       const status = error instanceof Error && error.name === 'AbortError' ? 'TIMEOUT' : 'ERROR';
       return {
@@ -691,8 +758,13 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
   if (isJapaneseReferenceSuggestion(suggestion)) {
     try {
       const japaneseReference = await fetchJapaneseReferenceImage(suggestion);
-      if (japaneseReference) return japaneseReference;
+      if (japaneseReference) {
+        if (japaneseReference.imageUrl) discoveryReferenceRuntimeStats.providerResolved += 1;
+        else if (japaneseReference.sourceStatus === 'NOT_FOUND') discoveryReferenceRuntimeStats.providerNotFound += 1;
+        return japaneseReference;
+      }
       if (hasExactJapanesePrintingRequest(suggestion)) {
+        discoveryReferenceRuntimeStats.providerNotFound += 1;
         return {
           cacheKey,
           suggestionName: suggestion.name,
@@ -717,6 +789,7 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
   const sourceSetName = setHintForSuggestion(sourceText);
   const queries = pokemonTcgQueriesForSuggestion(suggestion);
   if (queries.length === 0) {
+    discoveryReferenceRuntimeStats.providerUnsupported += 1;
     return {
       cacheKey,
       suggestionName: suggestion.name,
@@ -732,8 +805,12 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
       const json = await fetchJsonWithTimeout(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS);
       const cards = Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [];
       const reference = cards.map((card) => referenceFromCard(card, suggestion.name, sourceSetName)).find((entry): entry is DiscoveryReferenceCacheEntry => !!entry);
-      if (reference) return reference;
+      if (reference) {
+        discoveryReferenceRuntimeStats.providerResolved += 1;
+        return reference;
+      }
     }
+    discoveryReferenceRuntimeStats.providerNotFound += 1;
     return {
       cacheKey,
       suggestionName: suggestion.name,
@@ -754,6 +831,7 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
 }
 
 export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion, ttlMs: number): Promise<DiscoveryReferenceCacheEntry | null> {
+  discoveryReferenceRuntimeStats.getCalls += 1;
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
   const pokemonSuggestion = isPokemonReferenceSuggestion(suggestion);
   const cached = getDiscoveryReferenceCache(cacheKey);
@@ -777,6 +855,7 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
     const mismatch = fetched.imageUrl !== cached.imageUrl
       || fetched.sourceCardId !== cached.sourceCardId
       || fetched.sourceName !== cached.sourceName;
+    if (mismatch) discoveryReferenceRuntimeStats.cacheMismatchRepairs += 1;
     if (mismatch) deleteDiscoveryReferenceCache(cacheKey);
     if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
     if (mismatch) {
@@ -816,8 +895,16 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
     if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
     return fetched;
   }
-  if (cached?.imageUrl && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) return cached;
-  if (cached && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) return cached;
+  if (cached?.imageUrl && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) {
+    discoveryReferenceRuntimeStats.cacheFreshHits += 1;
+    return cached;
+  }
+  if (cached && ageMs !== undefined && ageMs < ttlMs && !isTransientReferenceStatus(cached.sourceStatus)) {
+    discoveryReferenceRuntimeStats.cacheStaleHits += 1;
+    return cached;
+  }
+
+  if (!cached) discoveryReferenceRuntimeStats.cacheMisses += 1;
 
   const fetched = await fetchDiscoveryReferenceImage(suggestion);
   if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
