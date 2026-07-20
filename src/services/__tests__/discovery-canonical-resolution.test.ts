@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   discoveryCanonicalLookupKey,
   resolveWeeklyDiscoveryCanonicalReferences,
+  snapshotDiscoveryCanonicalResolutionRuntimeStats,
   type CanonicalLookupEvidenceMap
 } from '../discovery-canonical-resolution.js';
 import type { DiscoveryCandidate } from '../../commands/discover.js';
@@ -285,5 +286,76 @@ describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
     expect(evidence?.providerResults[0]?.rejectionReason).toContain('card-number mismatch');
     expect(evidence?.providerResults[0]?.rejectionReason).toContain('set mismatch');
     expect(result.candidates[0]?.suggestion.referenceSourceCardId).toBeUndefined();
+  });
+
+  it('uses a complete trusted canonical binding without provider lookup', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('fetch should not be called for complete trusted bindings');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const seeded: DiscoveryCandidate = {
+      ...candidate('Dark Blastoise Team Rocket 20'),
+      suggestion: {
+        ...candidate('Dark Blastoise Team Rocket 20').suggestion,
+        referenceSourceName: 'Pokemon TCG (Team Rocket)',
+        referenceSourceCardId: 'base5-20',
+        referenceImageUrl: 'https://images.pokemontcg.io/base5/20_hires.png'
+      },
+      image: {
+        name: 'Dark Blastoise Team Rocket 20',
+        url: 'https://images.pokemontcg.io/base5/20_hires.png',
+        sourceName: 'Pokemon TCG (Team Rocket)',
+        sourceCardId: 'base5-20',
+        sourceKind: 'CARD_REFERENCE'
+      }
+    };
+
+    const result = await resolveWeeklyDiscoveryCanonicalReferences([seeded]);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.candidates[0]?.suggestion.referenceSourceCardId).toBe('base5-20');
+    expect(result.candidates[0]?.image?.sourceKind).toBe('CARD_REFERENCE');
+  });
+
+  it('coalesces duplicate canonical lookup keys into one shared lookup and records the reuse', async () => {
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) throw new Error(`Unexpected URL: ${url}`);
+      return {
+        ok: true,
+        json: async () => ({
+          data: [{
+            id: 'base5-20',
+            name: 'Dark Blastoise',
+            number: '20',
+            set: { id: 'base5', name: 'Team Rocket' },
+            images: { large: 'https://images.pokemontcg.io/base5/20_hires.png' }
+          }]
+        })
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const baselineResult = await resolveWeeklyDiscoveryCanonicalReferences([
+      candidate('Dark Blastoise Team Rocket 20')
+    ]);
+    const baselineFetchCount = fetchSpy.mock.calls.length;
+    fetchSpy.mockClear();
+
+    const statsBefore = snapshotDiscoveryCanonicalResolutionRuntimeStats();
+    const result = await resolveWeeklyDiscoveryCanonicalReferences([
+      candidate('Dark Blastoise Team Rocket 20'),
+      candidate('Dark Blastoise Team Rocket 20')
+    ]);
+    const statsAfter = snapshotDiscoveryCanonicalResolutionRuntimeStats();
+
+    expect(baselineFetchCount).toBeGreaterThan(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(baselineFetchCount);
+    expect(result.candidates[0]?.suggestion.referenceSourceCardId).toBe('base5-20');
+    expect(result.candidates[1]?.suggestion.referenceSourceCardId).toBe('base5-20');
+    expect(baselineResult.candidates[0]?.suggestion.referenceSourceCardId).toBe('base5-20');
+    expect(statsAfter.duplicateLookupKeys - statsBefore.duplicateLookupKeys).toBe(1);
+    expect(statsAfter.coalescedRequests - statsBefore.coalescedRequests).toBe(1);
   });
 });

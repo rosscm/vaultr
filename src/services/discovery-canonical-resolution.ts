@@ -65,6 +65,39 @@ export type DiscoveryCanonicalResolutionResult = {
   evidence?: CanonicalLookupEvidence;
 };
 
+export type DiscoveryCanonicalResolutionRuntimeStats = {
+  totalCandidates: number;
+  noResolutionNeeded: number;
+  completeTrustedBindings: number;
+  resolutionRequired: number;
+  directSourceCardIdCandidates: number;
+  uniqueLookupKeys: number;
+  duplicateLookupKeys: number;
+  replayEvidenceHits: number;
+  replayEvidenceMisses: number;
+  providerRequests: number;
+  directIdRequests: number;
+  queryRequests: number;
+  successfulResolutions: number;
+  noResults: number;
+  ambiguousResults: number;
+  compatibilityRejections: number;
+  failures: number;
+  timeouts: number;
+  successfulRebindings: number;
+  unresolvedCandidates: number;
+  coalescedRequests: number;
+  classificationMs: number;
+  trustedBindingValidationMs: number;
+  lookupKeyMs: number;
+  evidenceLookupMs: number;
+  directIdProviderMs: number;
+  queryProviderMs: number;
+  compatibilityMs: number;
+  rebindingMs: number;
+  finalMergeMs: number;
+};
+
 type ResolveOptions = {
   replayEvidence?: CanonicalLookupEvidenceMap;
 };
@@ -85,6 +118,50 @@ const SET_ALIASES: string[][] = [
   ['wizards black star promos', 'wizards black star promo'],
   ['nintendo black star promos', 'nintendo black star promo']
 ];
+
+const canonicalResolutionRuntimeStats: DiscoveryCanonicalResolutionRuntimeStats = {
+  totalCandidates: 0,
+  noResolutionNeeded: 0,
+  completeTrustedBindings: 0,
+  resolutionRequired: 0,
+  directSourceCardIdCandidates: 0,
+  uniqueLookupKeys: 0,
+  duplicateLookupKeys: 0,
+  replayEvidenceHits: 0,
+  replayEvidenceMisses: 0,
+  providerRequests: 0,
+  directIdRequests: 0,
+  queryRequests: 0,
+  successfulResolutions: 0,
+  noResults: 0,
+  ambiguousResults: 0,
+  compatibilityRejections: 0,
+  failures: 0,
+  timeouts: 0,
+  successfulRebindings: 0,
+  unresolvedCandidates: 0,
+  coalescedRequests: 0,
+  classificationMs: 0,
+  trustedBindingValidationMs: 0,
+  lookupKeyMs: 0,
+  evidenceLookupMs: 0,
+  directIdProviderMs: 0,
+  queryProviderMs: 0,
+  compatibilityMs: 0,
+  rebindingMs: 0,
+  finalMergeMs: 0
+};
+
+export function snapshotDiscoveryCanonicalResolutionRuntimeStats(): DiscoveryCanonicalResolutionRuntimeStats {
+  return { ...canonicalResolutionRuntimeStats };
+}
+
+function addCanonicalResolutionRuntimeStat<K extends keyof DiscoveryCanonicalResolutionRuntimeStats>(
+  key: K,
+  value: DiscoveryCanonicalResolutionRuntimeStats[K]
+): void {
+  canonicalResolutionRuntimeStats[key] += value as number;
+}
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -188,6 +265,10 @@ function providerDisplayName(record: CanonicalProviderRecord): string {
   return compactWhitespace(`${record.canonicalName} ${record.setName} ${record.cardNumber}`);
 }
 
+function isTrustedProviderImageUrl(url: string | undefined): boolean {
+  return !!url && !isMarketplaceLikeImageUrl(url);
+}
+
 function normalizedSetIdentity(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const normalized = normalize(value)
@@ -227,7 +308,37 @@ function compatibilityReasons(
   return reasons;
 }
 
+function trustedCanonicalBindingFromCandidate(candidate: DiscoveryCandidate): CanonicalProviderRecord | null {
+  const sourceCardId = candidate.suggestion.referenceSourceCardId?.trim() ?? candidate.image?.sourceCardId?.trim();
+  const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
+  const imageUrl = candidate.suggestion.referenceImageUrl ?? candidate.image?.url;
+  const imageSourceKind = candidate.image?.sourceKind;
+  if (!sourceCardId || !sourceName || !imageUrl || imageSourceKind !== 'CARD_REFERENCE') return null;
+  if (!isAllowlistedProviderSourceName(sourceName) || !isTrustedProviderImageUrl(imageUrl)) return null;
+  const identity = discoveryPrintingIdentity(candidate.suggestion);
+  const setMatch = /\(([^)]+)\)\s*$/.exec(sourceName)?.[1]?.trim();
+  const inferredProvider = /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName) ? 'TCGdex Japanese' : 'Pokemon TCG';
+  const canonicalName = identity.name;
+  const cardNumber = identity.number;
+  const setName = setMatch ?? identity.set;
+  if (!canonicalName || !cardNumber || !setName) return null;
+  const language = identity.language ?? (inferredProvider === 'TCGdex Japanese' ? 'JAPANESE' : 'ENGLISH');
+  const record: CanonicalProviderRecord = {
+    provider: inferredProvider,
+    sourceCardId,
+    canonicalCardId: sourceCardId,
+    canonicalName,
+    setName,
+    cardNumber,
+    language,
+    imageUrl
+  };
+  return compatibilityReasons(identity, record).length === 0 ? record : null;
+}
+
 async function fetchPokemonCardsByQuery(query: string): Promise<PokemonTcgCard[]> {
+  canonicalResolutionRuntimeStats.providerRequests += 1;
+  canonicalResolutionRuntimeStats.queryRequests += 1;
   const params = new URLSearchParams({
     q: query,
     pageSize: '8',
@@ -239,7 +350,11 @@ async function fetchPokemonCardsByQuery(query: string): Promise<PokemonTcgCard[]
   try {
     response = await fetch(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, { signal: controller.signal });
   } catch (error) {
-    if ((error as Error).name === 'AbortError') return [];
+    if ((error as Error).name === 'AbortError') {
+      canonicalResolutionRuntimeStats.timeouts += 1;
+      return [];
+    }
+    canonicalResolutionRuntimeStats.failures += 1;
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -251,13 +366,19 @@ async function fetchPokemonCardsByQuery(query: string): Promise<PokemonTcgCard[]
 }
 
 async function fetchPokemonCardById(sourceCardId: string): Promise<PokemonTcgCard | null> {
+  canonicalResolutionRuntimeStats.providerRequests += 1;
+  canonicalResolutionRuntimeStats.directIdRequests += 1;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CANONICAL_LOOKUP_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(`${POKEMON_TCG_ENDPOINT}/${encodeURIComponent(sourceCardId)}`, { signal: controller.signal });
   } catch (error) {
-    if ((error as Error).name === 'AbortError') return null;
+    if ((error as Error).name === 'AbortError') {
+      canonicalResolutionRuntimeStats.timeouts += 1;
+      return null;
+    }
+    canonicalResolutionRuntimeStats.failures += 1;
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -277,18 +398,25 @@ async function livePokemonResolution(suggestion: DiscoverySuggestion): Promise<C
 
   const existingSourceCardId = suggestion.referenceSourceCardId?.trim();
   if (existingSourceCardId) {
+    canonicalResolutionRuntimeStats.directSourceCardIdCandidates += 1;
+    const directStartedAt = Date.now();
     const directCard = await fetchPokemonCardById(existingSourceCardId);
+    addCanonicalResolutionRuntimeStat('directIdProviderMs', Date.now() - directStartedAt);
     const directRecord = directCard ? providerRecordFromPokemonCard(directCard) : null;
     if (directRecord) {
+      const compatibilityStartedAt = Date.now();
       const reasons = compatibilityReasons(identity, directRecord);
+      addCanonicalResolutionRuntimeStat('compatibilityMs', Date.now() - compatibilityStartedAt);
       providerResults.set(directRecord.sourceCardId, {
         ...directRecord,
         rejectionReason: reasons.length > 0 ? reasons.join(', ') : undefined
       });
+      if (reasons.length > 0) canonicalResolutionRuntimeStats.compatibilityRejections += 1;
       if (reasons.length === 0) directAcceptedSourceCardId = directRecord.sourceCardId;
     }
   }
   if (directAcceptedSourceCardId) {
+    canonicalResolutionRuntimeStats.successfulResolutions += 1;
     return {
       lookupKey,
       normalizedIdentity: identity,
@@ -301,19 +429,25 @@ async function livePokemonResolution(suggestion: DiscoverySuggestion): Promise<C
   }
 
   for (const query of queryVariants) {
+    const queryStartedAt = Date.now();
     for (const card of await fetchPokemonCardsByQuery(query)) {
       const record = providerRecordFromPokemonCard(card);
       if (!record || providerResults.has(record.sourceCardId)) continue;
+      const compatibilityStartedAt = Date.now();
       const reasons = compatibilityReasons(identity, record);
+      addCanonicalResolutionRuntimeStat('compatibilityMs', Date.now() - compatibilityStartedAt);
       providerResults.set(record.sourceCardId, {
         ...record,
         rejectionReason: reasons.length > 0 ? reasons.join(', ') : undefined
       });
+      if (reasons.length > 0) canonicalResolutionRuntimeStats.compatibilityRejections += 1;
     }
+    addCanonicalResolutionRuntimeStat('queryProviderMs', Date.now() - queryStartedAt);
   }
 
   const accepted = [...providerResults.values()].filter((record) => !record.rejectionReason);
   if (accepted.length === 1) {
+    canonicalResolutionRuntimeStats.successfulResolutions += 1;
     return {
       lookupKey,
       normalizedIdentity: identity,
@@ -325,6 +459,7 @@ async function livePokemonResolution(suggestion: DiscoverySuggestion): Promise<C
     };
   }
   if (accepted.length > 1) {
+    canonicalResolutionRuntimeStats.ambiguousResults += 1;
     return {
       lookupKey,
       normalizedIdentity: identity,
@@ -338,6 +473,7 @@ async function livePokemonResolution(suggestion: DiscoverySuggestion): Promise<C
   let outcome: CanonicalResolutionOutcome = 'NO_RESULTS';
   if (rejectionReasons.has('language mismatch')) outcome = 'LANGUAGE_MISMATCH';
   else if (rejectionReasons.size > 0) outcome = 'PRINTING_MISMATCH';
+  if (outcome === 'NO_RESULTS') canonicalResolutionRuntimeStats.noResults += 1;
   return {
     lookupKey,
     normalizedIdentity: identity,
@@ -402,34 +538,84 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
   candidates: DiscoveryCandidate[],
   options: ResolveOptions = {}
 ): Promise<{ candidates: DiscoveryCandidate[]; evidence: CanonicalLookupEvidenceMap }> {
+  const startedAt = Date.now();
   const evidence: CanonicalLookupEvidenceMap = {};
   const resolved = [...candidates];
+  canonicalResolutionRuntimeStats.totalCandidates += candidates.length;
+  const keyCounts = new Map<string, number>();
+  const classificationStartedAt = Date.now();
+  const candidatePlans = candidates.map((candidate) => {
+    const trustedBindingStartedAt = Date.now();
+    const trustedBinding = trustedCanonicalBindingFromCandidate(candidate);
+    addCanonicalResolutionRuntimeStat('trustedBindingValidationMs', Date.now() - trustedBindingStartedAt);
+    if (trustedBinding) canonicalResolutionRuntimeStats.completeTrustedBindings += 1;
+    const needsResolution = !trustedBinding && candidateNeedsCanonicalResolution(candidate);
+    if (!needsResolution) canonicalResolutionRuntimeStats.noResolutionNeeded += 1;
+    else canonicalResolutionRuntimeStats.resolutionRequired += 1;
+    const lookupStartedAt = Date.now();
+    const lookupKey = needsResolution ? discoveryCanonicalLookupKey(candidate.suggestion) : undefined;
+    addCanonicalResolutionRuntimeStat('lookupKeyMs', Date.now() - lookupStartedAt);
+    if (lookupKey) keyCounts.set(lookupKey, (keyCounts.get(lookupKey) ?? 0) + 1);
+    return { candidate, trustedBinding, needsResolution, lookupKey };
+  });
+  addCanonicalResolutionRuntimeStat('classificationMs', Date.now() - classificationStartedAt);
+  canonicalResolutionRuntimeStats.uniqueLookupKeys += keyCounts.size;
+  canonicalResolutionRuntimeStats.duplicateLookupKeys += [...keyCounts.values()].filter((count) => count > 1).reduce((sum, count) => sum + count - 1, 0);
+  const lookupPromises = new Map<string, Promise<CanonicalLookupEvidence>>();
   let cursor = 0;
-  const workers = Array.from({ length: Math.min(CANONICAL_RESOLUTION_CONCURRENCY, candidates.length) }, async () => {
-    while (cursor < candidates.length) {
+  const workers = Array.from({ length: Math.min(CANONICAL_RESOLUTION_CONCURRENCY, candidatePlans.length) }, async () => {
+    while (cursor < candidatePlans.length) {
       const index = cursor;
       cursor += 1;
-      const candidate = candidates[index]!;
-      if (!candidateNeedsCanonicalResolution(candidate)) {
+      const plan = candidatePlans[index]!;
+      const candidate = plan.candidate;
+      if (plan.trustedBinding) {
+        const rebindingStartedAt = Date.now();
+        resolved[index] = candidateFromAcceptedRecord(candidate, plan.trustedBinding);
+        canonicalResolutionRuntimeStats.successfulRebindings += 1;
+        addCanonicalResolutionRuntimeStat('rebindingMs', Date.now() - rebindingStartedAt);
+        continue;
+      }
+      if (!plan.needsResolution || !plan.lookupKey) {
         resolved[index] = candidate;
         continue;
       }
-      const lookupKey = discoveryCanonicalLookupKey(candidate.suggestion);
-      const lookupEvidence = options.replayEvidence
-        ? options.replayEvidence[lookupKey] ?? {
-            lookupKey,
-            normalizedIdentity: discoveryPrintingIdentity(candidate.suggestion),
-            queryVariants: pokemonTcgQueriesForSuggestion(candidate.suggestion),
-            provider: 'Pokemon TCG',
-            providerResults: [],
-            outcome: 'LOOKUP_NOT_ATTEMPTED' as const
-          }
-        : await livePokemonResolution(candidate.suggestion);
+      const lookupKey = plan.lookupKey;
+      const evidenceLookupStartedAt = Date.now();
+      let lookupPromise = lookupPromises.get(lookupKey);
+      if (lookupPromise) {
+        canonicalResolutionRuntimeStats.coalescedRequests += 1;
+      } else {
+        lookupPromise = options.replayEvidence
+          ? Promise.resolve(options.replayEvidence[lookupKey] ?? {
+              lookupKey,
+              normalizedIdentity: discoveryPrintingIdentity(candidate.suggestion),
+              queryVariants: pokemonTcgQueriesForSuggestion(candidate.suggestion),
+              provider: 'Pokemon TCG',
+              providerResults: [],
+              outcome: 'LOOKUP_NOT_ATTEMPTED' as const
+            })
+          : livePokemonResolution(candidate.suggestion);
+        lookupPromises.set(lookupKey, lookupPromise);
+      }
+      addCanonicalResolutionRuntimeStat('evidenceLookupMs', Date.now() - evidenceLookupStartedAt);
+      if (options.replayEvidence?.[lookupKey]) canonicalResolutionRuntimeStats.replayEvidenceHits += 1;
+      else if (options.replayEvidence) canonicalResolutionRuntimeStats.replayEvidenceMisses += 1;
+      const lookupEvidence = await lookupPromise;
       evidence[lookupKey] = lookupEvidence;
       const accepted = evidenceRecordByAcceptedSourceId(lookupEvidence);
-      resolved[index] = accepted ? candidateFromAcceptedRecord(candidate, accepted) : candidate;
+      const rebindingStartedAt = Date.now();
+      if (accepted && compatibilityReasons(discoveryPrintingIdentity(candidate.suggestion), accepted).length === 0) {
+        resolved[index] = candidateFromAcceptedRecord(candidate, accepted);
+        canonicalResolutionRuntimeStats.successfulRebindings += 1;
+      } else {
+        resolved[index] = candidate;
+        canonicalResolutionRuntimeStats.unresolvedCandidates += 1;
+      }
+      addCanonicalResolutionRuntimeStat('rebindingMs', Date.now() - rebindingStartedAt);
     }
   });
   await Promise.all(workers);
+  addCanonicalResolutionRuntimeStat('finalMergeMs', Date.now() - startedAt);
   return { candidates: resolved, evidence };
 }
