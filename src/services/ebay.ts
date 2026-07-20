@@ -32,6 +32,34 @@ const ebayRequestTimestamps: number[] = [];
 const ebaySearchCache = new Map<string, { listings: Listing[]; expiresAtMs: number }>();
 let ebayRequestQueue = Promise.resolve();
 
+export type EbayRuntimeStats = {
+  searchCacheHits: number;
+  searchCacheMisses: number;
+  requestsAttempted: number;
+  requestsCompleted: number;
+  requestFailures: number;
+  soldSearchCalls: number;
+  browseSearchCalls: number;
+  browseItemDetailCalls: number;
+  oauthCalls: number;
+  rateLimitSleeps: number;
+  rateLimitSleepMs: number;
+};
+
+const ebayRuntimeStats: EbayRuntimeStats = {
+  searchCacheHits: 0,
+  searchCacheMisses: 0,
+  requestsAttempted: 0,
+  requestsCompleted: 0,
+  requestFailures: 0,
+  soldSearchCalls: 0,
+  browseSearchCalls: 0,
+  browseItemDetailCalls: 0,
+  oauthCalls: 0,
+  rateLimitSleeps: 0,
+  rateLimitSleepMs: 0
+};
+
 class EbayRateLimitError extends Error {
   constructor(message: string) {
     super(message);
@@ -108,6 +136,7 @@ function getCachedEbaySearch(cacheKey: string): Listing[] | null {
     ebaySearchCache.delete(cacheKey);
     return null;
   }
+  ebayRuntimeStats.searchCacheHits += 1;
   return cloneListings(entry.listings);
 }
 
@@ -134,7 +163,11 @@ async function waitForEbayRequestBudget(): Promise<void> {
     const lastRequestMs = ebayRequestTimestamps.at(-1);
     const gapWaitMs = lastRequestMs !== undefined ? lastRequestMs + minGapMs - nowMs : 0;
     const waitMs = Math.max(0, windowWaitMs, gapWaitMs);
-    if (waitMs > 0) await sleep(waitMs);
+    if (waitMs > 0) {
+      ebayRuntimeStats.rateLimitSleeps += 1;
+      ebayRuntimeStats.rateLimitSleepMs += waitMs;
+      await sleep(waitMs);
+    }
 
     nowMs = Date.now();
     pruneEbayRequestWindow(nowMs);
@@ -148,7 +181,19 @@ async function waitForEbayRequestBudget(): Promise<void> {
 
 async function fetchEbay(url: string, init?: RequestInit): Promise<Response> {
   await waitForEbayRequestBudget();
-  return fetch(url, init);
+  ebayRuntimeStats.requestsAttempted += 1;
+  try {
+    const response = await fetch(url, init);
+    ebayRuntimeStats.requestsCompleted += 1;
+    return response;
+  } catch (error) {
+    ebayRuntimeStats.requestFailures += 1;
+    throw error;
+  }
+}
+
+export function snapshotEbayRuntimeStats(): EbayRuntimeStats {
+  return { ...ebayRuntimeStats };
 }
 
 function rememberEbayRateLimit(): void {
@@ -490,6 +535,7 @@ async function getBrowseAccessToken(): Promise<string> {
     scope: 'https://api.ebay.com/oauth/api_scope'
   });
 
+  ebayRuntimeStats.oauthCalls += 1;
   const response = await fetchEbay(getEbayOauthEndpoint(), {
     method: 'POST',
     headers: {
@@ -559,6 +605,7 @@ function mapBrowseItemToListing(item: any, destination?: ShippingDestination): L
 }
 
 async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDestination, options: EbaySearchOptions = {}): Promise<Listing[]> {
+  ebayRuntimeStats.browseSearchCalls += 1;
   const token = await getBrowseAccessToken();
   const gradeTerm = gradeSearchTerm(chase.grade);
   const baseKeywords = chase.queryName?.trim() || buildEbaySearchKeywords(chase);
@@ -614,6 +661,7 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
 
 async function enrichListingFromBrowseItemApi(listing: Listing, token: string, destination?: ShippingDestination): Promise<Listing> {
   try {
+    ebayRuntimeStats.browseItemDetailCalls += 1;
     const endUserContext = getBrowseItemEndUserContext(destination);
     const response = await fetchEbay(`${getEbayBrowseItemEndpoint()}/${encodeURIComponent(listing.listingId)}`, {
       headers: {
@@ -728,6 +776,7 @@ function mapFindingItemToListing(item: any, destination?: ShippingDestination): 
 export async function searchEbaySoldListings(chase: Chase, destination?: ShippingDestination, options: EbaySoldSearchOptions = {}): Promise<Listing[]> {
   const appId = process.env.EBAY_APP_ID;
   if (!appId) return [];
+  ebayRuntimeStats.soldSearchCalls += 1;
   const endpoint = getEbayFindingEndpoint();
 
   const keywords = ebaySoldSearchKeywords(chase, options);
@@ -775,6 +824,7 @@ export async function searchEbayListings(chase: Chase, destination?: ShippingDes
   const cacheKey = ebaySearchCacheKey(chase, destination, options);
   const cached = getCachedEbaySearch(cacheKey);
   if (cached) return cached;
+  ebayRuntimeStats.searchCacheMisses += 1;
 
   try {
     const listings = await searchEbayBrowseListings(chase, destination, options);

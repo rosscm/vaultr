@@ -5841,6 +5841,88 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(ebayService.searchEbayListings).toHaveBeenCalled();
   });
 
+  it('stops incremental foreground market hydration after the first sufficient batch', async () => {
+    vi.spyOn(ebayService, 'searchEbayListings').mockImplementation(async (inputChase) => [
+      listing({
+        listingId: `listing-${inputChase.cardName}`,
+        title: `${inputChase.cardName} Pokemon card`,
+        url: `https://example.com/${encodeURIComponent(inputChase.cardName)}`
+      })
+    ]);
+    vi.spyOn(ebayService, 'searchEbaySoldListings').mockImplementation(async () => []);
+
+    const candidates = publishableShelfCandidates(6, (candidate) => ({
+      ...candidate,
+      sourceStatus: 'PENDING' as const
+    }));
+
+    const hydrated = await __discoveryPersistenceTestHooks.hydrateDiscoveryMarketCandidatesIncrementally(
+      candidates,
+      {
+        userId: 'weekly-batch-stop',
+        activeChases: [chase('Mew RC24', 0)],
+        targetCurrency: 'CAD'
+      },
+      {
+        targetVisibleCount: 4,
+        tasteProfileChases: [chase('Mew RC24', 0)],
+        profileConfidence: strongProfileConfidence,
+        negativeProfile: discoveryNegativeProfile([], [chase('Mew RC24', 0)]),
+        repeatGuardChases: [chase('Mew RC24', 0)],
+        excludedNames: [],
+        softAvoidNames: [],
+        allowSoftAvoidFiller: true
+      }
+    );
+
+    expect(ebayService.searchEbayListings).toHaveBeenCalledTimes(4);
+    expect(hydrated.filter((candidate) => candidate.typicalRawAskingTotal !== undefined || candidate.typicalRawSoldTotal !== undefined)).toHaveLength(4);
+  });
+
+  it('runs another incremental foreground market hydration batch when the first batch is still insufficient', async () => {
+    let browseCalls = 0;
+    vi.spyOn(ebayService, 'searchEbayListings').mockImplementation(async (inputChase) => {
+      browseCalls += 1;
+      return browseCalls <= 2
+        ? []
+        : [
+            listing({
+              listingId: `listing-${inputChase.cardName}`,
+              title: `${inputChase.cardName} Pokemon card`,
+              url: `https://example.com/${encodeURIComponent(inputChase.cardName)}`
+            })
+          ];
+    });
+    vi.spyOn(ebayService, 'searchEbaySoldListings').mockImplementation(async () => []);
+
+    const candidates = publishableShelfCandidates(6, (candidate) => ({
+      ...candidate,
+      sourceStatus: 'PENDING' as const
+    }));
+
+    const hydrated = await __discoveryPersistenceTestHooks.hydrateDiscoveryMarketCandidatesIncrementally(
+      candidates,
+      {
+        userId: 'weekly-batch-continue',
+        activeChases: [chase('Mew RC24', 0)],
+        targetCurrency: 'CAD'
+      },
+      {
+        targetVisibleCount: 4,
+        tasteProfileChases: [chase('Mew RC24', 0)],
+        profileConfidence: strongProfileConfidence,
+        negativeProfile: discoveryNegativeProfile([], [chase('Mew RC24', 0)]),
+        repeatGuardChases: [chase('Mew RC24', 0)],
+        excludedNames: [],
+        softAvoidNames: [],
+        allowSoftAvoidFiller: true
+      }
+    );
+
+    expect(ebayService.searchEbayListings).toHaveBeenCalledTimes(6);
+    expect(hydrated.filter((candidate) => candidate.typicalRawAskingTotal !== undefined || candidate.typicalRawSoldTotal !== undefined).length).toBeGreaterThanOrEqual(4);
+  });
+
   it('does not let more like this style affinity bypass exact-card cooldown', () => {
     const repeated = {
       ...publishableCandidate('Affinity Repeat', 'affinity-repeat', 0),

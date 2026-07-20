@@ -151,12 +151,37 @@ type SourceProfileCacheEntry = {
   promise: Promise<SourceTasteProfile>;
 };
 
+export type DiscoverySourceCatalogRuntimeStats = {
+  apiCacheHits: number;
+  apiCacheMisses: number;
+  apiRequestsAttempted: number;
+  apiRequestsCompleted: number;
+  apiFailures: number;
+  apiTimeouts: number;
+  tasteProfileCacheHits: number;
+  tasteProfileCacheMisses: number;
+};
+
 const sourceApiResponseCache = new Map<string, SourceApiCacheEntry>();
 const sourceTasteProfileCache = new Map<string, SourceProfileCacheEntry>();
+const discoverySourceCatalogRuntimeStats: DiscoverySourceCatalogRuntimeStats = {
+  apiCacheHits: 0,
+  apiCacheMisses: 0,
+  apiRequestsAttempted: 0,
+  apiRequestsCompleted: 0,
+  apiFailures: 0,
+  apiTimeouts: 0,
+  tasteProfileCacheHits: 0,
+  tasteProfileCacheMisses: 0
+};
 
 export function clearDiscoverySourceCatalogCache(): void {
   sourceApiResponseCache.clear();
   sourceTasteProfileCache.clear();
+}
+
+export function snapshotDiscoverySourceCatalogRuntimeStats(): DiscoverySourceCatalogRuntimeStats {
+  return { ...discoverySourceCatalogRuntimeStats };
 }
 
 function normalize(value: string): string {
@@ -640,7 +665,11 @@ async function sourceTasteProfile(activeChases: Chase[]): Promise<SourceTastePro
   const cacheKey = sourceTasteProfileCacheKey(activeChases);
   const cached = sourceTasteProfileCache.get(cacheKey);
   const fallbackProfile = sourceTasteProfileFromCards([], activeChases, japaneseSignalRatio(activeChases), hasPriorityJapaneseSignal(activeChases));
-  if (cached && cached.expiresAt > now) return withFallbackTimeout(cached.promise, SOURCE_PROFILE_TIMEOUT_MS, fallbackProfile);
+  if (cached && cached.expiresAt > now) {
+    discoverySourceCatalogRuntimeStats.tasteProfileCacheHits += 1;
+    return withFallbackTimeout(cached.promise, SOURCE_PROFILE_TIMEOUT_MS, fallbackProfile);
+  }
+  discoverySourceCatalogRuntimeStats.tasteProfileCacheMisses += 1;
 
   const sourceCardsPromise = resolveActiveChaseSourceCards(activeChases).catch(() => []);
   const promise = sourceCardsPromise.then((cards) =>
@@ -746,13 +775,16 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any
   const now = Date.now();
   const cached = sourceApiResponseCache.get(url);
   if (cached && cached.expiresAt > now) {
+    discoverySourceCatalogRuntimeStats.apiCacheHits += 1;
     if (cached.json !== undefined) return cached.json;
     if (cached.promise) return cached.promise;
   }
+  discoverySourceCatalogRuntimeStats.apiCacheMisses += 1;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const promise = (async () => {
+    discoverySourceCatalogRuntimeStats.apiRequestsAttempted += 1;
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) throw new Error(`Pokemon TCG catalog request failed: ${response.status}`);
     return await response.json();
@@ -761,9 +793,15 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any
 
   try {
     const json = await promise;
+    discoverySourceCatalogRuntimeStats.apiRequestsCompleted += 1;
     sourceApiResponseCache.set(url, { expiresAt: Date.now() + SOURCE_API_CACHE_TTL_MS, json });
     return json;
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      discoverySourceCatalogRuntimeStats.apiTimeouts += 1;
+    } else {
+      discoverySourceCatalogRuntimeStats.apiFailures += 1;
+    }
     sourceApiResponseCache.delete(url);
     throw error;
   } finally {

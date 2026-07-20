@@ -33,7 +33,7 @@ import {
   upsertUserDiscoveryState
 } from '../services/chase-store.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice, type SupportedCurrency } from '../services/currency.js';
-import { buildEbaySearchKeywords, searchEbayListings, searchEbaySoldListings } from '../services/ebay.js';
+import { buildEbaySearchKeywords, searchEbayListings, searchEbaySoldListings, snapshotEbayRuntimeStats, type EbayRuntimeStats } from '../services/ebay.js';
 import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
 import { listDiscoveryUniverseCards, upsertDiscoveryUniverseCard, type DiscoveryUniverseCard } from '../services/discovery-card-universe.js';
 import { listDiscoveryUserUniverseCards, replaceDiscoveryUserUniverseCards, type DiscoveryUserUniverseCard } from '../services/discovery-user-universe.js';
@@ -60,7 +60,7 @@ import {
   type WeeklyDiscoveryFinalizationInput,
   type WeeklyDiscoveryFinalizationResult
 } from '../services/weekly-discovery-ranking.js';
-import { resolveSourceBackedDiscoveryCards } from '../services/discovery-source-catalog.js';
+import { resolveSourceBackedDiscoveryCards, snapshotDiscoverySourceCatalogRuntimeStats, type DiscoverySourceCatalogRuntimeStats } from '../services/discovery-source-catalog.js';
 import { resolveWeeklyDiscoveryCanonicalReferences, type CanonicalLookupEvidenceMap } from '../services/discovery-canonical-resolution.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from '../services/plans.js';
@@ -495,6 +495,95 @@ function remainingDeadlineMs(deadlineAtMs: number | undefined, fallbackMs: numbe
   return Math.max(1, Math.min(fallbackMs, deadlineAtMs - Date.now()));
 }
 
+type DiscoveryAssemblyRuntimeContext = {
+  userId: string;
+  weeklyPeriod: string;
+};
+
+type DiscoveryAssemblyExternalStatsSnapshot = {
+  ebay: EbayRuntimeStats;
+  sourceCatalog: DiscoverySourceCatalogRuntimeStats;
+};
+
+function snapshotDiscoveryAssemblyExternalStats(): DiscoveryAssemblyExternalStatsSnapshot {
+  return {
+    ebay: snapshotEbayRuntimeStats(),
+    sourceCatalog: snapshotDiscoverySourceCatalogRuntimeStats()
+  };
+}
+
+function diffNumber(after: number, before: number): number {
+  return after - before;
+}
+
+function diffDiscoveryAssemblyExternalStats(
+  before: DiscoveryAssemblyExternalStatsSnapshot,
+  after: DiscoveryAssemblyExternalStatsSnapshot
+): Record<string, number> {
+  return {
+    ebaySearchCacheHits: diffNumber(after.ebay.searchCacheHits, before.ebay.searchCacheHits),
+    ebaySearchCacheMisses: diffNumber(after.ebay.searchCacheMisses, before.ebay.searchCacheMisses),
+    ebayRequestsAttempted: diffNumber(after.ebay.requestsAttempted, before.ebay.requestsAttempted),
+    ebayRequestsCompleted: diffNumber(after.ebay.requestsCompleted, before.ebay.requestsCompleted),
+    ebayRequestFailures: diffNumber(after.ebay.requestFailures, before.ebay.requestFailures),
+    ebayBrowseSearchCalls: diffNumber(after.ebay.browseSearchCalls, before.ebay.browseSearchCalls),
+    ebaySoldSearchCalls: diffNumber(after.ebay.soldSearchCalls, before.ebay.soldSearchCalls),
+    ebayBrowseItemDetailCalls: diffNumber(after.ebay.browseItemDetailCalls, before.ebay.browseItemDetailCalls),
+    ebayOauthCalls: diffNumber(after.ebay.oauthCalls, before.ebay.oauthCalls),
+    ebayRateLimitSleeps: diffNumber(after.ebay.rateLimitSleeps, before.ebay.rateLimitSleeps),
+    ebayRateLimitSleepMs: diffNumber(after.ebay.rateLimitSleepMs, before.ebay.rateLimitSleepMs),
+    sourceApiCacheHits: diffNumber(after.sourceCatalog.apiCacheHits, before.sourceCatalog.apiCacheHits),
+    sourceApiCacheMisses: diffNumber(after.sourceCatalog.apiCacheMisses, before.sourceCatalog.apiCacheMisses),
+    sourceApiRequestsAttempted: diffNumber(after.sourceCatalog.apiRequestsAttempted, before.sourceCatalog.apiRequestsAttempted),
+    sourceApiRequestsCompleted: diffNumber(after.sourceCatalog.apiRequestsCompleted, before.sourceCatalog.apiRequestsCompleted),
+    sourceApiFailures: diffNumber(after.sourceCatalog.apiFailures, before.sourceCatalog.apiFailures),
+    sourceApiTimeouts: diffNumber(after.sourceCatalog.apiTimeouts, before.sourceCatalog.apiTimeouts),
+    sourceTasteProfileCacheHits: diffNumber(after.sourceCatalog.tasteProfileCacheHits, before.sourceCatalog.tasteProfileCacheHits),
+    sourceTasteProfileCacheMisses: diffNumber(after.sourceCatalog.tasteProfileCacheMisses, before.sourceCatalog.tasteProfileCacheMisses)
+  };
+}
+
+async function runDiscoveryAssemblySubstage<T>(
+  runtimeContext: DiscoveryAssemblyRuntimeContext | undefined,
+  stage: string,
+  inputCount: number | undefined,
+  work: () => Promise<T>,
+  options: {
+    outputCount?: (value: T) => number | undefined;
+    counters?: Record<string, number | string | boolean | null | undefined>;
+  } = {}
+): Promise<T> {
+  if (!runtimeContext) return work();
+  const externalBefore = snapshotDiscoveryAssemblyExternalStats();
+  return runWeeklyDiscoveryStage({
+    userId: runtimeContext.userId,
+    weeklyPeriod: runtimeContext.weeklyPeriod,
+    stage,
+    inputCount,
+    counters: options.counters
+  }, async () => {
+    const value = await work();
+    const externalAfter = snapshotDiscoveryAssemblyExternalStats();
+    const externalDiff = diffDiscoveryAssemblyExternalStats(externalBefore, externalAfter);
+    logWeeklyDiscoveryStage({
+      event: 'WEEKLY_DISCOVERY_STAGE',
+      userId: runtimeContext.userId,
+      weeklyPeriod: runtimeContext.weeklyPeriod,
+      stage: `${stage}-external`,
+      status: 'SUCCESS',
+      inputCount,
+      outputCount: options.outputCount?.(value),
+      counters: {
+        ...externalDiff,
+        ...(options.counters ?? {})
+      }
+    });
+    return value;
+  }, {
+    outputCount: options.outputCount
+  });
+}
+
 export type WeeklyDiscoveryFinalizerResult = WeeklyDiscoveryFinalizationResult & {
   selection: DiscoveryShelfSelectionResult;
   candidateOutcomes: WeeklyDiscoveryCandidateOutcomeRecord[];
@@ -525,6 +614,8 @@ const DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS = Math.max(60000, Math.min(15 * 60 * 
 const DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS = Math.max(15000, Math.min(5 * 60 * 1000, Math.floor(Number(process.env.DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS ?? '90000'))));
 const DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS = Math.max(10000, Math.min(5 * 60 * 1000, Math.floor(Number(process.env.DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS ?? '45000'))));
 const DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY = Math.max(1, Math.min(6, Math.floor(Number(process.env.DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY ?? '3'))));
+const DISCOVERY_FOREGROUND_MARKET_HYDRATION_BATCH_SIZE = Math.max(1, Math.min(8, Math.floor(Number(process.env.DISCOVERY_FOREGROUND_MARKET_HYDRATION_BATCH_SIZE ?? '4'))));
+const DISCOVERY_FOREGROUND_MARKET_HYDRATION_MAX_BATCHES = Math.max(1, Math.min(4, Math.floor(Number(process.env.DISCOVERY_FOREGROUND_MARKET_HYDRATION_MAX_BATCHES ?? '3'))));
 const DISCOVERY_MARKET_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DISCOVERY_SOURCE_STATUS_RETRY_MS = 15 * 60 * 1000;
@@ -1423,6 +1514,13 @@ export function candidatesFromDiscoveryMarketCache(
     range?: { min: number; max: number };
     forceRefreshMissingSignal?: boolean;
     forceRefreshThinSignal?: boolean;
+  },
+  diagnostics?: {
+    cacheHits: number;
+    cacheMisses: number;
+    refreshQueued: number;
+    invalidCachedListings: number;
+    reliableSignalHits: number;
   }
 ): DiscoveryCandidate[] {
   const refreshJobs: DiscoveryMarketRefreshWork[] = [];
@@ -1442,8 +1540,18 @@ export function candidatesFromDiscoveryMarketCache(
     const cachedListing = cacheEntry ? listingFromDiscoveryMarketCache(cacheEntry) : undefined;
     const hasInvalidCachedListing = !!cachedListing && !isUsableDiscoveryExample(enrichedSuggestion, cachedListing, context.range, context.targetCurrency);
     const effectiveCacheEntry = hasInvalidCachedListing ? null : cacheEntry;
+    if (diagnostics) {
+      if (cacheEntry) {
+        diagnostics.cacheHits += 1;
+        if (discoveryMarketCacheHasReliableEstimate(cacheEntry)) diagnostics.reliableSignalHits += 1;
+      } else {
+        diagnostics.cacheMisses += 1;
+      }
+      if (hasInvalidCachedListing) diagnostics.invalidCachedListings += 1;
+    }
     const refreshQueued = hasInvalidCachedListing || shouldRefreshDiscoveryMarketCache(cacheEntry) || (!!cacheEntry && context.forceRefreshMissingSignal === true && !discoveryMarketCacheHasSignal(cacheEntry)) || (!!cacheEntry && context.forceRefreshThinSignal === true && discoveryMarketCacheHasSignal(cacheEntry) && !discoveryMarketCacheHasReliableEstimate(cacheEntry));
     if (refreshQueued) {
+      if (diagnostics) diagnostics.refreshQueued += 1;
       refreshJobs.push({
         cacheKey,
         suggestion: enrichedSuggestion,
@@ -1502,12 +1610,14 @@ async function hydratePendingDiscoveryMarketCandidates(
   options: {
     timeoutMs?: number;
     maxCandidates?: number;
+    candidateKeys?: Set<string>;
   } = {}
 ): Promise<DiscoveryCandidate[]> {
   const hydratedByIndex = new Map<number, DiscoveryCandidate>();
   const pendingCandidates = candidates
     .map((candidate, index) => ({ candidate, index }))
-    .filter(({ candidate }) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate));
+    .filter(({ candidate }) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate))
+    .filter(({ candidate }) => !options.candidateKeys || options.candidateKeys.has(discoveryDisplayNameKey(candidate.suggestion.name)));
   const selectedPendingCandidates = pendingCandidates.slice(0, Math.max(0, options.maxCandidates ?? pendingCandidates.length));
   if (selectedPendingCandidates.length === 0) return candidates;
   const timeoutMs = Math.max(1, options.timeoutMs ?? DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS);
@@ -1570,6 +1680,158 @@ async function hydratePendingDiscoveryMarketCandidates(
   if (timeoutHandle) clearTimeout(timeoutHandle);
 
   return candidates.map((candidate, index) => hydratedByIndex.get(index) ?? candidate);
+}
+
+function marketHydrationReadinessTargetCount(targetVisibleCount: number, profileConfidence: DiscoveryProfileConfidence): number {
+  return Math.min(targetVisibleCount, Math.min(profileConfidence.maxShelfSize, DISCOVERY_SHELF_PAGE_SIZE));
+}
+
+function marketHydrationReadyShelfCount(
+  candidates: DiscoveryCandidate[],
+  marketContext: {
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  },
+  targetVisibleCount: number,
+  tasteProfileChases: Chase[],
+  profileConfidence: DiscoveryProfileConfidence,
+  negativeProfile: DiscoveryNegativeProfile,
+  repeatGuardChases: Chase[],
+  excludedNames: string[]
+): number {
+  const selectionPool = backfillMarketReadyDiscoveryCandidates(
+    candidates,
+    marketContext,
+    targetVisibleCount,
+    tasteProfileChases,
+    profileConfidence,
+    negativeProfile,
+    repeatGuardChases,
+    excludedNames
+  );
+  return marketReadyShelfCandidatesWithOptions(selectionPool, true, profileConfidence, {
+    allowPendingExploration: false,
+    allowLanguageSignalFallback: hasJapaneseWeightedProfile(tasteProfileChases),
+    allowSourceBackedRetailEReaderFallback: hasRetailEReaderPromoProfileSignal(tasteProfileChases),
+    languageSignalTargetCount: weeklyJapaneseSignalTargetCount(tasteProfileChases, targetVisibleCount)
+  }).length;
+}
+
+function selectForegroundMarketHydrationBatchCandidates(
+  candidates: DiscoveryCandidate[],
+  marketContext: {
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  },
+  targetVisibleCount: number,
+  tasteProfileChases: Chase[],
+  profileConfidence: DiscoveryProfileConfidence,
+  negativeProfile: DiscoveryNegativeProfile,
+  repeatGuardChases: Chase[],
+  excludedNames: string[],
+  softAvoidNames: string[],
+  allowSoftAvoidFiller: boolean,
+  learnedRankContext?: DiscoveryLearnedRankContext
+): DiscoveryCandidate[] {
+  const selectionPool = backfillMarketReadyDiscoveryCandidates(
+    candidates,
+    marketContext,
+    targetVisibleCount,
+    tasteProfileChases,
+    profileConfidence,
+    negativeProfile,
+    repeatGuardChases,
+    excludedNames
+  );
+  const prioritizedPool = orderCandidatesForMarketConfidence(selectionPool, tasteProfileChases, negativeProfile, learnedRankContext);
+  const preferredVisible = selectFreshVisibleCandidatesForCount(
+    prioritizedPool,
+    tasteProfileChases,
+    targetVisibleCount,
+    negativeProfile,
+    softAvoidNames,
+    { allowAvoidedFiller: allowSoftAvoidFiller, learnedRankContext }
+  );
+  const preferredPending = preferredVisible.filter((candidate) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate));
+  const fallbackPending = prioritizedPool.filter((candidate) =>
+    candidate.sourceStatus === 'PENDING'
+    && needsMoreMarketDepth(candidate)
+    && !preferredPending.some((preferred) => discoveryDisplayNameKey(preferred.suggestion.name) === discoveryDisplayNameKey(candidate.suggestion.name))
+  );
+  return uniqueCandidatesByDisplayName([...preferredPending, ...fallbackPending]).slice(0, DISCOVERY_FOREGROUND_MARKET_HYDRATION_BATCH_SIZE);
+}
+
+async function hydrateDiscoveryMarketCandidatesIncrementally(
+  candidates: DiscoveryCandidate[],
+  marketContext: {
+    userId: string;
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  },
+  options: {
+    targetVisibleCount: number;
+    tasteProfileChases: Chase[];
+    profileConfidence: DiscoveryProfileConfidence;
+    negativeProfile: DiscoveryNegativeProfile;
+    repeatGuardChases: Chase[];
+    excludedNames: string[];
+    softAvoidNames: string[];
+    allowSoftAvoidFiller: boolean;
+    learnedRankContext?: DiscoveryLearnedRankContext;
+    timeoutMs?: number;
+  }
+): Promise<DiscoveryCandidate[]> {
+  const readinessTarget = marketHydrationReadinessTargetCount(options.targetVisibleCount, options.profileConfidence);
+  let workingCandidates = candidates;
+  let readyShelfCount = marketHydrationReadyShelfCount(
+    workingCandidates,
+    marketContext,
+    options.targetVisibleCount,
+    options.tasteProfileChases,
+    options.profileConfidence,
+    options.negativeProfile,
+    options.repeatGuardChases,
+    options.excludedNames
+  );
+  for (let batchIndex = 0; batchIndex < DISCOVERY_FOREGROUND_MARKET_HYDRATION_MAX_BATCHES; batchIndex += 1) {
+    if (readyShelfCount >= readinessTarget) break;
+    const batchCandidates = selectForegroundMarketHydrationBatchCandidates(
+      workingCandidates,
+      marketContext,
+      options.targetVisibleCount,
+      options.tasteProfileChases,
+      options.profileConfidence,
+      options.negativeProfile,
+      options.repeatGuardChases,
+      options.excludedNames,
+      options.softAvoidNames,
+      options.allowSoftAvoidFiller,
+      options.learnedRankContext
+    );
+    if (batchCandidates.length === 0) break;
+    workingCandidates = await hydratePendingDiscoveryMarketCandidates(workingCandidates, marketContext, {
+      timeoutMs: options.timeoutMs,
+      maxCandidates: batchCandidates.length,
+      candidateKeys: new Set(batchCandidates.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)))
+    });
+    readyShelfCount = marketHydrationReadyShelfCount(
+      workingCandidates,
+      marketContext,
+      options.targetVisibleCount,
+      options.tasteProfileChases,
+      options.profileConfidence,
+      options.negativeProfile,
+      options.repeatGuardChases,
+      options.excludedNames
+    );
+  }
+  return workingCandidates;
 }
 
 function candidateWithFreshMarketCache(
@@ -2457,6 +2719,8 @@ export const __discoveryPersistenceTestHooks = {
   buildWeeklyDiscoveryFinalizationInput,
   buildWeeklyDiscoverySupplyReadiness,
   hydratePendingDiscoveryMarketCandidates,
+  hydrateDiscoveryMarketCandidatesIncrementally,
+  selectForegroundMarketHydrationBatchCandidates,
   prepareWeeklyDiscoveryDropForUser
 };
 
@@ -6884,7 +7148,10 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     skipSourceCatalogFetch: quickRefresh,
     skipReferenceImageFetch: quickRefresh,
     ingestCanonicalUniverse: !quickRefresh,
-    persistDiscoveryArtifacts: context.mode === 'LIVE'
+    persistDiscoveryArtifacts: context.mode === 'LIVE',
+    runtimeContext: context.mode === 'LIVE'
+      ? { userId: context.userId, weeklyPeriod }
+      : undefined
   }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS), 'Weekly discovery initial reserve assembly timeout'), {
     outputCount: (value) => value.candidates.length
   });
@@ -7024,6 +7291,22 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       { maxImmediateNameCarryovers: carryoverCap }
     );
   }
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId: context.userId,
+    weeklyPeriod,
+    stage: 'initial-reserve-expansion',
+    status: 'SUCCESS',
+    inputCount: discovery.candidates.length,
+    outputCount: candidateReserve.length,
+    counters: {
+      visibleCandidatesFromDiscovery: discovery.candidates.length,
+      supplementalUniverseCandidates: supplementalUniverseCandidates.length,
+      supplementalCacheCandidates: supplementalCacheCandidates.length,
+      weeklyCandidatePool: weeklyCandidatePool.length,
+      deduplicatedCandidates: baseStageCounts.deduplicatedCandidates
+    }
+  });
   if (!quickRefresh) {
     candidateReserve = await runWeeklyDiscoveryStage({
       userId: context.userId,
@@ -7409,7 +7692,7 @@ export function orderCandidatesFromPersistedState(
 export async function discoverCandidatesForUser(
   userId: string,
   count: number,
-  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean; persistDiscoveryArtifacts?: boolean } = {}
+  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean; persistDiscoveryArtifacts?: boolean; runtimeContext?: DiscoveryAssemblyRuntimeContext } = {}
 ): Promise<{
   chases: Chase[];
   tasteProfileChases: Chase[];
@@ -7435,6 +7718,7 @@ export async function discoverCandidatesForUser(
   const ingestCanonicalUniverse = options.ingestCanonicalUniverse ?? false;
   const ignoreSeenExclusions = options.ignoreSeenExclusions ?? false;
   const persistDiscoveryArtifacts = options.persistDiscoveryArtifacts ?? true;
+  const runtimeContext = options.runtimeContext;
   const softAvoidNames = uniqueValuesPreservingOrder(options.softAvoidNames ?? []);
   const hardAvoidNames = uniqueValuesPreservingOrder(options.hardAvoidNames ?? []);
   const allowSoftAvoidFiller = options.allowSoftAvoidFiller ?? true;
@@ -7546,24 +7830,50 @@ export async function discoverCandidatesForUser(
     const combinedExcludedNames = uniqueValuesPreservingOrder(seenExcludedNames);
     const combinedSourceExcludedNames = uniqueValuesPreservingOrder(seenExcludedNames);
     const persistedState = usePersistedState && hasFullDiscovery && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT ? getUserDiscoveryState(userId, stateKey) : null;
-    const selection = selectDiscoverySuggestionsForFocuses([], tasteProfileChases, DISCOVERY_CANDIDATE_POOL_SIZE, {
+    const selection = await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-generated-suggestions', tasteProfileChases.length, async () => selectDiscoverySuggestionsForFocuses([], tasteProfileChases, DISCOVERY_CANDIDATE_POOL_SIZE, {
       excludedNames: combinedExcludedNames,
       excludeLanesForExcludedNames: combinedExcludedNames.length > 0
+    }), {
+      outputCount: (value) => value.suggestions.length,
+      counters: {
+        excludedNames: combinedExcludedNames.length
+      }
     });
     const discoverySelectionCount = discoveryCandidateSelectionCount(hasFullDiscovery, targetVisibleCount);
     const activeSafeSuggestions = selection.suggestions.filter((suggestion) => !isActiveChaseEchoSuggestion(suggestion, repeatGuardChases));
     const sourceBackedSuggestions = skipSourceCatalogFetch
       ? []
-      : await expandSourceBackedSuggestions(activeSafeSuggestions, chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases);
+      : await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-source-catalog-primary', activeSafeSuggestions.length, async () =>
+        expandSourceBackedSuggestions(activeSafeSuggestions, chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases), {
+        outputCount: (value) => value.length,
+        counters: {
+          targetCount: discoverySelectionCount,
+          concurrency: DISCOVERY_ENRICHMENT_CONCURRENCY
+        }
+      });
     const japaneseSourceBackedSuggestions = skipSourceCatalogFetch
       ? []
       : hasFullDiscovery && hasJapaneseWeightedProfile(tasteProfileChases)
-        ? await expandSourceBackedSuggestions(japaneseSourceBackfillParents(tasteProfileChases), chases, tasteProfileChases, Math.min(DISCOVERY_SHELF_PAGE_SIZE, discoverySelectionCount), repeatGuardChases)
+        ? await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-source-catalog-japanese', japaneseSourceBackfillParents(tasteProfileChases).length, async () =>
+          expandSourceBackedSuggestions(japaneseSourceBackfillParents(tasteProfileChases), chases, tasteProfileChases, Math.min(DISCOVERY_SHELF_PAGE_SIZE, discoverySelectionCount), repeatGuardChases), {
+          outputCount: (value) => value.length,
+          counters: {
+            targetCount: Math.min(DISCOVERY_SHELF_PAGE_SIZE, discoverySelectionCount),
+            concurrency: DISCOVERY_ENRICHMENT_CONCURRENCY
+          }
+        })
         : [];
     const profileVariantSourceBackedSuggestions = skipSourceCatalogFetch
       ? []
       : hasLearnedProfile
-        ? await expandSourceBackedSuggestions(profileVariantSourceBackfillParents(tasteProfileChases, discoverySelectionCount), chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases)
+        ? await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-source-catalog-profile-variant', profileVariantSourceBackfillParents(tasteProfileChases, discoverySelectionCount).length, async () =>
+          expandSourceBackedSuggestions(profileVariantSourceBackfillParents(tasteProfileChases, discoverySelectionCount), chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases), {
+          outputCount: (value) => value.length,
+          counters: {
+            targetCount: discoverySelectionCount,
+            concurrency: DISCOVERY_ENRICHMENT_CONCURRENCY
+          }
+        })
         : [];
     const excludedSourceNameKeys = new Set(combinedSourceExcludedNames.map(discoveryNameKey));
     const marketContext = {
@@ -7587,11 +7897,25 @@ export async function discoverCandidatesForUser(
       const starterSelection = selectDiscoverySuggestionsForFocuses([], [], DISCOVERY_CANDIDATE_POOL_SIZE, {
         excludedNames: [...combinedSourceExcludedNames, ...concreteSourceBackedSuggestions.map((suggestion) => suggestion.name)]
       });
-      const starterSourceBackedSuggestions = await expandSourceBackedSuggestions(starterSelection.suggestions, chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases);
+      const starterSourceBackedSuggestions = await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-source-catalog-starter-backfill', starterSelection.suggestions.length, async () =>
+        expandSourceBackedSuggestions(starterSelection.suggestions, chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases), {
+        outputCount: (value) => value.length,
+        counters: {
+          targetCount: discoverySelectionCount,
+          concurrency: DISCOVERY_ENRICHMENT_CONCURRENCY
+        }
+      });
       concreteSourceBackedSuggestions = backfillSourceBackedDiscoverySuggestions(concreteSourceBackedSuggestions, starterSourceBackedSuggestions, discoverySelectionCount);
     }
     if (!skipSourceCatalogFetch && hasLearnedProfile && concreteSourceBackedSuggestions.length < discoverySelectionCount) {
-      const broadSourceBackedSuggestions = await expandSourceBackedSuggestions(broadSourceBackfillParents(), chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases);
+      const broadSourceBackedSuggestions = await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-source-catalog-broad-backfill', broadSourceBackfillParents().length, async () =>
+        expandSourceBackedSuggestions(broadSourceBackfillParents(), chases, tasteProfileChases, discoverySelectionCount, repeatGuardChases), {
+        outputCount: (value) => value.length,
+        counters: {
+          targetCount: discoverySelectionCount,
+          concurrency: DISCOVERY_ENRICHMENT_CONCURRENCY
+        }
+      });
       concreteSourceBackedSuggestions = backfillSourceBackedDiscoverySuggestions(concreteSourceBackedSuggestions, broadSourceBackedSuggestions, discoverySelectionCount);
     }
     const freshSourceBackedSuggestions = backfillDiscoverySuggestions(
@@ -7601,23 +7925,32 @@ export async function discoverCandidatesForUser(
       discoverySelectionCount
     );
     if (persistDiscoveryArtifacts) persistDiscoveryUniverseSuggestions(concreteSourceBackedSuggestions);
-    const indexedUniverseCandidates = hasFullDiscovery
-      ? selectDiscoveryUserUniverseCandidates(
-          userId,
-          combinedSourceExcludedNames,
-          discoverySelectionCount,
-          tasteProfileChases,
-          repeatGuardChases
-        )
-      : [];
-    const universeCandidates = indexedUniverseCandidates.length > 0
-      ? indexedUniverseCandidates
-      : selectDiscoveryUniverseCandidatesForProfile(
-          tasteProfileChases,
-          combinedSourceExcludedNames,
-          discoverySelectionCount,
-          repeatGuardChases
-        );
+    const indexedUniverseCandidates = await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-user-universe-load', hasFullDiscovery ? discoverySelectionCount : 0, async () =>
+      hasFullDiscovery
+        ? selectDiscoveryUserUniverseCandidates(
+            userId,
+            combinedSourceExcludedNames,
+            discoverySelectionCount,
+            tasteProfileChases,
+            repeatGuardChases
+          )
+        : [], {
+      outputCount: (value) => value.length
+    });
+    const universeCandidates = await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-global-universe-load', indexedUniverseCandidates.length > 0 ? 0 : discoverySelectionCount, async () =>
+      indexedUniverseCandidates.length > 0
+        ? indexedUniverseCandidates
+        : selectDiscoveryUniverseCandidatesForProfile(
+            tasteProfileChases,
+            combinedSourceExcludedNames,
+            discoverySelectionCount,
+            repeatGuardChases
+          ), {
+      outputCount: (value) => value.length,
+      counters: {
+        bypassedByUserUniverse: indexedUniverseCandidates.length > 0
+      }
+    });
     const enriched = [
       ...universeCandidates,
       ...freshSourceBackedSuggestions.map((suggestion, index) => tasteOnlyCandidate(suggestion, index + universeCandidates.length))
@@ -7639,9 +7972,36 @@ export async function discoverCandidatesForUser(
         hardExcludedNames: rejectedNames,
         softAvoidNames: hasFullDiscovery ? softAvoidNames : [...recentlySeenNames, ...softAvoidNames]
       });
-    const cacheCandidates = candidatesFromDiscoveryMarketCache(discoveryCandidatePool, marketContext);
+    const marketCacheDiagnostics = { cacheHits: 0, cacheMisses: 0, refreshQueued: 0, invalidCachedListings: 0, reliableSignalHits: 0 };
+    const cacheCandidates = await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-market-cache-load', discoveryCandidatePool.length, async () =>
+      candidatesFromDiscoveryMarketCache(discoveryCandidatePool, marketContext, marketCacheDiagnostics), {
+      outputCount: (value) => value.length,
+      counters: marketCacheDiagnostics
+    });
+    const pendingMarketCandidates = cacheCandidates.filter((candidate) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate)).length;
     const marketCandidates = hasFullDiscovery && hydrateScheduledMarketInline
-      ? await hydratePendingDiscoveryMarketCandidates(cacheCandidates, marketContext)
+      ? await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-market-hydration', pendingMarketCandidates, async () =>
+        hydrateDiscoveryMarketCandidatesIncrementally(cacheCandidates, marketContext, {
+          targetVisibleCount,
+          tasteProfileChases,
+          profileConfidence,
+          negativeProfile,
+          repeatGuardChases,
+          excludedNames: seenExcludedNames,
+          softAvoidNames,
+          allowSoftAvoidFiller,
+          learnedRankContext,
+          timeoutMs: DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS
+        }), {
+        outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length,
+        counters: {
+          cacheBackedCandidates: cacheCandidates.length,
+          pendingCandidates: pendingMarketCandidates,
+          concurrency: Math.min(2, DISCOVERY_ENRICHMENT_CONCURRENCY),
+          batchSize: DISCOVERY_FOREGROUND_MARKET_HYDRATION_BATCH_SIZE,
+          maxBatches: DISCOVERY_FOREGROUND_MARKET_HYDRATION_MAX_BATCHES
+        }
+      })
       : cacheCandidates;
     const selectionPool = hasFullDiscovery
       ? backfillMarketReadyDiscoveryCandidates(marketCandidates, marketContext, targetVisibleCount, tasteProfileChases, profileConfidence, negativeProfile, repeatGuardChases, seenExcludedNames)
@@ -7705,8 +8065,21 @@ export async function discoverCandidatesForUser(
       const seenExcludedNameKeys = discoveryExclusionNameKeys(seenExcludedNames);
       visibleCandidates = visibleCandidates.filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, seenExcludedNameKeys));
     }
-    if (hasFullDiscovery && hydrateScheduledMarketInline) visibleCandidates = await settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext);
-    const referencedCandidates = skipReferenceImageFetch ? visibleCandidates : await attachReferenceImages(visibleCandidates);
+    if (hasFullDiscovery && hydrateScheduledMarketInline) {
+      visibleCandidates = await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-market-settle', visibleCandidates.length, async () =>
+        settlePendingDiscoveryMarketCandidates(visibleCandidates, marketContext), {
+        outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
+      });
+    }
+    const referencedCandidates = skipReferenceImageFetch
+      ? visibleCandidates
+      : await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-reference-cache-load', visibleCandidates.length, async () =>
+        attachReferenceImages(visibleCandidates), {
+        outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length,
+        counters: {
+          trustedExistingImages: visibleCandidates.filter((candidate) => !!trustedCandidateReferenceImage(candidate.image, candidate.suggestion)).length
+        }
+      });
     const hiddenVaultPickCount = referencedCandidates.filter((candidate) => isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)).length;
     const scheduledRelevantCandidates = referencedCandidates
       .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
@@ -7745,13 +8118,21 @@ export async function discoverCandidatesForUser(
           ...finalSelectionPool.filter((candidate) => isScheduledShelfFallbackCandidate(candidate, tasteProfileChases))
         ])
       : finalSelectionPool;
-    const candidates = orderCandidatesForCollectorPresentation(
-      finalCandidates,
-      tasteProfileChases,
-      targetVisibleCount,
-      negativeProfile,
-      learnedRankContext
-    );
+    const candidates = await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-local-filter-merge-order', finalCandidates.length, async () =>
+      orderCandidatesForCollectorPresentation(
+        finalCandidates,
+        tasteProfileChases,
+        targetVisibleCount,
+        negativeProfile,
+        learnedRankContext
+      ), {
+      outputCount: (value) => value.length,
+      counters: {
+        scheduledRelevantCandidates: scheduledRelevantCandidates.length,
+        finalSelectionPool: finalSelectionPool.length,
+        deduplicatedEnrichedCandidates: uniqueCandidatesByDisplayName(enriched).length
+      }
+    });
     if (persistDiscoveryArtifacts && hasFullDiscovery && targetVisibleCount >= VISIBLE_DISCOVERY_COUNT && candidates.length >= targetVisibleCount) {
       upsertUserDiscoveryState({ userId, mode: stateKey, profileFingerprint, suggestionNames: candidates.map((candidate) => candidate.suggestion.name) });
     }
