@@ -88,6 +88,7 @@ import {
   type ScheduledDiscoveryDropType,
   type ScheduledDiscoveryDropItem
 } from '../services/scheduled-discovery-drops.js';
+import { weeklyDiscoveryEligibilityForUser, type WeeklyDiscoveryEligibility } from '../services/weekly-discovery-eligibility.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { freeVaultLimitMessage } from './pro-copy.js';
 import type { Chase, Listing, PlanTier } from '../types.js';
@@ -9098,8 +9099,28 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
   };
 }
 
+function thinProfileWeeklyShelfPayload(eligibility: WeeklyDiscoveryEligibility): DiscoveryShelfPayload {
+  const cardLabel = eligibility.signalsNeeded === 1 ? 'card' : 'cards';
+  const lines = [
+    '🔮 Your Weekly Discovery shelf needs a little more collector signal first.',
+    '',
+    `You currently have ${eligibility.uniqueSignalCount} of ${eligibility.minimumSignalCount} cards needed.`,
+    `Add ${eligibility.signalsNeeded} more ${cardLabel} to your Chase list, then your personalized weekly shelves can begin.`
+  ];
+  return {
+    embeds: [infoEmbed('Weekly Shelf', lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Weekly Shelf' })],
+    components: [],
+    candidateNames: [],
+    hasFullDiscovery: true
+  };
+}
+
 export async function buildDiscoveryShelfPayload(userId: string, page = 0): Promise<DiscoveryShelfPayload> {
   const activeTier = activePlanTier(getUserPlan(userId));
+  if (activeTier === 'PRO') {
+    const eligibility = weeklyDiscoveryEligibilityForUser(userId);
+    if (!eligibility.eligible) return thinProfileWeeklyShelfPayload(eligibility);
+  }
   let discovery = await discoverCandidatesForUser(userId, weeklyDiscoveryShelfSizeForPlan(activeTier), {
     preferScheduledDrop: activeTier === 'PRO',
     requireScheduledDrop: activeTier === 'PRO',

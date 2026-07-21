@@ -1,9 +1,8 @@
 import 'dotenv/config';
 import { prepareWeeklyDiscoveryDropForUser } from './commands/discover.js';
-import { getUserPlan, listUsersWithChases } from './services/chase-store.js';
 import { db } from './services/db.js';
-import { activePlanTier } from './services/plans.js';
 import { getScheduledDiscoveryDrop, scheduledDiscoveryPeriodKey } from './services/scheduled-discovery-drops.js';
+import { listProUsersEligibleForWeeklyDiscovery, weeklyDiscoveryEligibilityForUser } from './services/weekly-discovery-eligibility.js';
 
 type Options = {
   all: boolean;
@@ -96,10 +95,6 @@ function parseArgs(argv: string[]): Options {
   return { all, allowRepeatFiller, date: parseDate(dateValue), dryRun, hydrateMarketInline, users };
 }
 
-function proUsersWithChases(): string[] {
-  return listUsersWithChases().filter((userId) => activePlanTier(getUserPlan(userId)) === 'PRO');
-}
-
 function describeDrop(userId: string, periodKey: string): string {
   const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
   if (!drop) return `${userId}: no existing drop`;
@@ -114,7 +109,7 @@ function describeDrop(userId: string, periodKey: string): string {
 
 const options = parseArgs(process.argv.slice(2));
 const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', options.date);
-const users = options.all ? proUsersWithChases() : Array.from(new Set(options.users));
+const users = options.all ? listProUsersEligibleForWeeklyDiscovery() : Array.from(new Set(options.users));
 
 async function closeGlobalFetchDispatcher(): Promise<void> {
   try {
@@ -139,6 +134,14 @@ console.log(`Users: ${users.join(', ')}`);
 
 try {
   for (const userId of users) {
+    if (!options.all) {
+      const eligibility = weeklyDiscoveryEligibilityForUser(userId);
+      if (!eligibility.eligible) {
+        console.warn(
+          `Eligibility bypass | ${userId}: ${eligibility.uniqueSignalCount}/${eligibility.minimumSignalCount} unique collector signals; explicit --user refresh will still run diagnostics`
+        );
+      }
+    }
     console.log(`Before | ${describeDrop(userId, periodKey)}`);
     if (options.dryRun) continue;
 

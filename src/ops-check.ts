@@ -266,7 +266,7 @@ function checkDiscoveryHealth(): CheckResult {
   return {
     name: 'discovery-health',
     ok: true,
-    details: `weekly ${weekly.periodKey}: ${weekly.prepared}/${weekly.proUsers} prepared, ${weekly.refreshDue} refresh due, queue ready ${readyBacklog}, running ${queue.running}`
+    details: `weekly ${weekly.periodKey}: ${weekly.prepared}/${weekly.proUsers} prepared, ${weekly.ineligible} thin excluded, ${weekly.refreshDue} refresh due, queue ready ${readyBacklog}, running ${queue.running}`
   };
 }
 

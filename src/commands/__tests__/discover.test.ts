@@ -8,6 +8,7 @@ import {
   backfillDiscoverySuggestions,
   backfillSourceBackedDiscoverySuggestions,
   blendWeeklyTasteLaneCandidates,
+  buildDiscoveryShelfPayload,
   candidatesFromDiscoveryMarketCache,
   compactDiscoveryPathSummary,
   concreteDiscoveryFallbackSuggestions,
@@ -64,7 +65,7 @@ import {
   type DiscoveryCandidate
 } from '../discover.js';
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
-import { addChase, setUserPlan } from '../../services/chase-store.js';
+import { addChase, removeAllChases, setUserPlan } from '../../services/chase-store.js';
 import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
 import * as discoveryReferenceCacheService from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
@@ -116,6 +117,28 @@ function candidate(name: string, lane: string, selectionIndex: number, marketSam
     marketSampleSize
   };
 }
+
+describe('buildDiscoveryShelfPayload weekly eligibility', () => {
+  it('explains the thin-profile requirement for Pro users below the weekly threshold', async () => {
+    const userId = `thin-discovery-message-${Date.now()}`;
+    setUserPlan(userId, 'PRO');
+    addChase({ userId, cardName: 'Mew RC24', priority: 'NORMAL' });
+    addChase({ userId, cardName: 'Gardevoir ex Paldean Fates 233', priority: 'NORMAL' });
+    addChase({ userId, cardName: 'Squirtle 151 170', priority: 'NORMAL' });
+
+    try {
+      const payload = await buildDiscoveryShelfPayload(userId);
+      const text = payload.embeds[0]?.toJSON().description ?? '';
+
+      expect(text).toContain('needs a little more collector signal');
+      expect(text).toContain('3 of 5 cards needed');
+      expect(text).toContain('Add 2 more cards to your Chase list');
+      expect(payload.candidateNames).toEqual([]);
+    } finally {
+      removeAllChases(userId);
+    }
+  });
+});
 
 function chase(cardName: string, index: number): Chase {
   return { id: `c${index}`, userId: 'u1', cardName, priority: 'HIGH', createdAt: '2026-06-03T00:00:00.000Z' };

@@ -1,7 +1,6 @@
 import { ChannelType, Client, EmbedBuilder } from 'discord.js';
 import { discoveryDropOpenButton, prepareWeeklyDiscoveryDropForUser } from '../commands/discover.js';
-import { getUserPlan, listChases, listGuildCommandChannels, listUserTasteMemoryChases, listUsersWithChases } from './chase-store.js';
-import { activePlanTier } from './plans.js';
+import { listGuildCommandChannels } from './chase-store.js';
 import {
   countAnnounceableScheduledDiscoveryDrops,
   countPreparedScheduledDiscoveryDrops,
@@ -12,9 +11,9 @@ import {
   scheduledDiscoveryPeriodKey,
   type ScheduledDiscoveryDrop
 } from './scheduled-discovery-drops.js';
+import { countProUsersIneligibleForWeeklyDiscovery, listProUsersEligibleForWeeklyDiscovery } from './weekly-discovery-eligibility.js';
 
 const WEEKLY_DROP_TYPE = 'WEEKLY_DISCOVERY' as const;
-const WEEKLY_DISCOVERY_MIN_SCHEDULED_SIGNAL_COUNT = 5;
 
 let schedulerTimer: NodeJS.Timeout | undefined;
 let schedulerRunning = false;
@@ -30,6 +29,7 @@ export type WeeklyDiscoveryPreparationHealth = {
   stale: number;
   failed: number;
   missing: number;
+  ineligible: number;
   prepared: number;
   refreshDue: number;
   oldestPreparedUpdatedAt?: string;
@@ -103,23 +103,12 @@ function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number)
     .setTimestamp();
 }
 
-function hasScheduledWeeklyDiscoverySignal(userId: string): boolean {
-  const activeChases = listChases(userId).length;
-  const tasteMemory = listUserTasteMemoryChases(userId, WEEKLY_DISCOVERY_MIN_SCHEDULED_SIGNAL_COUNT).length;
-  return activeChases + tasteMemory >= WEEKLY_DISCOVERY_MIN_SCHEDULED_SIGNAL_COUNT;
-}
-
-function proUsersWithChases(): string[] {
-  return listUsersWithChases()
-    .filter((userId) => activePlanTier(getUserPlan(userId)) === 'PRO')
-    .filter(hasScheduledWeeklyDiscoverySignal);
-}
-
 export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDiscoveryPreparationHealth {
   const targetDate = weeklyPreparationTargetDate(now);
   const periodKey = scheduledDiscoveryPeriodKey(WEEKLY_DROP_TYPE, targetDate);
   const availability = scheduledDiscoveryAvailability(WEEKLY_DROP_TYPE, targetDate);
-  const userIds = proUsersWithChases();
+  const userIds = listProUsersEligibleForWeeklyDiscovery();
+  const ineligible = countProUsersIneligibleForWeeklyDiscovery();
   const availableAtMs = Date.parse(availability.availableAt);
 
   let ready = 0;
@@ -184,6 +173,7 @@ export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDis
     stale,
     failed,
     missing,
+    ineligible,
     prepared: ready + partial,
     refreshDue,
     oldestPreparedUpdatedAt,
@@ -200,7 +190,7 @@ async function prepareWeeklyDrops(now: Date): Promise<{ periodKey: string; prepa
   let skipped = 0;
   let failed = 0;
 
-  for (const userId of proUsersWithChases()) {
+  for (const userId of listProUsersEligibleForWeeklyDiscovery()) {
     const existing = getScheduledDiscoveryDrop(userId, WEEKLY_DROP_TYPE, periodKey);
     if (!shouldPrepareWeeklyDrop(existing, targetDate, now)) {
       skipped += 1;

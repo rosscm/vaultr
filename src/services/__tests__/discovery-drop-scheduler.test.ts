@@ -72,6 +72,7 @@ describe('discovery drop scheduler', () => {
 
     expect(health.periodKey).toBe(periodKey);
     expect(health.proUsers).toBe(2);
+    expect(health.ineligible).toBe(0);
     expect(health.prepared).toBe(1);
     expect(health.ready).toBe(1);
     expect(health.missing).toBe(1);
@@ -116,6 +117,7 @@ describe('discovery drop scheduler', () => {
     const health = getWeeklyDiscoveryPreparationHealth(now);
 
     expect(health.proUsers).toBe(1);
+    expect(health.ineligible).toBe(1);
     expect(health.prepared).toBe(1);
     expect(health.missing).toBe(0);
   });
@@ -174,6 +176,7 @@ describe('discovery drop scheduler', () => {
 
     expect(health.periodKey).toBe(periodKey);
     expect(health.proUsers).toBe(2);
+    expect(health.ineligible).toBe(0);
     expect(health.prepared).toBe(1);
     expect(health.partial).toBe(1);
     expect(health.failed).toBe(1);
