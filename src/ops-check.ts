@@ -38,6 +38,17 @@ function discoveryWorkerLockTimeoutMs(): number {
   return Math.max(60_000, Math.floor(Number(envValue('DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS') ?? `${10 * 60 * 1000}`)));
 }
 
+function discoveryHealthRecentProgressGraceMs(): number {
+  return Math.max(60_000, Math.floor(Number(envValue('DISCOVERY_HEALTH_RECENT_PROGRESS_GRACE_MS') ?? `${30 * 60 * 1000}`)));
+}
+
+function hasRecentDiscoveryQueueProgress(lastCompletedAt: string | undefined, nowMs: number): boolean {
+  if (!lastCompletedAt) return false;
+  const completedAtMs = Date.parse(lastCompletedAt);
+  if (!Number.isFinite(completedAtMs)) return false;
+  return nowMs - completedAtMs <= discoveryHealthRecentProgressGraceMs();
+}
+
 function alertStatePath(): string {
   return path.resolve(envValue('VAULTR_OPS_ALERT_STATE_PATH') ?? './data/ops-check-state.json');
 }
@@ -225,6 +236,8 @@ function checkDiscoveryHealth(): CheckResult {
   const queue = getDiscoveryMarketRefreshQueueStats(discoveryWorkerLockTimeoutMs(), nowMs);
   const weekly = getWeeklyDiscoveryPreparationHealth(new Date(nowMs));
   const readyBacklog = queue.queuedReady + queue.retryReady;
+  const recentQueueProgress = hasRecentDiscoveryQueueProgress(queue.lastCompletedAt, nowMs);
+  const queueActivelyWorking = queue.activeWorkers > 0 || queue.running > 0 || recentQueueProgress;
 
   if (queue.staleRunning > 0) {
     return {
@@ -234,7 +247,7 @@ function checkDiscoveryHealth(): CheckResult {
     };
   }
 
-  if (readyBacklog >= 10 && queue.activeWorkers === 0) {
+  if (readyBacklog >= 10 && !queueActivelyWorking) {
     return {
       name: 'discovery-health',
       ok: false,
@@ -242,7 +255,7 @@ function checkDiscoveryHealth(): CheckResult {
     };
   }
 
-  if (weekly.proUsers > 0 && weekly.overdueUnprepared === weekly.proUsers && weekly.prepared === 0) {
+  if (weekly.proUsers > 0 && weekly.overdueUnprepared === weekly.proUsers && weekly.prepared === 0 && !queueActivelyWorking) {
     return {
       name: 'discovery-health',
       ok: false,
