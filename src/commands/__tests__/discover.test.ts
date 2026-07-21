@@ -26,6 +26,7 @@ import {
   discoveryShelfTighteningNote,
   discoveryTasteProfileChases,
   discoveryVisibleCountForPlan,
+  expandSourceBackedSuggestions,
   isUsableDiscoveryExample,
   isUsableDiscoveryMarketSample,
   isActiveChaseEchoSuggestion,
@@ -52,6 +53,9 @@ import {
   selectFreshVisibleCandidatesForCount,
   selectVisibleCandidates,
   selectVisibleCandidatesForCount,
+  sanitizeWeeklyDiscoveryReserve,
+  sourceCatalogExpansionTargetCount,
+  sourceCatalogSufficientSuggestionCount,
   shouldShowDiscoveryShelfTighteningNote,
   typicalMarketTotal,
   weeklyDiscoveryShelfSizeForPlan,
@@ -284,6 +288,95 @@ describe('selectVisibleCandidates', () => {
     expect(weeklyDiscoveryShelfSizeForPlan('FREE')).toBe(3);
     expect(weeklyDiscoveryShelfSizeForPlan('PRO')).toBe(20);
     expect(discoveryCandidateSelectionCount(true, weeklyDiscoveryShelfSizeForPlan('PRO'))).toBeGreaterThanOrEqual(60);
+    expect(sourceCatalogExpansionTargetCount(
+      discoveryCandidateSelectionCount(true, weeklyDiscoveryShelfSizeForPlan('PRO')),
+      weeklyDiscoveryShelfSizeForPlan('PRO')
+    )).toBe(32);
+    expect(sourceCatalogSufficientSuggestionCount(
+      discoveryCandidateSelectionCount(true, weeklyDiscoveryShelfSizeForPlan('PRO')),
+      weeklyDiscoveryShelfSizeForPlan('PRO')
+    )).toBe(26);
+  });
+
+  it('stops source-backed expansion after enough distinct cards are collected', async () => {
+    const resolver = vi.fn(async (suggestion: { name: string }) => ({
+      suggestions: [{
+        name: `${suggestion.name} Variant`,
+        lane: 'Promo Trail',
+        laneWhy: 'test lane',
+        why: 'test why',
+        nearby: []
+      }]
+    }));
+
+    const suggestions = Array.from({ length: 12 }, (_, index) => ({
+      name: `Parent ${index + 1}`,
+      lane: 'Promo Trail',
+      laneWhy: 'test lane',
+      why: 'test why',
+      nearby: []
+    }));
+
+    const expanded = await expandSourceBackedSuggestions(suggestions, [], [], 4, [], { resolver });
+
+    expect(expanded.length).toBeGreaterThanOrEqual(4);
+    expect(expanded.length).toBeLessThanOrEqual(5);
+    expect(resolver.mock.calls.length).toBeLessThan(suggestions.length);
+  });
+
+  it('sanitizes a weekly reserve by dropping unresolved marketplace rows and collapsing duplicate canonicals', () => {
+    const unresolved = candidate('Pikachu Mcdonald E-reader 2002 010/018 trading card', 'E-Reader Era Trail', 0, 5);
+    unresolved.image = {
+      name: unresolved.suggestion.name,
+      url: 'https://i.ebayimg.com/images/g/test/s-l1600.jpg',
+      sourceName: 'eBay vetted marketplace image',
+      sourceKind: 'MARKET_LISTING'
+    };
+
+    const weakerDuplicate = candidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Promo Trail', 1, 1);
+    weakerDuplicate.suggestion.referenceSourceName = 'Pokemon TCG (SM Black Star Promos)';
+    weakerDuplicate.suggestion.referenceSourceCardId = 'smp-SM241';
+    weakerDuplicate.suggestion.referenceImageUrl = 'https://images.pokemontcg.io/smp/SM241_hires.png';
+    weakerDuplicate.image = {
+      name: weakerDuplicate.suggestion.name,
+      url: 'https://images.pokemontcg.io/smp/SM241_hires.png',
+      sourceName: 'Pokemon TCG (SM Black Star Promos)',
+      sourceCardId: 'smp-SM241',
+      sourceKind: 'CARD_REFERENCE'
+    };
+
+    const strongerDuplicate = candidate('Umbreon & Darkrai-GX SM Black Star Promos SM241', 'Promo Trail', 2, 4);
+    strongerDuplicate.suggestion.referenceSourceName = 'Pokemon TCG (SM Black Star Promos)';
+    strongerDuplicate.suggestion.referenceSourceCardId = 'smp-SM241';
+    strongerDuplicate.suggestion.referenceImageUrl = 'https://images.pokemontcg.io/smp/SM241_hires.png';
+    strongerDuplicate.image = {
+      name: strongerDuplicate.suggestion.name,
+      url: 'https://images.pokemontcg.io/smp/SM241_hires.png',
+      sourceName: 'Pokemon TCG (SM Black Star Promos)',
+      sourceCardId: 'smp-SM241',
+      sourceKind: 'CARD_REFERENCE'
+    };
+    strongerDuplicate.weeklyDiscovery = {
+      canonicalReference: {
+        provider: 'Pokemon TCG',
+        sourceCardId: 'smp-SM241',
+        canonicalCardId: 'smp-SM241',
+        canonicalName: 'Umbreon & Darkrai-GX',
+        setId: 'smp',
+        setName: 'SM Black Star Promos',
+        cardNumber: 'SM241',
+        language: 'ENGLISH',
+        imageUrl: 'https://images.pokemontcg.io/smp/SM241_hires.png'
+      },
+      outcome: 'SELECTED',
+      detail: 'test'
+    } as unknown as DiscoveryCandidate['weeklyDiscovery'];
+
+    const sanitized = sanitizeWeeklyDiscoveryReserve([unresolved, weakerDuplicate, strongerDuplicate], 'CAD');
+
+    expect(sanitized).toHaveLength(1);
+    expect(sanitized[0]?.suggestion.referenceSourceCardId).toBe('smp-SM241');
+    expect(sanitized[0]?.marketSampleSize).toBe(4);
   });
 
   it('falls back to taste-ranked candidates when market enrichment is thin', () => {
@@ -5170,9 +5263,23 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('rejects a raw marketplace title as a final publishable display name', () => {
-    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
-      publishableCandidate('Pokemon Card Expedition Base Set Mew 55/165 Rare', 'exp1-55', 0)
-    ], 'CAD');
+    const items = [{
+      position: 1,
+      suggestion: {
+        name: 'Pokemon Card Expedition Base Set Mew 55/165 Rare',
+        lane: 'Collector Compass',
+        laneWhy: 'profile source match',
+        why: 'test why',
+        nearby: []
+      },
+      imageUrl: 'https://i.ebayimg.example/mew.jpg',
+      imageSourceName: 'eBay listing image',
+      imageSourceKind: 'MARKET_LISTING' as const,
+      market: {
+        status: 'THIN' as const,
+        currency: 'CAD' as const
+      }
+    }];
 
     const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 1);
     expect(failures.some((failure) => failure.code === 'BAD_DISPLAY_NAME')).toBe(true);
@@ -5498,6 +5605,16 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       second.selection.items.map((item) => item.suggestion.referenceSourceCardId)
     );
     expect(first.structuralGate.status).toBe('PASS');
+  });
+
+  it('uses the broader weekly reserve for publication instead of only the visible shelf', () => {
+    const visible = publishableShelfCandidates(20);
+    const reserve = publishableShelfCandidates(24);
+
+    expect(__discoveryPersistenceTestHooks.weeklyPublicationSeedCandidates({
+      candidates: visible,
+      weeklyReserveCandidates: reserve
+    })).toHaveLength(24);
   });
 
   it('builds the same finalization input in LIVE and CAPTURE modes from identical seeded state', async () => {
@@ -6254,6 +6371,390 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(result.rejectionCounts.BAD_DISPLAY_NAME).toBe(0);
     expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'cel25c-24_A')).toBe(true);
+  });
+
+  it("lets trusted provider-backed unusual canonical names pass whole-shelf validation", () => {
+    const weirdItem = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([{
+      ...publishableCandidate("_____'s Pikachu Celebrations: Classic Collection 24", 'cel25c-24_A', 0),
+      weeklyDiscovery: {
+        canonicalReference: {
+          provider: 'PokemonTCG' as const,
+          sourceCardId: 'cel25c-24_A',
+          canonicalCardId: 'cel25c-24_A',
+          canonicalName: "_____'s Pikachu",
+          setId: 'cel25c',
+          setName: 'Celebrations: Classic Collection',
+          cardNumber: '24_A',
+          language: 'ENGLISH' as const,
+          imageUrl: trustedReferenceImageUrl('Pokemon TCG (Celebrations: Classic Collection)', 'cel25c-24_A'),
+          imageSourceKind: 'CARD_REFERENCE' as const
+        }
+      }
+    } as unknown as DiscoveryCandidate], 'CAD')[0]!;
+
+    expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf([weirdItem], 1)).toEqual([]);
+  });
+
+  it('normalizes marketplace-style scheduled names to canonical provider names when available', () => {
+    const base = publishableCandidate('Pokemon card Gardevoir ex 233/091 holo rare', 'sv4pt5-233', 0);
+    const canonicalized = {
+      ...base,
+      suggestion: {
+        ...base.suggestion,
+        name: 'Pokemon card Gardevoir ex 233/091 holo rare'
+      },
+      weeklyDiscovery: {
+        canonicalReference: {
+          provider: 'PokemonTCG' as const,
+          sourceCardId: 'sv4pt5-233',
+          canonicalCardId: 'sv4pt5-233',
+          canonicalName: 'Gardevoir ex',
+          setId: 'sv4pt5',
+          setName: 'Paldean Fates',
+          cardNumber: '233',
+          language: 'ENGLISH' as const,
+          imageUrl: trustedReferenceImageUrl('Pokemon TCG (Paldean Fates)', 'sv4pt5-233'),
+          imageSourceKind: 'CARD_REFERENCE' as const
+        }
+      }
+    } as unknown as DiscoveryCandidate;
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([
+      canonicalized,
+      ...publishableShelfCandidates(19)
+    ], 'CAD', 20);
+
+    expect(result.rejectionCounts.BAD_DISPLAY_NAME).toBe(0);
+    expect(result.items[0]?.suggestion.name).toBe('Gardevoir ex');
+  });
+
+  it('allows source-catalog top-off candidates to survive pre-canonical selection for later rebinding', () => {
+    const sourceCandidate = {
+      ...publishableCandidate('Gardevoir ex Paldean Fates 233', 'sv4pt5-233', 0),
+      suggestion: {
+        ...publishableCandidate('Gardevoir ex Paldean Fates 233', 'sv4pt5-233', 0).suggestion,
+        referenceSourceCardId: undefined,
+        referenceImageUrl: undefined,
+        referenceSourceName: undefined
+      },
+      image: undefined,
+      weeklyDiscovery: undefined,
+      supplySource: 'TOP_OFF_SOURCE_CATALOG' as const
+    };
+
+    const selected = __discoveryPersistenceTestHooks.selectDeficitAwareTopOffCandidates(
+      [sourceCandidate],
+      {
+        projectedSelectedCount: 16,
+        projectedMarketResolvedCount: 16,
+        canonicalReserveCount: 40,
+        hardEligibleReserveCount: 40,
+        marketResolvedEligibleCount: 21,
+        viableAlternativeCount: 24,
+        countsBySource: {},
+        countsByLane: {},
+        countsBySubject: {},
+        countsByFamily: {},
+        countsByLanguage: {},
+        countsByMarketStatus: {},
+        rejectionCounts: {
+          MISSING_CANONICAL_ID: 0,
+          BAD_IMAGE: 0,
+          BAD_DISPLAY_NAME: 0,
+          DUPLICATE_CANONICAL_ID: 0,
+          MISSING_RATIONALE: 0,
+          REFERENCE_PRINTING_MISMATCH: 0,
+          EXACT_REPEAT_COOLDOWN: 0,
+          BELOW_CHASE_VALUE_FLOOR: 0,
+          SUBJECT_SHELF_CAP: 0,
+          FAMILY_SHELF_CAP: 0,
+          FORMAT_SHELF_CAP: 0,
+          LANE_SHELF_CAP: 0,
+          VAULT_PARALLEL_PRINT: 0
+        },
+        shouldTopOff: true,
+        selectedShortfall: 4,
+        marketResolvedShortfall: 2,
+        hasViableHeadroom: false,
+        selectedCandidates: [],
+        selectedSubjectCounts: {},
+        selectedFamilyCounts: {},
+        selectedLaneCounts: {},
+        stages: {
+          rawGeneratedSuggestions: 0,
+          sourceBackedSuggestions: 0,
+          globalUniverseConsidered: 0,
+          userUniverseConsidered: 0,
+          deduplicatedCandidates: 0,
+          stableCanonicalIdCandidates: 0,
+          trustedImageCandidates: 0,
+          activeVaultEligibleCandidates: 0,
+          hardEligibleCandidates: 0,
+          marketResolvedEligibleCandidates: 0,
+          diversityEligibleCandidates: 0,
+          selectedCards: 0
+        }
+      },
+      [],
+      [],
+      'CAD',
+      undefined,
+      [],
+      8
+    );
+
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.suggestion.name).toBe('Gardevoir ex Paldean Fates 233');
+  });
+
+  it('keeps distinct source-catalog top-off printings with the same display name', () => {
+    const first = sourceCandidate('Mew Promo', 'Pokemon TCG (Black Star Promos)', 1);
+    const second = {
+      ...sourceCandidate('Mew Promo', 'Pokemon TCG (Black Star Promos)', 2),
+      suggestion: {
+        ...sourceCandidate('Mew Promo', 'Pokemon TCG (Black Star Promos)', 2).suggestion,
+        referenceSourceCardId: 'promo-mew-alt',
+        referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Black Star Promos)', 'promo-mew-alt')
+      },
+      image: {
+        ...sourceCandidate('Mew Promo', 'Pokemon TCG (Black Star Promos)', 2).image!,
+        sourceCardId: 'promo-mew-alt',
+        url: trustedReferenceImageUrl('Pokemon TCG (Black Star Promos)', 'promo-mew-alt')
+      }
+    };
+
+    const suggestions = __discoveryPersistenceTestHooks.uniqueTopOffSuggestionsByIdentity([
+      first.suggestion,
+      second.suggestion
+    ]);
+    const candidates = __discoveryPersistenceTestHooks.uniqueTopOffCandidatesByIdentity([first, second]);
+
+    expect(suggestions.map((suggestion) => suggestion.referenceSourceCardId)).toEqual([
+      first.suggestion.referenceSourceCardId,
+      'promo-mew-alt'
+    ]);
+    expect(candidates.map((candidate) => candidate.suggestion.referenceSourceCardId)).toEqual([
+      first.suggestion.referenceSourceCardId,
+      'promo-mew-alt'
+    ]);
+  });
+
+  it('prioritizes specific under-cap source parents ahead of generic top-off parents', () => {
+    const genericParent = {
+      name: 'Pokemon promo cards',
+      lane: 'Promo Trail',
+      laneWhy: 'broad source-backed card backfill',
+      why: 'generic source catalogue backfill',
+      nearby: [],
+      evidenceSearchTerm: 'Pokemon promo cards',
+      requiredEvidenceTokens: ['promo'],
+      sourceTasteTokens: ['collector']
+    };
+    const saturatedParent = {
+      name: 'Mew Japanese Pokemon cards',
+      lane: 'Japanese Collector Trail',
+      laneWhy: 'same-subject Japanese print variants',
+      why: 'same-subject source catalogue backfill',
+      nearby: [],
+      evidenceSearchTerm: 'Mew Japanese Pokemon card',
+      requiredEvidenceTokens: ['mew', 'japanese'],
+      sourceTasteTokens: ['mew', 'japanese']
+    };
+    const specificParent = {
+      name: 'Sylveon Terastal Festival Pokemon cards',
+      lane: 'Set Companion Trail',
+      laneWhy: 'same-set collector companions from Terastal Festival',
+      why: 'set companion source catalogue backfill',
+      nearby: [],
+      evidenceSearchTerm: 'Sylveon Terastal Festival Japanese Pokemon card',
+      requiredEvidenceTokens: ['sylveon', 'japanese', 'Terastal Festival'],
+      sourceTasteTokens: ['sylveon', 'japanese', 'Terastal Festival']
+    };
+
+    const ordered = __discoveryPersistenceTestHooks.prioritizeTopOffSourceParents(
+      [genericParent, saturatedParent, specificParent],
+      {
+        projectedSelectedCount: 18,
+        projectedMarketResolvedCount: 18,
+        canonicalReserveCount: 40,
+        hardEligibleReserveCount: 40,
+        marketResolvedEligibleCount: 21,
+        viableAlternativeCount: 22,
+        countsBySource: {},
+        countsByLane: {},
+        countsBySubject: {},
+        countsByFamily: {},
+        countsByLanguage: {},
+        countsByMarketStatus: {},
+        rejectionCounts: {
+          MISSING_CANONICAL_ID: 0,
+          BAD_IMAGE: 0,
+          BAD_DISPLAY_NAME: 0,
+          DUPLICATE_CANONICAL_ID: 0,
+          MISSING_RATIONALE: 0,
+          REFERENCE_PRINTING_MISMATCH: 0,
+          EXACT_REPEAT_COOLDOWN: 0,
+          BELOW_CHASE_VALUE_FLOOR: 0,
+          SUBJECT_SHELF_CAP: 0,
+          FAMILY_SHELF_CAP: 0,
+          FORMAT_SHELF_CAP: 0,
+          LANE_SHELF_CAP: 0,
+          VAULT_PARALLEL_PRINT: 0
+        },
+        shouldTopOff: true,
+        selectedShortfall: 2,
+        marketResolvedShortfall: 0,
+        hasViableHeadroom: true,
+        selectedCandidates: [],
+        selectedSubjectCounts: { mew: 2 },
+        selectedFamilyCounts: {},
+        selectedLaneCounts: {},
+        stages: {
+          rawGeneratedSuggestions: 0,
+          sourceBackedSuggestions: 0,
+          globalUniverseConsidered: 0,
+          userUniverseConsidered: 0,
+          deduplicatedCandidates: 0,
+          stableCanonicalIdCandidates: 0,
+          trustedImageCandidates: 0,
+          activeVaultEligibleCandidates: 0,
+          hardEligibleCandidates: 0,
+          marketResolvedEligibleCandidates: 0,
+          diversityEligibleCandidates: 0,
+          selectedCards: 0
+        }
+      },
+      [chase('Mew Expedition Base Set 55', 0), chase('Umbreon Terastal Festival 092', 1)]
+    );
+
+    expect(ordered[0]?.name).toBe('Sylveon Terastal Festival Pokemon cards');
+    expect(ordered.map((suggestion) => suggestion.name)).toContain('Pokemon promo cards');
+  });
+
+  it('creates source-catalogue set-companion parents from vault set signals', () => {
+    const parents = __discoveryPersistenceTestHooks.profileVariantSourceBackfillParents([
+      chase('Mew-EX Legendary Treasures RC24', 0),
+      chase('Umbreon ex SAR Terastal Festival Japanese 217/187', 1),
+      chase('Pikachu XY Black Star Promos XY95', 2)
+    ], 80);
+
+    expect(parents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: 'Legendary Treasures source-backed Pokemon cards',
+        sourceTasteTokens: expect.arrayContaining(['set:Legendary Treasures'])
+      }),
+      expect.objectContaining({
+        name: 'Terastal Festival ex source-backed Pokemon cards',
+        sourceTasteTokens: expect.arrayContaining(['set:Terastal Festival ex'])
+      }),
+      expect.objectContaining({
+        name: 'XY Black Star Promos source-backed Pokemon cards',
+        sourceTasteTokens: expect.arrayContaining(['set:XY Black Star Promos'])
+      })
+    ]));
+  });
+
+  it('filters repeat-heavy and saturated universe rows before bounded top-off selection', () => {
+    const repeatedUniverseCandidate = {
+      ...publishableCandidate('Mew Expedition Base Set 55', 'ecard1-55', 0),
+      supplySource: 'TOP_OFF_USER_UNIVERSE' as const
+    };
+    const saturatedUniverseCandidate = {
+      ...publishableCandidate('Pikachu ex Ascended Heroes 276', 'me2pt5-276', 1),
+      supplySource: 'TOP_OFF_USER_UNIVERSE' as const
+    };
+    const sourceCatalogCandidate = {
+      ...publishableCandidate('Gardevoir ex Paldean Fates 233', 'sv4pt5-233', 2),
+      suggestion: {
+        ...publishableCandidate('Gardevoir ex Paldean Fates 233', 'sv4pt5-233', 2).suggestion,
+        referenceSourceCardId: undefined,
+        referenceImageUrl: undefined,
+        referenceSourceName: undefined
+      },
+      image: undefined,
+      weeklyDiscovery: undefined,
+      supplySource: 'TOP_OFF_SOURCE_CATALOG' as const
+    };
+
+    const filtered = __discoveryPersistenceTestHooks.prefilterBoundedTopOffBackfillCandidates(
+      [repeatedUniverseCandidate, saturatedUniverseCandidate, sourceCatalogCandidate],
+      {
+        projectedSelectedCount: 17,
+        projectedMarketResolvedCount: 17,
+        canonicalReserveCount: 40,
+        hardEligibleReserveCount: 40,
+        marketResolvedEligibleCount: 21,
+        viableAlternativeCount: 23,
+        countsBySource: {},
+        countsByLane: {},
+        countsBySubject: {},
+        countsByFamily: {},
+        countsByLanguage: {},
+        countsByMarketStatus: {},
+        rejectionCounts: {
+          MISSING_CANONICAL_ID: 0,
+          BAD_IMAGE: 0,
+          BAD_DISPLAY_NAME: 0,
+          DUPLICATE_CANONICAL_ID: 0,
+          MISSING_RATIONALE: 0,
+          REFERENCE_PRINTING_MISMATCH: 0,
+          EXACT_REPEAT_COOLDOWN: 0,
+          BELOW_CHASE_VALUE_FLOOR: 0,
+          SUBJECT_SHELF_CAP: 0,
+          FAMILY_SHELF_CAP: 0,
+          FORMAT_SHELF_CAP: 0,
+          LANE_SHELF_CAP: 0,
+          VAULT_PARALLEL_PRINT: 0
+        },
+        shouldTopOff: true,
+        selectedShortfall: 3,
+        marketResolvedShortfall: 1,
+        hasViableHeadroom: false,
+        selectedCandidates: [],
+        selectedSubjectCounts: {
+          pikachu: 99,
+          'pikachu ascended heroes': 99
+        },
+        selectedFamilyCounts: {},
+        selectedLaneCounts: {},
+        stages: {
+          rawGeneratedSuggestions: 0,
+          sourceBackedSuggestions: 0,
+          globalUniverseConsidered: 0,
+          userUniverseConsidered: 0,
+          deduplicatedCandidates: 0,
+          stableCanonicalIdCandidates: 0,
+          trustedImageCandidates: 0,
+          activeVaultEligibleCandidates: 0,
+          hardEligibleCandidates: 0,
+          marketResolvedEligibleCandidates: 0,
+          diversityEligibleCandidates: 0,
+          selectedCards: 0
+        }
+      },
+      'CAD',
+      [{
+        userId: 'test-user',
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: '2026-W29',
+        status: 'READY',
+        title: 'Weekly Shelf',
+        currency: 'CAD',
+        availableAt: '2026-07-14T12:00:00.000Z',
+        generatedAt: '2026-07-14T12:00:00.000Z',
+        items: __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([repeatedUniverseCandidate], 'CAD'),
+        updatedAt: '2026-07-14T12:00:00.000Z',
+        marketReadyCount: 1,
+        imageReadyCount: 1,
+        itemCount: 1
+      }],
+      []
+    );
+
+    expect(filtered.some((candidate) => candidate.suggestion.name === 'Mew Expedition Base Set 55')).toBe(false);
+    expect(filtered.some((candidate) => candidate.suggestion.name === 'Pikachu ex Ascended Heroes 276')).toBe(false);
+    expect(filtered.some((candidate) => candidate.supplySource === 'TOP_OFF_SOURCE_CATALOG')).toBe(true);
+    expect(filtered.some((candidate) => candidate.suggestion.name === 'Gardevoir ex Paldean Fates 233')).toBe(true);
   });
 
   it('fills a 20-card shelf with at least 18 market-resolved cards and at most 2 incomplete exceptions', () => {

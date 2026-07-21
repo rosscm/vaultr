@@ -83,6 +83,54 @@ describe('discovery source catalog', () => {
     expect(queries).toContain('supertype:Pokemon set.name:"Terastal Festival"');
   });
 
+  it('builds source queries from explicit set taste tokens', () => {
+    const queries = pokemonTcgCatalogQueriesForSuggestion({
+      name: 'Legendary Treasures source-backed Pokemon cards',
+      lane: 'Set Companion Trail',
+      laneWhy: 'profile',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: 'Legendary Treasures Pokemon card',
+      requiredEvidenceTokens: ['set companion'],
+      sourceTasteTokens: ['set:Legendary Treasures', 'set companion']
+    });
+
+    expect(queries).toContain('supertype:Pokemon set.name:"Legendary Treasures"');
+    expect(queries).toContain('supertype:Pokemon set.id:bw11');
+  });
+
+  it('uses a wider trusted-provider page for exact set-companion lookups', async () => {
+    const requestedPageSizes: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.tcgdex.net') {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const query = url.searchParams.get('q') ?? '';
+      if (query.includes('set.id:bw11')) {
+        requestedPageSizes.push(url.searchParams.get('pageSize') ?? '');
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Legendary Treasures source-backed Pokemon cards',
+        lane: 'Set Companion Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Legendary Treasures Pokemon card',
+        requiredEvidenceTokens: ['set companion'],
+        sourceTasteTokens: ['set:Legendary Treasures', 'set companion']
+      },
+      [],
+      1
+    );
+
+    expect(requestedPageSizes).toContain('160');
+  });
+
   it('does not send Japanese unique release identities to broad Pokemon TCG source lookup', () => {
     const queries = pokemonTcgCatalogQueriesForSuggestion({
       name: 'Raichu Japanese unique release Pokemon cards',

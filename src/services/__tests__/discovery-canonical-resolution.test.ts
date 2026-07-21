@@ -265,6 +265,22 @@ describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
     expect(result.candidates[0]?.image?.sourceKind).toBe('MARKET_LISTING');
   });
 
+  it('treats upstream Pokemon TCG 500 responses as unresolved instead of aborting canonical resolution', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({})
+    }) as Response));
+
+    const unresolved = candidate('Dark Blastoise Team Rocket 20');
+    const result = await resolveWeeklyDiscoveryCanonicalReferences([unresolved]);
+    const lookupKey = discoveryCanonicalLookupKey(unresolved.suggestion);
+
+    expect(result.evidence[lookupKey]?.outcome).toBe('NO_RESULTS');
+    expect(result.candidates[0]?.suggestion.referenceSourceCardId).toBeUndefined();
+    expect(result.candidates[0]?.image?.sourceKind).toBe('MARKET_LISTING');
+  });
+
   it('rejects set and number mismatches instead of binding the wrong canonical record', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,

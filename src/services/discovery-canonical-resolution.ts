@@ -360,7 +360,10 @@ async function fetchPokemonCardsByQuery(query: string): Promise<PokemonTcgCard[]
     clearTimeout(timeout);
   }
   if (response.status === 404) return [];
-  if (!response.ok) throw new Error(`Pokemon TCG request failed: ${response.status}`);
+  if (!response.ok) {
+    canonicalResolutionRuntimeStats.failures += 1;
+    return [];
+  }
   const json = await response.json();
   return Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [];
 }
@@ -384,7 +387,10 @@ async function fetchPokemonCardById(sourceCardId: string): Promise<PokemonTcgCar
     clearTimeout(timeout);
   }
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`Pokemon TCG card request failed: ${response.status}`);
+  if (!response.ok) {
+    canonicalResolutionRuntimeStats.failures += 1;
+    return null;
+  }
   const json = await response.json();
   return (json?.data as PokemonTcgCard | undefined) ?? null;
 }

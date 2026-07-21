@@ -63,6 +63,7 @@ const POKEMON_TCG_ENDPOINT = 'https://api.pokemontcg.io/v2/cards';
 const TCGDEX_JA_CARDS_ENDPOINT = 'https://api.tcgdex.net/v2/ja/cards';
 const SOURCE_CATALOG_TIMEOUT_MS = 7000;
 const SOURCE_CATALOG_PAGE_SIZE = 48;
+const SOURCE_CATALOG_SET_PAGE_SIZE = 160;
 const TCGDEX_SOURCE_CATALOG_PAGE_SIZE = 18;
 const TCGDEX_MAX_DEX_SUMMARY_MATCHES = 60;
 const SOURCE_API_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -136,6 +137,18 @@ const KNOWN_SET_TASTE_TOKENS = new Set([
   'paldean fates',
   'crown zenith',
   'shiny treasure ex'
+]);
+const TRUSTED_POKEMON_TCG_SET_IDS_BY_LABEL = new Map<string, string>([
+  ['151', 'sv3pt5'],
+  ['aquapolis', 'ecard2'],
+  ['bw black star promos', 'bwp'],
+  ['expedition base set', 'ecard1'],
+  ['legendary treasures', 'bw11'],
+  ['paldean fates', 'sv4pt5'],
+  ['skyridge', 'ecard3'],
+  ['sm black star promos', 'smp'],
+  ['swsh black star promos', 'swshp'],
+  ['xy black star promos', 'xyp']
 ]);
 const JAPANESE_PROMO_CODE_PATTERN = /\b(?:\d{1,3}\s*\/\s*(?:XY|SM|S|SV)-P|(?:XY|SM|S|SV)-P\s*-?\s*\d{1,3})\b/i;
 const JAPANESE_SCRIPT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff]/;
@@ -268,6 +281,18 @@ function isKnownSetTasteToken(value: string): boolean {
   return KNOWN_SET_TASTE_TOKENS.has(normalizeSearchText(value));
 }
 
+function explicitSourceTasteSetLabel(value: string): string | undefined {
+  const match = /^\s*set\s*:\s*(.+?)\s*$/i.exec(value);
+  return match?.[1]?.trim() || undefined;
+}
+
+function pokemonTcgSetQueriesForLabel(label: string): string[] {
+  const queries = [`supertype:Pokemon set.name:${quoted(label)}`];
+  const setId = TRUSTED_POKEMON_TCG_SET_IDS_BY_LABEL.get(normalizeSearchText(label));
+  if (setId) queries.unshift(`supertype:Pokemon set.id:${setId}`);
+  return queries;
+}
+
 function sourceSubjectTokens(value: string): Set<string> {
   return new Set(
     normalizedTokens(value).filter(
@@ -331,9 +356,14 @@ export function pokemonTcgCatalogQueriesForSuggestion(suggestion: DiscoverySugge
   if (/\bspecial release\b/i.test(text)) queries.push('supertype:Pokemon rarity:Promo');
   if (/\bcollector\b/i.test(normalized)) queries.push('supertype:Pokemon');
   for (const token of suggestion.sourceTasteTokens ?? []) {
+    const explicitSetLabel = explicitSourceTasteSetLabel(token);
+    if (explicitSetLabel) {
+      queries.push(...pokemonTcgSetQueriesForLabel(explicitSetLabel));
+      continue;
+    }
     const normalizedToken = normalizeSearchText(token);
     if (!isKnownSetTasteToken(normalizedToken)) continue;
-    queries.push(`supertype:Pokemon set.name:${quoted(token)}`);
+    queries.push(...pokemonTcgSetQueriesForLabel(token));
   }
 
   return [...new Set(queries)];
@@ -528,6 +558,12 @@ async function fetchPokemonCards(query: string, pageSize: number): Promise<Pokem
   });
   const json = await fetchJsonWithTimeout(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, SOURCE_CATALOG_TIMEOUT_MS);
   return Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [];
+}
+
+function pokemonTcgCatalogPageSizeForQuery(query: string): number {
+  return /set\.(?:id|name):/i.test(query) && !/(?:^|\s)name:"/i.test(query)
+    ? SOURCE_CATALOG_SET_PAGE_SIZE
+    : SOURCE_CATALOG_PAGE_SIZE;
 }
 
 async function fetchTcgDexJapaneseSummaries(dexId: number): Promise<TcgDexCardSummary[]> {
@@ -1251,7 +1287,7 @@ export async function resolveSourceBackedDiscoveryCards(
     const anchoredQueryCardScores = new Map<string, number>();
     const anchorWeightsByTerm = sourceIdentityTermWeightByTerm(tasteProfileChases);
     const expandedQueries = expandedQueriesForProfile(queries, profile, tasteProfileChases);
-    const queryResults = await Promise.all(expandedQueries.map(async (query) => ({ query, cards: await fetchPokemonCards(query, SOURCE_CATALOG_PAGE_SIZE).catch(() => []) })));
+    const queryResults = await Promise.all(expandedQueries.map(async (query) => ({ query, cards: await fetchPokemonCards(query, pokemonTcgCatalogPageSizeForQuery(query)).catch(() => []) })));
     for (const { query, cards } of queryResults) {
       const anchorTerm = queryNameAnchorTerm(query);
       const anchorBoost = anchorBoostForWeight(anchorTerm ? anchorWeightsByTerm.get(anchorTerm) : undefined);
