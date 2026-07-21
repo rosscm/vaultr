@@ -14,7 +14,9 @@ afterEach(() => {
 function proCollector(userId: string): void {
   userIds.push(userId);
   setUserPlan(userId, 'PRO');
-  addChase({ userId, cardName: `Gardevoir ex ${userId}`, priority: 'GRAIL', maxPrice: 250 });
+  for (let index = 1; index <= 5; index += 1) {
+    addChase({ userId, cardName: `Gardevoir ex ${userId} ${index}`, priority: index === 1 ? 'GRAIL' : 'NORMAL', maxPrice: 250 });
+  }
 }
 
 describe('discovery drop scheduler', () => {
@@ -76,6 +78,46 @@ describe('discovery drop scheduler', () => {
     expect(health.refreshDue).toBe(1);
     expect(health.overdueUnprepared).toBe(0);
     expect(health.oldestPreparedUpdatedAt).toBe('2026-06-20T00:00:00.000Z');
+  });
+
+  it('excludes thin Pro profiles from scheduled weekly prep coverage', () => {
+    const now = new Date('2026-06-21T13:00:00.000Z');
+    const thinUserId = `weekly-thin-${Date.now()}`;
+    const readyUserId = `weekly-ready-thin-test-${Date.now()}`;
+    const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', weeklyPreparationTargetDate(now, 3));
+    const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', weeklyPreparationTargetDate(now, 3));
+
+    userIds.push(thinUserId);
+    setUserPlan(thinUserId, 'PRO');
+    addChase({ userId: thinUserId, cardName: 'Gardevoir ex Paldean Fates 233', priority: 'NORMAL', maxPrice: 200 });
+    addChase({ userId: thinUserId, cardName: 'Origin Forme Palkia V Astral Radiance 167', priority: 'NORMAL', maxPrice: 135 });
+    proCollector(readyUserId);
+
+    drops.push({ userId: readyUserId, periodKey });
+    upsertScheduledDiscoveryDrop({
+      userId: readyUserId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey,
+      status: 'READY',
+      title: 'Weekly Shelf',
+      currency: 'CAD',
+      availableAt,
+      expiresAt,
+      items: [
+        {
+          position: 1,
+          suggestion: { name: 'Mew RC24', lane: 'Collector Compass', laneWhy: 'profile fit', why: 'profile fit', nearby: [] },
+          imageUrl: 'https://example.com/mew.png',
+          market: { status: 'READY', currency: 'CAD', askingTotal: 120, updatedAt: '2026-06-21T00:00:00.000Z' }
+        }
+      ]
+    }, '2026-06-20T00:00:00.000Z');
+
+    const health = getWeeklyDiscoveryPreparationHealth(now);
+
+    expect(health.proUsers).toBe(1);
+    expect(health.prepared).toBe(1);
+    expect(health.missing).toBe(0);
   });
 
   it('flags overdue unprepared shelves after release', () => {

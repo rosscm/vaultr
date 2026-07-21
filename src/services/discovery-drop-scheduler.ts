@@ -1,6 +1,6 @@
 import { ChannelType, Client, EmbedBuilder } from 'discord.js';
 import { discoveryDropOpenButton, prepareWeeklyDiscoveryDropForUser } from '../commands/discover.js';
-import { getUserPlan, listGuildCommandChannels, listUsersWithChases } from './chase-store.js';
+import { getUserPlan, listChases, listGuildCommandChannels, listUserTasteMemoryChases, listUsersWithChases } from './chase-store.js';
 import { activePlanTier } from './plans.js';
 import {
   countAnnounceableScheduledDiscoveryDrops,
@@ -14,6 +14,7 @@ import {
 } from './scheduled-discovery-drops.js';
 
 const WEEKLY_DROP_TYPE = 'WEEKLY_DISCOVERY' as const;
+const WEEKLY_DISCOVERY_MIN_SCHEDULED_SIGNAL_COUNT = 5;
 
 let schedulerTimer: NodeJS.Timeout | undefined;
 let schedulerRunning = false;
@@ -102,8 +103,16 @@ function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number)
     .setTimestamp();
 }
 
+function hasScheduledWeeklyDiscoverySignal(userId: string): boolean {
+  const activeChases = listChases(userId).length;
+  const tasteMemory = listUserTasteMemoryChases(userId, WEEKLY_DISCOVERY_MIN_SCHEDULED_SIGNAL_COUNT).length;
+  return activeChases + tasteMemory >= WEEKLY_DISCOVERY_MIN_SCHEDULED_SIGNAL_COUNT;
+}
+
 function proUsersWithChases(): string[] {
-  return listUsersWithChases().filter((userId) => activePlanTier(getUserPlan(userId)) === 'PRO');
+  return listUsersWithChases()
+    .filter((userId) => activePlanTier(getUserPlan(userId)) === 'PRO')
+    .filter(hasScheduledWeeklyDiscoverySignal);
 }
 
 export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDiscoveryPreparationHealth {

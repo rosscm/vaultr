@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { buildWeeklyDiscoveryFinalizationInput, finalizeWeeklyDiscoveryShelf } from './commands/discover.js';
+import { db } from './services/db.js';
 import type { CanonicalLookupEvidenceMap } from './services/discovery-canonical-resolution.js';
 import type { WeeklyDiscoveryFinalizationInput } from './services/weekly-discovery-ranking.js';
 
@@ -83,8 +84,13 @@ function sanitizeCapture(input: WeeklyDiscoveryFinalizationInput): WeeklyDiscove
     activeVault: input.activeVault.map((chase, index) => ({
       ...chase,
       userId: 'user-synthetic-owner',
+      guildId: undefined,
       id: `chase-${index + 1}`,
       note: undefined
+    })),
+    priorShelfHistory: input.priorShelfHistory.map((drop) => ({
+      ...drop,
+      userId: 'user-synthetic-owner'
     })),
     orderedCandidateReserve: input.orderedCandidateReserve.map((candidate, index) => ({
       ...candidate,
@@ -97,7 +103,8 @@ function sanitizeCapture(input: WeeklyDiscoveryFinalizationInput): WeeklyDiscove
             thumbnailUrl: candidate.listing.thumbnailUrl?.replace(/\?.*$/, '')
           }
         : undefined
-    }))
+    })),
+    stableTieBreakerSeed: 'fixture-user-seed'
   };
 }
 
@@ -105,39 +112,37 @@ function ensureParentDir(path: string): void {
   mkdirSync(dirname(resolve(path)), { recursive: true });
 }
 
-const options = parseArgs(process.argv.slice(2));
-const assembled = await buildWeeklyDiscoveryFinalizationInput({
-  userId: options.userId,
-  date: options.date,
-  mode: 'CAPTURE',
-  hydrateMarketInline: true,
-  allowRecentRepeatFiller: false
-});
-const input: WeeklyDiscoveryFinalizationInput = assembled.input;
-const canonicalLookupEvidence: CanonicalLookupEvidenceMap = assembled.canonicalLookupEvidence;
-const preview = finalizeWeeklyDiscoveryShelf(input);
-ensureParentDir(options.out);
-writeFileSync(resolve(options.out), JSON.stringify({
-  schemaVersion: 1,
-  capturedAt: new Date().toISOString(),
-  userId: options.userId,
-  input,
-  canonicalLookupEvidence,
-  preview: {
-    fingerprint: preview.fingerprint,
-    selectedCanonicalIds: preview.selection.items.map((item) => item.suggestion.referenceSourceCardId),
-    roleDistribution: preview.roleDistribution,
-    structuralGate: preview.structuralGate
+async function closeGlobalFetchDispatcher(): Promise<void> {
+  try {
+    const { createRequire } = await import('node:module');
+    const require = createRequire(import.meta.url);
+    const undici = require('undici') as {
+      getGlobalDispatcher?: () => { close?: () => Promise<void> | void };
+    };
+    await undici.getGlobalDispatcher?.()?.close?.();
+  } catch {
+    // Best-effort CLI cleanup only. The capture has already completed by here.
   }
-}, null, 2));
+}
 
-if (options.sanitizeOut) {
-  ensureParentDir(options.sanitizeOut);
-  writeFileSync(resolve(options.sanitizeOut), JSON.stringify({
+const options = parseArgs(process.argv.slice(2));
+try {
+  const assembled = await buildWeeklyDiscoveryFinalizationInput({
+    userId: options.userId,
+    date: options.date,
+    mode: 'CAPTURE',
+    hydrateMarketInline: true,
+    allowRecentRepeatFiller: false
+  });
+  const input: WeeklyDiscoveryFinalizationInput = assembled.input;
+  const canonicalLookupEvidence: CanonicalLookupEvidenceMap = assembled.canonicalLookupEvidence;
+  const preview = finalizeWeeklyDiscoveryShelf(input);
+  ensureParentDir(options.out);
+  writeFileSync(resolve(options.out), JSON.stringify({
     schemaVersion: 1,
-    capturedAt: 'SANITIZED',
-    userId: 'user-synthetic-owner',
-    input: sanitizeCapture(input),
+    capturedAt: new Date().toISOString(),
+    userId: options.userId,
+    input,
     canonicalLookupEvidence,
     preview: {
       fingerprint: preview.fingerprint,
@@ -146,7 +151,27 @@ if (options.sanitizeOut) {
       structuralGate: preview.structuralGate
     }
   }, null, 2));
-}
 
-console.log(`Captured Weekly Discovery input for ${options.userId} (${input.targetPeriod})`);
-console.log(`Selected: ${preview.selection.items.length} | fingerprint=${preview.fingerprint.slice(0, 12)}`);
+  if (options.sanitizeOut) {
+    ensureParentDir(options.sanitizeOut);
+    writeFileSync(resolve(options.sanitizeOut), JSON.stringify({
+      schemaVersion: 1,
+      capturedAt: 'SANITIZED',
+      userId: 'user-synthetic-owner',
+      input: sanitizeCapture(input),
+      canonicalLookupEvidence,
+      preview: {
+        fingerprint: preview.fingerprint,
+        selectedCanonicalIds: preview.selection.items.map((item) => item.suggestion.referenceSourceCardId),
+        roleDistribution: preview.roleDistribution,
+        structuralGate: preview.structuralGate
+      }
+    }, null, 2));
+  }
+
+  console.log(`Captured Weekly Discovery input for ${options.userId} (${input.targetPeriod})`);
+  console.log(`Selected: ${preview.selection.items.length} | fingerprint=${preview.fingerprint.slice(0, 12)}`);
+} finally {
+  db.close();
+  await closeGlobalFetchDispatcher();
+}

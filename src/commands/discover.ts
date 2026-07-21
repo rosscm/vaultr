@@ -1740,12 +1740,16 @@ async function hydratePendingDiscoveryMarketCandidates(
     timeoutMs?: number;
     maxCandidates?: number;
     candidateKeys?: Set<string>;
+    forceHydrateMissingMarket?: boolean;
   } = {}
 ): Promise<DiscoveryCandidate[]> {
   const hydratedByIndex = new Map<number, DiscoveryCandidate>();
   const pendingCandidates = candidates
     .map((candidate, index) => ({ candidate, index }))
-    .filter(({ candidate }) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate))
+    .filter(({ candidate }) =>
+      (candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate)) ||
+      (options.forceHydrateMissingMarket === true && candidateMarketStatus(candidate, context.targetCurrency) !== 'READY')
+    )
     .filter(({ candidate }) => !options.candidateKeys || options.candidateKeys.has(discoveryDisplayNameKey(candidate.suggestion.name)));
   const selectedPendingCandidates = pendingCandidates.slice(0, Math.max(0, options.maxCandidates ?? pendingCandidates.length));
   if (selectedPendingCandidates.length === 0) return candidates;
@@ -3907,7 +3911,13 @@ function broadSourceBackfillParents(): DiscoverySuggestion[] {
   });
   return [
     parent('Pokemon promo cards', 'Promo Trail', ['promo']),
+    parent('Pokemon secret rare cards', 'Secret Rare Trail', ['secret', 'rare']),
+    parent('Pokemon alternate art cards', 'Artwork Trail', ['alternate', 'art']),
     parent('Pokemon illustration rare cards', 'Artwork Trail', ['illustration', 'rare']),
+    parent('Pokemon full art cards', 'Artwork Trail', ['full', 'art']),
+    parent('Pokemon tag team cards', 'Format Trail', ['tag', 'team']),
+    parent('Pokemon LV.X cards', 'Vintage Era Trail', ['lv.x']),
+    parent('Pokemon shiny vault cards', 'Special Release Trail', ['shiny', 'vault']),
     parent('e-reader Pokemon cards', 'E-Reader Era Trail', ['e-reader']),
     parent('vintage Pokemon cards', 'Vintage Era Trail', ['vintage']),
     parent('EX Pokemon cards', 'Format Trail', ['ex']),
@@ -4718,6 +4728,8 @@ function prioritizeTopOffSourceParents(
     ? Math.max(2, Math.floor(DISCOVERY_WEEKLY_DROP_SIZE * 0.15))
     : 0;
   const currentJapaneseCount = readiness.selectedCandidates.filter((candidate) => isJapaneseDiscoveryCandidate(candidate)).length;
+  const severeShortfall = readiness.selectedShortfall >= Math.ceil(DISCOVERY_WEEKLY_DROP_SIZE * 0.5)
+    || readiness.marketResolvedShortfall >= Math.ceil(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 0.5);
   const isJapaneseTopOffParent = (suggestion: DiscoverySuggestion): boolean => {
     const text = [
       suggestion.name,
@@ -4745,7 +4757,7 @@ function prioritizeTopOffSourceParents(
       const laneKey = discoveryTrailLabel(suggestion.lane);
       if ((readiness.selectedLaneCounts[laneKey] ?? 0) === 0) value += 8;
       if (isJapaneseTopOffParent(suggestion) && currentJapaneseCount < japaneseTarget) value += 14;
-      if (suggestion.lane === 'Set Companion Trail') value += 10;
+      if (suggestion.lane === 'Set Companion Trail') value += severeShortfall ? -18 : 10;
       return value;
     };
     return score(right) - score(left) || discoveryDisplayNameKey(left.name).localeCompare(discoveryDisplayNameKey(right.name));
@@ -5051,6 +5063,15 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     )
       .filter((suggestion) => !isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames)))
       .slice(0, Math.min(72, Math.max(36, targetCount * 3)));
+  const severeSourceTopOffShortfall = readiness.selectedShortfall >= Math.ceil(DISCOVERY_WEEKLY_DROP_SIZE * 0.5)
+    || readiness.marketResolvedShortfall >= Math.ceil(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 0.5);
+  const shouldResolveTopOffParentAsBroadExploration = (parent: DiscoverySuggestion): boolean =>
+    severeSourceTopOffShortfall
+    && parent.lane !== 'Set Companion Trail'
+    && topOffParentSpecificSubjectKeys(parent).every((key) => !positiveTasteSubjectChases(discovery.tasteProfileChases)
+      .flatMap((chase) => chaseSpecificSubjectTokens(chase))
+      .map((token) => normalizedSubjectIdentity(token))
+      .includes(key));
   const sourceBackedSuggestions: DiscoverySuggestion[] = [];
   let sourceTopOffTimedOut = false;
   if (sourceBackedParents.length > 0) {
@@ -5074,7 +5095,12 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
       });
       const workers = mapWithConcurrency(sourceBackedParents, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY, async (parent) => {
         if (sourceTopOffTimedOut) return [];
-        const resolved = await resolveSourceBackedDiscoveryCards(parent, discovery.chases, 8, discovery.tasteProfileChases).catch(() => ({ suggestions: [] }));
+        const resolved = await resolveSourceBackedDiscoveryCards(
+          parent,
+          discovery.chases,
+          8,
+          shouldResolveTopOffParentAsBroadExploration(parent) ? [] : discovery.tasteProfileChases
+        ).catch(() => ({ suggestions: [] }));
         return resolved.suggestions.filter((suggestion) => !isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames)));
       });
       const settled = await Promise.race([workers, deadline.then(() => null as DiscoverySuggestion[][] | null)]);
@@ -5185,7 +5211,8 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     }
   }, () => hydratePendingDiscoveryMarketCandidates(hydrationTarget, marketContext, {
     timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS),
-    maxCandidates: hydrationTarget.length
+    maxCandidates: hydrationTarget.length,
+    forceHydrateMissingMarket: true
   }), {
     outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
   });
@@ -8002,7 +8029,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     recentDrops,
     activeVault
   );
-  const supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
+  let supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
     buildCollectorTasteProfile(discovery.tasteProfileChases, {
       budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
@@ -8012,6 +8039,55 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     listChases(context.userId),
     baseStageCounts
   );
+  if (!quickRefresh && discovery.hasFullDiscovery && supplyReadinessBeforeTopOff.marketResolvedShortfall > 0) {
+    const marketShortfallTargets = selectDiversityEligibleWeeklyCandidates(
+      candidateReserve,
+      discovery.settings.alertCurrency,
+      recentDrops,
+      activeVault
+    )
+      .filter((candidate) => candidateMarketStatus(candidate, discovery.settings.alertCurrency) !== 'READY')
+      .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED, supplyReadinessBeforeTopOff.marketResolvedShortfall + 8)));
+    const marketShortfallTargetKeys = new Set(marketShortfallTargets.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
+    if (marketShortfallTargetKeys.size > 0) {
+      candidateReserve = await runWeeklyDiscoveryStage({
+        userId: context.userId,
+        weeklyPeriod,
+        stage: 'market-shortfall-hydration',
+        inputCount: marketShortfallTargetKeys.size,
+        counters: {
+          marketResolvedShortfall: supplyReadinessBeforeTopOff.marketResolvedShortfall,
+          timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
+        }
+      }, () => hydratePendingDiscoveryMarketCandidates(candidateReserve, {
+        userId: context.userId,
+        ...marketContext
+      }, {
+        timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS),
+        maxCandidates: marketShortfallTargetKeys.size,
+        candidateKeys: marketShortfallTargetKeys,
+        forceHydrateMissingMarket: true
+      }), {
+        outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
+      });
+      candidateReserve = prunePublicationImpossibleReserve(
+        sanitizeWeeklyDiscoveryReserve(candidateReserve, discovery.settings.alertCurrency),
+        discovery.settings.alertCurrency,
+        recentDrops,
+        activeVault
+      );
+      supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
+        candidateReserve,
+        buildCollectorTasteProfile(discovery.tasteProfileChases, {
+          budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
+        }),
+        discovery.settings.alertCurrency,
+        recentDrops,
+        activeVault,
+        baseStageCounts
+      );
+    }
+  }
   logWeeklyDiscoveryStage({
     event: 'WEEKLY_DISCOVERY_STAGE',
     userId: context.userId,

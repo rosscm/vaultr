@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { prepareWeeklyDiscoveryDropForUser } from './commands/discover.js';
 import { getUserPlan, listUsersWithChases } from './services/chase-store.js';
+import { db } from './services/db.js';
 import { activePlanTier } from './services/plans.js';
 import { getScheduledDiscoveryDrop, scheduledDiscoveryPeriodKey } from './services/scheduled-discovery-drops.js';
 
@@ -115,6 +116,19 @@ const options = parseArgs(process.argv.slice(2));
 const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', options.date);
 const users = options.all ? proUsersWithChases() : Array.from(new Set(options.users));
 
+async function closeGlobalFetchDispatcher(): Promise<void> {
+  try {
+    const { createRequire } = await import('node:module');
+    const require = createRequire(import.meta.url);
+    const undici = require('undici') as {
+      getGlobalDispatcher?: () => { close?: () => Promise<void> | void };
+    };
+    await undici.getGlobalDispatcher?.()?.close?.();
+  } catch {
+    // Best-effort CLI cleanup only. The refresh has already completed by here.
+  }
+}
+
 if (users.length === 0) {
   console.log(`No users to refresh for ${periodKey}`);
   process.exit(0);
@@ -123,15 +137,20 @@ if (users.length === 0) {
 console.log(`${options.dryRun ? '[DRY RUN] ' : ''}Weekly Shelf refresh target: ${periodKey}`);
 console.log(`Users: ${users.join(', ')}`);
 
-for (const userId of users) {
-  console.log(`Before | ${describeDrop(userId, periodKey)}`);
-  if (options.dryRun) continue;
+try {
+  for (const userId of users) {
+    console.log(`Before | ${describeDrop(userId, periodKey)}`);
+    if (options.dryRun) continue;
 
-  const result = await prepareWeeklyDiscoveryDropForUser(userId, options.date, {
-    force: true,
-    hydrateMarketInline: options.hydrateMarketInline,
-    allowRecentRepeatFiller: options.allowRepeatFiller
-  });
-  console.log(`Refresh | ${userId}: prepared=${result.prepared} itemCount=${result.itemCount} fullDiscovery=${result.hasFullDiscovery}`);
-  console.log(`After  | ${describeDrop(userId, periodKey)}`);
+    const result = await prepareWeeklyDiscoveryDropForUser(userId, options.date, {
+      force: true,
+      hydrateMarketInline: options.hydrateMarketInline,
+      allowRecentRepeatFiller: options.allowRepeatFiller
+    });
+    console.log(`Refresh | ${userId}: prepared=${result.prepared} itemCount=${result.itemCount} fullDiscovery=${result.hasFullDiscovery}`);
+    console.log(`After  | ${describeDrop(userId, periodKey)}`);
+  }
+} finally {
+  db.close();
+  await closeGlobalFetchDispatcher();
 }

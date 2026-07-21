@@ -5654,8 +5654,8 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(normalizeInput(live.input)).toEqual(normalizeInput(capture.input));
   });
 
-  it('replay fixtures stay deterministic, and the W29 release fixture passes the structural gate', () => {
-    for (const name of ['w29-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
+  it('replay fixtures stay deterministic, and live release fixtures pass the structural gate', () => {
+    for (const name of ['w29-sanitized.json', 'w30-live-success-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
       const fixture = replayFixture(name);
       expect(fixture.schemaVersion).toBe(1);
 
@@ -5667,12 +5667,20 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         second.selection.items.map((item) => item.suggestion.referenceSourceCardId)
       );
       expect(first.candidateOutcomes).toEqual(second.candidateOutcomes);
-      if (name === 'w29-sanitized.json') {
+      if (name === 'w29-sanitized.json' || name === 'w30-live-success-sanitized.json') {
         expect(first.structuralGate.status).toBe('PASS');
         expect(first.selection.items).toHaveLength(20);
         expect(first.selection.marketResolvedCount).toBeGreaterThanOrEqual(18);
       }
     }
+  });
+
+  it('keeps live replay fixtures free of real user, guild, and credential identifiers', () => {
+    const fixtureText = readFileSync(resolve('src/commands/__tests__/fixtures/discovery/w30-live-success-sanitized.json'), 'utf8');
+
+    expect(fixtureText).not.toMatch(/875643283995500625|691476010750967828|1503870208891162624/);
+    expect(fixtureText).not.toMatch(/"(?:token|cookie|authorization|api[_-]?key|client[_-]?secret)"\s*:/i);
+    expect(fixtureText).not.toMatch(/\bBearer\s+[A-Za-z0-9._-]+/i);
   });
 
   it('accounts for every reserve candidate with an explicit finalizer outcome', () => {
