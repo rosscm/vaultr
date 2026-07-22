@@ -21,6 +21,7 @@ import {
   discoveryEmbed,
   discoveryMarketRangeFromChases,
   getDiscoveryMarketRefreshThrottleState,
+  discoveryMarketCacheKeyForSuggestion,
   discoveryNegativeProfile,
   discoveryProfileConfidence,
   discoveryShelfMarketCheckNote,
@@ -3430,6 +3431,84 @@ describe('Discovery listing enrichment eligibility', () => {
     expect(isUsableDiscoveryMarketSample(paldeanMewSuggestion, rawListing, 'CAD')).toBe(true);
   });
 
+  it('keeps Pichu Expedition regular holo market samples isolated from reverse, wrong-number, graded, lot, and ambiguous listings', () => {
+    const pichuSuggestion = {
+      name: 'Pichu Expedition Base Set 22',
+      lane: 'E-Reader Era Trail',
+      laneWhy: 'market-ready profile expansion',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: '2002 Pichu Holo 22/165 Expedition Pokemon Cards DOUBLE SWIRL NM E Reader WOTC Pokemon card',
+      evidenceAliases: [
+        '2002 Pichu Holo 22/165 Expedition Pokemon Cards DOUBLE SWIRL NM E Reader WOTC',
+        'e-reader Pokemon cards'
+      ],
+      requiredEvidenceTokens: ['reader'],
+      referenceSourceName: 'Pokemon TCG (Expedition Base Set)',
+      referenceImageUrl: 'https://images.pokemontcg.io/ecard1/22_hires.png',
+      referenceSourceCardId: 'ecard1-22',
+      canonicalReference: {
+        provider: 'PokemonTCG',
+        sourceCardId: 'ecard1-22',
+        canonicalCardId: 'ecard1-22',
+        canonicalName: 'Pichu Expedition Base Set 22',
+        setId: 'ecard1',
+        setName: 'Expedition Base Set',
+        cardNumber: '22',
+        imageUrl: 'https://images.pokemontcg.io/ecard1/22_hires.png',
+        imageSourceKind: 'CARD_REFERENCE' as const
+      }
+    };
+    const regularHoloSamples = [
+      listing({ listingId: 'pichu-1', title: 'Pichu Holo 22/165 Expedition E Reader WOTC Pokemon Card NM', price: 250 }),
+      listing({ listingId: 'pichu-2', title: 'Pokemon Expedition Pichu 22/165 Holo E-Reader Card LP', price: 275 }),
+      listing({ listingId: 'pichu-3', title: '2002 Pichu Holo 22/165 Expedition Base Set E Reader WOTC', price: 300 }),
+      listing({ listingId: 'pichu-4', title: 'Pichu 22/165 Holo Expedition Pokemon Card E-Reader Raw', price: 325 })
+    ];
+
+    expect(isUsableDiscoveryMarketSample(pichuSuggestion, listing({ title: 'Pichu 22/165 Reverse Holo Expedition E Reader Pokemon Card', price: 80 }), 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(pichuSuggestion, listing({ title: 'Pichu 58/165 Holo Expedition E Reader Pokemon Card', price: 80 }), 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(pichuSuggestion, listing({ title: 'PSA 9 Pichu Holo 22/165 Expedition E Reader Pokemon Card', price: 450, condition: 'Graded' }), 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(pichuSuggestion, listing({ title: 'Pokemon Expedition E Reader Pichu 22/165 Holo Lot with extras', price: 180 }), 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(pichuSuggestion, listing({ title: 'Pichu 22/165 Expedition E Reader Pokemon Card', price: 90 }), 'CAD')).toBe(false);
+    expect(regularHoloSamples.every((sample) => isUsableDiscoveryMarketSample(pichuSuggestion, sample, 'CAD'))).toBe(true);
+    expect(typicalMarketTotal(regularHoloSamples.map((sample) => sample.price))).toBe(287.5);
+  });
+
+  it('separates Discovery market cache identity by canonical card and finish', () => {
+    const baseSuggestion = {
+      name: 'Pichu Expedition Base Set 22',
+      lane: 'E-Reader Era Trail',
+      laneWhy: 'profile',
+      why: 'profile',
+      nearby: [],
+      requiredEvidenceTokens: ['reader'],
+      referenceSourceName: 'Pokemon TCG (Expedition Base Set)',
+      referenceSourceCardId: 'ecard1-22',
+      canonicalReference: {
+        provider: 'PokemonTCG',
+        sourceCardId: 'ecard1-22',
+        canonicalCardId: 'ecard1-22',
+        canonicalName: 'Pichu Expedition Base Set 22',
+        setId: 'ecard1',
+        setName: 'Expedition Base Set',
+        cardNumber: '22',
+        imageUrl: 'https://images.pokemontcg.io/ecard1/22_hires.png',
+        imageSourceKind: 'CARD_REFERENCE' as const
+      }
+    };
+    const regularKey = discoveryMarketCacheKeyForSuggestion({
+      ...baseSuggestion,
+      evidenceSearchTerm: 'Pichu Holo 22/165 Expedition Pokemon card'
+    }, 'CAD', 'CA');
+    const reverseKey = discoveryMarketCacheKeyForSuggestion({
+      ...baseSuggestion,
+      evidenceSearchTerm: 'Pichu Reverse Holo 22/165 Expedition Pokemon card'
+    }, 'CAD', 'CA');
+
+    expect(regularKey).not.toBe(reverseKey);
+  });
+
   it('accepts compact Pikachu 010/018 listings as McDonalds e-reader market samples', () => {
     const pikachu010Suggestion = {
       name: "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese",
@@ -4854,7 +4933,8 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
   it('preserves card API image sources when cached eBay market data has a listing image', () => {
     const name = `Pikachu Black Star Promo ${Date.now()}`;
-    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    const sourceBackedCandidate = sourceCandidate(name, 'Pokemon TCG (Wizards Black Star Promos)', 0);
+    const cacheKey = discoveryMarketCacheKeyForSuggestion(sourceBackedCandidate.suggestion, 'CAD', 'CA');
     deleteDiscoveryMarketCache(cacheKey);
     upsertDiscoveryMarketCache({
       cacheKey,
@@ -4863,7 +4943,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       destinationCountry: 'CA',
       listing: listing({
         listingId: 'ebay-market-image',
-        title: `${name} raw card`,
+        title: `${name} #1 raw card`,
         imageUrl: 'https://i.ebayimg.example/market-card.jpg'
       }),
       imageUrl: 'https://i.ebayimg.example/cached-market-card.jpg',
@@ -4873,7 +4953,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     });
 
     const [attached] = candidatesFromDiscoveryMarketCache(
-      [sourceCandidate(name, 'Pokemon TCG (Wizards Black Star Promos)', 0)],
+      [sourceBackedCandidate],
       {
         userId: 'user-1',
         activeChases: [],

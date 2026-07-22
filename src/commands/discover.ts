@@ -1068,6 +1068,90 @@ function discoveryMarketSearchTerms(suggestion: DiscoverySuggestion): string[] {
   return uniqueValuesPreservingOrder(terms).slice(0, isRaichuIntroPackSuggestion(suggestion) ? 8 : 3);
 }
 
+type DiscoveryMarketFinish = 'HOLO' | 'REVERSE_HOLO' | 'NON_HOLO';
+
+function discoveryMarketFinishFromText(value: string): DiscoveryMarketFinish | undefined {
+  const text = normalize(value);
+  if (/\b(?:reverse|rev|rh)\s*(?:holo|foil|holofoil)?\b|\b(?:holo|foil|holofoil)\s*(?:reverse|rev)\b/.test(text)) return 'REVERSE_HOLO';
+  if (/\bnon[- ]?holo\b|\bnot\s+holo\b/.test(text)) return 'NON_HOLO';
+  if (/\bholo(?:foil)?\b|\bfoil\b/.test(text)) return 'HOLO';
+  return undefined;
+}
+
+function requestedDiscoveryMarketFinish(suggestion: DiscoverySuggestion): DiscoveryMarketFinish | undefined {
+  return discoveryMarketFinishFromText([
+    suggestion.name,
+    suggestion.evidenceSearchTerm,
+    suggestion.referenceSourceName,
+    ...(suggestion.evidenceAliases ?? []),
+    ...(suggestion.requiredEvidenceTokens ?? [])
+  ].filter(Boolean).join(' '));
+}
+
+function canonicalDiscoveryMarketCardNumber(suggestion: DiscoverySuggestion): string | undefined {
+  const canonicalNumber = suggestion.canonicalReference?.cardNumber?.trim();
+  if (canonicalNumber) return canonicalNumber;
+  const sourceCardId = suggestion.canonicalReference?.sourceCardId?.trim() ?? suggestion.referenceSourceCardId?.trim();
+  const localId = sourceCardId?.split('-').pop()?.trim();
+  return localId || undefined;
+}
+
+function canonicalDiscoveryMarketSubjectToken(suggestion: DiscoverySuggestion): string | undefined {
+  const text = suggestion.canonicalReference?.canonicalName ?? suggestion.name;
+  return normalizedTokens(text).find((token) =>
+    token.length >= 3
+    && !/^\d/.test(token)
+    && !['base', 'black', 'card', 'edition', 'expedition', 'holo', 'japanese', 'pokemon', 'promo', 'set', 'star', 'tcg'].includes(token)
+  );
+}
+
+function listingHasCanonicalCardNumberEvidence(listingText: string, cardNumber: string): boolean {
+  const normalizedNumber = cardNumber.trim().replace(/^0+/, '') || cardNumber.trim();
+  if (!normalizedNumber) return true;
+  const escaped = normalizedNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const compact = listingText.replace(/[^a-z0-9]+/g, '');
+  if (cardNumber.includes('/')) return compact.includes(cardNumber.replace(/[^a-z0-9]+/gi, '').toLowerCase());
+  return new RegExp(`(?:^|[^a-z0-9])(?:#|no\\.?\\s*)?0*${escaped}(?:\\s*/\\s*\\d{1,3})?(?:[^a-z0-9]|$)`, 'i').test(listingText);
+}
+
+function hasCanonicalDiscoveryMarketIdentityEvidence(suggestion: DiscoverySuggestion, listing: Listing): boolean {
+  const hasCanonicalIdentity = !!(suggestion.canonicalReference?.canonicalCardId || suggestion.referenceSourceCardId);
+  if (!hasCanonicalIdentity) return true;
+  const listingText = normalize([listing.title, listing.condition].filter(Boolean).join(' '));
+  const subjectToken = canonicalDiscoveryMarketSubjectToken(suggestion);
+  if (subjectToken && !new RegExp(`(?:^|[^a-z0-9])${subjectToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^a-z0-9]|$)`, 'i').test(listingText)) return false;
+  const cardNumber = canonicalDiscoveryMarketCardNumber(suggestion);
+  if (cardNumber && !listingHasCanonicalCardNumberEvidence(listingText, cardNumber)) return false;
+  return true;
+}
+
+function hasCanonicalDiscoveryMarketIdentity(suggestion: DiscoverySuggestion): boolean {
+  return !!(suggestion.canonicalReference?.canonicalCardId || suggestion.referenceSourceCardId);
+}
+
+function hasRequestedDiscoveryMarketFinishEvidence(suggestion: DiscoverySuggestion, listing: Listing): boolean {
+  const requestedFinish = requestedDiscoveryMarketFinish(suggestion);
+  if (!requestedFinish) return true;
+  const listingFinish = discoveryMarketFinishFromText([listing.title, listing.condition].filter(Boolean).join(' '));
+  return listingFinish === requestedFinish;
+}
+
+export function discoveryMarketCacheKeyForSuggestion(
+  suggestion: DiscoverySuggestion,
+  displayCurrency: SupportedCurrency,
+  destinationCountry?: string,
+  destinationPostalCode?: string,
+  range?: { min: number; max: number }
+): string {
+  const canonicalId = suggestion.canonicalReference?.canonicalCardId?.trim() ?? suggestion.referenceSourceCardId?.trim();
+  const finish = requestedDiscoveryMarketFinish(suggestion);
+  const identitySuffix = [canonicalId ? `canonical:${canonicalId}` : undefined, finish ? `finish:${finish}` : undefined]
+    .filter(Boolean)
+    .join('|');
+  const cacheName = identitySuffix ? `${suggestion.name} [${identitySuffix}]` : suggestion.name;
+  return discoveryMarketCacheKey(cacheName, displayCurrency, destinationCountry, destinationPostalCode, range);
+}
+
 function dedupeDiscoveryListings(listings: Listing[]): Listing[] {
   const seen = new Set<string>();
   const unique: Listing[] = [];
@@ -1367,8 +1451,12 @@ export function isUsableDiscoveryExample(
   range: { min: number; max: number } | undefined,
   targetCurrency: SupportedCurrency
 ): boolean {
+  const requiresCanonicalMarketIdentity = hasCanonicalDiscoveryMarketIdentity(suggestion);
+  const hasCanonicalMarketIdentity = hasCanonicalDiscoveryMarketIdentityEvidence(suggestion, listing);
   return (
-    hasCoreSuggestionTokens(suggestion, listing) &&
+    (hasCoreSuggestionTokens(suggestion, listing) || (requiresCanonicalMarketIdentity && hasCanonicalMarketIdentity)) &&
+    hasCanonicalMarketIdentity &&
+    hasRequestedDiscoveryMarketFinishEvidence(suggestion, listing) &&
     looksLikeDiscoveryCardListing(suggestion, listing) &&
     hasReliableSeller(listing) &&
     meetsPremiumFloor(suggestion, listing, targetCurrency) &&
@@ -1665,7 +1753,7 @@ export function candidatesFromDiscoveryMarketCache(
       evidenceSearchTerm: candidate.suggestion.evidenceSearchTerm ?? cacheBackedSuggestion.evidenceSearchTerm,
       evidenceAliases: candidate.suggestion.evidenceAliases ?? cacheBackedSuggestion.evidenceAliases
     };
-    const cacheKey = discoveryMarketCacheKey(enrichedSuggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+    const cacheKey = discoveryMarketCacheKeyForSuggestion(enrichedSuggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
     const cacheEntry = getDiscoveryMarketCache(cacheKey);
     const cachedListing = cacheEntry ? listingFromDiscoveryMarketCache(cacheEntry) : undefined;
     const hasInvalidCachedListing = !!cachedListing && !isUsableDiscoveryExample(enrichedSuggestion, cachedListing, context.range, context.targetCurrency);
@@ -1770,7 +1858,7 @@ async function hydratePendingDiscoveryMarketCandidates(
         context.range,
         context.targetCurrency,
         (askCandidate) => {
-          const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+          const cacheKey = discoveryMarketCacheKeyForSuggestion(candidate.suggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
           upsertDiscoveryMarketCache({
             cacheKey,
             suggestionName: candidate.suggestion.name,
@@ -1785,7 +1873,7 @@ async function hydratePendingDiscoveryMarketCandidates(
           });
         }
       );
-      const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+      const cacheKey = discoveryMarketCacheKeyForSuggestion(candidate.suggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
       upsertDiscoveryMarketCache({
         cacheKey,
         suggestionName: candidate.suggestion.name,
@@ -1978,7 +2066,7 @@ function candidateWithFreshMarketCache(
   }
 ): DiscoveryCandidate {
   if (candidate.sourceStatus !== 'PENDING' || !needsMoreMarketDepth(candidate)) return candidate;
-  const cacheKey = discoveryMarketCacheKey(candidate.suggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+  const cacheKey = discoveryMarketCacheKeyForSuggestion(candidate.suggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
   const cacheEntry = getDiscoveryMarketCache(cacheKey);
   if (!cacheEntry || !discoveryMarketCacheHasReliableEstimate(cacheEntry)) return candidate;
   const marketCandidate = candidateFromCachedMarket(candidate.suggestion, candidate.selectionIndex ?? 0, cacheEntry, context.targetCurrency, context.activeChases, false);
@@ -2487,6 +2575,11 @@ function hasReliableMarketEstimate(candidate: DiscoveryCandidate): boolean {
 
 function discoveryMarketTotal(candidate: DiscoveryCandidate): number | undefined {
   return candidate.typicalRawSoldTotal ?? candidate.typicalRawAskingTotal;
+}
+
+function trustedStoredDiscoveryUniverseMarketTotal(suggestion: DiscoverySuggestion, marketTotal: number | undefined): number | undefined {
+  if (marketTotal === undefined) return undefined;
+  return requestedDiscoveryMarketFinish(suggestion) ? undefined : marketTotal;
 }
 
 function isLowValueModernFormatPromoCandidate(candidate: DiscoveryCandidate): boolean {
@@ -4333,6 +4426,7 @@ function candidateFromDiscoveryUniverseCard(
     referenceImageUrl: entry.suggestion.referenceImageUrl ?? entry.imageUrl,
     referenceSourceCardId: entry.suggestion.referenceSourceCardId ?? entry.sourceCardId
   };
+  const trustedMarketTotal = trustedStoredDiscoveryUniverseMarketTotal(suggestion, entry.marketTotal);
   return {
     suggestion,
     supplySource,
@@ -4348,8 +4442,8 @@ function candidateFromDiscoveryUniverseCard(
           }
         : undefined
     ),
-    typicalRawAskingTotal: entry.marketTotal,
-    marketSampleSize: entry.marketTotal === undefined ? undefined : Math.max(MIN_ASK_ONLY_MARKET_SAMPLE_SIZE, Math.min(12, entry.observationCount)),
+    typicalRawAskingTotal: trustedMarketTotal,
+    marketSampleSize: trustedMarketTotal === undefined ? undefined : Math.max(MIN_ASK_ONLY_MARKET_SAMPLE_SIZE, Math.min(12, entry.observationCount)),
     displayCurrency: entry.marketCurrency as SupportedCurrency | undefined,
     selectionIndex
   };
@@ -4484,6 +4578,7 @@ function selectDiscoveryUserUniverseCandidatesFromEntries(
       referenceSourceName: entry.suggestion.referenceSourceName ?? entry.imageSourceName,
       referenceSourceCardId: entry.suggestion.referenceSourceCardId ?? entry.sourceCardId
     };
+    const trustedMarketTotal = trustedStoredDiscoveryUniverseMarketTotal(suggestion, entry.marketTotal);
     const candidate: DiscoveryCandidate = {
       suggestion,
       supplySource: 'USER_UNIVERSE',
@@ -4499,8 +4594,8 @@ function selectDiscoveryUserUniverseCandidatesFromEntries(
             }
           : undefined
       ),
-      typicalRawAskingTotal: entry.marketTotal,
-      marketSampleSize: entry.marketTotal === undefined ? undefined : MIN_ASK_ONLY_MARKET_SAMPLE_SIZE,
+      typicalRawAskingTotal: trustedMarketTotal,
+      marketSampleSize: trustedMarketTotal === undefined ? undefined : MIN_ASK_ONLY_MARKET_SAMPLE_SIZE,
       displayCurrency: entry.marketCurrency as SupportedCurrency | undefined,
       selectionIndex: eligible.length
     };
@@ -5348,7 +5443,7 @@ export function orderConcreteDiscoveryFallbackSuggestionsForMarket(
   }
 ): DiscoverySuggestion[] {
   const marketRank = (suggestion: DiscoverySuggestion): number => {
-    const cacheKey = discoveryMarketCacheKey(suggestion.name, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+    const cacheKey = discoveryMarketCacheKeyForSuggestion(suggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
     const cacheEntry = getDiscoveryMarketCache(cacheKey);
     if (!cacheEntry) return 0;
     const cachedListing = listingFromDiscoveryMarketCache(cacheEntry);
