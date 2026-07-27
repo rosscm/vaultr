@@ -60,7 +60,9 @@ import {
   sourceCatalogSufficientSuggestionCount,
   shouldShowDiscoveryShelfTighteningNote,
   typicalMarketTotal,
+  weeklyDiscoveryHasOptionalStageBudget,
   weeklyDiscoveryShelfSizeForPlan,
+  weeklyDiscoveryShouldPreferCachedRetry,
   __discoveryLearningTestHooks,
   __discoveryPersistenceTestHooks,
   type DiscoveryCandidate
@@ -6068,6 +6070,51 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(hydrated[0]?.sourceStatus).toBe('PENDING');
     expect(hydrated[1]?.suggestion.referenceSourceCardId).toBe('stable-card');
     expect(ebayService.searchEbayListings).toHaveBeenCalled();
+  });
+
+  it('exits foreground market hydration immediately when the stop condition is already satisfied from cache', async () => {
+    const searchSpy = vi.spyOn(ebayService, 'searchEbayListings');
+    const soldSpy = vi.spyOn(ebayService, 'searchEbaySoldListings');
+
+    const ready = {
+      ...publishableCandidate('Ready Card', 'ready-card', 0),
+      typicalRawSoldTotal: 120,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+
+    const hydrated = await __discoveryPersistenceTestHooks.hydratePendingDiscoveryMarketCandidates(
+      [ready],
+      {
+        userId: 'weekly-cache-stop',
+        activeChases: [chase('Mew RC24', 0)],
+        targetCurrency: 'CAD'
+      },
+      {
+        timeoutMs: 25,
+        maxCandidates: 1,
+        stopWhen: () => true
+      }
+    );
+
+    expect(hydrated[0]?.suggestion.referenceSourceCardId).toBe('ready-card');
+    expect(searchSpy).not.toHaveBeenCalled();
+    expect(soldSpy).not.toHaveBeenCalled();
+  });
+
+  it('identifies timeout retries that should reuse cached weekly discovery work', () => {
+    expect(weeklyDiscoveryShouldPreferCachedRetry(null)).toBe(false);
+    expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'PREPARATION_TIMEOUT', attemptCount: 1 })).toBe(false);
+    expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'PREPARATION_TIMEOUT', attemptCount: 2 })).toBe(true);
+    expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'INSUFFICIENT_FINAL_CANDIDATES', attemptCount: 4 })).toBe(false);
+  });
+
+  it('treats near-deadline weekly optional stages as budget-exhausted', () => {
+    const futureDeadline = Date.now() + 30_000;
+    const nearDeadline = Date.now() + 2_000;
+
+    expect(weeklyDiscoveryHasOptionalStageBudget(futureDeadline, 10_000)).toBe(true);
+    expect(weeklyDiscoveryHasOptionalStageBudget(nearDeadline, 10_000)).toBe(false);
   });
 
   it('stops incremental foreground market hydration after the first sufficient batch', async () => {

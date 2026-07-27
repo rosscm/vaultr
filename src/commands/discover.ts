@@ -89,7 +89,7 @@ import {
   type ScheduledDiscoveryDropItem
 } from '../services/scheduled-discovery-drops.js';
 import { weeklyDiscoveryEligibilityForUser, type WeeklyDiscoveryEligibility } from '../services/weekly-discovery-eligibility.js';
-import type { WeeklyPreparationFailureCode } from '../services/weekly-discovery-preparation-state.js';
+import { getWeeklyDiscoveryPreparationState, type WeeklyPreparationFailureCode } from '../services/weekly-discovery-preparation-state.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { freeVaultLimitMessage } from './pro-copy.js';
 import type { Chase, Listing, PlanTier } from '../types.js';
@@ -517,7 +517,14 @@ function logWeeklyDiscoveryStage(entry: WeeklyDiscoveryStageLog): void {
 }
 
 async function runWeeklyDiscoveryStage<T>(
-  meta: { userId: string; weeklyPeriod: string; stage: string; inputCount?: number; counters?: Record<string, number | string | boolean | null | undefined> },
+  meta: {
+    userId: string;
+    weeklyPeriod: string;
+    stage: string;
+    inputCount?: number;
+    counters?: Record<string, number | string | boolean | null | undefined>;
+    stageMetrics?: WeeklyDiscoveryStageMetric[];
+  },
   work: () => Promise<T>,
   options: { outputCount?: (value: T) => number | undefined } = {}
 ): Promise<T> {
@@ -544,19 +551,30 @@ async function runWeeklyDiscoveryStage<T>(
       outputCount: options.outputCount?.(value),
       counters: meta.counters
     });
+    meta.stageMetrics?.push({
+      stage: meta.stage,
+      status: 'SUCCESS',
+      elapsedMs: Date.now() - startedAt
+    });
     return value;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const status = /timeout/i.test(message) ? 'TIMEOUT' : 'ERROR';
     logWeeklyDiscoveryStage({
       event: 'WEEKLY_DISCOVERY_STAGE',
       userId: meta.userId,
       weeklyPeriod: meta.weeklyPeriod,
       stage: meta.stage,
-      status: /timeout/i.test(message) ? 'TIMEOUT' : 'ERROR',
+      status,
       elapsedMs: Date.now() - startedAt,
       inputCount: meta.inputCount,
       counters: meta.counters,
       message
+    });
+    meta.stageMetrics?.push({
+      stage: meta.stage,
+      status,
+      elapsedMs: Date.now() - startedAt
     });
     throw error;
   }
@@ -586,6 +604,36 @@ function combineAbortSignals(...signals: Array<AbortSignal | undefined>): AbortS
   return controller.signal;
 }
 
+function summarizeWeeklyStageMetrics(stageMetrics: WeeklyDiscoveryStageMetric[]): string | undefined {
+  if (stageMetrics.length === 0) return undefined;
+  const slowestCompleted = [...stageMetrics]
+    .filter((metric) => metric.status === 'SUCCESS')
+    .sort((left, right) => right.elapsedMs - left.elapsedMs)[0];
+  const lastMetric = stageMetrics[stageMetrics.length - 1];
+  const parts: string[] = [];
+  if (slowestCompleted) parts.push(`slowest completed stage ${slowestCompleted.stage} (${slowestCompleted.elapsedMs}ms)`);
+  if (lastMetric && lastMetric !== slowestCompleted) parts.push(`last stage ${lastMetric.stage} (${lastMetric.status.toLowerCase()}, ${lastMetric.elapsedMs}ms)`);
+  return parts.length > 0 ? parts.join('; ') : undefined;
+}
+
+function hasWeeklyOptionalStageBudget(deadlineAtMs: number | undefined, minimumMs = DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS): boolean {
+  if (!deadlineAtMs) return true;
+  return remainingDeadlineMs(deadlineAtMs, minimumMs) >= minimumMs;
+}
+
+export function weeklyDiscoveryShouldPreferCachedRetry(
+  state: { failureCode?: WeeklyPreparationFailureCode; attemptCount?: number } | null | undefined
+): boolean {
+  return state?.failureCode === 'PREPARATION_TIMEOUT' && (state.attemptCount ?? 0) >= 2;
+}
+
+export function weeklyDiscoveryHasOptionalStageBudget(
+  deadlineAtMs: number | undefined,
+  minimumMs = DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS
+): boolean {
+  return hasWeeklyOptionalStageBudget(deadlineAtMs, minimumMs);
+}
+
 function classifyWeeklyPreparationFailureCode(
   persisted: PersistValidatedWeeklyDiscoveryDropResult
 ): WeeklyPreparationFailureCode {
@@ -600,6 +648,7 @@ function classifyWeeklyPreparationFailureCode(
 type DiscoveryAssemblyRuntimeContext = {
   userId: string;
   weeklyPeriod: string;
+  stageMetrics?: WeeklyDiscoveryStageMetric[];
 };
 
 type DiscoveryAssemblyExternalStatsSnapshot = {
@@ -725,7 +774,8 @@ async function runDiscoveryAssemblySubstage<T>(
     weeklyPeriod: runtimeContext.weeklyPeriod,
     stage,
     inputCount,
-    counters: options.counters
+    counters: options.counters,
+    stageMetrics: runtimeContext.stageMetrics
   }, async () => {
     const value = await work();
     const externalAfter = snapshotDiscoveryAssemblyExternalStats();
@@ -763,6 +813,14 @@ export type WeeklyDiscoveryBuildContext = {
   hydrateMarketInline?: boolean;
   allowRecentRepeatFiller?: boolean;
   abortSignal?: AbortSignal;
+  cachePreferredRetry?: boolean;
+  stageMetrics?: WeeklyDiscoveryStageMetric[];
+};
+
+type WeeklyDiscoveryStageMetric = {
+  stage: string;
+  status: 'SUCCESS' | 'ERROR' | 'TIMEOUT';
+  elapsedMs: number;
 };
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
@@ -782,6 +840,7 @@ const DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS = Math.max(10000, Math.mi
 const DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY = Math.max(1, Math.min(6, Math.floor(Number(process.env.DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY ?? '3'))));
 const DISCOVERY_FOREGROUND_MARKET_HYDRATION_BATCH_SIZE = Math.max(1, Math.min(8, Math.floor(Number(process.env.DISCOVERY_FOREGROUND_MARKET_HYDRATION_BATCH_SIZE ?? '4'))));
 const DISCOVERY_FOREGROUND_MARKET_HYDRATION_MAX_BATCHES = Math.max(1, Math.min(4, Math.floor(Number(process.env.DISCOVERY_FOREGROUND_MARKET_HYDRATION_MAX_BATCHES ?? '3'))));
+const DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS = Math.max(1000, Math.min(30_000, Math.floor(Number(process.env.DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS ?? '10000'))));
 const DISCOVERY_MARKET_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DISCOVERY_REFERENCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DISCOVERY_SOURCE_STATUS_RETRY_MS = 15 * 60 * 1000;
@@ -1895,10 +1954,13 @@ async function hydratePendingDiscoveryMarketCandidates(
     maxCandidates?: number;
     candidateKeys?: Set<string>;
     forceHydrateMissingMarket?: boolean;
+    stopWhen?: (candidates: DiscoveryCandidate[]) => boolean;
   } = {}
 ): Promise<DiscoveryCandidate[]> {
+  const cacheRefreshedCandidates = candidates.map((candidate) => candidateWithFreshMarketCache(candidate, context));
+  if (options.stopWhen?.(cacheRefreshedCandidates)) return cacheRefreshedCandidates;
   const hydratedByIndex = new Map<number, DiscoveryCandidate>();
-  const pendingCandidates = candidates
+  const pendingCandidates = cacheRefreshedCandidates
     .map((candidate, index) => ({ candidate, index }))
     .filter(({ candidate }) =>
       (candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate)) ||
@@ -1909,10 +1971,20 @@ async function hydratePendingDiscoveryMarketCandidates(
   if (selectedPendingCandidates.length === 0) return candidates;
   const timeoutMs = Math.max(1, options.timeoutMs ?? DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS);
   let timedOut = false;
+  let finished = false;
   let timeoutHandle: NodeJS.Timeout | undefined;
+  let resolveEarly: (() => void) | undefined;
+
+  const currentCandidates = () => cacheRefreshedCandidates.map((candidate, index) => hydratedByIndex.get(index) ?? candidate);
+  const maybeResolveEarly = () => {
+    if (finished) return;
+    if (!options.stopWhen?.(currentCandidates())) return;
+    finished = true;
+    resolveEarly?.();
+  };
 
   const workers = mapWithConcurrency(selectedPendingCandidates, Math.min(2, DISCOVERY_ENRICHMENT_CONCURRENCY), async ({ candidate, index }) => {
-    if (timedOut) return;
+    if (timedOut || finished) return;
     try {
       const hydrated = await enrichSuggestion(
         candidate.suggestion,
@@ -1953,6 +2025,7 @@ async function hydratePendingDiscoveryMarketCandidates(
         sourceStatus: hydrated.sourceStatus === 'PENDING' ? undefined : hydrated.sourceStatus
       });
       hydratedByIndex.set(index, { ...candidate, ...hydrated, sourceStatus: hydrated.sourceStatus === 'PENDING' ? undefined : hydrated.sourceStatus });
+      maybeResolveEarly();
     } catch {
       // Background refresh still owns retry/status handling; foreground hydration is best-effort.
     }
@@ -1963,10 +2036,14 @@ async function hydratePendingDiscoveryMarketCandidates(
       resolve();
     }, timeoutMs);
   });
-  await Promise.race([workers.then(() => undefined), deadline]);
+  const earlyCompletion = new Promise<void>((resolve) => {
+    resolveEarly = resolve;
+  });
+  await Promise.race([workers.then(() => undefined), deadline, earlyCompletion]);
+  finished = true;
   if (timeoutHandle) clearTimeout(timeoutHandle);
 
-  return candidates.map((candidate, index) => hydratedByIndex.get(index) ?? candidate);
+  return currentCandidates();
 }
 
 function marketHydrationReadinessTargetCount(targetVisibleCount: number, profileConfidence: DiscoveryProfileConfidence): number {
@@ -7937,6 +8014,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
 }> {
   throwIfAborted(context.abortSignal);
   const quickRefresh = context.hydrateMarketInline === false;
+  const cachePreferredRetry = context.cachePreferredRetry === true;
   const weeklyPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', context.date);
   const deadlineAtMs = context.mode === 'LIVE' ? Date.now() + DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS : undefined;
   const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', context.date);
@@ -7958,24 +8036,26 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     inputCount: DISCOVERY_WEEKLY_DROP_SIZE,
     counters: {
       quickRefresh,
+      cachePreferredRetry,
       overallDeadlineMs: deadlineAtMs ? Math.max(0, deadlineAtMs - Date.now()) : null
-    }
+    },
+    stageMetrics: context.stageMetrics
   }, () => withTimeout(discoverCandidatesForUser(context.userId, DISCOVERY_WEEKLY_DROP_SIZE, {
     preferScheduledDrop: false,
     saveScheduledDrop: false,
     scheduledDate: context.date,
     hydrateScheduledMarketInline: context.hydrateMarketInline ?? true,
-    usePersistedState: false,
+    usePersistedState: cachePreferredRetry,
     ignoreSeenExclusions: true,
     hardAvoidNames: immediatePreviousDropNames,
     softAvoidNames: previousDropNames,
     allowSoftAvoidFiller: context.allowRecentRepeatFiller ?? false,
-    skipSourceCatalogFetch: quickRefresh,
+    skipSourceCatalogFetch: quickRefresh || cachePreferredRetry,
     skipReferenceImageFetch: quickRefresh,
-    ingestCanonicalUniverse: !quickRefresh,
+    ingestCanonicalUniverse: !quickRefresh && !cachePreferredRetry,
     persistDiscoveryArtifacts: context.mode === 'LIVE',
     runtimeContext: context.mode === 'LIVE'
-      ? { userId: context.userId, weeklyPeriod }
+      ? { userId: context.userId, weeklyPeriod, stageMetrics: context.stageMetrics }
       : undefined
   }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS), 'Weekly discovery initial reserve assembly timeout'), {
     outputCount: (value) => value.candidates.length
@@ -8143,7 +8223,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       userId: context.userId,
       weeklyPeriod,
       stage: 'initial-reference-hydration',
-      inputCount: candidateReserve.length
+      inputCount: candidateReserve.length,
+      stageMetrics: context.stageMetrics
     }, () => withTimeout(attachReferenceImages(candidateReserve, referenceHydrationDiagnostics), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery reference hydration timeout'), {
       outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
     });
@@ -8169,7 +8250,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       userId: context.userId,
       weeklyPeriod,
       stage: 'canonical-resolution',
-      inputCount: candidateReserve.length
+      inputCount: candidateReserve.length,
+      stageMetrics: context.stageMetrics
     }, () => withTimeout(resolveWeeklyDiscoveryCanonicalReferences(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS), 'Weekly discovery canonical resolution timeout'), {
       outputCount: (value) => value.candidates.filter((candidate) => candidate.suggestion.referenceSourceCardId).length
     });
@@ -8204,7 +8286,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     listChases(context.userId),
     baseStageCounts
   );
-  if (!quickRefresh && discovery.hasFullDiscovery && supplyReadinessBeforeTopOff.marketResolvedShortfall > 0) {
+  if (!quickRefresh && discovery.hasFullDiscovery && supplyReadinessBeforeTopOff.marketResolvedShortfall > 0 && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const marketShortfallTargets = selectDiversityEligibleWeeklyCandidates(
       candidateReserve,
       discovery.settings.alertCurrency,
@@ -8223,7 +8305,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         counters: {
           marketResolvedShortfall: supplyReadinessBeforeTopOff.marketResolvedShortfall,
           timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
-        }
+        },
+        stageMetrics: context.stageMetrics
       }, () => hydratePendingDiscoveryMarketCandidates(candidateReserve, {
         userId: context.userId,
         ...marketContext
@@ -8231,7 +8314,23 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS),
         maxCandidates: marketShortfallTargetKeys.size,
         candidateKeys: marketShortfallTargetKeys,
-        forceHydrateMissingMarket: true
+        forceHydrateMissingMarket: true,
+        stopWhen: (nextCandidates) =>
+          buildWeeklyDiscoverySupplyReadiness(
+            prunePublicationImpossibleReserve(
+              sanitizeWeeklyDiscoveryReserve(nextCandidates, discovery.settings.alertCurrency),
+              discovery.settings.alertCurrency,
+              recentDrops,
+              activeVault
+            ),
+            buildCollectorTasteProfile(discovery.tasteProfileChases, {
+              budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
+            }),
+            discovery.settings.alertCurrency,
+            recentDrops,
+            activeVault,
+            baseStageCounts
+          ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
       });
@@ -8275,7 +8374,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   let topOffApplied = false;
   let finalStageCounts = baseStageCounts;
   let finalCanonicalResolution = canonicalResolution;
-  if (discovery.hasFullDiscovery && supplyReadinessBeforeTopOff.shouldTopOff) {
+  if (discovery.hasFullDiscovery && supplyReadinessBeforeTopOff.shouldTopOff && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const topOff = await runWeeklyDiscoveryStage({
       userId: context.userId,
       weeklyPeriod,
@@ -8285,7 +8384,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         reasonSelectedShortfall: supplyReadinessBeforeTopOff.selectedShortfall,
         reasonMarketShortfall: supplyReadinessBeforeTopOff.marketResolvedShortfall,
         reasonLowHeadroom: !supplyReadinessBeforeTopOff.hasViableHeadroom
-      }
+      },
+      stageMetrics: context.stageMetrics
     }, () => expandWeeklyDiscoveryCanonicalSupplyTopOff({
       userId: context.userId,
       discovery,
@@ -8341,7 +8441,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
           userId: context.userId,
           weeklyPeriod,
           stage: 'topoff-reference-hydration',
-          inputCount: candidateReserve.length
+          inputCount: candidateReserve.length,
+          stageMetrics: context.stageMetrics
         }, () => withTimeout(attachReferenceImages(candidateReserve, topOffReferenceHydrationDiagnostics), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery topoff reference hydration timeout'), {
           outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
         });
@@ -8366,7 +8467,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
           userId: context.userId,
           weeklyPeriod,
           stage: 'topoff-canonical-rebinding',
-          inputCount: candidateReserve.length
+          inputCount: candidateReserve.length,
+          stageMetrics: context.stageMetrics
         }, () => withTimeout(resolveWeeklyDiscoveryCanonicalReferences(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS), 'Weekly discovery topoff canonical rebinding timeout'), {
           outputCount: (value) => value.candidates.filter((candidate) => candidate.suggestion.referenceSourceCardId).length
         });
@@ -9351,6 +9453,9 @@ export async function prepareWeeklyDiscoveryDropForUser(
   const deadlineAtMs = Date.now() + DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS;
   const hasFullDiscovery = getEntitlementsForTier(activePlanTier(getUserPlan(userId))).discoveryDepth === 'full';
   const currentGenerationGuard = options.isCurrentGeneration ?? (() => true);
+  const currentPreparationState = getWeeklyDiscoveryPreparationState(userId, periodKey);
+  const cachePreferredRetry = weeklyDiscoveryShouldPreferCachedRetry(currentPreparationState);
+  const stageMetrics: WeeklyDiscoveryStageMetric[] = [];
   let existing = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
   if (existing && !quickRefresh) {
     const repairTarget = existing;
@@ -9358,7 +9463,8 @@ export async function prepareWeeklyDiscoveryDropForUser(
       userId,
       weeklyPeriod: periodKey,
       stage: 'existing-reference-repair',
-      inputCount: repairTarget.itemCount
+      inputCount: repairTarget.itemCount,
+      stageMetrics
     }, () => withTimeout(repairExistingScheduledWeeklyDropReferences(repairTarget), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery existing reference repair timeout'), {
       outputCount: (value) => value.itemCount
     });
@@ -9385,21 +9491,26 @@ export async function prepareWeeklyDiscoveryDropForUser(
       weeklyPeriod: periodKey,
       stage: 'build-finalization-input',
       counters: {
+        cachePreferredRetry,
         overallDeadlineMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS)
-      }
+      },
+      stageMetrics
     }, () => withTimeout(buildWeeklyDiscoveryFinalizationInput({
       userId,
       date,
       mode: 'LIVE',
       hydrateMarketInline: options.hydrateMarketInline ?? true,
       allowRecentRepeatFiller: options.allowRecentRepeatFiller ?? false,
-      abortSignal: combinedAbortSignal
+      abortSignal: combinedAbortSignal,
+      cachePreferredRetry,
+      stageMetrics
     }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS), 'Weekly discovery refresh deadline exceeded'), {
       outputCount: (value) => value.input.orderedCandidateReserve.length
     });
   } catch (error) {
     clearTimeout(timeoutHandle);
     const message = error instanceof Error ? error.message : String(error);
+    const stageSummary = summarizeWeeklyStageMetrics(stageMetrics);
     return {
       outcome: 'RETRYABLE_FAILURE',
       code: overallAbortController.signal.aborted || /deadline exceeded/i.test(message)
@@ -9407,7 +9518,7 @@ export async function prepareWeeklyDiscoveryDropForUser(
         : /timeout/i.test(message)
           ? 'RESERVE_ASSEMBLY_TIMEOUT'
           : 'UNEXPECTED_EXCEPTION',
-      summary: message,
+      summary: stageSummary ? `${message} (${stageSummary})` : message,
       itemCount: existing?.itemCount ?? 0,
       hasFullDiscovery,
       prepared: false
