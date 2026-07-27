@@ -9,12 +9,29 @@
       content="Read the Vaultr terms of service covering beta access, acceptable use, availability, and future subscription terms."
     >
     <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://vaultr.example/terms.html">
+    <meta name="theme-color" content="#120f24">
+    <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="site-header">
+      <a class="brand" href="./index.html" aria-label="Vaultr home">
+        <span class="brand-mark" aria-hidden="true"><span>V</span></span>
+        <span class="brand-name">Vaultr</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="./index.html#how-it-works">How It Works</a>
+        <a href="./index.html#weekly-shelf">Weekly Shelf</a>
+        <a href="./index.html#plans">Plans</a>
+      </nav>
+      <a class="button button-small" href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">Join Beta</a>
+    </header>
+
     <main class="site-shell legal-shell">
       <a class="back-link" href="./index.html">Back to Vaultr</a>
-      <section class="article-hero">
+      <section id="main" class="article-hero">
         <p class="eyebrow">Terms of Service</p>
         <h1>Terms of Service</h1>
         <p class="lede">
@@ -98,13 +115,18 @@
 
       <footer class="site-footer">
         <div class="site-footer-brand">
-          <strong>Vaultr</strong>
-          <span>Collector software for grails, sightings, and a better Weekly Shelf.</span>
+          <a class="brand" href="./index.html" aria-label="Vaultr home">
+            <span class="brand-mark" aria-hidden="true"><span>V</span></span>
+            <span class="brand-name">Vaultr</span>
+          </a>
+          <p>Discord-native Pokemon collector software for Chase lists, private sightings, and Weekly Shelf discovery.</p>
         </div>
-        <div class="site-footer-links">
+        <nav class="site-footer-links" aria-label="Footer navigation">
+          <a href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">Join Discord</a>
           <a href="./index.html">Home</a>
-          <a href="./privacy.html">Privacy Policy</a>
-        </div>
+          <a href="./privacy.html">Privacy</a>
+        </nav>
+        <p class="copyright">&copy; 2026 Vaultr. Operator details pending before public launch.</p>
       </footer>
     </main>
   </body>

@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
 
+# TODO before public production launch: replace vaultr.example with the real Vaultr domain.
 Sitemap: https://vaultr.example/sitemap.xml

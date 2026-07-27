@@ -28,7 +28,8 @@
     "test": "vitest run --config vitest.config.ts",
     "test:discovery": "vitest run --config vitest.config.ts src/commands/__tests__/discover.test.ts",
     "test:discovery:related": "vitest run --config vitest.config.ts src/commands/__tests__/discover.test.ts src/commands/__tests__/chase.test.ts src/services/__tests__/discovery-source-catalog.test.ts src/services/__tests__/discovery-reference-cache.test.ts",
-    "check:discovery": "npm run test:discovery:related && npm run build && git diff --check"
+    "check:discovery": "npm run test:discovery:related && npm run build && git diff --check",
+    "check:site": "tsx scripts/validate-static-site.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
