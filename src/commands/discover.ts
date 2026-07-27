@@ -89,6 +89,7 @@ import {
   type ScheduledDiscoveryDropItem
 } from '../services/scheduled-discovery-drops.js';
 import { weeklyDiscoveryEligibilityForUser, type WeeklyDiscoveryEligibility } from '../services/weekly-discovery-eligibility.js';
+import type { WeeklyPreparationFailureCode } from '../services/weekly-discovery-preparation-state.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { freeVaultLimitMessage } from './pro-copy.js';
 import type { Chase, Listing, PlanTier } from '../types.js';
@@ -177,6 +178,7 @@ type DiscoveryShelfPayload = {
   components: DiscoveryActionRow[];
   candidateNames: string[];
   hasFullDiscovery: boolean;
+  delayedCurrentWeeklyShelf?: boolean;
 };
 type WeeklyDiscoverySupplyStageCounts = {
   rawGeneratedSuggestions: number;
@@ -352,6 +354,38 @@ type PersistValidatedWeeklyDiscoveryDropResult = {
   rejectionSamples: DiscoveryShelfSelectionResult['rejectionSamples'];
   retainedPreviousShelf: boolean;
 };
+
+export type WeeklyPreparationStructuredResult =
+  | {
+      outcome: 'PREPARED';
+      status: 'READY' | 'PARTIAL';
+      itemCount: number;
+      hasFullDiscovery: boolean;
+      prepared: true;
+    }
+  | {
+      outcome: 'RETRYABLE_FAILURE';
+      code: WeeklyPreparationFailureCode;
+      summary: string;
+      itemCount: number;
+      hasFullDiscovery: boolean;
+      prepared: false;
+    }
+  | {
+      outcome: 'TERMINAL_FAILURE';
+      code: WeeklyPreparationFailureCode;
+      summary: string;
+      itemCount: number;
+      hasFullDiscovery: boolean;
+      prepared: false;
+    }
+  | {
+      outcome: 'NOT_REQUIRED';
+      reason: string;
+      itemCount: number;
+      hasFullDiscovery: boolean;
+      prepared: boolean;
+    };
 
 type ExactPrintingComparison = {
   ok: boolean;
@@ -533,6 +567,36 @@ function remainingDeadlineMs(deadlineAtMs: number | undefined, fallbackMs: numbe
   return Math.max(1, Math.min(fallbackMs, deadlineAtMs - Date.now()));
 }
 
+function throwIfAborted(signal: AbortSignal | undefined, message = 'Weekly discovery preparation aborted'): void {
+  if (signal?.aborted) throw new Error(message);
+}
+
+function combineAbortSignals(...signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
+  const activeSignals = signals.filter((signal): signal is AbortSignal => !!signal);
+  if (activeSignals.length === 0) return undefined;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  for (const signal of activeSignals) {
+    if (signal.aborted) {
+      abort();
+      break;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+  }
+  return controller.signal;
+}
+
+function classifyWeeklyPreparationFailureCode(
+  persisted: PersistValidatedWeeklyDiscoveryDropResult
+): WeeklyPreparationFailureCode {
+  const failureCodes = new Set(persisted.failures.map((failure) => failure.code));
+  if (failureCodes.has('INSUFFICIENT_MARKET_RESOLVED')) return 'INSUFFICIENT_MARKET_READY';
+  if (failureCodes.has('MISSING_IMAGE') || failureCodes.has('BAD_IMAGE_PROVENANCE')) return 'INSUFFICIENT_TRUSTED_IMAGES';
+  if (failureCodes.has('WRONG_SIZE') || failureCodes.has('BAD_POSITIONS')) return 'INSUFFICIENT_FINAL_CANDIDATES';
+  if (persisted.failures.length > 0) return 'INVALID_FINAL_SHELF';
+  return 'INSUFFICIENT_FINAL_CANDIDATES';
+}
+
 type DiscoveryAssemblyRuntimeContext = {
   userId: string;
   weeklyPeriod: string;
@@ -698,6 +762,7 @@ export type WeeklyDiscoveryBuildContext = {
   mode: WeeklyDiscoveryBuildMode;
   hydrateMarketInline?: boolean;
   allowRecentRepeatFiller?: boolean;
+  abortSignal?: AbortSignal;
 };
 
 const MIN_LEARNED_PROFILE_CHASES = 6;
@@ -7137,7 +7202,7 @@ function hasProviderBackedScheduledDisplayName(item: ScheduledDiscoveryDropItem)
     && !isMarketplaceLikeSourceName(item.imageSourceName ?? item.suggestion.referenceSourceName);
 }
 
-function validatePublishableDiscoveryShelf(items: ScheduledDiscoveryDropItem[], expectedSize = DISCOVERY_WEEKLY_DROP_SIZE): DiscoveryShelfValidationFailure[] {
+export function validatePublishableDiscoveryShelf(items: ScheduledDiscoveryDropItem[], expectedSize = DISCOVERY_WEEKLY_DROP_SIZE): DiscoveryShelfValidationFailure[] {
   const failures: DiscoveryShelfValidationFailure[] = [];
   if (items.length !== expectedSize) {
     failures.push({ code: 'WRONG_SIZE', message: `Expected ${expectedSize} items, received ${items.length}.` });
@@ -7870,6 +7935,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   supplyReadinessAfterTopOff: WeeklyDiscoverySupplyReadiness;
   topOffApplied: boolean;
 }> {
+  throwIfAborted(context.abortSignal);
   const quickRefresh = context.hydrateMarketInline === false;
   const weeklyPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', context.date);
   const deadlineAtMs = context.mode === 'LIVE' ? Date.now() + DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS : undefined;
@@ -7914,6 +7980,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS), 'Weekly discovery initial reserve assembly timeout'), {
     outputCount: (value) => value.candidates.length
   });
+  throwIfAborted(context.abortSignal);
   const targetCount = discovery.hasFullDiscovery ? DISCOVERY_WEEKLY_DROP_SIZE : discovery.candidates.length;
   const marketContext = {
     activeChases: discovery.chases,
@@ -8093,6 +8160,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         ...diffDiscoveryReferenceRuntimeStats(referenceStatsBefore, snapshotDiscoveryReferenceRuntimeStats())
       }
     });
+    throwIfAborted(context.abortSignal);
   }
   const canonicalResolutionStatsBefore = snapshotDiscoveryCanonicalResolutionRuntimeStats();
   let canonicalResolution;
@@ -8125,6 +8193,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     recentDrops,
     activeVault
   );
+  throwIfAborted(context.abortSignal);
   let supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
     buildCollectorTasteProfile(discovery.tasteProfileChases, {
@@ -8182,6 +8251,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         activeVault,
         baseStageCounts
       );
+      throwIfAborted(context.abortSignal);
     }
   }
   logWeeklyDiscoveryStage({
@@ -8288,6 +8358,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
             ...diffDiscoveryReferenceRuntimeStats(topOffReferenceStatsBefore, snapshotDiscoveryReferenceRuntimeStats())
           }
         });
+        throwIfAborted(context.abortSignal);
       }
       const topoffCanonicalResolutionStatsBefore = snapshotDiscoveryCanonicalResolutionRuntimeStats();
       try {
@@ -8319,6 +8390,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         recentDrops,
         activeVault
       );
+      throwIfAborted(context.abortSignal);
     }
   }
   const collectorProfile = buildCollectorTasteProfile(discovery.tasteProfileChases, {
@@ -8591,6 +8663,7 @@ export async function discoverCandidatesForUser(
   weeklyReserveCandidates?: DiscoveryCandidate[];
   hiddenVaultPickCount: number;
   supplyDiagnostics: DiscoveryAssemblyStageDiagnostics;
+  delayedCurrentWeeklyShelf?: boolean;
 }> {
   const preferScheduledDrop = options.preferScheduledDrop ?? true;
   const requireScheduledDrop = options.requireScheduledDrop ?? false;
@@ -8647,6 +8720,11 @@ export async function discoverCandidatesForUser(
   const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames, activeTier, targetVisibleCount);
   const stateKey = discoveryStateKey(activeTier, targetVisibleCount);
   const latestDrop = hasFullDiscovery && preferScheduledDrop ? getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY') : null;
+  const currentWeeklyPeriodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', new Date());
+  const currentWeeklyAvailability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', new Date());
+  const delayedCurrentWeeklyShelf = hasFullDiscovery
+    && Date.now() >= Date.parse(currentWeeklyAvailability.availableAt)
+    && (!latestDrop || latestDrop.periodKey !== currentWeeklyPeriodKey);
   if (latestDrop && latestDrop.items.length > 0) {
     const scheduledPersistedNames = latestDrop.items.map((item) => item.suggestion.name);
     const scheduledDropCandidates = candidatesFromScheduledDiscoveryDrop(latestDrop)
@@ -8673,6 +8751,7 @@ export async function discoverCandidatesForUser(
       candidates: orderedScheduledCandidates,
       weeklyReserveCandidates: orderedScheduledCandidates,
       hiddenVaultPickCount,
+      delayedCurrentWeeklyShelf,
       supplyDiagnostics: {
         rawGeneratedSuggestions: orderedScheduledCandidates.length,
         sourceBackedSuggestions: orderedScheduledCandidates.filter((candidate) => candidate.supplySource === 'SOURCE_CATALOG').length,
@@ -8697,6 +8776,7 @@ export async function discoverCandidatesForUser(
       candidates: [],
       weeklyReserveCandidates: [],
       hiddenVaultPickCount: 0,
+      delayedCurrentWeeklyShelf,
       supplyDiagnostics: {
         rawGeneratedSuggestions: 0,
         sourceBackedSuggestions: 0,
@@ -9095,7 +9175,8 @@ export async function discoverCandidatesForUser(
     candidates,
     weeklyReserveCandidates,
     hiddenVaultPickCount: preferred.hiddenVaultPickCount,
-    supplyDiagnostics: preferred.supplyDiagnostics
+    supplyDiagnostics: preferred.supplyDiagnostics,
+    delayedCurrentWeeklyShelf: false
   };
 }
 
@@ -9118,8 +9199,8 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
   if (discovery.candidates.length === 0) {
     const lines = discovery.hasFullDiscovery
       ? [
-          '🔮 Your Weekly Shelf is still being curated',
-          'Add a few more chases or save feedback so Vaultr has more collector patterns to follow'
+          '🔮 Your Weekly Shelf is taking longer than expected to prepare.',
+          'Vaultr is retrying automatically, and you do not need to do anything.'
         ]
       : [
           '🎬 Your preview needs a few Vault signals',
@@ -9146,7 +9227,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
       });
   if (shelfCandidates.length === 0) {
     return {
-      embeds: [infoEmbed('Weekly Shelf', '🔮 Your Weekly Shelf is still being curated\nVaultr is waiting for fresh, market-ready picks instead of repeating cards you have already seen').setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Weekly Shelf' })],
+      embeds: [infoEmbed('Weekly Shelf', '🔮 Your Weekly Shelf is taking longer than expected to prepare.\nVaultr is retrying automatically, and you do not need to do anything.').setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Weekly Shelf' })],
       components: [],
       candidateNames: [],
       hasFullDiscovery: discovery.hasFullDiscovery
@@ -9172,6 +9253,9 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
       : `🎬 **Preview:** ${shelfCandidates.length} ${shelfPickLabel} shaped by ${profileSummary}`,
     `🧵 **Threads:** ${pathSummary}`
   ];
+  if (discovery.delayedCurrentWeeklyShelf) {
+    lines.unshift('🕰️ **Showing your previous Weekly Shelf while the new one finishes preparing.**');
+  }
   if (discovery.hiddenVaultPickCount > 0) lines.push(hiddenVaultPickNote(discovery.hiddenVaultPickCount));
   if (discovery.hasFullDiscovery && hiddenCandidateCount > 0) {
     lines.push('', discoveryShelfMarketCheckNote(shelfCandidates.length));
@@ -9190,7 +9274,8 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     embeds: discovery.hasFullDiscovery ? cardEmbeds : [headerEmbed, ...cardEmbeds],
     components: [...actionRows, ...discoveryShelfPageRows(userId, pageState.page, pageState.totalPages)],
     candidateNames: visibleCandidates.map((candidate) => candidate.suggestion.name),
-    hasFullDiscovery: discovery.hasFullDiscovery
+    hasFullDiscovery: discovery.hasFullDiscovery,
+    delayedCurrentWeeklyShelf: discovery.delayedCurrentWeeklyShelf
   };
 }
 
@@ -9250,14 +9335,22 @@ function discoveryHeaderReplyPayload(payload: DiscoveryShelfPayload): { content?
   };
 }
 
-export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = new Date(), options: { force?: boolean; hydrateMarketInline?: boolean; allowRecentRepeatFiller?: boolean } = {}): Promise<{
-  prepared: boolean;
-  itemCount: number;
-  hasFullDiscovery: boolean;
-}> {
+export async function prepareWeeklyDiscoveryDropForUser(
+  userId: string,
+  date = new Date(),
+  options: {
+    force?: boolean;
+    hydrateMarketInline?: boolean;
+    allowRecentRepeatFiller?: boolean;
+    abortSignal?: AbortSignal;
+    isCurrentGeneration?: () => boolean;
+  } = {}
+): Promise<WeeklyPreparationStructuredResult> {
   const quickRefresh = options.hydrateMarketInline === false;
   const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
   const deadlineAtMs = Date.now() + DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS;
+  const hasFullDiscovery = getEntitlementsForTier(activePlanTier(getUserPlan(userId))).discoveryDepth === 'full';
+  const currentGenerationGuard = options.isCurrentGeneration ?? (() => true);
   let existing = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
   if (existing && !quickRefresh) {
     const repairTarget = existing;
@@ -9270,15 +9363,21 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
       outputCount: (value) => value.itemCount
     });
   }
+  throwIfAborted(options.abortSignal);
   if (existing && (existing.status === 'READY' || existing.status === 'PARTIAL') && existing.itemCount > 0 && validatePublishableDiscoveryShelf(existing.items, DISCOVERY_WEEKLY_DROP_SIZE).length === 0) {
     if (options.force !== true) {
       return {
-        prepared: true,
+        outcome: 'NOT_REQUIRED',
+        reason: 'existing valid shelf retained',
         itemCount: existing.itemCount,
-        hasFullDiscovery: getEntitlementsForTier(activePlanTier(getUserPlan(userId))).discoveryDepth === 'full'
+        hasFullDiscovery,
+        prepared: true
       };
     }
   }
+  const overallAbortController = new AbortController();
+  const combinedAbortSignal = combineAbortSignals(options.abortSignal, overallAbortController.signal);
+  const timeoutHandle = setTimeout(() => overallAbortController.abort(), DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS);
   let assembled;
   try {
     assembled = await runWeeklyDiscoveryStage({
@@ -9293,15 +9392,37 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
       date,
       mode: 'LIVE',
       hydrateMarketInline: options.hydrateMarketInline ?? true,
-      allowRecentRepeatFiller: options.allowRecentRepeatFiller ?? false
+      allowRecentRepeatFiller: options.allowRecentRepeatFiller ?? false,
+      abortSignal: combinedAbortSignal
     }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS), 'Weekly discovery refresh deadline exceeded'), {
       outputCount: (value) => value.input.orderedCandidateReserve.length
     });
-  } catch {
+  } catch (error) {
+    clearTimeout(timeoutHandle);
+    const message = error instanceof Error ? error.message : String(error);
     return {
-      prepared: false,
+      outcome: 'RETRYABLE_FAILURE',
+      code: overallAbortController.signal.aborted || /deadline exceeded/i.test(message)
+        ? 'PREPARATION_TIMEOUT'
+        : /timeout/i.test(message)
+          ? 'RESERVE_ASSEMBLY_TIMEOUT'
+          : 'UNEXPECTED_EXCEPTION',
+      summary: message,
       itemCount: existing?.itemCount ?? 0,
-      hasFullDiscovery: getEntitlementsForTier(activePlanTier(getUserPlan(userId))).discoveryDepth === 'full'
+      hasFullDiscovery,
+      prepared: false
+    };
+  }
+  clearTimeout(timeoutHandle);
+  throwIfAborted(options.abortSignal);
+  if (!currentGenerationGuard()) {
+    return {
+      outcome: 'RETRYABLE_FAILURE',
+      code: 'STALE_PREPARATION_LEASE',
+      summary: 'Preparation finished under a stale generation and was discarded',
+      itemCount: existing?.itemCount ?? 0,
+      hasFullDiscovery,
+      prepared: false
     };
   }
   const discovery = assembled.discovery;
@@ -9334,6 +9455,17 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
     );
     const freshRepairCandidates = quickRefresh ? repairedCandidates : await hydrateShelfCandidateImages(repairedCandidates);
     if (freshRepairCandidates.length > 0) {
+      throwIfAborted(options.abortSignal);
+      if (!currentGenerationGuard()) {
+        return {
+          outcome: 'RETRYABLE_FAILURE',
+          code: 'STALE_PREPARATION_LEASE',
+          summary: 'Preparation stale before persistence',
+          itemCount: existing?.itemCount ?? 0,
+          hasFullDiscovery,
+          prepared: false
+        };
+      }
       const freshnessOrderedRepairCandidates = orderScheduledDiscoveryShelfFallbackReserve(
         orderNovelWeeklyCandidatesForPublication(
           preferFreshWeeklyCandidatesAgainstRecentShelves(freshRepairCandidates, recentDrops, discovery.tasteProfileChases),
@@ -9362,12 +9494,35 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
       ), {
         outputCount: (value) => value.itemCount
       });
+      if (persisted.saved) {
+        return {
+          outcome: 'PREPARED',
+          status: persisted.itemCount === DISCOVERY_WEEKLY_DROP_SIZE ? 'READY' : 'PARTIAL',
+          itemCount: persisted.itemCount,
+          hasFullDiscovery: true,
+          prepared: true
+        };
+      }
       return {
-        prepared: persisted.saved,
-        itemCount: persisted.saved ? persisted.itemCount : 0,
-        hasFullDiscovery: true
+        outcome: 'RETRYABLE_FAILURE',
+        code: classifyWeeklyPreparationFailureCode(persisted),
+        summary: persisted.failures[0]?.message ?? 'Weekly discovery shelf did not pass publication validation',
+        itemCount: 0,
+        hasFullDiscovery: true,
+        prepared: false
       };
     }
+  }
+  throwIfAborted(options.abortSignal);
+  if (!currentGenerationGuard()) {
+    return {
+      outcome: 'RETRYABLE_FAILURE',
+      code: 'STALE_PREPARATION_LEASE',
+      summary: 'Preparation stale before final persistence',
+      itemCount: existing?.itemCount ?? 0,
+      hasFullDiscovery,
+      prepared: false
+    };
   }
   const persisted = candidateReserve.length > 0
     ? await runWeeklyDiscoveryStage({
@@ -9397,10 +9552,22 @@ export async function prepareWeeklyDiscoveryDropForUser(userId: string, date = n
         rejectionSamples: emptyDiscoveryShelfRejectionSamples(),
         retainedPreviousShelf: false
       };
+  if (persisted.saved && discovery.hasFullDiscovery) {
+    return {
+      outcome: 'PREPARED',
+      status: persisted.itemCount === DISCOVERY_WEEKLY_DROP_SIZE ? 'READY' : 'PARTIAL',
+      itemCount: persisted.itemCount,
+      hasFullDiscovery: discovery.hasFullDiscovery,
+      prepared: true
+    };
+  }
   return {
-    prepared: persisted.saved && discovery.hasFullDiscovery,
-    itemCount: persisted.saved ? persisted.itemCount : 0,
-    hasFullDiscovery: discovery.hasFullDiscovery
+    outcome: 'RETRYABLE_FAILURE',
+    code: classifyWeeklyPreparationFailureCode(persisted),
+    summary: persisted.failures[0]?.message ?? 'Weekly discovery shelf did not pass publication validation',
+    itemCount: 0,
+    hasFullDiscovery: discovery.hasFullDiscovery,
+    prepared: false
   };
 }
 

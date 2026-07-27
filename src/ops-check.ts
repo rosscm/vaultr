@@ -6,7 +6,8 @@ import { promisify } from 'node:util';
 import { Client, GatewayIntentBits } from 'discord.js';
 import { getChaseLastPollAttemptAt, getUserPlan, listAllChases } from './services/chase-store.js';
 import { getDiscoveryMarketRefreshQueueStats } from './services/discovery-market-jobs.js';
-import { getWeeklyDiscoveryPreparationHealth } from './services/discovery-drop-scheduler.js';
+import { getWeeklyDiscoveryPreparationHealth, ownerAlertGraceMs } from './services/discovery-drop-scheduler.js';
+import { listWeeklyDiscoveryPreparationStates, markWeeklyDiscoveryOwnerAlertState } from './services/weekly-discovery-preparation-state.js';
 import { failureFingerprint, shouldSuppressDuplicateAlert } from './services/ops-alerts.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from './services/plans.js';
 
@@ -132,6 +133,17 @@ async function alertOnFailures(failures: CheckResult[]): Promise<void> {
   }
 }
 
+function weeklyRecoveryBody(periodKey: string, weekly: ReturnType<typeof getWeeklyDiscoveryPreparationHealth>, recoveredUserIds: string[]): string {
+  return [
+    '**Vaultr Weekly Discovery recovered**',
+    `Period: \`${periodKey}\``,
+    `Prepared: ${weekly.prepared}/${weekly.proUsers}`,
+    `Delivered: ${weekly.delivered}/${weekly.proUsers}`,
+    `Recovered users: ${recoveredUserIds.join(', ')}`,
+    'Automatic recovery completed.'
+  ].join('\n').slice(0, 1900);
+}
+
 async function checkSystemdService(serviceName: string): Promise<CheckResult> {
   try {
     const { stdout } = await execFileAsync('systemctl', ['is-active', serviceName], { timeout: 5000 });
@@ -255,18 +267,26 @@ function checkDiscoveryHealth(): CheckResult {
     };
   }
 
-  if (weekly.proUsers > 0 && weekly.overdueUnprepared === weekly.proUsers && weekly.prepared === 0 && !queueActivelyWorking) {
+  if (weekly.staleLeases > 0) {
     return {
       name: 'discovery-health',
       ok: false,
-      details: `weekly ${weekly.periodKey} has 0/${weekly.proUsers} prepared Pro shelves after release; queue ready ${readyBacklog}, running ${queue.running}`
+      details: `weekly ${weekly.periodKey} has ${weekly.staleLeases} stale preparation lease(s); retry active ${weekly.automaticRecoveryActive ? 'yes' : 'no'}`
+    };
+  }
+
+  if (weekly.proUsers > 0 && weekly.overdueUnresolved > 0 && nowMs >= Date.parse(weekly.availableAt) + ownerAlertGraceMs()) {
+    return {
+      name: 'discovery-health',
+      ok: false,
+      details: `weekly ${weekly.periodKey}: prepared ${weekly.prepared}/${weekly.proUsers}, delivered ${weekly.delivered}/${weekly.proUsers}, overdue ${weekly.overdueUnresolved}, next retry ${weekly.nextRetryAt ?? 'none'}, recovery ${weekly.automaticRecoveryActive ? 'active' : 'inactive'}`
     };
   }
 
   return {
     name: 'discovery-health',
     ok: true,
-    details: `weekly ${weekly.periodKey}: ${weekly.prepared}/${weekly.proUsers} prepared, ${weekly.ineligible} thin excluded, ${weekly.refreshDue} refresh due, queue ready ${readyBacklog}, running ${queue.running}`
+    details: `weekly ${weekly.periodKey}: ${weekly.prepared}/${weekly.proUsers} prepared, ${weekly.delivered} delivered, ${weekly.retryScheduled} retry scheduled, queue ready ${readyBacklog}, running ${queue.running}`
   };
 }
 
@@ -289,7 +309,45 @@ for (const check of checks) {
 }
 
 const failures = checks.filter((check) => !check.ok);
+const priorAlertState = readAlertState();
 await alertOnFailures(failures);
+
+const weekly = getWeeklyDiscoveryPreparationHealth(new Date());
+if (failures.some((failure) => failure.name === 'discovery-health')) {
+  const overdueStates = listWeeklyDiscoveryPreparationStates(weekly.periodKey)
+    .filter((state) => state.ownerAlertSent === false)
+    .filter((state) => state.state !== 'READY' || state.deliveryState !== 'DELIVERED')
+    .map((state) => state.userId);
+  if (overdueStates.length > 0) {
+    markWeeklyDiscoveryOwnerAlertState({
+      periodKey: weekly.periodKey,
+      userIds: overdueStates,
+      ownerAlertSent: true,
+      now: new Date().toISOString()
+    });
+  }
+} else {
+  const recoveredStates = listWeeklyDiscoveryPreparationStates(weekly.periodKey)
+    .filter((state) => state.ownerAlertSent && !state.recoveredAfterRelease)
+    .filter((state) => state.state === 'READY' && state.deliveryState === 'DELIVERED')
+    .map((state) => state.userId);
+  if (recoveredStates.length > 0 && weekly.overdueUnresolved === 0 && priorAlertState.lastFailureFingerprint) {
+    try {
+      const delivered = await sendDiscordAlert(weeklyRecoveryBody(weekly.periodKey, weekly, recoveredStates));
+      if (delivered) {
+        markWeeklyDiscoveryOwnerAlertState({
+          periodKey: weekly.periodKey,
+          userIds: recoveredStates,
+          recoveredAfterRelease: true,
+          now: new Date().toISOString()
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[ops-alert] Failed to send Weekly Discovery recovery alert: ${message}`);
+    }
+  }
+}
 
 if (failures.length > 0) {
   process.exit(1);

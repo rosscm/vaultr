@@ -519,15 +519,20 @@ export const health = {
 
     lines.push(
       '',
-      '**Weekly Shelf Prep:**',
+      '**Weekly Shelf Delivery:**',
       `**Target Drop:** ${weeklyDiscovery.periodKey} (${formatTimeWithAge(weeklyDiscovery.availableAt)})`,
       `**Prepared Coverage:** ${weeklyDiscovery.prepared}/${weeklyDiscovery.proUsers} Pro collector${weeklyDiscovery.proUsers === 1 ? '' : 's'}`,
       `**Thin Profiles:** ${weeklyDiscovery.ineligible} excluded for insufficient collector signal`,
-      `**Statuses:** ${weeklyDiscovery.ready} ready, ${weeklyDiscovery.partial} partial, ${weeklyDiscovery.preparing} preparing, ${weeklyDiscovery.stale} stale, ${weeklyDiscovery.failed} failed, ${weeklyDiscovery.missing} missing`,
-      `**Refresh Due:** ${weeklyDiscovery.refreshDue}`,
-      `**Overdue Unprepared:** ${weeklyDiscovery.overdueUnprepared}`,
-      `**Oldest Prepared:** ${formatQueueTime(weeklyDiscovery.oldestPreparedUpdatedAt)}`,
-      `**Oldest Pending:** ${formatQueueTime(weeklyDiscovery.oldestPendingUpdatedAt)}`
+      `**Delivery:** ${weeklyDiscovery.delivered} delivered, ${weeklyDiscovery.deliveryPending} pending`,
+      `**Preparation:** ${weeklyDiscovery.preparing} preparing, ${weeklyDiscovery.retryScheduled} retry scheduled, ${weeklyDiscovery.failedFinal} final failure, ${weeklyDiscovery.missing} missing`,
+      `**Overdue Unresolved:** ${weeklyDiscovery.overdueUnresolved}`,
+      `**Stale Leases:** ${weeklyDiscovery.staleLeases}`,
+      `**Late Recoveries:** ${weeklyDiscovery.lateRecoveries}`,
+      `**Owner Alerts:** ${weeklyDiscovery.ownerAlertSent}`,
+      `**Automatic Recovery:** ${weeklyDiscovery.automaticRecoveryActive ? 'Active' : 'Idle'}`,
+      `**Last Attempt:** ${formatQueueTime(weeklyDiscovery.lastAttemptAt)}`,
+      `**Next Retry:** ${formatQueueTime(weeklyDiscovery.nextRetryAt)}`,
+      `**Last Failure:** ${weeklyDiscovery.lastFailure ?? 'None'}`
     );
 
     lines.push('', ...buildEligibilityLines(chases, nowMs));

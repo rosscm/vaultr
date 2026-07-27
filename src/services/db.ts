@@ -302,6 +302,33 @@ db.exec(`
     PRIMARY KEY (guild_id, drop_type, period_key)
   );
 
+  CREATE TABLE IF NOT EXISTS weekly_discovery_preparation_state (
+    user_id TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'PENDING',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    first_attempt_at TEXT,
+    last_attempt_at TEXT,
+    next_retry_at TEXT,
+    last_outcome TEXT,
+    failure_code TEXT,
+    failure_summary TEXT,
+    preparation_generation INTEGER NOT NULL DEFAULT 0,
+    lease_expires_at TEXT,
+    release_passed INTEGER NOT NULL DEFAULT 0,
+    owner_alert_sent INTEGER NOT NULL DEFAULT 0,
+    recovered_after_release INTEGER NOT NULL DEFAULT 0,
+    delivery_state TEXT NOT NULL DEFAULT 'NONE',
+    delivery_attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_delivery_attempt_at TEXT,
+    delivery_error TEXT,
+    delivered_at TEXT,
+    announcement_guild_id TEXT,
+    announcement_message_id TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, period_key)
+  );
+
   CREATE TABLE IF NOT EXISTS guild_community_feed (
     guild_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 0,
@@ -607,6 +634,8 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_market_cache_suggestion ON dis
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_reference_cache_suggestion ON discovery_reference_cache(suggestion_name, fetched_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_scheduled_drops_user_available ON discovery_scheduled_drops(user_id, drop_type, available_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_scheduled_drops_status_available ON discovery_scheduled_drops(drop_type, status, available_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_weekly_discovery_preparation_state_period_state ON weekly_discovery_preparation_state(period_key, state, next_retry_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_weekly_discovery_preparation_state_delivery ON weekly_discovery_preparation_state(period_key, delivery_state, updated_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_scheduled_drop_items_lookup ON discovery_scheduled_drop_items(user_id, drop_type, period_key, position);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_user ON discovery_vault_actions(user_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_expires ON discovery_vault_actions(expires_at);`);

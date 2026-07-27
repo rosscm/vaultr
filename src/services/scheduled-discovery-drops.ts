@@ -46,6 +46,15 @@ export type ScheduledDiscoveryDrop = {
   items: ScheduledDiscoveryDropItem[];
 };
 
+export type ScheduledDiscoveryDropAnnouncement = {
+  guildId: string;
+  dropType: ScheduledDiscoveryDropType;
+  periodKey: string;
+  channelId: string;
+  messageId?: string;
+  postedAt: string;
+};
+
 type ScheduledDiscoveryDropRow = {
   user_id: string;
   drop_type: ScheduledDiscoveryDropType;
@@ -216,6 +225,13 @@ const insertScheduledDiscoveryDropAnnouncementStmt = db.prepare(`
 const deleteScheduledDiscoveryDropAnnouncementStmt = db.prepare(`
   DELETE FROM discovery_scheduled_drop_announcements
   WHERE guild_id = ? AND drop_type = ? AND period_key = ?
+`);
+
+const listScheduledDiscoveryDropAnnouncementsStmt = db.prepare(`
+  SELECT guild_id, drop_type, period_key, channel_id, message_id, posted_at
+  FROM discovery_scheduled_drop_announcements
+  WHERE drop_type = ? AND period_key = ?
+  ORDER BY guild_id ASC
 `);
 
 function isoWeekStartUtc(date: Date): Date {
@@ -473,4 +489,22 @@ export function markScheduledDiscoveryDropAnnouncement(input: {
 
 export function deleteScheduledDiscoveryDropAnnouncement(guildId: string, dropType: ScheduledDiscoveryDropType, periodKey: string): void {
   deleteScheduledDiscoveryDropAnnouncementStmt.run(guildId, dropType, periodKey);
+}
+
+export function listScheduledDiscoveryDropAnnouncements(dropType: ScheduledDiscoveryDropType, periodKey: string): ScheduledDiscoveryDropAnnouncement[] {
+  return (listScheduledDiscoveryDropAnnouncementsStmt.all(dropType, periodKey) as Array<{
+    guild_id: string;
+    drop_type: ScheduledDiscoveryDropType;
+    period_key: string;
+    channel_id: string;
+    message_id: string | null;
+    posted_at: string;
+  }>).map((row) => ({
+    guildId: row.guild_id,
+    dropType: row.drop_type,
+    periodKey: row.period_key,
+    channelId: row.channel_id,
+    messageId: row.message_id ?? undefined,
+    postedAt: row.posted_at
+  }));
 }
