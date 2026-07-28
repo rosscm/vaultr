@@ -68,6 +68,7 @@ import {
 } from '../services/weekly-discovery-ranking.js';
 import { resolveSourceBackedDiscoveryCards, snapshotDiscoverySourceCatalogRuntimeStats, type DiscoverySourceCatalogRuntimeStats } from '../services/discovery-source-catalog.js';
 import {
+  mergeCanonicalLookupEvidenceMaps,
   resolveWeeklyDiscoveryCanonicalReferences,
   snapshotDiscoveryCanonicalResolutionRuntimeStats,
   type CanonicalLookupEvidenceMap,
@@ -1661,6 +1662,49 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper:
   return results;
 }
 
+async function mapWithConcurrencyAllowPartialTimeout<T, R>(
+  items: T[],
+  concurrency: number,
+  timeoutMs: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<{ results: R[]; timedOut: boolean }> {
+  if (items.length === 0) return { results: [], timedOut: false };
+  const results = new Array<R | undefined>(items.length);
+  let nextIndex = 0;
+  let timedOut = false;
+  const workerCount = Math.min(concurrency, items.length);
+  let timeoutHandle: NodeJS.Timeout | undefined;
+
+  const workers = Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (!timedOut && nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(items[index], index);
+      }
+    })
+  ).then(() => ({
+    results: results.filter((value): value is R => value !== undefined),
+    timedOut: false
+  }));
+
+  const timeoutPromise = new Promise<{ results: R[]; timedOut: boolean }>((resolve) => {
+    timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      resolve({
+        results: results.filter((value): value is R => value !== undefined),
+        timedOut: true
+      });
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([workers, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 function discoverySourceStatus(error: unknown): DiscoveryCandidate['sourceStatus'] {
   const message = error instanceof Error ? error.message : String(error);
   if (/429|rate limit|quota|ratelimiter|exceeded the number of times/i.test(message)) return 'RATE_LIMITED';
@@ -3145,6 +3189,7 @@ export const __discoveryPersistenceTestHooks = {
   hydratePendingDiscoveryMarketCandidates,
   hydrateDiscoveryMarketCandidatesIncrementally,
   selectForegroundMarketHydrationBatchCandidates,
+  mapWithConcurrencyAllowPartialTimeout,
   prepareWeeklyDiscoveryDropForUser
 };
 
@@ -5085,16 +5130,38 @@ function prioritizeTopOffSourceParents(
   return scoredParents;
 }
 
+function selectDiverseTopOffSourceParents(parents: DiscoverySuggestion[], maxCount: number): DiscoverySuggestion[] {
+  const laneCap = Math.max(6, Math.floor(maxCount / 5));
+  const selected: DiscoverySuggestion[] = [];
+  const overflow: DiscoverySuggestion[] = [];
+  const laneCounts = new Map<string, number>();
+  for (const parent of parents) {
+    const laneKey = discoveryTrailLabel(parent.lane);
+    const nextCount = (laneCounts.get(laneKey) ?? 0) + 1;
+    if (nextCount <= laneCap && selected.length < maxCount) {
+      selected.push(parent);
+      laneCounts.set(laneKey, nextCount);
+      continue;
+    }
+    overflow.push(parent);
+  }
+  for (const parent of overflow) {
+    if (selected.length >= maxCount) break;
+    selected.push(parent);
+  }
+  return selected;
+}
+
 function boundedTopOffUniverseCandidatePrequalificationReason(
   candidate: DiscoveryCandidate,
-  readiness: WeeklyDiscoverySupplyReadiness,
+  _readiness: WeeklyDiscoverySupplyReadiness,
   currency: SupportedCurrency,
   repeatHistory: Map<string, ExactRepeatHistoryEntry>,
   activeVaultChases: Chase[]
 ): TopOffViabilityRejectionCode | undefined {
-  const saturationReason = topOffDiversitySaturationReason(candidate, readiness);
-  if (saturationReason) return saturationReason;
-  if (!candidateHasTrustedPrintingReference(candidate, currency)) return 'UNTRUSTED_REFERENCE';
+  if (!candidateHasStableCanonicalId(candidate, currency) && !candidateHasTrustedCatalogueImage(candidate, currency)) {
+    return 'UNTRUSTED_REFERENCE';
+  }
   return boundedTopOffCandidateRejectionReason(candidate, currency, repeatHistory, activeVaultChases);
 }
 
@@ -5106,25 +5173,15 @@ function prefilterBoundedTopOffBackfillCandidates(
   activeVaultChases: Chase[]
 ): DiscoveryCandidate[] {
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
-  return candidates.filter((candidate) => {
-    if (candidate.supplySource === 'TOP_OFF_SOURCE_CATALOG') {
-      const pseudoCandidate = {
-        ...candidate,
-        suggestion: {
-          ...candidate.suggestion,
-          name: candidate.suggestion.name || candidate.image?.name || ''
-        }
-      };
-      return !candidateWouldOverflowTopOffDiversityCaps(pseudoCandidate, readiness);
-    }
-    return boundedTopOffUniverseCandidatePrequalificationReason(
+  return candidates.filter((candidate) =>
+    boundedTopOffUniverseCandidatePrequalificationReason(
       candidate,
       readiness,
       currency,
       repeatHistory,
       activeVaultChases
-    ) === undefined;
-  });
+    ) === undefined
+  );
 }
 
 function emptyTopOffViabilityDiagnostics(): TopOffViabilityDiagnostics {
@@ -5373,16 +5430,18 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
 
   const sourceBackedParents = skipSourceCatalogFetch
     ? []
-    : prioritizeTopOffSourceParents(
-      uniqueTopOffSuggestionsByIdentity([
-        ...canonicalUniverseSeedParents(discovery.tasteProfileChases, Math.max(DISCOVERY_CANDIDATE_POOL_SIZE, 160)),
-        ...profileVariantSourceBackfillParents(discovery.tasteProfileChases, Math.max(DISCOVERY_CANDIDATE_POOL_SIZE, 160))
-      ]),
-      readiness,
-      discovery.tasteProfileChases
-    )
+    : selectDiverseTopOffSourceParents(
+      prioritizeTopOffSourceParents(
+        uniqueTopOffSuggestionsByIdentity([
+          ...canonicalUniverseSeedParents(discovery.tasteProfileChases, Math.max(DISCOVERY_CANDIDATE_POOL_SIZE, 160)),
+          ...profileVariantSourceBackfillParents(discovery.tasteProfileChases, Math.max(DISCOVERY_CANDIDATE_POOL_SIZE, 160))
+        ]),
+        readiness,
+        discovery.tasteProfileChases
+      )
       .filter((suggestion) => !isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames)))
-      .slice(0, Math.min(72, Math.max(36, targetCount * 3)));
+      , Math.min(72, Math.max(36, targetCount * 3))
+    );
   const preferredTopOffSubjectKeys = new Set(
     positiveTasteSubjectChases(discovery.tasteProfileChases)
       .flatMap((chase) => chaseSpecificSubjectTokens(chase))
@@ -5392,8 +5451,8 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   const severeSourceTopOffShortfall = readiness.selectedShortfall >= Math.ceil(DISCOVERY_WEEKLY_DROP_SIZE * 0.5)
     || readiness.marketResolvedShortfall >= Math.ceil(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 0.5);
   const shouldResolveTopOffParentAsBroadExploration = (parent: DiscoverySuggestion): boolean =>
-    parent.lane === 'Set Companion Trail'
-    || topOffParentSpecificSubjectKeys(parent).every((key) => (readiness.selectedSubjectCounts[key] ?? 0) >= WEEKLY_DISCOVERY_SUBJECT_CAP)
+    topOffParentSpecificSubjectKeys(parent).length > 0
+    && topOffParentSpecificSubjectKeys(parent).every((key) => (readiness.selectedSubjectCounts[key] ?? 0) >= WEEKLY_DISCOVERY_SUBJECT_CAP)
     || (
       severeSourceTopOffShortfall
       && parent.lane !== 'Set Companion Trail'
@@ -5413,32 +5472,26 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
       }
     }, async () => {
       const timeoutMs = remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS);
-      let timeoutHandle: NodeJS.Timeout | undefined;
-      const deadline = new Promise<void>((resolve) => {
-        timeoutHandle = setTimeout(() => {
-          sourceTopOffTimedOut = true;
-          resolve();
-        }, timeoutMs);
-      });
-      const workers = mapWithConcurrency(sourceBackedParents, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY, async (parent) => {
-        if (sourceTopOffTimedOut) return [];
-        const resolved = await resolveSourceBackedDiscoveryCards(
-          parent,
-          discovery.chases,
-          8,
-          shouldResolveTopOffParentAsBroadExploration(parent) ? [] : discovery.tasteProfileChases
-        ).catch(() => ({ suggestions: [] }));
-        return resolved.suggestions.filter((suggestion) => !isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames)));
-      });
-      const settled = await Promise.race([workers, deadline.then(() => null as DiscoverySuggestion[][] | null)]);
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      return settled;
+      const settled = await mapWithConcurrencyAllowPartialTimeout(
+        sourceBackedParents,
+        DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY,
+        timeoutMs,
+        async (parent) => {
+          const resolved = await resolveSourceBackedDiscoveryCards(
+            parent,
+            discovery.chases,
+            8,
+            shouldResolveTopOffParentAsBroadExploration(parent) ? [] : discovery.tasteProfileChases
+          ).catch(() => ({ suggestions: [] }));
+          return resolved.suggestions.filter((suggestion) => !isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames)));
+        }
+      );
+      sourceTopOffTimedOut = settled.timedOut;
+      return settled.results;
     }, {
-      outputCount: (value) => value ? value.flat().length : 0
+      outputCount: (value) => value.flat().length
     });
-    if (settled) {
-      for (const group of settled) sourceBackedSuggestions.push(...group);
-    }
+    for (const group of settled) sourceBackedSuggestions.push(...group);
   }
   const uniqueSourceBackedSuggestions = uniqueTopOffSuggestionsByIdentity(sourceBackedSuggestions);
   const rawSourceCandidates = uniqueSourceBackedSuggestions
@@ -7678,7 +7731,7 @@ function selectPublishableWeeklyDiscoveryShelf(
   const rejectionSamples = emptyDiscoveryShelfRejectionSamples();
   const selectedCandidates: DiscoveryCandidate[] = [];
   const resolvedSelected: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }> = [];
-  const incompleteSelected: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }> = [];
+  const incompleteCandidates: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }> = [];
   const seenCanonicalIds = new Set<string>();
   const selectionState = emptyWeeklyShelfSelectionState();
   selectionState.laneCapEnabled = new Set(candidates.map(candidateLaneShelfKey)).size > 1;
@@ -7728,11 +7781,8 @@ function selectPublishableWeeklyDiscoveryShelf(
         resolvedSelected.push({ candidate, item });
         recordSelectedCandidate(candidate, selectionState);
       }
-    } else if (
-      incompleteSelected.length < WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE
-      && resolvedSelected.length + incompleteSelected.length < expectedSize
-    ) {
-      incompleteSelected.push({ candidate, item: { ...item, market: { ...item.market, listing: undefined } } });
+    } else {
+      incompleteCandidates.push({ candidate, item: { ...item, market: { ...item.market, listing: undefined } } });
     }
   }
 
@@ -7740,11 +7790,14 @@ function selectPublishableWeeklyDiscoveryShelf(
   const finalSelectionState = emptyWeeklyShelfSelectionState();
   for (const entry of selected) recordSelectedCandidate(entry.candidate, finalSelectionState);
   if (selected.length < expectedSize) {
-    for (const entry of incompleteSelected) {
+    let selectedIncompleteCount = 0;
+    for (const entry of incompleteCandidates) {
       if (selected.length >= expectedSize) break;
+      if (selectedIncompleteCount >= WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) break;
       if (candidateShelfCapRejection(entry.candidate, finalSelectionState)) continue;
       selected.push(entry);
       recordSelectedCandidate(entry.candidate, finalSelectionState);
+      selectedIncompleteCount += 1;
     }
   }
   const items = selected.map(({ item }, index) => ({ ...item, position: index + 1 }));
@@ -8360,6 +8413,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       )
     });
   }
+  let accumulatedCanonicalLookupEvidence = canonicalResolution.evidence;
   candidateReserve = prunePublicationImpossibleReserve(
     sanitizeWeeklyDiscoveryReserve(canonicalResolution.candidates, discovery.settings.alertCurrency),
     discovery.settings.alertCurrency,
@@ -8577,6 +8631,10 @@ export async function buildWeeklyDiscoveryFinalizationInput(
           )
         });
       }
+      accumulatedCanonicalLookupEvidence = mergeCanonicalLookupEvidenceMaps(
+        accumulatedCanonicalLookupEvidence,
+        finalCanonicalResolution.evidence
+      );
       candidateReserve = prunePublicationImpossibleReserve(
         sanitizeWeeklyDiscoveryReserve(finalCanonicalResolution.candidates, discovery.settings.alertCurrency),
         discovery.settings.alertCurrency,
@@ -8631,7 +8689,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       },
       stableTieBreakerSeed: context.userId
     },
-    canonicalLookupEvidence: finalCanonicalResolution.evidence,
+    canonicalLookupEvidence: accumulatedCanonicalLookupEvidence,
     discovery,
     fallbackDrop,
     existingDrop,
@@ -8667,10 +8725,9 @@ function persistValidatedWeeklyDiscoveryDrop(
   }
   const rejectedNameKeys = discoveryExclusionNameKeys(listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME').map((item) => item.suggestionName));
   const activeVaultChases = listChases(userId);
-  const finishedCandidates = candidates
-    .filter(isFinishedShelfCandidate)
+  const eligibleCandidates = candidates
     .filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, rejectedNameKeys));
-  for (const candidate of finishedCandidates) persistDiscoveryUniverseCandidate(candidate);
+  for (const candidate of eligibleCandidates.filter(isFinishedShelfCandidate)) persistDiscoveryUniverseCandidate(candidate);
   const collectorProfile = buildCollectorTasteProfile(activeVaultChases, {
     budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
   });
@@ -8682,7 +8739,7 @@ function persistValidatedWeeklyDiscoveryDrop(
     activeVault: activeVaultChases,
     collectorProfile,
     priorShelfHistory: recentDrops,
-    orderedCandidateReserve: finishedCandidates,
+    orderedCandidateReserve: eligibleCandidates,
     feedbackPreferences: {
       budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
     },

@@ -263,6 +263,98 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions).toEqual([]);
   });
 
+  it('keeps Japanese set-companion lookups anchored to the requested subject', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        const query = url.searchParams.get('q') ?? '';
+        const data = query.includes('name:"mew"')
+          ? [
+              {
+                id: 's12a-052',
+                name: 'Mew',
+                number: '052/172',
+                supertype: 'Pokemon',
+                nationalPokedexNumbers: [151],
+                set: { name: 'VSTAR Universe', series: 'Sword & Shield' }
+              }
+            ]
+          : query.includes('name:"espeon"')
+            ? [
+                {
+                  id: 'sv8a-211',
+                  name: 'Espeon',
+                  number: '211/187',
+                  supertype: 'Pokemon',
+                  nationalPokedexNumbers: [196],
+                  set: { name: 'Terastal Festival ex', series: 'Scarlet & Violet' }
+                }
+              ]
+            : [];
+        return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (url.hostname === 'api.tcgdex.net') {
+        if (url.pathname === '/v2/ja/cards') {
+          const dexId = url.searchParams.get('dexId');
+          const name = url.searchParams.get('name');
+          if (dexId === '151' || name === 'mew') {
+            return new Response(JSON.stringify([{ id: 'sv12a-183', name: 'ミュウ', image: 'https://img.example/mew' }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (dexId === '196' || name === 'espeon') {
+            return new Response(JSON.stringify([{ id: 'sv8a-211', name: 'エーフィ', image: 'https://img.example/espeon' }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (url.pathname === '/v2/ja/cards/sv12a-183') {
+          return new Response(JSON.stringify({
+            id: 'sv12a-183',
+            name: 'ミュウ',
+            image: 'https://img.example/mew',
+            category: 'Pokemon',
+            dexId: [151],
+            rarity: 'SAR',
+            set: { id: 's12a', name: 'VSTAR Universe', cardCount: { official: 172 } }
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (url.pathname === '/v2/ja/cards/sv8a-211') {
+          return new Response(JSON.stringify({
+            id: 'sv8a-211',
+            name: 'エーフィ',
+            image: 'https://img.example/espeon',
+            category: 'Pokemon',
+            dexId: [196],
+            rarity: 'SAR',
+            set: { id: 'sv8a', name: 'Terastal Festival ex', cardCount: { official: 187 } }
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Espeon Terastal Festival Pokemon cards',
+        lane: 'Set Companion Trail',
+        laneWhy: 'same-set sibling discovery',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Espeon Terastal Festival Japanese Pokemon card',
+        requiredEvidenceTokens: ['espeon', 'japanese', 'Terastal Festival', 'special set', 'small set', 'numbered set'],
+        sourceTasteTokens: ['espeon', 'japanese', 'Terastal Festival', 'special set', 'small set', 'numbered set']
+      },
+      [priorityChase('Mew Japanese S12a 052/172', 'HIGH')],
+      4,
+      [priorityChase('Mew Japanese S12a 052/172', 'HIGH')]
+    );
+
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toContain('Espeon Japanese sv8a');
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).not.toContain('Mew Japanese s12a');
+  });
+
   it('caches repeated source API lookups for the same catalog query', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

@@ -76,6 +76,7 @@ import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '.
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
 import { buildCollectorTasteProfile } from '../../services/weekly-discovery-ranking.js';
 import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
+import { replayWeeklyDiscoveryFixture, summarizeReplay, type CaptureFixture } from '../../weekly-discovery-replay.js';
 import type { DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
@@ -5927,7 +5928,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('replay fixtures stay deterministic, and live release fixtures pass the structural gate', () => {
-    for (const name of ['w29-sanitized.json', 'w30-live-success-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
+    for (const name of ['w29-sanitized.json', 'w30-live-success-sanitized.json', 'w31-live-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
       const fixture = replayFixture(name);
       expect(fixture.schemaVersion).toBe(1);
 
@@ -5939,7 +5940,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         second.selection.items.map((item) => item.suggestion.referenceSourceCardId)
       );
       expect(first.candidateOutcomes).toEqual(second.candidateOutcomes);
-      if (name === 'w29-sanitized.json' || name === 'w30-live-success-sanitized.json') {
+      if (name === 'w29-sanitized.json' || name === 'w30-live-success-sanitized.json' || name === 'w31-live-sanitized.json') {
         expect(first.structuralGate.status).toBe('PASS');
         expect(first.selection.items).toHaveLength(20);
         expect(first.selection.marketResolvedCount).toBeGreaterThanOrEqual(18);
@@ -5953,6 +5954,219 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(fixtureText).not.toMatch(/875643283995500625|691476010750967828|1503870208891162624/);
     expect(fixtureText).not.toMatch(/"(?:token|cookie|authorization|api[_-]?key|client[_-]?secret)"\s*:/i);
     expect(fixtureText).not.toMatch(/\bBearer\s+[A-Za-z0-9._-]+/i);
+  });
+
+  it('replay stays offline when canonical lookup evidence is missing from the fixture', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('fetch should not be called during offline replay');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    const fixture: CaptureFixture = {
+      schemaVersion: 1,
+      input: {
+        targetPeriod: '2026-W31',
+        frozenTime: '2026-07-28T12:00:00.000Z',
+        userCurrency: 'CAD',
+        exchangeRates: {},
+        activeVault: [],
+        collectorProfile: buildCollectorTasteProfile([], { budgetPreferenceCad: 30 }),
+        priorShelfHistory: [],
+        orderedCandidateReserve: [{
+          suggestion: {
+            name: 'Dark Blastoise Team Rocket 20',
+            lane: 'Promo Trail',
+            laneWhy: 'test lane',
+            why: 'test why',
+            nearby: [],
+            evidenceSearchTerm: 'Dark Blastoise Team Rocket 20 Pokemon card'
+          },
+          image: {
+            name: 'Dark Blastoise Team Rocket 20',
+            url: 'https://i.ebayimg.com/images/g/test/s-l1600.jpg',
+            sourceName: 'eBay listing image',
+            sourceKind: 'MARKET_LISTING'
+          },
+          typicalRawAskingTotal: 100,
+          marketSampleSize: 4,
+          displayCurrency: 'CAD'
+        }],
+        feedbackPreferences: {
+          budgetPreferenceCad: 30
+        },
+        stableTieBreakerSeed: 'replay-test-user'
+      }
+    };
+
+    const replay = await replayWeeklyDiscoveryFixture(fixture);
+
+    expect(replay.summary.canonicalResolution.providerRequestsAttempted).toBe(0);
+    expect(replay.summary.canonicalResolution.replayEvidenceHits).toBe(0);
+    expect(replay.summary.canonicalResolution.replayEvidenceMisses).toBe(1);
+    expect(replay.summary.canonicalResolution.missingEvidence).toEqual([
+      expect.objectContaining({
+        lookupKey: 'ENGLISH|dark blastoise|team rocket|20|',
+        suggestionName: 'Dark Blastoise Team Rocket 20'
+      })
+    ]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('replay reuses captured canonical evidence and reports a passing complete release gate', async () => {
+    const result = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf({
+      targetPeriod: '2026-W31',
+      frozenTime: '2026-07-28T12:00:00.000Z',
+      userCurrency: 'CAD',
+      exchangeRates: {},
+      activeVault: [],
+      collectorProfile: buildCollectorTasteProfile([], { budgetPreferenceCad: 30 }),
+      priorShelfHistory: [],
+      orderedCandidateReserve: publishableShelfCandidates(20, (candidate, index) => ({
+        ...candidate,
+        typicalRawSoldTotal: 90 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      })),
+      feedbackPreferences: {
+        budgetPreferenceCad: 30
+      },
+      stableTieBreakerSeed: 'release-gate-pass'
+    });
+
+    const summary = summarizeReplay({
+      ...result,
+      qualityGate: {
+        status: 'PASS',
+        notes: []
+      }
+    }, {
+      reserveCount: 20,
+      noResolutionNeededCount: 20,
+      trustedCanonicalBindingCount: 20,
+      uniqueLookupKeysRequiringEvidence: 0,
+      replayEvidenceHits: 0,
+      replayEvidenceMisses: 0,
+      acceptedResolutionCount: 0,
+      cachedNegativeOrAmbiguousCount: 0,
+      unresolvedCandidateCount: 0,
+      providerRequestsAttempted: 0,
+      missingEvidence: []
+    });
+
+    expect(summary.releaseGateFailures).toEqual([]);
+  });
+
+  it('complete release gate fails when selected count or market coverage is below threshold', () => {
+    const result = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf({
+      targetPeriod: '2026-W31',
+      frozenTime: '2026-07-28T12:00:00.000Z',
+      userCurrency: 'CAD',
+      exchangeRates: {},
+      activeVault: [],
+      collectorProfile: buildCollectorTasteProfile([], { budgetPreferenceCad: 30 }),
+      priorShelfHistory: [],
+      orderedCandidateReserve: publishableShelfCandidates(18, (candidate, index) => ({
+        ...candidate,
+        typicalRawSoldTotal: 90 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      })),
+      feedbackPreferences: {
+        budgetPreferenceCad: 30
+      },
+      stableTieBreakerSeed: 'release-gate-fail'
+    });
+
+    const summary = summarizeReplay(result, {
+      reserveCount: 18,
+      noResolutionNeededCount: 18,
+      trustedCanonicalBindingCount: 18,
+      uniqueLookupKeysRequiringEvidence: 0,
+      replayEvidenceHits: 0,
+      replayEvidenceMisses: 0,
+      acceptedResolutionCount: 0,
+      cachedNegativeOrAmbiguousCount: 0,
+      unresolvedCandidateCount: 0,
+      providerRequestsAttempted: 0,
+      missingEvidence: []
+    });
+
+    expect(summary.releaseGateFailures).toEqual(expect.arrayContaining([
+      'Expected 20 selected cards, found 18.'
+    ]));
+  });
+
+  it('keeps later market-incomplete candidates available when earlier incomplete candidates fail diversity caps', () => {
+    const reserve = [
+      ...publishableShelfCandidates(18, (candidate, index) => ({
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          name: index < 3 ? `Mew Ready ${index + 1}` : candidate.suggestion.name,
+          lane: `Lane ${index + 1}`
+        },
+        typicalRawSoldTotal: 80 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      })),
+      {
+        ...publishableCandidate('Mew Incomplete A', 'mew-incomplete-a', 18),
+        suggestion: {
+          ...publishableCandidate('Mew Incomplete A', 'mew-incomplete-a', 18).suggestion,
+          lane: 'Lane Incomplete A'
+        }
+      },
+      {
+        ...publishableCandidate('Mew Incomplete B', 'mew-incomplete-b', 19),
+        suggestion: {
+          ...publishableCandidate('Mew Incomplete B', 'mew-incomplete-b', 19).suggestion,
+          lane: 'Lane Incomplete B'
+        }
+      },
+      {
+        ...publishableCandidate('Zapdos Incomplete', 'zapdos-incomplete', 20),
+        suggestion: {
+          ...publishableCandidate('Zapdos Incomplete', 'zapdos-incomplete', 20).suggestion,
+          lane: 'Lane Incomplete C'
+        }
+      },
+      {
+        ...publishableCandidate('Articuno Incomplete', 'articuno-incomplete', 21),
+        suggestion: {
+          ...publishableCandidate('Articuno Incomplete', 'articuno-incomplete', 21).suggestion,
+          lane: 'Lane Incomplete D'
+        }
+      }
+    ].map((candidate, index) => ({
+      ...candidate,
+      selectionIndex: index,
+      displayCurrency: 'CAD' as const,
+      typicalRawSoldTotal: index < 18 ? 80 + index : undefined,
+      soldSampleSize: index < 18 ? 3 : undefined,
+      typicalRawAskingTotal: index < 18 ? undefined : undefined,
+      marketSampleSize: index < 18 ? undefined : undefined
+    }));
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(reserve, 'CAD', 20);
+
+    expect(result.items).toHaveLength(19);
+    expect(result.marketResolvedCount).toBe(17);
+    expect(result.marketIncompleteCount).toBe(2);
+  });
+
+  it('replays the sanitized W31 fixture offline at 20 selected and at least 18 market-resolved', async () => {
+    const fixture = JSON.parse(readFileSync(resolve('src/commands/__tests__/fixtures/discovery/w31-live-sanitized.json'), 'utf8')) as CaptureFixture;
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('fetch should not be called during offline replay');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const replay = await replayWeeklyDiscoveryFixture(fixture);
+
+    expect(replay.summary.itemCount).toBe(20);
+    expect(replay.summary.marketResolvedCount).toBeGreaterThanOrEqual(18);
+    expect(replay.summary.canonicalResolution.providerRequestsAttempted).toBe(0);
+    expect(replay.summary.structuralGate.status).toBe('PASS');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('accounts for every reserve candidate with an explicit finalizer outcome', () => {
@@ -6979,7 +7193,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     ]));
   });
 
-  it('filters repeat-heavy and saturated universe rows before bounded top-off selection', () => {
+  it('filters repeat-heavy rows before bounded top-off selection without hard-capping saturated universe candidates', () => {
     const repeatedUniverseCandidate = {
       ...publishableCandidate('Mew Expedition Base Set 55', 'ecard1-55', 0),
       supplySource: 'TOP_OFF_USER_UNIVERSE' as const
@@ -7077,9 +7291,24 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     );
 
     expect(filtered.some((candidate) => candidate.suggestion.name === 'Mew Expedition Base Set 55')).toBe(false);
-    expect(filtered.some((candidate) => candidate.suggestion.name === 'Pikachu ex Ascended Heroes 276')).toBe(false);
-    expect(filtered.some((candidate) => candidate.supplySource === 'TOP_OFF_SOURCE_CATALOG')).toBe(true);
-    expect(filtered.some((candidate) => candidate.suggestion.name === 'Gardevoir ex Paldean Fates 233')).toBe(true);
+    expect(filtered.some((candidate) => candidate.suggestion.name === 'Pikachu ex Ascended Heroes 276')).toBe(true);
+    expect(filtered.some((candidate) => candidate.suggestion.name === 'Gardevoir ex Paldean Fates 233')).toBe(false);
+  });
+
+  it('keeps completed source-catalog top-off results when the stage times out', async () => {
+    const settled = await __discoveryPersistenceTestHooks.mapWithConcurrencyAllowPartialTimeout(
+      ['fast-a', 'slow-b', 'fast-c'],
+      2,
+      25,
+      async (value) => {
+        await new Promise((resolve) => setTimeout(resolve, value === 'slow-b' ? 60 : 5));
+        return value;
+      }
+    );
+
+    expect(settled.timedOut).toBe(true);
+    expect(settled.results).toEqual(expect.arrayContaining(['fast-a', 'fast-c']));
+    expect(settled.results).not.toContain('slow-b');
   });
 
   it('fills a 20-card shelf with at least 18 market-resolved cards and at most 2 incomplete exceptions', () => {

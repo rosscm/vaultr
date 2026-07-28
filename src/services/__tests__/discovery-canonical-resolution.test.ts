@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   discoveryCanonicalLookupKey,
+  mergeCanonicalLookupEvidenceMaps,
   resolveWeeklyDiscoveryCanonicalReferences,
   snapshotDiscoveryCanonicalResolutionRuntimeStats,
   type CanonicalLookupEvidenceMap
@@ -35,6 +36,36 @@ afterEach(() => {
 });
 
 describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
+  it('merges evidence from multiple resolution stages without dropping earlier keys', () => {
+    const merged = mergeCanonicalLookupEvidenceMaps(
+      {
+        'ENGLISH|dark blastoise|team rocket|20|': {
+          lookupKey: 'ENGLISH|dark blastoise|team rocket|20|',
+          normalizedIdentity: { name: 'Dark Blastoise', set: 'Team Rocket', number: '20', language: 'ENGLISH' },
+          queryVariants: ['name:"Dark Blastoise" number:20 set.name:"Team Rocket"'],
+          provider: 'Pokemon TCG',
+          providerResults: [],
+          outcome: 'NO_RESULTS'
+        }
+      },
+      {
+        'ENGLISH|mew|expedition base set|55|': {
+          lookupKey: 'ENGLISH|mew|expedition base set|55|',
+          normalizedIdentity: { name: 'Mew', set: 'Expedition Base Set', number: '55', language: 'ENGLISH' },
+          queryVariants: ['name:"Mew" number:55 set.name:"Expedition Base Set"'],
+          provider: 'Pokemon TCG',
+          providerResults: [],
+          outcome: 'AMBIGUOUS'
+        }
+      }
+    );
+
+    expect(Object.keys(merged).sort()).toEqual([
+      'ENGLISH|dark blastoise|team rocket|20|',
+      'ENGLISH|mew|expedition base set|55|'
+    ]);
+  });
+
   it('repairs marketplace-shaped live reserve titles into trusted canonical provider records', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
       const url = String(input);
@@ -172,6 +203,68 @@ describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
 
     expect(result.candidates[0]?.suggestion.referenceSourceCardId).toBe('base5-20');
     expect(result.candidates[0]?.image?.sourceKind).toBe('CARD_REFERENCE');
+    expect(result.diagnostics.replayEvidenceHits).toBe(1);
+    expect(result.diagnostics.providerRequestsAttempted).toBe(0);
+  });
+
+  it('uses an empty replay evidence map offline and returns LOOKUP_NOT_ATTEMPTED without network calls', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('fetch should not be called in replay mode');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const unresolved = candidate('Dark Blastoise Team Rocket 20');
+    const result = await resolveWeeklyDiscoveryCanonicalReferences([unresolved], { replayEvidence: {} });
+
+    const lookupKey = discoveryCanonicalLookupKey(unresolved.suggestion);
+    expect(result.candidates[0]?.suggestion.referenceSourceCardId).toBeUndefined();
+    expect(result.evidence[lookupKey]?.outcome).toBe('LOOKUP_NOT_ATTEMPTED');
+    expect(result.diagnostics.replayEvidenceHits).toBe(0);
+    expect(result.diagnostics.replayEvidenceMisses).toBe(1);
+    expect(result.diagnostics.providerRequestsAttempted).toBe(0);
+    expect(result.diagnostics.missingEvidence).toEqual([
+      expect.objectContaining({
+        lookupKey,
+        suggestionName: 'Dark Blastoise Team Rocket 20'
+      })
+    ]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse conflicting replay evidence across a different printing identity', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('fetch should not be called in replay mode');
+    }));
+
+    const unresolved = candidate('Dark Blastoise Team Rocket 20');
+    const lookupKey = discoveryCanonicalLookupKey(unresolved.suggestion);
+    const replayEvidence: CanonicalLookupEvidenceMap = {
+      [lookupKey]: {
+        lookupKey,
+        normalizedIdentity: { name: 'Dark Blastoise', set: 'Team Rocket', number: '20', language: 'ENGLISH' },
+        queryVariants: ['name:"Dark Blastoise" number:20 set.name:"Team Rocket"'],
+        provider: 'Pokemon TCG',
+        providerResults: [{
+          provider: 'Pokemon TCG',
+          sourceCardId: 'exp1-22',
+          canonicalCardId: 'exp1-22',
+          canonicalName: 'Pichu',
+          setId: 'exp1',
+          setName: 'Expedition Base Set',
+          cardNumber: '22',
+          language: 'ENGLISH',
+          imageUrl: 'https://images.pokemontcg.io/exp1/22_hires.png'
+        }],
+        acceptedSourceCardId: 'exp1-22',
+        outcome: 'RESOLVED'
+      }
+    };
+
+    const result = await resolveWeeklyDiscoveryCanonicalReferences([unresolved], { replayEvidence });
+
+    expect(result.candidates[0]?.suggestion.referenceSourceCardId).toBeUndefined();
+    expect(result.diagnostics.acceptedResolutionCount).toBe(0);
+    expect(result.diagnostics.unresolvedCandidateCount).toBe(1);
   });
 
   it('prefers a valid direct source-card-id bind over broader ambiguous search matches', async () => {

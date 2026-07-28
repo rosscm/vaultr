@@ -60,6 +60,29 @@ export type CanonicalLookupEvidence = {
 
 export type CanonicalLookupEvidenceMap = Record<string, CanonicalLookupEvidence>;
 
+export type CanonicalResolutionMissingEvidence = {
+  lookupKey: string;
+  suggestionName: string;
+  lane: string;
+  referenceSourceName?: string;
+  evidenceSearchTerm?: string;
+  normalizedIdentity: CanonicalLookupEvidence['normalizedIdentity'];
+};
+
+export type CanonicalResolutionDiagnostics = {
+  reserveCount: number;
+  noResolutionNeededCount: number;
+  trustedCanonicalBindingCount: number;
+  uniqueLookupKeysRequiringEvidence: number;
+  replayEvidenceHits: number;
+  replayEvidenceMisses: number;
+  acceptedResolutionCount: number;
+  cachedNegativeOrAmbiguousCount: number;
+  unresolvedCandidateCount: number;
+  providerRequestsAttempted: number;
+  missingEvidence: CanonicalResolutionMissingEvidence[];
+};
+
 export type DiscoveryCanonicalResolutionResult = {
   candidate: DiscoveryCandidate;
   evidence?: CanonicalLookupEvidence;
@@ -101,6 +124,12 @@ export type DiscoveryCanonicalResolutionRuntimeStats = {
 type ResolveOptions = {
   replayEvidence?: CanonicalLookupEvidenceMap;
 };
+
+export function mergeCanonicalLookupEvidenceMaps(
+  ...maps: Array<CanonicalLookupEvidenceMap | undefined>
+): CanonicalLookupEvidenceMap {
+  return Object.assign({}, ...maps.filter((map): map is CanonicalLookupEvidenceMap => !!map));
+}
 
 const POKEMON_TCG_ENDPOINT = 'https://api.pokemontcg.io/v2/cards';
 const CANONICAL_RESOLUTION_CONCURRENCY = 6;
@@ -543,7 +572,7 @@ function candidateFromAcceptedRecord(candidate: DiscoveryCandidate, record: Cano
 export async function resolveWeeklyDiscoveryCanonicalReferences(
   candidates: DiscoveryCandidate[],
   options: ResolveOptions = {}
-): Promise<{ candidates: DiscoveryCandidate[]; evidence: CanonicalLookupEvidenceMap }> {
+): Promise<{ candidates: DiscoveryCandidate[]; evidence: CanonicalLookupEvidenceMap; diagnostics: CanonicalResolutionDiagnostics }> {
   const startedAt = Date.now();
   const evidence: CanonicalLookupEvidenceMap = {};
   const resolved = [...candidates];
@@ -567,6 +596,10 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
   addCanonicalResolutionRuntimeStat('classificationMs', Date.now() - classificationStartedAt);
   canonicalResolutionRuntimeStats.uniqueLookupKeys += keyCounts.size;
   canonicalResolutionRuntimeStats.duplicateLookupKeys += [...keyCounts.values()].filter((count) => count > 1).reduce((sum, count) => sum + count - 1, 0);
+  const replayHitKeys = new Set<string>();
+  const replayMissKeys = new Set<string>();
+  let providerRequestsAttempted = 0;
+  let acceptedResolutionCount = 0;
   const lookupPromises = new Map<string, Promise<CanonicalLookupEvidence>>();
   let cursor = 0;
   const workers = Array.from({ length: Math.min(CANONICAL_RESOLUTION_CONCURRENCY, candidatePlans.length) }, async () => {
@@ -592,8 +625,12 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
       if (lookupPromise) {
         canonicalResolutionRuntimeStats.coalescedRequests += 1;
       } else {
+        const replayEvidence = options.replayEvidence?.[lookupKey];
+        if (options.replayEvidence && replayEvidence) replayHitKeys.add(lookupKey);
+        else if (options.replayEvidence) replayMissKeys.add(lookupKey);
+        else providerRequestsAttempted += 1;
         lookupPromise = options.replayEvidence
-          ? Promise.resolve(options.replayEvidence[lookupKey] ?? {
+          ? Promise.resolve(replayEvidence ?? {
               lookupKey,
               normalizedIdentity: discoveryPrintingIdentity(candidate.suggestion),
               queryVariants: pokemonTcgQueriesForSuggestion(candidate.suggestion),
@@ -614,6 +651,7 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
       if (accepted && compatibilityReasons(discoveryPrintingIdentity(candidate.suggestion), accepted).length === 0) {
         resolved[index] = candidateFromAcceptedRecord(candidate, accepted);
         canonicalResolutionRuntimeStats.successfulRebindings += 1;
+        acceptedResolutionCount += 1;
       } else {
         resolved[index] = candidate;
         canonicalResolutionRuntimeStats.unresolvedCandidates += 1;
@@ -623,5 +661,32 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
   });
   await Promise.all(workers);
   addCanonicalResolutionRuntimeStat('finalMergeMs', Date.now() - startedAt);
-  return { candidates: resolved, evidence };
+  const missingEvidence = candidatePlans
+    .filter((plan): plan is typeof plan & { lookupKey: string } => !!plan.needsResolution && !!plan.lookupKey)
+    .filter((plan) => replayMissKeys.has(plan.lookupKey))
+    .map((plan) => ({
+      lookupKey: plan.lookupKey,
+      suggestionName: plan.candidate.suggestion.name,
+      lane: plan.candidate.suggestion.lane,
+      referenceSourceName: plan.candidate.suggestion.referenceSourceName ?? plan.candidate.image?.sourceName,
+      evidenceSearchTerm: plan.candidate.suggestion.evidenceSearchTerm,
+      normalizedIdentity: discoveryPrintingIdentity(plan.candidate.suggestion)
+    }));
+  const cachedNegativeOrAmbiguousCount = Object.values(evidence).filter((entry) =>
+    entry.outcome !== 'RESOLVED' && entry.outcome !== 'LOOKUP_NOT_ATTEMPTED'
+  ).length;
+  const diagnostics: CanonicalResolutionDiagnostics = {
+    reserveCount: candidates.length,
+    noResolutionNeededCount: candidatePlans.filter((plan) => !plan.needsResolution).length,
+    trustedCanonicalBindingCount: candidatePlans.filter((plan) => !!plan.trustedBinding).length,
+    uniqueLookupKeysRequiringEvidence: keyCounts.size,
+    replayEvidenceHits: replayHitKeys.size,
+    replayEvidenceMisses: replayMissKeys.size,
+    acceptedResolutionCount,
+    cachedNegativeOrAmbiguousCount,
+    unresolvedCandidateCount: candidatePlans.filter((plan) => !!plan.needsResolution).length - acceptedResolutionCount,
+    providerRequestsAttempted,
+    missingEvidence
+  };
+  return { candidates: resolved, evidence, diagnostics };
 }

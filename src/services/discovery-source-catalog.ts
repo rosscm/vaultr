@@ -127,6 +127,24 @@ const SOURCE_TASTE_TRAIT_TERMS = new Set([
   'unique',
   'vintage'
 ]);
+const GENERIC_JAPANESE_PARENT_TERMS = new Set([
+  'card',
+  'cards',
+  'collector',
+  'corocoro',
+  'festival',
+  'japanese',
+  'numbered',
+  'pokemon',
+  'promo',
+  'release',
+  'set',
+  'small',
+  'special',
+  'symphonia',
+  'terastal',
+  'unique'
+]);
 
 const KNOWN_SET_TASTE_TOKENS = new Set([
   'terastal festival',
@@ -1028,9 +1046,17 @@ function tcgDexJapaneseScore(card: TcgDexCard, profile: SourceTasteProfile, sugg
 
 function usefulSuggestionJapaneseNameTerms(suggestion: DiscoverySuggestion): string[] {
   return uniqueValuesPreservingOrder(
-    [...(suggestion.requiredEvidenceTokens ?? []), ...(suggestion.sourceTasteTokens ?? [])]
+    [suggestion.name, ...(suggestion.requiredEvidenceTokens ?? []), ...(suggestion.sourceTasteTokens ?? [])]
+      .flatMap((value) => normalizedTokens(value))
       .map(normalizeSearchText)
-      .filter((token) => token.length >= 3 && !isSourceTasteTraitTerm(token) && !isKnownSetTasteToken(token) && !ACTIVE_CARD_TOKEN_STOP_WORDS.has(token))
+      .filter((token) =>
+        token.length >= 3
+        && !isSourceTasteTraitTerm(token)
+        && !isKnownSetTasteToken(token)
+        && !ACTIVE_CARD_TOKEN_STOP_WORDS.has(token)
+        && !SOURCE_PROFILE_IDENTITY_STOP_WORDS.has(token)
+        && !GENERIC_JAPANESE_PARENT_TERMS.has(token)
+      )
   ).slice(0, 2);
 }
 
@@ -1047,6 +1073,20 @@ function isOrdinaryModernJapaneseRarity(card: TcgDexCard): boolean {
 function matchesJapaneseCollectorQuality(card: TcgDexCard): boolean {
   if (isSmallJapaneseSpecialSet(card)) return true;
   return !isOrdinaryModernJapaneseRarity(card);
+}
+
+function matchesSuggestionSpecificJapaneseSubject(
+  card: TcgDexCard,
+  suggestion: DiscoverySuggestion,
+  profile: SourceTasteProfile,
+  suggestionDexNumbers: Set<number>
+): boolean {
+  const identityTerms = usefulSuggestionJapaneseNameTerms(suggestion);
+  if (identityTerms.length === 0 && suggestionDexNumbers.size === 0) return true;
+  if ((card.dexId ?? []).some((dex) => suggestionDexNumbers.has(dex))) return true;
+  const englishName = normalizeSearchText(tcgDexEnglishCardName(card, profile));
+  const rawName = normalizeSearchText(card.name ?? '');
+  return identityTerms.some((term) => englishName.includes(term) || rawName.includes(term));
 }
 
 function matchesTcgDexProfileAnchor(card: TcgDexCard, profile: SourceTasteProfile): boolean {
@@ -1196,6 +1236,7 @@ async function resolveTcgDexJapaneseCards(
   if (!hasJapaneseTaste(suggestion) && profile.japaneseSignalRatio < 0.5 && !profile.hasPriorityJapaneseSignal) return [];
 
   const summariesById = new Map<string, TcgDexCardSummary>();
+  const suggestionDexNumbers = new Set<number>();
   for (const dexId of [...profile.dexNumbers].slice(0, 8)) {
     const summaries = await fetchTcgDexJapaneseSummaries(dexId).catch(() => []);
     if (summaries.length > TCGDEX_MAX_DEX_SUMMARY_MATCHES) continue;
@@ -1226,6 +1267,7 @@ async function resolveTcgDexJapaneseCards(
   for (const term of usefulSuggestionJapaneseNameTerms(suggestion)) {
     const dexNumbers = await fetchDexNumbersForIdentityTerm(term).catch(() => []);
     for (const dexId of dexNumbers) {
+      suggestionDexNumbers.add(dexId);
       profile.dexNumbers.add(dexId);
       if (!profile.dexNames.has(dexId)) profile.dexNames.set(dexId, displayIdentityTerm(term));
       const summaries = await fetchTcgDexJapaneseSummaries(dexId).catch(() => []);
@@ -1244,7 +1286,13 @@ async function resolveTcgDexJapaneseCards(
     [...summariesById.values()].slice(0, TCGDEX_SOURCE_CATALOG_PAGE_SIZE).map(async (summary) => (summary.id ? fetchTcgDexJapaneseCard(summary.id) : null))
   );
   const rankedCards = cards
-    .filter((card): card is TcgDexCard => !!card && normalize(card.category ?? '') === 'pokemon' && matchesTcgDexProfileAnchor(card, profile) && matchesJapaneseCollectorQuality(card))
+    .filter((card): card is TcgDexCard =>
+      !!card
+      && normalize(card.category ?? '') === 'pokemon'
+      && matchesTcgDexProfileAnchor(card, profile)
+      && matchesJapaneseCollectorQuality(card)
+      && matchesSuggestionSpecificJapaneseSubject(card, suggestion, profile, suggestionDexNumbers)
+    )
     .sort((left, right) => tcgDexJapaneseScore(right, profile, suggestion) - tcgDexJapaneseScore(left, profile, suggestion));
 
   const suggestions: DiscoverySuggestion[] = [];
