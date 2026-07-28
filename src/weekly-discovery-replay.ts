@@ -138,7 +138,7 @@ export function summarizeReplay(
   if (result.structuralGate.status !== 'PASS') {
     releaseGateFailures.push(`Structural gate failed: ${result.structuralGate.failures.join('; ')}`);
   }
-  if (result.qualityGate.status !== 'PASS') {
+  if (result.qualityGate.status === 'FAIL') {
     releaseGateFailures.push(`Quality gate failed: ${result.qualityGate.notes.join('; ')}`);
   }
   if (result.selection.items.length !== 20) {

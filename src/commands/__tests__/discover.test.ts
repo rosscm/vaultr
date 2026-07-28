@@ -7299,9 +7299,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const settled = await __discoveryPersistenceTestHooks.mapWithConcurrencyAllowPartialTimeout(
       ['fast-a', 'slow-b', 'fast-c'],
       2,
-      25,
+      80,
       async (value) => {
-        await new Promise((resolve) => setTimeout(resolve, value === 'slow-b' ? 60 : 5));
+        await new Promise((resolve) => setTimeout(resolve, value === 'slow-b' ? 200 : 5));
         return value;
       }
     );

@@ -151,9 +151,11 @@ function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number)
     .setColor(0x8b5cf6)
     .setTitle('Vaultr Weekly Discovery')
     .setDescription([
-      'This week’s Weekly Shelf is ready to open.',
+      '💫 **Vaultr Weekly Discovery**',
       '',
-      'Use the button below to open your private shelf from the server channel.'
+      'Collector picks are freshly brewed and ready to browse!',
+      '',
+      'Full Vault gets a deeper Weekly Shelf shaped by your Vault and taste profile memory, while Free gets a tasty appetizer 🫰'
     ].join('\n'))
     .setFooter({ text: 'Vaultr • Weekly Shelf' })
     .setTimestamp();
