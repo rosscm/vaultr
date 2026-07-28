@@ -325,6 +325,8 @@ type TopOffViabilityRejectionCode =
   | 'VAULT_PARALLEL_PRINT'
   | 'MISSING_CANONICAL_ID'
   | 'EXACT_REPEAT_COOLDOWN'
+  | 'SATURATED_SUBJECT_CAP'
+  | 'SATURATED_FAMILY_CAP'
   | 'BELOW_CHASE_VALUE_FLOOR';
 type TopOffViabilityDiagnostics = {
   rejectionCounts: Record<TopOffViabilityRejectionCode, number>;
@@ -3112,7 +3114,9 @@ export const __discoveryLearningTestHooks = {
 export const __discoveryPersistenceTestHooks = {
   scheduledDropItemsFromCandidates,
   isScheduledShelfPriorityCandidate,
+  collectDiscoveryUniverseCandidatesForProfile,
   selectDiscoveryUniverseCandidatesForProfile,
+  collectDiscoveryUserUniverseCandidatesFromEntries,
   selectDiscoveryUserUniverseCandidatesFromEntries,
   selectDeficitAwareTopOffCandidates,
   prefilterBoundedTopOffBackfillCandidates,
@@ -4631,11 +4635,12 @@ function scoreDiscoveryUniverseCardForProfile(entry: DiscoveryUniverseCard, chas
     + market;
 }
 
-function selectDiscoveryUniverseCandidatesForProfile(
+function collectDiscoveryUniverseCandidatesForProfile(
   chases: Chase[],
   excludedNames: string[],
   targetCount: number,
-  repeatGuardChases: Chase[] = chases
+  repeatGuardChases: Chase[] = chases,
+  excludedIdentityKeys: Set<string> = new Set()
 ): DiscoveryCandidate[] {
   if (chases.length === 0) return [];
   const excludedNameKeys = discoveryExclusionNameKeys(excludedNames);
@@ -4650,19 +4655,40 @@ function selectDiscoveryUniverseCandidatesForProfile(
 
   const selected: DiscoveryCandidate[] = [];
   const seenNames = new Set<string>();
+  const seenIdentities = new Set<string>();
   for (const { entry } of ranked) {
     if (selected.length >= targetCount) break;
     const candidate = candidateFromDiscoveryUniverseCard(entry, selected.length, 'GLOBAL_UNIVERSE');
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const identityKey = topOffCandidateKey(candidate);
     if (seenNames.has(nameKey)) continue;
+    if (seenIdentities.has(identityKey)) continue;
+    if (excludedIdentityKeys.has(identityKey)) continue;
     if (isMarketplaceStyleDiscoveryName(candidate.suggestion.name)) continue;
     if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
     if (!isDisplayableDiscoveryCandidate(candidate)) continue;
     if (!isCollectorWorthyWeeklyCandidate(candidate)) continue;
     selected.push(candidate);
     seenNames.add(nameKey);
+    seenIdentities.add(identityKey);
   }
   return selected;
+}
+
+function selectDiscoveryUniverseCandidatesForProfile(
+  chases: Chase[],
+  excludedNames: string[],
+  targetCount: number,
+  repeatGuardChases: Chase[] = chases,
+  excludedIdentityKeys: Set<string> = new Set()
+): DiscoveryCandidate[] {
+  return collectDiscoveryUniverseCandidatesForProfile(
+    chases,
+    excludedNames,
+    targetCount,
+    repeatGuardChases,
+    excludedIdentityKeys
+  );
 }
 
 function rebuildUserDiscoveryUniverse(userId: string, chases: Chase[], repeatGuardChases: Chase[] = chases): void {
@@ -4675,16 +4701,20 @@ function rebuildUserDiscoveryUniverse(userId: string, chases: Chase[], repeatGua
     .sort((left, right) => right.score - left.score || right.entry.observationCount - left.entry.observationCount || left.entry.canonicalName.localeCompare(right.entry.canonicalName));
   const selected: DiscoveryUniverseCard[] = [];
   const seenNames = new Set<string>();
+  const seenIdentities = new Set<string>();
   for (const { entry } of ranked) {
     if (selected.length >= 800) break;
     const candidate = candidateFromDiscoveryUniverseCard(entry, selected.length, 'GLOBAL_UNIVERSE');
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const identityKey = topOffCandidateKey(candidate);
     if (seenNames.has(nameKey)) continue;
+    if (seenIdentities.has(identityKey)) continue;
     if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
     if (!isDisplayableDiscoveryCandidate(candidate)) continue;
     if (!isCollectorWorthyWeeklyCandidate(candidate)) continue;
     selected.push(entry);
     seenNames.add(nameKey);
+    seenIdentities.add(identityKey);
   }
   replaceDiscoveryUserUniverseCards(userId, selected.map((entry) => ({
     userId,
@@ -4701,16 +4731,18 @@ function rebuildUserDiscoveryUniverse(userId: string, chases: Chase[], repeatGua
   })));
 }
 
-function selectDiscoveryUserUniverseCandidatesFromEntries(
+function collectDiscoveryUserUniverseCandidatesFromEntries(
   entries: DiscoveryUserUniverseCard[],
   excludedNames: string[],
   targetCount: number,
   profileChases: Chase[],
-  repeatGuardChases: Chase[]
+  repeatGuardChases: Chase[],
+  excludedIdentityKeys: Set<string> = new Set()
 ): DiscoveryCandidate[] {
   const excludedNameKeys = discoveryExclusionNameKeys(excludedNames);
   const eligible: DiscoveryCandidate[] = [];
   const seenNames = new Set<string>();
+  const seenIdentities = new Set<string>();
   for (const entry of entries) {
     if (isDiscoveryNameExcluded(entry.canonicalName, excludedNameKeys)) continue;
     const suggestion: DiscoverySuggestion = {
@@ -4742,13 +4774,36 @@ function selectDiscoveryUserUniverseCandidatesFromEntries(
       selectionIndex: eligible.length
     };
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const identityKey = topOffCandidateKey(candidate);
     if (seenNames.has(nameKey)) continue;
+    if (seenIdentities.has(identityKey)) continue;
+    if (excludedIdentityKeys.has(identityKey)) continue;
     if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
     if (!isDisplayableDiscoveryCandidate(candidate)) continue;
     if (!isCollectorWorthyWeeklyCandidate(candidate)) continue;
     eligible.push(candidate);
     seenNames.add(nameKey);
+    seenIdentities.add(identityKey);
   }
+  return eligible;
+}
+
+function selectDiscoveryUserUniverseCandidatesFromEntries(
+  entries: DiscoveryUserUniverseCard[],
+  excludedNames: string[],
+  targetCount: number,
+  profileChases: Chase[],
+  repeatGuardChases: Chase[],
+  excludedIdentityKeys: Set<string> = new Set()
+): DiscoveryCandidate[] {
+  const eligible = collectDiscoveryUserUniverseCandidatesFromEntries(
+    entries,
+    excludedNames,
+    Math.max(targetCount * 4, DISCOVERY_SHELF_PAGE_SIZE * 4),
+    profileChases,
+    repeatGuardChases,
+    excludedIdentityKeys
+  );
   if (eligible.length <= targetCount) return eligible;
   const prioritized = eligible.slice(0, Math.min(eligible.length, Math.max(targetCount * 4, DISCOVERY_SHELF_PAGE_SIZE * 4)));
   const diversifiedSeeds = takeDistinctThemes(
@@ -4770,14 +4825,16 @@ function selectDiscoveryUserUniverseCandidates(
   excludedNames: string[],
   targetCount: number,
   profileChases: Chase[],
-  repeatGuardChases: Chase[]
+  repeatGuardChases: Chase[],
+  excludedIdentityKeys: Set<string> = new Set()
 ): DiscoveryCandidate[] {
   return selectDiscoveryUserUniverseCandidatesFromEntries(
     listDiscoveryUserUniverseCards(userId, Math.max(300, targetCount * 20)),
     excludedNames,
     targetCount,
     profileChases,
-    repeatGuardChases
+    repeatGuardChases,
+    excludedIdentityKeys
   );
 }
 
@@ -4942,6 +4999,21 @@ function candidateWouldOverflowTopOffDiversityCaps(
   return false;
 }
 
+function topOffDiversitySaturationReason(
+  candidate: DiscoveryCandidate,
+  readiness: WeeklyDiscoverySupplyReadiness
+): TopOffViabilityRejectionCode | undefined {
+  const subjectKey = candidateShelfSubjectKey(candidate);
+  if (subjectKey && (readiness.selectedSubjectCounts[subjectKey] ?? 0) >= WEEKLY_DISCOVERY_SUBJECT_CAP) {
+    return 'SATURATED_SUBJECT_CAP';
+  }
+  const familyKey = candidateEvolutionFamilyKey(candidate);
+  if (familyKey && (readiness.selectedFamilyCounts[familyKey] ?? 0) >= WEEKLY_DISCOVERY_FAMILY_CAP) {
+    return 'SATURATED_FAMILY_CAP';
+  }
+  return undefined;
+}
+
 function topOffParentWouldOverflowSubjectCap(
   suggestion: DiscoverySuggestion,
   readiness: WeeklyDiscoverySupplyReadiness
@@ -5020,7 +5092,8 @@ function boundedTopOffUniverseCandidatePrequalificationReason(
   repeatHistory: Map<string, ExactRepeatHistoryEntry>,
   activeVaultChases: Chase[]
 ): TopOffViabilityRejectionCode | undefined {
-  if (candidateWouldOverflowTopOffDiversityCaps(candidate, readiness)) return 'EXACT_REPEAT_COOLDOWN';
+  const saturationReason = topOffDiversitySaturationReason(candidate, readiness);
+  if (saturationReason) return saturationReason;
   if (!candidateHasTrustedPrintingReference(candidate, currency)) return 'UNTRUSTED_REFERENCE';
   return boundedTopOffCandidateRejectionReason(candidate, currency, repeatHistory, activeVaultChases);
 }
@@ -5065,6 +5138,8 @@ function emptyTopOffViabilityDiagnostics(): TopOffViabilityDiagnostics {
       VAULT_PARALLEL_PRINT: 0,
       MISSING_CANONICAL_ID: 0,
       EXACT_REPEAT_COOLDOWN: 0,
+      SATURATED_SUBJECT_CAP: 0,
+      SATURATED_FAMILY_CAP: 0,
       BELOW_CHASE_VALUE_FLOOR: 0
     },
     rejectionSamples: {
@@ -5076,6 +5151,8 @@ function emptyTopOffViabilityDiagnostics(): TopOffViabilityDiagnostics {
       VAULT_PARALLEL_PRINT: [],
       MISSING_CANONICAL_ID: [],
       EXACT_REPEAT_COOLDOWN: [],
+      SATURATED_SUBJECT_CAP: [],
+      SATURATED_FAMILY_CAP: [],
       BELOW_CHASE_VALUE_FLOOR: []
     }
   };
@@ -5250,22 +5327,24 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     ...freshExcludedNames,
     ...currentReserve.map((candidate) => candidate.suggestion.name)
   ]);
-  const rawUserUniverseCandidates = selectDiscoveryUserUniverseCandidatesFromEntries(
+  const rawUserUniverseCandidates = collectDiscoveryUserUniverseCandidatesFromEntries(
     listDiscoveryUserUniverseCards(userId, Math.max(600, targetCount * 40)),
     excludedNames,
-    Math.max(targetCount * 8, 120),
+    Math.max(targetCount * 20, 320),
     discovery.tasteProfileChases,
-    repeatGuardChases
+    repeatGuardChases,
+    existingKeys
   ).map((candidate, index) => ({
     ...candidate,
     supplySource: 'TOP_OFF_USER_UNIVERSE' as const,
     selectionIndex: currentReserve.length + index
   }));
-  const rawGlobalUniverseCandidates = selectDiscoveryUniverseCandidatesForProfile(
+  const rawGlobalUniverseCandidates = collectDiscoveryUniverseCandidatesForProfile(
     discovery.tasteProfileChases,
     excludedNames,
-    Math.max(targetCount * 10, 160),
-    repeatGuardChases
+    Math.max(targetCount * 24, 360),
+    repeatGuardChases,
+    existingKeys
   ).map((candidate, index) => ({
     ...candidate,
     supplySource: 'TOP_OFF_GLOBAL_UNIVERSE' as const,
@@ -5295,21 +5374,31 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   const sourceBackedParents = skipSourceCatalogFetch
     ? []
     : prioritizeTopOffSourceParents(
-      canonicalUniverseSeedParents(discovery.tasteProfileChases, Math.max(DISCOVERY_CANDIDATE_POOL_SIZE, 160)),
+      uniqueTopOffSuggestionsByIdentity([
+        ...canonicalUniverseSeedParents(discovery.tasteProfileChases, Math.max(DISCOVERY_CANDIDATE_POOL_SIZE, 160)),
+        ...profileVariantSourceBackfillParents(discovery.tasteProfileChases, Math.max(DISCOVERY_CANDIDATE_POOL_SIZE, 160))
+      ]),
       readiness,
       discovery.tasteProfileChases
     )
       .filter((suggestion) => !isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames)))
       .slice(0, Math.min(72, Math.max(36, targetCount * 3)));
+  const preferredTopOffSubjectKeys = new Set(
+    positiveTasteSubjectChases(discovery.tasteProfileChases)
+      .flatMap((chase) => chaseSpecificSubjectTokens(chase))
+      .map((token) => normalizedSubjectIdentity(token))
+      .filter((token): token is string => !!token)
+  );
   const severeSourceTopOffShortfall = readiness.selectedShortfall >= Math.ceil(DISCOVERY_WEEKLY_DROP_SIZE * 0.5)
     || readiness.marketResolvedShortfall >= Math.ceil(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 0.5);
   const shouldResolveTopOffParentAsBroadExploration = (parent: DiscoverySuggestion): boolean =>
-    severeSourceTopOffShortfall
-    && parent.lane !== 'Set Companion Trail'
-    && topOffParentSpecificSubjectKeys(parent).every((key) => !positiveTasteSubjectChases(discovery.tasteProfileChases)
-      .flatMap((chase) => chaseSpecificSubjectTokens(chase))
-      .map((token) => normalizedSubjectIdentity(token))
-      .includes(key));
+    parent.lane === 'Set Companion Trail'
+    || topOffParentSpecificSubjectKeys(parent).every((key) => (readiness.selectedSubjectCounts[key] ?? 0) >= WEEKLY_DISCOVERY_SUBJECT_CAP)
+    || (
+      severeSourceTopOffShortfall
+      && parent.lane !== 'Set Companion Trail'
+      && topOffParentSpecificSubjectKeys(parent).every((key) => !preferredTopOffSubjectKeys.has(key))
+    );
   const sourceBackedSuggestions: DiscoverySuggestion[] = [];
   let sourceTopOffTimedOut = false;
   if (sourceBackedParents.length > 0) {
@@ -5420,6 +5509,8 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
       rejectedParallelPrint: topOffDiagnostics.rejectionCounts.VAULT_PARALLEL_PRINT,
       rejectedMissingCanonicalId: topOffDiagnostics.rejectionCounts.MISSING_CANONICAL_ID,
       rejectedExactRepeat: topOffDiagnostics.rejectionCounts.EXACT_REPEAT_COOLDOWN,
+      rejectedSaturatedSubject: topOffDiagnostics.rejectionCounts.SATURATED_SUBJECT_CAP,
+      rejectedSaturatedFamily: topOffDiagnostics.rejectionCounts.SATURATED_FAMILY_CAP,
       rejectedBelowValueFloor: topOffDiagnostics.rejectionCounts.BELOW_CHASE_VALUE_FLOOR
     }
   });

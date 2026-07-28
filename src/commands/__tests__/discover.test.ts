@@ -221,6 +221,26 @@ function userUniverseCard(name: string, score: number, updatedAt: string, source
   };
 }
 
+function userUniverseCardWithId(
+  name: string,
+  score: number,
+  updatedAt: string,
+  sourceName: string,
+  sourceCardId: string
+): DiscoveryUserUniverseCard {
+  const base = userUniverseCard(name, score, updatedAt, sourceName);
+  return {
+    ...base,
+    suggestion: {
+      ...base.suggestion,
+      referenceSourceCardId: sourceCardId,
+      referenceImageUrl: trustedReferenceImageUrl(sourceName, sourceCardId)
+    },
+    imageUrl: trustedReferenceImageUrl(sourceName, sourceCardId),
+    sourceCardId
+  };
+}
+
 function publishableCandidate(name: string, canonicalId: string, selectionIndex: number): DiscoveryCandidate {
   const imageUrl = trustedReferenceImageUrl('Pokemon TCG (Card)', canonicalId);
   return {
@@ -2576,6 +2596,82 @@ describe('preferFreshWeeklyCandidatesAgainstRecentShelves', () => {
     expect(selected.map((item) => item.suggestion.name)).toContain('Blastoise Classic Collection 003/025');
   });
 
+  it('excludes reserve identities while collecting a broader global-universe top-off pool', () => {
+    upsertDiscoveryUniverseCard({
+      canonicalName: 'Mew Expedition Base Set 55',
+      suggestion: {
+        name: 'Mew Expedition Base Set 55',
+        lane: 'Vintage Holo Trail',
+        laneWhy: 'profile source match',
+        why: 'A high-confidence repeat candidate',
+        nearby: [],
+        referenceSourceName: 'Pokemon TCG (Expedition Base Set)',
+        referenceSourceCardId: 'ecard1-55'
+      },
+      sourceName: 'Pokemon TCG (Expedition Base Set)',
+      imageUrl: trustedReferenceImageUrl('Pokemon TCG (Expedition Base Set)', 'ecard1-55'),
+      imageSourceName: 'Pokemon TCG (Expedition Base Set)',
+      sourceCardId: 'ecard1-55',
+      subjectTokens: ['mew'],
+      traitTokens: ['vintage'],
+      marketTotal: 110,
+      marketCurrency: 'CAD'
+    });
+    upsertDiscoveryUniverseCard({
+      canonicalName: 'Gardevoir ex Scarlet & Violet 245',
+      suggestion: {
+        name: 'Gardevoir ex Scarlet & Violet 245',
+        lane: 'Modern Alt-Art Trail',
+        laneWhy: 'profile source match',
+        why: 'A later non-repeat identity',
+        nearby: [],
+        referenceSourceName: 'Pokemon TCG (Scarlet & Violet)',
+        referenceSourceCardId: 'sv1-245'
+      },
+      sourceName: 'Pokemon TCG (Scarlet & Violet)',
+      imageUrl: trustedReferenceImageUrl('Pokemon TCG (Scarlet & Violet)', 'sv1-245'),
+      imageSourceName: 'Pokemon TCG (Scarlet & Violet)',
+      sourceCardId: 'sv1-245',
+      subjectTokens: ['gardevoir'],
+      traitTokens: ['modern'],
+      marketTotal: 95,
+      marketCurrency: 'CAD'
+    });
+    upsertDiscoveryUniverseCard({
+      canonicalName: 'Pichu Expedition Base Set 22',
+      suggestion: {
+        name: 'Pichu Expedition Base Set 22',
+        lane: 'Vintage Holo Trail',
+        laneWhy: 'profile source match',
+        why: 'Another later non-repeat identity',
+        nearby: [],
+        referenceSourceName: 'Pokemon TCG (Expedition Base Set)',
+        referenceSourceCardId: 'ecard1-22'
+      },
+      sourceName: 'Pokemon TCG (Expedition Base Set)',
+      imageUrl: trustedReferenceImageUrl('Pokemon TCG (Expedition Base Set)', 'ecard1-22'),
+      imageSourceName: 'Pokemon TCG (Expedition Base Set)',
+      sourceCardId: 'ecard1-22',
+      subjectTokens: ['pichu'],
+      traitTokens: ['vintage'],
+      marketTotal: 90,
+      marketCurrency: 'CAD'
+    });
+
+    const collected = __discoveryPersistenceTestHooks.collectDiscoveryUniverseCandidatesForProfile(
+      ['Mew RC24', 'Gardevoir ex Paldean Fates 233', 'Squirtle Expedition Base Set 132'].map(chase),
+      [],
+      10,
+      ['Mew RC24', 'Gardevoir ex Paldean Fates 233', 'Squirtle Expedition Base Set 132'].map(chase),
+      new Set(['ecard1-55'])
+    );
+
+    expect(collected.map((item) => item.suggestion.referenceSourceCardId)).toEqual(
+      expect.arrayContaining(['sv1-245', 'ecard1-22'])
+    );
+    expect(collected.map((item) => item.suggestion.referenceSourceCardId)).not.toContain('ecard1-55');
+  });
+
   it('builds a broad canonical-universe parent set from profile threads, Japanese signals, and global backfill parents', () => {
     const parents = __discoveryPersistenceTestHooks.canonicalUniverseSeedParents(
       [
@@ -2662,6 +2758,77 @@ describe('selectDiscoveryUserUniverseCandidatesFromEntries', () => {
     expect(
       names.some((name) => /gardevoir|mew|zapdos/i.test(name))
     ).toBe(true);
+  });
+
+  it('deduplicates user-universe entries by canonical/source identity before taking later unique cards', () => {
+    const chases = ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex 233/091'].map(chase);
+    const entries = [
+      userUniverseCardWithId('Umbreon V Brilliant Stars Trainer Gallery TG22', 120, '2026-07-15T00:00:00.000Z', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 'swsh9tg-TG22'),
+      userUniverseCardWithId('Umbreon V Brilliant Stars Brilliant Stars Brilliant Stars Trainer Gallery TG22', 119, '2026-07-15T00:00:01.000Z', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 'swsh9tg-TG22'),
+      userUniverseCardWithId('Gardevoir ex Scarlet & Violet 245', 118, '2026-07-15T00:00:02.000Z', 'Pokemon TCG (Scarlet & Violet)', 'sv1-245'),
+      userUniverseCardWithId('Pichu Expedition Base Set 22', 117, '2026-07-15T00:00:03.000Z', 'Pokemon TCG (Expedition Base Set)', 'ecard1-22')
+    ];
+
+    const selected = __discoveryPersistenceTestHooks.selectDiscoveryUserUniverseCandidatesFromEntries(entries, [], 4, chases, chases);
+
+    expect(selected.map((item) => item.suggestion.referenceSourceCardId)).toEqual([
+      'swsh9tg-TG22',
+      'sv1-245',
+      'ecard1-22'
+    ]);
+  });
+
+  it('excludes identities already present in the reserve when reading user-universe top-off candidates', () => {
+    const chases = ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex 233/091'].map(chase);
+    const entries = [
+      userUniverseCardWithId('Mew Expedition Base Set 55', 120, '2026-07-15T00:00:00.000Z', 'Pokemon TCG (Expedition Base Set)', 'ecard1-55'),
+      userUniverseCardWithId('Pokemon Card Expedition Base Set Mew 55/165 Rare', 119, '2026-07-15T00:00:01.000Z', 'Pokemon TCG (Expedition Base Set)', 'ecard1-55'),
+      userUniverseCardWithId('Gardevoir ex Scarlet & Violet 245', 118, '2026-07-15T00:00:02.000Z', 'Pokemon TCG (Scarlet & Violet)', 'sv1-245'),
+      userUniverseCardWithId('Pichu Expedition Base Set 22', 117, '2026-07-15T00:00:03.000Z', 'Pokemon TCG (Expedition Base Set)', 'ecard1-22')
+    ];
+
+    const selected = __discoveryPersistenceTestHooks.selectDiscoveryUserUniverseCandidatesFromEntries(
+      entries,
+      [],
+      4,
+      chases,
+      chases,
+      new Set(['ecard1-55'])
+    );
+
+    expect(selected.map((item) => item.suggestion.referenceSourceCardId)).toEqual([
+      'sv1-245',
+      'ecard1-22'
+    ]);
+  });
+
+  it('keeps later admissible identities available for top-off collection instead of truncating to the visible shelf slice', () => {
+    const chases = ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex 233/091'].map(chase);
+    const entries = [
+      userUniverseCardWithId('Mew Expedition Base Set 55', 140, '2026-07-15T00:00:00.000Z', 'Pokemon TCG (Expedition Base Set)', 'ecard1-55'),
+      userUniverseCardWithId('Umbreon V Brilliant Stars Trainer Gallery TG22', 139, '2026-07-15T00:00:01.000Z', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 'swsh9tg-TG22'),
+      userUniverseCardWithId('Pikachu ex Surging Sparks 247', 138, '2026-07-15T00:00:02.000Z', 'Pokemon TCG (Surging Sparks)', 'sv8-247'),
+      userUniverseCardWithId('Zapdos Aquapolis 44', 137, '2026-07-15T00:00:03.000Z', 'Pokemon TCG (Aquapolis)', 'aquapolis-44'),
+      userUniverseCardWithId('Gardevoir ex Scarlet & Violet 245', 136, '2026-07-15T00:00:04.000Z', 'Pokemon TCG (Scarlet & Violet)', 'sv1-245'),
+      userUniverseCardWithId('Pichu Expedition Base Set 22', 135, '2026-07-15T00:00:05.000Z', 'Pokemon TCG (Expedition Base Set)', 'ecard1-22')
+    ];
+
+    const visibleSlice = __discoveryPersistenceTestHooks.selectDiscoveryUserUniverseCandidatesFromEntries(entries, [], 4, chases, chases);
+    const topOffCollection = __discoveryPersistenceTestHooks.collectDiscoveryUserUniverseCandidatesFromEntries(entries, [], 12, chases, chases);
+
+    const visibleIds = visibleSlice.map((item) => item.suggestion.referenceSourceCardId);
+    const topOffIds = topOffCollection.map((item) => item.suggestion.referenceSourceCardId);
+
+    expect(visibleIds).toHaveLength(4);
+    expect(topOffIds).toEqual([
+      'ecard1-55',
+      'swsh9tg-TG22',
+      'sv8-247',
+      'aquapolis-44',
+      'sv1-245',
+      'ecard1-22'
+    ]);
+    expect(topOffIds.filter((id) => !visibleIds.includes(id))).toEqual(['sv8-247', 'aquapolis-44']);
   });
 });
 
