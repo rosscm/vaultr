@@ -6,7 +6,7 @@ import { handleAlertSourceButtons } from './commands/alerts-settings.js';
 import { handleChaseAddAutocomplete } from './commands/chase-add.js';
 import { handleChaseEditAutocomplete } from './commands/chase-edit.js';
 import { handleChaseListPagination } from './commands/chase-list.js';
-import { handleChaseRemoveAutocomplete } from './commands/chase-remove.js';
+import { handleChaseRemoveAutocomplete, handleChaseRemoveButtons } from './commands/chase-remove.js';
 import { handleDiscoveryActionSelect, handleDiscoveryDropOpen, handleDiscoveryDropPage, handleDiscoveryFeedback, handleDiscoveryFeedbackUndo, handleDiscoveryVaultAdd } from './commands/discover.js';
 import { initializeCurrencyRates } from './services/currency.js';
 import { backfillChaseQueryNames } from './services/chase-store.js';
@@ -77,6 +77,7 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
     if (await handleChaseAddAutocomplete(interaction)) return;
     if (await handleChaseEditAutocomplete(interaction)) return;
     if (await handleChaseRemoveAutocomplete(interaction)) return;
+    if (await handleChaseRemoveButtons(interaction)) return;
     if (await handleChaseListPagination(interaction)) return;
     if (await handleAlertFeedback(interaction)) return;
     if (await handleAlertSourceButtons(interaction)) return;

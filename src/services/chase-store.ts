@@ -8,12 +8,18 @@ import type { Chase, Listing, ListingSource, ListingSourceModePreference, SentAl
 
 type TasteMemorySource = NonNullable<Chase['tasteSource']>;
 export type ChaseRemovalReason = 'FOUND' | 'MISTAKE' | 'NOT_FOR_ME';
+export type ChaseRemovalOutcome = 'COMPLETED' | 'NO_LONGER_INTERESTED' | 'ADDED_BY_MISTAKE';
 
 type ChaseRow = {
   id: string;
   user_id: string;
   guild_id: string | null;
   card_name: string;
+  card_image_url: string | null;
+  card_image_identity: string | null;
+  card_image_source_name: string | null;
+  card_image_source_kind: 'CARD_REFERENCE' | 'MARKET_LISTING' | null;
+  card_image_source_card_id: string | null;
   query_name: string | null;
   priority: 'GRAIL' | 'HIGH' | 'NORMAL';
   target_note: string | null;
@@ -183,6 +189,11 @@ function mapRow(row: ChaseRow): Chase {
     userId: row.user_id,
     guildId: row.guild_id ?? undefined,
     cardName: row.card_name,
+    cardImageUrl: row.card_image_url ?? undefined,
+    cardImageIdentity: row.card_image_identity ?? undefined,
+    cardImageSourceName: row.card_image_source_name ?? undefined,
+    cardImageSourceKind: row.card_image_source_kind ?? undefined,
+    cardImageSourceCardId: row.card_image_source_card_id ?? undefined,
     queryName: row.query_name ?? undefined,
     priority: row.priority ?? 'NORMAL',
     targetNote: row.target_note ?? undefined,
@@ -239,12 +250,18 @@ function mapSentAlertDetails(row: SentAlertDetailsRow): SentAlertDetails {
 }
 
 const insertChaseStmt = db.prepare(`
-  INSERT INTO chases (id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at)
-  VALUES (@id, @user_id, @guild_id, @card_name, @query_name, @priority, @target_note, @max_price, @grade, @condition, @listing_type, @negative_keywords, @created_at)
+  INSERT INTO chases (
+    id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id,
+    query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  )
+  VALUES (
+    @id, @user_id, @guild_id, @card_name, @card_image_url, @card_image_identity, @card_image_source_name, @card_image_source_kind, @card_image_source_card_id,
+    @query_name, @priority, @target_note, @max_price, @grade, @condition, @listing_type, @negative_keywords, @created_at
+  )
 `);
 
 const getChaseByUserAndNormalizedNameStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   WHERE user_id = ? AND lower(trim(card_name)) = lower(trim(?))
   ORDER BY created_at ASC
@@ -252,7 +269,7 @@ const getChaseByUserAndNormalizedNameStmt = db.prepare(`
 `);
 
 const listChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   WHERE user_id = ?
   ORDER BY
@@ -265,7 +282,7 @@ const listChasesStmt = db.prepare(`
 `);
 
 const listAllChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   ORDER BY created_at DESC
 `);
@@ -830,7 +847,7 @@ const listRecentChaseTuneOutAlertsSinceStmt = db.prepare(`
 `);
 
 const getChaseByIdStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
   FROM chases
   WHERE user_id = ? AND id = ?
   LIMIT 1
@@ -1022,29 +1039,41 @@ export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
   };
 
   try {
-    const computedQueryName = buildEbaySearchKeywords(chase);
-    insertChaseStmt.run({
-      id: chase.id,
-      user_id: chase.userId,
-      guild_id: chase.guildId ?? null,
-      card_name: chase.cardName,
-      query_name: computedQueryName,
-      priority: chase.priority ?? 'NORMAL',
-      target_note: chase.targetNote ?? null,
-      max_price: chase.maxPrice ?? null,
-      grade: chase.grade ?? null,
-      condition: chase.condition ?? null,
-      listing_type: chase.listingType ?? 'ANY',
-      negative_keywords: chase.negativeKeywords?.join(',') ?? null,
-      created_at: chase.createdAt
-    });
+    const persisted = db.transaction(() => {
+      const computedQueryName = buildEbaySearchKeywords(chase);
+      insertChaseStmt.run({
+        id: chase.id,
+        user_id: chase.userId,
+        guild_id: chase.guildId ?? null,
+        card_name: chase.cardName,
+        card_image_url: chase.cardImageUrl ?? null,
+        card_image_identity: chase.cardImageIdentity ?? null,
+        card_image_source_name: chase.cardImageSourceName ?? null,
+        card_image_source_kind: chase.cardImageSourceKind ?? null,
+        card_image_source_card_id: chase.cardImageSourceCardId ?? null,
+        query_name: computedQueryName,
+        priority: chase.priority ?? 'NORMAL',
+        target_note: chase.targetNote ?? null,
+        max_price: chase.maxPrice ?? null,
+        grade: chase.grade ?? null,
+        condition: chase.condition ?? null,
+        listing_type: chase.listingType ?? 'ANY',
+        negative_keywords: chase.negativeKeywords?.join(',') ?? null,
+        created_at: chase.createdAt
+      });
+      if (chaseStoreTestState.failNextAddChase) {
+        chaseStoreTestState.failNextAddChase = false;
+        throw new Error('Simulated chase add failure');
+      }
+      const row = getChaseByIdStmt.get(chase.userId, chase.id) as ChaseRow | undefined;
+      return row ? mapRow(row) : chase;
+    })();
+    return persisted;
   } catch (error) {
     const duplicate = getChaseByUserAndNormalizedNameStmt.get(input.userId, input.cardName) as ChaseRow | undefined;
     if (duplicate) return mapRow(duplicate);
     throw error;
   }
-
-  return chase;
 }
 
 export function createDiscoveryVaultAction(input: {
@@ -1498,6 +1527,47 @@ function chaseRemovalTasteSource(reason: ChaseRemovalReason): TasteMemorySource 
   return undefined;
 }
 
+function chaseRemovalOutcomeTasteSource(outcome: ChaseRemovalOutcome): TasteMemorySource | undefined {
+  if (outcome === 'COMPLETED') return 'BOUGHT_OR_SEEN';
+  if (outcome === 'NO_LONGER_INTERESTED') return 'REMOVED_CHASE';
+  return undefined;
+}
+
+const chaseStoreTestState = {
+  failNextResolvedRemoval: false,
+  failNextAddChase: false
+};
+
+export function resolveChaseRemoval(
+  userId: string,
+  chaseId: string,
+  outcome: ChaseRemovalOutcome
+): { removed: boolean; chase?: Chase } {
+  const result = db.transaction(() => {
+    const chase = currentChaseForTaste(userId, chaseId);
+    if (!chase) return { removed: false as const, chase: undefined };
+    const removed = removeChaseStmt.run(userId, chaseId);
+    if (removed.changes <= 0) return { removed: false as const, chase: undefined };
+    deleteChasePollStateStmt.run(chaseId);
+    if (chaseStoreTestState.failNextResolvedRemoval) {
+      chaseStoreTestState.failNextResolvedRemoval = false;
+      throw new Error('Simulated resolved chase removal failure');
+    }
+    const tasteSource = chaseRemovalOutcomeTasteSource(outcome);
+    if (tasteSource) {
+      rememberTasteSignal({
+        userId,
+        signalId: chase.id,
+        source: tasteSource,
+        cardName: chase.cardName,
+        maxPrice: chase.maxPrice
+      });
+    }
+    return { removed: true as const, chase };
+  })();
+  return result;
+}
+
 export function removeChase(userId: string, chaseId: string, options: { reason?: ChaseRemovalReason } = {}): boolean {
   const chase = currentChaseForTaste(userId, chaseId);
   const tasteSource = chaseRemovalTasteSource(options.reason ?? 'FOUND');
@@ -1535,6 +1605,15 @@ export function removeAllChases(userId: string): number {
   })();
   return result.changes;
 }
+
+export const __chaseStoreTestHooks = {
+  failNextAddChase(): void {
+    chaseStoreTestState.failNextAddChase = true;
+  },
+  failNextResolvedRemoval(): void {
+    chaseStoreTestState.failNextResolvedRemoval = true;
+  }
+};
 
 export function getChaseLastPollCheckAt(chaseId: string): string | undefined {
   const row = getChasePollStateStmt.get(chaseId) as { last_checked_at: string; last_attempted_at?: string | null } | undefined;

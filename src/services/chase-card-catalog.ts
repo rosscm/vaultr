@@ -14,9 +14,15 @@ export type ChaseCardAutocompleteChoice = {
   value: string;
 };
 
-type ChaseCardCatalogResult = ChaseCardAutocompleteChoice & {
+export type CachedChaseCardPreview = {
   imageUrl?: string;
+  imageIdentity?: string;
+  imageSourceName?: string;
+  imageSourceKind?: 'CARD_REFERENCE' | 'MARKET_LISTING';
+  imageSourceCardId?: string;
 };
+
+type ChaseCardCatalogResult = ChaseCardAutocompleteChoice & CachedChaseCardPreview;
 
 type PokemonTcgCard = {
   id?: string;
@@ -46,7 +52,7 @@ const POKEMON_CONTEXT_STOP_TERMS = new Set(['card', 'cards', 'pokemon', 'tcg']);
 const POKEMON_NUMBER_PREFIX_TERMS = new Set(['bw', 'dp', 'rc', 'sm', 'sv', 'swsh', 'xy']);
 const BARE_CARD_NUMBER_HELPER_TEXT = 'Keep typing: add the card name with this number';
 const autocompleteCache = new Map<string, { expiresAt: number; choices: ChaseCardAutocompleteChoice[] }>();
-const autocompletePreviewCache = new Map<string, { expiresAt: number; imageUrl?: string }>();
+const autocompletePreviewCache = new Map<string, { expiresAt: number; preview: CachedChaseCardPreview }>();
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -73,11 +79,29 @@ function uniqueChoices(choices: ChaseCardCatalogResult[], limit: number): ChaseC
     const key = normalize(choice.value);
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    autocompletePreviewCache.set(key, { expiresAt: Date.now() + AUTOCOMPLETE_CACHE_TTL_MS, imageUrl: choice.imageUrl });
+    cacheAutocompletePreview(choice.value, {
+      imageUrl: choice.imageUrl,
+      imageIdentity: choice.imageIdentity,
+      imageSourceName: choice.imageSourceName,
+      imageSourceKind: choice.imageSourceKind,
+      imageSourceCardId: choice.imageSourceCardId
+    });
     unique.push({ name: truncateChoice(choice.name), value: truncateChoice(choice.value) });
     if (unique.length >= limit) break;
   }
   return unique;
+}
+
+function cacheAutocompletePreview(cardName: string, preview: CachedChaseCardPreview): void {
+  const expiresAt = Date.now() + AUTOCOMPLETE_CACHE_TTL_MS;
+  const keys = new Set<string>([
+    normalize(cardName),
+    normalize(normalizeChaseCardName(cardName))
+  ]);
+  for (const key of keys) {
+    if (!key) continue;
+    autocompletePreviewCache.set(key, { expiresAt, preview });
+  }
 }
 
 async function fetchJsonWithTimeout(url: string): Promise<any> {
@@ -216,7 +240,11 @@ async function pokemonTcgAutocompleteChoices(query: string, limit: number): Prom
       return {
         name: truncateChoice(releaseLabel ? `${card.name} — ${releaseLabel} #${numberLabel}` : setName ? `${card.name} — ${setName} #${numberLabel}` : `${card.name} #${numberLabel}`),
         value: truncateChoice(value),
-        imageUrl: pokemonTcgImageUrl(card)
+        imageUrl: pokemonTcgImageUrl(card),
+        imageIdentity: normalizeChaseCardName(value),
+        imageSourceName: 'POKEMONTCG',
+        imageSourceKind: 'CARD_REFERENCE',
+        imageSourceCardId: card.id
       };
     });
 }
@@ -422,9 +450,26 @@ async function tcgDexAutocompleteChoices(query: string, limit: number): Promise<
     .filter((card) => tcgDexCardMatchesQuerySubject(card as TcgDexCard, querySubject))
     .flatMap((card) => {
       const name = tcgDexDisplayName(card as TcgDexCard, query);
-      return name ? [{ name, imageUrl: tcgDexImageUrl(card as TcgDexCard) }] : [];
+      return name
+        ? [{
+            name,
+            imageUrl: tcgDexImageUrl(card as TcgDexCard),
+            imageIdentity: normalizeChaseCardName(name),
+            imageSourceName: 'TCGDEX',
+            imageSourceKind: 'CARD_REFERENCE' as const,
+            imageSourceCardId: (card as TcgDexCard).id
+          }]
+        : [];
     })
-    .map((card) => ({ name: truncateChoice(card.name), value: truncateChoice(card.name), imageUrl: card.imageUrl }));
+    .map((card) => ({
+      name: truncateChoice(card.name),
+      value: truncateChoice(card.name),
+      imageUrl: card.imageUrl,
+      imageIdentity: card.imageIdentity,
+      imageSourceName: card.imageSourceName,
+      imageSourceKind: card.imageSourceKind,
+      imageSourceCardId: card.imageSourceCardId
+    }));
 }
 
 export async function autocompleteChaseCards(query: string, limit = 25): Promise<ChaseCardAutocompleteChoice[]> {
@@ -484,8 +529,18 @@ export function clearChaseCardAutocompleteCache(): void {
   autocompletePreviewCache.clear();
 }
 
-export function getCachedChaseCardPreviewImage(cardName: string): string | undefined {
+export function getCachedChaseCardPreview(cardName: string): CachedChaseCardPreview | undefined {
   const cached = autocompletePreviewCache.get(normalize(cardName));
   if (!cached || cached.expiresAt <= Date.now()) return undefined;
-  return cached.imageUrl;
+  return cached.preview;
 }
+
+export function getCachedChaseCardPreviewImage(cardName: string): string | undefined {
+  return getCachedChaseCardPreview(cardName)?.imageUrl;
+}
+
+export const __chaseCardCatalogTestHooks = {
+  cachePreview(cardName: string, preview: CachedChaseCardPreview): void {
+    cacheAutocompletePreview(cardName, preview);
+  }
+};

@@ -6,6 +6,11 @@ export type Chase = {
   userId: string;
   guildId?: string;
   cardName: string;
+  cardImageUrl?: string;
+  cardImageIdentity?: string;
+  cardImageSourceName?: string;
+  cardImageSourceKind?: 'CARD_REFERENCE' | 'MARKET_LISTING';
+  cardImageSourceCardId?: string;
   queryName?: string;
   priority?: 'GRAIL' | 'HIGH' | 'NORMAL';
   targetNote?: string;

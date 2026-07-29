@@ -17,6 +17,11 @@ db.exec(`
     user_id TEXT NOT NULL,
     guild_id TEXT,
     card_name TEXT NOT NULL,
+    card_image_url TEXT,
+    card_image_identity TEXT,
+    card_image_source_name TEXT,
+    card_image_source_kind TEXT,
+    card_image_source_card_id TEXT,
     query_name TEXT,
     priority TEXT NOT NULL DEFAULT 'NORMAL',
     target_note TEXT,
@@ -559,6 +564,31 @@ try {
 }
 try {
   db.exec(`ALTER TABLE chases ADD COLUMN query_name TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN card_image_url TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN card_image_identity TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN card_image_source_name TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN card_image_source_kind TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN card_image_source_card_id TEXT;`);
 } catch {
   // Column already exists on upgraded databases.
 }

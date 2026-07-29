@@ -3,7 +3,9 @@ import { chase } from '../chase.js';
 import { handleChaseAddAutocomplete } from '../chase-add.js';
 import { handleChaseEditAutocomplete } from '../chase-edit.js';
 import { buildChaseListEmbed } from '../chase-list.js';
+import { __chaseRemoveTestHooks, handleChaseRemoveButtons } from '../chase-remove.js';
 import {
+  __chaseStoreTestHooks,
   addChase,
   getDiscoveryGlobalCollectorGrammarSummary,
   getDiscoveryLearnedSignalSummary,
@@ -16,8 +18,11 @@ import {
   setUserPlan,
   undoDiscoveryFeedback
 } from '../../services/chase-store.js';
-import { clearChaseCardAutocompleteCache } from '../../services/chase-card-catalog.js';
-import { autocompleteChaseCards } from '../../services/chase-card-catalog.js';
+import {
+  __chaseCardCatalogTestHooks,
+  autocompleteChaseCards,
+  clearChaseCardAutocompleteCache
+} from '../../services/chase-card-catalog.js';
 import { db } from '../../services/db.js';
 
 const testUserIds = new Set<string>();
@@ -50,6 +55,18 @@ function mockInteraction(userId: string, subcommand: string, values: Record<stri
   };
 }
 
+function mockButtonInteraction(userId: string, customId: string) {
+  const reply = vi.fn(async (_payload?: any) => undefined);
+  const update = vi.fn(async (_payload?: any) => undefined);
+  return {
+    user: { id: userId },
+    customId,
+    isButton: () => true,
+    reply,
+    update
+  };
+}
+
 function mockAutocompleteInteraction(userId: string, subcommand: string, focusedName: string, focusedValue: string) {
   const respond = vi.fn(async (_choices?: any) => undefined);
   return {
@@ -67,6 +84,8 @@ function mockAutocompleteInteraction(userId: string, subcommand: string, focused
 afterEach(() => {
   globalThis.fetch = originalFetch;
   clearChaseCardAutocompleteCache();
+  __chaseRemoveTestHooks.clearPending();
+  __chaseRemoveTestHooks.setNow(null);
   for (const userId of testUserIds) {
     removeAllChases(userId);
     db.prepare('DELETE FROM user_discovery_feedback WHERE user_id = ?').run(userId);
@@ -155,6 +174,224 @@ describe('chase command', () => {
 
     const payload = interaction.reply.mock.calls[0]![0] as any;
     expect(payload.embeds[0].toJSON().thumbnail?.url).toBe('https://images.pokemontcg.io/sv4pt5/232_hires.png');
+    expect(listChases(userId)[0]).toMatchObject({
+      cardImageUrl: 'https://images.pokemontcg.io/sv4pt5/232_hires.png',
+      cardImageIdentity: 'Mew ex Paldean Fates 232',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceName: 'POKEMONTCG',
+      cardImageSourceCardId: 'sv4pt5-232'
+    });
+  });
+
+  it('omits the confirmation image when no trusted image is cached', async () => {
+    const userId = testUserId('add-no-image-confirmation');
+    setUserPlan(userId, 'FREE');
+    const interaction = mockInteraction(userId, 'add', {
+      card: 'Obscure Custom Collector Card 001'
+    });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    expect(payload.embeds[0].toJSON().thumbnail).toBeUndefined();
+    expect(payload.embeds[0].toJSON().title).toBe('✅ Chase Added');
+    expect(listChases(userId)[0]?.cardImageUrl).toBeUndefined();
+  });
+
+  it('preserves the exact resolved printing image through chase-name normalization', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV9a-087')) {
+        return new Response(JSON.stringify({
+          id: 'SV9a-087',
+          localId: '087',
+          name: 'サーナイト',
+          image: 'https://assets.tcgdex.net/ja/SV/SV9a/087',
+          set: { id: 'SV9a', cardCount: { official: 63 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('localId=087') || url.includes('name=%E3%82%B5%E3%83%BC%E3%83%8A%E3%82%A4%E3%83%88')) {
+        return new Response(JSON.stringify([
+          { id: 'SV9a-087', localId: '087', name: 'サーナイト', image: 'https://assets.tcgdex.net/ja/SV/SV9a/087' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+    await autocompleteChaseCards('Gardevoir 087/063', 10);
+    const userId = testUserId('add-exact-printing-image');
+    setUserPlan(userId, 'FREE');
+
+    const interaction = mockInteraction(userId, 'add', {
+      card: 'Gardevoir Japanese 087/063'
+    });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    expect(payload.embeds[0].toJSON().thumbnail?.url).toBe('https://assets.tcgdex.net/ja/SV/SV9a/087/high.png');
+    expect(payload.embeds[0].toJSON().description).toContain('**Card:** Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063');
+    expect(listChases(userId)[0]).toMatchObject({
+      cardName: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063',
+      cardImageUrl: 'https://assets.tcgdex.net/ja/SV/SV9a/087/high.png',
+      cardImageIdentity: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceName: 'TCGDEX',
+      cardImageSourceCardId: 'SV9a-087'
+    });
+  });
+
+  it('persists trusted chase image metadata after cache clear', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+    await autocompleteChaseCards('mew ex', 10);
+    const userId = testUserId('persisted-image-after-cache-clear');
+    setUserPlan(userId, 'FREE');
+
+    const interaction = mockInteraction(userId, 'add', {
+      card: 'Mew ex Paldean Fates 232'
+    });
+
+    await chase.execute(interaction);
+    clearChaseCardAutocompleteCache();
+
+    expect(listChases(userId)[0]).toMatchObject({
+      cardImageUrl: 'https://images.pokemontcg.io/sv4pt5/232_hires.png',
+      cardImageIdentity: 'Mew ex Paldean Fates 232',
+      cardImageSourceKind: 'CARD_REFERENCE'
+    });
+  });
+
+  it('rejects mismatched cached image identity during chase persistence', async () => {
+    const userId = testUserId('reject-mismatched-image-identity');
+    setUserPlan(userId, 'FREE');
+    __chaseCardCatalogTestHooks.cachePreview('Mew ex Paldean Fates 232', {
+      imageUrl: 'https://images.pokemontcg.io/sv4pt5/232_hires.png',
+      imageIdentity: 'Different Card Name 999',
+      imageSourceName: 'POKEMONTCG',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'sv4pt5-232'
+    });
+
+    const interaction = mockInteraction(userId, 'add', {
+      card: 'Mew ex Paldean Fates 232'
+    });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    expect(payload.embeds[0].toJSON().thumbnail).toBeUndefined();
+    expect(listChases(userId)[0]).toMatchObject({
+      cardName: 'Mew ex Paldean Fates 232',
+      cardImageUrl: undefined,
+      cardImageIdentity: undefined,
+      cardImageSourceKind: undefined
+    });
+  });
+
+  it('rolls back chase add when persistence fails', async () => {
+    const userId = testUserId('rollback-chase-add-failure');
+    __chaseStoreTestHooks.failNextAddChase();
+
+    expect(() => addChase({
+      userId,
+      cardName: 'Mew ex Paldean Fates 232',
+      cardImageUrl: 'https://images.pokemontcg.io/sv4pt5/232_hires.png',
+      cardImageIdentity: 'Mew ex Paldean Fates 232',
+      cardImageSourceName: 'POKEMONTCG',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceCardId: 'sv4pt5-232'
+    })).toThrow('Simulated chase add failure');
+
+    expect(listChases(userId)).toEqual([]);
+  });
+
+  it('keeps existing chase rows valid when image fields are null', () => {
+    const userId = testUserId('legacy-null-image-row');
+    db.prepare(`
+      INSERT INTO chases (
+        id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id,
+        query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'legacy-chase-row',
+      userId,
+      null,
+      'Legacy Card 001',
+      null,
+      null,
+      null,
+      null,
+      null,
+      'Legacy Card 001',
+      'NORMAL',
+      null,
+      null,
+      null,
+      null,
+      'ANY',
+      null,
+      new Date().toISOString()
+    );
+
+    expect(listChases(userId)[0]).toMatchObject({
+      cardName: 'Legacy Card 001',
+      cardImageUrl: undefined,
+      cardImageIdentity: undefined,
+      cardImageSourceKind: undefined
+    });
+  });
+
+  it('uses the same Chase Added confirmation format for autocomplete and manual add paths', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' }, images: { large: 'https://images.pokemontcg.io/sv4pt5/232_hires.png' } }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+    await autocompleteChaseCards('mew ex', 10);
+    const autocompleteUserId = testUserId('add-format-autocomplete');
+    const manualUserId = testUserId('add-format-manual');
+    setUserPlan(autocompleteUserId, 'FREE');
+    setUserPlan(manualUserId, 'FREE');
+
+    const autocompleteInteraction = mockInteraction(autocompleteUserId, 'add', {
+      card: 'Mew ex Paldean Fates 232'
+    });
+    const manualInteraction = mockInteraction(manualUserId, 'add', {
+      card: 'Plain Broad Card'
+    });
+
+    await chase.execute(autocompleteInteraction);
+    await chase.execute(manualInteraction);
+
+    const autocompleteEmbed = autocompleteInteraction.reply.mock.calls[0]![0].embeds[0].toJSON();
+    const manualEmbed = manualInteraction.reply.mock.calls[0]![0].embeds[0].toJSON();
+
+    expect(autocompleteEmbed.title).toBe('✅ Chase Added');
+    expect(manualEmbed.title).toBe('✅ Chase Added');
+    expect(autocompleteEmbed.description).toContain('Nice pick! Vaultr is on it');
+    expect(manualEmbed.description).toContain('Nice pick! Vaultr is on it');
+    expect(autocompleteEmbed.description).toContain('**Next:** Use `/chase list` to review active chases');
+    expect(manualEmbed.description).toContain('**Next:** Use `/chase list` to review active chases');
+    expect(listChases(autocompleteUserId)[0]?.cardImageUrl).toBe('https://images.pokemontcg.io/sv4pt5/232_hires.png');
+    expect(listChases(manualUserId)[0]?.cardImageUrl).toBeUndefined();
   });
 
   it('keeps broad English card autocomplete on the fast Pokemon source path', async () => {
@@ -1304,13 +1541,10 @@ describe('chase command', () => {
       .options?.find((option: any) => option.name === 'remove') as any;
     const options = remove.options ?? [];
     const chaseOption = options.find((option: any) => option.name === 'chase');
-    const reasonOption = options.find((option: any) => option.name === 'reason');
 
-    expect(options.map((option: any) => option.name)).toEqual(['chase', 'reason']);
+    expect(options.map((option: any) => option.name)).toEqual(['chase']);
     expect(chaseOption?.autocomplete).toBe(true);
     expect(chaseOption?.required).toBe(true);
-    expect(reasonOption?.required).toBeFalsy();
-    expect(reasonOption?.choices.map((choice: any) => choice.value)).toEqual(['FOUND', 'MISTAKE', 'NOT_FOR_ME']);
   });
 
   it('shows defaults in chase add helper text', () => {
@@ -1575,12 +1809,16 @@ describe('chase command', () => {
 
     await chase.execute(interaction);
 
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const buttonId = payload.components[0].components[0].data.custom_id as string;
+    await handleChaseRemoveButtons(mockButtonInteraction(userId, buttonId));
+
     const remaining = listChases(userId);
     expect(remaining.map((item) => item.id)).toEqual([keep.id]);
     expect(interaction.reply).toHaveBeenCalledOnce();
   });
 
-  it('defaults removed chases to completed taste memory', async () => {
+  it('removes a chase as completed only after confirmation', async () => {
     const userId = testUserId('remove-completed-memory');
     const remove = addChase({
       userId,
@@ -1589,29 +1827,21 @@ describe('chase command', () => {
       priority: 'NORMAL',
       listingType: 'ANY'
     });
+    const interaction = mockInteraction(userId, 'remove', { chase: remove.id });
 
-    await chase.execute(mockInteraction(userId, 'remove', { chase: remove.id }));
+    await chase.execute(interaction);
 
+    expect(listChases(userId).map((item) => item.id)).toEqual([remove.id]);
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const buttonId = payload.components[0].components[0].data.custom_id as string;
+    const button = mockButtonInteraction(userId, buttonId);
+    await handleChaseRemoveButtons(button);
     expect(listChases(userId)).toEqual([]);
     expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Meowth 18/53:BOUGHT_OR_SEEN']);
+    expect(button.update.mock.calls[0]![0].embeds[0].data.title).toBe('✅ Chase Completed');
   });
 
-  it('can remove an accidental chase without adding taste memory', async () => {
-    const userId = testUserId('remove-mistake-memory');
-    const remove = addChase({
-      userId,
-      cardName: 'Random Bulk Card',
-      priority: 'NORMAL',
-      listingType: 'ANY'
-    });
-
-    await chase.execute(mockInteraction(userId, 'remove', { chase: remove.id, reason: 'MISTAKE' }));
-
-    expect(listChases(userId)).toEqual([]);
-    expect(listUserTasteMemoryChases(userId)).toEqual([]);
-  });
-
-  it('can remove a chase as not for me taste memory', async () => {
+  it('removes a chase as no longer interested without marking it completed', async () => {
     const userId = testUserId('remove-negative-memory');
     const remove = addChase({
       userId,
@@ -1619,11 +1849,180 @@ describe('chase command', () => {
       priority: 'NORMAL',
       listingType: 'ANY'
     });
+    const interaction = mockInteraction(userId, 'remove', { chase: remove.id });
 
-    await chase.execute(mockInteraction(userId, 'remove', { chase: remove.id, reason: 'NOT_FOR_ME' }));
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const buttonId = payload.components[0].components[1].data.custom_id as string;
+    const button = mockButtonInteraction(userId, buttonId);
+    await handleChaseRemoveButtons(button);
 
     expect(listChases(userId)).toEqual([]);
     expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Pikachu Pokemon Rumble 7:REMOVED_CHASE']);
+    expect(button.update.mock.calls[0]![0].embeds[0].data.description).toContain('It was not marked as completed.');
+  });
+
+  it('removes a chase added by mistake without changing collector profile', async () => {
+    const userId = testUserId('remove-mistake-memory');
+    const remove = addChase({
+      userId,
+      cardName: 'Random Bulk Card',
+      priority: 'NORMAL',
+      listingType: 'ANY'
+    });
+    const interaction = mockInteraction(userId, 'remove', { chase: remove.id });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const buttonId = payload.components[0].components[2].data.custom_id as string;
+    const button = mockButtonInteraction(userId, buttonId);
+    await handleChaseRemoveButtons(button);
+    expect(listChases(userId)).toEqual([]);
+    expect(listUserTasteMemoryChases(userId)).toEqual([]);
+    expect(button.update.mock.calls[0]![0].embeds[0].data.description).toContain('without changing your collector profile');
+  });
+
+  it('cancels chase removal without changing database state', async () => {
+    const userId = testUserId('remove-cancel');
+    const remove = addChase({
+      userId,
+      cardName: 'Mew RC24',
+      priority: 'HIGH',
+      listingType: 'ANY'
+    });
+    const interaction = mockInteraction(userId, 'remove', { chase: remove.id });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const buttonId = payload.components[0].components[3].data.custom_id as string;
+    const button = mockButtonInteraction(userId, buttonId);
+    await handleChaseRemoveButtons(button);
+
+    expect(listChases(userId).map((item) => item.id)).toEqual([remove.id]);
+    expect(listUserTasteMemoryChases(userId)).toEqual([]);
+    expect(button.update.mock.calls[0]![0].embeds[0].data.title).toBe('Removal Cancelled');
+  });
+
+  it('rejects unauthorized button users', async () => {
+    const userId = testUserId('remove-unauthorized-owner');
+    const otherUserId = testUserId('remove-unauthorized-other');
+    const remove = addChase({
+      userId,
+      cardName: 'Umbreon GX SM36',
+      priority: 'NORMAL',
+      listingType: 'ANY'
+    });
+    const interaction = mockInteraction(userId, 'remove', { chase: remove.id });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const buttonId = payload.components[0].components[0].data.custom_id as string;
+    const button = mockButtonInteraction(otherUserId, buttonId);
+    await handleChaseRemoveButtons(button);
+
+    expect(listChases(userId).map((item) => item.id)).toEqual([remove.id]);
+    expect(button.reply.mock.calls[0]![0].content).toBe('Only the original requester can use these buttons');
+  });
+
+  it('makes no change after interaction expiry', async () => {
+    const userId = testUserId('remove-expired');
+    const remove = addChase({
+      userId,
+      cardName: 'Gardevoir ex 233/091',
+      priority: 'NORMAL',
+      listingType: 'ANY'
+    });
+    const interaction = mockInteraction(userId, 'remove', { chase: remove.id });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const buttonId = payload.components[0].components[0].data.custom_id as string;
+    __chaseRemoveTestHooks.setNow(() => Date.now() + 16 * 60 * 1000);
+    const button = mockButtonInteraction(userId, buttonId);
+    await handleChaseRemoveButtons(button);
+
+    expect(listChases(userId).map((item) => item.id)).toEqual([remove.id]);
+    expect(listUserTasteMemoryChases(userId)).toEqual([]);
+    expect(button.update.mock.calls[0]![0].embeds[0].data.title).toBe('⛔ Removal Expired');
+  });
+
+  it('treats duplicate button submission as idempotent', async () => {
+    const userId = testUserId('remove-duplicate');
+    const remove = addChase({
+      userId,
+      cardName: 'Pichu Expedition 22/165',
+      priority: 'NORMAL',
+      listingType: 'ANY'
+    });
+    const interaction = mockInteraction(userId, 'remove', { chase: remove.id });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const buttonId = payload.components[0].components[0].data.custom_id as string;
+    const first = mockButtonInteraction(userId, buttonId);
+    const second = mockButtonInteraction(userId, buttonId);
+    await handleChaseRemoveButtons(first);
+    await handleChaseRemoveButtons(second);
+
+    expect(listChases(userId)).toEqual([]);
+    expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Pichu Expedition 22/165:BOUGHT_OR_SEEN']);
+    expect(second.update.mock.calls[0]![0].embeds[0].data.title).toBe('✅ Chase Completed');
+  });
+
+  it('does not leave partial state when chase removal persistence fails', async () => {
+    const userId = testUserId('remove-failure');
+    const remove = addChase({
+      userId,
+      cardName: 'Mewtwo LV.X 144/146',
+      priority: 'NORMAL',
+      listingType: 'ANY'
+    });
+    const interaction = mockInteraction(userId, 'remove', { chase: remove.id });
+
+    await chase.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0]![0] as any;
+    const buttonId = payload.components[0].components[0].data.custom_id as string;
+    __chaseStoreTestHooks.failNextResolvedRemoval();
+    const button = mockButtonInteraction(userId, buttonId);
+    await handleChaseRemoveButtons(button);
+
+    expect(listChases(userId).map((item) => item.id)).toEqual([remove.id]);
+    expect(listUserTasteMemoryChases(userId)).toEqual([]);
+    expect(button.update.mock.calls[0]![0].embeds[0].data.title).toBe('⛔ Remove Failed');
+  });
+
+  it('only completed contributes to completed chase history', async () => {
+    const userId = testUserId('remove-history-split');
+    const completed = addChase({ userId, cardName: 'Meowth 18/53', priority: 'NORMAL', listingType: 'ANY' });
+    const uninterested = addChase({ userId, cardName: 'Zapdos Aquapolis 44', priority: 'NORMAL', listingType: 'ANY' });
+    const mistake = addChase({ userId, cardName: 'Random Vintage Lot', priority: 'NORMAL', listingType: 'ANY' });
+
+    const completedInteraction = mockInteraction(userId, 'remove', { chase: completed.id });
+    await chase.execute(completedInteraction);
+    const completedPayload = completedInteraction.reply.mock.calls[0]![0] as any;
+    await handleChaseRemoveButtons(mockButtonInteraction(userId, completedPayload.components[0].components[0].data.custom_id as string));
+
+    const uninterestedInteraction = mockInteraction(userId, 'remove', { chase: uninterested.id });
+    await chase.execute(uninterestedInteraction);
+    const uninterestedPayload = uninterestedInteraction.reply.mock.calls[0]![0] as any;
+    await handleChaseRemoveButtons(mockButtonInteraction(userId, uninterestedPayload.components[0].components[1].data.custom_id as string));
+
+    const mistakeInteraction = mockInteraction(userId, 'remove', { chase: mistake.id });
+    await chase.execute(mistakeInteraction);
+    const mistakePayload = mistakeInteraction.reply.mock.calls[0]![0] as any;
+    await handleChaseRemoveButtons(mockButtonInteraction(userId, mistakePayload.components[0].components[2].data.custom_id as string));
+
+    expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual([
+      'Meowth 18/53:BOUGHT_OR_SEEN',
+      'Zapdos Aquapolis 44:REMOVED_CHASE'
+    ]);
   });
 
   it('lists default exclusions once while showing chase-specific custom exclusions inline', () => {

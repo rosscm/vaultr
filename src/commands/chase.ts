@@ -145,16 +145,6 @@ export const chase = {
             .setRequired(true)
             .setAutocomplete(true)
         )
-        .addStringOption((opt) =>
-          opt
-            .setName('reason')
-            .setDescription('Why this chase is leaving your Vault (default: Found or bought)')
-            .addChoices(
-              { name: 'Found or bought', value: 'FOUND' },
-              { name: 'Added by mistake', value: 'MISTAKE' },
-              { name: 'Not for me', value: 'NOT_FOR_ME' }
-            )
-        )
     ),
   async execute(interaction: any) {
     const subcommand = interaction.options.getSubcommand();

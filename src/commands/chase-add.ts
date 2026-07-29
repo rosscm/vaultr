@@ -10,7 +10,12 @@ import {
 } from '../services/chase-store.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
-import { autocompleteChaseCards, getCachedChaseCardPreviewImage, normalizeChaseCardName } from '../services/chase-card-catalog.js';
+import {
+  autocompleteChaseCards,
+  getCachedChaseCardPreview,
+  normalizeChaseCardName,
+  type CachedChaseCardPreview
+} from '../services/chase-card-catalog.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { buildGradePreference, gradeSelectionWarning, normalizeConditionChoice } from './chase-options.js';
@@ -44,6 +49,62 @@ function broadChaseNudge(cardName: string): string {
     return 'Good card choice. With no filters yet, this chase is still wide open, so add a max price, grade, or a few exclusions if results get noisy.';
   }
   return 'This chase is wide open right now, so add a set, card number, max price, grade, or a few exclusions if results get noisy.';
+}
+
+function buildChaseAddedEmbed(
+  chase: ReturnType<typeof addChase>,
+  blockedProControls: string[]
+) {
+  const noFiltersApplied = addedWithoutFilters({
+    maxPrice: chase.maxPrice,
+    grade: chase.grade,
+    condition: chase.condition,
+    listingType: chase.listingType,
+    negativeKeywords: chase.negativeKeywords
+  });
+  const lines = [
+    'Nice pick! Vaultr is on it 🫡',
+    noFiltersApplied ? broadChaseNudge(chase.cardName) : chaseNameQualityLine(chase.cardName),
+    ...(noFiltersApplied
+      ? [
+          'Tip: start broad if you want, then tighten it once you see the kinds of listings that show up.'
+        ]
+      : []),
+    '',
+    `**Card:** ${chase.cardName}`,
+    `**Priority:** ${chase.priority ?? 'NORMAL'}`,
+    `**Note:** ${orNone(chase.targetNote)}`,
+    `**Max Price:** ${chase.maxPrice ?? OUTPUT_STYLE.any}`,
+    `**Grade:** ${displayGrade(chase.grade)}`,
+    `**Condition:** ${displayCondition(chase.condition)}`,
+    `**Listing Type:** ${displayAny(chase.listingType)}`,
+    `**Custom Exclusions:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
+    `**Default Exclusions:** ${DEFAULT_NEGATIVE_KEYWORDS.join(', ')}`,
+    ...(blockedProControls.length > 0
+      ? [
+          '',
+          `**Pro Controls Not Applied:** ${blockedProControls.join(', ')}`,
+          proControlsNextLine()
+        ]
+      : []),
+    '',
+    '**Next:** Use `/chase list` to review active chases'
+  ];
+
+  const embed = successEmbed('Chase Added', lines.join('\n')).setTitle('✅ Chase Added');
+  if (chase.cardImageUrl) embed.setThumbnail(chase.cardImageUrl);
+  return embed;
+}
+
+function trustedChasePreviewForPersistence(cardName: string, normalizedCardName: string): CachedChaseCardPreview | undefined {
+  const preview =
+    getCachedChaseCardPreview(cardName) ??
+    getCachedChaseCardPreview(normalizedCardName);
+  if (!preview?.imageUrl) return undefined;
+  if (preview.imageSourceKind !== 'CARD_REFERENCE') return undefined;
+  if ((preview.imageIdentity ?? '').trim().length === 0) return undefined;
+  if (normalizeChaseCardName(preview.imageIdentity!) !== normalizedCardName) return undefined;
+  return preview;
 }
 
 function proControlNames(values: {
@@ -171,10 +232,16 @@ export const chaseAdd = {
       return;
     }
 
+    const trustedPreview = trustedChasePreviewForPersistence(cardName, normalizedCardName);
     const chase = addChase({
       userId: interaction.user.id,
       guildId: interaction.guildId ?? undefined,
-      cardName: normalizeChaseCardName(cardName),
+      cardName: normalizedCardName,
+      cardImageUrl: trustedPreview?.imageUrl,
+      cardImageIdentity: trustedPreview?.imageIdentity,
+      cardImageSourceName: trustedPreview?.imageSourceName,
+      cardImageSourceKind: trustedPreview?.imageSourceKind,
+      cardImageSourceCardId: trustedPreview?.imageSourceCardId,
       priority,
       targetNote: appliedTargetNote,
       maxPrice,
@@ -183,46 +250,7 @@ export const chaseAdd = {
       listingType,
       negativeKeywords: tuningTerms && tuningTerms.length > 0 ? tuningTerms : undefined
     });
-    const noFiltersApplied = addedWithoutFilters({
-      maxPrice: chase.maxPrice,
-      grade: chase.grade,
-      condition: chase.condition,
-      listingType: chase.listingType,
-      negativeKeywords: chase.negativeKeywords
-    });
-
-    const lines = [
-      'Nice pick! Vaultr is on it 🫡',
-      noFiltersApplied ? broadChaseNudge(chase.cardName) : chaseNameQualityLine(chase.cardName),
-      ...(noFiltersApplied
-        ? [
-            'Tip: start broad if you want, then tighten it once you see the kinds of listings that show up.'
-          ]
-        : []),
-      '',
-      `**Card:** ${chase.cardName}`,
-      `**Priority:** ${chase.priority ?? 'NORMAL'}`,
-      `**Note:** ${orNone(chase.targetNote)}`,
-      `**Max Price:** ${chase.maxPrice ?? OUTPUT_STYLE.any}`,
-      `**Grade:** ${displayGrade(chase.grade)}`,
-      `**Condition:** ${displayCondition(chase.condition)}`,
-      `**Listing Type:** ${displayAny(chase.listingType)}`,
-      `**Custom Exclusions:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
-      `**Default Exclusions:** ${DEFAULT_NEGATIVE_KEYWORDS.join(', ')}`,
-      ...(blockedProControls.length > 0
-        ? [
-            '',
-            `**Pro Controls Not Applied:** ${blockedProControls.join(', ')}`,
-            proControlsNextLine()
-          ]
-        : []),
-      '',
-      '**Next:** Use `/chase list` to review active chases'
-    ];
-
-    const embed = successEmbed('Chase Added', lines.join('\n')).setTitle('✅ Chase Added');
-    const previewImage = getCachedChaseCardPreviewImage(chase.cardName);
-    if (previewImage) embed.setThumbnail(previewImage);
+    const embed = buildChaseAddedEmbed(chase, blockedProControls);
 
     await interaction.reply({
       embeds: [embed],
