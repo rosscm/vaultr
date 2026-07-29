@@ -1075,6 +1075,15 @@ function matchesJapaneseCollectorQuality(card: TcgDexCard): boolean {
   return !isOrdinaryModernJapaneseRarity(card);
 }
 
+function isGenericJapaneseCollectorParentSuggestion(suggestion: DiscoverySuggestion): boolean {
+  const text = normalizeSearchText([sourceText(suggestion), ...(suggestion.sourceTasteTokens ?? []), ...(suggestion.requiredEvidenceTokens ?? [])].join(' '));
+  if (!/\bjapanese\b/.test(text)) return false;
+  if (!/\bpokemon cards?\b/.test(text)) return false;
+  if (isKnownSetTasteToken(text) || /\bset\s*:/i.test(text)) return false;
+  if (/\b\d{1,4}(?:\/\d{1,4})?\b/.test(text)) return false;
+  return true;
+}
+
 function matchesSuggestionSpecificJapaneseSubject(
   card: TcgDexCard,
   suggestion: DiscoverySuggestion,
@@ -1086,7 +1095,11 @@ function matchesSuggestionSpecificJapaneseSubject(
   if ((card.dexId ?? []).some((dex) => suggestionDexNumbers.has(dex))) return true;
   const englishName = normalizeSearchText(tcgDexEnglishCardName(card, profile));
   const rawName = normalizeSearchText(card.name ?? '');
-  return identityTerms.some((term) => englishName.includes(term) || rawName.includes(term));
+  if (identityTerms.some((term) => englishName.includes(term) || rawName.includes(term))) return true;
+  if (suggestionDexNumbers.size === 0 && profile.dexNumbers.size > 0 && isGenericJapaneseCollectorParentSuggestion(suggestion)) {
+    return true;
+  }
+  return false;
 }
 
 function matchesTcgDexProfileAnchor(card: TcgDexCard, profile: SourceTasteProfile): boolean {
