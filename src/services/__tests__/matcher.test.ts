@@ -192,6 +192,92 @@ describe('matchChaseToListing', () => {
     expect(withResult.reasons).toContain('card_name_match_tokens');
   });
 
+  it('blocks the reported custom CoroCoro listing before alert scoring', () => {
+    const chase = baseChase({ cardName: 'Mew CoroCoro Promo 151', queryName: 'CoroCoro Shining Mew', maxPrice: 500 });
+    const listing = baseListing({
+      title: 'Shining Mew Corocoro Promotional Cards Holo (Japanese)(art by me)',
+      sellerFeedbackPercent: 100,
+      sellerFeedbackScore: 5000,
+      price: 80
+    });
+
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result).toEqual({
+      isMatch: false,
+      score: 0,
+      reasons: ['custom_or_unofficial_item_block']
+    });
+  });
+
+  it('blocks custom-art variants after punctuation and whitespace normalization', () => {
+    const chase = baseChase({ cardName: 'Mew CoroCoro Promo 151', queryName: 'CoroCoro Shining Mew' });
+    const titles = [
+      'CoroCoro Shining Mew ART-BY-ME',
+      'CoroCoro Shining Mew my artwork',
+      'CoroCoro Shining Mew custom card',
+      'CoroCoro Shining Mew hand-painted',
+      'CoroCoro Shining Mew artist altered',
+      'CoroCoro Shining Mew I drew this'
+    ];
+
+    for (const title of titles) {
+      expect(matchChaseToListing(chase, baseListing({ title }))).toEqual({
+        isMatch: false,
+        score: 0,
+        reasons: ['custom_or_unofficial_item_block']
+      });
+    }
+  });
+
+  it('blocks proxy and replica listings', () => {
+    const chase = baseChase({ cardName: 'Umbreon VMAX 215/203 Evolving Skies' });
+    const proxy = matchChaseToListing(chase, baseListing({ title: 'Umbreon VMAX 215/203 Evolving Skies proxy' }));
+    const replica = matchChaseToListing(chase, baseListing({ title: 'Umbreon VMAX 215/203 Evolving Skies replica' }));
+
+    expect(proxy.reasons).toEqual(['custom_or_unofficial_item_block']);
+    expect(replica.reasons).toEqual(['custom_or_unofficial_item_block']);
+  });
+
+  it('keeps legitimate Art Rare, SAR, Alternate Art, and Full Art listings eligible', () => {
+    const chase = baseChase({ cardName: 'Gardevoir ex 233/091', queryName: 'Gardevoir ex 233/091' });
+    const titles = [
+      'Gardevoir ex 233/091 Special Art Rare Pokemon Card',
+      'Gardevoir ex 233/091 Art Rare Pokemon Card',
+      'Gardevoir ex 233/091 Alternate Art Pokemon Card',
+      'Gardevoir ex 233/091 Full Art Pokemon Card',
+      'Gardevoir ex 233/091 SAR Pokemon Card'
+    ];
+
+    for (const title of titles) {
+      const result = matchChaseToListing(chase, baseListing({ title }));
+      expect(result.isMatch).toBe(true);
+      expect(result.reasons).not.toContain('custom_or_unofficial_item_block');
+    }
+  });
+
+  it('does not let seller trust, price, or card-name overlap override a hard custom-item exclusion', () => {
+    const chase = baseChase({
+      cardName: 'Umbreon VMAX 215/203 Evolving Skies',
+      maxPrice: 500,
+      grade: 'PSA 10'
+    });
+    const listing = baseListing({
+      title: 'Umbreon VMAX 215/203 Evolving Skies PSA 10 fan made',
+      price: 50,
+      sellerFeedbackPercent: 100,
+      sellerFeedbackScore: 10000
+    });
+
+    const result = matchChaseToListing(chase, listing);
+
+    expect(result).toEqual({
+      isMatch: false,
+      score: 0,
+      reasons: ['custom_or_unofficial_item_block']
+    });
+  });
+
   it('relaxes token overlap threshold when card number already confirms identity', () => {
     // Listing title lacks "Toys R Us" so without relaxation the overlap (2/4) is below 0.7
     const chase = baseChase({ cardName: 'Pikachu 26/83 Toys R Us promo', queryName: 'Pikachu 26/83 Toys R Us' });
@@ -232,66 +318,77 @@ describe('matchChaseToListing', () => {
   });
 
   it('blocks default non-card listing types even without chase-specific custom exclusions', () => {
-    const examples: Array<{ cardName: string; title: string; term: string }> = [
+    const examples: Array<{ cardName: string; title: string; term?: string; reasons: string[] }> = [
       {
         cardName: 'Corocoro Shining Mew',
         title: '**SIGNED** Pokederp Meow (HOLO) - CoroCoro Shining Mew Fan Art Derpy Card',
-        term: 'fan art'
+        reasons: ['custom_or_unofficial_item_block']
       },
       {
         cardName: 'Moltres Zapdos Articuno SM210',
         title: 'POKEMON TCG EXTENDED ART ACRYLIC CASE CARD MOLTRES & ZAPDOS & ARTICUNO SM210 L28',
-        term: 'extended art'
+        term: 'extended art',
+        reasons: ['default_exclusion_block', 'default_exclusion:extended art']
       },
       {
         cardName: 'Moltres Zapdos Articuno SM210',
         title: 'Moltres, Zapdos & Articuno GX Promo SM210 Pokemon Card TCG Novelty Keychain',
-        term: 'novelty'
+        term: 'novelty',
+        reasons: ['default_exclusion_block', 'default_exclusion:novelty']
       },
       {
         cardName: 'Moltres Zapdos Articuno SM210',
         title: 'Pokemon Moltres Zapdos Articuno GX SM210 Hidden Fate Promo Extended Artwork Case',
-        term: 'extended art'
+        term: 'extended art',
+        reasons: ['default_exclusion_block', 'default_exclusion:extended art']
       },
       {
         cardName: 'Mega Gardevoir EX SAR 087/063 Mega Symphonia',
         title: 'Mega Gardevoir EX SAR 087/063 Mega Symphonia Magnetic Extended Art Case',
-        term: 'extended art'
+        term: 'extended art',
+        reasons: ['default_exclusion_block', 'default_exclusion:extended art']
       },
       {
         cardName: 'Mew RC24/RC25',
         title: 'Pokémon TCG Mew EX RC24/RC25 Legendary Treasures Novelty Keychain ',
-        term: 'novelty'
+        term: 'novelty',
+        reasons: ['default_exclusion_block', 'default_exclusion:novelty']
       },
       {
         cardName: 'Gardevoir ex 233/091',
         title: 'Gardevoir Ex 233/091 Paldean Fates Credit Card Sticker',
-        term: 'sticker'
+        term: 'sticker',
+        reasons: ['default_exclusion_block', 'default_exclusion:sticker']
       },
       {
         cardName: 'Gardevoir ex 233/091',
         title: 'Gardevoir ex #233/091 Paldean Fates Extended Art Case No card',
-        term: 'extended art'
+        term: 'extended art',
+        reasons: ['default_exclusion_block', 'default_exclusion:extended art']
       },
       {
         cardName: 'Gardevoir ex 233/091',
         title: 'Gardevoir ex 233/091 Pokemon Extended Art Frame 5x7 Paldean Fates',
-        term: 'extended art'
+        term: 'extended art',
+        reasons: ['default_exclusion_block', 'default_exclusion:extended art']
       },
       {
         cardName: 'Moltres Zapdos Articuno SM210',
         title: 'Pokemon Moltres Zapdos Articuno GX SM210 Tag Team Stained Display Case',
-        term: 'display accessory'
+        term: 'display accessory',
+        reasons: ['default_exclusion_block', 'default_exclusion:display accessory']
       },
       {
         cardName: 'Umbreon EX 217/187',
         title: '9x Umbreon EX 217/187 Near Mint PSA',
-        term: 'multi-card lot'
+        term: 'multi-card lot',
+        reasons: ['default_exclusion_block', 'default_exclusion:multi-card lot']
       },
       {
         cardName: 'Pikachu 26/83',
         title: 'Lot of 5 Pikachu 26/83 Promo NM',
-        term: 'multi-card lot'
+        term: 'multi-card lot',
+        reasons: ['default_exclusion_block', 'default_exclusion:multi-card lot']
       }
     ];
 
@@ -301,7 +398,7 @@ describe('matchChaseToListing', () => {
       const result = matchChaseToListing(chase, listing);
 
       expect(result.isMatch).toBe(false);
-      expect(result.reasons).toEqual(['default_exclusion_block', `default_exclusion:${example.term}`]);
+      expect(result.reasons).toEqual(example.reasons);
     }
   });
 

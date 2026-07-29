@@ -8,6 +8,13 @@ function normalize(text: string): string {
     .trim();
 }
 
+function normalizePhraseText(text: string): string {
+  return normalize(text)
+    .replace(/[./-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function toTokens(text: string): string[] {
   return normalize(text)
     .split(/[\s-]+/)
@@ -174,6 +181,25 @@ const DEFAULT_EXCLUDED_TITLE_PATTERNS: Array<{ term: string; pattern: RegExp }> 
   { term: 'multi-card lot', pattern: /\b\d+x\b|\bx\d+\b|\blot\s+of\b/ }
 ];
 
+const CUSTOM_OR_UNOFFICIAL_PATTERNS: RegExp[] = [
+  /\bart\s+by\s+me\b/,
+  /\bmy\s+art(?:work)?\b/,
+  /\bi\s+(?:drew|painted)\b/,
+  /\bfan\s+(?:art|made)\b/,
+  /\bcustom\s+(?:art|card)\b/,
+  /\bhand\s+(?:drawn|painted)\b/,
+  /\bprox(?:y|ies)\b/,
+  /\breplicas?\b/,
+  /\bunofficial\b/,
+  /\baltered\s+card\b/,
+  /\bartist\s+altered\b/
+];
+
+function hasCustomOrUnofficialSignals(text: string): boolean {
+  const normalized = normalizePhraseText(text);
+  return CUSTOM_OR_UNOFFICIAL_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 export function defaultExcludedTitleTerm(title: string): string | undefined {
   const normalized = normalize(title).replace(/\btoys\s*r\s*us\b/g, 'retail promo');
   return DEFAULT_EXCLUDED_TITLE_PATTERNS.find(({ pattern }) => pattern.test(normalized))?.term;
@@ -203,6 +229,10 @@ export function matchChaseToListing(chase: Chase, listing: Listing): MatchResult
   const subjectTokens = coreSubjectTokens(chaseNameForMatch);
   const chaseCardNumbers = extractCardNumbers(chase.cardName);
   const listingCardNumbers = extractCardNumbers(listing.title);
+
+  if (hasCustomOrUnofficialSignals(listingDebugText)) {
+    return { isMatch: false, score: 0, reasons: ['custom_or_unofficial_item_block'] };
+  }
 
   const defaultBlocked = defaultExcludedTitleTerm(listingDebugText);
   if (defaultBlocked) {

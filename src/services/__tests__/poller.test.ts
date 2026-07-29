@@ -17,8 +17,10 @@ import {
   shouldPostDailyPulse
 } from '../poller.js';
 import { getUserAlertSettings, resetUserAlertSettings, setUserAlertSettings } from '../chase-store.js';
+import { matchChaseToListing } from '../matcher.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
 import { activePlanChases, activePlanTier, getRuntimePollIntervalSeconds, pausedPlanChases, PLAN_LIMITS } from '../plans.js';
+import type { Chase } from '../../types.js';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -28,6 +30,17 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
     status,
     json: async () => body
   } as Response;
+}
+
+function baseChase(overrides: Partial<Chase> = {}): Chase {
+  return {
+    id: 'poller-chase-1',
+    userId: 'poller-user-1',
+    cardName: 'Mew CoroCoro Promo 151',
+    queryName: 'CoroCoro Shining Mew',
+    createdAt: '2026-07-29T00:00:00.000Z',
+    ...overrides
+  };
 }
 
 beforeEach(() => {
@@ -189,6 +202,40 @@ describe('orderAlertCandidatesForSending', () => {
     ] as never);
 
     expect(ordered.map((candidate) => candidate.listing.listingId)).toEqual(['shopify-1', 'ebay-1', 'ebay-2']);
+  });
+
+  it('does not let blocked custom or unofficial listings reach alert-candidate ranking', () => {
+    const chase = baseChase({ maxPrice: 300 });
+    const listing: Listing = {
+      source: 'EBAY',
+      listingId: 'blocked-custom-1',
+      title: 'Shining Mew Corocoro Promotional Cards Holo (Japanese)(art by me)',
+      price: 80,
+      currency: 'CAD',
+      url: 'https://example.com/blocked-custom-1',
+      region: 'CA',
+      sellerFeedbackPercent: 100,
+      sellerFeedbackScore: 5000
+    };
+
+    const match = matchChaseToListing(chase, listing);
+    const candidates = match.isMatch
+      ? orderAlertCandidatesForSending([{
+          listing,
+          normalizedListing: listing,
+          match,
+          targetCurrency: 'CAD',
+          listingFingerprint: 'blocked-custom-1',
+          rankScore: match.score * 1000
+        } as never])
+      : [];
+
+    expect(match).toEqual({
+      isMatch: false,
+      score: 0,
+      reasons: ['custom_or_unofficial_item_block']
+    });
+    expect(candidates).toEqual([]);
   });
 });
 
