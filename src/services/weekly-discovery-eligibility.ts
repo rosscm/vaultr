@@ -60,8 +60,9 @@ export function evaluateWeeklyDiscoveryEligibility(
   tasteMemoryChases: Chase[] = [],
   minimumSignalCount = WEEKLY_DISCOVERY_MIN_UNIQUE_SIGNAL_COUNT
 ): WeeklyDiscoveryEligibility {
+  const eligibleTasteMemoryChases = tasteMemoryChases.filter((chase) => chase.tasteSource !== 'REMOVED_CHASE');
   const signalKeys = new Set<string>();
-  for (const chase of [...activeChases, ...tasteMemoryChases]) {
+  for (const chase of [...activeChases, ...eligibleTasteMemoryChases]) {
     const key = collectorSignalKey(chase);
     if (key !== 'name:') signalKeys.add(key);
   }
@@ -74,8 +75,8 @@ export function evaluateWeeklyDiscoveryEligibility(
     uniqueSignalCount,
     signalsNeeded,
     activeChaseCount: activeChases.length,
-    tasteMemoryCount: tasteMemoryChases.length,
-    duplicateSignalCount: Math.max(0, activeChases.length + tasteMemoryChases.length - uniqueSignalCount),
+    tasteMemoryCount: eligibleTasteMemoryChases.length,
+    duplicateSignalCount: Math.max(0, activeChases.length + eligibleTasteMemoryChases.length - uniqueSignalCount),
     reason: signalsNeeded === 0 ? 'ELIGIBLE' : 'INSUFFICIENT_SIGNAL'
   };
 }

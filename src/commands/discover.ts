@@ -1107,7 +1107,9 @@ export function sourceCatalogSufficientSuggestionCount(discoverySelectionCount: 
 }
 
 export function discoveryTasteProfileChases(chases: Chase[], tasteMemoryChases: Chase[], hasFullDiscovery: boolean): Chase[] {
-  return hasFullDiscovery ? mergeActiveAndTasteMemoryChases(chases, tasteMemoryChases) : chases;
+  return hasFullDiscovery
+    ? mergeActiveAndTasteMemoryChases(chases, tasteMemoryChases).filter((chase) => chase.tasteSource !== 'REMOVED_CHASE')
+    : chases;
 }
 
 function repeatGuardTasteMemoryChases(tasteMemoryChases: Chase[]): Chase[] {
@@ -2760,21 +2762,6 @@ export async function attachReferenceImages(
       }
     };
   });
-}
-
-function applyMarketplaceImageFallback(candidate: DiscoveryCandidate): DiscoveryCandidate {
-  if (candidate.image) return candidate;
-  const fallbackUrl = imageUrlFromListing(candidate.listing);
-  if (!fallbackUrl || !isConcreteDiscoveryCandidate(candidate)) return candidate;
-  return {
-    ...candidate,
-    image: {
-      name: candidate.suggestion.name,
-      url: fallbackUrl,
-      sourceName: marketplaceImageSourceNameForCandidate(candidate),
-      sourceKind: 'MARKET_LISTING'
-    }
-  };
 }
 
 async function hydrateShelfCandidateImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
@@ -5117,32 +5104,6 @@ function topOffParentSpecificSubjectKeys(suggestion: DiscoverySuggestion): strin
   );
 }
 
-function candidateWouldOverflowTopOffDiversityCaps(
-  candidate: DiscoveryCandidate,
-  readiness: WeeklyDiscoverySupplyReadiness
-): boolean {
-  const subjectKey = candidateShelfSubjectKey(candidate);
-  if (subjectKey && (readiness.selectedSubjectCounts[subjectKey] ?? 0) >= WEEKLY_DISCOVERY_SUBJECT_CAP) return true;
-  const familyKey = candidateEvolutionFamilyKey(candidate);
-  if (familyKey && (readiness.selectedFamilyCounts[familyKey] ?? 0) >= WEEKLY_DISCOVERY_FAMILY_CAP) return true;
-  return false;
-}
-
-function topOffDiversitySaturationReason(
-  candidate: DiscoveryCandidate,
-  readiness: WeeklyDiscoverySupplyReadiness
-): TopOffViabilityRejectionCode | undefined {
-  const subjectKey = candidateShelfSubjectKey(candidate);
-  if (subjectKey && (readiness.selectedSubjectCounts[subjectKey] ?? 0) >= WEEKLY_DISCOVERY_SUBJECT_CAP) {
-    return 'SATURATED_SUBJECT_CAP';
-  }
-  const familyKey = candidateEvolutionFamilyKey(candidate);
-  if (familyKey && (readiness.selectedFamilyCounts[familyKey] ?? 0) >= WEEKLY_DISCOVERY_FAMILY_CAP) {
-    return 'SATURATED_FAMILY_CAP';
-  }
-  return undefined;
-}
-
 function topOffParentWouldOverflowSubjectCap(
   suggestion: DiscoverySuggestion,
   readiness: WeeklyDiscoverySupplyReadiness
@@ -5354,15 +5315,6 @@ function boundedTopOffCandidateRejectionReason(
   const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
   if (estimate && estimate.amount < weeklyDiscoveryValueFloor(currency)) return 'BELOW_CHASE_VALUE_FLOOR';
   return undefined;
-}
-
-function isBoundedTopOffCandidateViable(
-  candidate: DiscoveryCandidate,
-  currency: SupportedCurrency,
-  repeatHistory: Map<string, ExactRepeatHistoryEntry>,
-  activeVaultChases: Chase[]
-): boolean {
-  return boundedTopOffCandidateRejectionReason(candidate, currency, repeatHistory, activeVaultChases) === undefined;
 }
 
 function topOffCandidateScore(
@@ -6463,7 +6415,6 @@ function takeDistinctThemes(candidates: DiscoveryCandidate[], chases: Chase[] = 
   const shouldLeaveRoomForNonJapanese = japaneseAffinity > 0 && japaneseAffinity < 0.85 && candidates.some((candidate) => !isJapaneseDiscoveryCandidate(candidate));
   const japaneseLimit = shouldLeaveRoomForNonJapanese ? Math.max(1, Math.min(3, Math.ceil(count * 0.15))) : count;
   const trailLimit = Math.max(1, Math.ceil(count / 3));
-  const profileSubjectCount = distinctProfileKeys(chases, (value) => expandedProfileSubjectTokens(value).slice(0, 2)).size;
   const subjectLimit = count >= DISCOVERY_SHELF_PAGE_SIZE
     ? 2
     : count >= 5 ? 2 : count;
@@ -7093,7 +7044,6 @@ export function preferFreshWeeklyCandidatesAgainstRecentShelves(candidates: Disc
   const recentSetFrequency = new Map<string, number>();
   const recentNameFreshnessPenalty = new Map<string, number>();
   const recentVariantFreshnessPenalty = new Map<string, number>();
-  const positiveSubjectChases = positiveTasteSubjectChases(chases);
   for (const [index, drop] of recentDrops.entries()) {
     const recencyWeight = Math.max(1, recentDrops.length - index);
     for (const priorCandidate of candidatesFromScheduledDiscoveryDrop(drop)) {
@@ -7144,7 +7094,6 @@ export function preferFreshWeeklyCandidatesAgainstRecentShelves(candidates: Disc
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     const variantKey = candidateVariantFamilyKey(candidate);
     const hasRecentSubjectOverlap = candidateSubjectBalanceKeys(candidate).some((subjectKey) => recentSubjectKeys.has(subjectKey));
-    const hasDirectSubjectMatch = hasConcreteProfileSubjectMatch(candidate, positiveSubjectChases);
     const isAdjacentThemeNovelty = isAdjacentThemeNoveltyCandidate(candidate, chases);
     if (recentNameKeys.has(nameKey) || (variantKey && recentVariantKeys.has(variantKey))) {
       repeatedCandidates.push(candidate);
@@ -8831,7 +8780,6 @@ function persistValidatedWeeklyDiscoveryDrop(
   date = new Date(),
   canonicalLookupEvidence?: CanonicalLookupEvidenceMap
 ): PersistValidatedWeeklyDiscoveryDropResult {
-  const availability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
   const recentDrops = listPriorWeeklyDiscoveryDropsForTargetPeriod(userId, date, 12);
   if (candidates.length === 0) {
     return {
@@ -9257,8 +9205,6 @@ export async function discoverCandidatesForUser(
         ...profileVariantSourceBackedSuggestions
       ]).filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)) && !isActiveChaseEchoSuggestion(suggestion, repeatGuardChases));
     }
-    const sourceBackedFreshSuggestions = uniqueValuesByName(concreteSourceBackedSuggestions)
-      .filter((suggestion) => !excludedSourceNameKeys.has(discoveryNameKey(suggestion.name)) && !isActiveChaseEchoSuggestion(suggestion, repeatGuardChases));
     if (!skipSourceCatalogFetch && concreteSourceBackedSuggestions.length < sourceCatalogSufficientCount) {
       const starterSelection = selectDiscoverySuggestionsForFocuses([], [], DISCOVERY_CANDIDATE_POOL_SIZE, {
         excludedNames: [...combinedSourceExcludedNames, ...concreteSourceBackedSuggestions.map((suggestion) => suggestion.name)]

@@ -61,6 +61,17 @@ describe('weekly discovery eligibility', () => {
     expect(result.eligible).toBe(false);
   });
 
+  it('does not count removed chase memory toward weekly discovery eligibility', () => {
+    const result = evaluateWeeklyDiscoveryEligibility(
+      [chase('Mew RC24'), chase('Gardevoir ex Paldean Fates 233'), chase('Squirtle 151 170'), chase('Dark Blastoise Team Rocket 20')],
+      [chase('Zapdos Aquapolis H32', { tasteSource: 'REMOVED_CHASE' })]
+    );
+
+    expect(result.uniqueSignalCount).toBe(4);
+    expect(result.tasteMemoryCount).toBe(0);
+    expect(result.eligible).toBe(false);
+  });
+
   it('keeps different canonical printings distinct', () => {
     const result = evaluateWeeklyDiscoveryEligibility([
       chase('Umbreon VMAX Evolving Skies 215', { canonicalCardId: 'swsh7-215' } as Partial<Chase>),

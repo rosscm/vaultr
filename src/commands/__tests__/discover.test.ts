@@ -6660,7 +6660,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   it('does not replace the previous valid weekly shelf when validation fails', () => {
     const userId = `weekly-persist-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');
-    const validCandidates = publishableShelfCandidates(20, (candidate, index) => ({
+    const validCandidates = publishableShelfCandidates(20, (candidate) => ({
       ...candidate,
       typicalRawAskingTotal: 75,
       marketSampleSize: 4
@@ -8046,10 +8046,23 @@ describe('Discovery plan scaling', () => {
     const profile = discoveryTasteProfileChases(activeChases, tasteMemory, true);
 
     expect(profile.map((chase) => `${chase.cardName}:${chase.tasteSource}`)).toEqual([
-      'Mew RC24:ACTIVE_CHASE',
-      'Pikachu Skyridge 84:REMOVED_CHASE'
+      'Mew RC24:ACTIVE_CHASE'
     ]);
     expect(discoveryProfileConfidence(profile).eraCount).toBe(0);
+  });
+
+  it('lets an active chase override older removed memory for the same card', () => {
+    const activeChases: Chase[] = [{ id: 'c1', userId: 'u1', cardName: 'Pikachu Skyridge 84', createdAt: '2026-06-06T00:00:00.000Z' }];
+    const tasteMemory: Chase[] = [
+      { id: 'taste:removed-skyridge', userId: 'u1', cardName: 'Pikachu Skyridge 84', createdAt: '2026-06-05T18:49:24.380Z', tasteSource: 'REMOVED_CHASE' }
+    ];
+
+    const profile = discoveryTasteProfileChases(activeChases, tasteMemory, true);
+
+    expect(profile.map((chase) => `${chase.cardName}:${chase.tasteSource}`)).toEqual([
+      'Pikachu Skyridge 84:ACTIVE_CHASE'
+    ]);
+    expect(discoveryProfileConfidence(profile).signalCount).toBe(1);
   });
 
   it('builds a dynamic market range from saved max prices', () => {

@@ -470,6 +470,7 @@ function profileFromText(sourceText: string, weight = 1, isActiveChase = false):
 }
 
 function buildChaseSignalProfile(chase: Chase): ChaseSignalProfile | null {
+  if (chase.tasteSource === 'REMOVED_CHASE') return null;
   return profileFromText(chaseRawSignalText(chase), chaseSignalWeight(chase), chase.tasteSource === undefined || chase.tasteSource === 'ACTIVE_CHASE');
 }
 

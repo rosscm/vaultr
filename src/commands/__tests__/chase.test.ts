@@ -24,6 +24,7 @@ import {
   clearChaseCardAutocompleteCache
 } from '../../services/chase-card-catalog.js';
 import { db } from '../../services/db.js';
+import { evaluateWeeklyDiscoveryEligibility } from '../../services/weekly-discovery-eligibility.js';
 
 const testUserIds = new Set<string>();
 const originalFetch = globalThis.fetch;
@@ -1838,6 +1839,7 @@ describe('chase command', () => {
     await handleChaseRemoveButtons(button);
     expect(listChases(userId)).toEqual([]);
     expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Meowth 18/53:BOUGHT_OR_SEEN']);
+    expect(evaluateWeeklyDiscoveryEligibility([], listUserTasteMemoryChases(userId), 1).uniqueSignalCount).toBe(1);
     expect(button.update.mock.calls[0]![0].embeds[0].data.title).toBe('✅ Chase Completed');
   });
 
@@ -1860,6 +1862,7 @@ describe('chase command', () => {
 
     expect(listChases(userId)).toEqual([]);
     expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Pikachu Pokemon Rumble 7:REMOVED_CHASE']);
+    expect(evaluateWeeklyDiscoveryEligibility([], listUserTasteMemoryChases(userId), 1).uniqueSignalCount).toBe(0);
     expect(button.update.mock.calls[0]![0].embeds[0].data.description).toContain('It was not marked as completed.');
   });
 
