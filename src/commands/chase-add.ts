@@ -23,10 +23,6 @@ import { freeVaultLimitMessage, proControlsNextLine } from './pro-copy.js';
 
 const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case'];
 
-function normalizeChaseName(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
 function displayAny(value: string | undefined): string {
   if (!value || value === 'ANY') return OUTPUT_STYLE.any;
   return value;

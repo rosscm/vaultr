@@ -225,7 +225,6 @@ async function pokemonTcgAutocompleteChoices(query: string, limit: number): Prom
   const querySubject = pokemonTcgQuerySubject(query);
   const numberPrefix = pokemonTcgRequestedNumberPrefix(query);
   const releaseAlias = pokemonTcgReleaseAlias(query);
-  const releaseAliasSetNamePrefix = releaseAlias ? normalize(releaseAlias.setNamePrefix) : undefined;
   const includePrintedTotal = !!requestedCollectorNumber(query);
   return cards
     .filter((card) => card.name && card.number)

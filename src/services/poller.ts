@@ -1107,26 +1107,6 @@ function currentDayKeyLocal(now = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
-function currentWeekKeyLocal(now = new Date()): string {
-  const local = new Date(now);
-  const day = local.getDay();
-  const shiftToMonday = day === 0 ? -6 : 1 - day;
-  local.setDate(local.getDate() + shiftToMonday);
-  const y = local.getFullYear();
-  const m = String(local.getMonth() + 1).padStart(2, '0');
-  const d = String(local.getDate()).padStart(2, '0');
-  return `${y}-W-${m}-${d}`;
-}
-
-function localStartOfWeekIso(now = new Date()): string {
-  const local = new Date(now);
-  const day = local.getDay();
-  const shiftToMonday = day === 0 ? -6 : 1 - day;
-  local.setDate(local.getDate() + shiftToMonday);
-  local.setHours(0, 0, 0, 0);
-  return local.toISOString();
-}
-
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }

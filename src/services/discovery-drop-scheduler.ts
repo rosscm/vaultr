@@ -25,7 +25,7 @@ import {
   type WeeklyDiscoveryPreparationState,
   type WeeklyDiscoveryPreparationStateStatus
 } from './weekly-discovery-preparation-state.js';
-import { countProUsersIneligibleForWeeklyDiscovery, listProUsersEligibleForWeeklyDiscovery, weeklyDiscoveryEligibilityForUser } from './weekly-discovery-eligibility.js';
+import { countProUsersIneligibleForWeeklyDiscovery, listProUsersEligibleForWeeklyDiscovery } from './weekly-discovery-eligibility.js';
 
 const WEEKLY_DROP_TYPE = 'WEEKLY_DISCOVERY' as const;
 
@@ -239,12 +239,6 @@ function shouldAttemptPreparation(state: WeeklyDiscoveryPreparationState, now: D
   if (state.state === 'PREPARING' && state.leaseExpiresAt && Date.parse(state.leaseExpiresAt) > now.getTime()) return false;
   if (state.state === 'RETRY_SCHEDULED' && state.nextRetryAt && Date.parse(state.nextRetryAt) > now.getTime()) return false;
   return true;
-}
-
-function summarizeStructuredPreparation(result: WeeklyPreparationStructuredResult): string {
-  if (result.outcome === 'PREPARED') return `${result.status.toLowerCase()} shelf with ${result.itemCount} items`;
-  if (result.outcome === 'NOT_REQUIRED') return result.reason;
-  return result.summary;
 }
 
 export async function runWeeklyDiscoveryPreparationAttempt(

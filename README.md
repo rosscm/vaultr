@@ -258,10 +258,12 @@ sudo journalctl -u vaultr-ops-check.service -n 50
 
 - The bot prepares Pro Weekly Discovery shelves in the background and stores them in SQLite.
 - Pro Weekly Shelves prepare up to 20 cards by default and open privately from the channel in 10-card pages.
+- A Pro shelf is only published when it passes the current publication gates, including a complete 20-card shelf.
+- If preparation fails validation, Vaultr keeps the last valid shelf available while durable retries continue in the background.
 - Free users can open the same announcement button for a three-card Weekly Shelf preview based on active Vault signals.
-- If a Pro shelf has fewer than 20 cards, Vaultr tells the user their Vault is still light and needs more taste signals.
 - Each configured server command channel gets at most one public Weekly Discovery announcement per period.
 - The announcement button opens the clicker's own shelf or preview as a private channel interaction, so Discovery drops avoid DM spam and public shelf clutter.
+- Scheduled preparation and delivery are durable: failed attempts are retried without sending duplicate announcements.
 - Shelf feedback trains the next Discovery release; it does not reshuffle the current release on demand.
 - Feedback confirmations include Undo so accidental More Like / Not For Me taps can be reverted.
 - Discovery is opened from scheduled drop announcements; the slash command is intentionally not registered for users.
