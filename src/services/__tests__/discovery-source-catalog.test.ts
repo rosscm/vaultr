@@ -1862,13 +1862,13 @@ describe('discovery source catalog', () => {
 
     const resolved = await resolveSourceBackedDiscoveryCards(
       {
-        name: 'Squirtle Japanese Pokemon cards',
+        name: 'Japanese Pokemon cards',
         lane: 'Japanese Collector Trail',
         laneWhy: 'profile',
         why: 'profile',
         nearby: [],
-        evidenceSearchTerm: 'squirtle Japanese Pokemon card',
-        requiredEvidenceTokens: ['squirtle', 'japanese'],
+        evidenceSearchTerm: 'Japanese Pokemon card',
+        requiredEvidenceTokens: ['japanese'],
         sourceTasteTokens: ['squirtle', 'japanese']
       },
       [chase('Corocoro Shining Mew'), chase('Mew RC24/RC25')],
@@ -1878,6 +1878,319 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.name).toBe('Mew Japanese S12a 052');
     expect(resolved.suggestions[0]?.sourceTasteTokens).toContain('japanese');
     expect(resolved.suggestions[0]?.sourceTasteTokens).not.toContain('squirtle');
+  });
+
+  it('lets a generic Japanese collector parent fall back to profile-anchored Pokemon only', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'xy-rc24',
+                name: 'Mew',
+                number: 'RC24',
+                supertype: 'Pokemon',
+                types: ['Psychic'],
+                nationalPokedexNumbers: [151],
+                set: { name: 'Radiant Collection', series: 'XY', releaseDate: '2016/02/22' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        const dexId = url.searchParams.get('dexId');
+        if (dexId === '151') {
+          return new Response(JSON.stringify([
+            { id: 'S12a-052', localId: '052', name: 'ミュウ', image: 'https://assets.tcgdex.net/ja/S/S12a/052' }
+          ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (dexId === '196') {
+          return new Response(JSON.stringify([
+            { id: 'SV8a-211', localId: '211', name: 'エーフィ', image: 'https://assets.tcgdex.net/ja/SV/SV8a/211' }
+          ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.pathname.endsWith('/S12a-052')) {
+        return new Response(JSON.stringify({
+          category: 'Pokemon',
+          id: 'S12a-052',
+          localId: '052',
+          name: 'ミュウ',
+          image: 'https://assets.tcgdex.net/ja/S/S12a/052',
+          rarity: 'AR',
+          set: { id: 'S12a', name: 'VSTARユニバース' },
+          dexId: [151],
+          types: ['Psychic'],
+          stage: 'Basic'
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        category: 'Pokemon',
+        id: 'SV8a-211',
+        localId: '211',
+        name: 'エーフィ',
+        image: 'https://assets.tcgdex.net/ja/SV/SV8a/211',
+        rarity: 'SAR',
+        set: { id: 'SV8a', name: 'テラスタルフェスex' },
+        dexId: [196],
+        types: ['Psychic'],
+        stage: 'Basic'
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Japanese Pokemon cards',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'Japanese Pokemon card',
+        requiredEvidenceTokens: ['japanese'],
+        sourceTasteTokens: ['japanese', 'collector']
+      },
+      [chase('Corocoro Shining Mew'), chase('Mew RC24/RC25')],
+      2
+    );
+
+    expect(resolved.suggestions.map((suggestion) => suggestion.name)).toEqual(['Mew Japanese S12a 052']);
+  });
+
+  it('does not use the generic Japanese fallback for unrelated concrete parent subjects', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'xy-rc24',
+                name: 'Mew',
+                number: 'RC24',
+                supertype: 'Pokemon',
+                types: ['Psychic'],
+                nationalPokedexNumbers: [151],
+                set: { name: 'Radiant Collection', series: 'XY', releaseDate: '2016/02/22' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        return new Response(JSON.stringify([
+          { id: 'S12a-052', localId: '052', name: 'ミュウ', image: 'https://assets.tcgdex.net/ja/S/S12a/052' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        category: 'Pokemon',
+        id: 'S12a-052',
+        localId: '052',
+        name: 'ミュウ',
+        image: 'https://assets.tcgdex.net/ja/S/S12a/052',
+        rarity: 'AR',
+        set: { id: 'S12a', name: 'VSTARユニバース' },
+        dexId: [151],
+        types: ['Psychic'],
+        stage: 'Basic'
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Espeon Japanese Pokemon cards',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'espeon Japanese Pokemon card',
+        requiredEvidenceTokens: ['espeon', 'japanese'],
+        sourceTasteTokens: ['espeon', 'japanese']
+      },
+      [chase('Corocoro Shining Mew'), chase('Mew RC24/RC25')],
+      1
+    );
+
+    expect(resolved.suggestions).toEqual([]);
+  });
+
+  it('does not use the generic Japanese fallback for set-specific suggestions', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'xy-rc24',
+                name: 'Mew',
+                number: 'RC24',
+                supertype: 'Pokemon',
+                types: ['Psychic'],
+                nationalPokedexNumbers: [151],
+                set: { name: 'Radiant Collection', series: 'XY', releaseDate: '2016/02/22' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        return new Response(JSON.stringify([
+          { id: 'SV8a-052', localId: '052', name: 'ミュウ', image: 'https://assets.tcgdex.net/ja/SV/SV8a/052' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        category: 'Pokemon',
+        id: 'SV8a-052',
+        localId: '052',
+        name: 'ミュウ',
+        image: 'https://assets.tcgdex.net/ja/SV/SV8a/052',
+        rarity: 'AR',
+        set: { id: 'SV8a', name: 'テラスタルフェスex' },
+        dexId: [151],
+        types: ['Psychic'],
+        stage: 'Basic'
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Espeon Terastal Festival Pokemon cards',
+        lane: 'Set Companion Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'espeon Terastal Festival Japanese Pokemon card',
+        requiredEvidenceTokens: ['espeon', 'japanese', 'Terastal Festival', 'special set', 'small set', 'numbered set'],
+        sourceTasteTokens: ['espeon', 'japanese', 'Terastal Festival', 'special set', 'small set', 'numbered set']
+      },
+      [chase('Corocoro Shining Mew'), chase('Mew RC24/RC25')],
+      1
+    );
+
+    expect(resolved.suggestions).toEqual([]);
+  });
+
+  it('does not use the generic Japanese fallback for card-number-specific suggestions', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'xy-rc24',
+                name: 'Mew',
+                number: 'RC24',
+                supertype: 'Pokemon',
+                types: ['Psychic'],
+                nationalPokedexNumbers: [151],
+                set: { name: 'Radiant Collection', series: 'XY', releaseDate: '2016/02/22' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        return new Response(JSON.stringify([
+          { id: 'S12a-052', localId: '052', name: 'ミュウ', image: 'https://assets.tcgdex.net/ja/S/S12a/052' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        category: 'Pokemon',
+        id: 'S12a-052',
+        localId: '052',
+        name: 'ミュウ',
+        image: 'https://assets.tcgdex.net/ja/S/S12a/052',
+        rarity: 'AR',
+        set: { id: 'S12a', name: 'VSTARユニバース' },
+        dexId: [151],
+        types: ['Psychic'],
+        stage: 'Basic'
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Espeon Japanese promo 052/172',
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'espeon Japanese promo 052/172 Pokemon card',
+        requiredEvidenceTokens: ['espeon', 'japanese', '052/172'],
+        sourceTasteTokens: ['espeon', 'japanese']
+      },
+      [chase('Corocoro Shining Mew'), chase('Mew RC24/RC25')],
+      1
+    );
+
+    expect(resolved.suggestions).toEqual([]);
+  });
+
+  it('does not use the generic Japanese fallback when the suggestion itself has no Japanese signal', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'xy-rc24',
+                name: 'Mew',
+                number: 'RC24',
+                supertype: 'Pokemon',
+                types: ['Psychic'],
+                nationalPokedexNumbers: [151],
+                set: { name: 'Radiant Collection', series: 'XY', releaseDate: '2016/02/22' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        return new Response(JSON.stringify([
+          { id: 'S12a-052', localId: '052', name: 'ミュウ', image: 'https://assets.tcgdex.net/ja/S/S12a/052' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        category: 'Pokemon',
+        id: 'S12a-052',
+        localId: '052',
+        name: 'ミュウ',
+        image: 'https://assets.tcgdex.net/ja/S/S12a/052',
+        rarity: 'AR',
+        set: { id: 'S12a', name: 'VSTARユニバース' },
+        dexId: [151],
+        types: ['Psychic'],
+        stage: 'Basic'
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: 'Squirtle Pokemon cards',
+        lane: 'Collector Compass',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: 'squirtle Pokemon card',
+        requiredEvidenceTokens: ['squirtle'],
+        sourceTasteTokens: ['squirtle']
+      },
+      [chase('Corocoro Shining Mew'), chase('Mew RC24/RC25')],
+      1
+    );
+
+    expect(resolved.suggestions).toEqual([]);
   });
 
   it('surfaces same-set Japanese sibling cards for special-set collector threads', async () => {

@@ -93,9 +93,9 @@ describe('selectDiscoverySuggestions', () => {
     const names = selection.suggestions.map((suggestion) => suggestion.name);
     const sourceTasteTokens = selection.suggestions.flatMap((suggestion) => suggestion.sourceTasteTokens ?? []);
 
-    expect(names[0]).toBe('vintage Pokemon cards');
+    expect(names).toContain('Japanese Pokemon cards');
     expect(names.some((name) => name.startsWith('Corocoro Shining Mew'))).toBe(false);
-    expect(names.some((name) => name.startsWith('Squirtle'))).toBe(true);
+    expect(names.some((name) => name.startsWith('Squirtle'))).toBe(false);
     expect(names).not.toContain('Mew Southern Islands Promo');
     expect(sourceTasteTokens).not.toContain('e-reader');
     expect(sourceTasteTokens).not.toContain('small set');

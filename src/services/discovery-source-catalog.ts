@@ -1076,11 +1076,28 @@ function matchesJapaneseCollectorQuality(card: TcgDexCard): boolean {
 }
 
 function isGenericJapaneseCollectorParentSuggestion(suggestion: DiscoverySuggestion): boolean {
-  const text = normalizeSearchText([sourceText(suggestion), ...(suggestion.sourceTasteTokens ?? []), ...(suggestion.requiredEvidenceTokens ?? [])].join(' '));
+  const explicitText = [sourceText(suggestion), ...(suggestion.requiredEvidenceTokens ?? [])].join(' ');
+  const text = normalizeSearchText(explicitText);
   if (!/\bjapanese\b/.test(text)) return false;
   if (!/\bpokemon cards?\b/.test(text)) return false;
   if (isKnownSetTasteToken(text) || /\bset\s*:/i.test(text)) return false;
   if (/\b\d{1,4}(?:\/\d{1,4})?\b/.test(text)) return false;
+  if (
+    uniqueValuesPreservingOrder(
+      [suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.requiredEvidenceTokens ?? [])]
+        .filter((value): value is string => !!value)
+        .flatMap((value) => normalizedTokens(value))
+        .map(normalizeSearchText)
+        .filter((token) =>
+          token.length >= 3
+          && !isSourceTasteTraitTerm(token)
+          && !isKnownSetTasteToken(token)
+          && !ACTIVE_CARD_TOKEN_STOP_WORDS.has(token)
+          && !SOURCE_PROFILE_IDENTITY_STOP_WORDS.has(token)
+          && !GENERIC_JAPANESE_PARENT_TERMS.has(token)
+        )
+    ).length > 0
+  ) return false;
   return true;
 }
 
