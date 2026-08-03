@@ -5514,6 +5514,62 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(result.items, 20)).toEqual([]);
   });
 
+  it('treats unrelated English era-only cards as exploratory and does not use English language alone as an anchor', () => {
+    const collectorProfile = __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([
+      chase('Mew Expedition Base Set 55', 0),
+      chase('Zapdos Aquapolis H32', 1)
+    ]);
+    const unrelatedEnglish = {
+      ...publishableSourceCandidate('Xatu Skyridge H32', 'xatu-sk-h32', 'Pokemon TCG (Skyridge)', 0, 'Collector Compass'),
+      typicalRawSoldTotal: 180,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+
+    const recommendation = __discoveryPersistenceTestHooks.recommendationProfileForCandidate(unrelatedEnglish, collectorProfile);
+
+    expect(recommendation.strength).toBe('EXPLORATORY');
+    expect(recommendation.anchors.some((anchor) => anchor.kind === 'REGIONAL_PRINT')).toBe(false);
+    expect(recommendation.anchors.every((anchor) => anchor.kind === 'ERA')).toBe(true);
+  });
+
+  it('lets weighted Japanese preference and completed positive history contribute recommendation anchors', () => {
+    const completedSignal: Chase = {
+      id: 'taste:BOUGHT_OR_SEEN:gardevoir-ex-paldean-fates-233',
+      userId: 'u1',
+      cardName: 'Gardevoir ex Paldean Fates 233',
+      createdAt: '2026-08-01T00:00:00.000Z',
+      priority: 'NORMAL',
+      tasteSource: 'BOUGHT_OR_SEEN',
+      tasteWeight: 1.25
+    };
+    const japaneseProfile = __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([
+      chase('Articuno Japanese S12a 49', 0),
+      chase('Pikachu Japanese S12a 205', 1)
+    ]);
+    const completedProfile = __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([completedSignal]);
+    const japaneseCandidate = {
+      ...publishableSourceCandidate('Lapras Japanese S12a 031', 'lapras-s12a-031', 'TCGdex Japanese (VSTAR Universe)', 0, 'Japanese Collector Trail'),
+      typicalRawSoldTotal: 92,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+    const completedHistoryCandidate = {
+      ...publishableSourceCandidate('Gardevoir ex Scarlet & Violet 217', 'gardevoir-sv-217', 'Pokemon TCG (Scarlet & Violet)', 1, 'Modern Spotlight Trail'),
+      typicalRawSoldTotal: 88,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+
+    const japaneseRecommendation = __discoveryPersistenceTestHooks.recommendationProfileForCandidate(japaneseCandidate, japaneseProfile);
+    const completedRecommendation = __discoveryPersistenceTestHooks.recommendationProfileForCandidate(completedHistoryCandidate, completedProfile);
+
+    expect(japaneseRecommendation.anchors.some((anchor) => anchor.kind === 'REGIONAL_PRINT')).toBe(true);
+    expect(japaneseRecommendation.strength).toBe('STRONG_ADJACENT');
+    expect(completedRecommendation.strength).toBe('DIRECT_PROFILE');
+    expect(completedRecommendation.primaryAnchor?.kind).toBe('SUBJECT');
+  });
+
   it('balances a W32-style shelf toward anchored subjects and away from era-only e-reader filler', () => {
     const activeVault = [
       chase('Umbreon-GX SM Black Star Promos SM36', 0),
@@ -5522,6 +5578,27 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       chase('Pikachu V Lost Origin TG16', 3),
       chase('Mew Expedition Base Set 55', 4),
       chase('Articuno Japanese S12a 49', 5)
+    ];
+    const anchorProfileSignals: Chase[] = [
+      ...activeVault,
+      {
+        id: 'taste:BOUGHT_OR_SEEN:mew-gold-star-delta-species-101-101',
+        userId: 'u1',
+        cardName: 'Mew Gold Star Delta Species 101/101',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        priority: 'HIGH',
+        tasteSource: 'BOUGHT_OR_SEEN',
+        tasteWeight: 1.2
+      },
+      {
+        id: 'taste:BOUGHT_OR_SEEN:gardevoir-ex-paldean-fates-233',
+        userId: 'u1',
+        cardName: 'Gardevoir ex Paldean Fates 233',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        priority: 'NORMAL',
+        tasteSource: 'BOUGHT_OR_SEEN',
+        tasteWeight: 1.1
+      }
     ];
     const anchoredPool: DiscoveryCandidate[] = [
       { ...publishableSourceCandidate('Umbreon-GX SM Black Star Promos SM36', 'umbreon-sm36', 'Pokemon TCG (SM Black Star Promos)', 0, 'Promo Trail'), typicalRawSoldTotal: 90, soldSampleSize: 3, displayCurrency: 'CAD' as const },
@@ -5536,6 +5613,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       { ...publishableSourceCandidate('Articuno Japanese S12a 49', 'articuno-s12a-49', 'TCGdex Japanese (VSTAR Universe)', 9, 'Japanese Collector Trail'), typicalRawSoldTotal: 85, soldSampleSize: 3, displayCurrency: 'CAD' as const },
       { ...publishableSourceCandidate('Umbreon VMAX Brilliant Stars Trainer Gallery TG23', 'umbreon-tg23', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 10, 'Artwork Trail'), typicalRawSoldTotal: 120, soldSampleSize: 3, displayCurrency: 'CAD' as const },
       { ...publishableSourceCandidate('Mew ex Paldean Fates 216', 'mew-paf-216-anchor', 'Pokemon TCG (Paldean Fates)', 11, 'Modern Spotlight Trail'), typicalRawSoldTotal: 82, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Gardevoir ex Scarlet & Violet 217', 'gardevoir-sv-217-anchor', 'Pokemon TCG (Scarlet & Violet)', 12, 'Modern Spotlight Trail'), typicalRawSoldTotal: 86, soldSampleSize: 3, displayCurrency: 'CAD' as const },
       { ...publishableSourceCandidate('Zapdos Expedition Base Set 48', 'zapdos-exp-48-anchor', 'Pokemon TCG (Expedition Base Set)', 12, 'E-Reader Era Trail'), typicalRawSoldTotal: 78, soldSampleSize: 3, displayCurrency: 'CAD' as const },
       { ...publishableSourceCandidate('Pikachu Skyridge 84', 'pikachu-skyridge-84-anchor', 'Pokemon TCG (Skyridge)', 13, 'E-Reader Era Trail'), typicalRawSoldTotal: 210, soldSampleSize: 3, displayCurrency: 'CAD' as const },
       { ...publishableSourceCandidate('Dragonite Expedition Base Set 43', 'dragonite-exp-43', 'Pokemon TCG (Expedition Base Set)', 14, 'E-Reader Era Trail'), typicalRawSoldTotal: 115, soldSampleSize: 3, displayCurrency: 'CAD' as const },
@@ -5564,8 +5642,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     ];
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([
-      ...anchoredPool,
-      ...unrelatedEraOnly,
+      ...unrelatedEraOnly.slice(0, 3),
+      ...anchoredPool.slice(0, 10),
+      ...unrelatedEraOnly.slice(3),
+      ...anchoredPool.slice(10),
       ...publishableShelfCandidates(6, (candidate, index) => ({
         ...candidate,
         selectionIndex: 60 + index,
@@ -5577,7 +5657,11 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         soldSampleSize: 3,
         displayCurrency: 'CAD' as const
       }))
-    ], 'CAD', 20, [], activeVault);
+    ], 'CAD', 20, [], activeVault, anchorProfileSignals);
+    const xatuRecommendation = __discoveryPersistenceTestHooks.recommendationProfileForCandidate(
+      unrelatedEraOnly[0],
+      __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile(anchorProfileSignals)
+    );
     const unrelatedSelected = result.items.filter((item) =>
       ['Xatu Skyridge H32', 'Ledian Skyridge H14', 'Alakazam Skyridge H1', 'Politoed Skyridge H23', 'Gengar Skyridge H9', 'Magneton Skyridge H19']
         .includes(item.suggestion.name)
@@ -5591,8 +5675,11 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.items.some((item) => item.suggestion.name === 'Zapdos Aquapolis H32')).toBe(true);
     expect(result.items.some((item) => item.suggestion.name === 'Galarian Moltres V Astral Radiance Trainer Gallery TG20')).toBe(true);
     expect(result.items.some((item) => item.suggestion.name === 'Mew Expedition Base Set 55')).toBe(true);
+    expect(result.items.some((item) => item.suggestion.name === 'Gardevoir ex Scarlet & Violet 217')).toBe(true);
     expect(result.items.some((item) => /^Pikachu\b/.test(item.suggestion.name))).toBe(true);
     expect(result.items.some((item) => item.suggestion.name === 'Articuno Japanese S12a 49')).toBe(true);
+    expect(xatuRecommendation.strength).toBe('EXPLORATORY');
+    expect(xatuRecommendation.anchors.every((anchor) => anchor.kind === 'ERA')).toBe(true);
     expect(unrelatedSelected.length).toBeLessThanOrEqual(4);
     expect(skyridgeSelected.length).toBeLessThanOrEqual(7);
     expect(genericFillSelected.length).toBeLessThanOrEqual(2);

@@ -176,6 +176,7 @@ export type WeeklyDiscoveryFinalizationInput = {
   userCurrency: SupportedCurrency;
   exchangeRates: Record<string, number>;
   activeVault: Chase[];
+  anchorProfileSignals?: Chase[];
   collectorProfile: CollectorTasteProfile;
   priorShelfHistory: ScheduledDiscoveryDrop[];
   orderedCandidateReserve: DiscoveryCandidate[];
@@ -810,4 +811,3 @@ export function finalizeWeeklyDiscoveryAnalytics(
     }
   };
 }
-

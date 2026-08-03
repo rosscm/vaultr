@@ -502,6 +502,14 @@ function serializedWeeklyDiscoveryInput(input: WeeklyDiscoveryFinalizationInput)
       condition: chase.condition ?? null,
       listingType: chase.listingType ?? null
     })),
+    anchorProfileSignals: (input.anchorProfileSignals ?? input.activeVault).map((chase) => ({
+      cardName: chase.cardName,
+      tasteSource: chase.tasteSource ?? null,
+      tasteWeight: chase.tasteWeight ?? null,
+      priority: chase.priority ?? 'NORMAL',
+      targetNote: chase.targetNote ?? null,
+      maxPrice: chase.maxPrice ?? null
+    })),
     priorShelfHistory: input.priorShelfHistory.map((drop) => ({
       periodKey: drop.periodKey,
       itemCount: drop.itemCount,
@@ -3423,7 +3431,9 @@ export const __discoveryPersistenceTestHooks = {
   hydrateDiscoveryMarketCandidatesIncrementally,
   selectForegroundMarketHydrationBatchCandidates,
   mapWithConcurrencyAllowPartialTimeout,
-  prepareWeeklyDiscoveryDropForUser
+  prepareWeeklyDiscoveryDropForUser,
+  buildWeeklyCollectorAnchorProfile,
+  recommendationProfileForCandidate
 };
 
 function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
@@ -6337,9 +6347,12 @@ type WeeklyCollectorAnchorProfile = {
   setFamilyLabels: Map<string, string>;
   eraLabels: Map<string, string>;
   languages: Set<'JAPANESE' | 'ENGLISH'>;
+  languageSignalCounts: Map<'JAPANESE' | 'ENGLISH', number>;
   formatLabels: Map<string, string>;
   promoPreference: boolean;
   artPreference: boolean;
+  positiveChases: Chase[];
+  japaneseAffinity: boolean;
 };
 
 function formatKeyFromText(value: string): string | undefined {
@@ -6368,21 +6381,24 @@ function eraLabelsFromText(value: string): string[] {
 }
 
 function buildWeeklyCollectorAnchorProfile(chases: Chase[]): WeeklyCollectorAnchorProfile {
+  const positiveChases = positiveTasteSubjectChases(chases);
   const profile: WeeklyCollectorAnchorProfile = {
-    hasSignals: false,
+    hasSignals: positiveChases.length > 0,
     subjectLabels: new Map<string, string>(),
     familyLabels: new Map<string, string>(),
     setLabels: new Map<string, string>(),
     setFamilyLabels: new Map<string, string>(),
     eraLabels: new Map<string, string>(),
     languages: new Set<'JAPANESE' | 'ENGLISH'>(),
+    languageSignalCounts: new Map<'JAPANESE' | 'ENGLISH', number>(),
     formatLabels: new Map<string, string>(),
     promoPreference: false,
-    artPreference: false
+    artPreference: false,
+    positiveChases,
+    japaneseAffinity: hasJapaneseWeightedProfile(positiveChases)
   };
 
-  for (const chase of positiveTasteSubjectChases(chases)) {
-    profile.hasSignals = true;
+  for (const chase of positiveChases) {
     const text = chaseReferenceText(chase);
     const subjectKey = normalizedSubjectIdentity(chase.cardName);
     if (subjectKey && !profile.subjectLabels.has(subjectKey)) profile.subjectLabels.set(subjectKey, chase.cardName);
@@ -6396,7 +6412,10 @@ function buildWeeklyCollectorAnchorProfile(chases: Chase[]): WeeklyCollectorAnch
       if (!profile.eraLabels.has(normalize(eraLabel))) profile.eraLabels.set(normalize(eraLabel), eraLabel);
     }
     const language = cardLanguageFromText(text);
-    if (language) profile.languages.add(language);
+    if (language) {
+      profile.languages.add(language);
+      profile.languageSignalCounts.set(language, (profile.languageSignalCounts.get(language) ?? 0) + 1);
+    }
     const formatKey = formatKeyFromText(text);
     if (formatKey && !profile.formatLabels.has(formatKey)) profile.formatLabels.set(formatKey, formatKey);
     if (/\bpromo|black star|mcdonald'?s|special delivery|league promo|nintendo promo\b/i.test(text)) profile.promoPreference = true;
@@ -6410,6 +6429,46 @@ function candidateEraSetFamilyKey(candidate: DiscoveryCandidate): string | undef
   const weeklyEras = candidate.weeklyDiscovery?.features?.eras ?? [];
   if (weeklyEras.length > 0) return weeklyEras[0];
   return setFamilyKeyFromText(sourceCardText(candidate)) ?? sourceSetLabel(candidate);
+}
+
+function candidateCardNumberKey(candidate: DiscoveryCandidate): string | undefined {
+  const text = normalize(sourceCardText(candidate));
+  const match = /(?:^|\b)(\d{1,4})\s*\/\s*(\d{1,4})(?:\b|$)/.exec(text);
+  if (!match) return undefined;
+  return `${match[1]}/${match[2]}`;
+}
+
+function chaseCardNumberKey(chase: Pick<Chase, 'cardName' | 'targetNote'>): string | undefined {
+  const text = normalize(chaseReferenceText(chase));
+  const match = /(?:^|\b)(\d{1,4})\s*\/\s*(\d{1,4})(?:\b|$)/.exec(text);
+  if (!match) return undefined;
+  return `${match[1]}/${match[2]}`;
+}
+
+function hasSpecificRegionalCounterpartAnchor(candidate: DiscoveryCandidate, profileChases: Chase[]): boolean {
+  if (cardLanguageFromText(sourceCardText(candidate)) !== 'JAPANESE') return false;
+  const candidateSubject = candidateShelfSubjectKey(candidate);
+  if (!candidateSubject) return false;
+  const candidateSetFamily = setFamilyKeyFromText(sourceCardText(candidate));
+  const candidateSet = sourceSetLabel(candidate);
+  const candidateNumber = candidateCardNumberKey(candidate);
+  const candidateContext = printingContextKeyFromText(sourceCardText(candidate));
+
+  return profileChases.some((chase) => {
+    const chaseText = chaseReferenceText(chase);
+    if (cardLanguageFromText(chaseText) === 'JAPANESE') return false;
+    if (normalizedSubjectIdentity(chase.cardName) !== candidateSubject) return false;
+    const chaseSetFamily = setFamilyKeyFromText(chaseText);
+    const chaseSet = setHintForPrinting(chaseText) ?? chaseSpecialSetLabel(chase);
+    const chaseNumber = chaseCardNumberKey(chase);
+    const chaseContext = printingContextKeyFromText(chaseText);
+    return (
+      (!!candidateNumber && candidateNumber === chaseNumber)
+      || (!!candidateSet && !!chaseSet && normalize(candidateSet) === normalize(chaseSet))
+      || (!!candidateSetFamily && candidateSetFamily === chaseSetFamily)
+      || (!!candidateContext && candidateContext === chaseContext)
+    );
+  });
 }
 
 function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collectorProfile: WeeklyCollectorAnchorProfile): DiscoveryRecommendationProfile {
@@ -6434,6 +6493,9 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
   const isArtCandidate = /\billustration|art rare|full art|trainer gallery|galarian gallery|\bsar\b|\bsir\b|\bar\b/i.test(text);
   const eraLabels = eraLabelsFromText(text);
   const anchors: DiscoveryRecommendationAnchor[] = [];
+  const hasJapaneseCounterpart = hasSpecificRegionalCounterpartAnchor(candidate, collectorProfile.positiveChases);
+  const canUseRegionalPrintAnchor = language === 'JAPANESE'
+    && (collectorProfile.japaneseAffinity || (collectorProfile.languageSignalCounts.get('JAPANESE') ?? 0) >= 2 || hasJapaneseCounterpart);
 
   if (subjectKey && collectorProfile.subjectLabels.has(subjectKey)) {
     anchors.push({ kind: 'SUBJECT', key: subjectKey, label: collectorProfile.subjectLabels.get(subjectKey)! });
@@ -6446,8 +6508,12 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
   } else if (setFamilyKey && collectorProfile.setFamilyLabels.has(setFamilyKey)) {
     anchors.push({ kind: 'SET_RELATIONSHIP', key: setFamilyKey, label: collectorProfile.setFamilyLabels.get(setFamilyKey)! });
   }
-  if (language && collectorProfile.languages.has(language)) {
-    anchors.push({ kind: 'REGIONAL_PRINT', key: language, label: language === 'JAPANESE' ? 'Japanese prints' : 'English prints' });
+  if (canUseRegionalPrintAnchor) {
+    anchors.push({
+      kind: 'REGIONAL_PRINT',
+      key: 'JAPANESE',
+      label: hasJapaneseCounterpart ? 'Japanese counterpart prints tied to your profile cards' : 'Japanese prints'
+    });
   }
   if (isPromoCandidate && collectorProfile.promoPreference) {
     anchors.push({ kind: 'PROMO_PREFERENCE', key: 'promo', label: 'promo and special release cards' });
@@ -6467,11 +6533,14 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
   }
 
   const primaryAnchor = anchors[0];
-  const hasExplicitNonEraAnchor = anchors.some((anchor) => anchor.kind !== 'ERA');
+  const hasStrongAdjacentAnchor = anchors.some((anchor) => anchor.kind !== 'ERA' && anchor.kind !== 'REGIONAL_PRINT');
+  const hasRegionalOnlyAnchor = anchors.some((anchor) => anchor.kind === 'REGIONAL_PRINT');
   const strength: DiscoveryRecommendationStrength = anchors.some((anchor) => anchor.kind === 'SUBJECT' || anchor.kind === 'EVOLUTION_FAMILY')
     ? 'DIRECT_PROFILE'
-    : hasExplicitNonEraAnchor
+    : hasStrongAdjacentAnchor
       ? 'STRONG_ADJACENT'
+      : hasRegionalOnlyAnchor
+        ? 'EXPLORATORY'
       : anchors.some((anchor) => anchor.kind === 'ERA')
         ? 'EXPLORATORY'
         : 'GENERIC_FILLER';
@@ -8504,7 +8573,8 @@ function selectPublishableWeeklyDiscoveryShelf(
   currency: SupportedCurrency,
   expectedSize = DISCOVERY_WEEKLY_DROP_SIZE,
   recentDrops: ScheduledDiscoveryDrop[] = [],
-  activeVaultChases: Chase[] = []
+  activeVaultChases: Chase[] = [],
+  anchorProfileSignals: Chase[] = activeVaultChases
 ): DiscoveryShelfSelectionResult {
   const rejectionCounts = emptyDiscoveryShelfRejectionCounts();
   const rejectionSamples = emptyDiscoveryShelfRejectionSamples();
@@ -8524,7 +8594,7 @@ function selectPublishableWeeklyDiscoveryShelf(
   let qualifiedCount = 0;
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
-  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(activeVaultChases);
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
   const reserveHasAnchoredCandidates = collectorAnchorProfile.hasSignals
     && candidates.some((candidate) => recommendationProfileForCandidate(candidate, collectorAnchorProfile).anchors.length > 0);
 
@@ -8702,7 +8772,8 @@ function selectDiversityEligibleWeeklyCandidates(
   rerankedReserve: DiscoveryCandidate[],
   currency: SupportedCurrency,
   recentDrops: ScheduledDiscoveryDrop[],
-  activeVaultChases: Chase[]
+  activeVaultChases: Chase[],
+  anchorProfileSignals: Chase[] = activeVaultChases
 ): DiscoveryCandidate[] {
   const eligible: DiscoveryCandidate[] = [];
   const seenCanonicalIds = new Set<string>();
@@ -8710,7 +8781,7 @@ function selectDiversityEligibleWeeklyCandidates(
   selectionState.laneCapEnabled = new Set(rerankedReserve.map(candidateLaneShelfKey)).size > 1;
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
-  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(activeVaultChases);
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
 
   for (const rawCandidate of rerankedReserve) {
     const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile);
@@ -8742,7 +8813,8 @@ function selectMarketShortfallHydrationTargets(
   rerankedReserve: DiscoveryCandidate[],
   currency: SupportedCurrency,
   recentDrops: ScheduledDiscoveryDrop[],
-  activeVaultChases: Chase[]
+  activeVaultChases: Chase[],
+  anchorProfileSignals: Chase[] = activeVaultChases
 ): DiscoveryCandidate[] {
   const eligible: DiscoveryCandidate[] = [];
   const seenCanonicalIds = new Set<string>();
@@ -8750,7 +8822,7 @@ function selectMarketShortfallHydrationTargets(
   selectionState.laneCapEnabled = new Set(rerankedReserve.map(candidateLaneShelfKey)).size > 1;
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
-  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(activeVaultChases);
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
 
   for (const rawCandidate of rerankedReserve) {
     const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile);
@@ -8786,14 +8858,15 @@ function buildWeeklyDiscoverySupplyReadiness(
   currency: SupportedCurrency,
   recentDrops: ScheduledDiscoveryDrop[],
   activeVaultChases: Chase[],
-  generatedStageCounts: Pick<WeeklyDiscoverySupplyStageCounts, 'rawGeneratedSuggestions' | 'sourceBackedSuggestions' | 'globalUniverseConsidered' | 'userUniverseConsidered' | 'deduplicatedCandidates'>
+  generatedStageCounts: Pick<WeeklyDiscoverySupplyStageCounts, 'rawGeneratedSuggestions' | 'sourceBackedSuggestions' | 'globalUniverseConsidered' | 'userUniverseConsidered' | 'deduplicatedCandidates'>,
+  anchorProfileSignals: Chase[] = activeVaultChases
 ): WeeklyDiscoverySupplyReadiness {
   const analyzedReserve = analyzeWeeklyDiscoveryCandidateReserve(
     reserve,
     collectorProfile
   );
   const rerankedReserve = rerankWeeklyDiscoveryReserve(analyzedReserve);
-  const selection = selectPublishableWeeklyDiscoveryShelf(rerankedReserve, currency, DISCOVERY_WEEKLY_DROP_SIZE, recentDrops, activeVaultChases);
+  const selection = selectPublishableWeeklyDiscoveryShelf(rerankedReserve, currency, DISCOVERY_WEEKLY_DROP_SIZE, recentDrops, activeVaultChases, anchorProfileSignals);
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
   const stableCanonicalIdCandidates = rerankedReserve.filter((candidate) => candidateHasStableCanonicalId(candidate, currency));
@@ -8811,7 +8884,7 @@ function buildWeeklyDiscoverySupplyReadiness(
     return !estimate || estimate.amount >= weeklyDiscoveryValueFloor(currency);
   });
   const marketResolvedEligibleCandidates = hardEligibleCandidates.filter((candidate) => candidateMarketStatus(candidate, currency) === 'READY');
-  const diversityEligibleCandidates = selectDiversityEligibleWeeklyCandidates(rerankedReserve, currency, recentDrops, activeVaultChases);
+  const diversityEligibleCandidates = selectDiversityEligibleWeeklyCandidates(rerankedReserve, currency, recentDrops, activeVaultChases, anchorProfileSignals);
   const repeatHistoryForHeadroom = exactRepeatHistoryByCanonicalId(recentDrops);
   const viableAlternativeCount = rerankedReserve.filter((candidate) => {
     const canonicalId = candidate.suggestion.referenceSourceCardId?.trim() ?? candidate.image?.sourceCardId?.trim();
@@ -9004,13 +9077,14 @@ export function finalizeWeeklyDiscoveryShelf(input: WeeklyDiscoveryFinalizationI
     input.userCurrency,
     DISCOVERY_WEEKLY_DROP_SIZE,
     input.priorShelfHistory,
-    input.activeVault
+    input.activeVault,
+    input.anchorProfileSignals ?? input.activeVault
   );
   const selectedCanonicalIds = new Set(selection.items.map((item) => item.suggestion.referenceSourceCardId?.trim()).filter((value): value is string => !!value));
   const recentRepeatHistory = exactRepeatHistoryByCanonicalId(input.priorShelfHistory);
   const selectionState = emptyWeeklyShelfSelectionState();
   selectionState.laneCapEnabled = new Set(rerankedReserve.map(candidateLaneShelfKey)).size > 1;
-  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(input.activeVault);
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(input.anchorProfileSignals ?? input.activeVault);
   for (const candidate of selection.selectedCandidates) {
     recordSelectedCandidate(
       candidate,
@@ -9072,6 +9146,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   const deferExpensiveHydration = quickRefresh && !allowHydrationForMissingLiveCachedDrop;
   const buildCurrentFinalizationInput = (
     activeVault: Chase[],
+    anchorProfileSignals: Chase[],
     collectorProfile: CollectorTasteProfile,
     orderedCandidateReserve: DiscoveryCandidate[]
   ): WeeklyDiscoveryFinalizationInput => ({
@@ -9080,13 +9155,14 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     userCurrency: discovery.settings.alertCurrency,
     exchangeRates: {},
     activeVault,
+    anchorProfileSignals,
     collectorProfile,
     priorShelfHistory: recentDrops,
     orderedCandidateReserve,
     feedbackPreferences: {
       budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
     },
-    stableTieBreakerSeed: context.userId
+      stableTieBreakerSeed: context.userId
   });
   const discovery = await runWeeklyDiscoveryStage({
     userId: context.userId,
@@ -9391,10 +9467,11 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     discovery.settings.alertCurrency,
     recentDrops,
     listChases(context.userId),
-    baseStageCounts
+    baseStageCounts,
+    discovery.tasteProfileChases
   );
   let validatedSnapshot: PreparedWeeklyDiscoverySnapshot | null = capturePreparedWeeklyDiscoverySnapshot(
-    buildCurrentFinalizationInput(activeVault, collectorProfile, candidateReserve),
+    buildCurrentFinalizationInput(activeVault, discovery.tasteProfileChases, collectorProfile, candidateReserve),
     accumulatedCanonicalLookupEvidence,
     'initial-supply-readiness'
   );
@@ -9422,7 +9499,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       candidateReserve,
       discovery.settings.alertCurrency,
       recentDrops,
-      activeVault
+      activeVault,
+      discovery.tasteProfileChases
     )
       .filter((candidate) => candidateMarketStatus(candidate, discovery.settings.alertCurrency) !== 'READY')
       .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 2, supplyReadinessBeforeTopOff.marketResolvedShortfall * 4)));
@@ -9462,7 +9540,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
             discovery.settings.alertCurrency,
             recentDrops,
             activeVault,
-            baseStageCounts
+            baseStageCounts,
+            discovery.tasteProfileChases
           ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
@@ -9485,7 +9564,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         discovery.settings.alertCurrency,
         recentDrops,
         activeVault,
-        baseStageCounts
+        baseStageCounts,
+        discovery.tasteProfileChases
       );
       throwIfAborted(context.abortSignal);
       throwIfDeadlineExpired(deadlineAtMs);
@@ -9669,14 +9749,16 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     discovery.settings.alertCurrency,
     recentDrops,
     activeVault,
-    finalStageCounts
+    finalStageCounts,
+    discovery.tasteProfileChases
   );
   if (!deferExpensiveHydration && discovery.hasFullDiscovery && supplyReadinessAfterTopOff.marketResolvedShortfall > 0 && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const marketShortfallTargets = selectMarketShortfallHydrationTargets(
       candidateReserve,
       discovery.settings.alertCurrency,
       recentDrops,
-      activeVault
+      activeVault,
+      discovery.tasteProfileChases
     )
       .filter((candidate) => candidateMarketStatus(candidate, discovery.settings.alertCurrency) !== 'READY')
       .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 2, supplyReadinessAfterTopOff.marketResolvedShortfall * 4)));
@@ -9714,7 +9796,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
             discovery.settings.alertCurrency,
             recentDrops,
             activeVault,
-            finalStageCounts
+            finalStageCounts,
+            discovery.tasteProfileChases
           ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
@@ -9735,7 +9818,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         discovery.settings.alertCurrency,
         recentDrops,
         activeVault,
-        finalStageCounts
+        finalStageCounts,
+        discovery.tasteProfileChases
       );
       throwIfAborted(context.abortSignal);
       throwIfDeadlineExpired(deadlineAtMs);
@@ -9760,13 +9844,13 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     }
   });
   validatedSnapshot = capturePreparedWeeklyDiscoverySnapshot(
-    buildCurrentFinalizationInput(activeVault, collectorProfile, candidateReserve),
+    buildCurrentFinalizationInput(activeVault, discovery.tasteProfileChases, collectorProfile, candidateReserve),
     accumulatedCanonicalLookupEvidence,
     topOffApplied ? 'post-topoff-supply-readiness' : 'post-initial-supply-readiness'
   );
 
   return {
-    input: validatedSnapshot?.input ?? buildCurrentFinalizationInput(activeVault, collectorProfile, candidateReserve),
+    input: validatedSnapshot?.input ?? buildCurrentFinalizationInput(activeVault, discovery.tasteProfileChases, collectorProfile, candidateReserve),
     canonicalLookupEvidence: accumulatedCanonicalLookupEvidence,
     discovery,
     fallbackDrop,
