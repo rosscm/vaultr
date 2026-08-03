@@ -297,7 +297,39 @@ type DiscoveryShelfSelectionRejectionCode =
   | 'FAMILY_SHELF_CAP'
   | 'FORMAT_SHELF_CAP'
   | 'LANE_SHELF_CAP'
+  | 'EXPLORATORY_SHELF_CAP'
+  | 'ERA_ONLY_EXPLORATORY_SHELF_CAP'
+  | 'ERA_SET_FAMILY_SHELF_CAP'
+  | 'GENERIC_FILLER_SHELF_CAP'
   | 'VAULT_PARALLEL_PRINT';
+type DiscoveryRecommendationStrength =
+  | 'DIRECT_PROFILE'
+  | 'STRONG_ADJACENT'
+  | 'EXPLORATORY'
+  | 'GENERIC_FILLER';
+type DiscoveryRecommendationAnchorKind =
+  | 'SUBJECT'
+  | 'EVOLUTION_FAMILY'
+  | 'SET_RELATIONSHIP'
+  | 'PROMO_PREFERENCE'
+  | 'REGIONAL_PRINT'
+  | 'ART_STYLE'
+  | 'FORMAT'
+  | 'ERA';
+type DiscoveryRecommendationAnchor = {
+  kind: DiscoveryRecommendationAnchorKind;
+  key: string;
+  label: string;
+};
+type DiscoveryRecommendationProfile = {
+  profileHasSignals: boolean;
+  strength: DiscoveryRecommendationStrength;
+  anchors: DiscoveryRecommendationAnchor[];
+  primaryAnchor?: DiscoveryRecommendationAnchor;
+  anchoredWhy: string;
+  isEraOnlyExploratory: boolean;
+  eraSetFamilyKey?: string;
+};
 type DiscoveryShelfSelectionResult = {
   items: ScheduledDiscoveryDropItem[];
   selectedCandidates: DiscoveryCandidate[];
@@ -308,7 +340,15 @@ type DiscoveryShelfSelectionResult = {
   capRelaxationSelections: Array<{
     suggestionName: string;
     canonicalCardId?: string;
-    relaxedReason: 'SUBJECT_SHELF_CAP' | 'FAMILY_SHELF_CAP' | 'FORMAT_SHELF_CAP' | 'LANE_SHELF_CAP';
+    relaxedReason:
+      | 'SUBJECT_SHELF_CAP'
+      | 'FAMILY_SHELF_CAP'
+      | 'FORMAT_SHELF_CAP'
+      | 'LANE_SHELF_CAP'
+      | 'EXPLORATORY_SHELF_CAP'
+      | 'ERA_ONLY_EXPLORATORY_SHELF_CAP'
+      | 'ERA_SET_FAMILY_SHELF_CAP'
+      | 'GENERIC_FILLER_SHELF_CAP';
     relaxedKey?: string;
     marketStatus: DiscoveryScheduledMarketStatus;
   }>;
@@ -338,6 +378,8 @@ type DiscoveryShelfSelectionResult = {
     resolvedSet?: string;
     resolvedCardNumber?: string;
     resolvedLanguage?: string;
+    recommendationStrength?: DiscoveryRecommendationStrength;
+    primaryAnchorLabel?: string;
     mismatchFields?: string[];
     requestedNumber?: string;
     requestedSet?: string;
@@ -1272,6 +1314,7 @@ function setHintForPrinting(value: string): string | undefined {
     { pattern: /nintendo(?: black star)? promos?/i, value: 'Nintendo Black Star Promos' },
     { pattern: /terastal festival/i, value: 'Terastal Festival ex' },
     { pattern: /vstar universe/i, value: 'VSTAR Universe' },
+    { pattern: /shiny treasure(?:\s+ex)?/i, value: 'Shiny Treasure ex' },
     { pattern: /aquapolis/i, value: 'Aquapolis' },
     { pattern: /expedition/i, value: 'Expedition Base Set' },
     { pattern: /skyridge/i, value: 'Skyridge' },
@@ -6235,9 +6278,12 @@ function sourceCardText(candidate: DiscoveryCandidate): string {
 }
 
 function normalizedSubjectIdentity(value: string): string | undefined {
+  const explicitSet = setHintForPrinting(value);
   const normalized = discoveryNameKey(value)
+    .replace(explicitSet ? new RegExp(`\\b${escapeRegExp(explicitSet)}\\b`, 'ig') : /$^/, ' ')
     .replace(/\b(?:pokemon|japanese|english|promo|promos|card|cards|trading|tcg|holo|illustration|special|limited|collector|raw|rare|art|full|gallery)\b/g, ' ')
     .replace(/\b(?:ex|gx|vmax|vstar|v|sar|sir|ar|ur|sr|rr|hr|chr|csr|tg|gg|rc)\b/g, ' ')
+    .replace(/\b(?:s|sv|sm|xy)\d{1,3}[a-z]?\b/g, ' ')
     .replace(/\b(?:sm|swsh|xy|bw|dp|hgss|sv)\d+[a-z]?\b/g, ' ')
     .replace(/\b\d{1,3}(?:\/\d{1,3})?\b/g, ' ')
     .replace(/\s+/g, ' ')
@@ -6281,6 +6327,196 @@ function candidateFormatShelfKey(candidate: DiscoveryCandidate): string | undefi
 
 function candidateLaneShelfKey(candidate: DiscoveryCandidate): string {
   return discoveryTrailLabel(candidate.suggestion.lane);
+}
+
+type WeeklyCollectorAnchorProfile = {
+  hasSignals: boolean;
+  subjectLabels: Map<string, string>;
+  familyLabels: Map<string, string>;
+  setLabels: Map<string, string>;
+  setFamilyLabels: Map<string, string>;
+  eraLabels: Map<string, string>;
+  languages: Set<'JAPANESE' | 'ENGLISH'>;
+  formatLabels: Map<string, string>;
+  promoPreference: boolean;
+  artPreference: boolean;
+};
+
+function formatKeyFromText(value: string): string | undefined {
+  const text = normalize(value);
+  if (/\btag team\b|\bgx\b/.test(text)) return 'GX';
+  if (/\bvmax\b|\bvstar\b|\b(?:^|[^a-z])v(?:[^a-z]|$)/.test(text)) return 'V';
+  if (/\b(?:mega\s+)?ex\b/.test(text)) return 'EX';
+  return undefined;
+}
+
+function chaseEvolutionFamilyKey(chase: Pick<Chase, 'cardName' | 'targetNote'>): string | undefined {
+  const subjectTokens = profileSubjectTokens(chaseReferenceText(chase));
+  for (const family of EVOLUTION_FAMILY_GROUPS) {
+    if (subjectTokens.some((token) => family.includes(token))) return family[0];
+  }
+  return undefined;
+}
+
+function eraLabelsFromText(value: string): string[] {
+  const text = normalize(value);
+  const labels: string[] = [];
+  if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(text)) labels.push('E-Reader Era');
+  if (/\bbase set\b|\bteam rocket\b|\bgym heroes\b|\bgym challenge\b|\bneo\b|\bwizards black star\b/.test(text)) labels.push('Vintage Era');
+  if (/\bpaldean fates\b|\b151\b|\bterastal festival\b|\bsv\d+\b/.test(text)) labels.push('Modern Era');
+  return labels;
+}
+
+function buildWeeklyCollectorAnchorProfile(chases: Chase[]): WeeklyCollectorAnchorProfile {
+  const profile: WeeklyCollectorAnchorProfile = {
+    hasSignals: false,
+    subjectLabels: new Map<string, string>(),
+    familyLabels: new Map<string, string>(),
+    setLabels: new Map<string, string>(),
+    setFamilyLabels: new Map<string, string>(),
+    eraLabels: new Map<string, string>(),
+    languages: new Set<'JAPANESE' | 'ENGLISH'>(),
+    formatLabels: new Map<string, string>(),
+    promoPreference: false,
+    artPreference: false
+  };
+
+  for (const chase of positiveTasteSubjectChases(chases)) {
+    profile.hasSignals = true;
+    const text = chaseReferenceText(chase);
+    const subjectKey = normalizedSubjectIdentity(chase.cardName);
+    if (subjectKey && !profile.subjectLabels.has(subjectKey)) profile.subjectLabels.set(subjectKey, chase.cardName);
+    const familyKey = chaseEvolutionFamilyKey(chase);
+    if (familyKey && !profile.familyLabels.has(familyKey)) profile.familyLabels.set(familyKey, titleCase(familyKey));
+    const setLabel = setHintForPrinting(text) ?? chaseSpecialSetLabel(chase);
+    if (setLabel && !profile.setLabels.has(normalize(setLabel))) profile.setLabels.set(normalize(setLabel), setLabel);
+    const setFamilyKey = setFamilyKeyFromText(text);
+    if (setFamilyKey && !profile.setFamilyLabels.has(setFamilyKey)) profile.setFamilyLabels.set(setFamilyKey, setLabel ?? chase.cardName);
+    for (const eraLabel of eraLabelsFromText(text)) {
+      if (!profile.eraLabels.has(normalize(eraLabel))) profile.eraLabels.set(normalize(eraLabel), eraLabel);
+    }
+    const language = cardLanguageFromText(text);
+    if (language) profile.languages.add(language);
+    const formatKey = formatKeyFromText(text);
+    if (formatKey && !profile.formatLabels.has(formatKey)) profile.formatLabels.set(formatKey, formatKey);
+    if (/\bpromo|black star|mcdonald'?s|special delivery|league promo|nintendo promo\b/i.test(text)) profile.promoPreference = true;
+    if (/\billustration|art rare|full art|trainer gallery|galarian gallery|\bsar\b|\bsir\b|\bar\b/i.test(text)) profile.artPreference = true;
+  }
+
+  return profile;
+}
+
+function candidateEraSetFamilyKey(candidate: DiscoveryCandidate): string | undefined {
+  const weeklyEras = candidate.weeklyDiscovery?.features?.eras ?? [];
+  if (weeklyEras.length > 0) return weeklyEras[0];
+  return setFamilyKeyFromText(sourceCardText(candidate)) ?? sourceSetLabel(candidate);
+}
+
+function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collectorProfile: WeeklyCollectorAnchorProfile): DiscoveryRecommendationProfile {
+  if (!collectorProfile.hasSignals) {
+    return {
+      profileHasSignals: false,
+      strength: 'STRONG_ADJACENT',
+      anchors: [],
+      anchoredWhy: candidate.suggestion.why?.trim() || `${candidate.suggestion.name} stays in the reserve as a concrete candidate while stronger collector anchors are unavailable.`,
+      isEraOnlyExploratory: false,
+      eraSetFamilyKey: candidateEraSetFamilyKey(candidate)
+    };
+  }
+  const text = sourceCardText(candidate);
+  const subjectKey = candidateShelfSubjectKey(candidate);
+  const familyKey = candidateEvolutionFamilyKey(candidate);
+  const setLabel = sourceSetLabel(candidate);
+  const setFamilyKey = setFamilyKeyFromText(text);
+  const language = cardLanguageFromText(text);
+  const formatKey = candidateFormatShelfKey(candidate);
+  const isPromoCandidate = /\bpromo|black star|mcdonald'?s|special delivery|league promo|nintendo promo\b/i.test(text);
+  const isArtCandidate = /\billustration|art rare|full art|trainer gallery|galarian gallery|\bsar\b|\bsir\b|\bar\b/i.test(text);
+  const eraLabels = eraLabelsFromText(text);
+  const anchors: DiscoveryRecommendationAnchor[] = [];
+
+  if (subjectKey && collectorProfile.subjectLabels.has(subjectKey)) {
+    anchors.push({ kind: 'SUBJECT', key: subjectKey, label: collectorProfile.subjectLabels.get(subjectKey)! });
+  }
+  if (familyKey && collectorProfile.familyLabels.has(familyKey)) {
+    anchors.push({ kind: 'EVOLUTION_FAMILY', key: familyKey, label: collectorProfile.familyLabels.get(familyKey)! });
+  }
+  if (setLabel && collectorProfile.setLabels.has(normalize(setLabel))) {
+    anchors.push({ kind: 'SET_RELATIONSHIP', key: normalize(setLabel), label: collectorProfile.setLabels.get(normalize(setLabel))! });
+  } else if (setFamilyKey && collectorProfile.setFamilyLabels.has(setFamilyKey)) {
+    anchors.push({ kind: 'SET_RELATIONSHIP', key: setFamilyKey, label: collectorProfile.setFamilyLabels.get(setFamilyKey)! });
+  }
+  if (language && collectorProfile.languages.has(language)) {
+    anchors.push({ kind: 'REGIONAL_PRINT', key: language, label: language === 'JAPANESE' ? 'Japanese prints' : 'English prints' });
+  }
+  if (isPromoCandidate && collectorProfile.promoPreference) {
+    anchors.push({ kind: 'PROMO_PREFERENCE', key: 'promo', label: 'promo and special release cards' });
+  }
+  if (isArtCandidate && collectorProfile.artPreference) {
+    anchors.push({ kind: 'ART_STYLE', key: 'art-style', label: 'art-led cards' });
+  }
+  if (formatKey && collectorProfile.formatLabels.has(formatKey)) {
+    anchors.push({ kind: 'FORMAT', key: formatKey, label: `${formatKey} format cards` });
+  }
+  for (const eraLabel of eraLabels) {
+    const normalizedEra = normalize(eraLabel);
+    if (collectorProfile.eraLabels.has(normalizedEra)) {
+      anchors.push({ kind: 'ERA', key: normalizedEra, label: collectorProfile.eraLabels.get(normalizedEra)! });
+      break;
+    }
+  }
+
+  const primaryAnchor = anchors[0];
+  const hasExplicitNonEraAnchor = anchors.some((anchor) => anchor.kind !== 'ERA');
+  const strength: DiscoveryRecommendationStrength = anchors.some((anchor) => anchor.kind === 'SUBJECT' || anchor.kind === 'EVOLUTION_FAMILY')
+    ? 'DIRECT_PROFILE'
+    : hasExplicitNonEraAnchor
+      ? 'STRONG_ADJACENT'
+      : anchors.some((anchor) => anchor.kind === 'ERA')
+        ? 'EXPLORATORY'
+        : 'GENERIC_FILLER';
+  const isEraOnlyExploratory = strength === 'EXPLORATORY' && anchors.every((anchor) => anchor.kind === 'ERA');
+  const subjectLabel = sourceCardSubject(candidate, setLabel);
+  const anchoredWhy = primaryAnchor
+    ? primaryAnchor.kind === 'SUBJECT'
+      ? `${subjectLabel} stays tied to your ${primaryAnchor.label} collector thread, but through a different print or release angle than the exact card already in your Vault.`
+      : primaryAnchor.kind === 'EVOLUTION_FAMILY'
+        ? `${subjectLabel} branches from your ${primaryAnchor.label} family, giving that line another collector-relevant print without repeating the same card.`
+        : primaryAnchor.kind === 'SET_RELATIONSHIP'
+          ? `${primaryAnchor.label} is already a real lane in your Vault, and ${subjectLabel} extends that release family with a different collector target.`
+          : primaryAnchor.kind === 'PROMO_PREFERENCE'
+            ? `${subjectLabel} fits the promo and release-story side of your Vault instead of acting like a generic set filler.`
+            : primaryAnchor.kind === 'REGIONAL_PRINT'
+              ? `${primaryAnchor.label} already matter in your Vault, and ${subjectLabel} keeps that regional-print thread active with a different card.`
+              : primaryAnchor.kind === 'ART_STYLE'
+                ? `${subjectLabel} fits the art-led side of your collection, so this reads as a binder pick rather than a price-only card.`
+                : primaryAnchor.kind === 'FORMAT'
+                  ? `${primaryAnchor.label} are already part of your collection pattern, and ${subjectLabel} extends that format without repeating the same chase.`
+                  : `${primaryAnchor.label} is part of your Vault texture, so ${subjectLabel} works as controlled exploration from that era instead of a direct callback.`
+    : `${subjectLabel} is only a broad exploratory fit right now, so it should stay behind cards with clearer Vault anchors.`;
+
+  return {
+    profileHasSignals: true,
+    strength,
+    anchors,
+    primaryAnchor,
+    anchoredWhy,
+    isEraOnlyExploratory,
+    eraSetFamilyKey: candidateEraSetFamilyKey(candidate)
+  };
+}
+
+function candidateWithCollectorAnchoredRationale(candidate: DiscoveryCandidate, collectorProfile: WeeklyCollectorAnchorProfile): DiscoveryCandidate {
+  if (!collectorProfile.hasSignals) return candidate;
+  const recommendation = recommendationProfileForCandidate(candidate, collectorProfile);
+  if (candidate.suggestion.why === recommendation.anchoredWhy) return candidate;
+  return {
+    ...candidate,
+    suggestion: {
+      ...candidate.suggestion,
+      why: recommendation.anchoredWhy
+    }
+  };
 }
 
 function printingContextKeyFromText(value: string): string | undefined {
@@ -7557,7 +7793,7 @@ function exactRepeatHistorySample(
   history: ExactRepeatHistoryEntry,
   repeatPolicy: 'HARD_EXCLUDE' | 'PENALTY'
 ): DiscoveryShelfSelectionResult['rejectionSamples']['EXACT_REPEAT_COOLDOWN'][number] {
-  return selectionDiagnosticSample(candidate, 'EXACT_REPEAT_COOLDOWN', {
+  return selectionDiagnosticSample(candidate, 'EXACT_REPEAT_COOLDOWN', undefined, {
     canonicalCardId: candidate.suggestion.referenceSourceCardId?.trim() ?? candidate.image?.sourceCardId?.trim(),
     mostRecentPeriodShown: history.mostRecentPeriodShown,
     priorAppearances: history.priorAppearances,
@@ -7873,6 +8109,10 @@ function emptyDiscoveryShelfRejectionCounts(): Record<DiscoveryShelfSelectionRej
     FAMILY_SHELF_CAP: 0,
     FORMAT_SHELF_CAP: 0,
     LANE_SHELF_CAP: 0,
+    EXPLORATORY_SHELF_CAP: 0,
+    ERA_ONLY_EXPLORATORY_SHELF_CAP: 0,
+    ERA_SET_FAMILY_SHELF_CAP: 0,
+    GENERIC_FILLER_SHELF_CAP: 0,
     VAULT_PARALLEL_PRINT: 0
   };
 }
@@ -7891,6 +8131,10 @@ function emptyDiscoveryShelfRejectionSamples(): DiscoveryShelfSelectionResult['r
     FAMILY_SHELF_CAP: [],
     FORMAT_SHELF_CAP: [],
     LANE_SHELF_CAP: [],
+    EXPLORATORY_SHELF_CAP: [],
+    ERA_ONLY_EXPLORATORY_SHELF_CAP: [],
+    ERA_SET_FAMILY_SHELF_CAP: [],
+    GENERIC_FILLER_SHELF_CAP: [],
     VAULT_PARALLEL_PRINT: []
   };
 }
@@ -7910,6 +8154,10 @@ type WeeklyShelfSelectionState = {
   familyCounts: Map<string, number>;
   formatCounts: Map<string, number>;
   laneCounts: Map<string, number>;
+  exploratoryCount: number;
+  eraOnlyExploratoryCount: number;
+  genericFillerCount: number;
+  eraSetFamilyCounts: Map<string, number>;
   laneCapEnabled: boolean;
 };
 
@@ -7918,6 +8166,10 @@ type WeeklyShelfCapLimits = {
   familyCap: number;
   formatCap: number;
   laneCap: number;
+  exploratoryCap: number;
+  eraOnlyExploratoryCap: number;
+  eraSetFamilyCap: number;
+  genericFillerCap: number;
 };
 
 type ParallelPrintVaultEntry = {
@@ -7933,6 +8185,10 @@ function emptyWeeklyShelfSelectionState(): WeeklyShelfSelectionState {
     familyCounts: new Map<string, number>(),
     formatCounts: new Map<string, number>(),
     laneCounts: new Map<string, number>(),
+    exploratoryCount: 0,
+    eraOnlyExploratoryCount: 0,
+    genericFillerCount: 0,
+    eraSetFamilyCounts: new Map<string, number>(),
     laneCapEnabled: false
   };
 }
@@ -7942,16 +8198,24 @@ function normalWeeklyShelfCapLimits(): WeeklyShelfCapLimits {
     subjectCap: WEEKLY_DISCOVERY_SUBJECT_CAP,
     familyCap: WEEKLY_DISCOVERY_FAMILY_CAP,
     formatCap: WEEKLY_DISCOVERY_FORMAT_CAP,
-    laneCap: WEEKLY_DISCOVERY_LANE_CAP
+    laneCap: WEEKLY_DISCOVERY_LANE_CAP,
+    exploratoryCap: 4,
+    eraOnlyExploratoryCap: 4,
+    eraSetFamilyCap: 7,
+    genericFillerCap: 0
   };
 }
 
 function emergencyWeeklyShelfCapLimits(expectedSize: number): WeeklyShelfCapLimits {
   return {
-    subjectCap: Math.max(WEEKLY_DISCOVERY_SUBJECT_CAP, Math.ceil(expectedSize * 0.8)),
-    familyCap: Math.max(WEEKLY_DISCOVERY_FAMILY_CAP, Math.ceil(expectedSize * 0.8)),
-    formatCap: Math.max(WEEKLY_DISCOVERY_FORMAT_CAP, Math.ceil(expectedSize * 0.9)),
-    laneCap: expectedSize
+    subjectCap: Math.max(WEEKLY_DISCOVERY_SUBJECT_CAP, 4),
+    familyCap: Math.max(WEEKLY_DISCOVERY_FAMILY_CAP, 5),
+    formatCap: Math.max(WEEKLY_DISCOVERY_FORMAT_CAP, 5),
+    laneCap: Math.max(WEEKLY_DISCOVERY_LANE_CAP, 8),
+    exploratoryCap: 6,
+    eraOnlyExploratoryCap: 5,
+    eraSetFamilyCap: 9,
+    genericFillerCap: 2
   };
 }
 
@@ -7998,6 +8262,7 @@ function candidateParallelPrintRejection(candidate: DiscoveryCandidate, vaultEnt
 function candidateShelfCapRejection(
   candidate: DiscoveryCandidate,
   selectionState: WeeklyShelfSelectionState,
+  recommendation: DiscoveryRecommendationProfile,
   limits: WeeklyShelfCapLimits = normalWeeklyShelfCapLimits()
 ): DiscoveryShelfSelectionRejection | null {
   const subjectKey = candidateShelfSubjectKey(candidate);
@@ -8016,10 +8281,27 @@ function candidateShelfCapRejection(
   if (selectionState.laneCapEnabled && (selectionState.laneCounts.get(laneKey) ?? 0) >= limits.laneCap) {
     return { code: 'LANE_SHELF_CAP', matchedKey: laneKey };
   }
+  if (!recommendation.profileHasSignals) return null;
+  if (recommendation.strength === 'GENERIC_FILLER' && selectionState.genericFillerCount >= limits.genericFillerCap) {
+    return { code: 'GENERIC_FILLER_SHELF_CAP', matchedKey: 'generic-filler' };
+  }
+  if (recommendation.strength === 'EXPLORATORY' && selectionState.exploratoryCount >= limits.exploratoryCap) {
+    return { code: 'EXPLORATORY_SHELF_CAP', matchedKey: 'exploratory' };
+  }
+  if (recommendation.isEraOnlyExploratory && selectionState.eraOnlyExploratoryCount >= limits.eraOnlyExploratoryCap) {
+    return { code: 'ERA_ONLY_EXPLORATORY_SHELF_CAP', matchedKey: recommendation.eraSetFamilyKey ?? 'era-only' };
+  }
+  if (recommendation.eraSetFamilyKey && (selectionState.eraSetFamilyCounts.get(recommendation.eraSetFamilyKey) ?? 0) >= limits.eraSetFamilyCap) {
+    return { code: 'ERA_SET_FAMILY_SHELF_CAP', matchedKey: recommendation.eraSetFamilyKey };
+  }
   return null;
 }
 
-function recordSelectedCandidate(candidate: DiscoveryCandidate, selectionState: WeeklyShelfSelectionState): void {
+function recordSelectedCandidate(
+  candidate: DiscoveryCandidate,
+  selectionState: WeeklyShelfSelectionState,
+  recommendation: DiscoveryRecommendationProfile
+): void {
   const subjectKey = candidateShelfSubjectKey(candidate);
   if (subjectKey) selectionState.subjectCounts.set(subjectKey, (selectionState.subjectCounts.get(subjectKey) ?? 0) + 1);
   const familyKey = candidateEvolutionFamilyKey(candidate);
@@ -8028,11 +8310,21 @@ function recordSelectedCandidate(candidate: DiscoveryCandidate, selectionState: 
   if (formatKey) selectionState.formatCounts.set(formatKey, (selectionState.formatCounts.get(formatKey) ?? 0) + 1);
   const laneKey = candidateLaneShelfKey(candidate);
   selectionState.laneCounts.set(laneKey, (selectionState.laneCounts.get(laneKey) ?? 0) + 1);
+  if (recommendation.strength === 'EXPLORATORY') selectionState.exploratoryCount += 1;
+  if (recommendation.isEraOnlyExploratory) selectionState.eraOnlyExploratoryCount += 1;
+  if (recommendation.strength === 'GENERIC_FILLER') selectionState.genericFillerCount += 1;
+  if (recommendation.eraSetFamilyKey) {
+    selectionState.eraSetFamilyCounts.set(
+      recommendation.eraSetFamilyKey,
+      (selectionState.eraSetFamilyCounts.get(recommendation.eraSetFamilyKey) ?? 0) + 1
+    );
+  }
 }
 
 function selectionDiagnosticSample(
   candidate: DiscoveryCandidate,
   rejectionReason: DiscoveryShelfSelectionRejectionCode,
+  recommendation?: DiscoveryRecommendationProfile,
   extra: Partial<DiscoveryShelfSelectionResult['rejectionSamples'][DiscoveryShelfSelectionRejectionCode][number]> = {}
 ): DiscoveryShelfSelectionResult['rejectionSamples'][DiscoveryShelfSelectionRejectionCode][number] {
   const canonicalImage = scheduledShelfImageFromCandidate(candidate);
@@ -8064,6 +8356,8 @@ function selectionDiagnosticSample(
     subjectKey: candidateShelfSubjectKey(candidate),
     familyKey: candidateEvolutionFamilyKey(candidate),
     formatKey: candidateFormatShelfKey(candidate),
+    recommendationStrength: recommendation?.strength,
+    primaryAnchorLabel: recommendation?.primaryAnchor?.label,
     ...extra
   };
 }
@@ -8076,6 +8370,7 @@ function candidateItemSelectionRejection(
   targetCurrency: SupportedCurrency,
   selectionState: WeeklyShelfSelectionState,
   vaultEntries: ParallelPrintVaultEntry[],
+  recommendation: DiscoveryRecommendationProfile,
   limits: WeeklyShelfCapLimits = normalWeeklyShelfCapLimits()
 ): DiscoveryShelfSelectionRejection | null {
   const canonicalId = scheduledItemCanonicalId(item);
@@ -8093,13 +8388,20 @@ function candidateItemSelectionRejection(
   if (seenCanonicalIds.has(canonicalId)) return { code: 'DUPLICATE_CANONICAL_ID' };
   const parallelPrintRejection = candidateParallelPrintRejection(candidate, vaultEntries);
   if (parallelPrintRejection) return parallelPrintRejection;
-  const shelfCapRejection = candidateShelfCapRejection(candidate, selectionState, limits);
+  const shelfCapRejection = candidateShelfCapRejection(candidate, selectionState, recommendation, limits);
   if (shelfCapRejection) return shelfCapRejection;
   return null;
 }
 
 function isCapRejection(code: DiscoveryShelfSelectionRejectionCode): code is DiscoveryShelfSelectionResult['capRelaxationSelections'][number]['relaxedReason'] {
-  return code === 'SUBJECT_SHELF_CAP' || code === 'FAMILY_SHELF_CAP' || code === 'FORMAT_SHELF_CAP' || code === 'LANE_SHELF_CAP';
+  return code === 'SUBJECT_SHELF_CAP'
+    || code === 'FAMILY_SHELF_CAP'
+    || code === 'FORMAT_SHELF_CAP'
+    || code === 'LANE_SHELF_CAP'
+    || code === 'EXPLORATORY_SHELF_CAP'
+    || code === 'ERA_ONLY_EXPLORATORY_SHELF_CAP'
+    || code === 'ERA_SET_FAMILY_SHELF_CAP'
+    || code === 'GENERIC_FILLER_SHELF_CAP';
 }
 
 function recoveryCapLimitsForStep(step: number, expectedSize: number): WeeklyShelfCapLimits {
@@ -8109,19 +8411,29 @@ function recoveryCapLimitsForStep(step: number, expectedSize: number): WeeklyShe
     subjectCap: Math.min(emergency.subjectCap, normal.subjectCap + step),
     familyCap: Math.min(emergency.familyCap, normal.familyCap + step),
     formatCap: Math.min(emergency.formatCap, normal.formatCap + step),
-    laneCap: Math.min(emergency.laneCap, normal.laneCap + step)
+    laneCap: Math.min(emergency.laneCap, normal.laneCap + step),
+    exploratoryCap: Math.min(emergency.exploratoryCap, normal.exploratoryCap + step),
+    eraOnlyExploratoryCap: Math.min(emergency.eraOnlyExploratoryCap, normal.eraOnlyExploratoryCap + step),
+    eraSetFamilyCap: Math.min(emergency.eraSetFamilyCap, normal.eraSetFamilyCap + step),
+    genericFillerCap: Math.min(emergency.genericFillerCap, normal.genericFillerCap + step)
   };
 }
 
 function capRecoveryCandidateScore(entry: {
   candidate: DiscoveryCandidate;
   item: ScheduledDiscoveryDropItem;
+  recommendation: DiscoveryRecommendationProfile;
 }): number {
   const canonicalId = scheduledItemCanonicalId(entry.item);
   return [
     entry.item.market.status === 'READY' ? 10_000 : 0,
     hasTrustedReferenceImage(entry.item) ? 1_000 : 0,
     canonicalId ? 500 : 0,
+    entry.recommendation.strength === 'DIRECT_PROFILE' ? 250 : 0,
+    entry.recommendation.strength === 'STRONG_ADJACENT' ? 175 : 0,
+    entry.recommendation.strength === 'EXPLORATORY' ? 50 : 0,
+    entry.recommendation.strength === 'GENERIC_FILLER' ? -100 : 0,
+    entry.recommendation.isEraOnlyExploratory ? -75 : 0,
     -(entry.candidate.selectionIndex ?? 0)
   ].reduce((sum, value) => sum + value, 0);
 }
@@ -8132,6 +8444,7 @@ function appendCapRecoverySelections(
     candidate: DiscoveryCandidate;
     item: ScheduledDiscoveryDropItem;
     rejection: DiscoveryShelfSelectionRejection;
+    recommendation: DiscoveryRecommendationProfile;
   }>,
   selectedCanonicalIds: Set<string>,
   finalSelectionState: WeeklyShelfSelectionState,
@@ -8139,12 +8452,17 @@ function appendCapRecoverySelections(
   capRelaxationSelections: DiscoveryShelfSelectionResult['capRelaxationSelections'],
   maxMarketIncomplete = WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE
 ): void {
+  const normal = normalWeeklyShelfCapLimits();
   const emergency = emergencyWeeklyShelfCapLimits(expectedSize);
   const maxStep = Math.max(
-    emergency.subjectCap - WEEKLY_DISCOVERY_SUBJECT_CAP,
-    emergency.familyCap - WEEKLY_DISCOVERY_FAMILY_CAP,
-    emergency.formatCap - WEEKLY_DISCOVERY_FORMAT_CAP,
-    emergency.laneCap - WEEKLY_DISCOVERY_LANE_CAP,
+    emergency.subjectCap - normal.subjectCap,
+    emergency.familyCap - normal.familyCap,
+    emergency.formatCap - normal.formatCap,
+    emergency.laneCap - normal.laneCap,
+    emergency.exploratoryCap - normal.exploratoryCap,
+    emergency.eraOnlyExploratoryCap - normal.eraOnlyExploratoryCap,
+    emergency.eraSetFamilyCap - normal.eraSetFamilyCap,
+    emergency.genericFillerCap - normal.genericFillerCap,
     0
   );
   const recoveryReserve = [...capRejectedCandidates].sort((left, right) =>
@@ -8163,13 +8481,13 @@ function appendCapRecoverySelections(
         entry.item.market.status !== 'READY'
         && selected.filter((selectedEntry) => selectedEntry.item.market.status !== 'READY').length >= maxMarketIncomplete
       ) continue;
-      const capRejection = candidateShelfCapRejection(entry.candidate, finalSelectionState, limits);
+      const capRejection = candidateShelfCapRejection(entry.candidate, finalSelectionState, entry.recommendation, limits);
       if (capRejection) continue;
       const relaxedReason = entry.rejection.code;
       if (!isCapRejection(relaxedReason)) continue;
       selected.push(entry);
       selectedCanonicalIds.add(canonicalId);
-      recordSelectedCandidate(entry.candidate, finalSelectionState);
+      recordSelectedCandidate(entry.candidate, finalSelectionState, entry.recommendation);
       capRelaxationSelections.push({
         suggestionName: entry.candidate.suggestion.name,
         canonicalCardId: canonicalId,
@@ -8197,6 +8515,7 @@ function selectPublishableWeeklyDiscoveryShelf(
     candidate: DiscoveryCandidate;
     item: ScheduledDiscoveryDropItem;
     rejection: DiscoveryShelfSelectionRejection;
+    recommendation: DiscoveryRecommendationProfile;
   }> = [];
   const seenCanonicalIds = new Set<string>();
   const selectionState = emptyWeeklyShelfSelectionState();
@@ -8205,21 +8524,28 @@ function selectPublishableWeeklyDiscoveryShelf(
   let qualifiedCount = 0;
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(activeVaultChases);
+  const reserveHasAnchoredCandidates = collectorAnchorProfile.hasSignals
+    && candidates.some((candidate) => recommendationProfileForCandidate(candidate, collectorAnchorProfile).anchors.length > 0);
 
-  for (const candidate of candidates) {
+  for (const rawCandidate of candidates) {
+    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile);
+    const recommendation = reserveHasAnchoredCandidates
+      ? recommendationProfileForCandidate(candidate, collectorAnchorProfile)
+      : { ...recommendationProfileForCandidate(candidate, collectorAnchorProfile), profileHasSignals: false };
     inspectedCount += 1;
     const [item] = scheduledDropItemsFromCandidates([candidate], currency);
     if (!item) continue;
-    const rejection = candidateItemSelectionRejection(candidate, item, seenCanonicalIds, repeatHistory, currency, selectionState, vaultEntries);
+    const rejection = candidateItemSelectionRejection(candidate, item, seenCanonicalIds, repeatHistory, currency, selectionState, vaultEntries, recommendation);
     if (rejection) {
       rejectionCounts[rejection.code] += 1;
       if (isCapRejection(rejection.code)) {
-        capRejectedCandidates.push({ candidate, item, rejection });
+        capRejectedCandidates.push({ candidate, item, rejection, recommendation });
       }
       if (rejectionSamples[rejection.code].length < 3) {
         const repeat = item.suggestion.referenceSourceCardId ? repeatHistory.get(item.suggestion.referenceSourceCardId) : undefined;
         const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
-        rejectionSamples[rejection.code].push(selectionDiagnosticSample(candidate, rejection.code, {
+        rejectionSamples[rejection.code].push(selectionDiagnosticSample(candidate, rejection.code, recommendation, {
           canonicalCardId: item.suggestion.referenceSourceCardId,
           mostRecentPeriodShown: repeat?.mostRecentPeriodShown,
           priorAppearances: repeat?.priorAppearances,
@@ -8240,7 +8566,7 @@ function selectPublishableWeeklyDiscoveryShelf(
     const canonicalId = scheduledItemCanonicalId(item);
     if (!canonicalId) {
       rejectionCounts.MISSING_CANONICAL_ID += 1;
-      if (rejectionSamples.MISSING_CANONICAL_ID.length < 3) rejectionSamples.MISSING_CANONICAL_ID.push(selectionDiagnosticSample(candidate, 'MISSING_CANONICAL_ID'));
+      if (rejectionSamples.MISSING_CANONICAL_ID.length < 3) rejectionSamples.MISSING_CANONICAL_ID.push(selectionDiagnosticSample(candidate, 'MISSING_CANONICAL_ID', recommendation));
       continue;
     }
     qualifiedCount += 1;
@@ -8248,7 +8574,7 @@ function selectPublishableWeeklyDiscoveryShelf(
     if (item.market.status === 'READY') {
       if (resolvedSelected.length < expectedSize) {
         resolvedSelected.push({ candidate, item });
-        recordSelectedCandidate(candidate, selectionState);
+        recordSelectedCandidate(candidate, selectionState, recommendation);
       }
     } else {
       incompleteCandidates.push({ candidate, item: { ...item, market: { ...item.market, listing: undefined } } });
@@ -8259,7 +8585,13 @@ function selectPublishableWeeklyDiscoveryShelf(
   const finalSelectionState = emptyWeeklyShelfSelectionState();
   finalSelectionState.laneCapEnabled = selectionState.laneCapEnabled;
   const selectedCanonicalIds = new Set<string>();
-  for (const entry of selected) recordSelectedCandidate(entry.candidate, finalSelectionState);
+  for (const entry of selected) {
+    recordSelectedCandidate(
+      entry.candidate,
+      finalSelectionState,
+      recommendationProfileForCandidate(entry.candidate, collectorAnchorProfile)
+    );
+  }
   for (const entry of selected) {
     const canonicalId = scheduledItemCanonicalId(entry.item);
     if (canonicalId) selectedCanonicalIds.add(canonicalId);
@@ -8278,12 +8610,13 @@ function selectPublishableWeeklyDiscoveryShelf(
     for (const entry of incompleteCandidates) {
       if (selected.length >= expectedSize) break;
       if (selectedIncompleteCount >= WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) break;
-      if (candidateShelfCapRejection(entry.candidate, finalSelectionState)) continue;
+      const recommendation = recommendationProfileForCandidate(entry.candidate, collectorAnchorProfile);
+      if (candidateShelfCapRejection(entry.candidate, finalSelectionState, recommendation)) continue;
       const canonicalId = scheduledItemCanonicalId(entry.item);
       if (!canonicalId || selectedCanonicalIds.has(canonicalId)) continue;
       selected.push(entry);
       selectedCanonicalIds.add(canonicalId);
-      recordSelectedCandidate(entry.candidate, finalSelectionState);
+      recordSelectedCandidate(entry.candidate, finalSelectionState, recommendation);
       selectedIncompleteCount += 1;
     }
   }
@@ -8377,8 +8710,11 @@ function selectDiversityEligibleWeeklyCandidates(
   selectionState.laneCapEnabled = new Set(rerankedReserve.map(candidateLaneShelfKey)).size > 1;
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(activeVaultChases);
 
-  for (const candidate of rerankedReserve) {
+  for (const rawCandidate of rerankedReserve) {
+    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile);
+    const recommendation = recommendationProfileForCandidate(candidate, collectorAnchorProfile);
     const item = scheduledItemFromCandidate(candidate, currency);
     if (!item) continue;
     const rejection = candidateItemSelectionRejection(
@@ -8388,14 +8724,15 @@ function selectDiversityEligibleWeeklyCandidates(
       repeatHistory,
       currency,
       selectionState,
-      vaultEntries
+      vaultEntries,
+      recommendation
     );
     if (rejection) continue;
     const canonicalId = scheduledItemCanonicalId(item);
     if (!canonicalId) continue;
     eligible.push(candidate);
     seenCanonicalIds.add(canonicalId);
-    recordSelectedCandidate(candidate, selectionState);
+    recordSelectedCandidate(candidate, selectionState, recommendation);
   }
 
   return eligible;
@@ -8413,8 +8750,11 @@ function selectMarketShortfallHydrationTargets(
   selectionState.laneCapEnabled = new Set(rerankedReserve.map(candidateLaneShelfKey)).size > 1;
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(activeVaultChases);
 
-  for (const candidate of rerankedReserve) {
+  for (const rawCandidate of rerankedReserve) {
+    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile);
+    const recommendation = recommendationProfileForCandidate(candidate, collectorAnchorProfile);
     const item = scheduledItemFromCandidate(candidate, currency);
     if (!item) continue;
     const rejection = candidateItemSelectionRejection(
@@ -8424,7 +8764,8 @@ function selectMarketShortfallHydrationTargets(
       repeatHistory,
       currency,
       selectionState,
-      vaultEntries
+      vaultEntries,
+      recommendation
     );
     if (rejection && !isCapRejection(rejection.code)) continue;
     const canonicalId = scheduledItemCanonicalId(item);
@@ -8432,7 +8773,7 @@ function selectMarketShortfallHydrationTargets(
     eligible.push(candidate);
     if (!rejection) {
       seenCanonicalIds.add(canonicalId);
-      recordSelectedCandidate(candidate, selectionState);
+      recordSelectedCandidate(candidate, selectionState, recommendation);
     }
   }
 
@@ -8551,99 +8892,102 @@ function weeklyDiscoveryCandidateOutcome(
   recentRepeatHistory: Map<string, ExactRepeatHistoryEntry>,
   targetCurrency: SupportedCurrency,
   selectionState: WeeklyShelfSelectionState,
-  vaultEntries: ParallelPrintVaultEntry[]
+  vaultEntries: ParallelPrintVaultEntry[],
+  collectorAnchorProfile: WeeklyCollectorAnchorProfile
 ): WeeklyDiscoveryCandidateOutcomeRecord {
-  const [item] = scheduledDropItemsFromCandidates([candidate], targetCurrency);
+  const preparedCandidate = candidateWithCollectorAnchoredRationale(candidate, collectorAnchorProfile);
+  const recommendation = recommendationProfileForCandidate(preparedCandidate, collectorAnchorProfile);
+  const [item] = scheduledDropItemsFromCandidates([preparedCandidate], targetCurrency);
   const canonicalId = item ? scheduledItemCanonicalId(item) : candidate.suggestion.referenceSourceCardId?.trim();
   if (canonicalId && selectedCanonicalIds.has(canonicalId)) {
     return {
-      suggestionName: candidate.suggestion.name,
+      suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'SELECTED',
-      discoveryRole: candidate.suggestion.discoveryRole
+      discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
   if (!canonicalId) {
     return {
-      suggestionName: candidate.suggestion.name,
+      suggestionName: preparedCandidate.suggestion.name,
       outcome: 'REJECTED_IDENTITY',
       detail: 'missing canonical card identity',
-      discoveryRole: candidate.suggestion.discoveryRole
+      discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
-  if (!item || !hasTrustedReferenceImage(item) || !candidate.weeklyDiscovery?.canonicalReference) {
+  if (!item || !hasTrustedReferenceImage(item) || !preparedCandidate.weeklyDiscovery?.canonicalReference) {
     return {
-      suggestionName: candidate.suggestion.name,
+      suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'REJECTED_PROVENANCE',
       detail: 'untrusted or incomplete canonical reference provenance',
-      discoveryRole: candidate.suggestion.discoveryRole
+      discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
-  const printing = exactPrintingComparison(candidate);
+  const printing = exactPrintingComparison(preparedCandidate);
   if (!printing.ok) {
     return {
-      suggestionName: candidate.suggestion.name,
+      suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'REJECTED_IDENTITY',
       detail: `exact printing mismatch (${printing.mismatchFields.join(', ')})`,
-      discoveryRole: candidate.suggestion.discoveryRole
+      discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
   const repeatHistory = recentRepeatHistory.get(canonicalId);
   if (repeatHistory && repeatHistory.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) {
     return {
-      suggestionName: candidate.suggestion.name,
+      suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'REJECTED_HISTORY',
       detail: `cooldown from ${repeatHistory.mostRecentPeriodShown}`,
-      discoveryRole: candidate.suggestion.discoveryRole
+      discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
-  const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, targetCurrency);
+  const estimate = reliableWeeklyDiscoveryMarketEstimate(preparedCandidate, targetCurrency);
   if (estimate && estimate.amount < weeklyDiscoveryValueFloor(targetCurrency)) {
     return {
-      suggestionName: candidate.suggestion.name,
+      suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'REJECTED_VALUE',
       detail: `below configured floor ${weeklyDiscoveryValueFloor(targetCurrency)}`,
-      discoveryRole: candidate.suggestion.discoveryRole
+      discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
-  const parallelPrintRejection = candidateParallelPrintRejection(candidate, vaultEntries);
+  const parallelPrintRejection = candidateParallelPrintRejection(preparedCandidate, vaultEntries);
   if (parallelPrintRejection) {
     return {
-      suggestionName: candidate.suggestion.name,
+      suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'REJECTED_VAULT_PARALLEL',
       detail: parallelPrintRejection.matchingVaultCard,
-      discoveryRole: candidate.suggestion.discoveryRole
+      discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
-  if (candidateShelfCapRejection(candidate, selectionState)) {
+  if (candidateShelfCapRejection(preparedCandidate, selectionState, recommendation)) {
     return {
-      suggestionName: candidate.suggestion.name,
+      suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'REJECTED_DIVERSITY',
       detail: 'subject/family/format/lane cap',
-      discoveryRole: candidate.suggestion.discoveryRole
+      discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
   if (item.market.status !== 'READY') {
     return {
-      suggestionName: candidate.suggestion.name,
+      suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'MARKET_INCOMPLETE_LIMIT',
       detail: item.market.status,
-      discoveryRole: candidate.suggestion.discoveryRole
+      discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
   return {
-    suggestionName: candidate.suggestion.name,
+    suggestionName: preparedCandidate.suggestion.name,
     canonicalCardId: canonicalId,
     outcome: 'LOWER_RANKED',
     detail: 'not selected after slate reranking',
-    discoveryRole: candidate.suggestion.discoveryRole
+    discoveryRole: preparedCandidate.suggestion.discoveryRole
   };
 }
 
@@ -8666,10 +9010,17 @@ export function finalizeWeeklyDiscoveryShelf(input: WeeklyDiscoveryFinalizationI
   const recentRepeatHistory = exactRepeatHistoryByCanonicalId(input.priorShelfHistory);
   const selectionState = emptyWeeklyShelfSelectionState();
   selectionState.laneCapEnabled = new Set(rerankedReserve.map(candidateLaneShelfKey)).size > 1;
-  for (const candidate of selection.selectedCandidates) recordSelectedCandidate(candidate, selectionState);
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(input.activeVault);
+  for (const candidate of selection.selectedCandidates) {
+    recordSelectedCandidate(
+      candidate,
+      selectionState,
+      recommendationProfileForCandidate(candidate, collectorAnchorProfile)
+    );
+  }
   const vaultEntries = parallelPrintVaultEntries(input.activeVault);
   const candidateOutcomes = rerankedReserve.map((candidate) =>
-    weeklyDiscoveryCandidateOutcome(candidate, selectedCanonicalIds, recentRepeatHistory, input.userCurrency, selectionState, vaultEntries)
+    weeklyDiscoveryCandidateOutcome(candidate, selectedCanonicalIds, recentRepeatHistory, input.userCurrency, selectionState, vaultEntries, collectorAnchorProfile)
   );
   const analytics = finalizeWeeklyDiscoveryAnalytics(input, rerankedReserve, selection.items);
   return {

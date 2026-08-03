@@ -268,15 +268,18 @@ function publishableCandidate(name: string, canonicalId: string, selectionIndex:
 
 function publishableSourceCandidate(name: string, canonicalId: string, sourceName: string, selectionIndex: number, lane = 'Collector Compass'): DiscoveryCandidate {
   const base = publishableCandidate(name, canonicalId, selectionIndex);
+  const imageUrl = trustedReferenceImageUrl(sourceName, canonicalId);
   return {
     ...base,
     suggestion: {
       ...base.suggestion,
       lane,
-      referenceSourceName: sourceName
+      referenceSourceName: sourceName,
+      referenceImageUrl: imageUrl
     },
     image: {
       ...base.image!,
+      url: imageUrl,
       sourceName,
       sourceCardId: canonicalId
     }
@@ -5434,7 +5437,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('recovers a W32-shaped shelf by progressively relaxing cap-only rejects', () => {
-    const repeatedSubject = Array.from({ length: 14 }, (_, index) => ({
+    const repeatedSubject = Array.from({ length: 10 }, (_, index) => ({
       ...publishableSourceCandidate(
         `Mew Recovery Candidate ${index + 1}`,
         `mew-recovery-${index + 1}`,
@@ -5446,7 +5449,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       soldSampleSize: 3,
       displayCurrency: 'CAD' as const
     }));
-    const readySingleNames = ['Pikachu', 'Gardevoir', 'Squirtle', 'Umbreon', 'Rayquaza', 'Articuno', 'Zapdos'];
+    const readySingleNames = ['Pikachu', 'Gardevoir', 'Squirtle', 'Umbreon', 'Rayquaza', 'Articuno', 'Zapdos', 'Blastoise', 'Sylveon', 'Charizard', 'Dragonite', 'Lugia', 'Espeon', 'Raikou', 'Suicune', 'Entei', 'Snorlax'];
     const readySingleLanes = [
       'E-Reader Era Trail',
       'Vintage Era Trail',
@@ -5454,7 +5457,17 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       'Promo Trail',
       'Artwork Trail',
       'Format Trail',
-      'Value Watch'
+      'Value Watch',
+      'Collector Compass',
+      'Set Companion Trail',
+      'Modern Spotlight Trail',
+      'Vintage Era Trail',
+      'Promo Trail',
+      'Artwork Trail',
+      'Format Trail',
+      'Collector Compass',
+      'Set Companion Trail',
+      'Modern Spotlight Trail'
     ];
     const readySingles = readySingleNames.map((name, index) => ({
       ...publishableSourceCandidate(
@@ -5486,13 +5499,103 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       ...incompleteSingles
     ], 'CAD', 20);
 
-    expect(result.rejectionCounts.SUBJECT_SHELF_CAP).toBe(12);
+    expect(result.rejectionCounts.SUBJECT_SHELF_CAP).toBeGreaterThanOrEqual(6);
     expect(result.capRelaxationSelections.length).toBeGreaterThan(0);
-    expect(result.capRelaxationSelections.every((item) => item.relaxedReason === 'SUBJECT_SHELF_CAP')).toBe(true);
+    expect(
+      result.capRelaxationSelections.every((item) =>
+        ['SUBJECT_SHELF_CAP', 'FAMILY_SHELF_CAP', 'FORMAT_SHELF_CAP', 'LANE_SHELF_CAP'].includes(item.relaxedReason)
+      )
+    ).toBe(true);
+    expect(result.capRelaxationSelections.some((item) => item.relaxedReason === 'SUBJECT_SHELF_CAP')).toBe(true);
     expect(result.items).toHaveLength(20);
     expect(result.marketResolvedCount).toBe(20);
-    expect(result.items.filter((item) => /^Mew Recovery Candidate\b/.test(item.suggestion.name)).length).toBeLessThanOrEqual(16);
+    expect(result.items.filter((item) => /^Mew Recovery Candidate\b/.test(item.suggestion.name)).length).toBeLessThanOrEqual(4);
     expect(new Set(result.items.map((item) => item.suggestion.referenceSourceCardId)).size).toBe(20);
+    expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(result.items, 20)).toEqual([]);
+  });
+
+  it('balances a W32-style shelf toward anchored subjects and away from era-only e-reader filler', () => {
+    const activeVault = [
+      chase('Umbreon-GX SM Black Star Promos SM36', 0),
+      chase('Zapdos Aquapolis H32', 1),
+      chase('Galarian Moltres V Astral Radiance Trainer Gallery TG20', 2),
+      chase('Pikachu V Lost Origin TG16', 3),
+      chase('Mew Expedition Base Set 55', 4),
+      chase('Articuno Japanese S12a 49', 5)
+    ];
+    const anchoredPool: DiscoveryCandidate[] = [
+      { ...publishableSourceCandidate('Umbreon-GX SM Black Star Promos SM36', 'umbreon-sm36', 'Pokemon TCG (SM Black Star Promos)', 0, 'Promo Trail'), typicalRawSoldTotal: 90, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Zapdos Aquapolis H32', 'zapdos-aqua-h32', 'Pokemon TCG (Aquapolis)', 1, 'E-Reader Era Trail'), typicalRawSoldTotal: 210, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Galarian Moltres V Astral Radiance Trainer Gallery TG20', 'moltres-tg20', 'Pokemon TCG (Astral Radiance Trainer Gallery)', 2, 'Artwork Trail'), typicalRawSoldTotal: 70, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Galarian Moltres V Brilliant Stars 183', 'moltres-bs-183', 'Pokemon TCG (Brilliant Stars)', 3, 'Promo Trail'), typicalRawSoldTotal: 65, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Mew Expedition Base Set 55', 'mew-exp-55-anchor', 'Pokemon TCG (Expedition Base Set)', 4, 'E-Reader Era Trail'), typicalRawSoldTotal: 170, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Mew Expedition Base Set 19', 'mew-exp-19-anchor', 'Pokemon TCG (Expedition Base Set)', 5, 'E-Reader Era Trail'), typicalRawSoldTotal: 160, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Pikachu V Lost Origin TG16', 'pikachu-tg16', 'Pokemon TCG (Lost Origin Trainer Gallery)', 6, 'Artwork Trail'), typicalRawSoldTotal: 150, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Pikachu VMAX Lost Origin TG29', 'pikachu-tg29', 'Pokemon TCG (Lost Origin Trainer Gallery)', 7, 'Artwork Trail'), typicalRawSoldTotal: 145, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Pikachu ex Surging Sparks 219', 'pikachu-219-anchor', 'Pokemon TCG (Surging Sparks)', 8, 'Modern Spotlight Trail'), typicalRawSoldTotal: 80, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Articuno Japanese S12a 49', 'articuno-s12a-49', 'TCGdex Japanese (VSTAR Universe)', 9, 'Japanese Collector Trail'), typicalRawSoldTotal: 85, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Umbreon VMAX Brilliant Stars Trainer Gallery TG23', 'umbreon-tg23', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 10, 'Artwork Trail'), typicalRawSoldTotal: 120, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Mew ex Paldean Fates 216', 'mew-paf-216-anchor', 'Pokemon TCG (Paldean Fates)', 11, 'Modern Spotlight Trail'), typicalRawSoldTotal: 82, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Zapdos Expedition Base Set 48', 'zapdos-exp-48-anchor', 'Pokemon TCG (Expedition Base Set)', 12, 'E-Reader Era Trail'), typicalRawSoldTotal: 78, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Pikachu Skyridge 84', 'pikachu-skyridge-84-anchor', 'Pokemon TCG (Skyridge)', 13, 'E-Reader Era Trail'), typicalRawSoldTotal: 210, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Dragonite Expedition Base Set 43', 'dragonite-exp-43', 'Pokemon TCG (Expedition Base Set)', 14, 'E-Reader Era Trail'), typicalRawSoldTotal: 115, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Celebi Astral Radiance Trainer Gallery TG14', 'celebi-tg14', 'Pokemon TCG (Astral Radiance Trainer Gallery)', 15, 'Artwork Trail'), typicalRawSoldTotal: 108, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Raichu Lost Origin Trainer Gallery TG09', 'raichu-tg09', 'Pokemon TCG (Lost Origin Trainer Gallery)', 16, 'Artwork Trail'), typicalRawSoldTotal: 104, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Lapras Japanese S12a 031', 's12a-31', 'TCGdex Japanese (VSTAR Universe)', 17, 'Japanese Collector Trail'), typicalRawSoldTotal: 92, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Flareon V Brilliant Stars Trainer Gallery TG01', 'flareon-tg01', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 18, 'Artwork Trail'), typicalRawSoldTotal: 96, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      ...publishableShelfCandidates(6, (candidate, index) => ({
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          lane: index % 3 === 0 ? 'Collector Compass' : index % 3 === 1 ? 'Promo Trail' : 'Artwork Trail'
+        },
+        typicalRawSoldTotal: 90 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }))
+    ];
+    const unrelatedEraOnly = [
+      { ...publishableSourceCandidate('Xatu Skyridge H32', 'xatu-sk-h32', 'Pokemon TCG (Skyridge)', 40, 'Collector Compass'), typicalRawSoldTotal: 180, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Ledian Skyridge H14', 'ledian-sk-h14', 'Pokemon TCG (Skyridge)', 41, 'Promo Trail'), typicalRawSoldTotal: 181, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Alakazam Skyridge H1', 'alakazam-sk-h1', 'Pokemon TCG (Skyridge)', 42, 'Artwork Trail'), typicalRawSoldTotal: 182, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Politoed Skyridge H23', 'politoed-sk-h23', 'Pokemon TCG (Skyridge)', 43, 'Collector Compass'), typicalRawSoldTotal: 183, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Gengar Skyridge H9', 'gengar-sk-h9', 'Pokemon TCG (Skyridge)', 44, 'Promo Trail'), typicalRawSoldTotal: 184, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+      { ...publishableSourceCandidate('Magneton Skyridge H19', 'magneton-sk-h19', 'Pokemon TCG (Skyridge)', 45, 'Artwork Trail'), typicalRawSoldTotal: 185, soldSampleSize: 3, displayCurrency: 'CAD' as const }
+    ];
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([
+      ...anchoredPool,
+      ...unrelatedEraOnly,
+      ...publishableShelfCandidates(6, (candidate, index) => ({
+        ...candidate,
+        selectionIndex: 60 + index,
+        suggestion: {
+          ...candidate.suggestion,
+          lane: index % 2 === 0 ? 'Collector Compass' : 'Promo Trail'
+        },
+        typicalRawSoldTotal: 110 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }))
+    ], 'CAD', 20, [], activeVault);
+    const unrelatedSelected = result.items.filter((item) =>
+      ['Xatu Skyridge H32', 'Ledian Skyridge H14', 'Alakazam Skyridge H1', 'Politoed Skyridge H23', 'Gengar Skyridge H9', 'Magneton Skyridge H19']
+        .includes(item.suggestion.name)
+    );
+    const skyridgeSelected = result.items.filter((item) => /\bSkyridge\b/i.test(item.suggestion.name));
+    const genericFillSelected = result.items.filter((item) => /^Card \d+$/.test(item.suggestion.name));
+
+    expect(result.items).toHaveLength(20);
+    expect(result.marketResolvedCount).toBeGreaterThanOrEqual(18);
+    expect(result.items.some((item) => item.suggestion.name === 'Umbreon-GX SM Black Star Promos SM36')).toBe(true);
+    expect(result.items.some((item) => item.suggestion.name === 'Zapdos Aquapolis H32')).toBe(true);
+    expect(result.items.some((item) => item.suggestion.name === 'Galarian Moltres V Astral Radiance Trainer Gallery TG20')).toBe(true);
+    expect(result.items.some((item) => item.suggestion.name === 'Mew Expedition Base Set 55')).toBe(true);
+    expect(result.items.some((item) => /^Pikachu\b/.test(item.suggestion.name))).toBe(true);
+    expect(result.items.some((item) => item.suggestion.name === 'Articuno Japanese S12a 49')).toBe(true);
+    expect(unrelatedSelected.length).toBeLessThanOrEqual(4);
+    expect(skyridgeSelected.length).toBeLessThanOrEqual(7);
+    expect(genericFillSelected.length).toBeLessThanOrEqual(2);
     expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(result.items, 20)).toEqual([]);
   });
 
