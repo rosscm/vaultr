@@ -8275,7 +8275,7 @@ function normalWeeklyShelfCapLimits(): WeeklyShelfCapLimits {
   };
 }
 
-function emergencyWeeklyShelfCapLimits(expectedSize: number): WeeklyShelfCapLimits {
+function emergencyWeeklyShelfCapLimits(_expectedSize: number): WeeklyShelfCapLimits {
   return {
     subjectCap: Math.max(WEEKLY_DISCOVERY_SUBJECT_CAP, 4),
     familyCap: Math.max(WEEKLY_DISCOVERY_FAMILY_CAP, 5),

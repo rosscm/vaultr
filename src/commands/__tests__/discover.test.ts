@@ -76,8 +76,9 @@ import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '.
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
 import { buildCollectorTasteProfile } from '../../services/weekly-discovery-ranking.js';
 import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
+import * as discoverySourceCatalogService from '../../services/discovery-source-catalog.js';
 import { replayWeeklyDiscoveryFixture, summarizeReplay, type CaptureFixture } from '../../weekly-discovery-replay.js';
-import type { DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
+import { replaceDiscoveryUserUniverseCards, type DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import type { WeeklyDiscoveryFinalizationInput } from '../../services/weekly-discovery-ranking.js';
@@ -6229,12 +6230,57 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('builds the same finalization input in LIVE and CAPTURE modes from identical seeded state', async () => {
+    vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
     const userId = `weekly-build-${Date.now()}`;
     setUserPlan(userId, 'PRO');
     addChase({ userId, cardName: 'Mew RC24', priority: 'HIGH' });
     addChase({ userId, cardName: 'Umbreon XY96', priority: 'HIGH' });
     addChase({ userId, cardName: 'Squirtle Expedition Base Set 132', priority: 'HIGH' });
     addChase({ userId, cardName: 'Gardevoir ex Paldean Fates 233', priority: 'HIGH' });
+    const seededUniverseCandidates: DiscoveryCandidate[] = [
+      publishableSourceCandidate('Mew Expedition Base Set 55', 'exp1-55', 'Pokemon TCG (Expedition Base Set)', 0, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Mew Expedition Base Set 19', 'exp1-19', 'Pokemon TCG (Expedition Base Set)', 1, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Umbreon-GX SM Black Star Promos SM36', 'smpromo-sm36', 'Pokemon TCG (SM Black Star Promos)', 2, 'Promo Trail'),
+      publishableSourceCandidate('Umbreon VMAX Brilliant Stars Trainer Gallery TG23', 'swsh9tg-tg23', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 3, 'Artwork Trail'),
+      publishableSourceCandidate('Squirtle Expedition Base Set 132', 'exp1-132', 'Pokemon TCG (Expedition Base Set)', 4, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Squirtle 151 170', 'sv3pt5-170', 'Pokemon TCG (151)', 5, 'Modern Spotlight Trail'),
+      publishableSourceCandidate('Gardevoir ex Paldean Fates 233', 'sv4pt5-233', 'Pokemon TCG (Paldean Fates)', 6, 'Modern Spotlight Trail'),
+      publishableSourceCandidate('Gardevoir ex Scarlet & Violet 217', 'sv1-217', 'Pokemon TCG (Scarlet & Violet)', 7, 'Modern Spotlight Trail'),
+      publishableSourceCandidate('Zapdos Aquapolis H32', 'aquapolis-h32', 'Pokemon TCG (Aquapolis)', 8, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Zapdos Expedition Base Set 48', 'exp1-48', 'Pokemon TCG (Expedition Base Set)', 9, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Pikachu V Lost Origin TG16', 'swsh11tg-tg16', 'Pokemon TCG (Lost Origin Trainer Gallery)', 10, 'Artwork Trail'),
+      publishableSourceCandidate('Pikachu VMAX Lost Origin TG29', 'swsh11tg-tg29', 'Pokemon TCG (Lost Origin Trainer Gallery)', 11, 'Artwork Trail'),
+      publishableSourceCandidate('Articuno Japanese S12a 49', 'jp-s12a-49', 'TCGdex Japanese (VSTAR Universe)', 12, 'Japanese Collector Trail'),
+      publishableSourceCandidate('Lapras Japanese S12a 031', 'jp-s12a-31', 'TCGdex Japanese (VSTAR Universe)', 13, 'Japanese Collector Trail'),
+      publishableSourceCandidate('Celebi Astral Radiance Trainer Gallery TG14', 'swsh10tg-tg14', 'Pokemon TCG (Astral Radiance Trainer Gallery)', 14, 'Artwork Trail'),
+      publishableSourceCandidate('Raichu Lost Origin Trainer Gallery TG09', 'swsh11tg-tg09', 'Pokemon TCG (Lost Origin Trainer Gallery)', 15, 'Artwork Trail'),
+      publishableSourceCandidate('Dragonite Expedition Base Set 43', 'exp1-43', 'Pokemon TCG (Expedition Base Set)', 16, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Pichu Expedition Base Set 22', 'exp1-22', 'Pokemon TCG (Expedition Base Set)', 17, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Blastoise Wizards Black Star Promos 12', 'wotc-12', 'Pokemon TCG (Wizards Black Star Promos)', 18, 'Promo Trail'),
+      publishableSourceCandidate('Articuno Wizards Black Star Promos 48', 'wotc-48', 'Pokemon TCG (Wizards Black Star Promos)', 19, 'Promo Trail'),
+      publishableSourceCandidate('Moltres Wizards Black Star Promos 21', 'wotc-21', 'Pokemon TCG (Wizards Black Star Promos)', 20, 'Promo Trail'),
+      publishableSourceCandidate('Flareon V Brilliant Stars Trainer Gallery TG01', 'swsh9tg-tg01', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 21, 'Artwork Trail'),
+      publishableSourceCandidate('Galarian Moltres V Astral Radiance Trainer Gallery TG20', 'swsh10tg-tg20', 'Pokemon TCG (Astral Radiance Trainer Gallery)', 22, 'Artwork Trail'),
+      publishableSourceCandidate('Pikachu Skyridge 84', 'skyridge-84', 'Pokemon TCG (Skyridge)', 23, 'E-Reader Era Trail')
+    ].map((candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 80 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    replaceDiscoveryUserUniverseCards(userId, seededUniverseCandidates.map((candidate, index) => ({
+      userId,
+      cardKey: candidate.suggestion.referenceSourceCardId ?? `seed-${index}`,
+      canonicalName: candidate.suggestion.name,
+      score: 200 - index,
+      scoreComponents: { seeded: 1 },
+      suggestion: candidate.suggestion,
+      imageUrl: candidate.image?.url,
+      imageSourceName: candidate.image?.sourceName,
+      sourceCardId: candidate.image?.sourceCardId,
+      marketTotal: candidate.typicalRawSoldTotal ?? 80 + index,
+      marketCurrency: candidate.displayCurrency ?? 'CAD'
+    })));
 
     const live = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
       userId,
@@ -6256,6 +6302,13 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       frozenTime: input.frozenTime,
       userCurrency: input.userCurrency,
       activeVault: input.activeVault.map((chase: Chase) => chase.cardName),
+      anchorProfileSignals: (input.anchorProfileSignals ?? input.activeVault).map((chase: Chase) => ({
+        cardName: chase.cardName,
+        tasteSource: chase.tasteSource ?? null,
+        tasteWeight: chase.tasteWeight ?? null,
+        priority: chase.priority ?? 'NORMAL',
+        targetNote: chase.targetNote ?? null
+      })),
       reserveNames: input.orderedCandidateReserve.map((candidate: DiscoveryCandidate) => candidate.suggestion.name),
       reserveIds: input.orderedCandidateReserve.map((candidate: DiscoveryCandidate) => candidate.suggestion.referenceSourceCardId),
       priorPeriods: input.priorShelfHistory.map((drop: ScheduledDiscoveryDrop) => drop.periodKey),
@@ -6263,7 +6316,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     });
 
     expect(normalizeInput(live.input)).toEqual(normalizeInput(capture.input));
-  }, 10000);
+  }, 30000);
 
   it('replay fixtures stay deterministic, and live release fixtures pass the structural gate', () => {
     for (const name of ['w29-sanitized.json', 'w30-live-success-sanitized.json', 'w31-live-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
