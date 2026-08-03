@@ -1816,6 +1816,82 @@ describe('discovery source catalog', () => {
     expect(resolved.suggestions[0]?.sourceTasteTokens).toEqual(expect.arrayContaining(['special set', 'small set', 'numbered set']));
   });
 
+  it('keeps Japanese TCGdex fallback bound to the requested local number and avoids duplicate collection names', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.pokemontcg.io') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'profile-pikachu',
+                name: 'Pikachu',
+                number: '010',
+                supertype: 'Pokemon',
+                types: ['Lightning'],
+                nationalPokedexNumbers: [25],
+                set: { name: "McDonald's Collection", series: 'Promo', releaseDate: '2021/01/01' }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/v2/ja/cards') {
+        return new Response(JSON.stringify([
+          { id: 'MCD21-003', localId: '003', name: 'Pikachu Collection', image: 'https://assets.tcgdex.net/ja/S/MCD21/003' },
+          { id: 'MCD21-010', localId: '010', name: 'Pikachu Collection', image: 'https://assets.tcgdex.net/ja/S/MCD21/010' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.pathname.endsWith('/MCD21-003')) {
+        return new Response(JSON.stringify({
+          category: 'Pokemon',
+          id: 'MCD21-003',
+          localId: '003',
+          name: 'Pikachu Collection',
+          image: 'https://assets.tcgdex.net/ja/S/MCD21/003',
+          rarity: 'Promo',
+          set: { name: "Collection McDonald's Collection 2021", cardCount: { official: 18, total: 18 } },
+          dexId: [25],
+          types: ['Lightning'],
+          stage: 'Basic'
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        category: 'Pokemon',
+        id: 'MCD21-010',
+        localId: '010',
+        name: 'Pikachu Collection',
+        image: 'https://assets.tcgdex.net/ja/S/MCD21/010',
+        rarity: 'Promo',
+        set: { name: "Collection McDonald's Collection 2021", cardCount: { official: 18, total: 18 } },
+        dexId: [25],
+        types: ['Lightning'],
+        stage: 'Basic'
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolved = await resolveSourceBackedDiscoveryCards(
+      {
+        name: "Pikachu McDonald's Collection Japanese 010/018",
+        lane: 'Japanese Collector Trail',
+        laneWhy: 'profile',
+        why: 'profile',
+        nearby: [],
+        evidenceSearchTerm: "Pikachu McDonald's Collection Japanese 010/018 Pokemon card",
+        requiredEvidenceTokens: ['pikachu', 'japanese', '010/018'],
+        sourceTasteTokens: ['pikachu', 'japanese', 'mcdonalds', 'promo', 'small set']
+      },
+      [],
+      2
+    );
+
+    expect(resolved.suggestions.map((suggestion) => suggestion.referenceSourceCardId)).toEqual(['MCD21-010']);
+    expect(resolved.suggestions[0]?.name).toBe("Pikachu Japanese Collection McDonald's Collection 2021 010/018");
+    expect(resolved.suggestions[0]?.name).not.toContain('Collection Collection');
+    expect(resolved.suggestions[0]?.requiredEvidenceTokens).toContain('010/018');
+  });
+
   it('drops stale parent subjects from Japanese source taste tokens while preserving traits', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));

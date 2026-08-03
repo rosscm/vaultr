@@ -142,9 +142,9 @@ const SET_ALIASES: string[][] = [
   ['secret wonders'],
   ['team rocket'],
   ['celebrations classic collection', 'celebrations: classic collection'],
-  ['sm black star promos', 'sm black star promo', 'sun & moon promo', 'sun & moon promos', 'sun & moon black star promos', 'sm promos'],
-  ['swsh black star promos', 'swsh black star promo', 'sword & shield promo', 'sword & shield promos', 'sword & shield black star promos'],
-  ['wizards black star promos', 'wizards black star promo'],
+  ['sm black star promos', 'sm black star promo', 'sun & moon promo', 'sun & moon promos', 'sun & moon black star promos', 'sm promos', 'smp'],
+  ['swsh black star promos', 'swsh black star promo', 'sword & shield promo', 'sword & shield promos', 'sword & shield black star promos', 'swshp'],
+  ['wizards black star promos', 'wizards black star promo', 'basep'],
   ['nintendo black star promos', 'nintendo black star promo']
 ];
 
@@ -384,7 +384,7 @@ async function fetchPokemonCardsByQuery(query: string): Promise<PokemonTcgCard[]
       return [];
     }
     canonicalResolutionRuntimeStats.failures += 1;
-    throw error;
+    return [];
   } finally {
     clearTimeout(timeout);
   }
@@ -411,7 +411,7 @@ async function fetchPokemonCardById(sourceCardId: string): Promise<PokemonTcgCar
       return null;
     }
     canonicalResolutionRuntimeStats.failures += 1;
-    throw error;
+    return null;
   } finally {
     clearTimeout(timeout);
   }

@@ -138,6 +138,33 @@ describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
     expect(result.evidence[discoveryCanonicalLookupKey(result.candidates[0]!.suggestion)]?.outcome).toBe('RESOLVED');
   });
 
+  it('keeps one provider fetch failure from aborting canonical resolution', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('fetch failed');
+    }));
+
+    const unresolved = candidate('Mew Expedition Base Set 55');
+    const stable = candidate('Pikachu Expedition Base Set 124');
+    stable.suggestion.referenceSourceName = 'Pokemon TCG (Expedition Base Set)';
+    stable.suggestion.referenceSourceCardId = 'ecard1-124';
+    stable.suggestion.referenceImageUrl = 'https://images.pokemontcg.io/ecard1/124_hires.png';
+    stable.image = {
+      name: 'Pikachu Expedition Base Set 124',
+      url: 'https://images.pokemontcg.io/ecard1/124_hires.png',
+      sourceName: 'Pokemon TCG (Expedition Base Set)',
+      sourceCardId: 'ecard1-124',
+      sourceKind: 'CARD_REFERENCE'
+    };
+
+    const result = await resolveWeeklyDiscoveryCanonicalReferences([unresolved, stable]);
+
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[0]?.suggestion.referenceSourceCardId).toBeUndefined();
+    expect(result.candidates[1]?.suggestion.referenceSourceCardId).toBe('ecard1-124');
+    expect(Object.values(result.evidence)[0]?.outcome).toBe('NO_RESULTS');
+    expect(result.diagnostics.unresolvedCandidateCount).toBe(1);
+  });
+
   it('repairs the live W29 Umbreon and Darkrai marketplace title into the trusted promo record', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
       const url = String(input);

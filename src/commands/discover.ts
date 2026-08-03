@@ -225,6 +225,32 @@ type DiscoveryAssemblyStageDiagnostics = Pick<
   WeeklyDiscoverySupplyStageCounts,
   'rawGeneratedSuggestions' | 'sourceBackedSuggestions' | 'globalUniverseConsidered' | 'userUniverseConsidered' | 'deduplicatedCandidates'
 >;
+type WeeklyDiscoveryReservePruneReason =
+  | 'NOT_DISPLAYABLE'
+  | 'NOT_COLLECTOR_WORTHY'
+  | 'ACTIVE_CHASE_ECHO'
+  | 'VAULT_PARALLEL_PRINT'
+  | 'UNTRUSTED_PRINTING_REFERENCE'
+  | 'EXACT_REPEAT_COOLDOWN'
+  | 'BELOW_CHASE_VALUE_FLOOR';
+type WeeklyDiscoveryReservePruneDiagnostics = {
+  inputCount: number;
+  outputCount: number;
+  rejectionCounts: Record<WeeklyDiscoveryReservePruneReason, number>;
+  rejectionSamples: Record<WeeklyDiscoveryReservePruneReason, Array<{
+    suggestionName: string;
+    supplySource?: DiscoverySupplySource;
+    lane: string;
+    referenceSourceName?: string;
+    imageSourceKind?: DiscoveryCardImage['sourceKind'];
+    hasReferenceImage: boolean;
+    hasReferenceSourceCardId: boolean;
+    canonicalCardId?: string;
+    marketStatus: DiscoveryScheduledMarketStatus;
+    evaluatedPrice?: number;
+    evaluatedCurrency?: SupportedCurrency;
+  }>>;
+};
 type DiscoveryProfileConfidenceTier = 'SEED' | 'EMERGING' | 'USABLE' | 'STRONG';
 type DiscoveryProfileConfidence = {
   tier: DiscoveryProfileConfidenceTier;
@@ -279,6 +305,13 @@ type DiscoveryShelfSelectionResult = {
   qualifiedCount: number;
   marketResolvedCount: number;
   marketIncompleteCount: number;
+  capRelaxationSelections: Array<{
+    suggestionName: string;
+    canonicalCardId?: string;
+    relaxedReason: 'SUBJECT_SHELF_CAP' | 'FAMILY_SHELF_CAP' | 'FORMAT_SHELF_CAP' | 'LANE_SHELF_CAP';
+    relaxedKey?: string;
+    marketStatus: DiscoveryScheduledMarketStatus;
+  }>;
   rejectionCounts: Record<DiscoveryShelfSelectionRejectionCode, number>;
   rejectionSamples: Record<DiscoveryShelfSelectionRejectionCode, Array<{
     suggestionName: string;
@@ -568,6 +601,40 @@ function logWeeklyDiscoveryStage(entry: WeeklyDiscoveryStageLog): void {
   console.info(`[DiscoveryShelf] ${JSON.stringify(entry)}`);
 }
 
+function logWeeklyDiscoveryReservePruneDiagnostics(
+  userId: string,
+  weeklyPeriod: string,
+  stage: string,
+  diagnostics: WeeklyDiscoveryReservePruneDiagnostics
+): void {
+  const activeRejectionCounts = Object.fromEntries(
+    Object.entries(diagnostics.rejectionCounts).filter(([, count]) => count > 0)
+  );
+  const activeRejectionSamples = Object.fromEntries(
+    Object.entries(diagnostics.rejectionSamples).filter(([, samples]) => samples.length > 0)
+  );
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId,
+    weeklyPeriod,
+    stage,
+    status: 'SUCCESS',
+    inputCount: diagnostics.inputCount,
+    outputCount: diagnostics.outputCount,
+    counters: activeRejectionCounts
+  });
+  if (Object.keys(activeRejectionSamples).length > 0) {
+    console.info(`[DiscoveryShelf] ${JSON.stringify({
+      event: 'WEEKLY_DISCOVERY_STAGE',
+      userId,
+      weeklyPeriod,
+      stage: `${stage}-samples`,
+      status: 'SUCCESS',
+      samples: activeRejectionSamples
+    })}`);
+  }
+}
+
 async function runWeeklyDiscoveryStage<T>(
   meta: {
     userId: string;
@@ -635,6 +702,11 @@ async function runWeeklyDiscoveryStage<T>(
 function remainingDeadlineMs(deadlineAtMs: number | undefined, fallbackMs: number): number {
   if (!deadlineAtMs) return fallbackMs;
   return Math.max(1, Math.min(fallbackMs, deadlineAtMs - Date.now()));
+}
+
+function remainingOptionalStageMs(deadlineAtMs: number | undefined, fallbackMs: number): number {
+  if (!deadlineAtMs) return fallbackMs;
+  return Math.max(1, Math.min(fallbackMs, deadlineAtMs - Date.now() - DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS));
 }
 
 function hasDeadlineExpired(deadlineAtMs: number | undefined): boolean {
@@ -1090,7 +1162,7 @@ export function sourceCatalogExpansionTargetCount(discoverySelectionCount: numbe
   if (visibleCount >= DISCOVERY_SHELF_PAGE_SIZE) {
     return Math.min(
       discoverySelectionCount,
-      Math.max(visibleCount + 12, Math.ceil(visibleCount * 1.6))
+      Math.max(visibleCount + 36, Math.ceil(visibleCount * 2.8))
     );
   }
   return Math.min(
@@ -1101,7 +1173,7 @@ export function sourceCatalogExpansionTargetCount(discoverySelectionCount: numbe
 
 export function sourceCatalogSufficientSuggestionCount(discoverySelectionCount: number, visibleCount: number): number {
   if (visibleCount >= DISCOVERY_SHELF_PAGE_SIZE) {
-    return Math.min(discoverySelectionCount, visibleCount + 6);
+    return Math.min(discoverySelectionCount, Math.max(visibleCount + 24, Math.ceil(visibleCount * 2.2)));
   }
   return Math.min(discoverySelectionCount, visibleCount + 2);
 }
@@ -1251,10 +1323,27 @@ function isDiscoveryNameExcluded(value: string, excludedNameKeys: Set<string>): 
 }
 
 function discoveryMarketSearchTerms(suggestion: DiscoverySuggestion): string[] {
-  const terms = [suggestion.evidenceSearchTerm, suggestion.name, ...(suggestion.evidenceAliases ?? [])]
+  const canonical = suggestion.canonicalReference;
+  const canonicalTerm = canonical
+    ? [
+        canonical.canonicalName,
+        canonical.setName,
+        canonical.cardNumber,
+        canonical.language === 'JAPANESE' ? 'Japanese' : undefined,
+        'Pokemon card'
+      ].filter(Boolean).join(' ')
+    : undefined;
+  const terms = [canonicalTerm, suggestion.evidenceSearchTerm, suggestion.name, ...(suggestion.evidenceAliases ?? [])]
     .filter((term): term is string => !!term && term.trim().length > 0)
     .map((term) => term.replace(/\s+/g, ' ').trim());
   return uniqueValuesPreservingOrder(terms).slice(0, isRaichuIntroPackSuggestion(suggestion) ? 8 : 3);
+}
+
+function discoveryMarketSuggestionForCandidate(candidate: DiscoveryCandidate): DiscoverySuggestion {
+  const canonicalReference = candidate.suggestion.canonicalReference ?? candidate.weeklyDiscovery?.canonicalReference;
+  return canonicalReference && candidate.suggestion.canonicalReference !== canonicalReference
+    ? { ...candidate.suggestion, canonicalReference }
+    : candidate.suggestion;
 }
 
 type DiscoveryMarketFinish = 'HOLO' | 'REVERSE_HOLO' | 'NON_HOLO';
@@ -1728,20 +1817,23 @@ async function mapWithConcurrencyAllowPartialTimeout<T, R>(
   items: T[],
   concurrency: number,
   timeoutMs: number,
-  mapper: (item: T, index: number) => Promise<R>
+  mapper: (item: T, index: number) => Promise<R>,
+  abortSignal?: AbortSignal
 ): Promise<{ results: R[]; timedOut: boolean }> {
   if (items.length === 0) return { results: [], timedOut: false };
   const results = new Array<R | undefined>(items.length);
   let nextIndex = 0;
-  let timedOut = false;
+  let timedOut = abortSignal?.aborted ?? false;
   const workerCount = Math.min(concurrency, items.length);
   let timeoutHandle: NodeJS.Timeout | undefined;
+  let abortHandler: (() => void) | undefined;
 
   const workers = Promise.all(
     Array.from({ length: workerCount }, async () => {
       while (!timedOut && nextIndex < items.length) {
         const index = nextIndex;
         nextIndex += 1;
+        if (abortSignal?.aborted || timedOut) break;
         results[index] = await mapper(items[index], index);
       }
     })
@@ -1751,6 +1843,14 @@ async function mapWithConcurrencyAllowPartialTimeout<T, R>(
   }));
 
   const timeoutPromise = new Promise<{ results: R[]; timedOut: boolean }>((resolve) => {
+    abortHandler = () => {
+      timedOut = true;
+      resolve({
+        results: results.filter((value): value is R => value !== undefined),
+        timedOut: true
+      });
+    };
+    abortSignal?.addEventListener('abort', abortHandler, { once: true });
     timeoutHandle = setTimeout(() => {
       timedOut = true;
       resolve({
@@ -1764,6 +1864,7 @@ async function mapWithConcurrencyAllowPartialTimeout<T, R>(
     return await Promise.race([workers, timeoutPromise]);
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
+    if (abortHandler) abortSignal?.removeEventListener('abort', abortHandler);
   }
 }
 
@@ -1964,6 +2065,7 @@ export function candidatesFromDiscoveryMarketCache(
     range?: { min: number; max: number };
     forceRefreshMissingSignal?: boolean;
     forceRefreshThinSignal?: boolean;
+    queueRefreshes?: boolean;
   },
   diagnostics?: {
     cacheHits: number;
@@ -1980,6 +2082,7 @@ export function candidatesFromDiscoveryMarketCache(
     const enrichedSuggestion: DiscoverySuggestion = {
       ...cacheBackedSuggestion,
       ...candidate.suggestion,
+      canonicalReference: candidate.suggestion.canonicalReference ?? candidate.weeklyDiscovery?.canonicalReference ?? cacheBackedSuggestion.canonicalReference,
       referenceSourceName: candidate.suggestion.referenceSourceName ?? cacheBackedSuggestion.referenceSourceName,
       requiredEvidenceTokens: candidate.suggestion.requiredEvidenceTokens ?? cacheBackedSuggestion.requiredEvidenceTokens,
       evidenceSearchTerm: candidate.suggestion.evidenceSearchTerm ?? cacheBackedSuggestion.evidenceSearchTerm,
@@ -2002,16 +2105,18 @@ export function candidatesFromDiscoveryMarketCache(
     const refreshQueued = hasInvalidCachedListing || shouldRefreshDiscoveryMarketCache(cacheEntry) || (!!cacheEntry && context.forceRefreshMissingSignal === true && !discoveryMarketCacheHasSignal(cacheEntry)) || (!!cacheEntry && context.forceRefreshThinSignal === true && discoveryMarketCacheHasSignal(cacheEntry) && !discoveryMarketCacheHasReliableEstimate(cacheEntry));
     if (refreshQueued) {
       if (diagnostics) diagnostics.refreshQueued += 1;
-      refreshJobs.push({
-        cacheKey,
-        suggestion: enrichedSuggestion,
-        selectionIndex,
-        userId: context.userId,
-        activeChases: context.activeChases,
-        destination: context.destination,
-        range: context.range,
-        targetCurrency: context.targetCurrency
-      });
+      if (context.queueRefreshes !== false) {
+        refreshJobs.push({
+          cacheKey,
+          suggestion: enrichedSuggestion,
+          selectionIndex,
+          userId: context.userId,
+          activeChases: context.activeChases,
+          destination: context.destination,
+          range: context.range,
+          targetCurrency: context.targetCurrency
+        });
+      }
     }
     const marketCandidate = candidateFromCachedMarket(
       enrichedSuggestion,
@@ -2041,8 +2146,9 @@ export function candidatesFromDiscoveryMarketCache(
       }
     };
   });
-  const acceptedRefreshKeys = queueDiscoveryMarketRefreshes(refreshJobs);
+  const acceptedRefreshKeys = context.queueRefreshes === false ? new Set<string>() : queueDiscoveryMarketRefreshes(refreshJobs);
   return marketCandidateRows.map((row) => {
+    if (context.queueRefreshes === false) return row.candidate;
     if (!row.refreshQueued || acceptedRefreshKeys.has(row.cacheKey) || row.candidate.sourceStatus !== 'PENDING') return row.candidate;
     return { ...row.candidate, sourceStatus: undefined };
   });
@@ -2079,7 +2185,7 @@ async function hydratePendingDiscoveryMarketCandidates(
     )
     .filter(({ candidate }) => !options.candidateKeys || options.candidateKeys.has(discoveryDisplayNameKey(candidate.suggestion.name)));
   const selectedPendingCandidates = pendingCandidates.slice(0, Math.max(0, options.maxCandidates ?? pendingCandidates.length));
-  if (selectedPendingCandidates.length === 0) return candidates;
+  if (selectedPendingCandidates.length === 0) return cacheRefreshedCandidates;
   const timeoutMs = Math.max(1, options.deadlineAtMs === undefined
     ? (options.timeoutMs ?? DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
     : remainingDeadlineMs(options.deadlineAtMs, options.timeoutMs ?? DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS));
@@ -2097,11 +2203,15 @@ async function hydratePendingDiscoveryMarketCandidates(
     resolveEarly?.();
   };
 
-  const workers = mapWithConcurrency(selectedPendingCandidates, Math.min(2, DISCOVERY_ENRICHMENT_CONCURRENCY), async ({ candidate, index }) => {
+  const hydrationConcurrency = options.forceHydrateMissingMarket === true
+    ? DISCOVERY_ENRICHMENT_CONCURRENCY
+    : Math.min(2, DISCOVERY_ENRICHMENT_CONCURRENCY);
+  const workers = mapWithConcurrency(selectedPendingCandidates, hydrationConcurrency, async ({ candidate, index }) => {
     if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(options.deadlineAtMs)) return;
     try {
+      const marketSuggestion = discoveryMarketSuggestionForCandidate(candidate);
       const hydrated = await enrichSuggestion(
-        candidate.suggestion,
+        marketSuggestion,
         candidate.selectionIndex ?? index,
         context.userId,
         context.activeChases,
@@ -2110,10 +2220,10 @@ async function hydratePendingDiscoveryMarketCandidates(
         context.targetCurrency,
         (askCandidate) => {
           if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(options.deadlineAtMs)) return;
-          const cacheKey = discoveryMarketCacheKeyForSuggestion(candidate.suggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+          const cacheKey = discoveryMarketCacheKeyForSuggestion(marketSuggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
           upsertDiscoveryMarketCache({
             cacheKey,
-            suggestionName: candidate.suggestion.name,
+            suggestionName: marketSuggestion.name,
             displayCurrency: context.targetCurrency,
             destinationCountry: context.destination?.country,
             listing: askCandidate.listing,
@@ -2127,10 +2237,10 @@ async function hydratePendingDiscoveryMarketCandidates(
         options.deadlineAtMs
       );
       if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(options.deadlineAtMs)) return;
-      const cacheKey = discoveryMarketCacheKeyForSuggestion(candidate.suggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+      const cacheKey = discoveryMarketCacheKeyForSuggestion(marketSuggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
       upsertDiscoveryMarketCache({
         cacheKey,
-        suggestionName: candidate.suggestion.name,
+        suggestionName: marketSuggestion.name,
         displayCurrency: context.targetCurrency,
         destinationCountry: context.destination?.country,
         listing: hydrated.listing,
@@ -2141,7 +2251,14 @@ async function hydratePendingDiscoveryMarketCandidates(
         soldSampleSize: hydrated.soldSampleSize,
         sourceStatus: hydrated.sourceStatus === 'PENDING' ? undefined : hydrated.sourceStatus
       });
-      hydratedByIndex.set(index, { ...candidate, ...hydrated, sourceStatus: hydrated.sourceStatus === 'PENDING' ? undefined : hydrated.sourceStatus });
+      hydratedByIndex.set(index, {
+        ...candidate,
+        ...hydrated,
+        suggestion: marketSuggestion,
+        listing: hydrated.listing ?? candidate.listing,
+        image: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.image : hydrated.image ?? candidate.image,
+        sourceStatus: hydrated.sourceStatus === 'PENDING' ? undefined : hydrated.sourceStatus
+      });
       maybeResolveEarly();
     } catch {
       // Background refresh still owns retry/status handling; foreground hydration is best-effort.
@@ -2331,12 +2448,14 @@ function candidateWithFreshMarketCache(
   }
 ): DiscoveryCandidate {
   if (candidate.sourceStatus !== 'PENDING' || !needsMoreMarketDepth(candidate)) return candidate;
-  const cacheKey = discoveryMarketCacheKeyForSuggestion(candidate.suggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+  const marketSuggestion = discoveryMarketSuggestionForCandidate(candidate);
+  const cacheKey = discoveryMarketCacheKeyForSuggestion(marketSuggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
   const cacheEntry = getDiscoveryMarketCache(cacheKey);
   if (!cacheEntry || !discoveryMarketCacheHasReliableEstimate(cacheEntry)) return candidate;
-  const marketCandidate = candidateFromCachedMarket(candidate.suggestion, candidate.selectionIndex ?? 0, cacheEntry, context.targetCurrency, context.activeChases, false);
+  const marketCandidate = candidateFromCachedMarket(marketSuggestion, candidate.selectionIndex ?? 0, cacheEntry, context.targetCurrency, context.activeChases, false);
   return {
     ...candidate,
+    suggestion: marketSuggestion,
     typicalRawAskingTotal: marketCandidate.typicalRawAskingTotal,
     marketSampleSize: marketCandidate.marketSampleSize,
     typicalRawSoldTotal: marketCandidate.typicalRawSoldTotal,
@@ -3708,6 +3827,66 @@ export function backfillMarketReadyDiscoveryCandidates(
   return orderCandidatesForMarketConfidence(merged, tasteProfileChases, negativeProfile);
 }
 
+function isValuableEraTraitCacheCandidate(candidate: DiscoveryCandidate, profileTraits: Set<string>): boolean {
+  if (!profileTraits.has('e-reader') && !profileTraits.has('wotc')) return false;
+  const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, candidate.image?.sourceName].filter(Boolean).join(' '));
+  const hasCandidateEra = /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b|\bbase set\b|\bteam rocket\b|\bgym heroes\b|\bgym challenge\b|\bneo\b|\bwizards\b/.test(text);
+  if (!hasCandidateEra) return false;
+  const marketTotal = discoveryMarketTotal(candidate);
+  return /\bh\d{1,2}\b/.test(text) || (marketTotal !== undefined && marketTotal >= 100);
+}
+
+function traitAlignedReliableMarketCacheCandidates(
+  context: {
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  },
+  targetCount: number,
+  tasteProfileChases: Chase[],
+  repeatGuardChases: Chase[] = context.activeChases,
+  excludedNames: string[] = []
+): DiscoveryCandidate[] {
+  const positiveChases = positiveTasteSubjectChases(tasteProfileChases);
+  if (positiveChases.length === 0) return [];
+  const profileTraits = distinctProfileKeys(positiveChases, profileTraitKeys);
+  const hasStrongTraitProfile = ['e-reader', 'wotc', 'japanese', 'promo', 'art', 'corocoro', 'publication']
+    .some((trait) => profileTraits.has(trait));
+  if (!hasStrongTraitProfile) return [];
+
+  const excludedNameKeys = discoveryExclusionNameKeys(excludedNames);
+  const selected: DiscoveryCandidate[] = [];
+  const seenNames = new Set<string>();
+  const seenVariantFamilies = new Set<string>();
+  for (const entry of listReliableDiscoveryMarketCacheEntries({
+    displayCurrency: context.targetCurrency,
+    destinationCountry: context.destination?.country,
+    limit: 1000
+  })) {
+    if (selected.length >= targetCount) break;
+    const candidate = candidateFromReliableMarketCacheEntry(entry, context.targetCurrency, context.activeChases);
+    if (isDiscoveryNameExcluded(candidate.suggestion.name, excludedNameKeys)) continue;
+    if (isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases)) continue;
+    if (!isDisplayableDiscoveryCandidate(candidate) || !isConcreteDiscoverySuggestion(candidate.suggestion)) continue;
+    if (!hasReliableMarketEstimate(candidate) || !isMarketEstimateInRange(candidate, context.range)) continue;
+    if (!isCollectorWorthyWeeklyCandidate(candidate)) continue;
+    if (!hasCollectorShapedScheduledSignal(candidate)) continue;
+    if (
+      !hasCollectorProfileTraitMatch(candidate, positiveChases)
+      && !isAdjacentThemeNoveltyCandidate(candidate, positiveChases)
+      && !isValuableEraTraitCacheCandidate(candidate, profileTraits)
+    ) continue;
+    const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
+    const variantKey = candidateVariantFamilyKey(candidate);
+    if (seenNames.has(nameKey) || (variantKey && seenVariantFamilies.has(variantKey))) continue;
+    selected.push(candidate);
+    seenNames.add(nameKey);
+    if (variantKey) seenVariantFamilies.add(variantKey);
+  }
+  return orderCandidatesForMarketConfidence(selected, tasteProfileChases);
+}
+
 function backfillJapaneseMarketSignalCandidates(
   candidates: DiscoveryCandidate[],
   context: {
@@ -5000,6 +5179,84 @@ export function sanitizeWeeklyDiscoveryReserve(
     .map((entry) => entry.candidate);
 }
 
+function emptyWeeklyDiscoveryReservePruneDiagnostics(inputCount: number): WeeklyDiscoveryReservePruneDiagnostics {
+  return {
+    inputCount,
+    outputCount: 0,
+    rejectionCounts: {
+      NOT_DISPLAYABLE: 0,
+      NOT_COLLECTOR_WORTHY: 0,
+      ACTIVE_CHASE_ECHO: 0,
+      VAULT_PARALLEL_PRINT: 0,
+      UNTRUSTED_PRINTING_REFERENCE: 0,
+      EXACT_REPEAT_COOLDOWN: 0,
+      BELOW_CHASE_VALUE_FLOOR: 0
+    },
+    rejectionSamples: {
+      NOT_DISPLAYABLE: [],
+      NOT_COLLECTOR_WORTHY: [],
+      ACTIVE_CHASE_ECHO: [],
+      VAULT_PARALLEL_PRINT: [],
+      UNTRUSTED_PRINTING_REFERENCE: [],
+      EXACT_REPEAT_COOLDOWN: [],
+      BELOW_CHASE_VALUE_FLOOR: []
+    }
+  };
+}
+
+function weeklyDiscoveryReservePruneSample(
+  candidate: DiscoveryCandidate,
+  currency: SupportedCurrency
+): WeeklyDiscoveryReservePruneDiagnostics['rejectionSamples'][WeeklyDiscoveryReservePruneReason][number] {
+  const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
+  return {
+    suggestionName: candidate.suggestion.name,
+    supplySource: candidate.supplySource,
+    lane: candidate.suggestion.lane,
+    referenceSourceName: candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName,
+    imageSourceKind: candidate.image?.sourceKind,
+    hasReferenceImage: !!(candidate.suggestion.referenceImageUrl || candidate.image?.url),
+    hasReferenceSourceCardId: !!(candidate.suggestion.referenceSourceCardId || candidate.image?.sourceCardId),
+    canonicalCardId: candidate.suggestion.referenceSourceCardId?.trim() ?? candidate.image?.sourceCardId?.trim(),
+    marketStatus: candidateMarketStatus(candidate, currency),
+    evaluatedPrice: estimate?.amount,
+    evaluatedCurrency: estimate?.currency
+  };
+}
+
+function recordWeeklyDiscoveryReservePruneRejection(
+  diagnostics: WeeklyDiscoveryReservePruneDiagnostics | undefined,
+  candidate: DiscoveryCandidate,
+  currency: SupportedCurrency,
+  reason: WeeklyDiscoveryReservePruneReason
+): void {
+  if (!diagnostics) return;
+  diagnostics.rejectionCounts[reason] += 1;
+  if (diagnostics.rejectionSamples[reason].length < 3) {
+    diagnostics.rejectionSamples[reason].push(weeklyDiscoveryReservePruneSample(candidate, currency));
+  }
+}
+
+function weeklyDiscoveryReservePruneReason(
+  candidate: DiscoveryCandidate,
+  currency: SupportedCurrency,
+  repeatHistory: Map<string, ExactRepeatHistoryEntry>,
+  vaultEntries: ParallelPrintVaultEntry[],
+  activeVaultChases: Chase[]
+): WeeklyDiscoveryReservePruneReason | undefined {
+  if (!isDisplayableDiscoveryCandidate(candidate)) return 'NOT_DISPLAYABLE';
+  if (!isCollectorWorthyWeeklyCandidate(candidate)) return 'NOT_COLLECTOR_WORTHY';
+  if (isActiveChaseEchoSuggestion(candidate.suggestion, activeVaultChases)) return 'ACTIVE_CHASE_ECHO';
+  if (candidateParallelPrintRejection(candidate, vaultEntries)) return 'VAULT_PARALLEL_PRINT';
+  if (!candidateHasTrustedPrintingReference(candidate, currency)) return 'UNTRUSTED_PRINTING_REFERENCE';
+  const canonicalId = candidate.suggestion.referenceSourceCardId?.trim() ?? candidate.image?.sourceCardId?.trim();
+  const repeat = canonicalId ? repeatHistory.get(canonicalId) : undefined;
+  if (repeat && repeat.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return 'EXACT_REPEAT_COOLDOWN';
+  const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
+  if (estimate && estimate.amount < weeklyDiscoveryValueFloor(currency)) return 'BELOW_CHASE_VALUE_FLOOR';
+  return undefined;
+}
+
 function sanitizePreCanonicalTopOffCandidates(
   candidates: DiscoveryCandidate[],
   currency: SupportedCurrency
@@ -5023,21 +5280,22 @@ function prunePublicationImpossibleReserve(
   candidates: DiscoveryCandidate[],
   currency: SupportedCurrency,
   recentDrops: ScheduledDiscoveryDrop[],
-  activeVaultChases: Chase[]
+  activeVaultChases: Chase[],
+  diagnostics?: WeeklyDiscoveryReservePruneDiagnostics
 ): DiscoveryCandidate[] {
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
-  return candidates.filter((candidate) => {
-    if (isActiveChaseEchoSuggestion(candidate.suggestion, activeVaultChases)) return false;
-    if (candidateParallelPrintRejection(candidate, vaultEntries)) return false;
-    const canonicalId = candidate.suggestion.referenceSourceCardId?.trim() ?? candidate.image?.sourceCardId?.trim();
-    if (!canonicalId) return false;
-    const repeat = repeatHistory.get(canonicalId);
-    if (repeat && repeat.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return false;
-    const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
-    if (estimate && estimate.amount < weeklyDiscoveryValueFloor(currency)) return false;
-    return true;
-  });
+  const kept: DiscoveryCandidate[] = [];
+  for (const candidate of candidates) {
+    const reason = weeklyDiscoveryReservePruneReason(candidate, currency, repeatHistory, vaultEntries, activeVaultChases);
+    if (reason) {
+      recordWeeklyDiscoveryReservePruneRejection(diagnostics, candidate, currency, reason);
+      continue;
+    }
+    kept.push(candidate);
+  }
+  if (diagnostics) diagnostics.outputCount = kept.length;
+  return kept;
 }
 
 function weeklyPublicationSeedCandidates(discovery: { candidates: DiscoveryCandidate[]; weeklyReserveCandidates?: DiscoveryCandidate[] }): DiscoveryCandidate[] {
@@ -5387,6 +5645,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   recentDrops: ScheduledDiscoveryDrop[];
   weeklyPeriod: string;
   deadlineAtMs?: number;
+  abortSignal?: AbortSignal;
   marketContext: {
     userId: string;
     activeChases: Chase[];
@@ -5412,7 +5671,8 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     freshExcludedNames,
     skipSourceCatalogFetch,
     weeklyPeriod,
-    deadlineAtMs
+    deadlineAtMs,
+    abortSignal
   } = input;
   const targetCount = DISCOVERY_WEEKLY_DROP_SIZE;
   const existingKeys = new Set(currentReserve.map(topOffCandidateKey));
@@ -5464,7 +5724,11 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     }
   });
 
-  const sourceBackedParents = skipSourceCatalogFetch
+  const canRunSourceCatalogTopOff = hasWeeklyOptionalStageBudget(
+    deadlineAtMs,
+    DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS + DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS
+  );
+  const sourceBackedParents = skipSourceCatalogFetch || !canRunSourceCatalogTopOff
     ? []
     : selectDiverseTopOffSourceParents(
       prioritizeTopOffSourceParents(
@@ -5508,11 +5772,14 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
       }
     }, async () => {
       const timeoutMs = remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS);
+      throwIfAborted(abortSignal);
       const settled = await mapWithConcurrencyAllowPartialTimeout(
         sourceBackedParents,
         DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY,
         timeoutMs,
         async (parent) => {
+          throwIfAborted(abortSignal);
+          throwIfDeadlineExpired(deadlineAtMs);
           const resolved = await resolveSourceBackedDiscoveryCards(
             parent,
             discovery.chases,
@@ -5520,8 +5787,11 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
             shouldResolveTopOffParentAsBroadExploration(parent) ? [] : discovery.tasteProfileChases
           ).catch(() => ({ suggestions: [] }));
           return resolved.suggestions.filter((suggestion) => !isDiscoveryNameExcluded(suggestion.name, discoveryExclusionNameKeys(excludedNames)));
-        }
+        },
+        abortSignal
       );
+      throwIfAborted(abortSignal);
+      throwIfDeadlineExpired(deadlineAtMs);
       sourceTopOffTimedOut = settled.timedOut;
       return settled.results;
     }, {
@@ -5619,22 +5889,25 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     })}`);
   }
   const hydrationTarget = prioritizedTopOff.slice(0, Math.min(36, Math.max(12, targetCount * 2)));
-  const hydratedPriority = await runWeeklyDiscoveryStage({
-    userId,
-    weeklyPeriod,
-    stage: 'topoff-market-hydration',
-    inputCount: hydrationTarget.length,
-    counters: {
-      timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
-    }
-  }, () => hydratePendingDiscoveryMarketCandidates(hydrationTarget, marketContext, {
-    timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS),
-    deadlineAtMs,
-    maxCandidates: hydrationTarget.length,
-    forceHydrateMissingMarket: true
-  }), {
-    outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
-  });
+  const shouldHydrateTopOffMarket = hydrationTarget.length >= Math.min(6, Math.max(3, readiness.marketResolvedShortfall));
+  const hydratedPriority = shouldHydrateTopOffMarket
+    ? await runWeeklyDiscoveryStage({
+      userId,
+      weeklyPeriod,
+      stage: 'topoff-market-hydration',
+      inputCount: hydrationTarget.length,
+      counters: {
+        timeoutMs: remainingOptionalStageMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
+      }
+    }, () => hydratePendingDiscoveryMarketCandidates(hydrationTarget, marketContext, {
+      timeoutMs: remainingOptionalStageMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS),
+      deadlineAtMs,
+      maxCandidates: hydrationTarget.length,
+      forceHydrateMissingMarket: true
+    }), {
+      outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
+    })
+    : hydrationTarget;
   const hydratedByKey = new Map(hydratedPriority.map((candidate) => [topOffCandidateKey(candidate), candidate]));
   return {
     candidates: prioritizedTopOff.map((candidate) => hydratedByKey.get(topOffCandidateKey(candidate)) ?? candidate),
@@ -7399,6 +7672,46 @@ function scheduledMarketStatusFromCandidate(candidate: DiscoveryCandidate): Disc
   return candidate.sourceStatus ?? 'MISSING';
 }
 
+function collapseAdjacentRepeatedNamePhrases(value: string): string {
+  const words = value.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const normalizedWords = words.map((word) => normalize(word).replace(/[^a-z0-9]+/g, ''));
+  const output: string[] = [];
+  const normalizedOutput: string[] = [];
+  let index = 0;
+
+  while (index < words.length) {
+    let repeatedLength = 0;
+    const maxLength = Math.min(4, Math.floor((words.length - index) / 2));
+    for (let length = 1; length <= maxLength; length += 1) {
+      const left = normalizedWords.slice(index, index + length);
+      const right = normalizedWords.slice(index + length, index + length * 2);
+      if (left.every((word, offset) => word.length > 0 && word === right[offset])) {
+        repeatedLength = length;
+        break;
+      }
+    }
+    if (repeatedLength > 0) {
+      const phrase = words.slice(index, index + repeatedLength);
+      const normalizedPhrase = normalizedWords.slice(index, index + repeatedLength);
+      output.push(...phrase);
+      normalizedOutput.push(...normalizedPhrase);
+      index += repeatedLength;
+      while (
+        index + repeatedLength <= words.length
+        && normalizedWords.slice(index, index + repeatedLength).every((word, offset) => word === normalizedPhrase[offset])
+      ) {
+        index += repeatedLength;
+      }
+      continue;
+    }
+    output.push(words[index]!);
+    normalizedOutput.push(normalizedWords[index]!);
+    index += 1;
+  }
+
+  return output.join(' ');
+}
+
 function canonicalScheduledSuggestion(candidate: DiscoveryCandidate): DiscoverySuggestion {
   const canonicalImage = scheduledShelfImageFromCandidate(candidate);
   const canonicalName = candidate.weeklyDiscovery?.canonicalReference?.canonicalName?.trim();
@@ -7408,9 +7721,10 @@ function canonicalScheduledSuggestion(candidate: DiscoveryCandidate): DiscoveryS
   )
     ? canonicalName
     : candidate.suggestion.name;
+  const displayName = collapseAdjacentRepeatedNamePhrases(scheduledName);
   return {
     ...candidate.suggestion,
-    name: scheduledName,
+    name: displayName,
     referenceImageUrl: canonicalImage?.url ?? candidate.suggestion.referenceImageUrl,
     referenceSourceName: canonicalImage?.sourceName ?? candidate.suggestion.referenceSourceName,
     referenceSourceCardId: canonicalImage?.sourceCardId ?? candidate.suggestion.referenceSourceCardId
@@ -7599,6 +7913,13 @@ type WeeklyShelfSelectionState = {
   laneCapEnabled: boolean;
 };
 
+type WeeklyShelfCapLimits = {
+  subjectCap: number;
+  familyCap: number;
+  formatCap: number;
+  laneCap: number;
+};
+
 type ParallelPrintVaultEntry = {
   chaseName: string;
   key: string;
@@ -7613,6 +7934,24 @@ function emptyWeeklyShelfSelectionState(): WeeklyShelfSelectionState {
     formatCounts: new Map<string, number>(),
     laneCounts: new Map<string, number>(),
     laneCapEnabled: false
+  };
+}
+
+function normalWeeklyShelfCapLimits(): WeeklyShelfCapLimits {
+  return {
+    subjectCap: WEEKLY_DISCOVERY_SUBJECT_CAP,
+    familyCap: WEEKLY_DISCOVERY_FAMILY_CAP,
+    formatCap: WEEKLY_DISCOVERY_FORMAT_CAP,
+    laneCap: WEEKLY_DISCOVERY_LANE_CAP
+  };
+}
+
+function emergencyWeeklyShelfCapLimits(expectedSize: number): WeeklyShelfCapLimits {
+  return {
+    subjectCap: Math.max(WEEKLY_DISCOVERY_SUBJECT_CAP, Math.ceil(expectedSize * 0.8)),
+    familyCap: Math.max(WEEKLY_DISCOVERY_FAMILY_CAP, Math.ceil(expectedSize * 0.8)),
+    formatCap: Math.max(WEEKLY_DISCOVERY_FORMAT_CAP, Math.ceil(expectedSize * 0.9)),
+    laneCap: expectedSize
   };
 }
 
@@ -7656,21 +7995,25 @@ function candidateParallelPrintRejection(candidate: DiscoveryCandidate, vaultEnt
   return null;
 }
 
-function candidateShelfCapRejection(candidate: DiscoveryCandidate, selectionState: WeeklyShelfSelectionState): DiscoveryShelfSelectionRejection | null {
+function candidateShelfCapRejection(
+  candidate: DiscoveryCandidate,
+  selectionState: WeeklyShelfSelectionState,
+  limits: WeeklyShelfCapLimits = normalWeeklyShelfCapLimits()
+): DiscoveryShelfSelectionRejection | null {
   const subjectKey = candidateShelfSubjectKey(candidate);
-  if (subjectKey && (selectionState.subjectCounts.get(subjectKey) ?? 0) >= WEEKLY_DISCOVERY_SUBJECT_CAP) {
+  if (subjectKey && (selectionState.subjectCounts.get(subjectKey) ?? 0) >= limits.subjectCap) {
     return { code: 'SUBJECT_SHELF_CAP', matchedKey: subjectKey };
   }
   const familyKey = candidateEvolutionFamilyKey(candidate);
-  if (familyKey && (selectionState.familyCounts.get(familyKey) ?? 0) >= WEEKLY_DISCOVERY_FAMILY_CAP) {
+  if (familyKey && (selectionState.familyCounts.get(familyKey) ?? 0) >= limits.familyCap) {
     return { code: 'FAMILY_SHELF_CAP', matchedKey: familyKey };
   }
   const formatKey = candidateFormatShelfKey(candidate);
-  if (formatKey && (selectionState.formatCounts.get(formatKey) ?? 0) >= WEEKLY_DISCOVERY_FORMAT_CAP) {
+  if (formatKey && (selectionState.formatCounts.get(formatKey) ?? 0) >= limits.formatCap) {
     return { code: 'FORMAT_SHELF_CAP', matchedKey: formatKey };
   }
   const laneKey = candidateLaneShelfKey(candidate);
-  if (selectionState.laneCapEnabled && (selectionState.laneCounts.get(laneKey) ?? 0) >= WEEKLY_DISCOVERY_LANE_CAP) {
+  if (selectionState.laneCapEnabled && (selectionState.laneCounts.get(laneKey) ?? 0) >= limits.laneCap) {
     return { code: 'LANE_SHELF_CAP', matchedKey: laneKey };
   }
   return null;
@@ -7732,7 +8075,8 @@ function candidateItemSelectionRejection(
   recentRepeatHistory: Map<string, ExactRepeatHistoryEntry>,
   targetCurrency: SupportedCurrency,
   selectionState: WeeklyShelfSelectionState,
-  vaultEntries: ParallelPrintVaultEntry[]
+  vaultEntries: ParallelPrintVaultEntry[],
+  limits: WeeklyShelfCapLimits = normalWeeklyShelfCapLimits()
 ): DiscoveryShelfSelectionRejection | null {
   const canonicalId = scheduledItemCanonicalId(item);
   const providerBackedDisplayName = !!candidate.weeklyDiscovery?.canonicalReference
@@ -7749,9 +8093,92 @@ function candidateItemSelectionRejection(
   if (seenCanonicalIds.has(canonicalId)) return { code: 'DUPLICATE_CANONICAL_ID' };
   const parallelPrintRejection = candidateParallelPrintRejection(candidate, vaultEntries);
   if (parallelPrintRejection) return parallelPrintRejection;
-  const shelfCapRejection = candidateShelfCapRejection(candidate, selectionState);
+  const shelfCapRejection = candidateShelfCapRejection(candidate, selectionState, limits);
   if (shelfCapRejection) return shelfCapRejection;
   return null;
+}
+
+function isCapRejection(code: DiscoveryShelfSelectionRejectionCode): code is DiscoveryShelfSelectionResult['capRelaxationSelections'][number]['relaxedReason'] {
+  return code === 'SUBJECT_SHELF_CAP' || code === 'FAMILY_SHELF_CAP' || code === 'FORMAT_SHELF_CAP' || code === 'LANE_SHELF_CAP';
+}
+
+function recoveryCapLimitsForStep(step: number, expectedSize: number): WeeklyShelfCapLimits {
+  const normal = normalWeeklyShelfCapLimits();
+  const emergency = emergencyWeeklyShelfCapLimits(expectedSize);
+  return {
+    subjectCap: Math.min(emergency.subjectCap, normal.subjectCap + step),
+    familyCap: Math.min(emergency.familyCap, normal.familyCap + step),
+    formatCap: Math.min(emergency.formatCap, normal.formatCap + step),
+    laneCap: Math.min(emergency.laneCap, normal.laneCap + step)
+  };
+}
+
+function capRecoveryCandidateScore(entry: {
+  candidate: DiscoveryCandidate;
+  item: ScheduledDiscoveryDropItem;
+}): number {
+  const canonicalId = scheduledItemCanonicalId(entry.item);
+  return [
+    entry.item.market.status === 'READY' ? 10_000 : 0,
+    hasTrustedReferenceImage(entry.item) ? 1_000 : 0,
+    canonicalId ? 500 : 0,
+    -(entry.candidate.selectionIndex ?? 0)
+  ].reduce((sum, value) => sum + value, 0);
+}
+
+function appendCapRecoverySelections(
+  selected: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }>,
+  capRejectedCandidates: Array<{
+    candidate: DiscoveryCandidate;
+    item: ScheduledDiscoveryDropItem;
+    rejection: DiscoveryShelfSelectionRejection;
+  }>,
+  selectedCanonicalIds: Set<string>,
+  finalSelectionState: WeeklyShelfSelectionState,
+  expectedSize: number,
+  capRelaxationSelections: DiscoveryShelfSelectionResult['capRelaxationSelections'],
+  maxMarketIncomplete = WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE
+): void {
+  const emergency = emergencyWeeklyShelfCapLimits(expectedSize);
+  const maxStep = Math.max(
+    emergency.subjectCap - WEEKLY_DISCOVERY_SUBJECT_CAP,
+    emergency.familyCap - WEEKLY_DISCOVERY_FAMILY_CAP,
+    emergency.formatCap - WEEKLY_DISCOVERY_FORMAT_CAP,
+    emergency.laneCap - WEEKLY_DISCOVERY_LANE_CAP,
+    0
+  );
+  const recoveryReserve = [...capRejectedCandidates].sort((left, right) =>
+    capRecoveryCandidateScore(right) - capRecoveryCandidateScore(left)
+    || (left.candidate.selectionIndex ?? 0) - (right.candidate.selectionIndex ?? 0)
+    || left.candidate.suggestion.name.localeCompare(right.candidate.suggestion.name)
+  );
+
+  for (let step = 1; step <= maxStep && selected.length < expectedSize; step += 1) {
+    const limits = recoveryCapLimitsForStep(step, expectedSize);
+    for (const entry of recoveryReserve) {
+      if (selected.length >= expectedSize) break;
+      const canonicalId = scheduledItemCanonicalId(entry.item);
+      if (!canonicalId || selectedCanonicalIds.has(canonicalId)) continue;
+      if (
+        entry.item.market.status !== 'READY'
+        && selected.filter((selectedEntry) => selectedEntry.item.market.status !== 'READY').length >= maxMarketIncomplete
+      ) continue;
+      const capRejection = candidateShelfCapRejection(entry.candidate, finalSelectionState, limits);
+      if (capRejection) continue;
+      const relaxedReason = entry.rejection.code;
+      if (!isCapRejection(relaxedReason)) continue;
+      selected.push(entry);
+      selectedCanonicalIds.add(canonicalId);
+      recordSelectedCandidate(entry.candidate, finalSelectionState);
+      capRelaxationSelections.push({
+        suggestionName: entry.candidate.suggestion.name,
+        canonicalCardId: canonicalId,
+        relaxedReason,
+        relaxedKey: entry.rejection.matchedKey,
+        marketStatus: scheduledMarketStatusFromCandidate(entry.candidate)
+      });
+    }
+  }
 }
 
 function selectPublishableWeeklyDiscoveryShelf(
@@ -7766,6 +8193,11 @@ function selectPublishableWeeklyDiscoveryShelf(
   const selectedCandidates: DiscoveryCandidate[] = [];
   const resolvedSelected: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }> = [];
   const incompleteCandidates: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }> = [];
+  const capRejectedCandidates: Array<{
+    candidate: DiscoveryCandidate;
+    item: ScheduledDiscoveryDropItem;
+    rejection: DiscoveryShelfSelectionRejection;
+  }> = [];
   const seenCanonicalIds = new Set<string>();
   const selectionState = emptyWeeklyShelfSelectionState();
   selectionState.laneCapEnabled = new Set(candidates.map(candidateLaneShelfKey)).size > 1;
@@ -7781,6 +8213,9 @@ function selectPublishableWeeklyDiscoveryShelf(
     const rejection = candidateItemSelectionRejection(candidate, item, seenCanonicalIds, repeatHistory, currency, selectionState, vaultEntries);
     if (rejection) {
       rejectionCounts[rejection.code] += 1;
+      if (isCapRejection(rejection.code)) {
+        capRejectedCandidates.push({ candidate, item, rejection });
+      }
       if (rejectionSamples[rejection.code].length < 3) {
         const repeat = item.suggestion.referenceSourceCardId ? repeatHistory.get(item.suggestion.referenceSourceCardId) : undefined;
         const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
@@ -7822,28 +8257,56 @@ function selectPublishableWeeklyDiscoveryShelf(
 
   const selected = [...resolvedSelected.slice(0, expectedSize)];
   const finalSelectionState = emptyWeeklyShelfSelectionState();
+  finalSelectionState.laneCapEnabled = selectionState.laneCapEnabled;
+  const selectedCanonicalIds = new Set<string>();
   for (const entry of selected) recordSelectedCandidate(entry.candidate, finalSelectionState);
+  for (const entry of selected) {
+    const canonicalId = scheduledItemCanonicalId(entry.item);
+    if (canonicalId) selectedCanonicalIds.add(canonicalId);
+  }
+  const capRelaxationSelections: DiscoveryShelfSelectionResult['capRelaxationSelections'] = [];
+  appendCapRecoverySelections(
+    selected,
+    capRejectedCandidates.filter((entry) => entry.item.market.status === 'READY'),
+    selectedCanonicalIds,
+    finalSelectionState,
+    expectedSize,
+    capRelaxationSelections
+  );
   if (selected.length < expectedSize) {
     let selectedIncompleteCount = 0;
     for (const entry of incompleteCandidates) {
       if (selected.length >= expectedSize) break;
       if (selectedIncompleteCount >= WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) break;
       if (candidateShelfCapRejection(entry.candidate, finalSelectionState)) continue;
+      const canonicalId = scheduledItemCanonicalId(entry.item);
+      if (!canonicalId || selectedCanonicalIds.has(canonicalId)) continue;
       selected.push(entry);
+      selectedCanonicalIds.add(canonicalId);
       recordSelectedCandidate(entry.candidate, finalSelectionState);
       selectedIncompleteCount += 1;
     }
   }
+  appendCapRecoverySelections(
+    selected,
+    capRejectedCandidates.filter((entry) => entry.item.market.status !== 'READY'),
+    selectedCanonicalIds,
+    finalSelectionState,
+    expectedSize,
+    capRelaxationSelections
+  );
   const items = selected.map(({ item }, index) => ({ ...item, position: index + 1 }));
   for (const { candidate } of selected) selectedCandidates.push(candidate);
+  const selectedMarketResolvedCount = items.filter((item) => item.market.status === 'READY').length;
 
   return {
     items,
     selectedCandidates,
     inspectedCount,
     qualifiedCount,
-    marketResolvedCount: resolvedSelected.length,
-    marketIncompleteCount: Math.max(0, items.length - Math.min(items.length, resolvedSelected.length)),
+    marketResolvedCount: selectedMarketResolvedCount,
+    marketIncompleteCount: Math.max(0, items.length - selectedMarketResolvedCount),
+    capRelaxationSelections,
     rejectionCounts,
     rejectionSamples
   };
@@ -7933,6 +8396,44 @@ function selectDiversityEligibleWeeklyCandidates(
     eligible.push(candidate);
     seenCanonicalIds.add(canonicalId);
     recordSelectedCandidate(candidate, selectionState);
+  }
+
+  return eligible;
+}
+
+function selectMarketShortfallHydrationTargets(
+  rerankedReserve: DiscoveryCandidate[],
+  currency: SupportedCurrency,
+  recentDrops: ScheduledDiscoveryDrop[],
+  activeVaultChases: Chase[]
+): DiscoveryCandidate[] {
+  const eligible: DiscoveryCandidate[] = [];
+  const seenCanonicalIds = new Set<string>();
+  const selectionState = emptyWeeklyShelfSelectionState();
+  selectionState.laneCapEnabled = new Set(rerankedReserve.map(candidateLaneShelfKey)).size > 1;
+  const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
+  const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
+
+  for (const candidate of rerankedReserve) {
+    const item = scheduledItemFromCandidate(candidate, currency);
+    if (!item) continue;
+    const rejection = candidateItemSelectionRejection(
+      candidate,
+      item,
+      seenCanonicalIds,
+      repeatHistory,
+      currency,
+      selectionState,
+      vaultEntries
+    );
+    if (rejection && !isCapRejection(rejection.code)) continue;
+    const canonicalId = scheduledItemCanonicalId(item);
+    if (!canonicalId || seenCanonicalIds.has(canonicalId)) continue;
+    eligible.push(candidate);
+    if (!rejection) {
+      seenCanonicalIds.add(canonicalId);
+      recordSelectedCandidate(candidate, selectionState);
+    }
   }
 
   return eligible;
@@ -8210,6 +8711,14 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     .slice(0, 3)
     .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
   const existingDrop = getScheduledDiscoveryDrop(context.userId, 'WEEKLY_DISCOVERY', weeklyPeriod);
+  const hasExistingPublishableDrop = !!existingDrop
+    && existingDrop.items.length > 0
+    && validatePublishableDiscoveryShelf(existingDrop.items, DISCOVERY_WEEKLY_DROP_SIZE).length === 0;
+  const allowSourceCatalogForMissingLiveCachedDrop = context.mode === 'LIVE'
+    && cachePreferredRetry
+    && !hasExistingPublishableDrop;
+  const allowHydrationForMissingLiveCachedDrop = allowSourceCatalogForMissingLiveCachedDrop;
+  const deferExpensiveHydration = quickRefresh && !allowHydrationForMissingLiveCachedDrop;
   const buildCurrentFinalizationInput = (
     activeVault: Chase[],
     collectorProfile: CollectorTasteProfile,
@@ -8243,16 +8752,17 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     preferScheduledDrop: false,
     saveScheduledDrop: false,
     scheduledDate: context.date,
-    hydrateScheduledMarketInline: context.hydrateMarketInline ?? true,
+    hydrateScheduledMarketInline: !deferExpensiveHydration,
     usePersistedState: cachePreferredRetry,
     ignoreSeenExclusions: true,
     hardAvoidNames: immediatePreviousDropNames,
     softAvoidNames: previousDropNames,
     allowSoftAvoidFiller: context.allowRecentRepeatFiller ?? false,
-    skipSourceCatalogFetch: quickRefresh || cachePreferredRetry,
-    skipReferenceImageFetch: quickRefresh,
+    skipSourceCatalogFetch: quickRefresh || (cachePreferredRetry && !allowSourceCatalogForMissingLiveCachedDrop),
+    skipReferenceImageFetch: deferExpensiveHydration,
     ingestCanonicalUniverse: !quickRefresh && !cachePreferredRetry,
     persistDiscoveryArtifacts: context.mode === 'LIVE',
+    ignoreMarketPriceCeiling: true,
     runtimeContext: context.mode === 'LIVE'
       ? {
           userId: context.userId,
@@ -8273,7 +8783,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       ? { country: discovery.settings.shippingCountry, postalCode: discovery.settings.shippingPostalCode }
       : undefined,
     targetCurrency: discovery.settings.alertCurrency,
-    range: discoveryMarketRangeFromChases(discovery.tasteProfileChases)
+    range: undefined
   };
   const activeVault = listChases(context.userId);
   const repeatGuardChases = [...discovery.chases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(context.userId))];
@@ -8289,16 +8799,19 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         repeatGuardChases
       )
     : [];
-  const supplementalUniverseCandidates = indexedSupplementalUniverseCandidates.length > 0
-    ? indexedSupplementalUniverseCandidates
-    : discovery.hasFullDiscovery
-      ? selectDiscoveryUniverseCandidatesForProfile(
-          discovery.tasteProfileChases,
-          freshExcludedNames,
-          supplementalUniverseTarget,
-          repeatGuardChases
-        )
-      : [];
+  const globalSupplementalUniverseCandidates = discovery.hasFullDiscovery
+    ? selectDiscoveryUniverseCandidatesForProfile(
+        discovery.tasteProfileChases,
+        freshExcludedNames,
+        supplementalUniverseTarget,
+        repeatGuardChases,
+        new Set(indexedSupplementalUniverseCandidates.map(topOffCandidateKey))
+      )
+    : [];
+  const supplementalUniverseCandidates = uniqueCandidatesByDisplayName([
+    ...indexedSupplementalUniverseCandidates,
+    ...globalSupplementalUniverseCandidates
+  ]);
   const supplementalCacheCandidates = discovery.hasFullDiscovery
     ? backfillMarketReadyDiscoveryCandidates(
         [],
@@ -8311,17 +8824,27 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         freshExcludedNames
       )
     : [];
+  const supplementalTraitCacheCandidates = discovery.hasFullDiscovery
+    ? traitAlignedReliableMarketCacheCandidates(
+        marketContext,
+        supplementalCacheTarget,
+        discovery.tasteProfileChases,
+        repeatGuardChases,
+        freshExcludedNames
+      )
+    : [];
   const discoverySeedCandidates = weeklyPublicationSeedCandidates(discovery);
   const weeklyCandidatePool = orderCandidatesForCollectorPresentation(
     uniqueCandidatesByDisplayName([
       ...supplementalUniverseCandidates,
       ...supplementalCacheCandidates,
+      ...supplementalTraitCacheCandidates,
       ...discoverySeedCandidates
     ]),
     discovery.tasteProfileChases,
     Math.max(
       targetCount,
-      supplementalUniverseCandidates.length + supplementalCacheCandidates.length + discoverySeedCandidates.length
+      supplementalUniverseCandidates.length + supplementalCacheCandidates.length + supplementalTraitCacheCandidates.length + discoverySeedCandidates.length
     ),
     discovery.negativeProfile,
     discovery.learnedRankContext
@@ -8331,7 +8854,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     sourceBackedSuggestions: discovery.supplyDiagnostics.sourceBackedSuggestions,
     globalUniverseConsidered:
       discovery.supplyDiagnostics.globalUniverseConsidered
-      + (indexedSupplementalUniverseCandidates.length > 0 ? 0 : supplementalUniverseCandidates.length),
+      + globalSupplementalUniverseCandidates.length,
     userUniverseConsidered:
       discovery.supplyDiagnostics.userUniverseConsidered
       + indexedSupplementalUniverseCandidates.length,
@@ -8416,12 +8939,15 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       visibleCandidatesFromDiscovery: discovery.candidates.length,
       reserveCandidatesFromDiscovery: discoverySeedCandidates.length,
       supplementalUniverseCandidates: supplementalUniverseCandidates.length,
+      supplementalUserUniverseCandidates: indexedSupplementalUniverseCandidates.length,
+      supplementalGlobalUniverseCandidates: globalSupplementalUniverseCandidates.length,
       supplementalCacheCandidates: supplementalCacheCandidates.length,
+      supplementalTraitCacheCandidates: supplementalTraitCacheCandidates.length,
       weeklyCandidatePool: weeklyCandidatePool.length,
       deduplicatedCandidates: baseStageCounts.deduplicatedCandidates
     }
   });
-  if (!quickRefresh) {
+  if (!deferExpensiveHydration) {
     const referenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidateReserve.length);
     const referenceStatsBefore = snapshotDiscoveryReferenceRuntimeStats();
     candidateReserve = await runWeeklyDiscoveryStage({
@@ -8475,12 +9001,35 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     });
   }
   let accumulatedCanonicalLookupEvidence = canonicalResolution.evidence;
+  let canonicalResolvedReserve = canonicalResolution.candidates;
+  if (!deferExpensiveHydration) {
+    const expandedMarketCacheDiagnostics = { cacheHits: 0, cacheMisses: 0, refreshQueued: 0, invalidCachedListings: 0, reliableSignalHits: 0 };
+    canonicalResolvedReserve = await runWeeklyDiscoveryStage({
+      userId: context.userId,
+      weeklyPeriod,
+      stage: 'expanded-reserve-market-cache-load',
+      inputCount: canonicalResolvedReserve.length,
+      counters: expandedMarketCacheDiagnostics,
+      stageMetrics: context.stageMetrics
+    }, () => Promise.resolve(candidatesFromDiscoveryMarketCache(canonicalResolvedReserve, {
+      userId: context.userId,
+      ...marketContext,
+      forceRefreshThinSignal: true,
+      queueRefreshes: false
+    }, expandedMarketCacheDiagnostics)), {
+      outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
+    });
+  }
+  const initialSanitizedReserve = sanitizeWeeklyDiscoveryReserve(canonicalResolvedReserve, discovery.settings.alertCurrency);
+  const initialPruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(initialSanitizedReserve.length);
   candidateReserve = prunePublicationImpossibleReserve(
-    sanitizeWeeklyDiscoveryReserve(canonicalResolution.candidates, discovery.settings.alertCurrency),
+    initialSanitizedReserve,
     discovery.settings.alertCurrency,
     recentDrops,
-    activeVault
+    activeVault,
+    initialPruneDiagnostics
   );
+  logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'initial-reserve-prune', initialPruneDiagnostics);
   throwIfAborted(context.abortSignal);
   const collectorProfile = buildCollectorTasteProfile(discovery.tasteProfileChases, {
     budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
@@ -8511,15 +9060,21 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       validatedSnapshot
     };
   }
-  if (!quickRefresh && discovery.hasFullDiscovery && supplyReadinessBeforeTopOff.marketResolvedShortfall > 0 && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
-    const marketShortfallTargets = selectDiversityEligibleWeeklyCandidates(
+  if (
+    !deferExpensiveHydration
+    && discovery.hasFullDiscovery
+    && supplyReadinessBeforeTopOff.selectedShortfall === 0
+    && supplyReadinessBeforeTopOff.marketResolvedShortfall > 0
+    && hasWeeklyOptionalStageBudget(deadlineAtMs)
+  ) {
+    const marketShortfallTargets = selectMarketShortfallHydrationTargets(
       candidateReserve,
       discovery.settings.alertCurrency,
       recentDrops,
       activeVault
     )
       .filter((candidate) => candidateMarketStatus(candidate, discovery.settings.alertCurrency) !== 'READY')
-      .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED, supplyReadinessBeforeTopOff.marketResolvedShortfall + 8)));
+      .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 2, supplyReadinessBeforeTopOff.marketResolvedShortfall * 4)));
     const marketShortfallTargetKeys = new Set(marketShortfallTargets.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
     if (marketShortfallTargetKeys.size > 0) {
       candidateReserve = await runWeeklyDiscoveryStage({
@@ -8529,14 +9084,14 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         inputCount: marketShortfallTargetKeys.size,
         counters: {
           marketResolvedShortfall: supplyReadinessBeforeTopOff.marketResolvedShortfall,
-          timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
+          timeoutMs: remainingOptionalStageMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
         },
         stageMetrics: context.stageMetrics
       }, () => hydratePendingDiscoveryMarketCandidates(candidateReserve, {
         userId: context.userId,
         ...marketContext
       }, {
-        timeoutMs: remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS),
+        timeoutMs: remainingOptionalStageMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS),
         deadlineAtMs,
         abortSignal: context.abortSignal,
         maxCandidates: marketShortfallTargetKeys.size,
@@ -8561,12 +9116,16 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
       });
+      const hydratedSanitizedReserve = sanitizeWeeklyDiscoveryReserve(candidateReserve, discovery.settings.alertCurrency);
+      const hydratedPruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(hydratedSanitizedReserve.length);
       candidateReserve = prunePublicationImpossibleReserve(
-        sanitizeWeeklyDiscoveryReserve(candidateReserve, discovery.settings.alertCurrency),
+        hydratedSanitizedReserve,
         discovery.settings.alertCurrency,
         recentDrops,
-        activeVault
+        activeVault,
+        hydratedPruneDiagnostics
       );
+      logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'market-shortfall-reserve-prune', hydratedPruneDiagnostics);
       supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
         candidateReserve,
         buildCollectorTasteProfile(discovery.tasteProfileChases, {
@@ -8622,13 +9181,16 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       recentDrops,
       weeklyPeriod,
       deadlineAtMs,
+      abortSignal: context.abortSignal,
       marketContext: {
         userId: context.userId,
         ...marketContext
       },
       repeatGuardChases,
       freshExcludedNames,
-      skipSourceCatalogFetch: quickRefresh
+      skipSourceCatalogFetch: deferExpensiveHydration
+        && supplyReadinessBeforeTopOff.selectedShortfall === 0
+        && supplyReadinessBeforeTopOff.marketResolvedShortfall === 0
     }), {
       outputCount: (value) => value.candidates.length
     });
@@ -8662,7 +9224,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         expandedFreshPool.length,
         discovery.tasteProfileChases
       );
-      if (!quickRefresh) {
+      if (!deferExpensiveHydration) {
         const topOffReferenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidateReserve.length);
         const topOffReferenceStatsBefore = snapshotDiscoveryReferenceRuntimeStats();
         candidateReserve = await runWeeklyDiscoveryStage({
@@ -8718,16 +9280,39 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         accumulatedCanonicalLookupEvidence,
         finalCanonicalResolution.evidence
       );
+      let topOffCanonicalResolvedReserve = finalCanonicalResolution.candidates;
+      if (!deferExpensiveHydration) {
+        const topOffMarketCacheDiagnostics = { cacheHits: 0, cacheMisses: 0, refreshQueued: 0, invalidCachedListings: 0, reliableSignalHits: 0 };
+        topOffCanonicalResolvedReserve = await runWeeklyDiscoveryStage({
+          userId: context.userId,
+          weeklyPeriod,
+          stage: 'topoff-expanded-reserve-market-cache-load',
+          inputCount: topOffCanonicalResolvedReserve.length,
+          counters: topOffMarketCacheDiagnostics,
+          stageMetrics: context.stageMetrics
+        }, () => Promise.resolve(candidatesFromDiscoveryMarketCache(topOffCanonicalResolvedReserve, {
+          userId: context.userId,
+          ...marketContext,
+          forceRefreshThinSignal: true,
+          queueRefreshes: false
+        }, topOffMarketCacheDiagnostics)), {
+          outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
+        });
+      }
+      const topOffSanitizedReserve = sanitizeWeeklyDiscoveryReserve(topOffCanonicalResolvedReserve, discovery.settings.alertCurrency);
+      const topOffPruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(topOffSanitizedReserve.length);
       candidateReserve = prunePublicationImpossibleReserve(
-        sanitizeWeeklyDiscoveryReserve(finalCanonicalResolution.candidates, discovery.settings.alertCurrency),
+        topOffSanitizedReserve,
         discovery.settings.alertCurrency,
         recentDrops,
-        activeVault
+        activeVault,
+        topOffPruneDiagnostics
       );
+      logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'topoff-reserve-prune', topOffPruneDiagnostics);
       throwIfAborted(context.abortSignal);
     }
   }
-  const supplyReadinessAfterTopOff = buildWeeklyDiscoverySupplyReadiness(
+  let supplyReadinessAfterTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
     collectorProfile,
     discovery.settings.alertCurrency,
@@ -8735,6 +9320,76 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     activeVault,
     finalStageCounts
   );
+  if (!deferExpensiveHydration && discovery.hasFullDiscovery && supplyReadinessAfterTopOff.marketResolvedShortfall > 0 && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
+    const marketShortfallTargets = selectMarketShortfallHydrationTargets(
+      candidateReserve,
+      discovery.settings.alertCurrency,
+      recentDrops,
+      activeVault
+    )
+      .filter((candidate) => candidateMarketStatus(candidate, discovery.settings.alertCurrency) !== 'READY')
+      .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 2, supplyReadinessAfterTopOff.marketResolvedShortfall * 4)));
+    const marketShortfallTargetKeys = new Set(marketShortfallTargets.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
+    if (marketShortfallTargetKeys.size > 0) {
+      candidateReserve = await runWeeklyDiscoveryStage({
+        userId: context.userId,
+        weeklyPeriod,
+        stage: topOffApplied ? 'post-topoff-market-shortfall-hydration' : 'market-shortfall-hydration',
+        inputCount: marketShortfallTargetKeys.size,
+        counters: {
+          marketResolvedShortfall: supplyReadinessAfterTopOff.marketResolvedShortfall,
+          timeoutMs: remainingOptionalStageMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
+        },
+        stageMetrics: context.stageMetrics
+      }, () => hydratePendingDiscoveryMarketCandidates(candidateReserve, {
+        userId: context.userId,
+        ...marketContext
+      }, {
+        timeoutMs: remainingOptionalStageMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS),
+        deadlineAtMs,
+        abortSignal: context.abortSignal,
+        maxCandidates: marketShortfallTargetKeys.size,
+        candidateKeys: marketShortfallTargetKeys,
+        forceHydrateMissingMarket: true,
+        stopWhen: (nextCandidates) =>
+          buildWeeklyDiscoverySupplyReadiness(
+              prunePublicationImpossibleReserve(
+                sanitizeWeeklyDiscoveryReserve(nextCandidates, discovery.settings.alertCurrency),
+                discovery.settings.alertCurrency,
+                recentDrops,
+                activeVault
+            ),
+            collectorProfile,
+            discovery.settings.alertCurrency,
+            recentDrops,
+            activeVault,
+            finalStageCounts
+          ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
+      }), {
+        outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
+      });
+      const postHydrationSanitizedReserve = sanitizeWeeklyDiscoveryReserve(candidateReserve, discovery.settings.alertCurrency);
+      const postHydrationPruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(postHydrationSanitizedReserve.length);
+      candidateReserve = prunePublicationImpossibleReserve(
+        postHydrationSanitizedReserve,
+        discovery.settings.alertCurrency,
+        recentDrops,
+        activeVault,
+        postHydrationPruneDiagnostics
+      );
+      logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'post-market-shortfall-reserve-prune', postHydrationPruneDiagnostics);
+      supplyReadinessAfterTopOff = buildWeeklyDiscoverySupplyReadiness(
+        candidateReserve,
+        collectorProfile,
+        discovery.settings.alertCurrency,
+        recentDrops,
+        activeVault,
+        finalStageCounts
+      );
+      throwIfAborted(context.abortSignal);
+      throwIfDeadlineExpired(deadlineAtMs);
+    }
+  }
   logWeeklyDiscoveryStage({
     event: 'WEEKLY_DISCOVERY_STAGE',
     userId: context.userId,
@@ -8861,6 +9516,7 @@ function persistFinalizedWeeklyDiscoveryDropSnapshot(
       itemCount: items.length,
       readyCount: items.filter((item) => item.market.status === 'READY').length,
       imageCount: items.filter((item) => !!item.imageUrl).length,
+      capRelaxationSelections: selection.capRelaxationSelections,
       rejectionCounts: selection.rejectionCounts,
       rejectionSamples: selection.rejectionSamples,
       finalMinimumValue: sortedValues[0],
@@ -8986,7 +9642,7 @@ export function orderCandidatesFromPersistedState(
 export async function discoverCandidatesForUser(
   userId: string,
   count: number,
-  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean; persistDiscoveryArtifacts?: boolean; runtimeContext?: DiscoveryAssemblyRuntimeContext } = {}
+  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean; persistDiscoveryArtifacts?: boolean; ignoreMarketPriceCeiling?: boolean; runtimeContext?: DiscoveryAssemblyRuntimeContext } = {}
 ): Promise<{
   chases: Chase[];
   tasteProfileChases: Chase[];
@@ -9014,6 +9670,7 @@ export async function discoverCandidatesForUser(
   const ingestCanonicalUniverse = options.ingestCanonicalUniverse ?? false;
   const ignoreSeenExclusions = options.ignoreSeenExclusions ?? false;
   const persistDiscoveryArtifacts = options.persistDiscoveryArtifacts ?? true;
+  const ignoreMarketPriceCeiling = options.ignoreMarketPriceCeiling ?? false;
   const runtimeContext = options.runtimeContext;
   const softAvoidNames = uniqueValuesPreservingOrder(options.softAvoidNames ?? []);
   const hardAvoidNames = uniqueValuesPreservingOrder(options.hardAvoidNames ?? []);
@@ -9176,7 +9833,7 @@ export async function discoverCandidatesForUser(
       activeChases: chases,
       destination: settings.shippingCountry ? { country: settings.shippingCountry, postalCode: settings.shippingPostalCode } : undefined,
       targetCurrency: settings.alertCurrency,
-      range: discoveryMarketRangeFromChases(tasteProfileChases)
+      range: ignoreMarketPriceCeiling ? undefined : discoveryMarketRangeFromChases(tasteProfileChases)
     };
     const concreteFallbackSuggestions = orderConcreteDiscoveryFallbackSuggestionsForMarket(
       concreteDiscoveryFallbackSuggestions([...(persistedState?.suggestionNames ?? []), ...recentlySeenNames], [...combinedSourceExcludedNames, ...softAvoidNames]),
@@ -9288,7 +9945,11 @@ export async function discoverCandidatesForUser(
     const cacheCandidates = await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-market-cache-load', discoveryCandidatePool.length, async () =>
       candidatesFromDiscoveryMarketCache(discoveryCandidatePool, marketContext, marketCacheDiagnostics), {
       outputCount: (value) => value.length,
-      counters: marketCacheDiagnostics
+      counters: {
+        ...marketCacheDiagnostics,
+        hasFullDiscovery,
+        hydrateScheduledMarketInline
+      }
     });
     const pendingMarketCandidates = cacheCandidates.filter((candidate) => candidate.sourceStatus === 'PENDING' && needsMoreMarketDepth(candidate)).length;
     const marketCandidates = hasFullDiscovery && hydrateScheduledMarketInline

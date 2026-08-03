@@ -947,6 +947,15 @@ function tcgDexEnglishSetLabel(card: TcgDexCard): string | undefined {
   return undefined;
 }
 
+function tcgDexCleanDisplayName(displayName: string, setLabel: string | undefined): string {
+  if (!setLabel) return displayName;
+  const setTokens = new Set(normalizedTokens(setLabel));
+  return displayName
+    .replace(/\s+/g, ' ')
+    .replace(/\s+collection$/i, setTokens.has('collection') ? '' : ' collection')
+    .trim();
+}
+
 function tcgDexSetPrintedTotal(card: TcgDexCard): number | undefined {
   const total = card.set?.cardCount?.official ?? card.set?.cardCount?.total ?? card.set?.cards?.official ?? card.set?.cards?.total;
   return Number.isFinite(total) && total && total > 0 ? total : undefined;
@@ -958,6 +967,21 @@ function tcgDexNumberLabel(card: TcgDexCard): string | undefined {
   return total ? `${card.localId}/${String(total).padStart(card.localId.length, '0')}` : card.localId;
 }
 
+function requestedJapaneseLocalId(suggestion: DiscoverySuggestion): string | undefined {
+  const text = [sourceText(suggestion), ...(suggestion.requiredEvidenceTokens ?? [])].join(' ');
+  const slashNumber = /\b([a-z]{0,4}\d{1,3}|\d{1,3})\s*\/\s*\d{1,3}\b/i.exec(text)?.[1];
+  const bareNumber = slashNumber ?? /\b(?:number|no\.?|#)\s*0*(\d{1,3})\b/i.exec(text)?.[1];
+  const normalized = bareNumber?.replace(/^[a-z]+/i, '').replace(/^0+/, '');
+  return normalized || undefined;
+}
+
+function tcgDexCardMatchesRequestedLocalId(card: TcgDexCard, suggestion: DiscoverySuggestion): boolean {
+  const requested = requestedJapaneseLocalId(suggestion);
+  if (!requested) return true;
+  const resolved = card.localId?.replace(/^0+/, '');
+  return !!resolved && resolved === requested;
+}
+
 function isSmallJapaneseSpecialSet(card: TcgDexCard): boolean {
   const total = tcgDexSetPrintedTotal(card);
   if (total !== undefined && total > 0 && total <= 30) return true;
@@ -967,9 +991,9 @@ function isSmallJapaneseSpecialSet(card: TcgDexCard): boolean {
 
 function sourceSuggestionFromTcgDexJapaneseCard(parent: DiscoverySuggestion, card: TcgDexCard, profile: SourceTasteProfile): DiscoverySuggestion | null {
   if (!card.id || !card.name || !card.image) return null;
-  const displayName = tcgDexEnglishCardName(card, profile);
-  if (displayName === 'Pokemon') return null;
   const setLabel = tcgDexEnglishSetLabel(card);
+  const displayName = tcgDexCleanDisplayName(tcgDexEnglishCardName(card, profile), setLabel);
+  if (displayName === 'Pokemon') return null;
   const numberLabel = tcgDexNumberLabel(card);
   const name = [displayName, 'Japanese', setLabel, numberLabel].filter(Boolean).join(' ');
   const evidenceSearchTerm = [displayName, 'Japanese Pokemon card', setLabel, numberLabel].filter(Boolean).join(' ');
@@ -1321,6 +1345,7 @@ async function resolveTcgDexJapaneseCards(
       && normalize(card.category ?? '') === 'pokemon'
       && matchesTcgDexProfileAnchor(card, profile)
       && matchesJapaneseCollectorQuality(card)
+      && tcgDexCardMatchesRequestedLocalId(card, suggestion)
       && matchesSuggestionSpecificJapaneseSubject(card, suggestion, profile, suggestionDexNumbers)
     )
     .sort((left, right) => tcgDexJapaneseScore(right, profile, suggestion) - tcgDexJapaneseScore(left, profile, suggestion));

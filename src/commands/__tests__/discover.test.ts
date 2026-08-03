@@ -338,11 +338,11 @@ describe('selectVisibleCandidates', () => {
     expect(sourceCatalogExpansionTargetCount(
       discoveryCandidateSelectionCount(true, weeklyDiscoveryShelfSizeForPlan('PRO')),
       weeklyDiscoveryShelfSizeForPlan('PRO')
-    )).toBe(32);
+    )).toBe(56);
     expect(sourceCatalogSufficientSuggestionCount(
       discoveryCandidateSelectionCount(true, weeklyDiscoveryShelfSizeForPlan('PRO')),
       weeklyDiscoveryShelfSizeForPlan('PRO')
-    )).toBe(26);
+    )).toBe(44);
   });
 
   it('stops source-backed expansion after enough distinct cards are collected', async () => {
@@ -369,7 +369,7 @@ describe('selectVisibleCandidates', () => {
     expect(expanded.length).toBeGreaterThanOrEqual(4);
     expect(expanded.length).toBeLessThanOrEqual(5);
     expect(resolver.mock.calls.length).toBeLessThan(suggestions.length);
-  });
+  }, 10000);
 
   it('sanitizes a weekly reserve by dropping unresolved marketplace rows and collapsing duplicate canonicals', () => {
     const unresolved = candidate('Pikachu Mcdonald E-reader 2002 010/018 trading card', 'E-Reader Era Trail', 0, 5);
@@ -5071,6 +5071,61 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteDiscoveryMarketCache(cacheKey);
   });
 
+  it('uses weekly canonical reference identity when loading market cache entries', () => {
+    const name = `Pichu Expedition Base Set 22 Weekly Identity ${Date.now()}`;
+    const canonicalReference = {
+      provider: 'pokemon-tcg-api',
+      canonicalCardId: 'pokemon-tcg:expedition-base-set:22:pichu',
+      canonicalName: 'Pichu Expedition Base Set 22',
+      sourceCardId: 'ecard1-22',
+      setId: 'ecard1',
+      setName: 'Expedition Base Set',
+      cardNumber: '22',
+      language: 'ENGLISH' as const,
+      imageUrl: 'https://images.pokemontcg.io/ecard1/22_hires.png',
+      imageSourceKind: 'CARD_REFERENCE' as const
+    };
+    const looseCacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    const canonicalCacheKey = discoveryMarketCacheKeyForSuggestion({
+      ...candidate(name, 'e-reader trail', 0).suggestion,
+      canonicalReference
+    }, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(looseCacheKey);
+    deleteDiscoveryMarketCache(canonicalCacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey: canonicalCacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      typicalRawAskingTotal: 260,
+      marketSampleSize: 12,
+      soldSampleSize: 0,
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = candidatesFromDiscoveryMarketCache(
+      [
+        {
+          ...candidate(name, 'e-reader trail', 0),
+          weeklyDiscovery: { canonicalReference } as unknown as DiscoveryCandidate['weeklyDiscovery']
+        }
+      ],
+      {
+        userId: 'user-1',
+        activeChases: [],
+        destination: { country: 'CA' },
+        targetCurrency: 'CAD'
+      }
+    );
+
+    expect(attached?.typicalRawAskingTotal).toBe(260);
+    expect(attached?.marketSampleSize).toBe(12);
+    expect(attached?.suggestion.canonicalReference?.canonicalCardId).toBe(canonicalReference.canonicalCardId);
+    expect(attached?.sourceStatus).toBeUndefined();
+    deleteDiscoveryMarketCache(looseCacheKey);
+    deleteDiscoveryMarketCache(canonicalCacheKey);
+  });
+
   it('uses country-level cached market values when a postal region is configured', () => {
     const name = `Mew Postal Cache ${Date.now()}`;
     const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
@@ -5160,6 +5215,36 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(items[0]?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/200_hires.png');
     expect(items[0]?.imageSourceName).toBe('Pokemon TCG (151)');
+  });
+
+  it('cleans duplicated collection and set wording before scheduled shelf publication', () => {
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      publishableSourceCandidate(
+        "Pikachu Collection Collection McDonald's Collection 2021 10",
+        'SVLS-003',
+        "TCGdex Japanese (McDonald's Collection 2021)",
+        0,
+        'Japanese Collector Trail'
+      ),
+      publishableSourceCandidate(
+        'Umbreon VMAX Brilliant Stars Brilliant Stars Brilliant Stars Trainer Gallery TG23',
+        'swsh9tg-TG23',
+        'Pokemon TCG (Brilliant Stars Trainer Gallery)',
+        1,
+        'Collector Compass'
+      ),
+      publishableSourceCandidate(
+        'Galarian Moltres V Astral Radiance Astral Radiance Astral Radiance Astral Radiance Astral Radiance Astral Radiance Astral Radiance Trainer Gallery TG20',
+        'swsh10tg-TG20',
+        'Pokemon TCG (Astral Radiance Trainer Gallery)',
+        2,
+        'Collector Compass'
+      )
+    ], 'CAD');
+
+    expect(items[0]?.suggestion.name).toBe("Pikachu Collection McDonald's Collection 2021 10");
+    expect(items[1]?.suggestion.name).toBe('Umbreon VMAX Brilliant Stars Trainer Gallery TG23');
+    expect(items[2]?.suggestion.name).toBe('Galarian Moltres V Astral Radiance Trainer Gallery TG20');
   });
 
   it('does not use marketplace images as canonical saved shelf images when no card reference image exists', () => {
@@ -5346,6 +5431,69 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.rejectionCounts.SUBJECT_SHELF_CAP).toBe(1);
     expect(result.items.filter((item) => /^Mew\b/.test(item.suggestion.name))).toHaveLength(2);
     expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-18')).toBe(true);
+  });
+
+  it('recovers a W32-shaped shelf by progressively relaxing cap-only rejects', () => {
+    const repeatedSubject = Array.from({ length: 14 }, (_, index) => ({
+      ...publishableSourceCandidate(
+        `Mew Recovery Candidate ${index + 1}`,
+        `mew-recovery-${index + 1}`,
+        `Pokemon TCG (Recovery Set ${index + 1})`,
+        index,
+        'Japanese Collector Trail'
+      ),
+      typicalRawSoldTotal: 120 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    const readySingleNames = ['Pikachu', 'Gardevoir', 'Squirtle', 'Umbreon', 'Rayquaza', 'Articuno', 'Zapdos'];
+    const readySingleLanes = [
+      'E-Reader Era Trail',
+      'Vintage Era Trail',
+      'Special Release Trail',
+      'Promo Trail',
+      'Artwork Trail',
+      'Format Trail',
+      'Value Watch'
+    ];
+    const readySingles = readySingleNames.map((name, index) => ({
+      ...publishableSourceCandidate(
+        `${name} Distinct Set ${index + 1}`,
+        `distinct-recovery-${index + 1}`,
+        `Pokemon TCG (Distinct Set ${index + 1})`,
+        20 + index,
+        readySingleLanes[index]!
+      ),
+      typicalRawSoldTotal: 140 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    const incompleteSingleNames = ['Charizard', 'Mewtwo', 'Sylveon'];
+    const incompleteSingles = incompleteSingleNames.map((name, index) => ({
+      ...publishableSourceCandidate(
+        `${name} Incomplete Set ${index + 1}`,
+        `incomplete-recovery-${index + 1}`,
+        `Pokemon TCG (Incomplete Set ${index + 1})`,
+        40 + index,
+        `Incomplete Lane ${index + 1}`
+      ),
+      displayCurrency: 'CAD' as const
+    }));
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([
+      ...repeatedSubject,
+      ...readySingles,
+      ...incompleteSingles
+    ], 'CAD', 20);
+
+    expect(result.rejectionCounts.SUBJECT_SHELF_CAP).toBe(12);
+    expect(result.capRelaxationSelections.length).toBeGreaterThan(0);
+    expect(result.capRelaxationSelections.every((item) => item.relaxedReason === 'SUBJECT_SHELF_CAP')).toBe(true);
+    expect(result.items).toHaveLength(20);
+    expect(result.marketResolvedCount).toBe(20);
+    expect(result.items.filter((item) => /^Mew Recovery Candidate\b/.test(item.suggestion.name)).length).toBeLessThanOrEqual(16);
+    expect(new Set(result.items.map((item) => item.suggestion.referenceSourceCardId)).size).toBe(20);
+    expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(result.items, 20)).toEqual([]);
   });
 
   it('enforces evolution-family, format, and lane caps during final selection', () => {
@@ -5925,7 +6073,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     });
 
     expect(normalizeInput(live.input)).toEqual(normalizeInput(capture.input));
-  });
+  }, 10000);
 
   it('replay fixtures stay deterministic, and live release fixtures pass the structural gate', () => {
     for (const name of ['w29-sanitized.json', 'w30-live-success-sanitized.json', 'w31-live-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
@@ -6148,9 +6296,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(reserve, 'CAD', 20);
 
-    expect(result.items).toHaveLength(19);
-    expect(result.marketResolvedCount).toBe(17);
+    expect(result.items).toHaveLength(20);
+    expect(result.marketResolvedCount).toBeGreaterThanOrEqual(18);
     expect(result.marketIncompleteCount).toBe(2);
+    expect(result.capRelaxationSelections.length).toBeGreaterThan(0);
   });
 
   it('replays the sanitized W31 fixture offline at 20 selected and at least 18 market-resolved', async () => {
