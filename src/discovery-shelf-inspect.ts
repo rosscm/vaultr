@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import { prepareWeeklyDiscoveryDropForUser } from './commands/discover.js';
-import { getScheduledDiscoveryDrop, scheduledDiscoveryPeriodKey } from './services/scheduled-discovery-drops.js';
+import { getWeeklyDiscoveryPreparedReserve } from './services/weekly-discovery-prepared-reserve.js';
+import { getWeeklyDiscoveryPreparationState } from './services/weekly-discovery-preparation-state.js';
+import { getLatestAvailableScheduledDiscoveryDrop, getScheduledDiscoveryDrop, scheduledDiscoveryPeriodKey } from './services/scheduled-discovery-drops.js';
 
 type Options = {
   blockedNames: string[];
@@ -91,6 +93,9 @@ function parseArgs(argv: string[]): Options {
 
 const options = parseArgs(process.argv.slice(2));
 const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', options.date);
+const preparationState = getWeeklyDiscoveryPreparationState(options.userId, periodKey);
+const preparedReserve = getWeeklyDiscoveryPreparedReserve(options.userId, periodKey);
+const retainedDrop = getLatestAvailableScheduledDiscoveryDrop(options.userId, 'WEEKLY_DISCOVERY', options.date.toISOString());
 
 if (options.refresh) {
   const result = await prepareWeeklyDiscoveryDropForUser(options.userId, options.date, {
@@ -102,7 +107,14 @@ if (options.refresh) {
 
 const drop = getScheduledDiscoveryDrop(options.userId, 'WEEKLY_DISCOVERY', periodKey);
 if (!drop) {
-  console.log(`${options.userId}: no scheduled weekly discovery drop for ${periodKey}`);
+  console.log(JSON.stringify({
+    userId: options.userId,
+    periodKey,
+    preparationState,
+    preparedReserve,
+    retainedShelfPeriod: retainedDrop?.periodKey,
+    message: 'no scheduled weekly discovery drop for this period'
+  }, null, 2));
   process.exit(1);
 }
 
@@ -111,10 +123,39 @@ const blockedPresent = options.blockedNames.filter((name) => names.includes(name
 console.log(JSON.stringify({
   userId: options.userId,
   periodKey,
+  preparationState: preparationState
+    ? {
+        state: preparationState.state,
+        attempts: preparationState.attemptCount,
+        lastOutcome: preparationState.lastOutcome,
+        failureCode: preparationState.failureCode,
+        nextRetryAt: preparationState.nextRetryAt,
+        updatedAt: preparationState.updatedAt
+      }
+    : null,
+  preparedReserve: preparedReserve
+    ? {
+        generation: preparedReserve.preparationGeneration,
+        lastCompletedStage: preparedReserve.lastCompletedStage,
+        reserveCount: preparedReserve.reserveCount,
+        canonicalReadyCount: preparedReserve.canonicalReadyCount,
+        imageReadyCount: preparedReserve.imageReadyCount,
+        marketReadyCount: preparedReserve.marketReadyCount,
+        personallyDefensibleCount: preparedReserve.personallyDefensibleCount,
+        projectedSelectableCount: preparedReserve.projectedSelectableCount,
+        projectedMarketResolvedCount: preparedReserve.projectedMarketResolvedCount,
+        viableAlternativeCount: preparedReserve.viableAlternativeCount,
+        pendingMarketJobCount: preparedReserve.pendingMarketJobCount,
+        failedMarketJobCount: preparedReserve.failedMarketJobCount,
+        blockingShortages: preparedReserve.blockingShortages,
+        lastMeaningfulProgressAt: preparedReserve.lastMeaningfulProgressAt
+      }
+    : null,
   status: drop.status,
   itemCount: drop.itemCount,
   marketReadyCount: drop.marketReadyCount,
   imageReadyCount: drop.imageReadyCount,
+  retainedShelfPeriod: retainedDrop?.periodKey,
   page0: names.slice(0, 10),
   page1: names.slice(10, 20),
   blockedPresent

@@ -268,6 +268,15 @@ describe('discovery drop scheduler', () => {
       const state = listWeeklyDiscoveryPreparationStates(periodKey).find((entry) => entry.userId === userId);
 
       expect(result.result.outcome).toBe('RETRYABLE_FAILURE');
+      expect(prepareSpy).toHaveBeenCalledWith(
+        userId,
+        now,
+        expect.objectContaining({
+          force: true,
+          preparationGeneration: 1,
+          isCurrentGeneration: expect.any(Function)
+        })
+      );
       expect(state?.state).toBe('RETRY_SCHEDULED');
       expect(state?.failureCode).toBe('PREPARATION_TIMEOUT');
       expect(state?.attemptCount).toBe(1);
