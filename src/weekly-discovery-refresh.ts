@@ -10,6 +10,7 @@ type Options = {
   date: Date;
   dryRun: boolean;
   hydrateMarketInline: boolean;
+  regenerateCurrent: boolean;
   users: string[];
 };
 
@@ -24,6 +25,7 @@ function usage(): string {
     '  --dry-run                 Show target rows without writing',
     '  --allow-repeat-filler     Allow recent weekly cards as filler if needed',
     '  --no-hydrate-market       Queue market work instead of hydrating inline',
+    '  --regenerate-current      Rebuild the current period against the live shelf as hard exclusions',
     '  --help                    Show this help'
   ].join('\n');
 }
@@ -35,12 +37,21 @@ function parseDate(value: string | undefined): Date {
   return date;
 }
 
+function assertConcreteUserId(userId: string): string {
+  const trimmed = userId.trim();
+  if (!trimmed || /^<?USER_ID>?$/i.test(trimmed)) {
+    throw new Error('Replace USER_ID with an actual Discord user ID');
+  }
+  return trimmed;
+}
+
 function parseArgs(argv: string[]): Options {
   let all = false;
   let allowRepeatFiller = false;
   let dateValue: string | undefined;
   let dryRun = false;
   let hydrateMarketInline = true;
+  let regenerateCurrent = false;
   const users: string[] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -65,15 +76,19 @@ function parseArgs(argv: string[]): Options {
       hydrateMarketInline = false;
       continue;
     }
+    if (arg === '--regenerate-current') {
+      regenerateCurrent = true;
+      continue;
+    }
     if (arg === '--user') {
       const userId = argv[index + 1];
       if (!userId) throw new Error('Missing value after --user');
-      users.push(userId);
+      users.push(assertConcreteUserId(userId));
       index += 1;
       continue;
     }
     if (arg.startsWith('--user=')) {
-      users.push(arg.slice('--user='.length));
+      users.push(assertConcreteUserId(arg.slice('--user='.length)));
       continue;
     }
     if (arg === '--date') {
@@ -92,7 +107,7 @@ function parseArgs(argv: string[]): Options {
   if (all && users.length > 0) throw new Error('Use either --all or --user, not both');
   if (!all && users.length === 0) throw new Error('Provide --all or at least one --user');
 
-  return { all, allowRepeatFiller, date: parseDate(dateValue), dryRun, hydrateMarketInline, users };
+  return { all, allowRepeatFiller, date: parseDate(dateValue), dryRun, hydrateMarketInline, regenerateCurrent, users };
 }
 
 function describeDrop(userId: string, periodKey: string): string {
@@ -105,6 +120,25 @@ function describeDrop(userId: string, periodKey: string): string {
     `imageReady=${drop.imageReadyCount}`,
     `updated=${drop.updatedAt}`
   ].join(' | ');
+}
+
+function describeDiagnostics(result: Awaited<ReturnType<typeof prepareWeeklyDiscoveryDropForUser>>): string | null {
+  const diagnostics = result.diagnostics;
+  if (!diagnostics) return null;
+  const parts = [
+    `regen=${diagnostics.regenerateCurrent}`,
+    `exclusions=${diagnostics.currentShelfExclusions}`,
+    `reserve=${diagnostics.reserveCount}`,
+    `postCap=${diagnostics.postCapSelectableCount}/20`,
+    `postCapMarket=${diagnostics.postCapMarketReadyCount}/18`
+  ];
+  if (diagnostics.saturatedSubjects.length > 0) parts.push(`subjects=${diagnostics.saturatedSubjects.slice(0, 3).join(',')}`);
+  if (diagnostics.saturatedFormats.length > 0) parts.push(`formats=${diagnostics.saturatedFormats.slice(0, 3).join(',')}`);
+  if (diagnostics.saturatedLanes.length > 0) parts.push(`lanes=${diagnostics.saturatedLanes.slice(0, 3).join(',')}`);
+  if (diagnostics.blockingShortages.length > 0) parts.push(`shortages=${diagnostics.blockingShortages.slice(0, 3).join('; ')}`);
+  if (diagnostics.retainedPreviousShelf !== undefined) parts.push(`retained=${diagnostics.retainedPreviousShelf}`);
+  if (diagnostics.replacedExistingShelf !== undefined) parts.push(`replaced=${diagnostics.replacedExistingShelf}`);
+  return parts.join(' | ');
 }
 
 const options = parseArgs(process.argv.slice(2));
@@ -130,6 +164,7 @@ if (users.length === 0) {
 }
 
 console.log(`${options.dryRun ? '[DRY RUN] ' : ''}Weekly Shelf refresh target: ${periodKey}`);
+console.log(`Regeneration mode: ${options.regenerateCurrent ? 'current-shelf replacement' : 'normal refresh'}`);
 console.log(`Users: ${users.join(', ')}`);
 
 try {
@@ -148,9 +183,12 @@ try {
     const result = await prepareWeeklyDiscoveryDropForUser(userId, options.date, {
       force: true,
       hydrateMarketInline: options.hydrateMarketInline,
-      allowRecentRepeatFiller: options.allowRepeatFiller
+      allowRecentRepeatFiller: options.allowRepeatFiller,
+      regenerateCurrent: options.regenerateCurrent
     });
     console.log(`Refresh | ${userId}: prepared=${result.prepared} itemCount=${result.itemCount} fullDiscovery=${result.hasFullDiscovery}`);
+    const diagnostics = describeDiagnostics(result);
+    if (diagnostics) console.log(`Diag   | ${userId}: ${diagnostics}`);
     console.log(`After  | ${describeDrop(userId, periodKey)}`);
   }
 } finally {

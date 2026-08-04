@@ -79,6 +79,7 @@ import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertSchedule
 import * as discoverySourceCatalogService from '../../services/discovery-source-catalog.js';
 import { replayWeeklyDiscoveryFixture, summarizeReplay, type CaptureFixture } from '../../weekly-discovery-replay.js';
 import { replaceDiscoveryUserUniverseCards, type DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
+import { deleteWeeklyDiscoveryPreparedReserve, upsertWeeklyDiscoveryPreparedReserve } from '../../services/weekly-discovery-prepared-reserve.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import type { WeeklyDiscoveryFinalizationInput } from '../../services/weekly-discovery-ranking.js';
@@ -6086,32 +6087,73 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
   it('selects deterministic trusted top-off candidates and excludes untrusted marketplace-image rows from the bounded slice', () => {
     const profileChases = ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].map(chase);
-    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
-      [
-        publishableSourceCandidate('Mew Expedition Base Set 55', 'exp1-55', 'Pokemon TCG (Card)', 0),
-        publishableSourceCandidate('Mew ex Paldean Fates 232', 'sv4pt5-232', 'Pokemon TCG (Card)', 1),
-        publishableSourceCandidate('Umbreon XY96', 'xy96', 'Pokemon TCG (Card)', 2),
-        publishableSourceCandidate('Umbreon VMAX TG23', 'swsh11tg-tg23', 'Pokemon TCG (Card)', 3),
-        ...publishableShelfCandidates(20, (candidate, index) => ({
-          ...candidate,
-          selectionIndex: index + 4,
-          typicalRawSoldTotal: 90 + index,
-          soldSampleSize: 3,
-          displayCurrency: 'CAD' as const
-        }))
-      ],
-      buildCollectorTasteProfile(profileChases, { budgetPreferenceCad: 30 }),
-      'CAD',
-      [],
-      [],
-      {
+    const readiness = {
+      projectedSelectedCount: 18,
+      projectedMarketResolvedCount: 18,
+      canonicalReserveCount: 24,
+      hardEligibleReserveCount: 24,
+      marketResolvedEligibleCount: 22,
+      viableAlternativeCount: 6,
+      countsBySource: {},
+      countsByLane: {},
+      countsBySubject: {},
+      countsByFamily: {},
+      countsByLanguage: {},
+      countsByMarketStatus: {},
+      rejectionCounts: {
+        MISSING_CANONICAL_ID: 0,
+        BAD_IMAGE: 0,
+        BAD_DISPLAY_NAME: 0,
+        DUPLICATE_CANONICAL_ID: 0,
+        MISSING_RATIONALE: 0,
+        REFERENCE_PRINTING_MISMATCH: 0,
+        EXACT_REPEAT_COOLDOWN: 0,
+        BELOW_CHASE_VALUE_FLOOR: 0,
+        SUBJECT_SHELF_CAP: 0,
+        FAMILY_SHELF_CAP: 0,
+        FORMAT_SHELF_CAP: 0,
+        LANE_SHELF_CAP: 0,
+        VAULT_PARALLEL_PRINT: 0
+      },
+      shouldTopOff: true,
+      selectedShortfall: 2,
+      marketResolvedShortfall: 0,
+      hasViableHeadroom: true,
+      postCapSelectableCount: 18,
+      postCapMarketReadyCount: 18,
+      additionalViableCardsRequired: 2,
+      selectedCandidates: [],
+      selectedSubjectCounts: {},
+      selectedFamilyCounts: {},
+      selectedLaneCounts: {},
+      selectedFormatCounts: {},
+      selectedEraSetFamilyCounts: {},
+      saturatedSubjects: [],
+      saturatedFamilies: [],
+      saturatedFormats: [],
+      saturatedLanes: [],
+      saturatedEraSetFamilies: [],
+      viableStrengthCounts: {
+        DIRECT_PROFILE: 0,
+        STRONG_ADJACENT: 0,
+        EXPLORATORY: 0,
+        GENERIC_FILLER: 0
+      },
+      stages: {
         rawGeneratedSuggestions: 24,
         sourceBackedSuggestions: 10,
         globalUniverseConsidered: 8,
         userUniverseConsidered: 6,
-        deduplicatedCandidates: 24
+        deduplicatedCandidates: 24,
+        stableCanonicalIdCandidates: 24,
+        trustedImageCandidates: 24,
+        activeVaultEligibleCandidates: 24,
+        hardEligibleCandidates: 24,
+        marketResolvedEligibleCandidates: 22,
+        diversityEligibleCandidates: 18,
+        selectedCards: 18
       }
-    );
+    };
 
     const candidates = [
       {
@@ -6120,14 +6162,14 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         supplySource: 'TOP_OFF_GLOBAL_UNIVERSE' as const
       },
       {
-        ...publishableSourceCandidate('Gardevoir Nintendo Promo', 'pcg-p-027', 'Pokemon TCG (Card)', 101, 'Promo Trail'),
+        ...publishableSourceCandidate('Gardevoir ex Scarlet & Violet 217', 'sv1-217', 'Pokemon TCG (Card)', 101, 'Collector Compass'),
         typicalRawSoldTotal: 110,
         soldSampleSize: 3,
         displayCurrency: 'CAD' as const,
         supplySource: 'TOP_OFF_USER_UNIVERSE' as const
       },
       {
-        ...publishableSourceCandidate('Gardevoir ex Japanese SAR', 'sv4a-348', 'TCGdex Japanese (Card)', 102, 'Japanese Spotlight'),
+        ...publishableSourceCandidate('Gardevoir ex Paldean Fates 233', 'sv4pt5-233', 'Pokemon TCG (Card)', 102, 'Collector Compass'),
         typicalRawSoldTotal: 140,
         soldSampleSize: 3,
         displayCurrency: 'CAD' as const,
@@ -6181,7 +6223,6 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(first.every((candidate) => candidate.suggestion.referenceSourceCardId)).toBe(true);
     expect(first.every((candidate) =>
       candidate.suggestion.referenceSourceName === 'Pokemon TCG (Card)'
-      || candidate.suggestion.referenceSourceName === 'TCGdex Japanese (Card)'
     )).toBe(true);
   });
 
@@ -6317,6 +6358,581 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(normalizeInput(live.input)).toEqual(normalizeInput(capture.input));
   }, 30000);
+
+  it('excludes current-shelf canonical ids during regenerate-current but not during normal refresh', async () => {
+    vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
+    const userId = `weekly-regenerate-${Date.now()}`;
+    setUserPlan(userId, 'PRO');
+    const chases = [
+      'Mew Expedition Base Set 55',
+      'Pikachu Skyridge 84',
+      'Zapdos Aquapolis H32',
+      'Umbreon VMAX Brilliant Stars Trainer Gallery TG23',
+      'Articuno Japanese S12a 49',
+      'Pichu Expedition Base Set 22'
+    ];
+    for (const [index, cardName] of chases.entries()) addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'NORMAL' });
+
+    const periodKey = '2026-W32';
+    const existingItems = publishableShelfCandidates(20, (candidate, index) => ({
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        name: `Existing Card ${index + 1}`,
+        referenceSourceCardId: `existing-${index + 1}`
+      },
+      image: {
+        ...candidate.image!,
+        sourceCardId: `existing-${index + 1}`
+      }
+    }));
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey,
+      status: 'READY',
+      title: 'Weekly Shelf',
+      currency: 'CAD',
+      availableAt: '2026-08-03T12:00:00.000Z',
+      expiresAt: '2026-08-10T12:00:00.000Z',
+      items: __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(existingItems, 'CAD')
+    });
+
+    const seededUniverseCandidates = [
+      ...existingItems,
+      ...publishableShelfCandidates(24, (candidate, index) => ({
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          name: `Fresh Card ${index + 1}`,
+          referenceSourceCardId: `fresh-${index + 1}`
+        },
+        image: {
+          ...candidate.image!,
+          sourceCardId: `fresh-${index + 1}`
+        },
+        typicalRawSoldTotal: 80 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }))
+    ];
+    replaceDiscoveryUserUniverseCards(userId, seededUniverseCandidates.map((candidate, index) => ({
+      userId,
+      cardKey: candidate.suggestion.referenceSourceCardId ?? `seed-${index}`,
+      canonicalName: candidate.suggestion.name,
+      score: 300 - index,
+      scoreComponents: { seeded: 1 },
+      suggestion: candidate.suggestion,
+      imageUrl: candidate.image?.url,
+      imageSourceName: candidate.image?.sourceName,
+      sourceCardId: candidate.image?.sourceCardId,
+      marketTotal: candidate.typicalRawSoldTotal ?? 80 + index,
+      marketCurrency: candidate.displayCurrency ?? 'CAD'
+    })));
+
+    const normal = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date: new Date('2026-08-04T12:00:00.000Z'),
+      mode: 'LIVE',
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false
+    });
+    const regenerated = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date: new Date('2026-08-04T12:00:00.000Z'),
+      mode: 'LIVE',
+      regenerateCurrent: true,
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false
+    });
+
+    expect(normal.input.orderedCandidateReserve.some((candidate) => candidate.suggestion.referenceSourceCardId === 'existing-1')).toBe(true);
+    expect(regenerated.input.orderedCandidateReserve.some((candidate) => candidate.suggestion.referenceSourceCardId?.startsWith('existing-'))).toBe(false);
+
+    replaceDiscoveryUserUniverseCards(userId, []);
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+    removeAllChases(userId);
+  }, 30000);
+
+  it('retains the existing shelf unchanged when regenerate-current cannot build a valid replacement', async () => {
+    const userId = `weekly-regenerate-fail-${Date.now()}`;
+    const periodKey = '2026-W32';
+    const date = new Date('2026-08-04T12:00:00.000Z');
+    const chaseNames = [
+      'Mew Expedition Base Set 55',
+      'Pikachu Skyridge 84',
+      'Zapdos Aquapolis H32',
+      'Umbreon VMAX Brilliant Stars Trainer Gallery TG23',
+      'Articuno Japanese S12a 49',
+      'Pichu Expedition Base Set 22'
+    ];
+    for (const [index, cardName] of chaseNames.entries()) addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'NORMAL' });
+
+    const existingItems = publishableShelfCandidates(20, (candidate, index) => ({
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        name: `Existing Regeneration Card ${index + 1}`,
+        referenceSourceCardId: `regen-existing-${index + 1}`
+      },
+      image: {
+        ...candidate.image!,
+        sourceCardId: `regen-existing-${index + 1}`
+      },
+      typicalRawSoldTotal: 100 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey,
+      status: 'READY',
+      title: 'Weekly Shelf',
+      currency: 'CAD',
+      availableAt: '2026-08-03T12:00:00.000Z',
+      expiresAt: '2026-08-10T12:00:00.000Z',
+      items: __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(existingItems, 'CAD')
+    });
+
+    replaceDiscoveryUserUniverseCards(userId, existingItems.map((candidate, index) => ({
+      userId,
+      cardKey: candidate.suggestion.referenceSourceCardId ?? `existing-only-${index}`,
+      canonicalName: candidate.suggestion.name,
+      score: 200 - index,
+      scoreComponents: { seeded: 1 },
+      suggestion: candidate.suggestion,
+      imageUrl: candidate.image?.url,
+      imageSourceName: candidate.image?.sourceName,
+      sourceCardId: candidate.image?.sourceCardId,
+      marketTotal: candidate.typicalRawSoldTotal ?? 100 + index,
+      marketCurrency: candidate.displayCurrency ?? 'CAD'
+    })));
+
+    const result = await __discoveryPersistenceTestHooks.prepareWeeklyDiscoveryDropForUser(userId, date, {
+      force: true,
+      regenerateCurrent: true,
+      hydrateMarketInline: false
+    });
+
+    expect(result.outcome).toBe('RETRYABLE_FAILURE');
+    const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+    expect(drop?.items).toHaveLength(20);
+    expect(drop?.items.map((item) => item.suggestion.referenceSourceCardId)).toEqual(
+      existingItems.map((candidate) => candidate.suggestion.referenceSourceCardId)
+    );
+
+    replaceDiscoveryUserUniverseCards(userId, []);
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+    removeAllChases(userId);
+  });
+
+  it('atomically replaces the current shelf when regenerate-current finds a valid 20-card replacement', async () => {
+    const userId = `weekly-regenerate-success-${Date.now()}`;
+    const periodKey = '2026-W32';
+    const date = new Date('2026-08-04T12:00:00.000Z');
+    const existingItems = publishableShelfCandidates(20, (candidate, index) => ({
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        name: `Old Shelf Card ${index + 1}`,
+        referenceSourceCardId: `old-shelf-${index + 1}`
+      },
+      image: {
+        ...candidate.image!,
+        sourceCardId: `old-shelf-${index + 1}`
+      },
+      typicalRawSoldTotal: 95 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey,
+      status: 'READY',
+      title: 'Weekly Shelf',
+      currency: 'CAD',
+      availableAt: '2026-08-03T12:00:00.000Z',
+      expiresAt: '2026-08-10T12:00:00.000Z',
+      items: __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(existingItems, 'CAD')
+    });
+
+    const freshCandidates: DiscoveryCandidate[] = [
+      publishableSourceCandidate('Mew Expedition Base Set 55', 'exp1-55', 'Pokemon TCG (Expedition Base Set)', 0, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Mew Expedition Base Set 19', 'exp1-19', 'Pokemon TCG (Expedition Base Set)', 1, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Umbreon-GX SM Black Star Promos SM36', 'smpromo-sm36', 'Pokemon TCG (SM Black Star Promos)', 2, 'Promo Trail'),
+      publishableSourceCandidate('Umbreon VMAX Brilliant Stars Trainer Gallery TG23', 'swsh9tg-tg23', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 3, 'Artwork Trail'),
+      publishableSourceCandidate('Squirtle Expedition Base Set 132', 'exp1-132', 'Pokemon TCG (Expedition Base Set)', 4, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Squirtle 151 170', 'sv3pt5-170', 'Pokemon TCG (151)', 5, 'Modern Spotlight Trail'),
+      publishableSourceCandidate('Gardevoir ex Paldean Fates 233', 'sv4pt5-233', 'Pokemon TCG (Paldean Fates)', 6, 'Modern Spotlight Trail'),
+      publishableSourceCandidate('Gardevoir ex Scarlet & Violet 217', 'sv1-217', 'Pokemon TCG (Scarlet & Violet)', 7, 'Modern Spotlight Trail'),
+      publishableSourceCandidate('Zapdos Aquapolis H32', 'aquapolis-h32', 'Pokemon TCG (Aquapolis)', 8, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Zapdos Expedition Base Set 48', 'exp1-48', 'Pokemon TCG (Expedition Base Set)', 9, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Pikachu V Lost Origin TG16', 'swsh11tg-tg16', 'Pokemon TCG (Lost Origin Trainer Gallery)', 10, 'Artwork Trail'),
+      publishableSourceCandidate('Pikachu VMAX Lost Origin TG29', 'swsh11tg-tg29', 'Pokemon TCG (Lost Origin Trainer Gallery)', 11, 'Artwork Trail'),
+      publishableSourceCandidate('Articuno Japanese S12a 49', 'jp-s12a-49', 'TCGdex Japanese (VSTAR Universe)', 12, 'Japanese Collector Trail'),
+      publishableSourceCandidate('Lapras Japanese S12a 031', 'jp-s12a-31', 'TCGdex Japanese (VSTAR Universe)', 13, 'Japanese Collector Trail'),
+      publishableSourceCandidate('Celebi Astral Radiance Trainer Gallery TG14', 'swsh10tg-tg14', 'Pokemon TCG (Astral Radiance Trainer Gallery)', 14, 'Artwork Trail'),
+      publishableSourceCandidate('Raichu Lost Origin Trainer Gallery TG09', 'swsh11tg-tg09', 'Pokemon TCG (Lost Origin Trainer Gallery)', 15, 'Artwork Trail'),
+      publishableSourceCandidate('Dragonite Expedition Base Set 43', 'exp1-43', 'Pokemon TCG (Expedition Base Set)', 16, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Pichu Expedition Base Set 22', 'exp1-22', 'Pokemon TCG (Expedition Base Set)', 17, 'E-Reader Era Trail'),
+      publishableSourceCandidate('Blastoise Wizards Black Star Promos 12', 'wotc-12', 'Pokemon TCG (Wizards Black Star Promos)', 18, 'Promo Trail'),
+      publishableSourceCandidate('Articuno Wizards Black Star Promos 48', 'wotc-48', 'Pokemon TCG (Wizards Black Star Promos)', 19, 'Promo Trail'),
+      publishableSourceCandidate('Moltres Wizards Black Star Promos 21', 'wotc-21', 'Pokemon TCG (Wizards Black Star Promos)', 20, 'Promo Trail'),
+      publishableSourceCandidate('Flareon V Brilliant Stars Trainer Gallery TG01', 'swsh9tg-tg01', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 21, 'Artwork Trail'),
+      publishableSourceCandidate('Galarian Moltres V Astral Radiance Trainer Gallery TG20', 'swsh10tg-tg20', 'Pokemon TCG (Astral Radiance Trainer Gallery)', 22, 'Artwork Trail'),
+      publishableSourceCandidate('Pikachu Skyridge 84', 'skyridge-84', 'Pokemon TCG (Skyridge)', 23, 'E-Reader Era Trail')
+    ].map((candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 120 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, freshCandidates, 'CAD', undefined, date);
+
+    expect(result.saved).toBe(true);
+    const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+    expect(drop?.items).toHaveLength(20);
+    expect(drop?.items.some((item) => item.suggestion.referenceSourceCardId?.startsWith('old-shelf-'))).toBe(false);
+    expect(drop?.items.every((item) => item.suggestion.referenceSourceCardId && !item.suggestion.referenceSourceCardId.startsWith('old-shelf-'))).toBe(true);
+    expect(drop?.items.filter((item) => item.market.status === 'READY').length).toBeGreaterThanOrEqual(18);
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+  });
+
+  it('reports a post-cap shortage for a concentrated Mew Pikachu and Skyridge reserve', () => {
+    const reserve = [
+      ...Array.from({ length: 12 }, (_, index) => publishableSourceCandidate(`Mew Skyridge ${index + 1}`, `mew-${index + 1}`, 'Pokemon TCG (Skyridge)', index, 'E-Reader Era Trail')),
+      ...Array.from({ length: 8 }, (_, index) => publishableSourceCandidate(`Pikachu Expedition ${index + 1}`, `pika-${index + 1}`, 'Pokemon TCG (Expedition Base Set)', 20 + index, 'E-Reader Era Trail')),
+      ...Array.from({ length: 4 }, (_, index) => publishableSourceCandidate(`Skyridge Card ${index + 1}`, `sky-${index + 1}`, 'Pokemon TCG (Skyridge)', 40 + index, 'E-Reader Era Trail'))
+    ].map((candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 70 + index,
+      soldSampleSize: index < 16 ? 3 : 1,
+      displayCurrency: 'CAD' as const
+    }));
+
+    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
+      reserve,
+      buildCollectorTasteProfile([
+        chase('Mew Expedition Base Set 55', 1),
+        chase('Pikachu Skyridge 84', 2),
+        chase('Mew Southern Islands Promo', 3),
+        chase('Pikachu VMAX Trainer Gallery TG29', 4),
+        chase('Zapdos Aquapolis H32', 5),
+        chase('Articuno Skyridge H3', 6)
+      ]),
+      'CAD',
+      [],
+      [],
+      {
+        rawGeneratedSuggestions: reserve.length,
+        sourceBackedSuggestions: reserve.length,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: 0,
+        deduplicatedCandidates: reserve.length
+      },
+      []
+    );
+
+    expect(readiness.postCapSelectableCount).toBeLessThan(20);
+    expect(readiness.postCapMarketReadyCount).toBeLessThan(18);
+    expect(readiness.saturatedSubjects.length).toBeGreaterThan(0);
+    expect(readiness.additionalViableCardsRequired).toBeGreaterThan(0);
+  });
+
+  it('top-off rejects candidates from saturated dimensions and keeps diverse viable options', () => {
+    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
+      [
+        ...Array.from({ length: 10 }, (_, index) => ({
+          ...publishableSourceCandidate(`Mew Skyridge ${index + 1}`, `mew-top-${index + 1}`, 'Pokemon TCG (Skyridge)', index, 'E-Reader Era Trail'),
+          typicalRawSoldTotal: 90 + index,
+          soldSampleSize: 3,
+          displayCurrency: 'CAD' as const
+        })),
+        ...Array.from({ length: 10 }, (_, index) => ({
+          ...publishableSourceCandidate(`Pikachu Expedition ${index + 1}`, `pika-top-${index + 1}`, 'Pokemon TCG (Expedition Base Set)', 20 + index, 'E-Reader Era Trail'),
+          typicalRawSoldTotal: 110 + index,
+          soldSampleSize: 3,
+          displayCurrency: 'CAD' as const
+        }))
+      ],
+      buildCollectorTasteProfile([
+        chase('Mew Expedition Base Set 55', 1),
+        chase('Pikachu Skyridge 84', 2),
+        chase('Zapdos Aquapolis H32', 3),
+        chase('Articuno Skyridge H3', 4),
+        chase('Moltres Wizards Black Star Promos 21', 5),
+        chase('Pichu Expedition Base Set 22', 6)
+      ]),
+      'CAD',
+      [],
+      [],
+      {
+        rawGeneratedSuggestions: 20,
+        sourceBackedSuggestions: 20,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: 0,
+        deduplicatedCandidates: 20
+      },
+      []
+    );
+
+    const saturated = publishableSourceCandidate('Mew Aquapolis 1', 'mew-aqua-1', 'Pokemon TCG (Aquapolis)', 200, 'E-Reader Era Trail');
+    const diverse = publishableSourceCandidate('Gardevoir ex Paldean Fates 233', 'sv4pt5-233', 'Pokemon TCG (Paldean Fates)', 201, 'Collector Compass');
+    const selected = __discoveryPersistenceTestHooks.selectDeficitAwareTopOffCandidates(
+      [
+        { ...saturated, typicalRawSoldTotal: 140, soldSampleSize: 3, displayCurrency: 'CAD' as const },
+        { ...diverse, typicalRawSoldTotal: 180, soldSampleSize: 3, displayCurrency: 'CAD' as const }
+      ],
+      readiness,
+      [
+        chase('Mew Expedition Base Set 55', 1),
+        chase('Pikachu Skyridge 84', 2),
+        chase('Zapdos Aquapolis H32', 3),
+        chase('Gardevoir ex Paldean Fates 233', 4),
+        chase('Articuno Japanese S12a 49', 5),
+        chase('Pichu Expedition Base Set 22', 6)
+      ],
+      [],
+      'CAD',
+      undefined,
+      [],
+      10
+    );
+
+    expect(selected.map((candidate) => candidate.suggestion.referenceSourceCardId)).toContain('sv4pt5-233');
+    expect(selected.map((candidate) => candidate.suggestion.referenceSourceCardId)).not.toContain('mew-aqua-1');
+  });
+
+  it('top-off rejects weak generic filler even when it is canonical and market-ready', () => {
+    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
+      publishableShelfCandidates(18, (candidate, index) => ({
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          name: `Mew Anchored Card ${index + 1}`,
+          referenceSourceCardId: `mew-anchor-${index + 1}`
+        },
+        image: {
+          ...candidate.image!,
+          sourceCardId: `mew-anchor-${index + 1}`
+        },
+        typicalRawSoldTotal: 85 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      })),
+      buildCollectorTasteProfile([
+        chase('Mew Expedition Base Set 55', 1),
+        chase('Pikachu Skyridge 84', 2),
+        chase('Zapdos Aquapolis H32', 3),
+        chase('Articuno Japanese S12a 49', 4),
+        chase('Pichu Expedition Base Set 22', 5),
+        chase('Gardevoir ex Paldean Fates 233', 6)
+      ]),
+      'CAD',
+      [],
+      [],
+      {
+        rawGeneratedSuggestions: 18,
+        sourceBackedSuggestions: 18,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: 0,
+        deduplicatedCandidates: 18
+      },
+      []
+    );
+
+    const genericFiller = {
+      ...publishableCandidate('Collector Starter Card', 'generic-filler-1', 90),
+      suggestion: {
+        ...publishableCandidate('Collector Starter Card', 'generic-filler-1', 90).suggestion,
+        why: 'nice card from a broadly collectible set'
+      },
+      typicalRawSoldTotal: 90,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+    const anchored = {
+      ...publishableSourceCandidate('Gardevoir ex Scarlet & Violet 217', 'sv1-217', 'Pokemon TCG (Scarlet & Violet)', 91, 'Collector Compass'),
+      typicalRawSoldTotal: 110,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+
+    const selected = __discoveryPersistenceTestHooks.selectDeficitAwareTopOffCandidates(
+      [genericFiller, anchored],
+      readiness,
+      [
+        chase('Mew Expedition Base Set 55', 1),
+        chase('Pikachu Skyridge 84', 2),
+        chase('Zapdos Aquapolis H32', 3),
+        chase('Gardevoir ex Paldean Fates 233', 4),
+        chase('Articuno Japanese S12a 49', 5),
+        chase('Pichu Expedition Base Set 22', 6)
+      ],
+      [],
+      'CAD',
+      undefined,
+      [],
+      10
+    );
+
+    expect(selected.map((candidate) => candidate.suggestion.referenceSourceCardId)).toContain('sv1-217');
+    expect(selected.map((candidate) => candidate.suggestion.referenceSourceCardId)).not.toContain('generic-filler-1');
+  });
+
+  it('normalizes repeated canonical display-name tokens and uses canonical metadata for diversity keys', () => {
+    const umbreonCanonicalReference = {
+      provider: 'PokemonTCG' as const,
+      sourceCardId: 'swsh9tg-tg23',
+      canonicalCardId: 'swsh9tg-tg23',
+      canonicalName: 'Umbreon VMAX',
+      setId: 'swsh9tg',
+      setName: 'Brilliant Stars Trainer Gallery',
+      cardNumber: 'TG23',
+      language: 'ENGLISH' as const,
+      imageUrl: trustedReferenceImageUrl('Pokemon TCG (Brilliant Stars Trainer Gallery)', 'swsh9tg-tg23'),
+      imageSourceKind: 'CARD_REFERENCE' as const
+    };
+    const malformed = {
+      ...publishableSourceCandidate('Umbreon VMAX Brilliant Stars Brilliant Stars Brilliant Stars Trainer Gallery TG23', 'swsh9tg-tg23', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 0, 'Artwork Trail'),
+      suggestion: {
+        ...publishableSourceCandidate('Umbreon VMAX Brilliant Stars Brilliant Stars Brilliant Stars Trainer Gallery TG23', 'swsh9tg-tg23', 'Pokemon TCG (Brilliant Stars Trainer Gallery)', 0, 'Artwork Trail').suggestion,
+        canonicalReference: umbreonCanonicalReference
+      },
+      typicalRawSoldTotal: 90,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const,
+      weeklyDiscovery: {
+        canonicalReference: umbreonCanonicalReference
+      }
+    } as unknown as DiscoveryCandidate;
+    const zapdosCanonicalReference = {
+      provider: 'TCGDex' as const,
+      sourceCardId: 'svln-2',
+      canonicalCardId: 'svln-2',
+      canonicalName: 'Zapdos',
+      setId: 'svln',
+      setName: 'SVLN',
+      cardNumber: '2',
+      language: 'JAPANESE' as const,
+      imageUrl: trustedReferenceImageUrl('TCGdex Japanese (SVLN)', 'svln-2'),
+      imageSourceKind: 'CARD_REFERENCE' as const
+    };
+    const japaneseMalformed = {
+      ...publishableSourceCandidate('Zapdos Japanese SVLN SVLN SVLN 2', 'svln-2', 'TCGdex Japanese (SVLN)', 1, 'Promo Trail'),
+      suggestion: {
+        ...publishableSourceCandidate('Zapdos Japanese SVLN SVLN SVLN 2', 'svln-2', 'TCGdex Japanese (SVLN)', 1, 'Promo Trail').suggestion,
+        canonicalReference: zapdosCanonicalReference
+      },
+      typicalRawSoldTotal: 95,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const,
+      weeklyDiscovery: {
+        canonicalReference: zapdosCanonicalReference
+      }
+    } as unknown as DiscoveryCandidate;
+
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([malformed, japaneseMalformed], 'CAD');
+    expect(items[0]?.suggestion.name).toBe('Umbreon VMAX Brilliant Stars Trainer Gallery TG23');
+    expect(items[1]?.suggestion.name).toBe('Zapdos Japanese SVLN 2');
+
+    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
+      [
+        malformed,
+        japaneseMalformed,
+        ...publishableShelfCandidates(20, (candidate, index) => ({
+          ...candidate,
+          selectionIndex: index + 2,
+          typicalRawSoldTotal: 80 + index,
+          soldSampleSize: 3,
+          displayCurrency: 'CAD' as const
+        }))
+      ],
+      buildCollectorTasteProfile([
+        chase('Umbreon VMAX Brilliant Stars Trainer Gallery TG23', 1),
+        chase('Zapdos Japanese SVLN 2', 2),
+        chase('Mew Expedition Base Set 55', 3),
+        chase('Pikachu Skyridge 84', 4),
+        chase('Articuno Skyridge H3', 5),
+        chase('Pichu Expedition Base Set 22', 6)
+      ]),
+      'CAD',
+      [],
+      [],
+      {
+        rawGeneratedSuggestions: 2,
+        sourceBackedSuggestions: 2,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: 0,
+        deduplicatedCandidates: 2
+      },
+      []
+    );
+
+    expect(Object.keys(readiness.countsByLanguage)).toContain('JAPANESE');
+  });
+
+  it('reuses a validated prepared reserve offline without calling external discovery providers', async () => {
+    const userId = `weekly-prepared-reserve-${Date.now()}`;
+    const periodKey = '2026-W29';
+    const date = new Date('2026-07-16T12:00:00.000Z');
+    const reserve = publishableShelfCandidates(20, (candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 90 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    const sourceResolver = vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockRejectedValue(new Error('should remain offline'));
+    for (const [index, cardName] of [
+      'Mew RC24',
+      'Umbreon XY96',
+      'Squirtle Expedition Base Set 132',
+      'Gardevoir ex Paldean Fates 233',
+      'Pikachu Skyridge 84',
+      'Articuno Japanese S12a 49'
+    ].entries()) {
+      addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'HIGH' });
+    }
+
+    upsertWeeklyDiscoveryPreparedReserve({
+      userId,
+      periodKey,
+      preparationGeneration: 1,
+      reserveCandidates: reserve,
+      canonicalLookupEvidence: {},
+      reserveCount: reserve.length,
+      canonicalReadyCount: reserve.length,
+      imageReadyCount: reserve.length,
+      marketReadyCount: reserve.length,
+      personallyDefensibleCount: reserve.length,
+      projectedSelectableCount: 20,
+      projectedMarketResolvedCount: 20,
+      viableAlternativeCount: 0,
+      pendingMarketJobCount: 0,
+      failedMarketJobCount: 0,
+      blockingShortages: [],
+      lastCompletedStage: 'initial-supply-readiness',
+      lastMeaningfulProgressAt: date.toISOString()
+    });
+
+    const built = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date,
+      mode: 'LIVE',
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false
+    });
+
+    expect(built.validatedSnapshot).toBeDefined();
+    expect(built.input.orderedCandidateReserve).toHaveLength(20);
+    expect(sourceResolver).not.toHaveBeenCalled();
+
+    deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
+    removeAllChases(userId);
+  });
 
   it('replay fixtures stay deterministic, and live release fixtures pass the structural gate', () => {
     for (const name of ['w29-sanitized.json', 'w30-live-success-sanitized.json', 'w31-live-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
@@ -7382,6 +7998,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         hardEligibleReserveCount: 40,
         marketResolvedEligibleCount: 21,
         viableAlternativeCount: 24,
+        postCapSelectableCount: 16,
+        postCapMarketReadyCount: 16,
+        additionalViableCardsRequired: 4,
         countsBySource: {},
         countsByLane: {},
         countsBySubject: {},
@@ -7411,6 +8030,19 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         selectedSubjectCounts: {},
         selectedFamilyCounts: {},
         selectedLaneCounts: {},
+        selectedFormatCounts: {},
+        selectedEraSetFamilyCounts: {},
+        saturatedSubjects: [],
+        saturatedFamilies: [],
+        saturatedFormats: [],
+        saturatedLanes: [],
+        saturatedEraSetFamilies: [],
+        viableStrengthCounts: {
+          DIRECT_PROFILE: 0,
+          STRONG_ADJACENT: 0,
+          EXPLORATORY: 0,
+          GENERIC_FILLER: 0
+        },
         stages: {
           rawGeneratedSuggestions: 0,
           sourceBackedSuggestions: 0,
@@ -7511,6 +8143,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         hardEligibleReserveCount: 40,
         marketResolvedEligibleCount: 21,
         viableAlternativeCount: 22,
+        postCapSelectableCount: 18,
+        postCapMarketReadyCount: 18,
+        additionalViableCardsRequired: 2,
         countsBySource: {},
         countsByLane: {},
         countsBySubject: {},
@@ -7540,6 +8175,19 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         selectedSubjectCounts: { mew: 2 },
         selectedFamilyCounts: {},
         selectedLaneCounts: {},
+        selectedFormatCounts: {},
+        selectedEraSetFamilyCounts: {},
+        saturatedSubjects: ['mew'],
+        saturatedFamilies: [],
+        saturatedFormats: [],
+        saturatedLanes: [],
+        saturatedEraSetFamilies: [],
+        viableStrengthCounts: {
+          DIRECT_PROFILE: 0,
+          STRONG_ADJACENT: 0,
+          EXPLORATORY: 0,
+          GENERIC_FILLER: 0
+        },
         stages: {
           rawGeneratedSuggestions: 0,
           sourceBackedSuggestions: 0,
@@ -7616,6 +8264,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         hardEligibleReserveCount: 40,
         marketResolvedEligibleCount: 21,
         viableAlternativeCount: 23,
+        postCapSelectableCount: 17,
+        postCapMarketReadyCount: 17,
+        additionalViableCardsRequired: 3,
         countsBySource: {},
         countsByLane: {},
         countsBySubject: {},
@@ -7648,6 +8299,19 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         },
         selectedFamilyCounts: {},
         selectedLaneCounts: {},
+        selectedFormatCounts: {},
+        selectedEraSetFamilyCounts: {},
+        saturatedSubjects: ['pikachu', 'pikachu ascended heroes'],
+        saturatedFamilies: [],
+        saturatedFormats: [],
+        saturatedLanes: [],
+        saturatedEraSetFamilies: [],
+        viableStrengthCounts: {
+          DIRECT_PROFILE: 0,
+          STRONG_ADJACENT: 0,
+          EXPLORATORY: 0,
+          GENERIC_FILLER: 0
+        },
         stages: {
           rawGeneratedSuggestions: 0,
           sourceBackedSuggestions: 0,

@@ -8,6 +8,7 @@ type Options = {
   blockedNames: string[];
   date: Date;
   hydrateMarketInline: boolean;
+  regenerateCurrent: boolean;
   refresh: boolean;
   userId: string;
 };
@@ -20,6 +21,7 @@ function usage(): string {
     '  --date YYYY-MM-DD         Date inside the weekly period to inspect',
     '  --refresh                 Force-refresh the scheduled weekly shelf first',
     '  --hydrate-market          Hydrate market data inline during refresh',
+    '  --regenerate-current      Refresh by excluding the current live shelf from replacement candidates',
     '  --blocked NAME            Name that must not appear; can be repeated',
     '  --help                    Show this help'
   ].join('\n');
@@ -32,10 +34,19 @@ function parseDate(value: string | undefined): Date {
   return date;
 }
 
+function assertConcreteUserId(userId: string): string {
+  const trimmed = userId.trim();
+  if (!trimmed || /^<?USER_ID>?$/i.test(trimmed)) {
+    throw new Error('Replace USER_ID with an actual Discord user ID');
+  }
+  return trimmed;
+}
+
 function parseArgs(argv: string[]): Options {
   const blockedNames: string[] = [];
   let dateValue: string | undefined;
   let hydrateMarketInline = false;
+  let regenerateCurrent = false;
   let refresh = false;
   let userId: string | undefined;
 
@@ -53,14 +64,19 @@ function parseArgs(argv: string[]): Options {
       hydrateMarketInline = true;
       continue;
     }
+    if (arg === '--regenerate-current') {
+      regenerateCurrent = true;
+      continue;
+    }
     if (arg === '--user') {
       userId = argv[index + 1];
       if (!userId) throw new Error('Missing value after --user');
+      userId = assertConcreteUserId(userId);
       index += 1;
       continue;
     }
     if (arg.startsWith('--user=')) {
-      userId = arg.slice('--user='.length);
+      userId = assertConcreteUserId(arg.slice('--user='.length));
       continue;
     }
     if (arg === '--date') {
@@ -88,7 +104,26 @@ function parseArgs(argv: string[]): Options {
   }
 
   if (!userId) throw new Error('Provide --user USER_ID');
-  return { blockedNames, date: parseDate(dateValue), hydrateMarketInline, refresh, userId };
+  return { blockedNames, date: parseDate(dateValue), hydrateMarketInline, regenerateCurrent, refresh, userId };
+}
+
+function describeRefreshDiagnostics(result: Awaited<ReturnType<typeof prepareWeeklyDiscoveryDropForUser>>): string | null {
+  const diagnostics = result.diagnostics;
+  if (!diagnostics) return null;
+  const parts = [
+    `regen=${diagnostics.regenerateCurrent}`,
+    `exclusions=${diagnostics.currentShelfExclusions}`,
+    `reserve=${diagnostics.reserveCount}`,
+    `postCap=${diagnostics.postCapSelectableCount}/20`,
+    `postCapMarket=${diagnostics.postCapMarketReadyCount}/18`
+  ];
+  if (diagnostics.saturatedSubjects.length > 0) parts.push(`subjects=${diagnostics.saturatedSubjects.slice(0, 3).join(',')}`);
+  if (diagnostics.saturatedFormats.length > 0) parts.push(`formats=${diagnostics.saturatedFormats.slice(0, 3).join(',')}`);
+  if (diagnostics.saturatedLanes.length > 0) parts.push(`lanes=${diagnostics.saturatedLanes.slice(0, 3).join(',')}`);
+  if (diagnostics.blockingShortages.length > 0) parts.push(`shortages=${diagnostics.blockingShortages.slice(0, 3).join('; ')}`);
+  if (diagnostics.retainedPreviousShelf !== undefined) parts.push(`retained=${diagnostics.retainedPreviousShelf}`);
+  if (diagnostics.replacedExistingShelf !== undefined) parts.push(`replaced=${diagnostics.replacedExistingShelf}`);
+  return parts.join(' | ');
 }
 
 const options = parseArgs(process.argv.slice(2));
@@ -100,9 +135,12 @@ const retainedDrop = getLatestAvailableScheduledDiscoveryDrop(options.userId, 'W
 if (options.refresh) {
   const result = await prepareWeeklyDiscoveryDropForUser(options.userId, options.date, {
     force: true,
-    hydrateMarketInline: options.hydrateMarketInline
+    hydrateMarketInline: options.hydrateMarketInline,
+    regenerateCurrent: options.regenerateCurrent
   });
   console.log(`Refresh | prepared=${result.prepared} itemCount=${result.itemCount} fullDiscovery=${result.hasFullDiscovery}`);
+  const diagnostics = describeRefreshDiagnostics(result);
+  if (diagnostics) console.log(`Diag    | ${diagnostics}`);
 }
 
 const drop = getScheduledDiscoveryDrop(options.userId, 'WEEKLY_DISCOVERY', periodKey);
@@ -151,6 +189,7 @@ console.log(JSON.stringify({
         lastMeaningfulProgressAt: preparedReserve.lastMeaningfulProgressAt
       }
     : null,
+  refreshMode: options.regenerateCurrent ? 'regenerate-current' : 'normal',
   status: drop.status,
   itemCount: drop.itemCount,
   marketReadyCount: drop.marketReadyCount,
