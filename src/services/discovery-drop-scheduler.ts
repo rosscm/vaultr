@@ -273,6 +273,7 @@ export async function runWeeklyDiscoveryPreparationAttempt(
 
   const result = await prepareWeeklyDiscoveryDropForUser(userId, date, {
     ...options,
+    preparationGeneration: lease.preparationGeneration,
     abortSignal: undefined,
     isCurrentGeneration: () => getWeeklyDiscoveryPreparationState(userId, periodKey)?.preparationGeneration === lease.preparationGeneration
   });

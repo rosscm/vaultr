@@ -334,6 +334,31 @@ db.exec(`
     PRIMARY KEY (user_id, period_key)
   );
 
+  CREATE TABLE IF NOT EXISTS weekly_discovery_prepared_reserve (
+    user_id TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    preparation_generation INTEGER NOT NULL DEFAULT 0,
+    reserve_json TEXT NOT NULL,
+    canonical_lookup_evidence_json TEXT NOT NULL,
+    reserve_count INTEGER NOT NULL DEFAULT 0,
+    canonical_ready_count INTEGER NOT NULL DEFAULT 0,
+    image_ready_count INTEGER NOT NULL DEFAULT 0,
+    market_ready_count INTEGER NOT NULL DEFAULT 0,
+    personally_defensible_count INTEGER NOT NULL DEFAULT 0,
+    projected_selectable_count INTEGER NOT NULL DEFAULT 0,
+    projected_market_resolved_count INTEGER NOT NULL DEFAULT 0,
+    viable_alternative_count INTEGER NOT NULL DEFAULT 0,
+    pending_market_job_count INTEGER NOT NULL DEFAULT 0,
+    failed_market_job_count INTEGER NOT NULL DEFAULT 0,
+    blocking_shortages_json TEXT NOT NULL,
+    last_completed_stage TEXT NOT NULL,
+    source_fingerprint TEXT,
+    source_state_updated_at TEXT,
+    last_meaningful_progress_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, period_key)
+  );
+
   CREATE TABLE IF NOT EXISTS guild_community_feed (
     guild_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 0,

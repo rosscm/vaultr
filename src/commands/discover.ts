@@ -90,6 +90,10 @@ import {
   type ScheduledDiscoveryDropItem
 } from '../services/scheduled-discovery-drops.js';
 import { weeklyDiscoveryEligibilityForUser, type WeeklyDiscoveryEligibility } from '../services/weekly-discovery-eligibility.js';
+import {
+  getWeeklyDiscoveryPreparedReserve,
+  upsertWeeklyDiscoveryPreparedReserve
+} from '../services/weekly-discovery-prepared-reserve.js';
 import { getWeeklyDiscoveryPreparationState, type WeeklyPreparationFailureCode } from '../services/weekly-discovery-preparation-state.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { freeVaultLimitMessage } from './pro-copy.js';
@@ -433,6 +437,18 @@ type PersistValidatedWeeklyDiscoveryDropResult = {
   retainedPreviousShelf: boolean;
 };
 
+type WeeklyDiscoveryPreparationProfileContext = {
+  hasFullDiscovery: boolean;
+  settings: ReturnType<typeof getUserAlertSettings>;
+  activeChases: Chase[];
+  tasteProfileChases: Chase[];
+  profileConfidence: DiscoveryProfileConfidence;
+  negativeProfile: DiscoveryNegativeProfile;
+  collectorProfile: CollectorTasteProfile;
+  priorShelfHistory: ScheduledDiscoveryDrop[];
+  sourceFingerprint: string;
+};
+
 export type WeeklyPreparationStructuredResult =
   | {
       outcome: 'PREPARED';
@@ -609,6 +625,121 @@ function capturePreparedWeeklyDiscoverySnapshot(
     inputFingerprint: weeklyDiscoveryInputFingerprint(snapshotInput),
     stage
   };
+}
+
+function currentWeeklyDiscoveryPreparationProfileContext(
+  userId: string,
+  date: Date
+): WeeklyDiscoveryPreparationProfileContext {
+  const settings = getUserAlertSettings(userId);
+  const plan = getUserPlan(userId);
+  const tier = activePlanTier(plan);
+  const hasFullDiscovery = getEntitlementsForTier(tier).discoveryDepth === 'full';
+  const storedChases = listChases(userId);
+  const activeChases = activePlanChases(storedChases, plan);
+  const tasteMemoryChases = hasFullDiscovery ? listUserTasteMemoryChases(userId) : [];
+  const tasteProfileChases = discoveryTasteProfileChases(activeChases, tasteMemoryChases, hasFullDiscovery);
+  const profileConfidence = discoveryProfileConfidence(tasteProfileChases);
+  const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
+  const negativeProfile = discoveryNegativeProfile(recentlyRejected, tasteProfileChases);
+  const collectorProfile = buildCollectorTasteProfile(tasteProfileChases, {
+    budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
+  });
+  const priorShelfHistory = listPriorWeeklyDiscoveryDropsForTargetPeriod(userId, date, 12);
+  const sourceFingerprint = createHash('sha256')
+    .update(JSON.stringify({
+      date: date.toISOString(),
+      currency: settings.alertCurrency,
+      activeChases: storedChases.map((chase) => ({
+        cardName: chase.cardName,
+        priority: chase.priority ?? 'NORMAL',
+        targetNote: chase.targetNote ?? null,
+        maxPrice: chase.maxPrice ?? null,
+        grade: chase.grade ?? null,
+        condition: chase.condition ?? null
+      })),
+      tasteSignals: tasteProfileChases.map((chase) => ({
+        cardName: chase.cardName,
+        tasteSource: chase.tasteSource ?? null,
+        tasteWeight: chase.tasteWeight ?? null,
+        priority: chase.priority ?? 'NORMAL'
+      })),
+      recentShelves: priorShelfHistory.slice(0, 4).map((drop) => ({
+        periodKey: drop.periodKey,
+        canonicalIds: drop.items.map((item) => item.suggestion.referenceSourceCardId ?? item.suggestion.name)
+      }))
+    }))
+    .digest('hex');
+  return {
+    hasFullDiscovery,
+    settings,
+    activeChases: storedChases,
+    tasteProfileChases,
+    profileConfidence,
+    negativeProfile,
+    collectorProfile,
+    priorShelfHistory,
+    sourceFingerprint
+  };
+}
+
+function buildPreparedWeeklyDiscoveryBlockingShortages(
+  readiness: WeeklyDiscoverySupplyReadiness
+): string[] {
+  const shortages: string[] = [];
+  if (readiness.canonicalReserveCount < DISCOVERY_WEEKLY_DROP_SIZE) {
+    shortages.push(`canonical-ready shortfall ${readiness.canonicalReserveCount}/${DISCOVERY_WEEKLY_DROP_SIZE}`);
+  }
+  if (readiness.hardEligibleReserveCount < DISCOVERY_WEEKLY_DROP_SIZE) {
+    shortages.push(`personally-relevant shortfall ${readiness.hardEligibleReserveCount}/${DISCOVERY_WEEKLY_DROP_SIZE}`);
+  }
+  if (readiness.marketResolvedEligibleCount < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED) {
+    shortages.push(`market-ready shortfall ${readiness.marketResolvedEligibleCount}/${WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED}`);
+  }
+  if (readiness.selectedShortfall > 0) {
+    shortages.push(`projected shelf shortfall ${readiness.projectedSelectedCount}/${DISCOVERY_WEEKLY_DROP_SIZE}`);
+  }
+  if (readiness.marketResolvedShortfall > 0) {
+    shortages.push(`projected market shortfall ${readiness.projectedMarketResolvedCount}/${WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED}`);
+  }
+  if (!readiness.hasViableHeadroom) {
+    shortages.push(`headroom shortfall ${readiness.viableAlternativeCount} viable alternatives`);
+  }
+  return shortages;
+}
+
+function persistWeeklyDiscoveryPreparedReserve(
+  userId: string,
+  periodKey: string,
+  generation: number,
+  reserveCandidates: DiscoveryCandidate[],
+  canonicalLookupEvidence: CanonicalLookupEvidenceMap,
+  readiness: WeeklyDiscoverySupplyReadiness,
+  stage: string,
+  profileContext: WeeklyDiscoveryPreparationProfileContext
+): void {
+  const queueStats = getDiscoveryMarketRefreshQueueStats(DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS);
+  upsertWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>({
+    userId,
+    periodKey,
+    preparationGeneration: generation,
+    reserveCandidates: structuredClone(reserveCandidates),
+    canonicalLookupEvidence: cloneCanonicalLookupEvidenceMap(canonicalLookupEvidence),
+    reserveCount: reserveCandidates.length,
+    canonicalReadyCount: readiness.canonicalReserveCount,
+    imageReadyCount: readiness.stages.trustedImageCandidates,
+    marketReadyCount: readiness.marketResolvedEligibleCount,
+    personallyDefensibleCount: readiness.hardEligibleReserveCount,
+    projectedSelectableCount: readiness.projectedSelectedCount,
+    projectedMarketResolvedCount: readiness.projectedMarketResolvedCount,
+    viableAlternativeCount: readiness.viableAlternativeCount,
+    pendingMarketJobCount: queueStats.queuedReady + queueStats.queuedScheduled + queueStats.retryReady + queueStats.retryScheduled + queueStats.running,
+    failedMarketJobCount: queueStats.failed,
+    blockingShortages: buildPreparedWeeklyDiscoveryBlockingShortages(readiness),
+    lastCompletedStage: stage,
+    sourceFingerprint: profileContext.sourceFingerprint,
+    lastMeaningfulProgressAt: new Date().toISOString()
+  });
 }
 
 function maybeWriteWeeklyDiscoveryFinalizationSnapshot(
@@ -994,6 +1125,7 @@ export type WeeklyDiscoveryBuildContext = {
   userId: string;
   date: Date;
   mode: WeeklyDiscoveryBuildMode;
+  preparationGeneration?: number;
   hydrateMarketInline?: boolean;
   allowRecentRepeatFiller?: boolean;
   abortSignal?: AbortSignal;
@@ -9065,8 +9197,14 @@ function weeklyDiscoveryCandidateOutcome(
 }
 
 export function finalizeWeeklyDiscoveryShelf(input: WeeklyDiscoveryFinalizationInput): WeeklyDiscoveryFinalizerResult {
-  const analyzedReserve = analyzeWeeklyDiscoveryCandidateReserve(
+  const noveltyOrderedReserve = orderNovelWeeklyCandidatesForPublication(
     input.orderedCandidateReserve,
+    input.priorShelfHistory,
+    input.orderedCandidateReserve.length,
+    input.anchorProfileSignals ?? input.activeVault
+  );
+  const analyzedReserve = analyzeWeeklyDiscoveryCandidateReserve(
+    noveltyOrderedReserve,
     input.collectorProfile,
     input.policies,
     input.stableTieBreakerSeed ?? input.targetPeriod
@@ -9109,7 +9247,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
 ): Promise<{
   input: WeeklyDiscoveryFinalizationInput;
   canonicalLookupEvidence: CanonicalLookupEvidenceMap;
-  discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>>;
+  profileContext: WeeklyDiscoveryPreparationProfileContext;
+  discovery?: Awaited<ReturnType<typeof discoverCandidatesForUser>>;
   fallbackDrop: ScheduledDiscoveryDrop | null;
   existingDrop: ScheduledDiscoveryDrop | null;
   supplyReadinessBeforeTopOff: WeeklyDiscoverySupplyReadiness;
@@ -9128,7 +9267,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   const previousDropLookupDate = new Date(Date.parse(availability.availableAt) - 1);
   const previousDropLookupIso = previousDropLookupDate.toISOString();
   const fallbackDrop = getLatestAvailableScheduledDiscoveryDrop(context.userId, 'WEEKLY_DISCOVERY', previousDropLookupIso);
-  const recentDrops = listPriorWeeklyDiscoveryDropsForTargetPeriod(context.userId, context.date, 12);
+  const profileContext = currentWeeklyDiscoveryPreparationProfileContext(context.userId, context.date);
+  const recentDrops = profileContext.priorShelfHistory;
   const immediatePreviousDropNames = recentDrops
     .slice(0, 1)
     .flatMap((drop) => drop.items.map((item) => item.suggestion.name));
@@ -9148,11 +9288,12 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     activeVault: Chase[],
     anchorProfileSignals: Chase[],
     collectorProfile: CollectorTasteProfile,
-    orderedCandidateReserve: DiscoveryCandidate[]
+    orderedCandidateReserve: DiscoveryCandidate[],
+    currency: SupportedCurrency
   ): WeeklyDiscoveryFinalizationInput => ({
     targetPeriod: weeklyPeriod,
     frozenTime: context.date.toISOString(),
-    userCurrency: discovery.settings.alertCurrency,
+    userCurrency: currency,
     exchangeRates: {},
     activeVault,
     anchorProfileSignals,
@@ -9162,8 +9303,51 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     feedbackPreferences: {
       budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
     },
-      stableTieBreakerSeed: context.userId
+    stableTieBreakerSeed: context.userId
   });
+  const preparedReserve = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>(context.userId, weeklyPeriod);
+  if (preparedReserve && preparedReserve.reserveCandidates.length > 0) {
+    const preparedInput = buildCurrentFinalizationInput(
+      profileContext.activeChases,
+      profileContext.tasteProfileChases,
+      profileContext.collectorProfile,
+      preparedReserve.reserveCandidates,
+      profileContext.settings.alertCurrency
+    );
+    const preparedReadiness = buildWeeklyDiscoverySupplyReadiness(
+      preparedReserve.reserveCandidates,
+      profileContext.collectorProfile,
+      profileContext.settings.alertCurrency,
+      recentDrops,
+      profileContext.activeChases,
+      {
+        rawGeneratedSuggestions: preparedReserve.reserveCount,
+        sourceBackedSuggestions: 0,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: 0,
+        deduplicatedCandidates: preparedReserve.reserveCount
+      },
+      profileContext.tasteProfileChases
+    );
+    const validatedSnapshot = capturePreparedWeeklyDiscoverySnapshot(
+      preparedInput,
+      preparedReserve.canonicalLookupEvidence ?? {},
+      `prepared-reserve:${preparedReserve.lastCompletedStage}`
+    );
+    if (validatedSnapshot) {
+      return {
+        input: validatedSnapshot.input,
+        canonicalLookupEvidence: validatedSnapshot.canonicalLookupEvidence,
+        profileContext,
+        fallbackDrop,
+        existingDrop,
+        supplyReadinessBeforeTopOff: preparedReadiness,
+        supplyReadinessAfterTopOff: preparedReadiness,
+        topOffApplied: false,
+        validatedSnapshot
+      };
+    }
+  }
   const discovery = await runWeeklyDiscoveryStage({
     userId: context.userId,
     weeklyPeriod,
@@ -9212,7 +9396,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     targetCurrency: discovery.settings.alertCurrency,
     range: undefined
   };
-  const activeVault = listChases(context.userId);
+  const activeVault = profileContext.activeChases;
   const repeatGuardChases = [...discovery.chases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(context.userId))];
   const freshExcludedNames = uniqueValuesPreservingOrder(previousDropNames);
   const supplementalUniverseTarget = Math.max(targetCount * 8, DISCOVERY_SHELF_PAGE_SIZE * 8);
@@ -9261,8 +9445,10 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       )
     : [];
   const discoverySeedCandidates = weeklyPublicationSeedCandidates(discovery);
+  const carriedPreparedCandidates = preparedReserve?.reserveCandidates ?? [];
   const weeklyCandidatePool = orderCandidatesForCollectorPresentation(
     uniqueCandidatesByDisplayName([
+      ...carriedPreparedCandidates,
       ...supplementalUniverseCandidates,
       ...supplementalCacheCandidates,
       ...supplementalTraitCacheCandidates,
@@ -9364,6 +9550,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     outputCount: candidateReserve.length,
     counters: {
       visibleCandidatesFromDiscovery: discovery.candidates.length,
+      carriedPreparedCandidates: carriedPreparedCandidates.length,
       reserveCandidatesFromDiscovery: discoverySeedCandidates.length,
       supplementalUniverseCandidates: supplementalUniverseCandidates.length,
       supplementalUserUniverseCandidates: indexedSupplementalUniverseCandidates.length,
@@ -9458,27 +9645,35 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   );
   logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'initial-reserve-prune', initialPruneDiagnostics);
   throwIfAborted(context.abortSignal);
-  const collectorProfile = buildCollectorTasteProfile(discovery.tasteProfileChases, {
-    budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
-  });
   let supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
-    collectorProfile,
+    profileContext.collectorProfile,
     discovery.settings.alertCurrency,
     recentDrops,
-    listChases(context.userId),
+    activeVault,
     baseStageCounts,
-    discovery.tasteProfileChases
+    profileContext.tasteProfileChases
   );
   let validatedSnapshot: PreparedWeeklyDiscoverySnapshot | null = capturePreparedWeeklyDiscoverySnapshot(
-    buildCurrentFinalizationInput(activeVault, discovery.tasteProfileChases, collectorProfile, candidateReserve),
+    buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discovery.settings.alertCurrency),
     accumulatedCanonicalLookupEvidence,
     'initial-supply-readiness'
+  );
+  persistWeeklyDiscoveryPreparedReserve(
+    context.userId,
+    weeklyPeriod,
+    context.preparationGeneration ?? 0,
+    candidateReserve,
+    accumulatedCanonicalLookupEvidence,
+    supplyReadinessBeforeTopOff,
+    'initial-supply-readiness',
+    profileContext
   );
   if (validatedSnapshot) {
     return {
       input: validatedSnapshot.input,
       canonicalLookupEvidence: validatedSnapshot.canonicalLookupEvidence,
+      profileContext,
       discovery,
       fallbackDrop,
       existingDrop,
@@ -9534,14 +9729,12 @@ export async function buildWeeklyDiscoveryFinalizationInput(
               recentDrops,
               activeVault
             ),
-            buildCollectorTasteProfile(discovery.tasteProfileChases, {
-              budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
-            }),
+            profileContext.collectorProfile,
             discovery.settings.alertCurrency,
             recentDrops,
             activeVault,
             baseStageCounts,
-            discovery.tasteProfileChases
+            profileContext.tasteProfileChases
           ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
@@ -9558,14 +9751,22 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'market-shortfall-reserve-prune', hydratedPruneDiagnostics);
       supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
         candidateReserve,
-        buildCollectorTasteProfile(discovery.tasteProfileChases, {
-          budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
-        }),
+        profileContext.collectorProfile,
         discovery.settings.alertCurrency,
         recentDrops,
         activeVault,
         baseStageCounts,
-        discovery.tasteProfileChases
+        profileContext.tasteProfileChases
+      );
+      persistWeeklyDiscoveryPreparedReserve(
+        context.userId,
+        weeklyPeriod,
+        context.preparationGeneration ?? 0,
+        candidateReserve,
+        accumulatedCanonicalLookupEvidence,
+        supplyReadinessBeforeTopOff,
+        'market-shortfall-hydration',
+        profileContext
       );
       throwIfAborted(context.abortSignal);
       throwIfDeadlineExpired(deadlineAtMs);
@@ -9745,12 +9946,12 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   }
   let supplyReadinessAfterTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
-    collectorProfile,
+    profileContext.collectorProfile,
     discovery.settings.alertCurrency,
     recentDrops,
     activeVault,
     finalStageCounts,
-    discovery.tasteProfileChases
+    profileContext.tasteProfileChases
   );
   if (!deferExpensiveHydration && discovery.hasFullDiscovery && supplyReadinessAfterTopOff.marketResolvedShortfall > 0 && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const marketShortfallTargets = selectMarketShortfallHydrationTargets(
@@ -9792,12 +9993,12 @@ export async function buildWeeklyDiscoveryFinalizationInput(
                 recentDrops,
                 activeVault
             ),
-            collectorProfile,
+            profileContext.collectorProfile,
             discovery.settings.alertCurrency,
             recentDrops,
             activeVault,
             finalStageCounts,
-            discovery.tasteProfileChases
+            profileContext.tasteProfileChases
           ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
@@ -9814,12 +10015,22 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'post-market-shortfall-reserve-prune', postHydrationPruneDiagnostics);
       supplyReadinessAfterTopOff = buildWeeklyDiscoverySupplyReadiness(
         candidateReserve,
-        collectorProfile,
+        profileContext.collectorProfile,
         discovery.settings.alertCurrency,
         recentDrops,
         activeVault,
         finalStageCounts,
-        discovery.tasteProfileChases
+        profileContext.tasteProfileChases
+      );
+      persistWeeklyDiscoveryPreparedReserve(
+        context.userId,
+        weeklyPeriod,
+        context.preparationGeneration ?? 0,
+        candidateReserve,
+        accumulatedCanonicalLookupEvidence,
+        supplyReadinessAfterTopOff,
+        topOffApplied ? 'post-topoff-market-shortfall-hydration' : 'post-market-shortfall-hydration',
+        profileContext
       );
       throwIfAborted(context.abortSignal);
       throwIfDeadlineExpired(deadlineAtMs);
@@ -9844,14 +10055,25 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     }
   });
   validatedSnapshot = capturePreparedWeeklyDiscoverySnapshot(
-    buildCurrentFinalizationInput(activeVault, discovery.tasteProfileChases, collectorProfile, candidateReserve),
+    buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discovery.settings.alertCurrency),
     accumulatedCanonicalLookupEvidence,
     topOffApplied ? 'post-topoff-supply-readiness' : 'post-initial-supply-readiness'
   );
+  persistWeeklyDiscoveryPreparedReserve(
+    context.userId,
+    weeklyPeriod,
+    context.preparationGeneration ?? 0,
+    candidateReserve,
+    accumulatedCanonicalLookupEvidence,
+    supplyReadinessAfterTopOff,
+    topOffApplied ? 'post-topoff-supply-readiness' : 'post-initial-supply-readiness',
+    profileContext
+  );
 
   return {
-    input: validatedSnapshot?.input ?? buildCurrentFinalizationInput(activeVault, discovery.tasteProfileChases, collectorProfile, candidateReserve),
+    input: validatedSnapshot?.input ?? buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discovery.settings.alertCurrency),
     canonicalLookupEvidence: accumulatedCanonicalLookupEvidence,
+    profileContext,
     discovery,
     fallbackDrop,
     existingDrop,
@@ -9887,10 +10109,17 @@ function persistValidatedWeeklyDiscoveryDrop(
   }
   const rejectedNameKeys = discoveryExclusionNameKeys(listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME').map((item) => item.suggestionName));
   const activeVaultChases = listChases(userId);
+  const currentPlan = getUserPlan(userId);
+  const hasFullDiscovery = getEntitlementsForTier(activePlanTier(currentPlan)).discoveryDepth === 'full';
+  const tasteProfileChases = discoveryTasteProfileChases(
+    activePlanChases(activeVaultChases, currentPlan),
+    hasFullDiscovery ? listUserTasteMemoryChases(userId) : [],
+    hasFullDiscovery
+  );
   const eligibleCandidates = candidates
     .filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, rejectedNameKeys));
   for (const candidate of eligibleCandidates.filter(isFinishedShelfCandidate)) persistDiscoveryUniverseCandidate(candidate);
-  const collectorProfile = buildCollectorTasteProfile(activeVaultChases, {
+  const collectorProfile = buildCollectorTasteProfile(tasteProfileChases, {
     budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
   });
   const finalizationInput: WeeklyDiscoveryFinalizationInput = {
@@ -9899,6 +10128,7 @@ function persistValidatedWeeklyDiscoveryDrop(
     userCurrency: currency,
     exchangeRates: {},
     activeVault: activeVaultChases,
+    anchorProfileSignals: tasteProfileChases,
     collectorProfile,
     priorShelfHistory: recentDrops,
     orderedCandidateReserve: eligibleCandidates,
@@ -10777,6 +11007,7 @@ export async function prepareWeeklyDiscoveryDropForUser(
     force?: boolean;
     hydrateMarketInline?: boolean;
     allowRecentRepeatFiller?: boolean;
+    preparationGeneration?: number;
     abortSignal?: AbortSignal;
     isCurrentGeneration?: () => boolean;
   } = {}
@@ -10832,6 +11063,7 @@ export async function prepareWeeklyDiscoveryDropForUser(
       userId,
       date,
       mode: 'LIVE',
+      preparationGeneration: options.preparationGeneration,
       hydrateMarketInline: options.hydrateMarketInline ?? true,
       allowRecentRepeatFiller: options.allowRecentRepeatFiller ?? false,
       abortSignal: combinedAbortSignal,
@@ -10871,6 +11103,7 @@ export async function prepareWeeklyDiscoveryDropForUser(
     };
   }
   const discovery = assembled.discovery;
+  const profileContext = assembled.profileContext;
   const candidateReserve = assembled.input.orderedCandidateReserve;
   const immutablePreparedInput = cloneWeeklyDiscoveryFinalizationInput(assembled.input);
   const immutablePreparedEvidence = cloneCanonicalLookupEvidenceMap(assembled.canonicalLookupEvidence);
@@ -10887,7 +11120,7 @@ export async function prepareWeeklyDiscoveryDropForUser(
     'LIVE_PRE_FINALIZE',
     immutablePreparedEvidence
   );
-  if (options.force === true && discovery.hasFullDiscovery && candidateReserve.length === 0 && options.allowRecentRepeatFiller !== true) {
+  if (options.force === true && discovery?.hasFullDiscovery && candidateReserve.length === 0 && options.allowRecentRepeatFiller !== true) {
     const recentDrops = assembled.input.priorShelfHistory;
     const previousDropNames = recentDrops
       .slice(0, 3)
@@ -11001,7 +11234,7 @@ export async function prepareWeeklyDiscoveryDropForUser(
         : persistValidatedWeeklyDiscoveryDrop(
             userId,
             candidateReserve,
-            discovery.settings.alertCurrency,
+            immutablePreparedInput.userCurrency,
             undefined,
             date,
             immutablePreparedEvidence
@@ -11020,12 +11253,12 @@ export async function prepareWeeklyDiscoveryDropForUser(
         rejectionSamples: emptyDiscoveryShelfRejectionSamples(),
         retainedPreviousShelf: false
       };
-  if (persisted.saved && discovery.hasFullDiscovery) {
+  if (persisted.saved && profileContext.hasFullDiscovery) {
     return {
       outcome: 'PREPARED',
       status: persisted.itemCount === DISCOVERY_WEEKLY_DROP_SIZE ? 'READY' : 'PARTIAL',
       itemCount: persisted.itemCount,
-      hasFullDiscovery: discovery.hasFullDiscovery,
+      hasFullDiscovery: profileContext.hasFullDiscovery,
       prepared: true
     };
   }
@@ -11034,7 +11267,7 @@ export async function prepareWeeklyDiscoveryDropForUser(
     code: classifyWeeklyPreparationFailureCode(persisted),
     summary: persisted.failures[0]?.message ?? 'Weekly discovery shelf did not pass publication validation',
     itemCount: 0,
-    hasFullDiscovery: discovery.hasFullDiscovery,
+    hasFullDiscovery: profileContext.hasFullDiscovery,
     prepared: false
   };
 }
