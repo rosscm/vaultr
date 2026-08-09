@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { db } from '../db.js';
 import { addChase, listChases, listRecentUserDiscoveryFeedback, listRecentUserDiscoverySeenNames, listUserTasteMemoryChases, markUserDiscoverySuggestionsSeen, recordDiscoveryAddTaste, recordDiscoveryFeedback, recordDiscoveryTrainingExamples, removeAllChases, setUserPlan, upsertUserDiscoveryState } from '../chase-store.js';
-import { upsertDiscoveryUniverseCard, getDiscoveryUniverseCard } from '../discovery-card-universe.js';
+import { upsertDiscoveryUniverseCard, getDiscoveryUniverseCard, discoveryUniverseCardKey } from '../discovery-card-universe.js';
 import { discoveryMarketCacheKey, getDiscoveryMarketCache, upsertDiscoveryMarketCache } from '../discovery-market-cache.js';
 import { replaceDiscoveryUserUniverseCards, listDiscoveryUserUniverseCards } from '../discovery-user-universe.js';
 import { getScheduledDiscoveryDrop, markScheduledDiscoveryDropAnnouncement, scheduledDiscoveryAvailability, upsertScheduledDiscoveryDrop } from '../scheduled-discovery-drops.js';
@@ -135,7 +135,7 @@ function seedPreparedReserve(userId: string, periodKey: string): void {
 
 function seedPreservedData(userId: string): { marketKey: string } {
   setUserPlan(userId, 'PRO');
-  addChase({ userId, cardName: 'Mew RC24', priority: 'NORMAL', region: 'ANY', listingType: 'ANY' });
+  addChase({ userId, cardName: 'Mew RC24', priority: 'NORMAL' });
   recordDiscoveryAddTaste(userId, 'Mew RC24', 120);
   recordDiscoveryFeedback({
     userId,
@@ -331,7 +331,7 @@ describe('weekly discovery reset utility', () => {
       db.prepare('SELECT COUNT(*) AS count FROM discovery_training_examples WHERE user_id = ?').get('weekly-reset-user-a') as { count: number }
     ).toMatchObject({ count: 1 });
     expect(getDiscoveryMarketCache(marketKey)).not.toBeNull();
-    expect(getDiscoveryUniverseCard('weekly reset universe weekly-reset-user-a')).not.toBeNull();
+    expect(getDiscoveryUniverseCard(discoveryUniverseCardKey('Weekly Reset Universe weekly-reset-user-a'))).not.toBeNull();
     expect(listDiscoveryUserUniverseCards('weekly-reset-user-a')).toHaveLength(1);
   });
 

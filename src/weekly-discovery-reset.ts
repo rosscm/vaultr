@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { applyWeeklyDiscoveryReset, isWeeklyDiscoveryPeriodKey, type WeeklyDiscoveryResetScope } from './services/weekly-discovery-reset.js';
 
 export type WeeklyDiscoveryResetCliArgs = {
@@ -102,7 +104,7 @@ export function runWeeklyDiscoveryResetCli(argv: string[]): Record<string, unkno
   };
 }
 
-if (import.meta.main) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const output = runWeeklyDiscoveryResetCli(process.argv.slice(2));
     console.log(JSON.stringify(output, null, 2));
