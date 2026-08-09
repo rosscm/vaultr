@@ -104,6 +104,17 @@ const listWeeklyPreparationStatesStmt = db.prepare(`
   ORDER BY user_id ASC
 `);
 
+const listWeeklyPreparationStatesForUserStmt = db.prepare(`
+  SELECT user_id, period_key, state, attempt_count, first_attempt_at, last_attempt_at, next_retry_at,
+         last_outcome, failure_code, failure_summary, preparation_generation, lease_expires_at,
+         release_passed, owner_alert_sent, recovered_after_release, delivery_state, delivery_attempt_count,
+         last_delivery_attempt_at, delivery_error, delivered_at, announcement_guild_id, announcement_message_id,
+         updated_at
+  FROM weekly_discovery_preparation_state
+  WHERE user_id = ?
+  ORDER BY period_key ASC
+`);
+
 const upsertWeeklyPreparationStateStmt = db.prepare(`
   INSERT INTO weekly_discovery_preparation_state (
     user_id, period_key, state, attempt_count, first_attempt_at, last_attempt_at, next_retry_at,
@@ -191,6 +202,11 @@ export function getWeeklyDiscoveryPreparationState(userId: string, periodKey: st
 
 export function listWeeklyDiscoveryPreparationStates(periodKey: string): WeeklyDiscoveryPreparationState[] {
   const rows = listWeeklyPreparationStatesStmt.all(periodKey) as WeeklyDiscoveryPreparationStateRow[];
+  return rows.map(mapWeeklyPreparationStateRow);
+}
+
+export function listWeeklyDiscoveryPreparationStatesForUser(userId: string): WeeklyDiscoveryPreparationState[] {
+  const rows = listWeeklyPreparationStatesForUserStmt.all(userId) as WeeklyDiscoveryPreparationStateRow[];
   return rows.map(mapWeeklyPreparationStateRow);
 }
 

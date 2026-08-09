@@ -179,6 +179,24 @@ const listRecentScheduledDiscoveryDropsStmt = db.prepare(`
   LIMIT ?
 `);
 
+const listScheduledDiscoveryDropsForUserStmt = db.prepare(`
+  SELECT user_id, drop_type, period_key, status, title, summary, currency, available_at, expires_at,
+         generated_at, updated_at, source_state_updated_at, market_ready_count, image_ready_count, item_count
+  FROM discovery_scheduled_drops
+  WHERE user_id = ?
+    AND drop_type = ?
+  ORDER BY period_key ASC, updated_at DESC
+`);
+
+const listScheduledDiscoveryDropsForPeriodStmt = db.prepare(`
+  SELECT user_id, drop_type, period_key, status, title, summary, currency, available_at, expires_at,
+         generated_at, updated_at, source_state_updated_at, market_ready_count, image_ready_count, item_count
+  FROM discovery_scheduled_drops
+  WHERE drop_type = ?
+    AND period_key = ?
+  ORDER BY user_id ASC, updated_at DESC
+`);
+
 const listScheduledDiscoveryDropItemsStmt = db.prepare(`
   SELECT position, suggestion_name, suggestion_json, image_url, image_source_name, market_status, market_currency,
          image_source_kind, asking_total, asking_sample_size, sold_total, sold_sample_size, listing_id, listing_title, listing_url, market_updated_at
@@ -225,6 +243,11 @@ const insertScheduledDiscoveryDropAnnouncementStmt = db.prepare(`
 const deleteScheduledDiscoveryDropAnnouncementStmt = db.prepare(`
   DELETE FROM discovery_scheduled_drop_announcements
   WHERE guild_id = ? AND drop_type = ? AND period_key = ?
+`);
+
+const deleteScheduledDiscoveryDropAnnouncementsForPeriodStmt = db.prepare(`
+  DELETE FROM discovery_scheduled_drop_announcements
+  WHERE drop_type = ? AND period_key = ?
 `);
 
 const listScheduledDiscoveryDropAnnouncementsStmt = db.prepare(`
@@ -449,6 +472,16 @@ export function listRecentAvailableScheduledDiscoveryDrops(userId: string, dropT
   return rows.map(mapScheduledDiscoveryDropRow);
 }
 
+export function listScheduledDiscoveryDropsForUser(userId: string, dropType: ScheduledDiscoveryDropType): ScheduledDiscoveryDrop[] {
+  const rows = listScheduledDiscoveryDropsForUserStmt.all(userId, dropType) as ScheduledDiscoveryDropRow[];
+  return rows.map(mapScheduledDiscoveryDropRow);
+}
+
+export function listScheduledDiscoveryDropsForPeriod(dropType: ScheduledDiscoveryDropType, periodKey: string): ScheduledDiscoveryDrop[] {
+  const rows = listScheduledDiscoveryDropsForPeriodStmt.all(dropType, periodKey) as ScheduledDiscoveryDropRow[];
+  return rows.map(mapScheduledDiscoveryDropRow);
+}
+
 export function deleteScheduledDiscoveryDrop(userId: string, dropType: ScheduledDiscoveryDropType, periodKey: string): void {
   deleteScheduledDiscoveryDropStmt.run(userId, dropType, periodKey);
 }
@@ -489,6 +522,11 @@ export function markScheduledDiscoveryDropAnnouncement(input: {
 
 export function deleteScheduledDiscoveryDropAnnouncement(guildId: string, dropType: ScheduledDiscoveryDropType, periodKey: string): void {
   deleteScheduledDiscoveryDropAnnouncementStmt.run(guildId, dropType, periodKey);
+}
+
+export function deleteScheduledDiscoveryDropAnnouncementsForPeriod(dropType: ScheduledDiscoveryDropType, periodKey: string): number {
+  const result = deleteScheduledDiscoveryDropAnnouncementsForPeriodStmt.run(dropType, periodKey);
+  return result.changes;
 }
 
 export function listScheduledDiscoveryDropAnnouncements(dropType: ScheduledDiscoveryDropType, periodKey: string): ScheduledDiscoveryDropAnnouncement[] {

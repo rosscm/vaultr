@@ -17,6 +17,7 @@
     "ops:check": "tsx src/ops-check.ts",
     "ops:check:dist": "node dist/ops-check.js",
     "weekly:refresh": "tsx src/weekly-discovery-refresh.ts",
+    "weekly:reset": "tsx src/weekly-discovery-reset.ts",
     "weekly:capture": "tsx src/weekly-discovery-capture.ts",
     "weekly:replay": "tsx src/weekly-discovery-replay.ts",
     "weekly:evaluate": "tsx src/weekly-discovery-evaluate.ts",

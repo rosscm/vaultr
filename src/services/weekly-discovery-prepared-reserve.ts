@@ -103,6 +103,18 @@ const deletePreparedReserveStmt = db.prepare(`
   WHERE user_id = ? AND period_key = ?
 `);
 
+const listPreparedReservesForUserStmt = db.prepare(`
+  SELECT user_id, period_key, preparation_generation, reserve_json, canonical_lookup_evidence_json,
+         reserve_count, canonical_ready_count, image_ready_count, market_ready_count,
+         personally_defensible_count, projected_selectable_count, projected_market_resolved_count,
+         viable_alternative_count, pending_market_job_count, failed_market_job_count,
+         blocking_shortages_json, last_completed_stage, source_fingerprint, source_state_updated_at,
+         last_meaningful_progress_at, updated_at
+  FROM weekly_discovery_prepared_reserve
+  WHERE user_id = ?
+  ORDER BY period_key ASC
+`);
+
 function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
 }
@@ -145,6 +157,13 @@ export function getWeeklyDiscoveryPreparedReserve<TCandidate = unknown, TEvidenc
 
 export function deleteWeeklyDiscoveryPreparedReserve(userId: string, periodKey: string): void {
   deletePreparedReserveStmt.run(userId, periodKey);
+}
+
+export function listWeeklyDiscoveryPreparedReservesForUser<TCandidate = unknown, TEvidence = unknown>(
+  userId: string
+): WeeklyDiscoveryPreparedReserveRecord<TCandidate, TEvidence>[] {
+  const rows = listPreparedReservesForUserStmt.all(userId) as WeeklyDiscoveryPreparedReserveRow[];
+  return rows.map((row) => mapPreparedReserveRow<TCandidate, TEvidence>(row));
 }
 
 export function upsertWeeklyDiscoveryPreparedReserve<TCandidate = unknown, TEvidence = unknown>(
