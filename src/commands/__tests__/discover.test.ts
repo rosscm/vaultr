@@ -71,6 +71,7 @@ import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js'
 import { addChase, removeAllChases, setUserPlan } from '../../services/chase-store.js';
 import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
 import * as discoveryReferenceCacheService from '../../services/discovery-reference-cache.js';
+import type { DiscoveryReferenceCacheEntry } from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
@@ -79,7 +80,11 @@ import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertSchedule
 import * as discoverySourceCatalogService from '../../services/discovery-source-catalog.js';
 import { replayWeeklyDiscoveryFixture, summarizeReplay, type CaptureFixture } from '../../weekly-discovery-replay.js';
 import { replaceDiscoveryUserUniverseCards, type DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
-import { deleteWeeklyDiscoveryPreparedReserve, upsertWeeklyDiscoveryPreparedReserve } from '../../services/weekly-discovery-prepared-reserve.js';
+import {
+  deleteWeeklyDiscoveryPreparedReserve,
+  getWeeklyDiscoveryPreparedReserve,
+  upsertWeeklyDiscoveryPreparedReserve
+} from '../../services/weekly-discovery-prepared-reserve.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import type { WeeklyDiscoveryFinalizationInput } from '../../services/weekly-discovery-ranking.js';
@@ -293,6 +298,31 @@ function publishableShelfCandidates(count: number, overrides?: (candidate: Disco
     const base = publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index);
     return overrides ? overrides(base, index) : base;
   });
+}
+
+function unresolvedSourceCandidate(name: string, canonicalId: string, sourceName: string, selectionIndex: number, lane = 'Collector Compass'): DiscoveryCandidate {
+  const base = publishableSourceCandidate(name, canonicalId, sourceName, selectionIndex, lane);
+  return {
+    ...base,
+    suggestion: {
+      ...base.suggestion,
+      referenceImageUrl: undefined
+    },
+    image: undefined
+  };
+}
+
+function mockedReferenceCacheEntry(suggestionName: string, sourceCardId: string, sourceName = 'Pokemon TCG (Card)'): DiscoveryReferenceCacheEntry {
+  const now = '2026-08-09T12:00:00.000Z';
+  return {
+    cacheKey: discoveryReferenceCacheKey(suggestionName),
+    suggestionName,
+    imageUrl: trustedReferenceImageUrl(sourceName, sourceCardId),
+    sourceName,
+    sourceCardId,
+    fetchedAt: now,
+    updatedAt: now
+  };
 }
 
 function replayFixture(name: string): {
@@ -6886,6 +6916,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       displayCurrency: 'CAD' as const
     }));
     const sourceResolver = vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockRejectedValue(new Error('should remain offline'));
+    const referenceFetcher = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockRejectedValue(new Error('should remain local'));
     for (const [index, cardName] of [
       'Mew RC24',
       'Umbreon XY96',
@@ -6929,9 +6960,363 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(built.validatedSnapshot).toBeDefined();
     expect(built.input.orderedCandidateReserve).toHaveLength(20);
     expect(sourceResolver).not.toHaveBeenCalled();
+    expect(referenceFetcher).not.toHaveBeenCalled();
 
     deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
     removeAllChases(userId);
+  });
+
+  it('hydrates bounded useful reference batches instead of scanning the whole unresolved reserve', async () => {
+    const tasteSignals = [
+      chase('Mew RC24', 1),
+      chase('Umbreon XY96', 2),
+      chase('Squirtle Expedition Base Set 132', 3),
+      chase('Gardevoir ex Paldean Fates 233', 4)
+    ];
+    const reserve = [
+      ...publishableShelfCandidates(8, (candidate, index) => ({
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          name: `Trusted Card ${index + 1}`,
+          referenceSourceCardId: `trusted-${index + 1}`,
+          referenceSourceName: 'Pokemon TCG (Card)',
+          referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Card)', `trusted-${index + 1}`)
+        },
+        image: {
+          ...candidate.image!,
+          url: trustedReferenceImageUrl('Pokemon TCG (Card)', `trusted-${index + 1}`),
+          sourceName: 'Pokemon TCG (Card)',
+          sourceCardId: `trusted-${index + 1}`,
+          sourceKind: 'CARD_REFERENCE' as const
+        },
+        typicalRawSoldTotal: 80 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      })),
+      ...Array.from({ length: 52 }, (_, index) =>
+        ({
+          ...unresolvedSourceCandidate(`Pending Card ${index + 1}`, `pending-${index + 1}`, 'Pokemon TCG (Card)', 100 + index),
+          typicalRawSoldTotal: 120 + index,
+          soldSampleSize: 3,
+          displayCurrency: 'CAD' as const
+        }) satisfies DiscoveryCandidate
+      )
+    ];
+    const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) =>
+      mockedReferenceCacheEntry(
+        suggestion.name,
+        suggestion.referenceSourceCardId ?? suggestion.name,
+        suggestion.referenceSourceName ?? 'Pokemon TCG (Card)'
+      )
+    );
+
+    const result = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
+      reserve,
+      canonicalLookupEvidence: {},
+      profileContext: {
+        hasFullDiscovery: true,
+        settings: { alertCurrency: 'CAD' },
+        activeChases: tasteSignals,
+        tasteProfileChases: tasteSignals,
+        profileConfidence: strongProfileConfidence,
+        negativeProfile: discoveryNegativeProfile([], tasteSignals),
+        collectorProfile: buildCollectorTasteProfile(tasteSignals, { budgetPreferenceCad: 30 }),
+        priorShelfHistory: [],
+        sourceFingerprint: 'bounded-reference-test'
+      } as any,
+      currency: 'CAD',
+      recentDrops: [],
+      activeVault: tasteSignals,
+      baseStageCounts: {
+        rawGeneratedSuggestions: reserve.length,
+        sourceBackedSuggestions: reserve.length,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: reserve.length,
+        deduplicatedCandidates: reserve.length
+      },
+      userId: 'bounded-reference-user',
+      weeklyPeriod: '2026-W32',
+      generation: 1,
+      persistProgress: false,
+      checkpointLoaded: false,
+      sourceAssemblySkipped: false,
+      initialCheckpointStage: 'pre-reference-hydration'
+    });
+
+    expect(result.diagnostics.referenceBatchesCompleted).toBe(1);
+    expect(result.diagnostics.referenceRequestsStarted).toBe(result.diagnostics.referenceBatchSize);
+    expect(result.diagnostics.referenceRequestsStarted).toBeLessThan(52);
+    expect(fetchSpy).toHaveBeenCalledTimes(result.diagnostics.referenceRequestsStarted);
+    expect(result.diagnostics.trustedReferenceCount).toBeGreaterThanOrEqual(20);
+  });
+
+  it('persists a pre-reference checkpoint before expanded-reserve reference work begins', async () => {
+    const userId = `weekly-pre-reference-${Date.now()}`;
+    const periodKey = '2026-W32';
+    const date = new Date('2026-08-04T12:00:00.000Z');
+    setUserPlan(userId, 'PRO');
+    for (const [index, cardName] of ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].entries()) {
+      addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'HIGH' });
+    }
+    const seededUniverseCandidates = Array.from({ length: 24 }, (_, index) =>
+      ({
+        ...unresolvedSourceCandidate(`Checkpoint Seed ${index + 1}`, `checkpoint-seed-${index + 1}`, 'Pokemon TCG (Card)', index),
+        typicalRawSoldTotal: 90 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }) satisfies DiscoveryCandidate
+    );
+    replaceDiscoveryUserUniverseCards(userId, seededUniverseCandidates.map((candidate, index) => ({
+      userId,
+      cardKey: candidate.suggestion.referenceSourceCardId ?? `checkpoint-seed-${index}`,
+      canonicalName: candidate.suggestion.name,
+      score: 500 - index,
+      scoreComponents: { seeded: 1 },
+      suggestion: candidate.suggestion,
+      imageUrl: undefined,
+      imageSourceName: undefined,
+      sourceCardId: candidate.suggestion.referenceSourceCardId,
+      marketTotal: candidate.typicalRawSoldTotal ?? 90 + index,
+      marketCurrency: candidate.displayCurrency ?? 'CAD'
+    })));
+    vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
+    let observedStage: string | undefined;
+    const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async () => {
+      observedStage ??= getWeeklyDiscoveryPreparedReserve(userId, periodKey)?.lastCompletedStage;
+      const error = new Error('stop after checkpoint');
+      error.name = 'AbortError';
+      throw error;
+    });
+
+    await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date,
+      mode: 'LIVE',
+      hydrateMarketInline: true,
+      allowRecentRepeatFiller: false,
+      preparationGeneration: 1,
+      deadlineAtMs: Date.now() + 250
+    });
+
+    const checkpoint = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, Record<string, unknown>>(userId, periodKey);
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(observedStage).toBe('pre-reference-hydration');
+    expect(checkpoint?.lastCompletedStage).toBe('pre-reference-hydration');
+    expect(checkpoint?.reserveCandidates.length).toBeGreaterThan(0);
+
+    replaceDiscoveryUserUniverseCards(userId, []);
+    deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
+    removeAllChases(userId);
+  });
+
+  it('resumes a partial prepared reserve without rerunning source assembly or repeating resolved reference lookups', async () => {
+    const userId = `weekly-reference-resume-${Date.now()}`;
+    const periodKey = '2026-W32';
+    const date = new Date('2026-08-04T12:00:00.000Z');
+    setUserPlan(userId, 'PRO');
+    for (const [index, cardName] of ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].entries()) {
+      addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'HIGH' });
+    }
+    const resolved = publishableShelfCandidates(12, (candidate, index) => ({
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        name: `Resolved Card ${index + 1}`,
+        referenceSourceCardId: `resume-resolved-${index + 1}`,
+        referenceSourceName: 'Pokemon TCG (Card)',
+        referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Card)', `resume-resolved-${index + 1}`)
+      },
+      image: {
+        ...candidate.image!,
+        url: trustedReferenceImageUrl('Pokemon TCG (Card)', `resume-resolved-${index + 1}`),
+        sourceName: 'Pokemon TCG (Card)',
+        sourceCardId: `resume-resolved-${index + 1}`,
+        sourceKind: 'CARD_REFERENCE' as const
+      },
+      typicalRawSoldTotal: 80 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    const unresolved = Array.from({ length: 12 }, (_, index) =>
+      ({
+        ...unresolvedSourceCandidate(`Unresolved Card ${index + 1}`, `resume-pending-${index + 1}`, 'Pokemon TCG (Card)', 50 + index),
+        typicalRawSoldTotal: 100 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }) satisfies DiscoveryCandidate
+    );
+    upsertWeeklyDiscoveryPreparedReserve({
+      userId,
+      periodKey,
+      preparationGeneration: 1,
+      reserveCandidates: [...resolved, ...unresolved],
+      canonicalLookupEvidence: {},
+      reserveCount: 24,
+      canonicalReadyCount: resolved.length,
+      imageReadyCount: resolved.length,
+      marketReadyCount: 24,
+      personallyDefensibleCount: 24,
+      projectedSelectableCount: 12,
+      projectedMarketResolvedCount: 12,
+      viableAlternativeCount: 0,
+      pendingMarketJobCount: 0,
+      failedMarketJobCount: 0,
+      blockingShortages: ['trusted reference images'],
+      lastCompletedStage: 'reference-hydration-progress',
+      lastMeaningfulProgressAt: date.toISOString()
+    });
+    const sourceResolver = vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockRejectedValue(new Error('source assembly should be skipped'));
+    const fetchCalls: string[] = [];
+    const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) => {
+      fetchCalls.push(suggestion.name);
+      return mockedReferenceCacheEntry(
+        suggestion.name,
+        suggestion.referenceSourceCardId ?? suggestion.name,
+        suggestion.referenceSourceName ?? 'Pokemon TCG (Card)'
+      );
+    });
+
+    const built = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date,
+      mode: 'LIVE',
+      hydrateMarketInline: true,
+      allowRecentRepeatFiller: false,
+      preparationGeneration: 1
+    });
+
+    expect(sourceResolver).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(fetchCalls.some((name) => name.startsWith('Resolved Card'))).toBe(false);
+    expect(fetchCalls.every((name) => name.startsWith('Unresolved Card'))).toBe(true);
+    expect(built.referencePreparationDiagnostics.checkpointLoaded).toBe(true);
+    expect(built.referencePreparationDiagnostics.sourceAssemblySkipped).toBe(true);
+    expect(built.validatedSnapshot).toBeDefined();
+
+    deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
+    removeAllChases(userId);
+  });
+
+  it('persists partial reference successes and resumes only remaining work on the next attempt', async () => {
+    const userId = `weekly-reference-progress-${Date.now()}`;
+    const periodKey = '2026-W32';
+    const tasteSignals = [
+      chase('Mew RC24', 1),
+      chase('Umbreon XY96', 2),
+      chase('Squirtle Expedition Base Set 132', 3),
+      chase('Gardevoir ex Paldean Fates 233', 4)
+    ];
+    const reserve = Array.from({ length: 30 }, (_, index) =>
+      ({
+        ...unresolvedSourceCandidate(`Checkpoint Card ${index + 1}`, `checkpoint-${index + 1}`, 'Pokemon TCG (Card)', index),
+        typicalRawSoldTotal: 100 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }) satisfies DiscoveryCandidate
+    );
+    let fetchCount = 0;
+    const fetchCalls: string[] = [];
+    const referenceFetcher = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) => {
+      fetchCount += 1;
+      fetchCalls.push(suggestion.name);
+      if (fetchCount === 13) {
+        const error = new Error('deadline expired');
+        error.name = 'AbortError';
+        throw error;
+      }
+      return mockedReferenceCacheEntry(
+        suggestion.name,
+        suggestion.referenceSourceCardId ?? suggestion.name,
+        suggestion.referenceSourceName ?? 'Pokemon TCG (Card)'
+      );
+    });
+
+    const first = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
+      reserve,
+      canonicalLookupEvidence: {},
+      profileContext: {
+        hasFullDiscovery: true,
+        settings: { alertCurrency: 'CAD' },
+        activeChases: tasteSignals,
+        tasteProfileChases: tasteSignals,
+        profileConfidence: strongProfileConfidence,
+        negativeProfile: discoveryNegativeProfile([], tasteSignals),
+        collectorProfile: buildCollectorTasteProfile(tasteSignals, { budgetPreferenceCad: 30 }),
+        priorShelfHistory: [],
+        sourceFingerprint: 'partial-progress-test'
+      } as any,
+      currency: 'CAD',
+      recentDrops: [],
+      activeVault: tasteSignals,
+      baseStageCounts: {
+        rawGeneratedSuggestions: reserve.length,
+        sourceBackedSuggestions: reserve.length,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: reserve.length,
+        deduplicatedCandidates: reserve.length
+      },
+      userId,
+      weeklyPeriod: periodKey,
+      generation: 1,
+      persistProgress: true,
+      checkpointLoaded: false,
+      sourceAssemblySkipped: false,
+      initialCheckpointStage: 'pre-reference-hydration'
+    });
+
+    const checkpoint = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, Record<string, unknown>>(userId, periodKey);
+    expect(first.diagnostics.referenceBatchesCompleted).toBe(1);
+    expect(checkpoint?.lastCompletedStage).toBe('reference-hydration-progress');
+    expect(checkpoint?.reserveCandidates.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length).toBe(12);
+
+    fetchCount = 0;
+    fetchCalls.length = 0;
+    referenceFetcher.mockImplementation(async (suggestion) => {
+      fetchCalls.push(suggestion.name);
+      return mockedReferenceCacheEntry(
+        suggestion.name,
+        suggestion.referenceSourceCardId ?? suggestion.name,
+        suggestion.referenceSourceName ?? 'Pokemon TCG (Card)'
+      );
+    });
+
+    const second = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
+      reserve: checkpoint?.reserveCandidates ?? [],
+      canonicalLookupEvidence: {},
+      profileContext: {
+        hasFullDiscovery: true,
+        settings: { alertCurrency: 'CAD' },
+        activeChases: tasteSignals,
+        tasteProfileChases: tasteSignals,
+        profileConfidence: strongProfileConfidence,
+        negativeProfile: discoveryNegativeProfile([], tasteSignals),
+        collectorProfile: buildCollectorTasteProfile(tasteSignals, { budgetPreferenceCad: 30 }),
+        priorShelfHistory: [],
+        sourceFingerprint: 'partial-progress-test'
+      } as any,
+      currency: 'CAD',
+      recentDrops: [],
+      activeVault: tasteSignals,
+      baseStageCounts: {
+        rawGeneratedSuggestions: reserve.length,
+        sourceBackedSuggestions: reserve.length,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: reserve.length,
+        deduplicatedCandidates: reserve.length
+      },
+      userId,
+      weeklyPeriod: periodKey,
+      generation: 1,
+      persistProgress: true,
+      checkpointLoaded: true,
+      sourceAssemblySkipped: true,
+      initialCheckpointStage: checkpoint?.lastCompletedStage ?? 'reference-hydration-progress'
+    });
+
+    expect(fetchCalls.some((name) => name === 'Checkpoint Card 1')).toBe(false);
+    expect(second.diagnostics.referenceResolvedThisAttempt).toBeGreaterThan(0);
+    deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
   });
 
   it('replay fixtures stay deterministic, and live release fixtures pass the structural gate', () => {

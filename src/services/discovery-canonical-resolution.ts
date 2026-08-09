@@ -123,6 +123,8 @@ export type DiscoveryCanonicalResolutionRuntimeStats = {
 
 type ResolveOptions = {
   replayEvidence?: CanonicalLookupEvidenceMap;
+  abortSignal?: AbortSignal;
+  deadlineAtMs?: number;
 };
 
 export function mergeCanonicalLookupEvidenceMaps(
@@ -198,6 +200,15 @@ function normalize(value: string): string {
 
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function hasDeadlineExpired(deadlineAtMs: number | undefined): boolean {
+  return deadlineAtMs !== undefined && Date.now() >= deadlineAtMs;
+}
+
+function throwIfAbortedOrExpired(signal: AbortSignal | undefined, deadlineAtMs: number | undefined): void {
+  if (signal?.aborted) throw new DOMException('Weekly discovery canonical resolution aborted', 'AbortError');
+  if (hasDeadlineExpired(deadlineAtMs)) throw new DOMException('Weekly discovery canonical resolution deadline expired', 'AbortError');
 }
 
 function normalizeIdentityName(value: string): string {
@@ -604,6 +615,7 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
   let cursor = 0;
   const workers = Array.from({ length: Math.min(CANONICAL_RESOLUTION_CONCURRENCY, candidatePlans.length) }, async () => {
     while (cursor < candidatePlans.length) {
+      throwIfAbortedOrExpired(options.abortSignal, options.deadlineAtMs);
       const index = cursor;
       cursor += 1;
       const plan = candidatePlans[index]!;
@@ -620,6 +632,7 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
         continue;
       }
       const lookupKey = plan.lookupKey;
+      throwIfAbortedOrExpired(options.abortSignal, options.deadlineAtMs);
       const evidenceLookupStartedAt = Date.now();
       let lookupPromise = lookupPromises.get(lookupKey);
       if (lookupPromise) {
@@ -644,7 +657,9 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
       addCanonicalResolutionRuntimeStat('evidenceLookupMs', Date.now() - evidenceLookupStartedAt);
       if (options.replayEvidence?.[lookupKey]) canonicalResolutionRuntimeStats.replayEvidenceHits += 1;
       else if (options.replayEvidence) canonicalResolutionRuntimeStats.replayEvidenceMisses += 1;
+      throwIfAbortedOrExpired(options.abortSignal, options.deadlineAtMs);
       const lookupEvidence = await lookupPromise;
+      throwIfAbortedOrExpired(options.abortSignal, options.deadlineAtMs);
       evidence[lookupKey] = lookupEvidence;
       const accepted = evidenceRecordByAcceptedSourceId(lookupEvidence);
       const rebindingStartedAt = Date.now();

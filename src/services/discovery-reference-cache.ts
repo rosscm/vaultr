@@ -422,6 +422,40 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any
   }
 }
 
+function combinedTimeoutAbortSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timeout = setTimeout(abort, timeoutMs);
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  controller.signal.addEventListener('abort', () => {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
+  }, { once: true });
+  return controller.signal;
+}
+
+async function fetchJsonWithTimeoutAndSignal(url: string, timeoutMs: number, signal?: AbortSignal): Promise<any> {
+  if (!signal) return fetchJsonWithTimeout(url, timeoutMs);
+  if (url.startsWith(POKEMON_TCG_ENDPOINT)) {
+    discoveryReferenceRuntimeStats.providerPokemonRequests += 1;
+  } else if (url.startsWith(TCGDEX_JA_CARDS_ENDPOINT)) {
+    discoveryReferenceRuntimeStats.providerTcgdexRequests += 1;
+  }
+  try {
+    const response = await fetch(url, { signal: combinedTimeoutAbortSignal(timeoutMs, signal) });
+    if (!response.ok) throw new Error(`Pokemon TCG request failed: ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      discoveryReferenceRuntimeStats.providerTimeouts += 1;
+    } else {
+      discoveryReferenceRuntimeStats.providerFailures += 1;
+    }
+    throw error;
+  }
+}
+
 async function fetchPokemonCards(query: string, pageSize: number): Promise<PokemonTcgCard[]> {
   const params = new URLSearchParams({
     q: query,
@@ -542,12 +576,10 @@ async function fetchJapaneseReferenceImage(suggestion: DiscoverySuggestion): Pro
   return null;
 }
 
-async function imageExistsWithTimeout(url: string, timeoutMs: number): Promise<boolean> {
+async function imageExistsWithTimeout(url: string, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
   discoveryReferenceRuntimeStats.providerOnePieceChecks += 1;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+    const response = await fetch(url, { method: 'HEAD', signal: combinedTimeoutAbortSignal(timeoutMs, signal) });
     return response.ok && /^image\//i.test(response.headers.get('content-type') ?? '');
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
@@ -556,15 +588,13 @@ async function imageExistsWithTimeout(url: string, timeoutMs: number): Promise<b
       discoveryReferenceRuntimeStats.providerFailures += 1;
     }
     throw error;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
-async function validateReferenceImageUrl(url: string | undefined): Promise<boolean> {
+async function validateReferenceImageUrl(url: string | undefined, signal?: AbortSignal): Promise<boolean> {
   if (!url) return false;
   try {
-    return await imageExistsWithTimeout(url, REFERENCE_FETCH_TIMEOUT_MS);
+    return await imageExistsWithTimeout(url, REFERENCE_FETCH_TIMEOUT_MS, signal);
   } catch {
     return false;
   }
@@ -711,7 +741,7 @@ async function fetchOnePieceReferenceImage(suggestion: DiscoverySuggestion): Pro
   };
 }
 
-export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion): Promise<DiscoveryReferenceCacheEntry> {
+export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion, signal?: AbortSignal): Promise<DiscoveryReferenceCacheEntry> {
   discoveryReferenceRuntimeStats.fetchCalls += 1;
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
   const overrideReference = trustedOverrideReference(suggestion);
@@ -720,7 +750,7 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
     return overrideReference;
   }
   if (!isPokemonReferenceSuggestion(suggestion) && suggestion.referenceImageUrl) {
-    if (await validateReferenceImageUrl(suggestion.referenceImageUrl)) {
+    if (await validateReferenceImageUrl(suggestion.referenceImageUrl, signal)) {
       const now = new Date().toISOString();
       discoveryReferenceRuntimeStats.providerResolved += 1;
       return {
@@ -802,7 +832,7 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
   try {
     for (const query of queries) {
       const params = new URLSearchParams({ q: query, pageSize: '3', select: 'id,name,number,set.name,images' });
-      const json = await fetchJsonWithTimeout(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS);
+      const json = await fetchJsonWithTimeoutAndSignal(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS, signal);
       const cards = Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [];
       const reference = cards.map((card) => referenceFromCard(card, suggestion.name, sourceSetName)).find((entry): entry is DiscoveryReferenceCacheEntry => !!entry);
       if (reference) {
@@ -830,25 +860,29 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
   }
 }
 
-export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySuggestion, ttlMs: number): Promise<DiscoveryReferenceCacheEntry | null> {
+export async function getOrFetchDiscoveryReferenceImage(
+  suggestion: DiscoverySuggestion,
+  ttlMs: number,
+  options: { abortSignal?: AbortSignal } = {}
+): Promise<DiscoveryReferenceCacheEntry | null> {
   discoveryReferenceRuntimeStats.getCalls += 1;
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
   const pokemonSuggestion = isPokemonReferenceSuggestion(suggestion);
   const cached = getDiscoveryReferenceCache(cacheKey);
   const cachedPokemonMismatch = pokemonSuggestion && !!cached?.imageUrl && !hasTrustedDiscoveryReferenceProvenance(cached, suggestion);
   if (!pokemonSuggestion && suggestion.referenceImageUrl && !cached?.imageUrl) {
-    const fetched = await fetchDiscoveryReferenceImage(suggestion);
+    const fetched = await fetchDiscoveryReferenceImage(suggestion, options.abortSignal);
     upsertDiscoveryReferenceCache(fetched);
     return fetched;
   }
   if (cachedPokemonMismatch) {
-    const fetched = await fetchDiscoveryReferenceImage(suggestion);
+    const fetched = await fetchDiscoveryReferenceImage(suggestion, options.abortSignal);
     const skipReachabilityValidation = shouldBypassReferenceImageReachabilityCheck(fetched, suggestion);
     if (
       fetched.imageUrl
       && fetched.imageUrl !== cached.imageUrl
       && !skipReachabilityValidation
-      && !(await validateReferenceImageUrl(fetched.imageUrl))
+      && !(await validateReferenceImageUrl(fetched.imageUrl, options.abortSignal))
     ) {
       return cached;
     }
@@ -884,14 +918,14 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
     return fetched;
   }
   if (cached?.sourceStatus === 'NOT_FOUND' && isJapaneseReferenceSuggestion(suggestion)) {
-    const fetched = await fetchDiscoveryReferenceImage(suggestion);
+    const fetched = await fetchDiscoveryReferenceImage(suggestion, options.abortSignal);
     if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
     return fetched;
   }
   const ageMs = cached ? cachedReferenceAgeMs(cached) : undefined;
   const shouldRevalidateCachedImage = !!cached?.imageUrl && (!pokemonSuggestion || !hasTrustedDiscoveryReferenceProvenance(cached, suggestion));
-  if (shouldRevalidateCachedImage && !(await validateReferenceImageUrl(cached.imageUrl))) {
-    const fetched = await fetchDiscoveryReferenceImage(suggestion);
+  if (shouldRevalidateCachedImage && !(await validateReferenceImageUrl(cached.imageUrl, options.abortSignal))) {
+    const fetched = await fetchDiscoveryReferenceImage(suggestion, options.abortSignal);
     if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
     return fetched;
   }
@@ -906,7 +940,7 @@ export async function getOrFetchDiscoveryReferenceImage(suggestion: DiscoverySug
 
   if (!cached) discoveryReferenceRuntimeStats.cacheMisses += 1;
 
-  const fetched = await fetchDiscoveryReferenceImage(suggestion);
+  const fetched = await fetchDiscoveryReferenceImage(suggestion, options.abortSignal);
   if (!isTransientReferenceStatus(fetched.sourceStatus)) upsertDiscoveryReferenceCache(fetched);
   if (cachedPokemonMismatch && cached && (
     fetched.imageUrl !== cached.imageUrl

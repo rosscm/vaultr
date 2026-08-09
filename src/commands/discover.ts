@@ -476,12 +476,39 @@ export type WeeklyPreparationDiagnostics = {
   reserveCount: number;
   postCapSelectableCount: number;
   postCapMarketReadyCount: number;
+  checkpointStage?: string;
+  checkpointLoaded?: boolean;
+  sourceAssemblySkipped?: boolean;
+  trustedReferenceCount?: number;
+  unresolvedReferenceCount?: number;
+  referenceBatchSize?: number;
+  referenceBatchesCompleted?: number;
+  referenceRequestsStarted?: number;
+  referenceResolvedThisAttempt?: number;
+  referenceRemaining?: number;
+  checkpointSaved?: boolean;
+  deadlineExpired?: boolean;
   saturatedSubjects: string[];
   saturatedFormats: string[];
   saturatedLanes: string[];
   blockingShortages: string[];
   retainedPreviousShelf?: boolean;
   replacedExistingShelf?: boolean;
+};
+
+type WeeklyReferencePreparationDiagnostics = {
+  checkpointStage?: string;
+  checkpointLoaded: boolean;
+  sourceAssemblySkipped: boolean;
+  trustedReferenceCount: number;
+  unresolvedReferenceCount: number;
+  referenceBatchSize: number;
+  referenceBatchesCompleted: number;
+  referenceRequestsStarted: number;
+  referenceResolvedThisAttempt: number;
+  referenceRemaining: number;
+  checkpointSaved: boolean;
+  deadlineExpired: boolean;
 };
 
 export type WeeklyPreparationStructuredResult =
@@ -823,12 +850,239 @@ function persistWeeklyDiscoveryPreparedReserve(
   });
 }
 
+function isWeeklyDiscoveryResumeCheckpointStage(stage: string | undefined): boolean {
+  return stage === 'pre-reference-hydration'
+    || stage === 'reference-hydration-progress'
+    || stage === 'initial-supply-readiness'
+    || stage === 'market-shortfall-hydration'
+    || stage === 'post-market-shortfall-hydration'
+    || stage === 'post-initial-supply-readiness'
+    || stage === 'post-topoff-supply-readiness'
+    || stage === 'post-topoff-market-shortfall-hydration';
+}
+
+function isPreparedReserveCompatibleForResume(
+  preparedReserve: ReturnType<typeof getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>>,
+  profileContext: WeeklyDiscoveryPreparationProfileContext,
+  generation: number | undefined
+): preparedReserve is NonNullable<typeof preparedReserve> {
+  if (!preparedReserve) return false;
+  if (!isWeeklyDiscoveryResumeCheckpointStage(preparedReserve.lastCompletedStage)) return false;
+  if (preparedReserve.sourceFingerprint && preparedReserve.sourceFingerprint !== profileContext.sourceFingerprint) return false;
+  if (generation !== undefined && preparedReserve.preparationGeneration > generation) return false;
+  return preparedReserve.reserveCandidates.length > 0;
+}
+
+function countCandidatesWithTrustedCanonicalReference(candidates: DiscoveryCandidate[], currency: SupportedCurrency): number {
+  return candidates.filter((candidate) => candidateHasCanonicalTrustedReference(candidate, currency)).length;
+}
+
+function countUnresolvedReferenceCandidates(candidates: DiscoveryCandidate[], currency: SupportedCurrency): number {
+  return candidates.filter((candidate) => !candidateHasCanonicalTrustedReference(candidate, currency)).length;
+}
+
+function referenceHydrationPriorityScore(
+  candidate: DiscoveryCandidate,
+  currency: SupportedCurrency,
+  collectorAnchorProfile: ReturnType<typeof buildWeeklyCollectorAnchorProfile>
+): number {
+  const recommendation = recommendationProfileForCandidate(candidate, collectorAnchorProfile);
+  return [
+    candidateMarketStatus(candidate, currency) === 'READY' ? 10_000 : 0,
+    candidateHasStableCanonicalId(candidate, currency) ? 4_000 : 0,
+    candidateHasTrustedCatalogueImage(candidate, currency) ? 2_500 : 0,
+    recommendation.strength === 'DIRECT_PROFILE' ? 1_000 : 0,
+    recommendation.strength === 'STRONG_ADJACENT' ? 600 : 0,
+    recommendation.strength === 'EXPLORATORY' ? 150 : 0,
+    recommendation.strength === 'GENERIC_FILLER' ? -300 : 0,
+    hasSomeRawMarketData(candidate) ? 250 : 0,
+    -(candidate.selectionIndex ?? 0)
+  ].reduce((sum, value) => sum + value, 0);
+}
+
+function selectWeeklyReferenceHydrationBatch(
+  reserve: DiscoveryCandidate[],
+  currency: SupportedCurrency,
+  anchorProfileSignals: Chase[],
+  maxBatchSize: number,
+  requestBudgetRemaining: number
+): DiscoveryCandidate[] {
+  if (requestBudgetRemaining <= 0) return [];
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
+  return [...reserve]
+    .filter((candidate) => !candidateHasCanonicalTrustedReference(candidate, currency))
+    .sort((left, right) =>
+      referenceHydrationPriorityScore(right, currency, collectorAnchorProfile)
+      - referenceHydrationPriorityScore(left, currency, collectorAnchorProfile)
+      || (left.selectionIndex ?? 0) - (right.selectionIndex ?? 0)
+      || left.suggestion.name.localeCompare(right.suggestion.name)
+    )
+    .slice(0, Math.min(maxBatchSize, requestBudgetRemaining));
+}
+
+function mergeCandidatesBySelectionIndex(currentReserve: DiscoveryCandidate[], updatedCandidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
+  if (updatedCandidates.length === 0) return currentReserve;
+  const updates = new Map(updatedCandidates.map((candidate) => [candidate.selectionIndex ?? -1, candidate]));
+  return currentReserve.map((candidate) => updates.get(candidate.selectionIndex ?? -1) ?? candidate);
+}
+
+async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
+  reserve: DiscoveryCandidate[];
+  canonicalLookupEvidence: CanonicalLookupEvidenceMap;
+  profileContext: WeeklyDiscoveryPreparationProfileContext;
+  currency: SupportedCurrency;
+  recentDrops: ScheduledDiscoveryDrop[];
+  activeVault: Chase[];
+  baseStageCounts: Pick<WeeklyDiscoverySupplyStageCounts, 'rawGeneratedSuggestions' | 'sourceBackedSuggestions' | 'globalUniverseConsidered' | 'userUniverseConsidered' | 'deduplicatedCandidates'>;
+  userId: string;
+  weeklyPeriod: string;
+  generation: number;
+  deadlineAtMs?: number;
+  abortSignal?: AbortSignal;
+  checkpointLoaded: boolean;
+  sourceAssemblySkipped: boolean;
+  initialCheckpointStage: string;
+  persistProgress: boolean;
+  stageMetrics?: WeeklyDiscoveryStageMetric[];
+}): Promise<{
+  reserve: DiscoveryCandidate[];
+  canonicalLookupEvidence: CanonicalLookupEvidenceMap;
+  readiness: WeeklyDiscoverySupplyReadiness;
+  diagnostics: WeeklyReferencePreparationDiagnostics;
+}> {
+  let reserve = input.reserve;
+  let canonicalLookupEvidence = input.canonicalLookupEvidence;
+  let readiness = buildWeeklyDiscoverySupplyReadiness(
+    reserve,
+    input.profileContext.collectorProfile,
+    input.currency,
+    input.recentDrops,
+    input.activeVault,
+    input.baseStageCounts,
+    input.profileContext.tasteProfileChases
+  );
+  let checkpointStage = input.initialCheckpointStage;
+  let referenceBatchesCompleted = 0;
+  let referenceRequestsStarted = 0;
+  let referenceResolvedThisAttempt = 0;
+  let checkpointSaved = false;
+  const initialTrustedCount = countCandidatesWithTrustedCanonicalReference(reserve, input.currency);
+
+  while (
+    referenceBatchesCompleted < DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_BATCHES
+    && referenceRequestsStarted < DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_REQUESTS_PER_ATTEMPT
+    && readiness.shouldTopOff
+    && hasWeeklyOptionalStageBudget(input.deadlineAtMs)
+  ) {
+    if (input.abortSignal?.aborted || hasDeadlineExpired(input.deadlineAtMs)) break;
+    const batch = selectWeeklyReferenceHydrationBatch(
+      reserve,
+      input.currency,
+      input.profileContext.tasteProfileChases,
+      DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE,
+      DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_REQUESTS_PER_ATTEMPT - referenceRequestsStarted
+    );
+    if (batch.length === 0) break;
+    referenceRequestsStarted += batch.length;
+    let hydratedBatch: DiscoveryCandidate[];
+    try {
+      hydratedBatch = await runWeeklyDiscoveryStage({
+      userId: input.userId,
+      weeklyPeriod: input.weeklyPeriod,
+      stage: 'reference-hydration-batch',
+      inputCount: batch.length,
+      counters: {
+        batchIndex: referenceBatchesCompleted + 1,
+        requestBudgetRemaining: DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_REQUESTS_PER_ATTEMPT - referenceRequestsStarted
+      },
+      stageMetrics: input.stageMetrics
+      }, () => attachReferenceImages(batch, emptyReferenceHydrationDiagnostics(batch.length), {
+        abortSignal: input.abortSignal,
+        deadlineAtMs: input.deadlineAtMs
+      }), {
+      outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') break;
+      throw error;
+    }
+    let resolvedBatch;
+    try {
+      resolvedBatch = await runWeeklyDiscoveryStage({
+      userId: input.userId,
+      weeklyPeriod: input.weeklyPeriod,
+      stage: 'reference-canonical-batch',
+      inputCount: hydratedBatch.length,
+      stageMetrics: input.stageMetrics
+      }, () => resolveWeeklyDiscoveryCanonicalReferences(hydratedBatch, {
+        replayEvidence: canonicalLookupEvidence,
+        abortSignal: input.abortSignal,
+        deadlineAtMs: input.deadlineAtMs
+      }), {
+      outputCount: (value) => value.candidates.filter((candidate) => candidateHasCanonicalTrustedReference(candidate, input.currency)).length
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') break;
+      throw error;
+    }
+    referenceBatchesCompleted += 1;
+    canonicalLookupEvidence = mergeCanonicalLookupEvidenceMaps(canonicalLookupEvidence, resolvedBatch.evidence);
+    reserve = mergeCandidatesBySelectionIndex(reserve, resolvedBatch.candidates);
+    readiness = buildWeeklyDiscoverySupplyReadiness(
+      reserve,
+      input.profileContext.collectorProfile,
+      input.currency,
+      input.recentDrops,
+      input.activeVault,
+      input.baseStageCounts,
+      input.profileContext.tasteProfileChases
+    );
+    referenceResolvedThisAttempt = Math.max(0, countCandidatesWithTrustedCanonicalReference(reserve, input.currency) - initialTrustedCount);
+    checkpointStage = 'reference-hydration-progress';
+    if (input.persistProgress) {
+      persistWeeklyDiscoveryPreparedReserve(
+        input.userId,
+        input.weeklyPeriod,
+        input.generation,
+        reserve,
+        canonicalLookupEvidence,
+        readiness,
+        checkpointStage,
+        input.profileContext
+      );
+      checkpointSaved = true;
+    }
+    if (!readiness.shouldTopOff) break;
+  }
+
+  return {
+    reserve,
+    canonicalLookupEvidence,
+    readiness,
+    diagnostics: {
+      checkpointStage,
+      checkpointLoaded: input.checkpointLoaded,
+      sourceAssemblySkipped: input.sourceAssemblySkipped,
+      trustedReferenceCount: countCandidatesWithTrustedCanonicalReference(reserve, input.currency),
+      unresolvedReferenceCount: countUnresolvedReferenceCandidates(reserve, input.currency),
+      referenceBatchSize: DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE,
+      referenceBatchesCompleted,
+      referenceRequestsStarted,
+      referenceResolvedThisAttempt,
+      referenceRemaining: countUnresolvedReferenceCandidates(reserve, input.currency),
+      checkpointSaved,
+      deadlineExpired: hasDeadlineExpired(input.deadlineAtMs)
+    }
+  };
+}
+
 function weeklyPreparationDiagnostics(
   readiness: WeeklyDiscoverySupplyReadiness,
   reserveCount: number,
   regenerateCurrent: boolean,
   currentShelfExclusions: number,
-  result?: { retainedPreviousShelf?: boolean; replacedExistingShelf?: boolean }
+  result?: { retainedPreviousShelf?: boolean; replacedExistingShelf?: boolean },
+  referencePreparation?: WeeklyReferencePreparationDiagnostics
 ): WeeklyPreparationDiagnostics {
   return {
     regenerateCurrent,
@@ -836,12 +1090,58 @@ function weeklyPreparationDiagnostics(
     reserveCount,
     postCapSelectableCount: readiness.postCapSelectableCount,
     postCapMarketReadyCount: readiness.postCapMarketReadyCount,
+    checkpointStage: referencePreparation?.checkpointStage,
+    checkpointLoaded: referencePreparation?.checkpointLoaded,
+    sourceAssemblySkipped: referencePreparation?.sourceAssemblySkipped,
+    trustedReferenceCount: referencePreparation?.trustedReferenceCount,
+    unresolvedReferenceCount: referencePreparation?.unresolvedReferenceCount,
+    referenceBatchSize: referencePreparation?.referenceBatchSize,
+    referenceBatchesCompleted: referencePreparation?.referenceBatchesCompleted,
+    referenceRequestsStarted: referencePreparation?.referenceRequestsStarted,
+    referenceResolvedThisAttempt: referencePreparation?.referenceResolvedThisAttempt,
+    referenceRemaining: referencePreparation?.referenceRemaining,
+    checkpointSaved: referencePreparation?.checkpointSaved,
+    deadlineExpired: referencePreparation?.deadlineExpired,
     saturatedSubjects: readiness.saturatedSubjects,
     saturatedFormats: readiness.saturatedFormats,
     saturatedLanes: readiness.saturatedLanes,
     blockingShortages: buildPreparedWeeklyDiscoveryBlockingShortages(readiness),
     retainedPreviousShelf: result?.retainedPreviousShelf,
     replacedExistingShelf: result?.replacedExistingShelf
+  };
+}
+
+function weeklyPreparationDiagnosticsFromPreparedReserve(
+  preparedReserve: ReturnType<typeof getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>>,
+  regenerateCurrent: boolean,
+  currentShelfExclusions: number,
+  overrides: Partial<WeeklyPreparationDiagnostics> = {}
+): WeeklyPreparationDiagnostics | undefined {
+  if (!preparedReserve) return undefined;
+  return {
+    regenerateCurrent,
+    currentShelfExclusions,
+    reserveCount: preparedReserve.reserveCount,
+    postCapSelectableCount: preparedReserve.projectedSelectableCount,
+    postCapMarketReadyCount: preparedReserve.projectedMarketResolvedCount,
+    checkpointStage: preparedReserve.lastCompletedStage,
+    checkpointLoaded: overrides.checkpointLoaded,
+    sourceAssemblySkipped: overrides.sourceAssemblySkipped,
+    trustedReferenceCount: preparedReserve.imageReadyCount,
+    unresolvedReferenceCount: Math.max(0, preparedReserve.reserveCount - preparedReserve.imageReadyCount),
+    referenceBatchSize: DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE,
+    referenceBatchesCompleted: overrides.referenceBatchesCompleted,
+    referenceRequestsStarted: overrides.referenceRequestsStarted,
+    referenceResolvedThisAttempt: overrides.referenceResolvedThisAttempt,
+    referenceRemaining: Math.max(0, preparedReserve.reserveCount - preparedReserve.imageReadyCount),
+    checkpointSaved: true,
+    deadlineExpired: overrides.deadlineExpired,
+    saturatedSubjects: [],
+    saturatedFormats: [],
+    saturatedLanes: [],
+    blockingShortages: preparedReserve.blockingShortages,
+    retainedPreviousShelf: overrides.retainedPreviousShelf,
+    replacedExistingShelf: overrides.replacedExistingShelf
   };
 }
 
@@ -1259,6 +1559,15 @@ const DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS = Math.max(60000, Math.min(15 * 60 * 
 const DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS = Math.max(15000, Math.min(5 * 60 * 1000, Math.floor(Number(process.env.DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS ?? '90000'))));
 const DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS = Math.max(10000, Math.min(5 * 60 * 1000, Math.floor(Number(process.env.DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS ?? '45000'))));
 const DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY = Math.max(1, Math.min(6, Math.floor(Number(process.env.DISCOVERY_WEEKLY_SOURCE_TOP_OFF_CONCURRENCY ?? '3'))));
+const DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE = Math.max(6, Math.min(24, Math.floor(Number(process.env.DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE ?? '12'))));
+const DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_BATCHES = Math.max(1, Math.min(8, Math.floor(Number(process.env.DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_BATCHES ?? '4'))));
+const DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_REQUESTS_PER_ATTEMPT = Math.max(
+  DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE,
+  Math.min(
+    96,
+    Math.floor(Number(process.env.DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_REQUESTS_PER_ATTEMPT ?? String(DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE * DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_BATCHES)))
+  )
+);
 const DISCOVERY_FOREGROUND_MARKET_HYDRATION_BATCH_SIZE = Math.max(1, Math.min(8, Math.floor(Number(process.env.DISCOVERY_FOREGROUND_MARKET_HYDRATION_BATCH_SIZE ?? '4'))));
 const DISCOVERY_FOREGROUND_MARKET_HYDRATION_MAX_BATCHES = Math.max(1, Math.min(4, Math.floor(Number(process.env.DISCOVERY_FOREGROUND_MARKET_HYDRATION_MAX_BATCHES ?? '3'))));
 const DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS = Math.max(1000, Math.min(30_000, Math.floor(Number(process.env.DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS ?? '10000'))));
@@ -3112,9 +3421,12 @@ function emptyReferenceHydrationDiagnostics(candidateCount: number): ReferenceHy
 
 export async function attachReferenceImages(
   candidates: DiscoveryCandidate[],
-  diagnostics: ReferenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidates.length)
+  diagnostics: ReferenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidates.length),
+  options: { abortSignal?: AbortSignal; deadlineAtMs?: number } = {}
 ): Promise<DiscoveryCandidate[]> {
   return mapWithConcurrency(candidates, VISIBLE_DISCOVERY_COUNT, async (candidate) => {
+    throwIfAborted(options.abortSignal);
+    throwIfDeadlineExpired(options.deadlineAtMs);
     const trustedExisting = trustedCandidateReferenceImage(candidate.image, candidate.suggestion);
     if (trustedExisting) {
       diagnostics.trustedImageFastPathCount += 1;
@@ -3144,7 +3456,11 @@ export async function attachReferenceImages(
       };
     }
     diagnostics.externalLookupCount += 1;
-    const reference = await getOrFetchDiscoveryReferenceImage(candidate.suggestion, DISCOVERY_REFERENCE_CACHE_TTL_MS);
+    const reference = await getOrFetchDiscoveryReferenceImage(candidate.suggestion, DISCOVERY_REFERENCE_CACHE_TTL_MS, {
+      abortSignal: options.abortSignal
+    });
+    throwIfAborted(options.abortSignal);
+    throwIfDeadlineExpired(options.deadlineAtMs);
     if (!reference?.imageUrl || !hasTrustedDiscoveryReferenceProvenance(reference, candidate.suggestion)) {
       const downgradedImage = marketplaceCandidateImage(candidate.image, candidate.suggestion.name);
       if (downgradedImage) {
@@ -3672,6 +3988,8 @@ export const __discoveryPersistenceTestHooks = {
   hydratePendingDiscoveryMarketCandidates,
   hydrateDiscoveryMarketCandidatesIncrementally,
   selectForegroundMarketHydrationBatchCandidates,
+  selectWeeklyReferenceHydrationBatch,
+  hydrateWeeklyDiscoveryReferencesIncrementally,
   mapWithConcurrencyAllowPartialTimeout,
   prepareWeeklyDiscoveryDropForUser,
   buildWeeklyCollectorAnchorProfile,
@@ -9502,6 +9820,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   supplyReadinessBeforeTopOff: WeeklyDiscoverySupplyReadiness;
   supplyReadinessAfterTopOff: WeeklyDiscoverySupplyReadiness;
   topOffApplied: boolean;
+  referencePreparationDiagnostics: WeeklyReferencePreparationDiagnostics;
   validatedSnapshot?: PreparedWeeklyDiscoverySnapshot;
 }> {
   throwIfAborted(context.abortSignal);
@@ -9595,70 +9914,124 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         supplyReadinessBeforeTopOff: preparedReadiness,
         supplyReadinessAfterTopOff: preparedReadiness,
         topOffApplied: false,
+        referencePreparationDiagnostics: {
+          checkpointStage: preparedReserve.lastCompletedStage,
+          checkpointLoaded: true,
+          sourceAssemblySkipped: true,
+          trustedReferenceCount: countCandidatesWithTrustedCanonicalReference(preparedReserve.reserveCandidates, profileContext.settings.alertCurrency),
+          unresolvedReferenceCount: countUnresolvedReferenceCandidates(preparedReserve.reserveCandidates, profileContext.settings.alertCurrency),
+          referenceBatchSize: DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE,
+          referenceBatchesCompleted: 0,
+          referenceRequestsStarted: 0,
+          referenceResolvedThisAttempt: 0,
+          referenceRemaining: countUnresolvedReferenceCandidates(preparedReserve.reserveCandidates, profileContext.settings.alertCurrency),
+          checkpointSaved: false,
+          deadlineExpired: false
+        },
         validatedSnapshot
       };
     }
   }
-  const discovery = await runWeeklyDiscoveryStage({
-    userId: context.userId,
-    weeklyPeriod,
-    stage: 'initial-reserve-assembly',
-    inputCount: DISCOVERY_WEEKLY_DROP_SIZE,
-    counters: {
-      quickRefresh,
-      cachePreferredRetry,
-      overallDeadlineMs: deadlineAtMs ? Math.max(0, deadlineAtMs - Date.now()) : null
-    },
-    stageMetrics: context.stageMetrics
-  }, () => withTimeout(discoverCandidatesForUser(context.userId, DISCOVERY_WEEKLY_DROP_SIZE, {
-    preferScheduledDrop: false,
-    saveScheduledDrop: false,
-    scheduledDate: context.date,
-    hydrateScheduledMarketInline: !deferExpensiveHydration,
-    usePersistedState: cachePreferredRetry,
-    ignoreSeenExclusions: true,
-    hardAvoidNames: uniqueValuesPreservingOrder([
-      ...immediatePreviousDropNames,
-      ...Array.from(regenerationExclusions.nameKeys)
-    ]),
-    softAvoidNames: previousDropNames,
-    allowSoftAvoidFiller: context.allowRecentRepeatFiller ?? false,
-    skipSourceCatalogFetch: quickRefresh || (cachePreferredRetry && !allowSourceCatalogForMissingLiveCachedDrop),
-    skipReferenceImageFetch: deferExpensiveHydration,
-    ingestCanonicalUniverse: !quickRefresh && !cachePreferredRetry,
-    persistDiscoveryArtifacts: context.mode === 'LIVE',
-    ignoreMarketPriceCeiling: true,
-    runtimeContext: context.mode === 'LIVE'
-      ? {
-          userId: context.userId,
-          weeklyPeriod,
-          abortSignal: context.abortSignal,
-          deadlineAtMs,
-          stageMetrics: context.stageMetrics
-        }
-      : undefined
-  }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS), 'Weekly discovery initial reserve assembly timeout'), {
-    outputCount: (value) => value.candidates.length
-  });
-  throwIfAborted(context.abortSignal);
-  const targetCount = discovery.hasFullDiscovery ? DISCOVERY_WEEKLY_DROP_SIZE : discovery.candidates.length;
-  const marketContext = {
-    activeChases: discovery.chases,
-    destination: discovery.settings.shippingCountry
-      ? { country: discovery.settings.shippingCountry, postalCode: discovery.settings.shippingPostalCode }
-      : undefined,
-    targetCurrency: discovery.settings.alertCurrency,
-    range: undefined
-  };
-  const activeVault = profileContext.activeChases;
-  const repeatGuardChases = [...discovery.chases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(context.userId))];
-  const freshExcludedNames = uniqueValuesPreservingOrder([
+  const canResumePreparedReserve = context.mode === 'LIVE'
+    && context.regenerateCurrent !== true
+    && isPreparedReserveCompatibleForResume(preparedReserve, profileContext, context.preparationGeneration);
+  let sourceAssemblySkipped = false;
+  let checkpointLoaded = false;
+  let checkpointStage = preparedReserve?.lastCompletedStage ?? 'none';
+  let candidateReserve: DiscoveryCandidate[] = canResumePreparedReserve ? structuredClone(preparedReserve.reserveCandidates) : [];
+  let accumulatedCanonicalLookupEvidence: CanonicalLookupEvidenceMap = canResumePreparedReserve
+    ? cloneCanonicalLookupEvidenceMap(preparedReserve?.canonicalLookupEvidence ?? {})
+    : {};
+  let discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>> | undefined;
+  let baseStageCounts: DiscoveryAssemblyStageDiagnostics;
+  let activeVault = profileContext.activeChases;
+  let repeatGuardChases = [...activeVault];
+  let freshExcludedNames = uniqueValuesPreservingOrder([
     ...previousDropNames,
     ...Array.from(regenerationExclusions.nameKeys)
   ]);
-  const supplementalUniverseTarget = Math.max(targetCount * 8, DISCOVERY_SHELF_PAGE_SIZE * 8);
-  const supplementalCacheTarget = Math.max(targetCount * 6, DISCOVERY_SHELF_PAGE_SIZE * 6);
-  const indexedSupplementalUniverseCandidates = discovery.hasFullDiscovery
+  let marketContext: {
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  };
+
+  if (canResumePreparedReserve) {
+    sourceAssemblySkipped = true;
+    checkpointLoaded = true;
+    baseStageCounts = {
+      rawGeneratedSuggestions: preparedReserve?.reserveCount ?? candidateReserve.length,
+      sourceBackedSuggestions: 0,
+      globalUniverseConsidered: 0,
+      userUniverseConsidered: 0,
+      deduplicatedCandidates: preparedReserve?.reserveCount ?? candidateReserve.length
+    };
+    marketContext = {
+      activeChases: activeVault,
+      destination: profileContext.settings.shippingCountry
+        ? { country: profileContext.settings.shippingCountry, postalCode: profileContext.settings.shippingPostalCode }
+        : undefined,
+      targetCurrency: profileContext.settings.alertCurrency,
+      range: undefined
+    };
+    repeatGuardChases = [...profileContext.tasteProfileChases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(context.userId))];
+  } else {
+    discovery = await runWeeklyDiscoveryStage({
+      userId: context.userId,
+      weeklyPeriod,
+      stage: 'initial-reserve-assembly',
+      inputCount: DISCOVERY_WEEKLY_DROP_SIZE,
+      counters: {
+        quickRefresh,
+        cachePreferredRetry,
+        overallDeadlineMs: deadlineAtMs ? Math.max(0, deadlineAtMs - Date.now()) : null
+      },
+      stageMetrics: context.stageMetrics
+    }, () => withTimeout(discoverCandidatesForUser(context.userId, DISCOVERY_WEEKLY_DROP_SIZE, {
+      preferScheduledDrop: false,
+      saveScheduledDrop: false,
+      scheduledDate: context.date,
+      hydrateScheduledMarketInline: !deferExpensiveHydration,
+      usePersistedState: cachePreferredRetry,
+      ignoreSeenExclusions: true,
+      hardAvoidNames: uniqueValuesPreservingOrder([
+        ...immediatePreviousDropNames,
+        ...Array.from(regenerationExclusions.nameKeys)
+      ]),
+      softAvoidNames: previousDropNames,
+      allowSoftAvoidFiller: context.allowRecentRepeatFiller ?? false,
+      skipSourceCatalogFetch: quickRefresh || (cachePreferredRetry && !allowSourceCatalogForMissingLiveCachedDrop),
+      skipReferenceImageFetch: deferExpensiveHydration,
+      ingestCanonicalUniverse: !quickRefresh && !cachePreferredRetry,
+      persistDiscoveryArtifacts: context.mode === 'LIVE',
+      ignoreMarketPriceCeiling: true,
+      runtimeContext: context.mode === 'LIVE'
+        ? {
+            userId: context.userId,
+            weeklyPeriod,
+            abortSignal: context.abortSignal,
+            deadlineAtMs,
+            stageMetrics: context.stageMetrics
+          }
+        : undefined
+    }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_REFRESH_DEADLINE_MS), 'Weekly discovery initial reserve assembly timeout'), {
+      outputCount: (value) => value.candidates.length
+    });
+    throwIfAborted(context.abortSignal);
+    const targetCount = discovery.hasFullDiscovery ? DISCOVERY_WEEKLY_DROP_SIZE : discovery.candidates.length;
+    marketContext = {
+      activeChases: discovery.chases,
+      destination: discovery.settings.shippingCountry
+        ? { country: discovery.settings.shippingCountry, postalCode: discovery.settings.shippingPostalCode }
+        : undefined,
+      targetCurrency: discovery.settings.alertCurrency,
+      range: undefined
+    };
+    repeatGuardChases = [...discovery.chases, ...repeatGuardTasteMemoryChases(listUserTasteMemoryChases(context.userId))];
+    const supplementalUniverseTarget = Math.max(targetCount * 8, DISCOVERY_SHELF_PAGE_SIZE * 8);
+    const supplementalCacheTarget = Math.max(targetCount * 6, DISCOVERY_SHELF_PAGE_SIZE * 6);
+    const indexedSupplementalUniverseCandidates = discovery.hasFullDiscovery
     ? selectDiscoveryUserUniverseCandidates(
         context.userId,
         freshExcludedNames,
@@ -9702,7 +10075,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       )
     : [];
   const discoverySeedCandidates = weeklyPublicationSeedCandidates(discovery);
-  const carriedPreparedCandidates = preparedReserve?.reserveCandidates ?? [];
+    const carriedPreparedCandidates = preparedReserve?.reserveCandidates ?? [];
   const weeklyCandidatePool = orderCandidatesForCollectorPresentation(
     filterRegenerationExcludedCandidates(uniqueCandidatesByDisplayName([
       ...carriedPreparedCandidates,
@@ -9719,30 +10092,54 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     discovery.negativeProfile,
     discovery.learnedRankContext
   );
-  const baseStageCounts: DiscoveryAssemblyStageDiagnostics = {
-    rawGeneratedSuggestions: discovery.supplyDiagnostics.rawGeneratedSuggestions,
-    sourceBackedSuggestions: discovery.supplyDiagnostics.sourceBackedSuggestions,
-    globalUniverseConsidered:
-      discovery.supplyDiagnostics.globalUniverseConsidered
-      + globalSupplementalUniverseCandidates.length,
-    userUniverseConsidered:
-      discovery.supplyDiagnostics.userUniverseConsidered
-      + indexedSupplementalUniverseCandidates.length,
-    deduplicatedCandidates: weeklyCandidatePool.length
-  };
-  const exactFreshnessOrderedPool = applyExactCardRepeatFreshnessOrdering(weeklyCandidatePool, recentDrops).orderedCandidates;
-  const carryoverCap = context.allowRecentRepeatFiller === true ? Math.max(4, Math.floor(targetCount * 0.2)) : Math.max(2, Math.floor(targetCount * 0.1));
-  let candidateReserve = orderFreshWeeklyPublicationReserve(
-    [],
-    exactFreshnessOrderedPool,
-    recentDrops,
-    targetCount,
-    discovery.tasteProfileChases
-  );
-  if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
-    const freshRescuePool = uniqueCandidatesByDisplayName([
-      ...exactFreshnessOrderedPool,
-      ...backfillMarketReadyDiscoveryCandidates(
+    baseStageCounts = {
+      rawGeneratedSuggestions: discovery.supplyDiagnostics.rawGeneratedSuggestions,
+      sourceBackedSuggestions: discovery.supplyDiagnostics.sourceBackedSuggestions,
+      globalUniverseConsidered:
+        discovery.supplyDiagnostics.globalUniverseConsidered
+        + globalSupplementalUniverseCandidates.length,
+      userUniverseConsidered:
+        discovery.supplyDiagnostics.userUniverseConsidered
+        + indexedSupplementalUniverseCandidates.length,
+      deduplicatedCandidates: weeklyCandidatePool.length
+    };
+    const exactFreshnessOrderedPool = applyExactCardRepeatFreshnessOrdering(weeklyCandidatePool, recentDrops).orderedCandidates;
+    const carryoverCap = context.allowRecentRepeatFiller === true ? Math.max(4, Math.floor(targetCount * 0.2)) : Math.max(2, Math.floor(targetCount * 0.1));
+    candidateReserve = orderFreshWeeklyPublicationReserve(
+      [],
+      exactFreshnessOrderedPool,
+      recentDrops,
+      targetCount,
+      discovery.tasteProfileChases
+    );
+    if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
+      const freshRescuePool = uniqueCandidatesByDisplayName([
+        ...exactFreshnessOrderedPool,
+        ...backfillMarketReadyDiscoveryCandidates(
+          [],
+          marketContext,
+          supplementalCacheTarget,
+          discovery.tasteProfileChases,
+          discovery.profileConfidence,
+          discovery.negativeProfile,
+          repeatGuardChases,
+          uniqueValuesPreservingOrder([
+            ...previousDropNames,
+            ...freshExcludedNames,
+            ...candidateReserve.map((candidate) => candidate.suggestion.name)
+          ])
+        )
+      ]);
+      candidateReserve = orderFreshWeeklyPublicationReserve(
+        candidateReserve,
+        filterRegenerationExcludedCandidates(freshRescuePool, regenerationExclusions),
+        recentDrops,
+        targetCount,
+        discovery.tasteProfileChases
+      );
+    }
+    if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
+      const toppedUpCandidates = backfillMarketReadyDiscoveryCandidates(
         [],
         marketContext,
         supplementalCacheTarget,
@@ -9752,153 +10149,127 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         repeatGuardChases,
         uniqueValuesPreservingOrder([
           ...previousDropNames,
-          ...freshExcludedNames,
           ...candidateReserve.map((candidate) => candidate.suggestion.name)
         ])
-      )
-    ]);
-    candidateReserve = orderFreshWeeklyPublicationReserve(
-      candidateReserve,
-      filterRegenerationExcludedCandidates(freshRescuePool, regenerationExclusions),
-      recentDrops,
-      targetCount,
-      discovery.tasteProfileChases
-    );
-  }
-  if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
-    const toppedUpCandidates = backfillMarketReadyDiscoveryCandidates(
-      [],
-      marketContext,
-      supplementalCacheTarget,
-      discovery.tasteProfileChases,
-      discovery.profileConfidence,
-      discovery.negativeProfile,
-      repeatGuardChases,
-      uniqueValuesPreservingOrder([
-        ...previousDropNames,
-        ...candidateReserve.map((candidate) => candidate.suggestion.name)
-      ])
-    );
-    candidateReserve = orderFreshWeeklyPublicationReserve(
-      candidateReserve,
-      filterRegenerationExcludedCandidates(toppedUpCandidates, regenerationExclusions),
-      recentDrops,
-      targetCount,
-      discovery.tasteProfileChases
-    );
-  }
-  if (candidateReserve.length < targetCount) {
-    candidateReserve = orderScheduledDiscoveryShelfFallbackReserve(
-      candidateReserve,
-      fallbackDrop,
-      targetCount,
-      repeatGuardChases,
-      discovery.tasteProfileChases,
-      { maxImmediateNameCarryovers: carryoverCap }
-    );
-  }
-  logWeeklyDiscoveryStage({
-    event: 'WEEKLY_DISCOVERY_STAGE',
-    userId: context.userId,
-    weeklyPeriod,
-    stage: 'initial-reserve-expansion',
-    status: 'SUCCESS',
-    inputCount: discovery.candidates.length,
-    outputCount: candidateReserve.length,
-    counters: {
-      visibleCandidatesFromDiscovery: discovery.candidates.length,
-      carriedPreparedCandidates: carriedPreparedCandidates.length,
-      reserveCandidatesFromDiscovery: discoverySeedCandidates.length,
-      supplementalUniverseCandidates: supplementalUniverseCandidates.length,
-      supplementalUserUniverseCandidates: indexedSupplementalUniverseCandidates.length,
-      supplementalGlobalUniverseCandidates: globalSupplementalUniverseCandidates.length,
-      supplementalCacheCandidates: supplementalCacheCandidates.length,
-      supplementalTraitCacheCandidates: supplementalTraitCacheCandidates.length,
-      weeklyCandidatePool: weeklyCandidatePool.length,
-      deduplicatedCandidates: baseStageCounts.deduplicatedCandidates
+      );
+      candidateReserve = orderFreshWeeklyPublicationReserve(
+        candidateReserve,
+        filterRegenerationExcludedCandidates(toppedUpCandidates, regenerationExclusions),
+        recentDrops,
+        targetCount,
+        discovery.tasteProfileChases
+      );
     }
-  });
-  if (!deferExpensiveHydration) {
-    const referenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidateReserve.length);
-    const referenceStatsBefore = snapshotDiscoveryReferenceRuntimeStats();
-    candidateReserve = await runWeeklyDiscoveryStage({
-      userId: context.userId,
-      weeklyPeriod,
-      stage: 'initial-reference-hydration',
-      inputCount: candidateReserve.length,
-      stageMetrics: context.stageMetrics
-    }, () => withTimeout(attachReferenceImages(candidateReserve, referenceHydrationDiagnostics), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery reference hydration timeout'), {
-      outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
-    });
+    if (candidateReserve.length < targetCount) {
+      candidateReserve = orderScheduledDiscoveryShelfFallbackReserve(
+        candidateReserve,
+        fallbackDrop,
+        targetCount,
+        repeatGuardChases,
+        discovery.tasteProfileChases,
+        { maxImmediateNameCarryovers: carryoverCap }
+      );
+    }
     logWeeklyDiscoveryStage({
       event: 'WEEKLY_DISCOVERY_STAGE',
       userId: context.userId,
       weeklyPeriod,
-      stage: 'initial-reference-hydration-diagnostics',
+      stage: 'initial-reserve-expansion',
       status: 'SUCCESS',
-      inputCount: referenceHydrationDiagnostics.candidateCount,
-      outputCount: candidateReserve.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length,
+      inputCount: discovery.candidates.length,
+      outputCount: candidateReserve.length,
       counters: {
-        ...referenceHydrationDiagnostics,
-        ...diffDiscoveryReferenceRuntimeStats(referenceStatsBefore, snapshotDiscoveryReferenceRuntimeStats())
+        visibleCandidatesFromDiscovery: discovery.candidates.length,
+        carriedPreparedCandidates: carriedPreparedCandidates.length,
+        reserveCandidatesFromDiscovery: discoverySeedCandidates.length,
+        supplementalUniverseCandidates: supplementalUniverseCandidates.length,
+        supplementalUserUniverseCandidates: indexedSupplementalUniverseCandidates.length,
+        supplementalGlobalUniverseCandidates: globalSupplementalUniverseCandidates.length,
+        supplementalCacheCandidates: supplementalCacheCandidates.length,
+        supplementalTraitCacheCandidates: supplementalTraitCacheCandidates.length,
+        weeklyCandidatePool: weeklyCandidatePool.length,
+        deduplicatedCandidates: baseStageCounts.deduplicatedCandidates
       }
     });
-    throwIfAborted(context.abortSignal);
+    checkpointStage = 'pre-reference-hydration';
+    const preReferenceReadiness = buildWeeklyDiscoverySupplyReadiness(
+      candidateReserve,
+      profileContext.collectorProfile,
+      discovery.settings.alertCurrency,
+      recentDrops,
+      activeVault,
+      baseStageCounts,
+      profileContext.tasteProfileChases
+    );
+    if (context.mode === 'LIVE') {
+      persistWeeklyDiscoveryPreparedReserve(
+        context.userId,
+        weeklyPeriod,
+        context.preparationGeneration ?? 0,
+        candidateReserve,
+        accumulatedCanonicalLookupEvidence,
+        preReferenceReadiness,
+        checkpointStage,
+        profileContext
+      );
+    }
   }
-  const canonicalResolutionStatsBefore = snapshotDiscoveryCanonicalResolutionRuntimeStats();
-  let canonicalResolution;
-  try {
-    canonicalResolution = await runWeeklyDiscoveryStage({
-      userId: context.userId,
-      weeklyPeriod,
-      stage: 'canonical-resolution',
-      inputCount: candidateReserve.length,
-      stageMetrics: context.stageMetrics
-    }, () => withTimeout(resolveWeeklyDiscoveryCanonicalReferences(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS), 'Weekly discovery canonical resolution timeout'), {
-      outputCount: (value) => value.candidates.filter((candidate) => candidate.suggestion.referenceSourceCardId).length
-    });
-  } finally {
-    logWeeklyDiscoveryStage({
-      event: 'WEEKLY_DISCOVERY_STAGE',
-      userId: context.userId,
-      weeklyPeriod,
-      stage: 'canonical-resolution-diagnostics',
-      status: 'SUCCESS',
-      inputCount: candidateReserve.length,
-      counters: diffDiscoveryCanonicalResolutionRuntimeStats(
-        canonicalResolutionStatsBefore,
-        snapshotDiscoveryCanonicalResolutionRuntimeStats()
-      )
-    });
-  }
-  let accumulatedCanonicalLookupEvidence = canonicalResolution.evidence;
-  let canonicalResolvedReserve = canonicalResolution.candidates;
+  let referencePreparationDiagnostics: WeeklyReferencePreparationDiagnostics = {
+    checkpointStage,
+    checkpointLoaded,
+    sourceAssemblySkipped,
+    trustedReferenceCount: countCandidatesWithTrustedCanonicalReference(candidateReserve, marketContext.targetCurrency),
+    unresolvedReferenceCount: countUnresolvedReferenceCandidates(candidateReserve, marketContext.targetCurrency),
+    referenceBatchSize: DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE,
+    referenceBatchesCompleted: 0,
+    referenceRequestsStarted: 0,
+    referenceResolvedThisAttempt: 0,
+    referenceRemaining: countUnresolvedReferenceCandidates(candidateReserve, marketContext.targetCurrency),
+    checkpointSaved: !sourceAssemblySkipped,
+    deadlineExpired: false
+  };
   if (!deferExpensiveHydration) {
-    const expandedMarketCacheDiagnostics = { cacheHits: 0, cacheMisses: 0, refreshQueued: 0, invalidCachedListings: 0, reliableSignalHits: 0 };
-    canonicalResolvedReserve = await runWeeklyDiscoveryStage({
+    const referenceProgress = await hydrateWeeklyDiscoveryReferencesIncrementally({
+      reserve: candidateReserve,
+      canonicalLookupEvidence: accumulatedCanonicalLookupEvidence,
+      profileContext,
+      currency: marketContext.targetCurrency,
+      recentDrops,
+      activeVault,
+      baseStageCounts,
       userId: context.userId,
       weeklyPeriod,
-      stage: 'expanded-reserve-market-cache-load',
-      inputCount: canonicalResolvedReserve.length,
-      counters: expandedMarketCacheDiagnostics,
+      generation: context.preparationGeneration ?? 0,
+      deadlineAtMs,
+      abortSignal: context.abortSignal,
+      checkpointLoaded,
+      sourceAssemblySkipped,
+      initialCheckpointStage: checkpointStage,
+      persistProgress: context.mode === 'LIVE',
       stageMetrics: context.stageMetrics
-    }, () => Promise.resolve(candidatesFromDiscoveryMarketCache(canonicalResolvedReserve, {
-      userId: context.userId,
-      ...marketContext,
-      forceRefreshThinSignal: true,
-      queueRefreshes: false
-    }, expandedMarketCacheDiagnostics)), {
-      outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
     });
+    candidateReserve = referenceProgress.reserve;
+    accumulatedCanonicalLookupEvidence = referenceProgress.canonicalLookupEvidence;
+    referencePreparationDiagnostics = referenceProgress.diagnostics;
+    checkpointStage = referencePreparationDiagnostics.checkpointStage ?? checkpointStage;
   }
+  const discoveryContext = discovery ?? {
+    hasFullDiscovery: profileContext.hasFullDiscovery,
+    chases: activeVault,
+    tasteProfileChases: profileContext.tasteProfileChases,
+    settings: profileContext.settings,
+    profileConfidence: profileContext.profileConfidence,
+    negativeProfile: profileContext.negativeProfile,
+    learnedRankContext: undefined
+  };
   const initialSanitizedReserve = sanitizeWeeklyDiscoveryReserve(
-    filterRegenerationExcludedCandidates(canonicalResolvedReserve, regenerationExclusions),
-    discovery.settings.alertCurrency
+    filterRegenerationExcludedCandidates(candidateReserve, regenerationExclusions),
+    discoveryContext.settings.alertCurrency
   );
   const initialPruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(initialSanitizedReserve.length);
   candidateReserve = prunePublicationImpossibleReserve(
     initialSanitizedReserve,
-    discovery.settings.alertCurrency,
+    discoveryContext.settings.alertCurrency,
     recentDrops,
     activeVault,
     initialPruneDiagnostics
@@ -9908,14 +10279,14 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   let supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
     profileContext.collectorProfile,
-    discovery.settings.alertCurrency,
+    discoveryContext.settings.alertCurrency,
     recentDrops,
     activeVault,
     baseStageCounts,
     profileContext.tasteProfileChases
   );
   let validatedSnapshot: PreparedWeeklyDiscoverySnapshot | null = capturePreparedWeeklyDiscoverySnapshot(
-    buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discovery.settings.alertCurrency),
+    buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discoveryContext.settings.alertCurrency),
     accumulatedCanonicalLookupEvidence,
     'initial-supply-readiness'
   );
@@ -9942,24 +10313,25 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       supplyReadinessBeforeTopOff,
       supplyReadinessAfterTopOff: supplyReadinessBeforeTopOff,
       topOffApplied: false,
+      referencePreparationDiagnostics,
       validatedSnapshot
     };
   }
   if (
     !deferExpensiveHydration
-    && discovery.hasFullDiscovery
+    && discoveryContext.hasFullDiscovery
     && supplyReadinessBeforeTopOff.selectedShortfall === 0
     && supplyReadinessBeforeTopOff.marketResolvedShortfall > 0
     && hasWeeklyOptionalStageBudget(deadlineAtMs)
   ) {
     const marketShortfallTargets = selectMarketShortfallHydrationTargets(
       candidateReserve,
-      discovery.settings.alertCurrency,
+      discoveryContext.settings.alertCurrency,
       recentDrops,
       activeVault,
-      discovery.tasteProfileChases
+      discoveryContext.tasteProfileChases
     )
-      .filter((candidate) => candidateMarketStatus(candidate, discovery.settings.alertCurrency) !== 'READY')
+      .filter((candidate) => candidateMarketStatus(candidate, discoveryContext.settings.alertCurrency) !== 'READY')
       .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 2, supplyReadinessBeforeTopOff.marketResolvedShortfall * 4)));
     const marketShortfallTargetKeys = new Set(marketShortfallTargets.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
     if (marketShortfallTargetKeys.size > 0) {
@@ -9985,14 +10357,14 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         forceHydrateMissingMarket: true,
         stopWhen: (nextCandidates) =>
           buildWeeklyDiscoverySupplyReadiness(
-            prunePublicationImpossibleReserve(
-              sanitizeWeeklyDiscoveryReserve(nextCandidates, discovery.settings.alertCurrency),
-              discovery.settings.alertCurrency,
-              recentDrops,
-              activeVault
+              prunePublicationImpossibleReserve(
+                sanitizeWeeklyDiscoveryReserve(nextCandidates, discoveryContext.settings.alertCurrency),
+                discoveryContext.settings.alertCurrency,
+                recentDrops,
+                activeVault
             ),
             profileContext.collectorProfile,
-            discovery.settings.alertCurrency,
+            discoveryContext.settings.alertCurrency,
             recentDrops,
             activeVault,
             baseStageCounts,
@@ -10001,11 +10373,11 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
       });
-      const hydratedSanitizedReserve = sanitizeWeeklyDiscoveryReserve(candidateReserve, discovery.settings.alertCurrency);
+      const hydratedSanitizedReserve = sanitizeWeeklyDiscoveryReserve(candidateReserve, discoveryContext.settings.alertCurrency);
       const hydratedPruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(hydratedSanitizedReserve.length);
       candidateReserve = prunePublicationImpossibleReserve(
         hydratedSanitizedReserve,
-        discovery.settings.alertCurrency,
+        discoveryContext.settings.alertCurrency,
         recentDrops,
         activeVault,
         hydratedPruneDiagnostics
@@ -10014,7 +10386,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
         candidateReserve,
         profileContext.collectorProfile,
-        discovery.settings.alertCurrency,
+        discoveryContext.settings.alertCurrency,
         recentDrops,
         activeVault,
         baseStageCounts,
@@ -10061,8 +10433,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   });
   let topOffApplied = false;
   let finalStageCounts = baseStageCounts;
-  let finalCanonicalResolution = canonicalResolution;
-  if (discovery.hasFullDiscovery && supplyReadinessBeforeTopOff.shouldTopOff && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
+  if (discoveryContext.hasFullDiscovery && supplyReadinessBeforeTopOff.shouldTopOff && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const topOff = await runWeeklyDiscoveryStage({
       userId: context.userId,
       weeklyPeriod,
@@ -10077,7 +10448,15 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       stageMetrics: context.stageMetrics
     }, () => expandWeeklyDiscoveryCanonicalSupplyTopOff({
       userId: context.userId,
-      discovery,
+      discovery: discovery ?? {
+        hasFullDiscovery: discoveryContext.hasFullDiscovery,
+        chases: discoveryContext.chases,
+        tasteProfileChases: discoveryContext.tasteProfileChases,
+        settings: discoveryContext.settings,
+        profileConfidence: discoveryContext.profileConfidence,
+        negativeProfile: discoveryContext.negativeProfile,
+        learnedRankContext: discoveryContext.learnedRankContext
+      } as Awaited<ReturnType<typeof discoverCandidatesForUser>>,
       currentReserve: candidateReserve,
       readiness: supplyReadinessBeforeTopOff,
       recentDrops,
@@ -10114,10 +10493,10 @@ export async function buildWeeklyDiscoveryFinalizationInput(
           ...candidateReserve,
           ...topOff.candidates
         ]), regenerationExclusions),
-        discovery.tasteProfileChases,
+        discoveryContext.tasteProfileChases,
         Math.max(candidateReserve.length + topOff.candidates.length, DISCOVERY_CANDIDATE_POOL_SIZE),
-        discovery.negativeProfile,
-        discovery.learnedRankContext
+        discoveryContext.negativeProfile,
+        discoveryContext.learnedRankContext
       );
       const expandedFreshPool = applyExactCardRepeatFreshnessOrdering(expandedPool, recentDrops).orderedCandidates;
       candidateReserve = orderFreshWeeklyPublicationReserve(
@@ -10125,7 +10504,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         expandedFreshPool,
         recentDrops,
         expandedFreshPool.length,
-        discovery.tasteProfileChases
+        discoveryContext.tasteProfileChases
       );
       if (!deferExpensiveHydration) {
         const topOffReferenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidateReserve.length);
@@ -10136,7 +10515,10 @@ export async function buildWeeklyDiscoveryFinalizationInput(
           stage: 'topoff-reference-hydration',
           inputCount: candidateReserve.length,
           stageMetrics: context.stageMetrics
-        }, () => withTimeout(attachReferenceImages(candidateReserve, topOffReferenceHydrationDiagnostics), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery topoff reference hydration timeout'), {
+        }, () => withTimeout(attachReferenceImages(candidateReserve, topOffReferenceHydrationDiagnostics, {
+          abortSignal: context.abortSignal,
+          deadlineAtMs
+        }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery topoff reference hydration timeout'), {
           outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
         });
         logWeeklyDiscoveryStage({
@@ -10155,6 +10537,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         throwIfAborted(context.abortSignal);
       }
       const topoffCanonicalResolutionStatsBefore = snapshotDiscoveryCanonicalResolutionRuntimeStats();
+      let finalCanonicalResolution;
       try {
         finalCanonicalResolution = await runWeeklyDiscoveryStage({
           userId: context.userId,
@@ -10162,7 +10545,11 @@ export async function buildWeeklyDiscoveryFinalizationInput(
           stage: 'topoff-canonical-rebinding',
           inputCount: candidateReserve.length,
           stageMetrics: context.stageMetrics
-        }, () => withTimeout(resolveWeeklyDiscoveryCanonicalReferences(candidateReserve), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS), 'Weekly discovery topoff canonical rebinding timeout'), {
+        }, () => resolveWeeklyDiscoveryCanonicalReferences(candidateReserve, {
+          replayEvidence: accumulatedCanonicalLookupEvidence,
+          abortSignal: context.abortSignal,
+          deadlineAtMs
+        }), {
           outputCount: (value) => value.candidates.filter((candidate) => candidate.suggestion.referenceSourceCardId).length
         });
       } finally {
@@ -10181,9 +10568,9 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       }
       accumulatedCanonicalLookupEvidence = mergeCanonicalLookupEvidenceMaps(
         accumulatedCanonicalLookupEvidence,
-        finalCanonicalResolution.evidence
+        finalCanonicalResolution?.evidence
       );
-      let topOffCanonicalResolvedReserve = finalCanonicalResolution.candidates;
+      let topOffCanonicalResolvedReserve = finalCanonicalResolution?.candidates ?? candidateReserve;
       if (!deferExpensiveHydration) {
         const topOffMarketCacheDiagnostics = { cacheHits: 0, cacheMisses: 0, refreshQueued: 0, invalidCachedListings: 0, reliableSignalHits: 0 };
         topOffCanonicalResolvedReserve = await runWeeklyDiscoveryStage({
@@ -10204,12 +10591,12 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       }
       const topOffSanitizedReserve = sanitizeWeeklyDiscoveryReserve(
         filterRegenerationExcludedCandidates(topOffCanonicalResolvedReserve, regenerationExclusions),
-        discovery.settings.alertCurrency
+        discoveryContext.settings.alertCurrency
       );
       const topOffPruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(topOffSanitizedReserve.length);
       candidateReserve = prunePublicationImpossibleReserve(
         topOffSanitizedReserve,
-        discovery.settings.alertCurrency,
+        discoveryContext.settings.alertCurrency,
         recentDrops,
         activeVault,
         topOffPruneDiagnostics
@@ -10221,21 +10608,21 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   let supplyReadinessAfterTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
     profileContext.collectorProfile,
-    discovery.settings.alertCurrency,
+    discoveryContext.settings.alertCurrency,
     recentDrops,
     activeVault,
     finalStageCounts,
     profileContext.tasteProfileChases
   );
-  if (!deferExpensiveHydration && discovery.hasFullDiscovery && supplyReadinessAfterTopOff.marketResolvedShortfall > 0 && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
+  if (!deferExpensiveHydration && discoveryContext.hasFullDiscovery && supplyReadinessAfterTopOff.marketResolvedShortfall > 0 && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const marketShortfallTargets = selectMarketShortfallHydrationTargets(
       candidateReserve,
-      discovery.settings.alertCurrency,
+      discoveryContext.settings.alertCurrency,
       recentDrops,
       activeVault,
-      discovery.tasteProfileChases
+      discoveryContext.tasteProfileChases
     )
-      .filter((candidate) => candidateMarketStatus(candidate, discovery.settings.alertCurrency) !== 'READY')
+      .filter((candidate) => candidateMarketStatus(candidate, discoveryContext.settings.alertCurrency) !== 'READY')
       .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 2, supplyReadinessAfterTopOff.marketResolvedShortfall * 4)));
     const marketShortfallTargetKeys = new Set(marketShortfallTargets.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
     if (marketShortfallTargetKeys.size > 0) {
@@ -10262,13 +10649,13 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         stopWhen: (nextCandidates) =>
           buildWeeklyDiscoverySupplyReadiness(
               prunePublicationImpossibleReserve(
-                sanitizeWeeklyDiscoveryReserve(nextCandidates, discovery.settings.alertCurrency),
-                discovery.settings.alertCurrency,
+                sanitizeWeeklyDiscoveryReserve(nextCandidates, discoveryContext.settings.alertCurrency),
+                discoveryContext.settings.alertCurrency,
                 recentDrops,
                 activeVault
             ),
             profileContext.collectorProfile,
-            discovery.settings.alertCurrency,
+            discoveryContext.settings.alertCurrency,
             recentDrops,
             activeVault,
             finalStageCounts,
@@ -10279,12 +10666,12 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       });
       const postHydrationSanitizedReserve = sanitizeWeeklyDiscoveryReserve(
         filterRegenerationExcludedCandidates(candidateReserve, regenerationExclusions),
-        discovery.settings.alertCurrency
+        discoveryContext.settings.alertCurrency
       );
       const postHydrationPruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(postHydrationSanitizedReserve.length);
       candidateReserve = prunePublicationImpossibleReserve(
         postHydrationSanitizedReserve,
-        discovery.settings.alertCurrency,
+        discoveryContext.settings.alertCurrency,
         recentDrops,
         activeVault,
         postHydrationPruneDiagnostics
@@ -10293,7 +10680,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       supplyReadinessAfterTopOff = buildWeeklyDiscoverySupplyReadiness(
         candidateReserve,
         profileContext.collectorProfile,
-        discovery.settings.alertCurrency,
+        discoveryContext.settings.alertCurrency,
         recentDrops,
         activeVault,
         finalStageCounts,
@@ -10339,7 +10726,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     }
   });
   validatedSnapshot = capturePreparedWeeklyDiscoverySnapshot(
-    buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discovery.settings.alertCurrency),
+    buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discoveryContext.settings.alertCurrency),
     accumulatedCanonicalLookupEvidence,
     topOffApplied ? 'post-topoff-supply-readiness' : 'post-initial-supply-readiness'
   );
@@ -10357,7 +10744,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   }
 
   return {
-    input: validatedSnapshot?.input ?? buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discovery.settings.alertCurrency),
+    input: validatedSnapshot?.input ?? buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discoveryContext.settings.alertCurrency),
     canonicalLookupEvidence: accumulatedCanonicalLookupEvidence,
     profileContext,
     discovery,
@@ -10366,6 +10753,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     supplyReadinessBeforeTopOff,
     supplyReadinessAfterTopOff,
     topOffApplied,
+    referencePreparationDiagnostics,
     validatedSnapshot: validatedSnapshot ?? undefined
   };
 }
@@ -11371,6 +11759,17 @@ export async function prepareWeeklyDiscoveryDropForUser(
     clearTimeout(timeoutHandle);
     const message = error instanceof Error ? error.message : String(error);
     const stageSummary = summarizeWeeklyStageMetrics(stageMetrics);
+    const failurePreparedReserve = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>(userId, periodKey);
+    const diagnostics = weeklyPreparationDiagnosticsFromPreparedReserve(
+      failurePreparedReserve,
+      options.regenerateCurrent === true,
+      existing?.itemCount ?? 0,
+      {
+        sourceAssemblySkipped: cachePreferredRetry,
+        deadlineExpired: overallAbortController.signal.aborted || /deadline exceeded/i.test(message),
+        retainedPreviousShelf: !!existing
+      }
+    );
     return {
       outcome: 'RETRYABLE_FAILURE',
       code: overallAbortController.signal.aborted || /deadline exceeded/i.test(message)
@@ -11381,7 +11780,8 @@ export async function prepareWeeklyDiscoveryDropForUser(
       summary: stageSummary ? `${message} (${stageSummary})` : message,
       itemCount: existing?.itemCount ?? 0,
       hasFullDiscovery,
-      prepared: false
+      prepared: false,
+      diagnostics
     };
   }
   clearTimeout(timeoutHandle);
@@ -11403,7 +11803,9 @@ export async function prepareWeeklyDiscoveryDropForUser(
     assembled.supplyReadinessAfterTopOff,
     candidateReserve.length,
     options.regenerateCurrent === true,
-    assembled.existingDrop?.itemCount ?? 0
+    assembled.existingDrop?.itemCount ?? 0,
+    undefined,
+    assembled.referencePreparationDiagnostics
   );
   const immutablePreparedInput = cloneWeeklyDiscoveryFinalizationInput(assembled.input);
   const immutablePreparedEvidence = cloneCanonicalLookupEvidenceMap(assembled.canonicalLookupEvidence);
