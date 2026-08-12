@@ -258,6 +258,40 @@ describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('aborts an in-flight canonical provider fetch without starting follow-up variants', async () => {
+    const controller = new AbortController();
+    let aborted = false;
+    let fetchCalls = 0;
+    vi.stubGlobal('fetch', vi.fn((input: string | URL, init?: RequestInit) => {
+      fetchCalls += 1;
+      const signal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          aborted = true;
+          const error = new Error(`aborted:${String(input)}`);
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      });
+    }));
+
+    const unresolved = candidate('Mew Expedition Base Set 55');
+    unresolved.suggestion.referenceSourceCardId = 'exp1-55';
+    const resolutionPromise = resolveWeeklyDiscoveryCanonicalReferences([unresolved], {
+      abortSignal: controller.signal,
+      deadlineAtMs: Date.now() + 1_000
+    });
+
+    await Promise.resolve();
+    controller.abort();
+
+    await expect(resolutionPromise).rejects.toMatchObject({ name: 'AbortError' });
+    await Promise.resolve();
+
+    expect(aborted).toBe(true);
+    expect(fetchCalls).toBe(1);
+  });
+
   it('does not reuse conflicting replay evidence across a different printing identity', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new Error('fetch should not be called in replay mode');

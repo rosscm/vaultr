@@ -7319,6 +7319,363 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
   });
 
+  it('hydrates top-off references in bounded batches and persists progress with the top-off stage', async () => {
+    const userId = `weekly-topoff-reference-${Date.now()}`;
+    const periodKey = '2026-W32';
+    const tasteSignals = [
+      chase('Mew RC24', 1),
+      chase('Umbreon XY96', 2),
+      chase('Squirtle Expedition Base Set 132', 3),
+      chase('Gardevoir ex Paldean Fates 233', 4)
+    ];
+    const reserve = [
+      ...publishableShelfCandidates(8, (candidate, index) => ({
+        ...candidate,
+        suggestion: {
+          ...candidate.suggestion,
+          name: `Topoff Trusted ${index + 1}`,
+          referenceSourceCardId: `topoff-trusted-${index + 1}`,
+          referenceSourceName: 'Pokemon TCG (Card)',
+          referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Card)', `topoff-trusted-${index + 1}`)
+        },
+        image: {
+          ...candidate.image!,
+          url: trustedReferenceImageUrl('Pokemon TCG (Card)', `topoff-trusted-${index + 1}`),
+          sourceName: 'Pokemon TCG (Card)',
+          sourceCardId: `topoff-trusted-${index + 1}`,
+          sourceKind: 'CARD_REFERENCE' as const
+        },
+        weeklyDiscovery: {
+          canonicalReference: {
+            provider: 'Pokemon TCG',
+            sourceCardId: `topoff-trusted-${index + 1}`,
+            canonicalCardId: `topoff-trusted-${index + 1}`,
+            canonicalName: `Topoff Trusted ${index + 1}`,
+            setName: 'Test Set',
+            cardNumber: String(index + 1),
+            language: 'ENGLISH',
+            imageUrl: trustedReferenceImageUrl('Pokemon TCG (Card)', `topoff-trusted-${index + 1}`)
+          }
+        },
+        typicalRawSoldTotal: 90 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      })),
+      ...Array.from({ length: 36 }, (_, index) => ({
+        ...unresolvedSourceCandidate(`Topoff Pending ${index + 1}`, `topoff-pending-${index + 1}`, 'Pokemon TCG (Card)', 100 + index),
+        typicalRawSoldTotal: 120 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }))
+    ];
+    const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) =>
+      mockedReferenceCacheEntry(
+        suggestion.name,
+        suggestion.referenceSourceCardId ?? suggestion.name,
+        suggestion.referenceSourceName ?? 'Pokemon TCG (Card)'
+      )
+    );
+
+    const result = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
+      reserve,
+      canonicalLookupEvidence: {},
+      profileContext: {
+        hasFullDiscovery: true,
+        settings: { alertCurrency: 'CAD' },
+        activeChases: tasteSignals,
+        tasteProfileChases: tasteSignals,
+        profileConfidence: strongProfileConfidence,
+        negativeProfile: discoveryNegativeProfile([], tasteSignals),
+        collectorProfile: buildCollectorTasteProfile(tasteSignals, { budgetPreferenceCad: 30 }),
+        priorShelfHistory: [],
+        sourceFingerprint: 'topoff-bounded-test'
+      } as any,
+      currency: 'CAD',
+      recentDrops: [],
+      activeVault: tasteSignals,
+      baseStageCounts: {
+        rawGeneratedSuggestions: reserve.length,
+        sourceBackedSuggestions: reserve.length,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: reserve.length,
+        deduplicatedCandidates: reserve.length
+      },
+      userId,
+      weeklyPeriod: periodKey,
+      generation: 1,
+      persistProgress: true,
+      checkpointLoaded: true,
+      sourceAssemblySkipped: true,
+      initialCheckpointStage: 'initial-supply-readiness',
+      hydrationStageName: 'topoff-reference-hydration-batch',
+      canonicalStageName: 'topoff-reference-canonical-batch',
+      progressStageName: 'post-topoff-reference-hydration'
+    });
+
+    const checkpoint = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, Record<string, unknown>>(userId, periodKey);
+    expect(result.diagnostics.referenceBatchesCompleted).toBe(1);
+    expect(result.diagnostics.referenceRequestsStarted).toBe(result.diagnostics.referenceBatchSize);
+    expect(result.diagnostics.referenceRequestsStarted).toBeLessThan(36);
+    expect(fetchSpy).toHaveBeenCalledTimes(result.diagnostics.referenceRequestsStarted);
+    expect(checkpoint?.lastCompletedStage).toBe('post-topoff-reference-hydration');
+    deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
+  });
+
+  it('resumes top-off reference preparation without repeating already resolved work', async () => {
+    const userId = `weekly-topoff-resume-${Date.now()}`;
+    const periodKey = '2026-W32';
+    const tasteSignals = [
+      chase('Mew RC24', 1),
+      chase('Umbreon XY96', 2),
+      chase('Squirtle Expedition Base Set 132', 3),
+      chase('Gardevoir ex Paldean Fates 233', 4)
+    ];
+    const reserve = Array.from({ length: 24 }, (_, index) => ({
+      ...unresolvedSourceCandidate(`Topoff Resume ${index + 1}`, `topoff-resume-${index + 1}`, 'Pokemon TCG (Card)', index),
+      typicalRawSoldTotal: 100 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    let fetchCount = 0;
+    const fetchCalls: string[] = [];
+    const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) => {
+      fetchCount += 1;
+      fetchCalls.push(suggestion.name);
+      if (fetchCount === 13) {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        throw error;
+      }
+      return mockedReferenceCacheEntry(
+        suggestion.name,
+        suggestion.referenceSourceCardId ?? suggestion.name,
+        suggestion.referenceSourceName ?? 'Pokemon TCG (Card)'
+      );
+    });
+
+    await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
+      reserve,
+      canonicalLookupEvidence: {},
+      profileContext: {
+        hasFullDiscovery: true,
+        settings: { alertCurrency: 'CAD' },
+        activeChases: tasteSignals,
+        tasteProfileChases: tasteSignals,
+        profileConfidence: strongProfileConfidence,
+        negativeProfile: discoveryNegativeProfile([], tasteSignals),
+        collectorProfile: buildCollectorTasteProfile(tasteSignals, { budgetPreferenceCad: 30 }),
+        priorShelfHistory: [],
+        sourceFingerprint: 'topoff-resume-test'
+      } as any,
+      currency: 'CAD',
+      recentDrops: [],
+      activeVault: tasteSignals,
+      baseStageCounts: {
+        rawGeneratedSuggestions: reserve.length,
+        sourceBackedSuggestions: reserve.length,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: reserve.length,
+        deduplicatedCandidates: reserve.length
+      },
+      userId,
+      weeklyPeriod: periodKey,
+      generation: 1,
+      persistProgress: true,
+      checkpointLoaded: false,
+      sourceAssemblySkipped: false,
+      initialCheckpointStage: 'initial-supply-readiness',
+      hydrationStageName: 'topoff-reference-hydration-batch',
+      canonicalStageName: 'topoff-reference-canonical-batch',
+      progressStageName: 'post-topoff-reference-hydration'
+    });
+
+    const checkpoint = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, Record<string, unknown>>(userId, periodKey);
+    fetchCount = 0;
+    fetchCalls.length = 0;
+    fetchSpy.mockImplementation(async (suggestion) =>
+      mockedReferenceCacheEntry(
+        suggestion.name,
+        suggestion.referenceSourceCardId ?? suggestion.name,
+        suggestion.referenceSourceName ?? 'Pokemon TCG (Card)'
+      )
+    );
+
+    const resumed = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
+      reserve: checkpoint?.reserveCandidates ?? [],
+      canonicalLookupEvidence: {},
+      profileContext: {
+        hasFullDiscovery: true,
+        settings: { alertCurrency: 'CAD' },
+        activeChases: tasteSignals,
+        tasteProfileChases: tasteSignals,
+        profileConfidence: strongProfileConfidence,
+        negativeProfile: discoveryNegativeProfile([], tasteSignals),
+        collectorProfile: buildCollectorTasteProfile(tasteSignals, { budgetPreferenceCad: 30 }),
+        priorShelfHistory: [],
+        sourceFingerprint: 'topoff-resume-test'
+      } as any,
+      currency: 'CAD',
+      recentDrops: [],
+      activeVault: tasteSignals,
+      baseStageCounts: {
+        rawGeneratedSuggestions: reserve.length,
+        sourceBackedSuggestions: reserve.length,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: reserve.length,
+        deduplicatedCandidates: reserve.length
+      },
+      userId,
+      weeklyPeriod: periodKey,
+      generation: 1,
+      persistProgress: true,
+      checkpointLoaded: true,
+      sourceAssemblySkipped: true,
+      initialCheckpointStage: checkpoint?.lastCompletedStage ?? 'post-topoff-reference-hydration',
+      hydrationStageName: 'topoff-reference-hydration-batch',
+      canonicalStageName: 'topoff-reference-canonical-batch',
+      progressStageName: 'post-topoff-reference-hydration'
+    });
+
+    expect(checkpoint?.lastCompletedStage).toBe('post-topoff-reference-hydration');
+    expect(fetchCalls.some((name) => name === 'Topoff Resume 1')).toBe(false);
+    expect(resumed.diagnostics.checkpointLoaded).toBe(true);
+    deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
+  });
+
+  it('does not reuse a stale prepared reserve in the early local-finalization fast path', async () => {
+    const userId = `weekly-prepared-fingerprint-${Date.now()}`;
+    const periodKey = '2026-W32';
+    const date = new Date('2026-08-04T12:00:00.000Z');
+    setUserPlan(userId, 'PRO');
+    for (const [index, cardName] of ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].entries()) {
+      addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'HIGH' });
+    }
+    const seededUniverseCandidates: DiscoveryCandidate[] = Array.from({ length: 24 }, (_, index) => ({
+      ...publishableSourceCandidate(`Fresh Fingerprint ${index + 1}`, `fresh-fingerprint-${index + 1}`, 'Pokemon TCG (Test Set)', index),
+      typicalRawSoldTotal: 100 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    replaceDiscoveryUserUniverseCards(userId, seededUniverseCandidates.map((candidate, index) => ({
+      userId,
+      cardKey: candidate.suggestion.referenceSourceCardId ?? `fresh-fingerprint-${index}`,
+      canonicalName: candidate.suggestion.name,
+      score: 250 - index,
+      scoreComponents: { seeded: 1 },
+      suggestion: candidate.suggestion,
+      imageUrl: candidate.image?.url,
+      imageSourceName: candidate.image?.sourceName,
+      sourceCardId: candidate.image?.sourceCardId,
+      marketTotal: candidate.typicalRawSoldTotal ?? 100 + index,
+      marketCurrency: candidate.displayCurrency ?? 'CAD'
+    })));
+    vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
+
+    await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date,
+      mode: 'LIVE',
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false,
+      preparationGeneration: 1
+    });
+    const currentFingerprint = getWeeklyDiscoveryPreparedReserve(userId, periodKey)?.sourceFingerprint;
+    expect(currentFingerprint).toBeTruthy();
+
+    const preparedReserve = publishableShelfCandidates(20, (candidate, index) => ({
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        name: `Prepared Fast Path ${index + 1}`,
+        referenceSourceCardId: `prepared-fast-${index + 1}`,
+        referenceSourceName: 'Pokemon TCG (Prepared)'
+      },
+      image: {
+        ...candidate.image!,
+        url: trustedReferenceImageUrl('Pokemon TCG (Prepared)', `prepared-fast-${index + 1}`),
+        sourceName: 'Pokemon TCG (Prepared)',
+        sourceCardId: `prepared-fast-${index + 1}`,
+        sourceKind: 'CARD_REFERENCE' as const
+      },
+      typicalRawSoldTotal: 80 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    upsertWeeklyDiscoveryPreparedReserve({
+      userId,
+      periodKey,
+      preparationGeneration: 1,
+      reserveCandidates: preparedReserve,
+      canonicalLookupEvidence: {},
+      reserveCount: preparedReserve.length,
+      canonicalReadyCount: preparedReserve.length,
+      imageReadyCount: preparedReserve.length,
+      marketReadyCount: preparedReserve.length,
+      personallyDefensibleCount: preparedReserve.length,
+      projectedSelectableCount: 20,
+      projectedMarketResolvedCount: 20,
+      viableAlternativeCount: 0,
+      pendingMarketJobCount: 0,
+      failedMarketJobCount: 0,
+      blockingShortages: [],
+      lastCompletedStage: 'initial-supply-readiness',
+      sourceFingerprint: currentFingerprint,
+      lastMeaningfulProgressAt: date.toISOString()
+    });
+
+    const compatibleSourceResolver = vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockRejectedValue(new Error('compatible reserve should stay local'));
+    const compatibleBuilt = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date,
+      mode: 'LIVE',
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false,
+      preparationGeneration: 1
+    });
+    expect(compatibleSourceResolver).not.toHaveBeenCalled();
+    expect(compatibleBuilt.input.orderedCandidateReserve[0]?.suggestion.name).toBe('Prepared Fast Path 1');
+
+    compatibleSourceResolver.mockReset();
+    compatibleSourceResolver.mockResolvedValue({ suggestions: [] });
+    upsertWeeklyDiscoveryPreparedReserve({
+      userId,
+      periodKey,
+      preparationGeneration: 1,
+      reserveCandidates: preparedReserve,
+      canonicalLookupEvidence: {},
+      reserveCount: preparedReserve.length,
+      canonicalReadyCount: preparedReserve.length,
+      imageReadyCount: preparedReserve.length,
+      marketReadyCount: preparedReserve.length,
+      personallyDefensibleCount: preparedReserve.length,
+      projectedSelectableCount: 20,
+      projectedMarketResolvedCount: 20,
+      viableAlternativeCount: 0,
+      pendingMarketJobCount: 0,
+      failedMarketJobCount: 0,
+      blockingShortages: [],
+      lastCompletedStage: 'initial-supply-readiness',
+      sourceFingerprint: 'stale-fingerprint',
+      lastMeaningfulProgressAt: date.toISOString()
+    });
+
+    const staleBuilt = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date,
+      mode: 'LIVE',
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false,
+      preparationGeneration: 1
+    });
+
+    expect(staleBuilt.referencePreparationDiagnostics.checkpointLoaded).toBe(false);
+    expect(staleBuilt.input.orderedCandidateReserve[0]?.suggestion.name).toBe('Fresh Fingerprint 1');
+
+    replaceDiscoveryUserUniverseCards(userId, []);
+    deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
+    removeAllChases(userId);
+  });
+
   it('replay fixtures stay deterministic, and live release fixtures pass the structural gate', () => {
     for (const name of ['w29-sanitized.json', 'w30-live-success-sanitized.json', 'w31-live-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
       const fixture = replayFixture(name);

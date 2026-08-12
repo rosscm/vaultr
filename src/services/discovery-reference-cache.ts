@@ -456,13 +456,13 @@ async function fetchJsonWithTimeoutAndSignal(url: string, timeoutMs: number, sig
   }
 }
 
-async function fetchPokemonCards(query: string, pageSize: number): Promise<PokemonTcgCard[]> {
+async function fetchPokemonCards(query: string, pageSize: number, signal?: AbortSignal): Promise<PokemonTcgCard[]> {
   const params = new URLSearchParams({
     q: query,
     pageSize: String(pageSize),
     select: 'id,name,number,nationalPokedexNumbers,set,images'
   });
-  const json = await fetchJsonWithTimeout(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS);
+  const json = await fetchJsonWithTimeoutAndSignal(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS, signal);
   return Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [];
 }
 
@@ -482,15 +482,15 @@ function pokemonIdentityMatches(card: PokemonTcgCard, term: string): boolean {
   return normalizeSimpleName(card.name ?? '') === normalizeSimpleName(term);
 }
 
-async function fetchTcgDexJapaneseSummariesByDexId(dexId: number): Promise<TcgDexCardSummary[]> {
+async function fetchTcgDexJapaneseSummariesByDexId(dexId: number, signal?: AbortSignal): Promise<TcgDexCardSummary[]> {
   const params = new URLSearchParams({ dexId: String(dexId) });
-  const json = await fetchJsonWithTimeout(`${TCGDEX_JA_CARDS_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS);
+  const json = await fetchJsonWithTimeoutAndSignal(`${TCGDEX_JA_CARDS_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS, signal);
   return Array.isArray(json) ? (json as TcgDexCardSummary[]) : [];
 }
 
-async function fetchTcgDexJapaneseSummariesByName(name: string): Promise<TcgDexCardSummary[]> {
+async function fetchTcgDexJapaneseSummariesByName(name: string, signal?: AbortSignal): Promise<TcgDexCardSummary[]> {
   const params = new URLSearchParams({ name });
-  const json = await fetchJsonWithTimeout(`${TCGDEX_JA_CARDS_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS);
+  const json = await fetchJsonWithTimeoutAndSignal(`${TCGDEX_JA_CARDS_ENDPOINT}?${params.toString()}`, REFERENCE_FETCH_TIMEOUT_MS, signal);
   return Array.isArray(json) ? (json as TcgDexCardSummary[]) : [];
 }
 
@@ -513,7 +513,7 @@ function referenceFromTcgDexSummary(summary: TcgDexCardSummary, suggestionName: 
   };
 }
 
-async function fetchJapaneseReferenceImage(suggestion: DiscoverySuggestion): Promise<DiscoveryReferenceCacheEntry | null> {
+async function fetchJapaneseReferenceImage(suggestion: DiscoverySuggestion, signal?: AbortSignal): Promise<DiscoveryReferenceCacheEntry | null> {
   if (!isJapaneseReferenceSuggestion(suggestion)) return null;
   const sourceText = [suggestion.name, suggestion.evidenceSearchTerm, ...(suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
   const localId = referenceLocalId(sourceText);
@@ -522,7 +522,7 @@ async function fetchJapaneseReferenceImage(suggestion: DiscoverySuggestion): Pro
   const identityName = leadingName(suggestion.name) || leadingName(sourceText);
   if (!identityName) return null;
 
-  const pokemonCards = await fetchPokemonCards(`name:${quoted(identityName)}`, 5).catch(() => []);
+  const pokemonCards = await fetchPokemonCards(`name:${quoted(identityName)}`, 5, signal).catch(() => []);
   const dexIds = [...new Set(
     pokemonCards
       .filter((card) => pokemonIdentityMatches(card, identityName))
@@ -532,7 +532,9 @@ async function fetchJapaneseReferenceImage(suggestion: DiscoverySuggestion): Pro
 
   const summaries = (
     await Promise.all(
-      (dexIds.length > 0 ? dexIds.slice(0, 3).map((dexId) => fetchTcgDexJapaneseSummariesByDexId(dexId).catch(() => [])) : [fetchTcgDexJapaneseSummariesByName(identityName).catch(() => [])])
+      dexIds.length > 0
+        ? dexIds.slice(0, 3).map((dexId) => fetchTcgDexJapaneseSummariesByDexId(dexId, signal).catch(() => []))
+        : [fetchTcgDexJapaneseSummariesByName(identityName, signal).catch(() => [])]
     )
   ).flat();
 
@@ -712,13 +714,13 @@ function referenceFromCard(card: PokemonTcgCard, suggestionName: string, fallbac
   };
 }
 
-async function fetchOnePieceReferenceImage(suggestion: DiscoverySuggestion): Promise<DiscoveryReferenceCacheEntry | null> {
+async function fetchOnePieceReferenceImage(suggestion: DiscoverySuggestion, signal?: AbortSignal): Promise<DiscoveryReferenceCacheEntry | null> {
   const cacheKey = discoveryReferenceCacheKey(suggestion.name);
   const candidates = onePieceCardImageCandidatesForSuggestion(suggestion);
   if (candidates.length === 0) return null;
 
   for (const imageUrl of candidates) {
-    if (!(await imageExistsWithTimeout(imageUrl, REFERENCE_FETCH_TIMEOUT_MS))) continue;
+    if (!(await imageExistsWithTimeout(imageUrl, REFERENCE_FETCH_TIMEOUT_MS, signal))) continue;
     const sourceCardId = /\/([^/]+)\.png$/i.exec(imageUrl)?.[1];
     const now = new Date().toISOString();
     return {
@@ -767,7 +769,7 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
 
   if (isOnePieceReferenceSuggestion(suggestion)) {
     try {
-      const onePieceReference = await fetchOnePieceReferenceImage(suggestion);
+      const onePieceReference = await fetchOnePieceReferenceImage(suggestion, signal);
       if (onePieceReference) {
         if (onePieceReference.imageUrl) discoveryReferenceRuntimeStats.providerResolved += 1;
         else if (onePieceReference.sourceStatus === 'NOT_FOUND') discoveryReferenceRuntimeStats.providerNotFound += 1;
@@ -787,7 +789,7 @@ export async function fetchDiscoveryReferenceImage(suggestion: DiscoverySuggesti
 
   if (isJapaneseReferenceSuggestion(suggestion)) {
     try {
-      const japaneseReference = await fetchJapaneseReferenceImage(suggestion);
+      const japaneseReference = await fetchJapaneseReferenceImage(suggestion, signal);
       if (japaneseReference) {
         if (japaneseReference.imageUrl) discoveryReferenceRuntimeStats.providerResolved += 1;
         else if (japaneseReference.sourceStatus === 'NOT_FOUND') discoveryReferenceRuntimeStats.providerNotFound += 1;

@@ -211,6 +211,28 @@ function throwIfAbortedOrExpired(signal: AbortSignal | undefined, deadlineAtMs: 
   if (hasDeadlineExpired(deadlineAtMs)) throw new DOMException('Weekly discovery canonical resolution deadline expired', 'AbortError');
 }
 
+function combinedTimeoutAbortSignal(
+  timeoutMs: number,
+  signal?: AbortSignal,
+  deadlineAtMs?: number
+): AbortSignal {
+  throwIfAbortedOrExpired(signal, deadlineAtMs);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const remainingDeadlineMs = deadlineAtMs === undefined
+    ? timeoutMs
+    : Math.max(0, deadlineAtMs - Date.now());
+  const effectiveTimeoutMs = Math.max(0, Math.min(timeoutMs, remainingDeadlineMs));
+  const timeout = setTimeout(abort, effectiveTimeoutMs);
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  controller.signal.addEventListener('abort', () => {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
+  }, { once: true });
+  return controller.signal;
+}
+
 function normalizeIdentityName(value: string): string {
   return compactWhitespace(
     value
@@ -376,7 +398,10 @@ function trustedCanonicalBindingFromCandidate(candidate: DiscoveryCandidate): Ca
   return compatibilityReasons(identity, record).length === 0 ? record : null;
 }
 
-async function fetchPokemonCardsByQuery(query: string): Promise<PokemonTcgCard[]> {
+async function fetchPokemonCardsByQuery(
+  query: string,
+  options: { abortSignal?: AbortSignal; deadlineAtMs?: number } = {}
+): Promise<PokemonTcgCard[]> {
   canonicalResolutionRuntimeStats.providerRequests += 1;
   canonicalResolutionRuntimeStats.queryRequests += 1;
   const params = new URLSearchParams({
@@ -384,20 +409,21 @@ async function fetchPokemonCardsByQuery(query: string): Promise<PokemonTcgCard[]
     pageSize: '8',
     select: 'id,name,number,set,images'
   });
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), CANONICAL_LOOKUP_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, { signal: controller.signal });
+    response = await fetch(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, {
+      signal: combinedTimeoutAbortSignal(CANONICAL_LOOKUP_TIMEOUT_MS, options.abortSignal, options.deadlineAtMs)
+    });
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
+      if (options.abortSignal?.aborted || hasDeadlineExpired(options.deadlineAtMs)) {
+        throw new DOMException('Weekly discovery canonical resolution aborted', 'AbortError');
+      }
       canonicalResolutionRuntimeStats.timeouts += 1;
       return [];
     }
     canonicalResolutionRuntimeStats.failures += 1;
     return [];
-  } finally {
-    clearTimeout(timeout);
   }
   if (response.status === 404) return [];
   if (!response.ok) {
@@ -408,23 +434,27 @@ async function fetchPokemonCardsByQuery(query: string): Promise<PokemonTcgCard[]
   return Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [];
 }
 
-async function fetchPokemonCardById(sourceCardId: string): Promise<PokemonTcgCard | null> {
+async function fetchPokemonCardById(
+  sourceCardId: string,
+  options: { abortSignal?: AbortSignal; deadlineAtMs?: number } = {}
+): Promise<PokemonTcgCard | null> {
   canonicalResolutionRuntimeStats.providerRequests += 1;
   canonicalResolutionRuntimeStats.directIdRequests += 1;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), CANONICAL_LOOKUP_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(`${POKEMON_TCG_ENDPOINT}/${encodeURIComponent(sourceCardId)}`, { signal: controller.signal });
+    response = await fetch(`${POKEMON_TCG_ENDPOINT}/${encodeURIComponent(sourceCardId)}`, {
+      signal: combinedTimeoutAbortSignal(CANONICAL_LOOKUP_TIMEOUT_MS, options.abortSignal, options.deadlineAtMs)
+    });
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
+      if (options.abortSignal?.aborted || hasDeadlineExpired(options.deadlineAtMs)) {
+        throw new DOMException('Weekly discovery canonical resolution aborted', 'AbortError');
+      }
       canonicalResolutionRuntimeStats.timeouts += 1;
       return null;
     }
     canonicalResolutionRuntimeStats.failures += 1;
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
   if (response.status === 404) return null;
   if (!response.ok) {
@@ -435,7 +465,10 @@ async function fetchPokemonCardById(sourceCardId: string): Promise<PokemonTcgCar
   return (json?.data as PokemonTcgCard | undefined) ?? null;
 }
 
-async function livePokemonResolution(suggestion: DiscoverySuggestion): Promise<CanonicalLookupEvidence> {
+async function livePokemonResolution(
+  suggestion: DiscoverySuggestion,
+  options: { abortSignal?: AbortSignal; deadlineAtMs?: number } = {}
+): Promise<CanonicalLookupEvidence> {
   const lookupKey = discoveryCanonicalLookupKey(suggestion);
   const identity = discoveryPrintingIdentity(suggestion);
   const queryVariants = pokemonTcgQueriesForSuggestion(suggestion);
@@ -446,7 +479,7 @@ async function livePokemonResolution(suggestion: DiscoverySuggestion): Promise<C
   if (existingSourceCardId) {
     canonicalResolutionRuntimeStats.directSourceCardIdCandidates += 1;
     const directStartedAt = Date.now();
-    const directCard = await fetchPokemonCardById(existingSourceCardId);
+    const directCard = await fetchPokemonCardById(existingSourceCardId, options);
     addCanonicalResolutionRuntimeStat('directIdProviderMs', Date.now() - directStartedAt);
     const directRecord = directCard ? providerRecordFromPokemonCard(directCard) : null;
     if (directRecord) {
@@ -475,8 +508,9 @@ async function livePokemonResolution(suggestion: DiscoverySuggestion): Promise<C
   }
 
   for (const query of queryVariants) {
+    throwIfAbortedOrExpired(options.abortSignal, options.deadlineAtMs);
     const queryStartedAt = Date.now();
-    for (const card of await fetchPokemonCardsByQuery(query)) {
+    for (const card of await fetchPokemonCardsByQuery(query, options)) {
       const record = providerRecordFromPokemonCard(card);
       if (!record || providerResults.has(record.sourceCardId)) continue;
       const compatibilityStartedAt = Date.now();
@@ -651,7 +685,10 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
               providerResults: [],
               outcome: 'LOOKUP_NOT_ATTEMPTED' as const
             })
-          : livePokemonResolution(candidate.suggestion);
+          : livePokemonResolution(candidate.suggestion, {
+              abortSignal: options.abortSignal,
+              deadlineAtMs: options.deadlineAtMs
+            });
         lookupPromises.set(lookupKey, lookupPromise);
       }
       addCanonicalResolutionRuntimeStat('evidenceLookupMs', Date.now() - evidenceLookupStartedAt);

@@ -248,6 +248,40 @@ describe('discovery reference cache', () => {
     expect(candidates).toContain('https://en.onepiece-cardgame.com/images/cardlist/card/OP01-016.png');
   });
 
+  it('aborts an active One Piece reference image check through the shared signal', async () => {
+    const controller = new AbortController();
+    let headAborted = false;
+    vi.stubGlobal('fetch', vi.fn((input: string | URL, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            headAborted = true;
+            const error = new Error(`aborted:${String(input)}`);
+            error.name = 'AbortError';
+            reject(error);
+          }, { once: true });
+        });
+      }
+      throw new Error(`Unexpected fetch URL: ${String(input)}`);
+    }));
+
+    const referencePromise = fetchDiscoveryReferenceImage({
+      name: 'Nami OP01-016 Parallel',
+      lane: 'crew character parallels',
+      laneWhy: 'One Piece character cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Nami OP01-016 One Piece card'
+    }, controller.signal);
+
+    await Promise.resolve();
+    controller.abort();
+
+    const reference = await referencePromise;
+    expect(headAborted).toBe(true);
+    expect(reference.sourceStatus).toBe('TIMEOUT');
+  });
+
   it('prefers the McDonalds 2021 set for 25th Anniversary promo cards', () => {
     const queries = pokemonTcgQueriesForSuggestion({
       name: "Totodile 18/25 McDonald's 25th Anniversary Promo",
@@ -475,6 +509,50 @@ describe('discovery reference cache', () => {
     expect(reference.imageUrl).toBe('https://assets.tcgdex.net/ja/s-p/024/high.png');
     expect(reference.sourceName).toBe('TCGdex Japanese');
     expect(reference.sourceCardId).toBe('jp-s-p-024');
+  });
+
+  it('aborts an active Japanese reference fetch through the shared signal', async () => {
+    const controller = new AbortController();
+    let tcgDexAborted = false;
+    vi.stubGlobal('fetch', vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [{ id: 'swsh35-76', name: 'Gardevoir', nationalPokedexNumbers: [282] }]
+          })
+        } as Response);
+      }
+      if (url.includes('api.tcgdex.net')) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            tcgDexAborted = true;
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          }, { once: true });
+        });
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }));
+
+    const referencePromise = fetchDiscoveryReferenceImage({
+      name: 'Gardevoir Nintendo Promo 024/P Japanese',
+      lane: 'promo cards',
+      laneWhy: 'promo cards',
+      why: 'try this',
+      nearby: [],
+      evidenceSearchTerm: 'Gardevoir Nintendo Promo 024/P Japanese Pokemon card',
+      requiredEvidenceTokens: ['gardevoir', 'nintendo', '024', 'japanese']
+    }, controller.signal);
+
+    await Promise.resolve();
+    controller.abort();
+
+    const reference = await referencePromise;
+    expect(tcgDexAborted).toBe(true);
+    expect(reference.sourceStatus).toBe('TIMEOUT');
   });
 
   it('uses exact Japanese set-code matches for normal collector cards like Eevee Heroes HRs', async () => {

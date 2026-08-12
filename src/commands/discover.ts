@@ -943,6 +943,9 @@ async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
   sourceAssemblySkipped: boolean;
   initialCheckpointStage: string;
   persistProgress: boolean;
+  hydrationStageName?: string;
+  canonicalStageName?: string;
+  progressStageName?: string;
   stageMetrics?: WeeklyDiscoveryStageMetric[];
 }): Promise<{
   reserve: DiscoveryCandidate[];
@@ -967,6 +970,9 @@ async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
   let referenceResolvedThisAttempt = 0;
   let checkpointSaved = false;
   const initialTrustedCount = countCandidatesWithTrustedCanonicalReference(reserve, input.currency);
+  const hydrationStageName = input.hydrationStageName ?? 'reference-hydration-batch';
+  const canonicalStageName = input.canonicalStageName ?? 'reference-canonical-batch';
+  const progressStageName = input.progressStageName ?? 'reference-hydration-progress';
 
   while (
     referenceBatchesCompleted < DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_BATCHES
@@ -989,7 +995,7 @@ async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
       hydratedBatch = await runWeeklyDiscoveryStage({
       userId: input.userId,
       weeklyPeriod: input.weeklyPeriod,
-      stage: 'reference-hydration-batch',
+      stage: hydrationStageName,
       inputCount: batch.length,
       counters: {
         batchIndex: referenceBatchesCompleted + 1,
@@ -1011,7 +1017,7 @@ async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
       resolvedBatch = await runWeeklyDiscoveryStage({
       userId: input.userId,
       weeklyPeriod: input.weeklyPeriod,
-      stage: 'reference-canonical-batch',
+      stage: canonicalStageName,
       inputCount: hydratedBatch.length,
       stageMetrics: input.stageMetrics
       }, () => resolveWeeklyDiscoveryCanonicalReferences(hydratedBatch, {
@@ -1038,7 +1044,7 @@ async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
       input.profileContext.tasteProfileChases
     );
     referenceResolvedThisAttempt = Math.max(0, countCandidatesWithTrustedCanonicalReference(reserve, input.currency) - initialTrustedCount);
-    checkpointStage = 'reference-hydration-progress';
+    checkpointStage = progressStageName;
     if (input.persistProgress) {
       persistWeeklyDiscoveryPreparedReserve(
         input.userId,
@@ -9876,7 +9882,10 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   const preparedReserve = context.mode === 'LIVE' && context.regenerateCurrent !== true
     ? getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>(context.userId, weeklyPeriod)
     : null;
-  if (preparedReserve && preparedReserve.reserveCandidates.length > 0) {
+  const canReusePreparedReserveFastPath = context.mode === 'LIVE'
+    && context.regenerateCurrent !== true
+    && isPreparedReserveCompatibleForResume(preparedReserve, profileContext, context.preparationGeneration);
+  if (canReusePreparedReserveFastPath && preparedReserve && preparedReserve.reserveCandidates.length > 0) {
     const preparedInput = buildCurrentFinalizationInput(
       profileContext.activeChases,
       profileContext.tasteProfileChases,
@@ -9932,9 +9941,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       };
     }
   }
-  const canResumePreparedReserve = context.mode === 'LIVE'
-    && context.regenerateCurrent !== true
-    && isPreparedReserveCompatibleForResume(preparedReserve, profileContext, context.preparationGeneration);
+  const canResumePreparedReserve = canReusePreparedReserveFastPath;
   let sourceAssemblySkipped = false;
   let checkpointLoaded = false;
   let checkpointStage = preparedReserve?.lastCompletedStage ?? 'none';
@@ -10507,70 +10514,52 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         discoveryContext.tasteProfileChases
       );
       if (!deferExpensiveHydration) {
-        const topOffReferenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidateReserve.length);
-        const topOffReferenceStatsBefore = snapshotDiscoveryReferenceRuntimeStats();
-        candidateReserve = await runWeeklyDiscoveryStage({
+        const topOffReferenceProgress = await hydrateWeeklyDiscoveryReferencesIncrementally({
+          reserve: candidateReserve,
+          canonicalLookupEvidence: accumulatedCanonicalLookupEvidence,
+          profileContext,
+          currency: marketContext.targetCurrency,
+          recentDrops,
+          activeVault,
+          baseStageCounts: finalStageCounts,
           userId: context.userId,
           weeklyPeriod,
-          stage: 'topoff-reference-hydration',
-          inputCount: candidateReserve.length,
-          stageMetrics: context.stageMetrics
-        }, () => withTimeout(attachReferenceImages(candidateReserve, topOffReferenceHydrationDiagnostics, {
+          generation: context.preparationGeneration ?? 0,
+          deadlineAtMs,
           abortSignal: context.abortSignal,
-          deadlineAtMs
-        }), remainingDeadlineMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS), 'Weekly discovery topoff reference hydration timeout'), {
-          outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
-        });
-        logWeeklyDiscoveryStage({
-          event: 'WEEKLY_DISCOVERY_STAGE',
-          userId: context.userId,
-          weeklyPeriod,
-          stage: 'topoff-reference-hydration-diagnostics',
-          status: 'SUCCESS',
-          inputCount: topOffReferenceHydrationDiagnostics.candidateCount,
-          outputCount: candidateReserve.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length,
-          counters: {
-            ...topOffReferenceHydrationDiagnostics,
-            ...diffDiscoveryReferenceRuntimeStats(topOffReferenceStatsBefore, snapshotDiscoveryReferenceRuntimeStats())
-          }
-        });
-        throwIfAborted(context.abortSignal);
-      }
-      const topoffCanonicalResolutionStatsBefore = snapshotDiscoveryCanonicalResolutionRuntimeStats();
-      let finalCanonicalResolution;
-      try {
-        finalCanonicalResolution = await runWeeklyDiscoveryStage({
-          userId: context.userId,
-          weeklyPeriod,
-          stage: 'topoff-canonical-rebinding',
-          inputCount: candidateReserve.length,
+          checkpointLoaded,
+          sourceAssemblySkipped,
+          initialCheckpointStage: checkpointStage,
+          persistProgress: context.mode === 'LIVE',
+          hydrationStageName: 'topoff-reference-hydration-batch',
+          canonicalStageName: 'topoff-reference-canonical-batch',
+          progressStageName: 'post-topoff-reference-hydration',
           stageMetrics: context.stageMetrics
-        }, () => resolveWeeklyDiscoveryCanonicalReferences(candidateReserve, {
-          replayEvidence: accumulatedCanonicalLookupEvidence,
-          abortSignal: context.abortSignal,
-          deadlineAtMs
-        }), {
-          outputCount: (value) => value.candidates.filter((candidate) => candidate.suggestion.referenceSourceCardId).length
         });
-      } finally {
-        logWeeklyDiscoveryStage({
-          event: 'WEEKLY_DISCOVERY_STAGE',
-          userId: context.userId,
-          weeklyPeriod,
-          stage: 'topoff-canonical-rebinding-diagnostics',
-          status: 'SUCCESS',
-          inputCount: candidateReserve.length,
-          counters: diffDiscoveryCanonicalResolutionRuntimeStats(
-            topoffCanonicalResolutionStatsBefore,
-            snapshotDiscoveryCanonicalResolutionRuntimeStats()
-          )
-        });
+        candidateReserve = topOffReferenceProgress.reserve;
+        accumulatedCanonicalLookupEvidence = topOffReferenceProgress.canonicalLookupEvidence;
+        checkpointStage = topOffReferenceProgress.diagnostics.checkpointStage ?? checkpointStage;
+        referencePreparationDiagnostics = {
+          checkpointStage: topOffReferenceProgress.diagnostics.checkpointStage,
+          checkpointLoaded: topOffReferenceProgress.diagnostics.checkpointLoaded,
+          sourceAssemblySkipped: topOffReferenceProgress.diagnostics.sourceAssemblySkipped,
+          trustedReferenceCount: topOffReferenceProgress.diagnostics.trustedReferenceCount,
+          unresolvedReferenceCount: topOffReferenceProgress.diagnostics.unresolvedReferenceCount,
+          referenceBatchSize: topOffReferenceProgress.diagnostics.referenceBatchSize,
+          referenceBatchesCompleted:
+            referencePreparationDiagnostics.referenceBatchesCompleted + topOffReferenceProgress.diagnostics.referenceBatchesCompleted,
+          referenceRequestsStarted:
+            referencePreparationDiagnostics.referenceRequestsStarted + topOffReferenceProgress.diagnostics.referenceRequestsStarted,
+          referenceResolvedThisAttempt:
+            referencePreparationDiagnostics.referenceResolvedThisAttempt + topOffReferenceProgress.diagnostics.referenceResolvedThisAttempt,
+          referenceRemaining: topOffReferenceProgress.diagnostics.referenceRemaining,
+          checkpointSaved:
+            referencePreparationDiagnostics.checkpointSaved || topOffReferenceProgress.diagnostics.checkpointSaved,
+          deadlineExpired:
+            referencePreparationDiagnostics.deadlineExpired || topOffReferenceProgress.diagnostics.deadlineExpired
+        };
       }
-      accumulatedCanonicalLookupEvidence = mergeCanonicalLookupEvidenceMaps(
-        accumulatedCanonicalLookupEvidence,
-        finalCanonicalResolution?.evidence
-      );
-      let topOffCanonicalResolvedReserve = finalCanonicalResolution?.candidates ?? candidateReserve;
+      let topOffCanonicalResolvedReserve = candidateReserve;
       if (!deferExpensiveHydration) {
         const topOffMarketCacheDiagnostics = { cacheHits: 0, cacheMisses: 0, refreshQueued: 0, invalidCachedListings: 0, reliableSignalHits: 0 };
         topOffCanonicalResolvedReserve = await runWeeklyDiscoveryStage({
