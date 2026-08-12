@@ -2430,6 +2430,7 @@ async function mapWithConcurrencyAllowPartialTimeout<T, R>(
 ): Promise<{ results: R[]; timedOut: boolean }> {
   if (items.length === 0) return { results: [], timedOut: false };
   const results = new Array<R | undefined>(items.length);
+  const settledResults = () => results.filter((value): value is R => value !== undefined);
   let nextIndex = 0;
   let timedOut = abortSignal?.aborted ?? false;
   const workerCount = Math.min(concurrency, items.length);
@@ -2446,25 +2447,27 @@ async function mapWithConcurrencyAllowPartialTimeout<T, R>(
       }
     })
   ).then(() => ({
-    results: results.filter((value): value is R => value !== undefined),
+    results: settledResults(),
     timedOut: false
   }));
 
   const timeoutPromise = new Promise<{ results: R[]; timedOut: boolean }>((resolve) => {
+    const resolvePartial = () => {
+      queueMicrotask(() => {
+        resolve({
+          results: settledResults(),
+          timedOut: true
+        });
+      });
+    };
     abortHandler = () => {
       timedOut = true;
-      resolve({
-        results: results.filter((value): value is R => value !== undefined),
-        timedOut: true
-      });
+      resolvePartial();
     };
     abortSignal?.addEventListener('abort', abortHandler, { once: true });
     timeoutHandle = setTimeout(() => {
       timedOut = true;
-      resolve({
-        results: results.filter((value): value is R => value !== undefined),
-        timedOut: true
-      });
+      resolvePartial();
     }, timeoutMs);
   });
 

@@ -494,6 +494,11 @@ async function fetchTcgDexJapaneseSummariesByName(name: string, signal?: AbortSi
   return Array.isArray(json) ? (json as TcgDexCardSummary[]) : [];
 }
 
+function swallowJapaneseSummaryFailure(error: unknown): TcgDexCardSummary[] {
+  if (error instanceof Error && error.name === 'AbortError') throw error;
+  return [];
+}
+
 function tcgDexImageUrl(summary: TcgDexCardSummary): string | undefined {
   return summary.image ? `${summary.image}/high.png` : undefined;
 }
@@ -533,8 +538,8 @@ async function fetchJapaneseReferenceImage(suggestion: DiscoverySuggestion, sign
   const summaries = (
     await Promise.all(
       dexIds.length > 0
-        ? dexIds.slice(0, 3).map((dexId) => fetchTcgDexJapaneseSummariesByDexId(dexId, signal).catch(() => []))
-        : [fetchTcgDexJapaneseSummariesByName(identityName, signal).catch(() => [])]
+        ? dexIds.slice(0, 3).map((dexId) => fetchTcgDexJapaneseSummariesByDexId(dexId, signal).catch(swallowJapaneseSummaryFailure))
+        : [fetchTcgDexJapaneseSummariesByName(identityName, signal).catch(swallowJapaneseSummaryFailure)]
     )
   ).flat();
 

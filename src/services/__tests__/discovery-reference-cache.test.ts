@@ -254,12 +254,17 @@ describe('discovery reference cache', () => {
     vi.stubGlobal('fetch', vi.fn((input: string | URL, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         return new Promise<Response>((_resolve, reject) => {
-          init.signal?.addEventListener('abort', () => {
+          const abort = () => {
             headAborted = true;
             const error = new Error(`aborted:${String(input)}`);
             error.name = 'AbortError';
             reject(error);
-          }, { once: true });
+          };
+          if (init.signal?.aborted) {
+            abort();
+            return;
+          }
+          init.signal?.addEventListener('abort', abort, { once: true });
         });
       }
       throw new Error(`Unexpected fetch URL: ${String(input)}`);
@@ -526,12 +531,17 @@ describe('discovery reference cache', () => {
       }
       if (url.includes('api.tcgdex.net')) {
         return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => {
+          const abort = () => {
             tcgDexAborted = true;
             const error = new Error('aborted');
             error.name = 'AbortError';
             reject(error);
-          }, { once: true });
+          };
+          if (init?.signal?.aborted) {
+            abort();
+            return;
+          }
+          init?.signal?.addEventListener('abort', abort, { once: true });
         });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
