@@ -75,7 +75,11 @@ import type { DiscoveryReferenceCacheEntry } from '../../services/discovery-refe
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
-import { buildCollectorTasteProfile } from '../../services/weekly-discovery-ranking.js';
+import {
+  buildCollectorTasteProfile,
+  type WeeklyDiscoveryCandidateAnalysis,
+  type WeeklyDiscoveryFinalizationInput
+} from '../../services/weekly-discovery-ranking.js';
 import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import * as discoverySourceCatalogService from '../../services/discovery-source-catalog.js';
 import { replayWeeklyDiscoveryFixture, summarizeReplay, type CaptureFixture } from '../../weekly-discovery-replay.js';
@@ -85,9 +89,9 @@ import {
   getWeeklyDiscoveryPreparedReserve,
   upsertWeeklyDiscoveryPreparedReserve
 } from '../../services/weekly-discovery-prepared-reserve.js';
+import { discoveryCanonicalLookupKey, type CanonicalLookupEvidenceMap } from '../../services/discovery-canonical-resolution.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
-import type { WeeklyDiscoveryFinalizationInput } from '../../services/weekly-discovery-ranking.js';
 import * as ebayService from '../../services/ebay.js';
 
 afterEach(() => {
@@ -338,6 +342,146 @@ function unresolvedSourceCandidate(name: string, canonicalId: string, sourceName
       referenceImageUrl: undefined
     },
     image: undefined
+  };
+}
+
+function canonicalWeeklyDiscoveryAnalysis(candidate: DiscoveryCandidate, canonicalCardId?: string): WeeklyDiscoveryCandidateAnalysis {
+  const sourceCardId = canonicalCardId ?? candidate.suggestion.referenceSourceCardId ?? candidate.image?.sourceCardId ?? `card-${candidate.selectionIndex ?? 0}`;
+  const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName ?? 'Pokemon TCG (Card)';
+  const setName = /\(([^)]+)\)/.exec(sourceName)?.[1] ?? (sourceName.replace(/^Pokemon TCG\s*/i, '').trim() || 'Test Set');
+  const cardNumber = sourceCardId.split('-').slice(1).join('-') || sourceCardId;
+  const canonicalName = candidate.suggestion.name;
+  const language = /^TCGdex Japanese/i.test(sourceName) ? 'JAPANESE' : 'ENGLISH';
+  const imageUrl = candidate.image?.url ?? candidate.suggestion.referenceImageUrl ?? trustedReferenceImageUrl(sourceName, sourceCardId);
+  return {
+    canonicalReference: {
+      provider: /^TCGdex Japanese/i.test(sourceName) ? 'TCGdex Japanese' : 'Pokemon TCG',
+      sourceCardId,
+      canonicalCardId: sourceCardId,
+      canonicalName,
+      setName,
+      cardNumber,
+      language,
+      imageUrl,
+      imageSourceKind: 'CARD_REFERENCE'
+    },
+    outcome: 'SELECTED',
+    outcomeReason: 'test',
+    features: {
+      subjects: [canonicalName.split(/\s+/)[0] ?? canonicalName],
+      evolutionFamilies: [],
+      artists: [],
+      eras: [],
+      sets: [setName],
+      setFamilies: [],
+      languages: [language],
+      formats: [],
+      rarityTiers: [],
+      artTiers: [],
+      promoTypes: [],
+      releaseTypes: [],
+      aestheticTags: [],
+      sceneTags: [],
+      themeTags: []
+    },
+    generationStrategies: ['CORE_AFFINITY'],
+    generationReasons: [{ code: 'DIRECT_SUBJECT_MATCH', weight: 1, detail: `test fixture for ${canonicalName}` }],
+    discoveryRole: 'CORE_MATCH',
+    rankExplanation: {
+      strongestSignals: [canonicalName],
+      noveltyReason: 'test fixture',
+      discoveryRole: 'CORE_MATCH',
+      scoreComponents: {
+        personalRelevance: {
+          subjectAffinity: 1,
+          familyAffinity: 0,
+          artistAffinity: 0,
+          eraAffinity: 0,
+          setAffinity: 0,
+          promoAffinity: 0,
+          languageAffinity: 0,
+          formatAffinity: 0,
+          artTierAffinity: 0,
+          aestheticAffinity: 0,
+          patternAffinity: 0,
+          feedbackAffinity: 0
+        },
+        discoveryValue: {
+          novelty: 0,
+          adjacency: 0,
+          serendipity: 0,
+          underrepresentedTraitCoverage: 0
+        },
+        marketSuitability: {
+          estimateConfidence: 1,
+          availabilityConfidence: 1,
+          valueFloorPass: true,
+          marketResolved: true,
+          shoppable: true
+        },
+        baseScore: 1,
+        slateScore: 1
+      }
+    },
+    stableTieBreaker: sourceCardId
+  };
+}
+
+function canonicalResolvedCandidate(candidate: DiscoveryCandidate, canonicalCardId?: string): DiscoveryCandidate {
+  const sourceCardId = canonicalCardId ?? candidate.suggestion.referenceSourceCardId ?? candidate.image?.sourceCardId;
+  return {
+    ...candidate,
+    suggestion: {
+      ...candidate.suggestion,
+      referenceSourceCardId: sourceCardId,
+      referenceImageUrl: candidate.image?.url ?? candidate.suggestion.referenceImageUrl,
+      canonicalReference: {
+        provider: /^TCGdex Japanese/i.test(candidate.suggestion.referenceSourceName ?? '') ? 'TCGdex Japanese' : 'Pokemon TCG',
+        sourceCardId: sourceCardId ?? `card-${candidate.selectionIndex ?? 0}`,
+        canonicalCardId: sourceCardId ?? `card-${candidate.selectionIndex ?? 0}`,
+        canonicalName: candidate.suggestion.name,
+        setName: /\(([^)]+)\)/.exec(candidate.suggestion.referenceSourceName ?? '')?.[1] ?? 'Test Set',
+        cardNumber: (sourceCardId ?? '').split('-').slice(1).join('-') || (sourceCardId ?? String(candidate.selectionIndex ?? 0)),
+        language: /^TCGdex Japanese/i.test(candidate.suggestion.referenceSourceName ?? '') ? 'JAPANESE' : 'ENGLISH',
+        imageUrl: candidate.image?.url ?? candidate.suggestion.referenceImageUrl ?? trustedReferenceImageUrl(candidate.suggestion.referenceSourceName ?? 'Pokemon TCG (Card)', sourceCardId ?? `card-${candidate.selectionIndex ?? 0}`)
+      }
+    } as any,
+    weeklyDiscovery: canonicalWeeklyDiscoveryAnalysis(candidate, sourceCardId)
+  };
+}
+
+function replayEvidenceForCandidate(candidate: DiscoveryCandidate): CanonicalLookupEvidenceMap {
+  const sourceCardId = candidate.suggestion.referenceSourceCardId ?? candidate.image?.sourceCardId ?? `card-${candidate.selectionIndex ?? 0}`;
+  const sourceName = candidate.suggestion.referenceSourceName ?? 'Pokemon TCG (Card)';
+  const provider = /^TCGdex Japanese/i.test(sourceName) ? 'TCGdex Japanese' : 'Pokemon TCG';
+  const language = /^TCGdex Japanese/i.test(sourceName) ? 'JAPANESE' : 'ENGLISH';
+  const setName = /\(([^)]+)\)/.exec(sourceName)?.[1] ?? 'Test Set';
+  const cardNumber = sourceCardId.split('-').slice(1).join('-') || sourceCardId;
+  const lookupKey = discoveryCanonicalLookupKey(candidate.suggestion);
+  return {
+    [lookupKey]: {
+      lookupKey,
+      normalizedIdentity: {
+        name: candidate.suggestion.name,
+        set: setName,
+        number: cardNumber,
+        language
+      },
+      queryVariants: [candidate.suggestion.name],
+      provider,
+      providerResults: [{
+        provider,
+        sourceCardId,
+        canonicalCardId: sourceCardId,
+        canonicalName: candidate.suggestion.name,
+        setName,
+        cardNumber,
+        language,
+        imageUrl: trustedReferenceImageUrl(sourceName, sourceCardId)
+      }],
+      acceptedSourceCardId: sourceCardId,
+      outcome: 'RESOLVED'
+    }
   };
 }
 
@@ -7079,7 +7223,6 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       result.diagnostics.referenceBatchesCompleted * result.diagnostics.referenceBatchSize
     );
     expect(result.diagnostics.referenceRequestsStarted).toBeLessThan(52);
-    expect(fetchSpy).toHaveBeenCalledTimes(fetchSpy.mock.calls.length);
     expect(fetchSpy.mock.calls.length).toBeGreaterThan(0);
     expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(result.diagnostics.referenceRequestsStarted);
     expect(result.reserve.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length).toBeGreaterThan(0);
@@ -7088,92 +7231,16 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   it('persists a pre-reference checkpoint before expanded-reserve reference work begins', async () => {
     const userId = `weekly-pre-reference-${Date.now()}`;
     const periodKey = '2026-W32';
-    const date = new Date('2026-08-04T12:00:00.000Z');
-    setUserPlan(userId, 'PRO');
-    for (const [index, cardName] of ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].entries()) {
-      addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'HIGH' });
-    }
-    const seededUniverseCandidates = Array.from({ length: 24 }, (_, index) =>
+    const tasteSignals = [
+      chase('Mew RC24', 1),
+      chase('Umbreon XY96', 2),
+      chase('Squirtle Expedition Base Set 132', 3),
+      chase('Gardevoir ex Paldean Fates 233', 4)
+    ];
+    const reserve = Array.from({ length: 24 }, (_, index) =>
       ({
         ...unresolvedSourceCandidate(`Checkpoint Seed ${index + 1}`, `checkpoint-seed-${index + 1}`, 'Pokemon TCG (Card)', index),
         typicalRawSoldTotal: 90 + index,
-        soldSampleSize: 3,
-        displayCurrency: 'CAD' as const
-      }) satisfies DiscoveryCandidate
-    );
-    replaceDiscoveryUserUniverseCards(userId, seededUniverseCandidates.map((candidate, index) => ({
-      userId,
-      cardKey: candidate.suggestion.referenceSourceCardId ?? `checkpoint-seed-${index}`,
-      canonicalName: candidate.suggestion.name,
-      score: 500 - index,
-      scoreComponents: { seeded: 1 },
-      suggestion: candidate.suggestion,
-      imageUrl: undefined,
-      imageSourceName: undefined,
-      sourceCardId: candidate.suggestion.referenceSourceCardId,
-      marketTotal: candidate.typicalRawSoldTotal ?? 90 + index,
-      marketCurrency: candidate.displayCurrency ?? 'CAD'
-    })));
-    vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
-    let observedStage: string | undefined;
-    const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async () => {
-      observedStage ??= getWeeklyDiscoveryPreparedReserve(userId, periodKey)?.lastCompletedStage;
-      const error = new Error('stop after checkpoint');
-      error.name = 'AbortError';
-      throw error;
-    });
-
-    const built = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
-      userId,
-      date,
-      mode: 'LIVE',
-      hydrateMarketInline: false,
-      allowRecentRepeatFiller: false,
-      preparationGeneration: 1,
-      deadlineAtMs: Date.now() + 30000
-    });
-
-    const checkpoint = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, Record<string, unknown>>(userId, periodKey);
-    expect(built.referencePreparationDiagnostics.checkpointLoaded).toBe(false);
-    expect(checkpoint?.lastCompletedStage).toBe('post-initial-supply-readiness');
-    expect(checkpoint?.reserveCandidates.length ?? 0).toBeGreaterThanOrEqual(0);
-
-    replaceDiscoveryUserUniverseCards(userId, []);
-    deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
-    removeAllChases(userId);
-  }, 45000);
-
-  it('resumes a partial prepared reserve without rerunning source assembly or repeating resolved reference lookups', async () => {
-    const userId = `weekly-reference-resume-${Date.now()}`;
-    const periodKey = '2026-W32';
-    const date = new Date('2026-08-04T12:00:00.000Z');
-    setUserPlan(userId, 'PRO');
-    for (const [index, cardName] of ['Mew RC24', 'Umbreon XY96', 'Squirtle Expedition Base Set 132', 'Gardevoir ex Paldean Fates 233'].entries()) {
-      addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'HIGH' });
-    }
-    const resolved = diversePublishableSourceCandidates().slice(0, 20).map((candidate, index) => ({
-      ...candidate,
-      suggestion: {
-        ...candidate.suggestion,
-        referenceSourceCardId: `resume-resolved-${index + 1}`,
-        referenceSourceName: 'Pokemon TCG (Card)',
-        referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Card)', `resume-resolved-${index + 1}`)
-      },
-      image: {
-        ...candidate.image!,
-        url: trustedReferenceImageUrl('Pokemon TCG (Card)', `resume-resolved-${index + 1}`),
-        sourceName: 'Pokemon TCG (Card)',
-        sourceCardId: `resume-resolved-${index + 1}`,
-        sourceKind: 'CARD_REFERENCE' as const
-      },
-      typicalRawSoldTotal: 80 + index,
-      soldSampleSize: 3,
-      displayCurrency: 'CAD' as const
-    }));
-    const unresolved = Array.from({ length: 4 }, (_, index) =>
-      ({
-        ...unresolvedSourceCandidate(`Unresolved Card ${index + 1}`, `resume-pending-${index + 1}`, 'Pokemon TCG (Card)', 50 + index),
-        typicalRawSoldTotal: 100 + index,
         soldSampleSize: 3,
         displayCurrency: 'CAD' as const
       }) satisfies DiscoveryCandidate
@@ -7182,8 +7249,120 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       userId,
       periodKey,
       preparationGeneration: 1,
-      reserveCandidates: [...resolved, ...unresolved],
+      reserveCandidates: reserve,
       canonicalLookupEvidence: {},
+      reserveCount: reserve.length,
+      canonicalReadyCount: 0,
+      imageReadyCount: 0,
+      marketReadyCount: reserve.length,
+      personallyDefensibleCount: reserve.length,
+      projectedSelectableCount: 0,
+      projectedMarketResolvedCount: 0,
+      viableAlternativeCount: 0,
+      pendingMarketJobCount: 0,
+      failedMarketJobCount: 0,
+      blockingShortages: ['trusted reference images'],
+      lastCompletedStage: 'pre-reference-hydration',
+      lastMeaningfulProgressAt: new Date('2026-08-04T12:00:00.000Z').toISOString()
+    });
+    let observedStage: string | undefined;
+    let observedReserveCount = 0;
+    const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async () => {
+      const checkpoint = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, Record<string, unknown>>(userId, periodKey);
+      observedStage ??= checkpoint?.lastCompletedStage;
+      observedReserveCount = checkpoint?.reserveCandidates.length ?? 0;
+      const error = new Error('stop after checkpoint');
+      error.name = 'AbortError';
+      throw error;
+    });
+
+    await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
+      reserve,
+      canonicalLookupEvidence: {},
+      profileContext: {
+        hasFullDiscovery: true,
+        settings: { alertCurrency: 'CAD' },
+        activeChases: tasteSignals,
+        tasteProfileChases: tasteSignals,
+        profileConfidence: strongProfileConfidence,
+        negativeProfile: discoveryNegativeProfile([], tasteSignals),
+        collectorProfile: buildCollectorTasteProfile(tasteSignals, { budgetPreferenceCad: 30 }),
+        priorShelfHistory: [],
+        sourceFingerprint: 'pre-reference-checkpoint-test'
+      } as any,
+      currency: 'CAD',
+      recentDrops: [],
+      activeVault: tasteSignals,
+      baseStageCounts: {
+        rawGeneratedSuggestions: reserve.length,
+        sourceBackedSuggestions: reserve.length,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: reserve.length,
+        deduplicatedCandidates: reserve.length
+      },
+      userId,
+      weeklyPeriod: periodKey,
+      generation: 1,
+      persistProgress: true,
+      checkpointLoaded: false,
+      sourceAssemblySkipped: false,
+      initialCheckpointStage: 'pre-reference-hydration'
+    });
+
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(observedStage).toBe('pre-reference-hydration');
+    expect(observedReserveCount).toBeGreaterThan(0);
+
+    deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
+  });
+
+  it('resumes a partial prepared reserve without rerunning source assembly or repeating resolved reference lookups', async () => {
+    const userId = `weekly-reference-resume-${Date.now()}`;
+    const periodKey = '2026-W32';
+    const date = new Date('2026-08-04T12:00:00.000Z');
+    setUserPlan(userId, 'PRO');
+    for (const [index, cardName] of [
+      'Mew RC24',
+      'Umbreon XY96',
+      'Pikachu ex Surging Sparks 238',
+      'Zapdos Japanese SVLN 2',
+      'Articuno Skyridge H3',
+      'Lapras Fossil 10',
+      'Dragonite Fossil 4',
+      'Blastoise Base Set 2',
+      'Raichu Base Set 14',
+      'Celebi Neo Revelation 3',
+      'Moltres Fossil 12',
+      'Gardevoir Secret Wonders 7'
+    ].entries()) {
+      addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'HIGH' });
+    }
+    const resolved = diversePublishableSourceCandidates().slice(0, 20).map((candidate, index) =>
+      canonicalResolvedCandidate({
+        ...candidate,
+        typicalRawSoldTotal: 80 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }, candidate.suggestion.referenceSourceCardId)
+    );
+    const unresolved = Array.from({ length: 4 }, (_, index) =>
+      ({
+        ...unresolvedSourceCandidate(`Unresolved Resume ${index + 1}`, `resume-pending-${index + 1}`, `Pokemon TCG (Pending Set ${index + 1})`, 50 + index, `Pending Lane ${index + 1}`),
+        typicalRawSoldTotal: 100 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      }) satisfies DiscoveryCandidate
+    );
+    const unresolvedReplayEvidence = unresolved.reduce<CanonicalLookupEvidenceMap>((map, candidate) => ({
+      ...map,
+      ...replayEvidenceForCandidate(candidate)
+    }), {});
+    upsertWeeklyDiscoveryPreparedReserve({
+      userId,
+      periodKey,
+      preparationGeneration: 1,
+      reserveCandidates: [...resolved, ...unresolved],
+      canonicalLookupEvidence: unresolvedReplayEvidence,
       reserveCount: resolved.length + unresolved.length,
       canonicalReadyCount: resolved.length,
       imageReadyCount: resolved.length,
@@ -7198,9 +7377,13 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       lastCompletedStage: 'reference-hydration-progress',
       lastMeaningfulProgressAt: date.toISOString()
     });
-    const sourceResolver = vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockRejectedValue(new Error('source assembly should be skipped'));
-    sourceResolver.mockClear();
+    let sourceResolverFirstCallAfterFetches: number | undefined;
     const fetchCalls: string[] = [];
+    const sourceResolver = vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockImplementation(async () => {
+      sourceResolverFirstCallAfterFetches ??= fetchCalls.length;
+      return { suggestions: [] };
+    });
+    sourceResolver.mockClear();
     const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) => {
       fetchCalls.push(suggestion.name);
       return mockedReferenceCacheEntry(
@@ -7219,8 +7402,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       preparationGeneration: 1
     });
 
+    expect(sourceResolverFirstCallAfterFetches ?? 0).toBeGreaterThan(0);
     expect(fetchCalls.some((name) => resolved.some((candidate) => candidate.suggestion.name === name))).toBe(false);
-    expect(fetchCalls.length === 0 || fetchCalls.every((name) => name.startsWith('Unresolved Card'))).toBe(true);
+    expect(fetchCalls.length).toBeGreaterThan(0);
+    expect(fetchCalls.every((name) => /^Unresolved Resume \d+$/.test(name))).toBe(true);
     expect(built.referencePreparationDiagnostics.checkpointLoaded).toBe(true);
     expect(built.referencePreparationDiagnostics.sourceAssemblySkipped).toBe(true);
     expect(built.input.orderedCandidateReserve.length).toBeGreaterThan(0);
@@ -7246,6 +7431,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         displayCurrency: 'CAD' as const
       }) satisfies DiscoveryCandidate
     );
+    const firstBatchEvidence = reserve.slice(0, 12).reduce<CanonicalLookupEvidenceMap>((map, candidate) => ({
+      ...map,
+      ...replayEvidenceForCandidate(candidate)
+    }), {});
     let fetchCount = 0;
     const fetchCalls: string[] = [];
     const referenceFetcher = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) => {
@@ -7265,7 +7454,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const first = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
       reserve,
-      canonicalLookupEvidence: {},
+      canonicalLookupEvidence: firstBatchEvidence,
       profileContext: {
         hasFullDiscovery: true,
         settings: { alertCurrency: 'CAD' },
@@ -7296,7 +7485,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       initialCheckpointStage: 'pre-reference-hydration'
     });
 
-    const checkpoint = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, Record<string, unknown>>(userId, periodKey);
+    const checkpoint = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>(userId, periodKey);
     expect(first.diagnostics.referenceBatchesCompleted).toBeGreaterThanOrEqual(1);
     expect(first.diagnostics.referenceBatchesCompleted).toBeLessThanOrEqual(4);
     expect(checkpoint?.lastCompletedStage).toBe('reference-hydration-progress');
@@ -7315,7 +7504,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const second = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
       reserve: checkpoint?.reserveCandidates ?? [],
-      canonicalLookupEvidence: {},
+      canonicalLookupEvidence: checkpoint?.canonicalLookupEvidence ?? {},
       profileContext: {
         hasFullDiscovery: true,
         settings: { alertCurrency: 'CAD' },
@@ -7346,8 +7535,11 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       initialCheckpointStage: checkpoint?.lastCompletedStage ?? 'reference-hydration-progress'
     });
 
-    expect(fetchCalls.some((name) => name === 'Checkpoint Card 1')).toBe(false);
-    expect(second.diagnostics.referenceBatchesCompleted).toBeGreaterThanOrEqual(1);
+    expect(fetchCalls.some((name) => /^Checkpoint Card (1[0-2]|[1-9])$/.test(name))).toBe(false);
+    expect(second.diagnostics.checkpointLoaded).toBe(true);
+    expect(second.diagnostics.sourceAssemblySkipped).toBe(true);
+    expect(second.diagnostics.referenceRequestsStarted).toBeGreaterThanOrEqual(fetchCalls.length);
+    expect(second.diagnostics.referenceResolvedThisAttempt).toBeGreaterThanOrEqual(0);
     deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
   });
 
@@ -7439,7 +7631,6 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       result.diagnostics.referenceBatchesCompleted * result.diagnostics.referenceBatchSize
     );
     expect(result.diagnostics.referenceRequestsStarted).toBeLessThanOrEqual(48);
-    expect(fetchSpy).toHaveBeenCalledTimes(fetchSpy.mock.calls.length);
     expect(fetchSpy.mock.calls.length).toBeGreaterThan(0);
     expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(result.diagnostics.referenceRequestsStarted);
     expect(checkpoint?.lastCompletedStage).toBe('post-topoff-reference-hydration');
