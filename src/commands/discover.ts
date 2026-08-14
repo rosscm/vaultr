@@ -70,9 +70,7 @@ import { resolveSourceBackedDiscoveryCards, snapshotDiscoverySourceCatalogRuntim
 import {
   mergeCanonicalLookupEvidenceMaps,
   resolveWeeklyDiscoveryCanonicalReferences,
-  snapshotDiscoveryCanonicalResolutionRuntimeStats,
-  type CanonicalLookupEvidenceMap,
-  type DiscoveryCanonicalResolutionRuntimeStats
+  type CanonicalLookupEvidenceMap
 } from '../services/discovery-canonical-resolution.js';
 import { getEntitlementsForTier } from '../services/entitlements.js';
 import { activePlanChases, activePlanTier, PLAN_LIMITS } from '../services/plans.js';
@@ -1412,44 +1410,6 @@ function diffDiscoveryReferenceRuntimeStats(
     referenceProviderNotFound: diffNumber(after.providerNotFound, before.providerNotFound),
     referenceProviderUnsupported: diffNumber(after.providerUnsupported, before.providerUnsupported),
     referenceProviderResolved: diffNumber(after.providerResolved, before.providerResolved)
-  };
-}
-
-function diffDiscoveryCanonicalResolutionRuntimeStats(
-  before: DiscoveryCanonicalResolutionRuntimeStats,
-  after: DiscoveryCanonicalResolutionRuntimeStats
-): Record<string, number> {
-  return {
-    totalCandidates: diffNumber(after.totalCandidates, before.totalCandidates),
-    noResolutionNeeded: diffNumber(after.noResolutionNeeded, before.noResolutionNeeded),
-    completeTrustedBindings: diffNumber(after.completeTrustedBindings, before.completeTrustedBindings),
-    resolutionRequired: diffNumber(after.resolutionRequired, before.resolutionRequired),
-    directSourceCardIdCandidates: diffNumber(after.directSourceCardIdCandidates, before.directSourceCardIdCandidates),
-    uniqueLookupKeys: diffNumber(after.uniqueLookupKeys, before.uniqueLookupKeys),
-    duplicateLookupKeys: diffNumber(after.duplicateLookupKeys, before.duplicateLookupKeys),
-    replayEvidenceHits: diffNumber(after.replayEvidenceHits, before.replayEvidenceHits),
-    replayEvidenceMisses: diffNumber(after.replayEvidenceMisses, before.replayEvidenceMisses),
-    providerRequests: diffNumber(after.providerRequests, before.providerRequests),
-    directIdRequests: diffNumber(after.directIdRequests, before.directIdRequests),
-    queryRequests: diffNumber(after.queryRequests, before.queryRequests),
-    successfulResolutions: diffNumber(after.successfulResolutions, before.successfulResolutions),
-    noResults: diffNumber(after.noResults, before.noResults),
-    ambiguousResults: diffNumber(after.ambiguousResults, before.ambiguousResults),
-    compatibilityRejections: diffNumber(after.compatibilityRejections, before.compatibilityRejections),
-    failures: diffNumber(after.failures, before.failures),
-    timeouts: diffNumber(after.timeouts, before.timeouts),
-    successfulRebindings: diffNumber(after.successfulRebindings, before.successfulRebindings),
-    unresolvedCandidates: diffNumber(after.unresolvedCandidates, before.unresolvedCandidates),
-    coalescedRequests: diffNumber(after.coalescedRequests, before.coalescedRequests),
-    classificationMs: diffNumber(after.classificationMs, before.classificationMs),
-    trustedBindingValidationMs: diffNumber(after.trustedBindingValidationMs, before.trustedBindingValidationMs),
-    lookupKeyMs: diffNumber(after.lookupKeyMs, before.lookupKeyMs),
-    evidenceLookupMs: diffNumber(after.evidenceLookupMs, before.evidenceLookupMs),
-    directIdProviderMs: diffNumber(after.directIdProviderMs, before.directIdProviderMs),
-    queryProviderMs: diffNumber(after.queryProviderMs, before.queryProviderMs),
-    compatibilityMs: diffNumber(after.compatibilityMs, before.compatibilityMs),
-    rebindingMs: diffNumber(after.rebindingMs, before.rebindingMs),
-    finalMergeMs: diffNumber(after.finalMergeMs, before.finalMergeMs)
   };
 }
 

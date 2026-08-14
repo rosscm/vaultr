@@ -24,6 +24,7 @@ export const help = {
       '- `/alerts settings` controls confidence, currency, volume, shipping, and sources',
       '- `/alerts status` shows the current alert setup',
       '- `/alerts recent` reviews recent alerts',
+      '- `/alerts test` checks whether Vaultr can reach your DMs',
       '- `/alerts preview` checks how a listing would read before it sends',
       '- Dial up confidence for fewer, cleaner alerts',
       '- Dial down confidence for more possible finds, with more noise',

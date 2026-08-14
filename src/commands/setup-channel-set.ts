@@ -1,6 +1,37 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { setGuildCommandChannel } from '../services/chase-store.js';
+import { getGuildCommunityFeedMode, setGuildCommandChannel, type CommunityFeedMode } from '../services/chase-store.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
+
+const REQUIRED_SETUP_CHANNEL_PERMISSIONS = [
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.EmbedLinks
+] as const;
+
+const SETUP_CHANNEL_PERMISSION_LABELS = new Map<bigint, string>([
+  [PermissionFlagsBits.ViewChannel, 'View Channel'],
+  [PermissionFlagsBits.SendMessages, 'Send Messages'],
+  [PermissionFlagsBits.EmbedLinks, 'Embed Links']
+]);
+
+export function missingSetupChannelPermissions(channel: any, botMember: any): string[] {
+  const permissions = channel?.permissionsFor?.(botMember);
+  if (!permissions) {
+    return REQUIRED_SETUP_CHANNEL_PERMISSIONS.map((permission) => SETUP_CHANNEL_PERMISSION_LABELS.get(permission) ?? String(permission));
+  }
+
+  return REQUIRED_SETUP_CHANNEL_PERMISSIONS
+    .filter((permission) => !permissions.has(permission))
+    .map((permission) => SETUP_CHANNEL_PERMISSION_LABELS.get(permission) ?? String(permission));
+}
+
+function communityVaultPulseSetupLine(mode: CommunityFeedMode): string {
+  if (mode === 'OFF') {
+    return 'Community Vault Pulse: Off — use `/feed toggle:On` to enable community posts.';
+  }
+
+  return 'Community Vault Pulse: On — use `/feed toggle:Off` to disable community posts.';
+}
 
 export const setupChannelSet = {
   data: new SlashCommandBuilder()
@@ -34,10 +65,32 @@ export const setupChannelSet = {
     }
 
     const channel = interaction.options.getChannel('channel', true);
+    const botMember = interaction.guild?.members?.me ?? interaction.client?.user?.id;
+    const missingPermissions = missingSetupChannelPermissions(channel, botMember);
+    if (missingPermissions.length > 0) {
+      await interaction.reply({
+        embeds: [
+          warningEmbed(
+            'Channel Permissions Required',
+            [
+              `Vaultr cannot use <#${channel.id}> yet.`,
+              '',
+              `**Missing:** ${missingPermissions.join(', ')}`,
+              'Update Vaultr channel or role permissions, then retry `/setup channel`.'
+            ].join('\n')
+          )
+        ],
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
     setGuildCommandChannel(interaction.guildId, channel.id);
+    const communityFeedMode = getGuildCommunityFeedMode(interaction.guildId);
     const lines = [
       `**Channel:** <#${channel.id}>`,
-      '**Quickstart:** 1) `/start`  2) `/chase add`  3) peek inside Weekly Discovery drops here'
+      '**Quickstart:** 1) `/start`  2) `/chase add`  3) peek inside Weekly Discovery drops here',
+      communityVaultPulseSetupLine(communityFeedMode)
     ];
 
     await interaction.reply({

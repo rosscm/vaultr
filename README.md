@@ -30,6 +30,8 @@ Product copy and terminology conventions live in [docs/PRODUCT_VOICE.md](docs/PR
    - `npm install`
 4. Register slash commands:
    - `npm run register:commands`
+   - default scope is `GUILD`
+   - set `DISCORD_COMMAND_SCOPE=GLOBAL` when you intentionally want multi-server/global registration
 5. Run smoke checks:
    - `npm run smoke`
 6. Run in dev mode:
@@ -82,6 +84,7 @@ Cloudflare Pages is a straightforward fit:
 - `/chase edit`
 - `/chase remove`
 - `/alerts settings`
+- `/alerts test`
 - `/alerts recent`
 - `/alerts preview`
 - `/feed` (admin toggle)
@@ -204,7 +207,8 @@ sudo journalctl -u vaultr-ops-check.service -n 50
 - Dependencies are installed:
   - `npm install`
 - Env is configured:
-  - `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`
+  - `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_COMMAND_SCOPE`
+  - `DISCORD_GUILD_ID` when `DISCORD_COMMAND_SCOPE=GUILD`
    - `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET` (if `LISTING_SOURCE=EBAY`)
    - `EBAY_APP_ID` (optional; used for sold-comps market context)
   - `LISTING_SOURCE`, `POLL_INTERVAL_SECONDS`
@@ -414,7 +418,11 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 
 - Use Discord OAuth scopes `bot` and `applications.commands`.
 - Avoid `Administrator`; grant only the channel permissions Vaultr needs: View Channel, Send Messages, Embed Links, Read Message History, and Use External Emojis/Stickers if your server styling needs them.
+- Register commands intentionally:
+  - `DISCORD_COMMAND_SCOPE=GUILD` for a dev/test server
+  - `DISCORD_COMMAND_SCOPE=GLOBAL` for closed beta or production rollout
 - Confirm the bot can DM users for chase sightings and weekly reflections; Discovery shelves open privately from the server channel and do not require DMs.
+- Ask collectors to run `/alerts test` once after install so DM delivery is confirmed before they wait for a real hit.
 - Require admins to run `/setup channel` after install so command usage stays in one visible server channel.
 - Add support and privacy links in the Discord Developer Portal before broad invites; keep the same links in public docs or the invite page.
 - Test the invite in a throwaway server with a non-owner user before sharing publicly.

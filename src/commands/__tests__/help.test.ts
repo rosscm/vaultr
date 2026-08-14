@@ -27,6 +27,7 @@ describe('help command', () => {
     expect(text).toContain('`/chase edit` tightens a chase name');
     expect(text).toContain('🎚️ **Tune Alerts**');
     expect(text).toContain('`/alerts settings` controls confidence, currency, volume, shipping, and sources');
+    expect(text).toContain('`/alerts test` checks whether Vaultr can reach your DMs');
     expect(text).toContain('`/alerts preview` checks how a listing would read before it sends');
     expect(text).toContain('Dial up confidence for fewer, cleaner alerts');
     expect(text).toContain('Dial down confidence for more possible finds, with more noise');

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { commands } from './commands/index.js';
+import { resolveDiscordCommandRegistrationConfig } from './services/discord-command-registration.js';
 import { getPollerState, initializePollerState } from './services/poller-state.js';
 import { listAllChases } from './services/chase-store.js';
 import { getRuntimePollIntervalSeconds } from './services/plans.js';
@@ -18,12 +19,20 @@ function envValue(key: string): string | undefined {
 }
 
 function checkEnv(): CheckResult {
-  const required = ['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_GUILD_ID'];
-  const missing = required.filter((key) => !envValue(key));
-  if (missing.length > 0) {
-    return { name: 'env', ok: false, details: `Missing required vars: ${missing.join(', ')}` };
+  try {
+    const config = resolveDiscordCommandRegistrationConfig(process.env);
+    return {
+      name: 'env',
+      ok: true,
+      details: `Core Discord env vars are present (scope=${config.scope}${config.guildId ? ` guildId=${config.guildId}` : ''})`
+    };
+  } catch (error) {
+    return {
+      name: 'env',
+      ok: false,
+      details: error instanceof Error ? error.message : String(error)
+    };
   }
-  return { name: 'env', ok: true, details: 'Core Discord env vars are present' };
 }
 
 function checkListingSourceEnv(): CheckResult {

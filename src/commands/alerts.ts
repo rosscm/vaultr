@@ -2,6 +2,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import { alertsRecent } from './alerts-recent.js';
 import { alertsSettings } from './alerts-settings.js';
 import { alertsStatus } from './alerts-status.js';
+import { alertsTest } from './alerts-test.js';
 import { previewAlert } from './alerts-preview.js';
 
 const SHIPPING_COUNTRY_CHOICES = [
@@ -91,6 +92,11 @@ export const alerts = {
     )
     .addSubcommand((sub) =>
       sub
+        .setName('test')
+        .setDescription('Send a DM delivery test')
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName('preview')
         .setDescription('Preview a chase alert DM')
     ),
@@ -99,6 +105,7 @@ export const alerts = {
     if (subcommand === 'settings') return alertsSettings.execute(interaction);
     if (subcommand === 'recent') return alertsRecent.execute(interaction);
     if (subcommand === 'status') return alertsStatus.execute(interaction);
+    if (subcommand === 'test') return alertsTest.execute(interaction);
     if (subcommand === 'preview') return previewAlert.execute(interaction);
   }
 };
