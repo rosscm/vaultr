@@ -7384,7 +7384,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       return { suggestions: [] };
     });
     sourceResolver.mockClear();
-    const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) => {
+    vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) => {
       fetchCalls.push(suggestion.name);
       return mockedReferenceCacheEntry(
         suggestion.name,
