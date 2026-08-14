@@ -39,7 +39,9 @@ export function resolveDiscordCommandRegistrationConfig(env: NodeJS.ProcessEnv):
   return { token, clientId, scope: 'GLOBAL' };
 }
 
-export function discordCommandRegistrationRoute(config: Pick<DiscordCommandRegistrationConfig, 'clientId' | 'scope' | 'guildId'>): string {
+export function discordCommandRegistrationRoute(
+  config: Pick<DiscordCommandRegistrationConfig, 'clientId' | 'scope' | 'guildId'>
+): ReturnType<typeof Routes.applicationCommands> | ReturnType<typeof Routes.applicationGuildCommands> {
   return config.scope === 'GLOBAL'
     ? Routes.applicationCommands(config.clientId)
     : Routes.applicationGuildCommands(config.clientId, config.guildId!);
