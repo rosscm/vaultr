@@ -34,28 +34,30 @@ if ('IntersectionObserver' in window && sections.length > 0) {
   sections.forEach((section) => navObserver.observe(section));
 }
 
-const demoFeedback = document.querySelector('[data-demo-feedback]');
 document.querySelectorAll('[data-demo-action]').forEach((button) => {
   button.addEventListener('click', () => {
-    document.querySelectorAll('[data-demo-action]').forEach((candidate) => {
+    const scope = button.closest('[data-demo-scope]') ?? document;
+    scope.querySelectorAll('[data-demo-action]').forEach((candidate) => {
       candidate.classList.toggle('is-selected', candidate === button);
     });
-    if (demoFeedback) {
-      demoFeedback.textContent = `${button.dataset.demoAction} noted in this example. Real shelf feedback happens in Discord.`;
+    const feedback = scope.querySelector('[data-demo-feedback]');
+    if (feedback) {
+      feedback.textContent = `${button.dataset.demoAction} noted in this example. Real feedback and Vault actions happen in Discord.`;
     }
   });
 });
 
-const tiltTarget = document.querySelector('[data-tilt]');
-if (tiltTarget && !prefersReducedMotion) {
-  tiltTarget.addEventListener('pointermove', (event) => {
-    const rect = tiltTarget.getBoundingClientRect();
-    const x = (event.clientX - rect.left) / rect.width - 0.5;
-    const y = (event.clientY - rect.top) / rect.height - 0.5;
-    tiltTarget.style.transform = `perspective(1000px) rotateX(${y * -4}deg) rotateY(${x * 5}deg)`;
-  });
+if (!prefersReducedMotion) {
+  document.querySelectorAll('[data-tilt]').forEach((tiltTarget) => {
+    tiltTarget.addEventListener('pointermove', (event) => {
+      const rect = tiltTarget.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width - 0.5;
+      const y = (event.clientY - rect.top) / rect.height - 0.5;
+      tiltTarget.style.transform = `perspective(1000px) rotateX(${y * -4}deg) rotateY(${x * 5}deg)`;
+    });
 
-  tiltTarget.addEventListener('pointerleave', () => {
-    tiltTarget.style.transform = '';
+    tiltTarget.addEventListener('pointerleave', () => {
+      tiltTarget.style.transform = '';
+    });
   });
 }
