@@ -3,28 +3,28 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Vaultr | Pokemon collector software for chases, sightings, and Weekly Shelf</title>
+    <title>Vaultr | Pokémon collector software for chases, alerts, and Weekly Shelf</title>
     <meta
       name="description"
-      content="Keep track of the cards you're actually hunting for, get private sightings when something worth a look turns up, and browse a Weekly Shelf shaped around what you collect."
+      content="Keep track of the cards you're actually hunting for, get private alerts when something worth a look turns up, and browse a Weekly Shelf shaped around what you collect."
     >
     <meta name="robots" content="index,follow">
     <link rel="canonical" href="https://vaultr.example/">
     <meta name="theme-color" content="#120f24">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="Vaultr | Keep an eye on the cards you're actually looking for.">
+    <meta property="og:title" content="Vaultr | For the cards you want now, and the ones you'll want next.">
     <meta
       property="og:description"
-      content="Add the cards you're hunting for, let Vaultr do some of the checking in the background, and get a Weekly Shelf shaped around what you already collect."
+      content="Keep track of what you collect, add the cards you're hunting, and get listings and recommendations that actually fit your collection."
     >
     <meta property="og:url" content="https://vaultr.example/">
     <meta property="og:image" content="https://vaultr.example/assets/social-preview.svg">
     <meta property="og:site_name" content="Vaultr">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Vaultr | Keep an eye on the cards you're actually looking for.">
+    <meta name="twitter:title" content="Vaultr | For the cards you want now, and the ones you'll want next.">
     <meta
       name="twitter:description"
-      content="Private sightings, trusted-shop coverage, and a Weekly Shelf built around the cards you already care about."
+      content="Private alerts, trusted-shop coverage, and a Weekly Shelf built around the cards you already care about."
     >
     <meta name="twitter:image" content="https://vaultr.example/assets/social-preview.svg">
     <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
@@ -35,124 +35,109 @@
     <a class="skip-link" href="#main">Skip to main content</a>
 
     <header class="site-header" data-section-nav>
-      <a class="brand" href="./index.html" aria-label="Vaultr home">
-        <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-        <span class="brand-name">Vaultr</span>
-      </a>
+      <div class="site-header-inner">
+        <a class="brand" href="./index.html" aria-label="Vaultr home">
+          <span class="brand-mark" aria-hidden="true"><span>V</span></span>
+          <span class="brand-name">Vaultr</span>
+        </a>
 
-      <nav class="site-nav" aria-label="Primary navigation">
-        <a href="#how-it-works">How It Works</a>
-        <a href="#private-sightings">Private Sightings</a>
-        <a href="#weekly-shelf">Weekly Shelf</a>
-        <a href="#plans">Plans</a>
-      </nav>
+        <details class="mobile-nav">
+          <summary aria-label="Toggle navigation">Menu</summary>
+          <nav class="mobile-nav-panel" aria-label="Mobile navigation">
+            <a href="#how-it-works">How It Works</a>
+            <a href="#private-sightings">Private Alerts</a>
+            <a href="#weekly-shelf">Weekly Shelf</a>
+            <a href="#plans">Plans</a>
+            <a href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">Join the Beta</a>
+          </nav>
+        </details>
 
-      <a class="button button-small" href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">
-        Join the Beta
-      </a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="#how-it-works">How It Works</a>
+          <a href="#private-sightings">Private Alerts</a>
+          <a href="#weekly-shelf">Weekly Shelf</a>
+          <a href="#plans">Plans</a>
+        </nav>
+
+        <div class="header-actions">
+          <a class="button button-small" href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">
+            Join the Beta
+          </a>
+        </div>
+      </div>
     </header>
 
-    <main id="main">
+    <main id="main" class="site-shell">
       <section class="hero section-band reveal" aria-labelledby="hero-title">
         <div class="section-inner hero-grid">
           <div class="hero-copy">
-            <p class="eyebrow">Built by a collector for collectors</p>
-            <h1 id="hero-title">Keep an eye on the cards you're actually looking for.</h1>
+            <p class="eyebrow">A smarter way to track, chase, and discover</p>
+            <h1 id="hero-title">For the cards you want now, and the ones you'll want next.</h1>
             <p class="hero-text">
-              Add the cards you're hunting for and let Vaultr do some of the checking in the background.
-              When something worth a look turns up, you'll get a private heads-up with the details.
-              Your Weekly Shelf also brings back cards you might not have thought to search for yourself.
+              Keep track of what you collect, add the cards you're hunting, and let Vaultr bring back listings and recommendations that actually fit your collection.
             </p>
+            <p class="product-statement">Build your Vault. Chase your grails. Discover what you love next.</p>
             <div class="hero-actions">
               <a class="button" href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">
                 Join the Beta
               </a>
               <a class="button button-secondary" href="#product-demo">See How Vaultr Works</a>
             </div>
-            <p class="microcopy">Beta access is opening carefully. A broader web experience is planned during beta, but Discord is still where most of Vaultr lives day to day right now.</p>
+            <p class="microcopy">Closed beta · Web experience coming during beta</p>
           </div>
 
-          <div id="product-demo" class="hero-product-stage" data-demo-scope data-tilt aria-label="Example Vaultr Discord workflow">
+          <div id="product-demo" class="hero-product-stage" data-demo-scope data-tilt aria-label="Vaultr Discord workflow">
             <div class="hero-stage-head">
               <span class="demo-pill">Current Discord workflow</span>
-              <span class="demo-note">Example content only</span>
+              <span class="demo-note">Demo</span>
             </div>
 
-            <div class="workflow-rail" aria-hidden="true">
-              <span class="workflow-step is-live">Chase added</span>
-              <span class="workflow-line"></span>
-              <span class="workflow-step">Private sighting</span>
+            <div class="hero-product-flow" data-hero-workflow>
+              <article class="workflow-preview-card is-live" data-workflow-card>
+                <span class="workflow-label">Chase Added</span>
+                <strong>Pikachu 26/83</strong>
+                <p>Raw · C$100 max · eBay</p>
+              </article>
+              <span class="workflow-line" aria-hidden="true"></span>
+              <article class="workflow-preview-card" data-workflow-card>
+                <span class="workflow-label">Vaultr Watches</span>
+                <strong>Filters applied</strong>
+                <p>Checking listings</p>
+              </article>
+              <span class="workflow-line" aria-hidden="true"></span>
+              <article class="workflow-preview-card" data-workflow-card>
+                <span class="workflow-label">Alert Found</span>
+                <strong>Pikachu 26/83</strong>
+                <p>C$79.99 · Good match</p>
+              </article>
             </div>
 
-            <article class="discord-surface command-surface command-surface-hero">
-              <div class="discord-surface-top">
-                <span class="surface-channel">#vaultr</span>
-                <span class="surface-caption">Slash command</span>
-              </div>
-              <div class="command-bubble">
-                <div class="command-row">
-                  <span class="command-chip">/chase add</span>
-                  <span class="command-fill">Mew RC24</span>
-                </div>
-                <div class="command-grid">
-                  <div><span>Condition</span><strong>Raw</strong></div>
-                  <div><span>Max</span><strong>C$220</strong></div>
-                  <div><span>Source</span><strong>eBay</strong></div>
-                </div>
-              </div>
-            </article>
+            <button class="hero-workflow-action" type="button" data-demo-action="View Alert">View alert</button>
 
-            <article class="discord-surface sighting-surface sighting-surface-hero">
-              <div class="discord-surface-top">
-                <span class="surface-channel">Direct message</span>
-                <span class="surface-caption">Private sighting</span>
-              </div>
-              <div class="sighting-banner">
-                <span class="sighting-status">Good match</span>
-                <span class="demo-note">Example listing</span>
-              </div>
-              <h2 class="surface-title">A listing cleared your chase filters</h2>
-              <p class="surface-copy">
-                Exact card name, raw copy, under max by C$18, posted 6m ago.
-              </p>
-              <div class="listing-grid">
-                <div><span>Listing</span><strong>Mew RC24 NM raw</strong></div>
-                <div><span>Total</span><strong>C$202</strong></div>
-                <div><span>Source</span><strong>eBay</strong></div>
-                <div><span>Seller</span><strong>99.8% feedback</strong></div>
-              </div>
-              <div class="surface-actions">
-                <button type="button" data-demo-action="Open Listing">Open Listing</button>
-                <button type="button" data-demo-action="Good Alert">Good Alert</button>
-                <button type="button" data-demo-action="Tune Out">Tune Out</button>
-              </div>
-              <p class="surface-footnote">Weekly Shelf is ready too, but it has its own place just below.</p>
-            </article>
-
-            <p class="demo-feedback hero-demo-feedback" role="status" aria-live="polite" data-demo-feedback>
-              Example controls only. Real Chase, alert, and feedback actions happen in Discord.
+            <p class="demo-feedback" role="status" aria-live="polite" data-demo-feedback>
+              Demo only. Real Chase and sighting actions happen in Discord.
             </p>
           </div>
         </div>
       </section>
 
-      <section class="proof-strip section-band section-tight reveal" aria-label="Vaultr product proof">
+      <section class="proof-strip section-band reveal" aria-label="Vaultr product proof">
         <div class="section-inner proof-grid">
           <article class="proof-card">
-            <strong>Private Sightings</strong>
-            <span>DM-first listing alerts in Discord</span>
+            <strong>Private Alerts</strong>
+            <span>Sent straight to you in Discord</span>
           </article>
           <article class="proof-card">
-            <strong>15-Minute Full Vault Checks</strong>
-            <span>Faster watch cadence for deeper Chase lists</span>
+            <strong>15-Minute Checks</strong>
+            <span>Full Vault checks your chases more often</span>
           </article>
           <article class="proof-card">
-            <strong>Up To 50 Active Chases</strong>
-            <span>Room for grails, side quests, and set trails</span>
+            <strong>Up to 50 Active Chases</strong>
+            <span>Room for the cards you're actively hunting</span>
           </article>
           <article class="proof-card">
             <strong>20-Card Weekly Shelf</strong>
-            <span>Collector discovery shaped by taste profile memory</span>
+            <span>A fresh batch of cards to browse each week</span>
           </article>
         </div>
       </section>
@@ -161,78 +146,92 @@
         <div class="section-inner">
           <div class="section-heading section-heading-wide">
             <p class="eyebrow">How It Works</p>
-            <h2 id="how-title">It starts with a few cards you're trying not to miss.</h2>
+            <h2 id="how-title">Set your chases once. Let Vaultr keep up.</h2>
           </div>
 
           <div class="loop-track">
             <article class="loop-step">
+              <span class="step-icon step-icon-vault" aria-hidden="true"></span>
               <span class="step-number">01</span>
-              <h3>Build Your Chase List</h3>
-              <p>Add the exact cards you care about and tighten the details when the chase needs it.</p>
+              <h3>Build Your Vault</h3>
+              <p>Add the cards you're actively chasing.</p>
             </article>
             <article class="loop-step">
+              <span class="step-icon step-icon-priority" aria-hidden="true"></span>
               <span class="step-number">02</span>
-              <h3>Vaultr Watches</h3>
-              <p>Vaultr checks eBay and, in the Full Vault, trusted shops so you don't have to keep reopening the same searches.</p>
+              <h3>Set What Matters</h3>
+              <p>Pick your priority and filters so Vaultr knows what a worthwhile match looks like.</p>
             </article>
             <article class="loop-step">
+              <span class="step-icon step-icon-work" aria-hidden="true"></span>
               <span class="step-number">03</span>
-              <h3>Collect &amp; Discover</h3>
-              <p>Private sightings help with the cards you're already hunting, and Weekly Shelf helps with the ones you might end up loving next.</p>
+              <h3>Let Vaultr Work</h3>
+              <p>Private alerts bring back matches. Weekly Shelf helps with what you might want next.</p>
             </article>
           </div>
         </div>
       </section>
 
-      <section id="private-sightings" class="section-band section-band-emphasis reveal" aria-labelledby="sightings-title">
+      <section id="private-sightings" class="section-band reveal" aria-labelledby="sightings-title">
         <div class="section-inner feature-grid">
           <div class="feature-copy">
-            <p class="eyebrow">Private Sightings</p>
-            <h2 id="sightings-title">When something worth a look turns up, Vaultr brings the details back to you.</h2>
+            <p class="eyebrow">Private Alerts</p>
+            <h2 id="sightings-title">When something worth a look turns up, Vaultr brings it to you.</h2>
             <p>
-              Vaultr checks against the Chase you saved and explains why the listing made it through.
-              You still make the collector call: verify the seller, the condition, the shipping, and the final price.
+              Vaultr checks the listing against the Chase you saved and shows you why it matched.
+              You still make the call on the seller, condition, shipping and final price.
             </p>
             <ul class="feature-list">
-              <li>Private delivery in Discord DMs</li>
-              <li>Saved Chase filters applied before the alert</li>
-              <li>Match context that explains why it surfaced</li>
-              <li>Feedback controls to tune future alert quality</li>
+              <li>Sent privately in Discord</li>
+              <li>Your Chase filters are checked first</li>
+              <li>See exactly why the listing matched</li>
+              <li>Tell Vaultr which alerts were useful</li>
             </ul>
+            <div class="sighting-glance" aria-label="This sighting at a glance">
+              <p class="panel-label">This Sighting At A Glance</p>
+              <dl>
+                <div>
+                  <dt>Match</dt>
+                  <dd>Strong match</dd>
+                </div>
+                <div>
+                  <dt>Price</dt>
+                  <dd>C$20.01 under max</dd>
+                </div>
+                <div>
+                  <dt>Seller</dt>
+                  <dd>99.9% feedback</dd>
+                </div>
+                <div>
+                  <dt>Listed</dt>
+                  <dd>Posted 1d ago</dd>
+                </div>
+              </dl>
+              <p class="sighting-glance-note">More than just a link. Vaultr gives you enough context to decide if it's actually worth opening.</p>
+            </div>
           </div>
 
           <div class="feature-visual">
-            <div class="product-proof-image" aria-hidden="true">Real Vaultr screenshot can drop in here later</div>
-            <article class="discord-surface sighting-surface sighting-surface-large" data-demo-scope>
-              <div class="discord-surface-top">
-                <span class="surface-channel">Direct message</span>
-                <span class="surface-caption">Example content only</span>
+            <figure class="alert-preview">
+              <figcaption>
+                <span class="demo-pill">REAL DISCORD SIGHTING</span>
+                <span>PRIORITY ALERT</span>
+              </figcaption>
+              <div class="alert-preview-window">
+                <img
+                  src="./assets/vaultr-discord-sighting.png"
+                  alt="Real Vaultr Discord Priority Alert showing Chase Details, Pricing Breakdown, Listing Snapshot, Match Insight, card image and alert actions."
+                  loading="lazy"
+                  data-alert-preview-image
+                >
+                <div class="alert-preview-fallback" data-alert-preview-fallback>
+                  Place the approved alert screenshot at <code>docs/assets/vaultr-discord-sighting.png</code>.
+                </div>
               </div>
-              <div class="sighting-banner">
-                <span class="sighting-status">Strong match</span>
-                <span class="match-score">78 confidence</span>
-              </div>
-              <h3 class="surface-title">Umbreon &amp; Darkrai-GX SM241</h3>
-              <p class="surface-copy">
-                It cleared your saved Chase because the listing matched the card name, stayed raw, and landed under your current max.
-              </p>
-              <div class="listing-grid listing-grid-large">
-                <div><span>Chase</span><strong>Raw · C$180 max</strong></div>
-                <div><span>Listing total</span><strong>C$164</strong></div>
-                <div><span>Posted</span><strong>11m ago</strong></div>
-                <div><span>Source</span><strong>eBay</strong></div>
-                <div><span>Signals</span><strong>Exact card · raw copy · under max</strong></div>
-                <div><span>Reminder</span><strong>Still worth checking condition, shipping, and seller before buying</strong></div>
-              </div>
-              <div class="surface-actions">
-                <button type="button" data-demo-action="Open Listing">Open Listing</button>
-                <button type="button" data-demo-action="Good Alert">Good Alert</button>
-                <button type="button" data-demo-action="Tune Out">Tune Out</button>
-              </div>
-              <p class="demo-feedback" role="status" aria-live="polite" data-demo-feedback>
-                Example controls only. Real alert feedback happens in Discord.
-              </p>
-            </article>
+              <button class="hero-workflow-action alert-preview-action" type="button" data-alert-lightbox-open>
+                View full alert
+              </button>
+            </figure>
           </div>
         </div>
       </section>
@@ -243,179 +242,206 @@
             <div>
               <p class="eyebrow">Weekly Shelf</p>
               <h2 id="shelf-title">Weekly Shelf brings back cards that make sense for what you already collect.</h2>
-              <p class="section-note section-note-inline">Think nearby sets, eras, promos, languages, and Pokemon you already seem to circle back to. Demo interactions below are examples only.</p>
+              <p class="section-note section-note-inline">Think nearby sets, eras, promos, languages and Pokémon you keep circling back to. Each week, Vaultr gives you a fresh batch to browse without making you think of every search yourself.</p>
             </div>
           </div>
 
           <div class="shelf-stage" data-demo-scope>
-            <article class="shelf-spotlight">
-              <div class="spotlight-art spotlight-art-promo">
-                <img class="shelf-card-image" src="" alt="Placeholder for Gardevoir Nintendo Promo card image" loading="lazy">
-              </div>
-              <div class="spotlight-copy">
-                <div class="spotlight-meta">
-                  <span class="badge">Japanese</span>
-                  <span class="badge badge-market">Market ready</span>
-                </div>
-                <h3>Gardevoir Nintendo Promo</h3>
-                <p class="spotlight-subline">Promo lane · niche collector print</p>
-                <p class="spotlight-reason">
-                  Why it fits: your Vault already leans toward promos, Japanese printings, and Gardevoir cards that feel a little more collector-side.
-                </p>
-                <div class="card-actions">
-                  <button type="button" data-demo-action="Add to Chase">Add to Chase</button>
-                  <button type="button" data-demo-action="More Like This">More Like This</button>
-                  <button type="button" data-demo-action="Not Interested">Not Interested</button>
-                </div>
-              </div>
-            </article>
+            <div class="taste-signal-row" aria-label="Weekly Shelf taste signals">
+              <span>Your Shelf Is Picking Up On</span>
+              <span>Japanese prints</span>
+              <span>E-Reader</span>
+              <span>Eeveelutions</span>
+              <span>Promos</span>
+            </div>
 
-            <div class="shelf-grid" aria-label="Example Weekly Shelf cards">
+            <div class="shelf-grid" aria-label="Weekly Shelf cards">
+              <article class="shelf-card shelf-card-featured" tabindex="0">
+                <div class="card-face card-face-gold">
+                  <img
+                    class="shelf-card-image"
+                    src="./assets/cards/mew-corocoro-promo-151.webp"
+                    alt="Shining Mew No. 151 CoroCoro promo from Japan"
+                    width="744"
+                    height="1031"
+                    loading="lazy"
+                    decoding="async"
+                  >
+                </div>
+                <div class="card-meta">
+                  <span class="badge">Featured</span>
+                  <span class="badge badge-soft">Japanese</span>
+                </div>
+                <h3>Mew CoroCoro Promo 151</h3>
+                <p class="card-subline">CoroCoro Promo · Japanese</p>
+                <p class="card-reason">Because you've been circling back to Mew, Japanese prints and promos.</p>
+                <div class="card-actions">
+                  <button class="card-action-primary" type="button" data-demo-action="Add to Chase">Add to Chase</button>
+                  <div class="card-action-secondary">
+                    <button type="button" data-demo-action="More like this">More like this</button>
+                    <button type="button" data-demo-action="Not for me">Not for me</button>
+                  </div>
+                </div>
+              </article>
+
               <article class="shelf-card" tabindex="0">
                 <div class="card-face card-face-mew">
-                  <img class="shelf-card-image" src="" alt="Placeholder for Mew Expedition 19 slash 165 card image" loading="lazy">
+                  <img
+                    class="shelf-card-image"
+                    src="./assets/cards/pichu-expedition-022.webp"
+                    alt="Pichu 22/165 from Expedition Base Set"
+                    width="600"
+                    height="825"
+                    loading="lazy"
+                    decoding="async"
+                  >
                 </div>
                 <div class="card-meta">
                   <span class="badge">English</span>
-                  <span class="badge badge-market">Market ready</span>
+                  <span class="badge badge-soft">E-Reader era</span>
                 </div>
-                <h3>Mew Expedition 19/165</h3>
-                <p class="card-subline">Expedition Base Set · vintage lane</p>
-                <p class="card-reason">Picked because your Chase list already points toward Mew and older e-reader-era cards.</p>
+                <h3>Pichu Expedition 22/165</h3>
+                <p class="card-subline">Expedition Base Set · E-Reader</p>
+                <p class="card-reason">Because older E-Reader cards seem to be your thing.</p>
                 <div class="card-actions">
-                  <button type="button" data-demo-action="Add to Chase">Add to Chase</button>
-                  <button type="button" data-demo-action="More Like This">More Like This</button>
+                  <button class="card-action-primary" type="button" data-demo-action="Add to Chase">Add to Chase</button>
+                  <div class="card-action-secondary">
+                    <button type="button" data-demo-action="More like this">More like this</button>
+                    <button type="button" data-demo-action="Not for me">Not for me</button>
+                  </div>
                 </div>
               </article>
 
               <article class="shelf-card" tabindex="0">
                 <div class="card-face card-face-blue">
-                  <img class="shelf-card-image" src="" alt="Placeholder for Sylveon ex 212 slash 187 card image" loading="lazy">
+                  <img
+                    class="shelf-card-image"
+                    src="./assets/cards/sylveon-ex-212.webp"
+                    alt="Japanese Sylveon ex 212/187 from Terastal Festival ex"
+                    width="600"
+                    height="825"
+                    loading="lazy"
+                    decoding="async"
+                  >
                 </div>
                 <div class="card-meta">
                   <span class="badge">Japanese</span>
-                  <span class="badge badge-soft">Set-family link</span>
+                  <span class="badge badge-soft">Eeveelution</span>
                 </div>
                 <h3>Sylveon ex 212/187</h3>
-                <p class="card-subline">Terastal-era adjacent</p>
-                <p class="card-reason">A believable neighbor if you already keep ending up around Eeveelution-heavy sets.</p>
+                <p class="card-subline">Terastal Festival ex · Japanese</p>
+                <p class="card-reason">Because Eeveelutions keep showing up in the kind of cards you collect.</p>
                 <div class="card-actions">
-                  <button type="button" data-demo-action="Add to Vault">Add to Vault</button>
-                  <button type="button" data-demo-action="Not Interested">Not Interested</button>
+                  <button class="card-action-primary" type="button" data-demo-action="Add to Chase">Add to Chase</button>
+                  <div class="card-action-secondary">
+                    <button type="button" data-demo-action="More like this">More like this</button>
+                    <button type="button" data-demo-action="Not for me">Not for me</button>
+                  </div>
                 </div>
               </article>
 
               <article class="shelf-card" tabindex="0">
                 <div class="card-face card-face-era">
-                  <img class="shelf-card-image" src="" alt="Placeholder for Pichu Expedition 22 slash 165 card image" loading="lazy">
+                  <img
+                    class="shelf-card-image"
+                    src="./assets/cards/moltres-zapdos-articuno-gx-sm210.webp"
+                    alt="Moltres and Zapdos and Articuno-GX SM210 from SM Black Star Promos"
+                    width="734"
+                    height="1024"
+                    loading="lazy"
+                    decoding="async"
+                  >
                 </div>
                 <div class="card-meta">
                   <span class="badge">English</span>
-                  <span class="badge badge-market">Market ready</span>
+                  <span class="badge badge-soft">Promo</span>
                 </div>
-                <h3>Pichu Expedition 22/165</h3>
-                <p class="card-subline">E-reader era · collector staple</p>
-                <p class="card-reason">Fits the same older-print lane without just repeating the exact cards already in your Vault.</p>
+                <h3>Legendary Birds SM210</h3>
+                <p class="card-subline">SM Black Star Promos</p>
+                <p class="card-reason">Because you seem to have a soft spot for standout promos and legendary birds.</p>
                 <div class="card-actions">
-                  <button type="button" data-demo-action="Add to Chase">Add to Chase</button>
-                  <button type="button" data-demo-action="More Like This">More Like This</button>
-                </div>
-              </article>
-
-              <article class="shelf-card" tabindex="0">
-                <div class="card-face card-face-gold">
-                  <img class="shelf-card-image" src="" alt="Placeholder for Articuno Black Star Promo 48 card image" loading="lazy">
-                </div>
-                <div class="card-meta">
-                  <span class="badge">Promo</span>
-                  <span class="badge badge-soft">Collector niche</span>
-                </div>
-                <h3>Articuno Black Star Promo 48</h3>
-                <p class="card-subline">Vintage promo lane</p>
-                <p class="card-reason">The kind of promo card that feels connected to what you're into, not just random filler.</p>
-                <div class="card-actions">
-                  <button type="button" data-demo-action="Add to Chase">Add to Chase</button>
-                  <button type="button" data-demo-action="Not Interested">Not Interested</button>
+                  <button class="card-action-primary" type="button" data-demo-action="Add to Chase">Add to Chase</button>
+                  <div class="card-action-secondary">
+                    <button type="button" data-demo-action="More like this">More like this</button>
+                    <button type="button" data-demo-action="Not for me">Not for me</button>
+                  </div>
                 </div>
               </article>
             </div>
           </div>
 
-          <p class="demo-feedback shelf-demo-feedback" role="status" aria-live="polite" data-demo-feedback>
-            Weekly Shelf actions here are examples only and do not modify a real account.
-          </p>
+          <div class="shelf-demo-row">
+            <button class="demo-reset" type="button" data-shelf-reset>↺ Reset demo</button>
+            <p class="demo-feedback shelf-demo-feedback" role="status" aria-live="polite" data-demo-feedback>
+              Demo only. These actions don't change an account.
+            </p>
+          </div>
         </div>
       </section>
 
-      <section id="why-vaultr" class="section-band section-band-soft reveal" aria-labelledby="why-title">
+      <section id="why-vaultr" class="section-band reveal" aria-labelledby="why-title">
         <div class="section-inner">
           <div class="section-heading section-heading-wide">
-            <p class="eyebrow">Why I Built Vaultr</p>
-            <h2 id="why-title">I spend way too much time checking the same card searches.</h2>
-            <p>I collect the same way a lot of people do: a few cards I'm actively hunting for, a longer wishlist than I'd probably admit to, and a bunch of searches I mean to check again later. Vaultr started as a way to make that easier without turning collecting into homework.</p>
+            <p class="eyebrow">Why Vaultr Exists</p>
+            <h2 id="why-title">Built for the way a collection actually grows.</h2>
+            <p>Vaultr started with my own collection: a few grails I was actively hunting, a wishlist that kept growing, and the same searches I kept checking over and over. I wanted an easier way to keep those chases organized without taking the fun out of collecting.</p>
+            <p>Weekly Shelf grew out of the other side of collecting too: finding something you didn't know you wanted until you saw it.</p>
           </div>
 
-          <div class="why-grid">
-            <article class="why-card">
-              <h3>Chase-specific</h3>
-              <p>It starts from the cards you actually care about instead of dropping you into another giant marketplace feed.</p>
+          <div class="vault-strip" aria-label="My Vault active chases">
+            <p class="panel-label">My Vault · Active Chases</p>
+            <article class="vault-chase-row">
+              <span class="priority-pill priority-pill-grail">Grail</span>
+              <strong>Umbreon ex 217/187</strong>
             </article>
-            <article class="why-card">
-              <h3>Private by default</h3>
-              <p>Sightings stay private, so you can check them on your own time without turning a server channel into listing spam.</p>
+            <article class="vault-chase-row">
+              <span class="priority-pill priority-pill-high">High</span>
+              <strong>Pikachu 26/83</strong>
             </article>
-            <article class="why-card">
-              <h3>It learns your taste</h3>
-              <p>Weekly Shelf gets more personal as your Vault and feedback build up real taste profile memory over time.</p>
-            </article>
-            <article class="why-card">
-              <h3>Built for how collectors actually check in</h3>
-              <p>Discord is still the core home for sightings and server interaction, and a broader web experience is planned as beta expands.</p>
+            <article class="vault-chase-row">
+              <span class="priority-pill priority-pill-normal">Normal</span>
+              <strong>Mega Gardevoir ex 087/063</strong>
             </article>
           </div>
         </div>
       </section>
 
-      <section id="plans" class="section-band plans-section reveal" aria-labelledby="plans-title">
+      <section id="plans" class="section-band reveal" aria-labelledby="plans-title">
         <div class="section-inner">
           <div class="section-heading section-heading-plans">
             <p class="eyebrow">Plans</p>
-            <h2 id="plans-title">Start with Free Vault. Move into Full Vault when you want more room and more frequent checks.</h2>
+            <h2 id="plans-title">Start free. There's more room when you need it.</h2>
           </div>
 
           <div class="plan-grid">
             <article class="plan-card">
               <div>
                 <p class="plan-name">Free Vault</p>
-                <p class="plan-for">A simple place to start if you want Vaultr watching a few cards for you.</p>
+                <p class="plan-for">A simple way to have Vaultr keep an eye on a few cards.</p>
               </div>
               <ul class="check-list">
                 <li>3 active chases</li>
-                <li>Private eBay sightings</li>
+                <li>Private eBay alerts</li>
                 <li>Weekly Shelf preview</li>
                 <li>Basic alert controls</li>
               </ul>
-              <a class="button button-secondary button-block" href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">
-                Join Closed Beta
-              </a>
+              <p class="plan-status">Available during beta</p>
             </article>
 
             <article class="plan-card plan-featured">
               <div>
                 <p class="plan-kicker">Recommended for active collectors</p>
                 <p class="plan-name">Full Vault</p>
-                <p class="plan-for">More room, quicker checks, trusted shops, and the full Weekly Shelf.</p>
+                <p class="plan-for">More chases, quicker checks, trusted shops and the full Weekly Shelf.</p>
               </div>
               <ul class="check-list">
                 <li>Up to 50 active chases</li>
                 <li>15-minute checks</li>
                 <li>Full 20-card Weekly Shelf</li>
                 <li>eBay + trusted shops</li>
-                <li>Deeper feedback-powered discovery</li>
+                <li>Shelf picks shaped by your feedback</li>
               </ul>
-              <a class="button button-block" href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">
-                Join Closed Beta
-              </a>
+              <p class="plan-status">Available during beta</p>
             </article>
           </div>
         </div>
@@ -424,14 +450,14 @@
       <section id="access" class="section-band final-cta reveal" aria-labelledby="access-title">
         <div class="section-inner">
           <div class="final-cta-surface">
-          <p class="eyebrow">Closed Beta</p>
-          <h2 id="access-title">If this sounds like your kind of collecting, come hang around early.</h2>
-          <p>
-            Join the beta to try Vaultr, set up your Chase list, and help shape where it goes next while the broader web side is still being built out.
-          </p>
-          <a class="button" href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">
-            Join the Beta
-          </a>
+            <p class="eyebrow final-cta-eyebrow">Join Vaultr</p>
+            <div class="final-cta-copy">
+              <h2 id="access-title">If this feels like your kind of collecting, come in early.</h2>
+              <p>Bring your own collection, try Vaultr early, and help shape where it goes next.</p>
+            </div>
+            <a class="button" href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">
+              Join the Beta
+            </a>
           </div>
         </div>
       </section>
@@ -443,7 +469,7 @@
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span class="brand-name">Vaultr</span>
         </a>
-        <p>Pokemon collector software for Chase lists, private sightings, and Weekly Shelf picks that feel connected to what you already collect.</p>
+        <p>Build your Vault. Chase your grails. Discover what you love next.</p>
       </div>
       <nav class="site-footer-links" aria-label="Footer navigation">
         <a href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">Join Discord</a>
@@ -451,7 +477,27 @@
         <a href="./terms.html">Terms</a>
         <a href="https://discord.gg/vaultf" target="_blank" rel="noopener noreferrer">Support</a>
       </nav>
-      <p class="copyright">&copy; 2026 Vaultr. Operator details pending before public launch.</p>
+      <p class="copyright">&copy; 2026 Vaultr.</p>
     </footer>
+
+    <div class="lightbox" data-alert-lightbox hidden>
+      <div class="lightbox-backdrop" data-alert-lightbox-close></div>
+      <section class="lightbox-panel" role="dialog" aria-modal="true" aria-labelledby="alert-lightbox-title" tabindex="-1">
+        <div class="lightbox-head">
+          <h2 id="alert-lightbox-title">Real Discord sighting</h2>
+          <button type="button" class="lightbox-close" data-alert-lightbox-close>Close</button>
+        </div>
+        <div class="lightbox-body">
+          <img
+            src="./assets/vaultr-discord-sighting.png"
+            alt="Full real Vaultr Discord Priority Alert screenshot."
+            data-alert-full-image
+          >
+          <div class="alert-preview-fallback" data-alert-full-fallback>
+            Place the approved alert screenshot at <code>docs/assets/vaultr-discord-sighting.png</code>.
+          </div>
+        </div>
+      </section>
+    </div>
   </body>
 </html>
