@@ -93,3 +93,46 @@ export type SentAlert = {
   sourceLastSeenAt?: string;
   sourceRank?: number;
 };
+
+export type AlertDeliveryChannel = 'DISCORD_DM' | 'WEB';
+export type AlertDeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SUPPRESSED';
+
+export type AlertEvent = {
+  id: string;
+  userId: string;
+  chaseId: string;
+  guildId?: string;
+  listingId: string;
+  source: ListingSource;
+  status: 'MATCHED' | 'DELIVERY_PENDING' | 'DELIVERED' | 'DELIVERY_FAILED';
+  chaseName?: string;
+  chasePriority?: Chase['priority'];
+  listingTitle?: string;
+  listingPrice?: number;
+  listingCurrency?: string;
+  priceDelta?: number;
+  listingUrl?: string;
+  matchScore?: number;
+  listingPostedAt?: string;
+  alertLatencySeconds?: number;
+  sourceFirstSeenAt?: string;
+  sourceLastSeenAt?: string;
+  sourceRank?: number;
+  payload?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AlertDelivery = {
+  id: string;
+  alertId: string;
+  userId: string;
+  channel: AlertDeliveryChannel;
+  status: AlertDeliveryStatus;
+  attempts: number;
+  externalMessageId?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+  sentAt?: string;
+};

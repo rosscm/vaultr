@@ -1,10 +1,21 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { buildEbaySearchKeywords } from './ebay.js';
 import { makeAlertFeedbackToken } from './alert-feedback-token.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice } from './currency.js';
 import { normalizePlanTier } from './plans.js';
-import type { Chase, Listing, ListingSource, ListingSourceModePreference, SentAlert, UserAlertSettings, UserPlan } from '../types.js';
+import type {
+  AlertDelivery,
+  AlertDeliveryChannel,
+  AlertEvent,
+  Chase,
+  Listing,
+  ListingSource,
+  ListingSourceModePreference,
+  SentAlert,
+  UserAlertSettings,
+  UserPlan
+} from '../types.js';
 
 type TasteMemorySource = NonNullable<Chase['tasteSource']>;
 export type ChaseRemovalReason = 'FOUND' | 'MISTAKE' | 'NOT_FOR_ME';
@@ -167,6 +178,46 @@ type SentAlertDetailsRow = {
   source_rank: number | null;
 };
 
+type AlertEventRow = {
+  id: string;
+  user_id: string;
+  chase_id: string;
+  guild_id: string | null;
+  listing_id: string;
+  source: ListingSource;
+  status: AlertEvent['status'];
+  chase_name: string | null;
+  chase_priority: Chase['priority'] | null;
+  listing_title: string | null;
+  listing_price: number | null;
+  listing_currency: string | null;
+  price_delta: number | null;
+  listing_url: string | null;
+  match_score: number | null;
+  listing_posted_at: string | null;
+  alert_latency_seconds: number | null;
+  source_first_seen_at: string | null;
+  source_last_seen_at: string | null;
+  source_rank: number | null;
+  payload_json: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type AlertDeliveryRow = {
+  id: string;
+  alert_id: string;
+  user_id: string;
+  channel: AlertDeliveryChannel;
+  status: AlertDelivery['status'];
+  attempts: number;
+  external_message_id: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  sent_at: string | null;
+};
+
 export type UserDiscoveryState = {
   userId: string;
   mode: string;
@@ -226,6 +277,67 @@ function mapSourceObservation(row: SourceObservationRow): SourceObservation {
     listingPrice: row.listing_price ?? undefined,
     listingCurrency: row.listing_currency ?? undefined,
     listingPostedAt: row.listing_posted_at ?? undefined
+  };
+}
+
+function deterministicAlertEventId(userId: string, chaseId: string, listingId: string, source: ListingSource): string {
+  return createHash('sha256').update([userId, chaseId, listingId, source].join('\u001f')).digest('hex').slice(0, 32);
+}
+
+function deterministicAlertDeliveryId(alertId: string, channel: AlertDeliveryChannel): string {
+  return createHash('sha256').update([alertId, channel].join('\u001f')).digest('hex').slice(0, 32);
+}
+
+function mapAlertEvent(row: AlertEventRow): AlertEvent {
+  let payload: Record<string, unknown> | undefined;
+  if (row.payload_json) {
+    try {
+      const parsed = JSON.parse(row.payload_json) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
+    } catch {
+      payload = undefined;
+    }
+  }
+  return {
+    id: row.id,
+    userId: row.user_id,
+    chaseId: row.chase_id,
+    guildId: row.guild_id ?? undefined,
+    listingId: row.listing_id,
+    source: row.source,
+    status: row.status,
+    chaseName: row.chase_name ?? undefined,
+    chasePriority: row.chase_priority ?? undefined,
+    listingTitle: row.listing_title ?? undefined,
+    listingPrice: row.listing_price ?? undefined,
+    listingCurrency: row.listing_currency ?? undefined,
+    priceDelta: row.price_delta ?? undefined,
+    listingUrl: row.listing_url ?? undefined,
+    matchScore: row.match_score ?? undefined,
+    listingPostedAt: row.listing_posted_at ?? undefined,
+    alertLatencySeconds: row.alert_latency_seconds ?? undefined,
+    sourceFirstSeenAt: row.source_first_seen_at ?? undefined,
+    sourceLastSeenAt: row.source_last_seen_at ?? undefined,
+    sourceRank: row.source_rank ?? undefined,
+    payload,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapAlertDelivery(row: AlertDeliveryRow): AlertDelivery {
+  return {
+    id: row.id,
+    alertId: row.alert_id,
+    userId: row.user_id,
+    channel: row.channel,
+    status: row.status,
+    attempts: row.attempts,
+    externalMessageId: row.external_message_id ?? undefined,
+    lastError: row.last_error ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    sentAt: row.sent_at ?? undefined
   };
 }
 
@@ -366,6 +478,100 @@ const updateSentAlertDetailsStmt = db.prepare(`
 const deleteSentAlertStmt = db.prepare(`
   DELETE FROM sent_alerts
   WHERE chase_id = ? AND listing_id = ? AND source = ?
+`);
+
+const upsertAlertEventStmt = db.prepare(`
+  INSERT INTO alert_events (
+    id, user_id, chase_id, guild_id, listing_id, source, status, chase_name, chase_priority,
+    listing_title, listing_price, listing_currency, price_delta, listing_url, match_score,
+    listing_posted_at, alert_latency_seconds, source_first_seen_at, source_last_seen_at,
+    source_rank, payload_json, created_at, updated_at
+  )
+  VALUES (
+    @id, @user_id, @chase_id, @guild_id, @listing_id, @source, @status, @chase_name, @chase_priority,
+    @listing_title, @listing_price, @listing_currency, @price_delta, @listing_url, @match_score,
+    @listing_posted_at, @alert_latency_seconds, @source_first_seen_at, @source_last_seen_at,
+    @source_rank, @payload_json, @created_at, @updated_at
+  )
+  ON CONFLICT(user_id, chase_id, listing_id, source) DO UPDATE SET
+    guild_id = excluded.guild_id,
+    status = excluded.status,
+    chase_name = excluded.chase_name,
+    chase_priority = excluded.chase_priority,
+    listing_title = excluded.listing_title,
+    listing_price = excluded.listing_price,
+    listing_currency = excluded.listing_currency,
+    price_delta = excluded.price_delta,
+    listing_url = excluded.listing_url,
+    match_score = excluded.match_score,
+    listing_posted_at = excluded.listing_posted_at,
+    alert_latency_seconds = excluded.alert_latency_seconds,
+    source_first_seen_at = excluded.source_first_seen_at,
+    source_last_seen_at = excluded.source_last_seen_at,
+    source_rank = excluded.source_rank,
+    payload_json = excluded.payload_json,
+    updated_at = excluded.updated_at
+`);
+
+const upsertAlertDeliveryStmt = db.prepare(`
+  INSERT INTO alert_deliveries (
+    id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, created_at, updated_at, sent_at
+  )
+  VALUES (@id, @alert_id, @user_id, @channel, @status, 0, NULL, NULL, @created_at, @updated_at, NULL)
+  ON CONFLICT(alert_id, channel) DO UPDATE SET
+    status = CASE
+      WHEN alert_deliveries.status = 'SENT' THEN alert_deliveries.status
+      ELSE excluded.status
+    END,
+    updated_at = excluded.updated_at
+`);
+
+const updateAlertDeliveryStatusStmt = db.prepare(`
+  UPDATE alert_deliveries
+  SET status = @status,
+      attempts = attempts + @attempt_increment,
+      external_message_id = @external_message_id,
+      last_error = @last_error,
+      sent_at = @sent_at,
+      updated_at = @updated_at
+  WHERE id = @id
+`);
+
+const updateAlertEventStatusStmt = db.prepare(`
+  UPDATE alert_events
+  SET status = @status,
+      updated_at = @updated_at
+  WHERE id = @id
+`);
+
+const getAlertEventByIdStmt = db.prepare(`
+  SELECT id, user_id, chase_id, guild_id, listing_id, source, status, chase_name, chase_priority,
+    listing_title, listing_price, listing_currency, price_delta, listing_url, match_score,
+    listing_posted_at, alert_latency_seconds, source_first_seen_at, source_last_seen_at,
+    source_rank, payload_json, created_at, updated_at
+  FROM alert_events
+  WHERE id = ?
+`);
+
+const getAlertDeliveryByIdStmt = db.prepare(`
+  SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, created_at, updated_at, sent_at
+  FROM alert_deliveries
+  WHERE id = ?
+`);
+
+const listAlertDeliveriesForEventStmt = db.prepare(`
+  SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, created_at, updated_at, sent_at
+  FROM alert_deliveries
+  WHERE alert_id = ?
+  ORDER BY created_at ASC
+`);
+
+const listPendingAlertDeliveriesStmt = db.prepare(`
+  SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, created_at, updated_at, sent_at
+  FROM alert_deliveries
+  WHERE channel = ? AND status = 'PENDING'
+  ORDER BY created_at ASC
+  LIMIT ?
 `);
 
 const hasSentAlertStmt = db.prepare(`
@@ -1755,6 +1961,139 @@ export function pruneSourceObservations(retentionDays = 14): number {
 
 export function markAlertSent(chaseId: string, userId: string, listingId: string, source: ListingSource): boolean {
   return markAlertSentWithDetails(chaseId, userId, listingId, source, {});
+}
+
+export function enqueueAlertEventDelivery(input: {
+  userId: string;
+  chaseId: string;
+  guildId?: string;
+  listingId: string;
+  source: ListingSource;
+  channel: AlertDeliveryChannel;
+  chaseName?: string;
+  chasePriority?: Chase['priority'];
+  listingTitle?: string;
+  listingPrice?: number;
+  listingCurrency?: string;
+  priceDelta?: number;
+  listingUrl?: string;
+  matchScore?: number;
+  listingPostedAt?: string;
+  alertLatencySeconds?: number;
+  sourceFirstSeenAt?: string;
+  sourceLastSeenAt?: string;
+  sourceRank?: number;
+  payload?: Record<string, unknown>;
+  now?: string;
+}): { alertId: string; deliveryId: string } {
+  const now = input.now ?? new Date().toISOString();
+  const alertId = deterministicAlertEventId(input.userId, input.chaseId, input.listingId, input.source);
+  const deliveryId = deterministicAlertDeliveryId(alertId, input.channel);
+  const persist = db.transaction(() => {
+    upsertAlertEventStmt.run({
+      id: alertId,
+      user_id: input.userId,
+      chase_id: input.chaseId,
+      guild_id: input.guildId ?? null,
+      listing_id: input.listingId,
+      source: input.source,
+      status: 'DELIVERY_PENDING',
+      chase_name: input.chaseName ?? null,
+      chase_priority: input.chasePriority ?? null,
+      listing_title: input.listingTitle ?? null,
+      listing_price: input.listingPrice ?? null,
+      listing_currency: input.listingCurrency ?? null,
+      price_delta: input.priceDelta ?? null,
+      listing_url: input.listingUrl ?? null,
+      match_score: input.matchScore ?? null,
+      listing_posted_at: input.listingPostedAt ?? null,
+      alert_latency_seconds: input.alertLatencySeconds ?? null,
+      source_first_seen_at: input.sourceFirstSeenAt ?? null,
+      source_last_seen_at: input.sourceLastSeenAt ?? null,
+      source_rank: input.sourceRank ?? null,
+      payload_json: input.payload ? JSON.stringify(input.payload) : null,
+      created_at: now,
+      updated_at: now
+    });
+    upsertAlertDeliveryStmt.run({
+      id: deliveryId,
+      alert_id: alertId,
+      user_id: input.userId,
+      channel: input.channel,
+      status: 'PENDING',
+      created_at: now,
+      updated_at: now
+    });
+  });
+  persist();
+  return { alertId, deliveryId };
+}
+
+export function markAlertDeliverySent(deliveryId: string, options: { externalMessageId?: string; now?: string } = {}): boolean {
+  const now = options.now ?? new Date().toISOString();
+  const delivery = getAlertDeliveryById(deliveryId);
+  if (!delivery) return false;
+  const persist = db.transaction(() => {
+    updateAlertDeliveryStatusStmt.run({
+      id: deliveryId,
+      status: 'SENT',
+      attempt_increment: 1,
+      external_message_id: options.externalMessageId ?? null,
+      last_error: null,
+      sent_at: now,
+      updated_at: now
+    });
+    updateAlertEventStatusStmt.run({
+      id: delivery.alertId,
+      status: 'DELIVERED',
+      updated_at: now
+    });
+  });
+  persist();
+  return true;
+}
+
+export function markAlertDeliveryFailed(deliveryId: string, error: unknown, now = new Date().toISOString()): boolean {
+  const delivery = getAlertDeliveryById(deliveryId);
+  if (!delivery) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  const persist = db.transaction(() => {
+    updateAlertDeliveryStatusStmt.run({
+      id: deliveryId,
+      status: 'FAILED',
+      attempt_increment: 1,
+      external_message_id: null,
+      last_error: message.slice(0, 500),
+      sent_at: null,
+      updated_at: now
+    });
+    updateAlertEventStatusStmt.run({
+      id: delivery.alertId,
+      status: 'DELIVERY_FAILED',
+      updated_at: now
+    });
+  });
+  persist();
+  return true;
+}
+
+export function getAlertEventById(alertId: string): AlertEvent | null {
+  const row = getAlertEventByIdStmt.get(alertId) as AlertEventRow | undefined;
+  return row ? mapAlertEvent(row) : null;
+}
+
+export function getAlertDeliveryById(deliveryId: string): AlertDelivery | null {
+  const row = getAlertDeliveryByIdStmt.get(deliveryId) as AlertDeliveryRow | undefined;
+  return row ? mapAlertDelivery(row) : null;
+}
+
+export function listAlertDeliveriesForEvent(alertId: string): AlertDelivery[] {
+  return (listAlertDeliveriesForEventStmt.all(alertId) as AlertDeliveryRow[]).map(mapAlertDelivery);
+}
+
+export function listPendingAlertDeliveries(channel: AlertDeliveryChannel, limit = 25): AlertDelivery[] {
+  const boundedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 25;
+  return (listPendingAlertDeliveriesStmt.all(channel, boundedLimit) as AlertDeliveryRow[]).map(mapAlertDelivery);
 }
 
 export function claimAlertForSending(chaseId: string, userId: string, listingId: string, source: ListingSource): boolean {

@@ -59,6 +59,48 @@ db.exec(`
     PRIMARY KEY (chase_id, listing_id, source)
   );
 
+  CREATE TABLE IF NOT EXISTS alert_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    chase_id TEXT NOT NULL,
+    guild_id TEXT,
+    listing_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'MATCHED',
+    chase_name TEXT,
+    chase_priority TEXT,
+    listing_title TEXT,
+    listing_price REAL,
+    listing_currency TEXT,
+    price_delta REAL,
+    listing_url TEXT,
+    match_score INTEGER,
+    listing_posted_at TEXT,
+    alert_latency_seconds INTEGER,
+    source_first_seen_at TEXT,
+    source_last_seen_at TEXT,
+    source_rank INTEGER,
+    payload_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (user_id, chase_id, listing_id, source)
+  );
+
+  CREATE TABLE IF NOT EXISTS alert_deliveries (
+    id TEXT PRIMARY KEY,
+    alert_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    external_message_id TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    sent_at TEXT,
+    UNIQUE (alert_id, channel)
+  );
+
   CREATE TABLE IF NOT EXISTS source_observations (
     chase_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -676,6 +718,11 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_user_time ON sent_alerts(use
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_guild_time ON sent_alerts(guild_id, sent_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_listing_lookup ON sent_alerts(chase_id, listing_id, source);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_latency ON sent_alerts(alert_latency_seconds);`);
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_events_identity ON alert_events(user_id, chase_id, listing_id, source);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_user_created ON alert_events(user_id, created_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_chase_created ON alert_events(chase_id, created_at);`);
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_deliveries_alert_channel ON alert_deliveries(alert_id, channel);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_deliveries_status ON alert_deliveries(status, updated_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_user_seen ON source_observations(user_id, last_seen_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_listing ON source_observations(listing_id, source);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_last_seen ON source_observations(last_seen_at);`);

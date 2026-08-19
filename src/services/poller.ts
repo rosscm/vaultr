@@ -18,6 +18,12 @@ import {
   markPostedGuildDailyStats,
   markChasesPollAttempted,
   markChasesPollChecked,
+  enqueueAlertEventDelivery,
+  getAlertEventById,
+  listPendingAlertDeliveries,
+  markAlertDeliveryFailed,
+  markAlertDeliverySent,
+  markAlertSentWithDetails,
   releaseIncompleteAlertSendClaim,
   releaseUserAlertFingerprintSendClaim,
   updateSentAlertDetails,
@@ -98,6 +104,10 @@ function sightingPresentation(priority: Chase['priority']): { icon: string; labe
     default:
       return { icon: '🚨', label: 'Chase Alert' };
   }
+}
+
+function listingSourceLabel(source: Listing['source'], seller?: string): string {
+  return source === 'EBAY' ? 'eBay' : seller ?? 'Trusted shop';
 }
 
 function formatListingType(listingType: string | undefined): string {
@@ -707,6 +717,88 @@ async function sendChaseTuningNoticeIfNeeded(
   }
 }
 
+function alertEventDeliveryDetails(event: NonNullable<ReturnType<typeof getAlertEventById>>): Parameters<typeof markAlertSentWithDetails>[4] {
+  return {
+    guildId: event.guildId,
+    listingTitle: event.listingTitle,
+    listingPrice: event.listingPrice,
+    listingCurrency: event.listingCurrency,
+    priceDelta: event.priceDelta,
+    listingUrl: event.listingUrl,
+    matchScore: event.matchScore,
+    listingPostedAt: event.listingPostedAt,
+    alertLatencySeconds: event.alertLatencySeconds,
+    sourceFirstSeenAt: event.sourceFirstSeenAt,
+    sourceLastSeenAt: event.sourceLastSeenAt,
+    sourceRank: event.sourceRank
+  };
+}
+
+function buildStoredAlertEmbed(event: NonNullable<ReturnType<typeof getAlertEventById>>): EmbedBuilder {
+  const { icon, label } = sightingPresentation(event.chasePriority);
+  const sourceLabel = listingSourceLabel(event.source);
+  const embed = new EmbedBuilder()
+    .setColor(VAULTR_ALERT_COLOR)
+    .setTitle(`${icon} ${label} · ${sourceLabel}`)
+    .setDescription(`**${truncateTitle(event.listingTitle ?? 'Matched listing')}**`);
+
+  embed.addFields({
+    name: '📌 Summary',
+    value: [
+      `**Chase:** ${truncateTitle(event.chaseName ?? 'Saved chase', 60)}`,
+      `**Price:** ${formatMoney(event.listingPrice, event.listingCurrency ?? 'USD')}`,
+      `**Posted:** ${formatPostedAge(event.listingPostedAt)}`,
+      `**Source:** ${sourceLabel}`,
+      `**Confidence:** ${event.matchScore === undefined ? 'Unknown' : formatScoreWithQuality(event.matchScore)}`
+    ].join('\n'),
+    inline: false
+  });
+
+  embed.setTimestamp(new Date(event.updatedAt)).setFooter({ text: `Vaultr • ${label}` });
+  return embed;
+}
+
+export async function processPendingDiscordAlertDeliveries(client: Client, limit = 10): Promise<{ sent: number; failed: number; skipped: number }> {
+  const deliveries = listPendingAlertDeliveries('DISCORD_DM', limit);
+  let sent = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (const delivery of deliveries) {
+    const event = getAlertEventById(delivery.alertId);
+    if (!event) {
+      markAlertDeliveryFailed(delivery.id, new Error('Missing alert event for pending delivery'));
+      failed += 1;
+      continue;
+    }
+    if (!event.listingUrl) {
+      markAlertDeliveryFailed(delivery.id, new Error('Missing listing URL for pending delivery'));
+      failed += 1;
+      continue;
+    }
+
+    try {
+      const user = await client.users.fetch(event.userId);
+      const message = await withTimeout(
+        user.send({
+          embeds: [buildStoredAlertEmbed(event)],
+          components: [listingLinkButton(event.listingUrl), alertFeedbackButtons(event.chaseId, event.listingId)]
+        }),
+        10000,
+        'Pending DM delivery timeout'
+      );
+      markAlertSentWithDetails(event.chaseId, event.userId, event.listingId, event.source, alertEventDeliveryDetails(event));
+      markAlertDeliverySent(delivery.id, { externalMessageId: message.id });
+      sent += 1;
+    } catch (error) {
+      markAlertDeliveryFailed(delivery.id, error);
+      failed += 1;
+    }
+  }
+
+  return { sent, failed, skipped };
+}
+
 async function runPoll(client: Client): Promise<void> {
   const startedAt = Date.now();
   const nowMs = Date.now();
@@ -1052,9 +1144,46 @@ async function runPoll(client: Client): Promise<void> {
         }
       }
 
+      const sourceObservation = getSourceObservationForItem(chase.id, listing.listingId);
+      const sentAtMs = Date.now();
+      const priceDelta =
+        chase.maxPrice !== undefined &&
+        comparablePrice(normalizedListing.price, normalizedListing.shippingCost) <= chase.maxPrice
+          ? Number((chase.maxPrice - comparablePrice(normalizedListing.price, normalizedListing.shippingCost)).toFixed(2))
+          : undefined;
+      const alertDetails = {
+        guildId: chase.guildId,
+        listingTitle: listing.title,
+        listingPrice: normalizedListing.price,
+        listingCurrency: targetCurrency,
+        priceDelta,
+        listingUrl: listing.url,
+        matchScore: match.score,
+        listingPostedAt: listing.postedAt,
+        alertLatencySeconds: alertLatencySeconds(listing.postedAt, sentAtMs),
+        sourceFirstSeenAt: sourceObservation?.firstSeenAt,
+        sourceLastSeenAt: sourceObservation?.lastSeenAt,
+        sourceRank: sourceObservation?.sourceRank
+      };
+      const delivery = enqueueAlertEventDelivery({
+        userId: chase.userId,
+        chaseId: chase.id,
+        listingId: listing.listingId,
+        source: listing.source,
+        channel: 'DISCORD_DM',
+        chaseName: chase.cardName,
+        chasePriority: chase.priority,
+        ...alertDetails,
+        payload: {
+          sourceLabel,
+          reasonSummary,
+          matchReasons: match.reasons
+        }
+      });
+
       try {
         const user = await client.users.fetch(chase.userId);
-        await withTimeout(
+        const message = await withTimeout(
           user.send({
             embeds: [embed],
             components: [listingLinkButton(listing.url), alertFeedbackButtons(chase.id, listing.listingId)]
@@ -1062,29 +1191,12 @@ async function runPoll(client: Client): Promise<void> {
           10000,
           'DM send timeout'
         );
-        const sourceObservation = getSourceObservationForItem(chase.id, listing.listingId);
-        const sentAtMs = Date.now();
-        updateSentAlertDetails(chase.id, listing.listingId, listing.source, {
-          guildId: chase.guildId,
-          listingTitle: listing.title,
-          listingPrice: normalizedListing.price,
-          listingCurrency: targetCurrency,
-          priceDelta:
-            chase.maxPrice !== undefined &&
-            comparablePrice(normalizedListing.price, normalizedListing.shippingCost) <= chase.maxPrice
-              ? Number((chase.maxPrice - comparablePrice(normalizedListing.price, normalizedListing.shippingCost)).toFixed(2))
-              : undefined,
-          listingUrl: listing.url,
-          matchScore: match.score,
-          listingPostedAt: listing.postedAt,
-          alertLatencySeconds: alertLatencySeconds(listing.postedAt, sentAtMs),
-          sourceFirstSeenAt: sourceObservation?.firstSeenAt,
-          sourceLastSeenAt: sourceObservation?.lastSeenAt,
-          sourceRank: sourceObservation?.sourceRank
-        });
+        updateSentAlertDetails(chase.id, listing.listingId, listing.source, alertDetails);
+        markAlertDeliverySent(delivery.deliveryId, { externalMessageId: message.id });
         sentForChaseThisPoll += 1;
         markPollerMatchSent();
       } catch (error) {
+        markAlertDeliveryFailed(delivery.deliveryId, error);
         releaseIncompleteAlertSendClaim(chase.id, listing.listingId, listing.source);
         if (listingFingerprint) {
           releaseUserAlertFingerprintSendClaim(chase.userId, listingFingerprint, listing.listingId, listing.source);
@@ -1282,6 +1394,7 @@ export function startPoller(client: Client): void {
       return;
     }
     try {
+      await processPendingDiscordAlertDeliveries(client);
       await runPoll(client);
     } catch (error) {
       console.error('Poller run failed', error);

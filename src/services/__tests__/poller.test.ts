@@ -10,13 +10,22 @@ import {
   isDueForPollInterval,
   listingSourceFailureReason,
   orderAlertCandidatesForSending,
+  processPendingDiscordAlertDeliveries,
   shouldSendChaseTuningNotice,
   orderGroupsForRun,
   shippingDestinationFromSettings,
   shouldSuppressForDestinationShipping,
   shouldPostDailyPulse
 } from '../poller.js';
-import { getUserAlertSettings, resetUserAlertSettings, setUserAlertSettings } from '../chase-store.js';
+import {
+  enqueueAlertEventDelivery,
+  getAlertDeliveryById,
+  getSentAlertByKey,
+  getUserAlertSettings,
+  resetUserAlertSettings,
+  setUserAlertSettings
+} from '../chase-store.js';
+import { db } from '../db.js';
 import { matchChaseToListing } from '../matcher.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
 import { activePlanChases, activePlanTier, getRuntimePollIntervalSeconds, pausedPlanChases, PLAN_LIMITS } from '../plans.js';
@@ -290,6 +299,63 @@ describe('alert eBay search options', () => {
     expect(text).toContain('custom exclusions');
     expect(text).toContain('/alerts settings');
     expect(text).not.toContain('/upgrade');
+  });
+});
+
+describe('pending Discord alert deliveries', () => {
+  function clearAlertRows(userId: string): void {
+    db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM sent_alerts WHERE user_id = ?').run(userId);
+  }
+
+  it('sends pending Discord DM deliveries and records sent alert details', async () => {
+    const userId = `pending-delivery-${Date.now()}`;
+    clearAlertRows(userId);
+    const send = vi.fn(async () => ({ id: 'discord-message-1' }));
+    const client = {
+      users: {
+        fetch: vi.fn(async () => ({ send }))
+      }
+    };
+
+    const { deliveryId } = enqueueAlertEventDelivery({
+      userId,
+      chaseId: 'chase-1',
+      listingId: 'listing-1',
+      source: 'EBAY',
+      channel: 'DISCORD_DM',
+      chaseName: 'Pikachu 26/83',
+      chasePriority: 'HIGH',
+      listingTitle: 'Pikachu 26/83 Toys R Us Promo NM',
+      listingPrice: 79.99,
+      listingCurrency: 'CAD',
+      listingUrl: 'https://example.test/listing-1',
+      matchScore: 94,
+      now: '2026-08-19T12:00:00.000Z'
+    });
+
+    const result = await processPendingDiscordAlertDeliveries(client as never, 5);
+
+    expect(result).toEqual({ sent: 1, failed: 0, skipped: 0 });
+    expect(client.users.fetch).toHaveBeenCalledWith(userId);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(getAlertDeliveryById(deliveryId)).toMatchObject({
+      status: 'SENT',
+      attempts: 1,
+      externalMessageId: 'discord-message-1'
+    });
+    expect(getSentAlertByKey(userId, 'chase-1', 'listing-1', 'EBAY')).toMatchObject({
+      userId,
+      chaseId: 'chase-1',
+      listingId: 'listing-1',
+      listingTitle: 'Pikachu 26/83 Toys R Us Promo NM',
+      listingPrice: 79.99,
+      listingCurrency: 'CAD',
+      matchScore: 94
+    });
+
+    clearAlertRows(userId);
   });
 });
 
