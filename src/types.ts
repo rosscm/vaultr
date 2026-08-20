@@ -94,7 +94,7 @@ export type SentAlert = {
   sourceRank?: number;
 };
 
-export type AlertDeliveryChannel = 'DISCORD_DM' | 'WEB';
+export type AlertDeliveryChannel = 'DISCORD_DM';
 export type AlertDeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SUPPRESSED';
 
 export type AlertEvent = {
@@ -135,4 +135,33 @@ export type AlertDelivery = {
   createdAt: string;
   updatedAt: string;
   sentAt?: string;
+};
+
+export type AlertHistoryCursor = {
+  createdAt: string;
+  id: string;
+};
+
+export type AlertHistoryItem = {
+  id: string;
+  chaseId: string;
+  chaseName?: string;
+  chasePriority?: Chase['priority'];
+  listingId: string;
+  source: ListingSource;
+  listingTitle?: string;
+  listingPrice?: number;
+  listingCurrency?: string;
+  priceDelta?: number;
+  listingUrl?: string;
+  matchScore?: number;
+  listingPostedAt?: string;
+  alertLatencySeconds?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AlertHistoryPage = {
+  items: AlertHistoryItem[];
+  nextCursor?: AlertHistoryCursor;
 };

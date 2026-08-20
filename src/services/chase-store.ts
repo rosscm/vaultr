@@ -8,6 +8,9 @@ import type {
   AlertDelivery,
   AlertDeliveryChannel,
   AlertEvent,
+  AlertHistoryCursor,
+  AlertHistoryItem,
+  AlertHistoryPage,
   Chase,
   Listing,
   ListingSource,
@@ -218,6 +221,34 @@ type AlertDeliveryRow = {
   sent_at: string | null;
 };
 
+type AlertHistoryRow = Pick<
+  AlertEventRow,
+  | 'id'
+  | 'chase_id'
+  | 'chase_name'
+  | 'chase_priority'
+  | 'listing_id'
+  | 'source'
+  | 'listing_title'
+  | 'listing_price'
+  | 'listing_currency'
+  | 'price_delta'
+  | 'listing_url'
+  | 'match_score'
+  | 'listing_posted_at'
+  | 'alert_latency_seconds'
+  | 'created_at'
+  | 'updated_at'
+>;
+
+export type ListAlertEventsForUserOptions = {
+  limit?: number;
+  cursor?: AlertHistoryCursor;
+  chaseId?: string;
+  chasePriority?: Chase['priority'];
+  source?: ListingSource;
+};
+
 export type UserDiscoveryState = {
   userId: string;
   mode: string;
@@ -339,6 +370,32 @@ function mapAlertDelivery(row: AlertDeliveryRow): AlertDelivery {
     updatedAt: row.updated_at,
     sentAt: row.sent_at ?? undefined
   };
+}
+
+function mapAlertHistoryItem(row: AlertHistoryRow): AlertHistoryItem {
+  return {
+    id: row.id,
+    chaseId: row.chase_id,
+    chaseName: row.chase_name ?? undefined,
+    chasePriority: row.chase_priority ?? undefined,
+    listingId: row.listing_id,
+    source: row.source,
+    listingTitle: row.listing_title ?? undefined,
+    listingPrice: row.listing_price ?? undefined,
+    listingCurrency: row.listing_currency ?? undefined,
+    priceDelta: row.price_delta ?? undefined,
+    listingUrl: row.listing_url ?? undefined,
+    matchScore: row.match_score ?? undefined,
+    listingPostedAt: row.listing_posted_at ?? undefined,
+    alertLatencySeconds: row.alert_latency_seconds ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function alertHistoryLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit)) return 25;
+  return Math.max(1, Math.min(100, Math.floor(limit!)));
 }
 
 function mapSentAlertDetails(row: SentAlertDetailsRow): SentAlertDetails {
@@ -2094,6 +2151,69 @@ export function listAlertDeliveriesForEvent(alertId: string): AlertDelivery[] {
 export function listPendingAlertDeliveries(channel: AlertDeliveryChannel, limit = 25): AlertDelivery[] {
   const boundedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 25;
   return (listPendingAlertDeliveriesStmt.all(channel, boundedLimit) as AlertDeliveryRow[]).map(mapAlertDelivery);
+}
+
+export function listAlertEventsForUser(userId: string, options: ListAlertEventsForUserOptions = {}): AlertHistoryPage {
+  const limit = alertHistoryLimit(options.limit);
+  const params: Record<string, string | number> = {
+    user_id: userId,
+    limit: limit + 1
+  };
+  const where = ['user_id = @user_id'];
+
+  if (options.cursor) {
+    where.push('(created_at < @cursor_created_at OR (created_at = @cursor_created_at AND id < @cursor_id))');
+    params.cursor_created_at = options.cursor.createdAt;
+    params.cursor_id = options.cursor.id;
+  }
+  if (options.chaseId) {
+    where.push('chase_id = @chase_id');
+    params.chase_id = options.chaseId;
+  }
+  if (options.chasePriority) {
+    where.push('chase_priority = @chase_priority');
+    params.chase_priority = options.chasePriority;
+  }
+  if (options.source) {
+    where.push('source = @source');
+    params.source = options.source;
+  }
+
+  const rows = db
+    .prepare(
+      `
+        SELECT id, chase_id, chase_name, chase_priority, listing_id, source, listing_title, listing_price,
+          listing_currency, price_delta, listing_url, match_score, listing_posted_at, alert_latency_seconds,
+          created_at, updated_at
+        FROM alert_events
+        WHERE ${where.join(' AND ')}
+        ORDER BY created_at DESC, id DESC
+        LIMIT @limit
+      `
+    )
+    .all(params) as AlertHistoryRow[];
+  const pageRows = rows.slice(0, limit);
+  const last = pageRows.at(-1);
+  return {
+    items: pageRows.map(mapAlertHistoryItem),
+    nextCursor: rows.length > limit && last ? { createdAt: last.created_at, id: last.id } : undefined
+  };
+}
+
+export function getAlertEventForUser(userId: string, alertId: string): AlertHistoryItem | null {
+  const row = db
+    .prepare(
+      `
+        SELECT id, chase_id, chase_name, chase_priority, listing_id, source, listing_title, listing_price,
+          listing_currency, price_delta, listing_url, match_score, listing_posted_at, alert_latency_seconds,
+          created_at, updated_at
+        FROM alert_events
+        WHERE user_id = ? AND id = ?
+        LIMIT 1
+      `
+    )
+    .get(userId, alertId) as AlertHistoryRow | undefined;
+  return row ? mapAlertHistoryItem(row) : null;
 }
 
 export function claimAlertForSending(chaseId: string, userId: string, listingId: string, source: ListingSource): boolean {

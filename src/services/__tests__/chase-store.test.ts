@@ -4,9 +4,11 @@ import {
   enqueueAlertEventDelivery,
   getAlertDeliveryById,
   getAlertEventById,
+  getAlertEventForUser,
   getChaseLastPollAttemptAt,
   getChaseLastPollCheckAt,
   listAlertDeliveriesForEvent,
+  listAlertEventsForUser,
   markAlertDeliveryFailed,
   markAlertDeliverySent,
   markChasesPollAttempted,
@@ -168,6 +170,152 @@ describe('alert event delivery persistence', () => {
       attempts: 1,
       lastError: 'DM blocked'
     });
+
+    clearAlertRows(userId);
+  });
+});
+
+describe('user alert history read model', () => {
+  function clearAlertRows(userId: string): void {
+    db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM sent_alerts WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM chases WHERE user_id = ?').run(userId);
+  }
+
+  function seedAlert(
+    userId: string,
+    index: number,
+    overrides: Partial<Parameters<typeof enqueueAlertEventDelivery>[0]> = {}
+  ): ReturnType<typeof enqueueAlertEventDelivery> {
+    const createdAt = new Date(Date.UTC(2026, 7, 19, 12, 0, 0, 0) + index * 60_000).toISOString();
+    const postedAt = new Date(Date.UTC(2026, 7, 19, 10, 0, 0, 0) + index * 60_000).toISOString();
+    return enqueueAlertEventDelivery({
+      userId,
+      chaseId: `chase-${index}`,
+      listingId: `listing-${index}`,
+      source: 'EBAY',
+      channel: 'DISCORD_DM',
+      chaseName: `Pikachu ${index}/83`,
+      chasePriority: 'NORMAL',
+      listingTitle: `Pikachu listing ${index}`,
+      listingPrice: 50 + index,
+      listingCurrency: 'CAD',
+      priceDelta: index,
+      listingUrl: `https://example.test/listing-${index}`,
+      matchScore: 80 + index,
+      listingPostedAt: postedAt,
+      alertLatencySeconds: index * 60,
+      payload: { internalOnly: true },
+      now: createdAt,
+      ...overrides
+    });
+  }
+
+  it('returns newest alerts first and supports single-alert ownership lookup', () => {
+    const userId = 'alert-history-order-user';
+    const otherUserId = 'alert-history-order-other';
+    clearAlertRows(userId);
+    clearAlertRows(otherUserId);
+    const older = seedAlert(userId, 1, { now: '2026-08-19T12:00:00.000Z' });
+    const newer = seedAlert(userId, 2, { now: '2026-08-19T12:05:00.000Z' });
+    const other = seedAlert(otherUserId, 3, { now: '2026-08-19T12:10:00.000Z' });
+
+    const page = listAlertEventsForUser(userId);
+
+    expect(page.items.map((item) => item.id)).toEqual([newer.alertId, older.alertId]);
+    expect(getAlertEventForUser(userId, newer.alertId)?.listingTitle).toBe('Pikachu listing 2');
+    expect(getAlertEventForUser(userId, other.alertId)).toBeNull();
+    expect(listAlertEventsForUser(otherUserId).items.map((item) => item.id)).toEqual([other.alertId]);
+
+    clearAlertRows(userId);
+    clearAlertRows(otherUserId);
+  });
+
+  it('filters by chase, priority snapshot, and listing source', () => {
+    const userId = 'alert-history-filter-user';
+    clearAlertRows(userId);
+    const grail = seedAlert(userId, 1, { chaseId: 'target-chase', chasePriority: 'GRAIL', source: 'EBAY' });
+    const high = seedAlert(userId, 2, { chaseId: 'other-chase', chasePriority: 'HIGH', source: 'SHOPIFY' });
+    const normal = seedAlert(userId, 3, { chaseId: 'target-chase', chasePriority: 'NORMAL', source: 'SHOPIFY' });
+
+    expect(listAlertEventsForUser(userId, { chaseId: 'target-chase' }).items.map((item) => item.id)).toEqual([
+      normal.alertId,
+      grail.alertId
+    ]);
+    expect(listAlertEventsForUser(userId, { chasePriority: 'GRAIL' }).items.map((item) => item.id)).toEqual([grail.alertId]);
+    expect(listAlertEventsForUser(userId, { chasePriority: 'HIGH' }).items.map((item) => item.id)).toEqual([high.alertId]);
+    expect(listAlertEventsForUser(userId, { chasePriority: 'NORMAL' }).items.map((item) => item.id)).toEqual([normal.alertId]);
+    expect(listAlertEventsForUser(userId, { source: 'SHOPIFY' }).items.map((item) => item.id)).toEqual([normal.alertId, high.alertId]);
+
+    clearAlertRows(userId);
+  });
+
+  it('uses default and maximum limit clamping', () => {
+    const userId = 'alert-history-limit-user';
+    clearAlertRows(userId);
+    for (let index = 1; index <= 105; index += 1) seedAlert(userId, index);
+
+    expect(listAlertEventsForUser(userId).items).toHaveLength(25);
+    expect(listAlertEventsForUser(userId, { limit: 500 }).items).toHaveLength(100);
+    expect(listAlertEventsForUser(userId, { limit: 0 }).items).toHaveLength(1);
+
+    clearAlertRows(userId);
+  });
+
+  it('paginates by createdAt and id without duplicates when timestamps match', () => {
+    const userId = 'alert-history-cursor-user';
+    clearAlertRows(userId);
+    for (let index = 1; index <= 6; index += 1) {
+      seedAlert(userId, index, { now: '2026-08-19T12:00:00.000Z' });
+    }
+
+    const first = listAlertEventsForUser(userId, { limit: 2 });
+    const second = listAlertEventsForUser(userId, { limit: 2, cursor: first.nextCursor });
+    const third = listAlertEventsForUser(userId, { limit: 2, cursor: second.nextCursor });
+    const combined = [...first.items, ...second.items, ...third.items];
+
+    expect(first.items).toHaveLength(2);
+    expect(second.items).toHaveLength(2);
+    expect(third.items).toHaveLength(2);
+    expect(new Set(combined.map((item) => item.id)).size).toBe(6);
+    expect(combined.map((item) => `${item.createdAt}:${item.id}`)).toEqual(
+      [...combined].map((item) => `${item.createdAt}:${item.id}`).sort().reverse()
+    );
+
+    clearAlertRows(userId);
+  });
+
+  it('returns an empty history cleanly', () => {
+    const userId = 'alert-history-empty-user';
+    clearAlertRows(userId);
+
+    expect(listAlertEventsForUser(userId)).toEqual({ items: [], nextCursor: undefined });
+    expect(getAlertEventForUser(userId, 'missing-alert')).toBeNull();
+  });
+
+  it('returns historical snapshots without exposing arbitrary payload', () => {
+    const userId = 'alert-history-snapshot-user';
+    clearAlertRows(userId);
+    const chase = addChase({ userId, cardName: 'Umbreon ex 217/187', priority: 'HIGH' });
+    const alert = seedAlert(userId, 1, {
+      chaseId: chase.id,
+      chaseName: chase.cardName,
+      chasePriority: 'HIGH',
+      payload: { internalOnly: true, shouldNotLeak: 'secret' }
+    });
+    db.prepare('UPDATE chases SET priority = ? WHERE id = ?').run('GRAIL', chase.id);
+
+    const item = getAlertEventForUser(userId, alert.alertId);
+    const rawEvent = getAlertEventById(alert.alertId);
+
+    expect(item).toMatchObject({
+      chaseId: chase.id,
+      chaseName: 'Umbreon ex 217/187',
+      chasePriority: 'HIGH'
+    });
+    expect(rawEvent?.payload).toEqual({ internalOnly: true, shouldNotLeak: 'secret' });
+    expect(item).not.toHaveProperty('payload');
 
     clearAlertRows(userId);
   });

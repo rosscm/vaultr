@@ -720,6 +720,7 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_listing_lookup ON sent_alert
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_latency ON sent_alerts(alert_latency_seconds);`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_events_identity ON alert_events(user_id, chase_id, listing_id, source);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_user_created ON alert_events(user_id, created_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_user_created_id ON alert_events(user_id, created_at DESC, id DESC);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_chase_created ON alert_events(chase_id, created_at);`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_deliveries_alert_channel ON alert_deliveries(alert_id, channel);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_deliveries_status ON alert_deliveries(status, updated_at);`);
