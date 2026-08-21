@@ -347,6 +347,31 @@ Use this when your webhook runs on a Raspberry Pi and needs a public HTTPS endpo
 6. Watch logs:
    - `sudo journalctl -u vaultr-ebay-webhook -f`
 
+## Vaultr Web API
+
+The web API is a separate process from the Discord bot. It currently provides Discord OAuth login and authenticated alert-history reads for the future Vaultr web app.
+
+Local start:
+
+```bash
+npm run dev:web
+```
+
+Required OAuth environment:
+
+- `DISCORD_CLIENT_ID`
+- `DISCORD_CLIENT_SECRET`
+- `VAULTR_WEB_BASE_URL` (for example `http://127.0.0.1:8790`)
+- `VAULTR_WEB_PORT` (default `8790`)
+
+Discord OAuth callback path:
+
+```text
+${VAULTR_WEB_BASE_URL}/auth/discord/callback
+```
+
+The OAuth scope is `identify` only. The web session cookie is an opaque server-side session token; Discord OAuth access tokens are not persisted.
+
 ### Persistence on Pi
 
 For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/vaultr-ebay-webhook.service):

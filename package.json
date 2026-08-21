@@ -7,8 +7,10 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:web": "tsx src/web.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "start:web": "node dist/web.js",
     "start:discovery-worker": "node dist/discovery-market-worker.js",
     "start:webhook": "node dist/ebay-webhook.js",
     "register:commands": "tsx src/register-commands.ts",

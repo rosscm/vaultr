@@ -101,6 +101,17 @@ db.exec(`
     UNIQUE (alert_id, channel)
   );
 
+  CREATE TABLE IF NOT EXISTS web_sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    discord_username TEXT,
+    discord_global_name TEXT,
+    discord_avatar TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_seen_at TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS source_observations (
     chase_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -724,6 +735,8 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_user_created_id ON alert_ev
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_chase_created ON alert_events(chase_id, created_at);`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_deliveries_alert_channel ON alert_deliveries(alert_id, channel);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_deliveries_status ON alert_deliveries(status, updated_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_web_sessions_user ON web_sessions(user_id);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_web_sessions_expires ON web_sessions(expires_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_user_seen ON source_observations(user_id, last_seen_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_listing ON source_observations(listing_id, source);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_last_seen ON source_observations(last_seen_at);`);
