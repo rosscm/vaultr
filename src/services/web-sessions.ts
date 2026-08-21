@@ -3,6 +3,7 @@ import { db } from './db.js';
 
 const SESSION_TOKEN_BYTES = 32;
 const DEFAULT_SESSION_TTL_DAYS = 30;
+const LAST_SEEN_THROTTLE_MS = 30 * 60 * 1000;
 
 export type WebSessionProfile = {
   userId: string;
@@ -124,9 +125,13 @@ export function resolveWebSession(token: string | undefined, now: Date = new Dat
     deleteSessionStmt.run(tokenHash);
     return null;
   }
-  const seenAt = now.toISOString();
-  updateSessionLastSeenStmt.run(seenAt, tokenHash);
-  return mapWebSession({ ...row, last_seen_at: seenAt });
+  const lastSeenMs = row.last_seen_at ? Date.parse(row.last_seen_at) : 0;
+  if (!row.last_seen_at || Number.isNaN(lastSeenMs) || now.getTime() - lastSeenMs >= LAST_SEEN_THROTTLE_MS) {
+    const seenAt = now.toISOString();
+    updateSessionLastSeenStmt.run(seenAt, tokenHash);
+    return mapWebSession({ ...row, last_seen_at: seenAt });
+  }
+  return mapWebSession(row);
 }
 
 export function revokeWebSession(token: string | undefined): void {

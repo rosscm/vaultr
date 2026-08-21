@@ -351,10 +351,16 @@ Use this when your webhook runs on a Raspberry Pi and needs a public HTTPS endpo
 
 The web API is a separate process from the Discord bot. It currently provides Discord OAuth login and authenticated alert-history reads for the future Vaultr web app.
 
-Local start:
+Local review:
 
 ```bash
 npm run dev:web
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8790/app
 ```
 
 Required OAuth environment:
@@ -363,6 +369,7 @@ Required OAuth environment:
 - `DISCORD_CLIENT_SECRET`
 - `VAULTR_WEB_BASE_URL` (for example `http://127.0.0.1:8790`)
 - `VAULTR_WEB_PORT` (default `8790`)
+- `VAULTR_WEB_POST_LOGIN_REDIRECT_PATH` (default `/app`)
 
 Discord OAuth callback path:
 
@@ -371,6 +378,8 @@ ${VAULTR_WEB_BASE_URL}/auth/discord/callback
 ```
 
 The OAuth scope is `identify` only. The web session cookie is an opaque server-side session token; Discord OAuth access tokens are not persisted.
+
+Real Discord OAuth requires the matching callback URL to be registered in the Discord Developer Portal.
 
 ### Persistence on Pi
 

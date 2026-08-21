@@ -88,6 +88,65 @@ describe('web sessions', () => {
 
     clearUser(userId);
   });
+
+  it('does not update last_seen_at inside the throttle window', () => {
+    const userId = 'web-throttled-session-user';
+    clearUser(userId);
+    const { token } = createWebSession(
+      { userId },
+      { now: new Date('2026-08-20T12:00:00.000Z'), token: 'throttle-token' }
+    );
+
+    expect(resolveWebSession(token, new Date('2026-08-20T12:05:00.000Z'))?.lastSeenAt).toBe('2026-08-20T12:00:00.000Z');
+    expect(getWebSessionByTokenHash(hashWebSessionToken(token))?.lastSeenAt).toBe('2026-08-20T12:00:00.000Z');
+
+    clearUser(userId);
+  });
+
+  it('updates last_seen_at after the throttle interval', () => {
+    const userId = 'web-throttled-session-late-user';
+    clearUser(userId);
+    const { token } = createWebSession(
+      { userId },
+      { now: new Date('2026-08-20T12:00:00.000Z'), token: 'throttle-late-token' }
+    );
+
+    expect(resolveWebSession(token, new Date('2026-08-20T12:31:00.000Z'))?.lastSeenAt).toBe('2026-08-20T12:31:00.000Z');
+    expect(getWebSessionByTokenHash(hashWebSessionToken(token))?.lastSeenAt).toBe('2026-08-20T12:31:00.000Z');
+
+    clearUser(userId);
+  });
+});
+
+describe('web app static routes', () => {
+  it('redirects root to the app shell', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/' }, { config });
+    expect(response.status).toBe(302);
+    expect(response.headers?.Location).toBe('/app');
+  });
+
+  it('serves the app shell and assets with explicit content types', async () => {
+    const appResponse = await handleWebRequest({ method: 'GET', url: '/app' }, { config });
+    const cssResponse = await handleWebRequest({ method: 'GET', url: '/app.css' }, { config });
+    const jsResponse = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+
+    expect(appResponse.status).toBe(200);
+    expect(appResponse.headers?.['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(appResponse.headers?.['Cache-Control']).toBe('no-cache');
+    expect(appResponse.body).toContain('Vaultr App');
+    expect(cssResponse.status).toBe(200);
+    expect(cssResponse.headers?.['Content-Type']).toBe('text/css; charset=utf-8');
+    expect(jsResponse.status).toBe(200);
+    expect(jsResponse.headers?.['Content-Type']).toBe('text/javascript; charset=utf-8');
+  });
+
+  it('returns 404 for unknown or traversal-style static paths', async () => {
+    const missing = await handleWebRequest({ method: 'GET', url: '/missing-app.js' }, { config });
+    const traversal = await handleWebRequest({ method: 'GET', url: '/app/../README.md' }, { config });
+
+    expect(missing.status).toBe(404);
+    expect(traversal.status).toBe(404);
+  });
 });
 
 describe('web auth routes', () => {
@@ -294,5 +353,18 @@ describe('authenticated alert API', () => {
 
     clearUser(userId);
     clearUser(otherUserId);
+  });
+
+  it('returns a clean 400 for malformed percent-encoded alert IDs', async () => {
+    const userId = 'web-alert-malformed-user';
+    clearUser(userId);
+    const { token } = createWebSession({ userId }, { token: 'malformed-token' });
+
+    const response = await handleWebRequest({ method: 'GET', url: '/api/alerts/%E0%A4%A', headers: { cookie: sessionCookie(token) } }, { config });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body ?? '{}')).toEqual({ error: 'invalid_alert_id' });
+
+    clearUser(userId);
   });
 });

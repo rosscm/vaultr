@@ -1,6 +1,8 @@
 import 'dotenv/config';
+import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
+import path from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import {
   getAlertEventForUser,
@@ -23,6 +25,13 @@ const OAUTH_STATE_COOKIE = 'vaultr_oauth_state';
 const SESSION_COOKIE = 'vaultr_session';
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const SESSION_TTL_DAYS = 30;
+const WEB_ASSET_ROOT = path.resolve('web');
+const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
+  '/app': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
+  '/app/': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
+  '/app.css': { file: 'app.css', contentType: 'text/css; charset=utf-8' },
+  '/app.js': { file: 'app.js', contentType: 'text/javascript; charset=utf-8' }
+};
 
 type FetchLike = typeof fetch;
 
@@ -137,6 +146,28 @@ function errorResponse(status: number, error: string, headers: Record<string, st
   return jsonResponse(status, { error }, headers);
 }
 
+function staticResponse(pathname: string): WebResponse | null {
+  if (pathname.includes('..')) return errorResponse(404, 'not_found');
+  const asset = WEB_ASSETS[pathname];
+  if (!asset) return null;
+  const filePath = path.resolve(WEB_ASSET_ROOT, asset.file);
+  if (!filePath.startsWith(`${WEB_ASSET_ROOT}${path.sep}`)) return errorResponse(404, 'not_found');
+  try {
+    return {
+      status: 200,
+      headers: {
+        'Content-Type': asset.contentType,
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'same-origin'
+      },
+      body: fs.readFileSync(filePath, 'utf8')
+    };
+  } catch {
+    return errorResponse(404, 'not_found');
+  }
+}
+
 function encodeCursor(cursor: AlertHistoryCursor | undefined): string | null {
   if (!cursor) return null;
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
@@ -234,6 +265,15 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
   const secureCookies = isProductionSecure(options.config);
   const method = request.method.toUpperCase();
 
+  if (method === 'GET' && url.pathname === '/') {
+    return redirectResponse('/app');
+  }
+
+  if (method === 'GET') {
+    const asset = staticResponse(url.pathname);
+    if (asset) return asset;
+  }
+
   if (method === 'GET' && url.pathname === '/auth/discord') {
     const state = randomBytes(32).toString('base64url');
     const authorizeUrl = new URL(DISCORD_AUTHORIZE_URL);
@@ -273,7 +313,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
         maxAgeSeconds: SESSION_TTL_DAYS * 24 * 60 * 60,
         secure: secureCookies
       });
-      return redirectResponse(options.config.postLoginRedirectPath ?? '/', {
+      return redirectResponse(options.config.postLoginRedirectPath ?? '/app', {
         'Set-Cookie': [clearStateCookie, sessionCookie]
       });
     } catch (error) {
@@ -321,7 +361,13 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
   if (method === 'GET' && alertMatch) {
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');
-    const alert = getAlertEventForUser(session.userId, decodeURIComponent(alertMatch[1]));
+    let alertId: string;
+    try {
+      alertId = decodeURIComponent(alertMatch[1]);
+    } catch {
+      return errorResponse(400, 'invalid_alert_id');
+    }
+    const alert = getAlertEventForUser(session.userId, alertId);
     if (!alert) return errorResponse(404, 'not_found');
     return jsonResponse(200, { item: publicAlertItem(alert) });
   }
@@ -349,7 +395,7 @@ export function webConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WebConfi
     discordClientId,
     discordClientSecret,
     baseUrl,
-    postLoginRedirectPath: env.VAULTR_WEB_POST_LOGIN_REDIRECT_PATH ?? '/'
+    postLoginRedirectPath: env.VAULTR_WEB_POST_LOGIN_REDIRECT_PATH ?? '/app'
   };
 }
 
