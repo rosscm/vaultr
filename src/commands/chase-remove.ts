@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
-import { listChases, resolveChaseRemoval } from '../services/chase-store.js';
+import { getVaultChases, resolveUserChaseRemoval } from '../services/chase-service.js';
+import type { Chase } from '../types.js';
 import { errorEmbed, infoEmbed, successEmbed } from '../ui/embeds.js';
 import { displayGrade } from '../ui/style.js';
 
@@ -25,7 +26,7 @@ type PendingChaseRemoval = {
 const pendingChaseRemovals = new Map<string, PendingChaseRemoval>();
 let chaseRemoveNow = () => Date.now();
 
-function chaseChoiceName(chase: ReturnType<typeof listChases>[number]): string {
+function chaseChoiceName(chase: Chase): string {
   const details = [
     chase.maxPrice !== undefined ? `Max ${chase.maxPrice}` : undefined,
     chase.grade ? displayGrade(chase.grade) : undefined,
@@ -151,7 +152,7 @@ export async function handleChaseRemoveAutocomplete(interaction: any): Promise<b
   if (focused.name !== 'chase') return false;
 
   const query = String(focused.value ?? '').trim().toLowerCase();
-  const chases = listChases(interaction.user.id);
+  const chases = getVaultChases(interaction.user.id).chases.map((view) => view.chase);
   const matches = chases
     .filter((chase, index) => {
       if (query.length === 0) return index < 25;
@@ -213,14 +214,14 @@ export async function handleChaseRemoveButtons(interaction: any): Promise<boolea
 
   pending.status = 'PROCESSING';
   try {
-    const resolved = resolveChaseRemoval(pending.ownerUserId, pending.chaseId, action);
-    const resolution = !resolved.removed
+    const resolved = resolveUserChaseRemoval({ userId: pending.ownerUserId, chaseId: pending.chaseId, outcome: action });
+    const resolution = !resolved.ok
       ? removeFailedResolution()
       : action === 'COMPLETED'
-        ? completedResolution(resolved.chase?.cardName ?? pending.cardName)
+        ? completedResolution(resolved.chase.cardName)
         : action === 'NO_LONGER_INTERESTED'
-          ? noLongerInterestedResolution(resolved.chase?.cardName ?? pending.cardName)
-          : addedByMistakeResolution(resolved.chase?.cardName ?? pending.cardName);
+          ? noLongerInterestedResolution(resolved.chase.cardName)
+          : addedByMistakeResolution(resolved.chase.cardName);
     pending.status = 'RESOLVED';
     pending.resolution = resolution;
     await interaction.update(resolution);
@@ -243,7 +244,7 @@ export const chaseRemove = {
   async execute(interaction: any) {
     pruneExpiredPendingChaseRemovals();
     const chaseId = interaction.options.getString('chase');
-    const chases = listChases(interaction.user.id);
+    const chases = getVaultChases(interaction.user.id).chases.map((view) => view.chase);
 
     if (chases.length === 0) {
       await interaction.reply({

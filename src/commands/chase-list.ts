@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
-import { getUserAlertSettings, getUserPlan, listChases } from '../services/chase-store.js';
-import { activePlanChases, activePlanLimits, pausedPlanChases } from '../services/plans.js';
+import { getUserAlertSettings } from '../services/chase-store.js';
+import { getVaultChases } from '../services/chase-service.js';
 import { infoEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 
@@ -51,12 +51,11 @@ function makePaginationRow(userId: string, page: number, totalPages: number): Ac
 }
 
 export function buildChaseListEmbed(userId: string, page: number) {
-  const chases = listChases(userId);
+  const vault = getVaultChases(userId);
+  const chases = vault.chases.map((view) => view.chase);
   const settings = getUserAlertSettings(userId);
-  const plan = getUserPlan(userId);
-  const limits = activePlanLimits(plan);
-  const activeChaseIds = new Set(activePlanChases(chases, plan).map((chase) => chase.id));
-  const pausedCount = pausedPlanChases(chases, plan).length;
+  const activeChaseIds = new Set(vault.chases.filter((view) => view.monitoringState === 'ACTIVE').map((view) => view.chase.id));
+  const pausedCount = vault.plan.pausedCount;
   const currency = settings.alertCurrency;
   const total = chases.length;
   if (total === 0) {
@@ -128,7 +127,7 @@ export function buildChaseListEmbed(userId: string, page: number) {
   ].filter(Boolean);
 
   const description = [
-    `**Active Chases:** ${activeChaseIds.size}/${limits.maxActiveChases}`,
+    `**Active Chases:** ${activeChaseIds.size}/${vault.plan.maxActiveChases}`,
     ...(pausedCount > 0 ? [`**Paused Chases:** ${pausedCount} saved, not checked while on Free`] : []),
     `**Page:** ${currentPage + 1}/${totalPages}`,
     '',

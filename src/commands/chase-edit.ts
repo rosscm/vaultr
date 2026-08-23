@@ -1,11 +1,9 @@
 import { MessageFlags } from 'discord.js';
-import { getUserPlan, listChases, updateChase } from '../services/chase-store.js';
-import { getEntitlementsForTier } from '../services/entitlements.js';
-import { activePlanTier } from '../services/plans.js';
 import { autocompleteChaseCards } from '../services/chase-card-catalog.js';
+import { getVaultChases, updateUserChase } from '../services/chase-service.js';
+import type { Chase } from '../types.js';
 import { errorEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
-import { buildGradePreference, gradeSelectionWarning, inferGradingTypeFromGrade, normalizeConditionChoice } from './chase-options.js';
 import { proControlsNextLine } from './pro-copy.js';
 
 function displayAny(value: string | undefined): string {
@@ -13,7 +11,7 @@ function displayAny(value: string | undefined): string {
   return value;
 }
 
-function chaseDetailLines(chase: ReturnType<typeof listChases>[number]): string[] {
+function chaseDetailLines(chase: Chase): string[] {
   return [
     `**Card:** ${chase.cardName}`,
     `**Priority:** ${chase.priority ?? 'NORMAL'}`,
@@ -26,7 +24,7 @@ function chaseDetailLines(chase: ReturnType<typeof listChases>[number]): string[
   ];
 }
 
-function chaseChoiceName(chase: ReturnType<typeof listChases>[number], entry: number): string {
+function chaseChoiceName(chase: Chase, entry: number): string {
   const details = [
     chase.maxPrice !== undefined ? `Max ${chase.maxPrice}` : undefined,
     chase.grade ? displayGrade(chase.grade) : undefined,
@@ -36,7 +34,7 @@ function chaseChoiceName(chase: ReturnType<typeof listChases>[number], entry: nu
   return `#${entry} ${chase.cardName}${suffix}`.slice(0, 100);
 }
 
-function resolveChaseSelection(chases: ReturnType<typeof listChases>, value: string): { chase: ReturnType<typeof listChases>[number]; entry: number } | null {
+function resolveChaseSelection(chases: Chase[], value: string): { chase: Chase; entry: number } | null {
   const trimmed = value.trim();
   const byId = chases.find((chase) => chase.id === trimmed);
   if (byId) return { chase: byId, entry: chases.findIndex((chase) => chase.id === byId.id) + 1 };
@@ -55,31 +53,6 @@ function resolveChaseSelection(chases: ReturnType<typeof listChases>, value: str
   return null;
 }
 
-function parseNegativeKeywords(value: string): string[] | null {
-  if (/^none$/i.test(value.trim())) return null;
-  const keywords = value
-    .split(',')
-    .map((keyword) => keyword.trim())
-    .filter(Boolean);
-  return keywords.length > 0 ? keywords : null;
-}
-
-function proControlNames(values: {
-  conditionRaw: string | null;
-  listingType: string | undefined;
-  priority: string | undefined;
-  targetNoteRaw: string | null;
-  negativeKeywordsRaw: string | null;
-}): string[] {
-  return [
-    values.conditionRaw !== null && values.conditionRaw !== 'ANY' ? 'condition' : undefined,
-    values.listingType !== undefined && values.listingType !== 'ANY' ? 'listing type' : undefined,
-    values.priority !== undefined && values.priority !== 'NORMAL' ? 'priority' : undefined,
-    values.targetNoteRaw !== null ? 'note' : undefined,
-    values.negativeKeywordsRaw !== null ? 'custom exclusions' : undefined
-  ].filter((value): value is string => Boolean(value));
-}
-
 export async function handleChaseEditAutocomplete(interaction: any): Promise<boolean> {
   if (!interaction.isAutocomplete()) return false;
   if (interaction.commandName !== 'chase') return false;
@@ -96,7 +69,7 @@ export async function handleChaseEditAutocomplete(interaction: any): Promise<boo
   if (focused.name !== 'chase') return false;
 
   const query = String(focused.value ?? '').trim().toLowerCase();
-  const chases = listChases(interaction.user.id);
+  const chases = getVaultChases(interaction.user.id).chases.map((view) => view.chase);
   const entryById = new Map(chases.map((chase, index) => [chase.id, index + 1]));
   const matches = chases
     .filter((chase, index) => {
@@ -117,7 +90,7 @@ export async function handleChaseEditAutocomplete(interaction: any): Promise<boo
 export const chaseEdit = {
   async execute(interaction: any) {
     const chaseId = interaction.options.getString('chase', true);
-    const chases = listChases(interaction.user.id);
+    const chases = getVaultChases(interaction.user.id).chases.map((view) => view.chase);
     const selection = resolveChaseSelection(chases, chaseId);
     const match = selection?.chase;
     const matchEntry = selection?.entry;
@@ -132,83 +105,85 @@ export const chaseEdit = {
 
     const cardName = interaction.options.getString('card') ?? undefined;
     const maxPrice = interaction.options.getNumber('max_price') ?? undefined;
-    const gradingType = interaction.options.getString('grading_type') as Parameters<typeof buildGradePreference>[0];
-    const gradeValue = interaction.options.getString('grade_value') as Parameters<typeof buildGradePreference>[1];
-    const effectiveGradingType = gradingType ?? (gradeValue !== null ? inferGradingTypeFromGrade(match.grade) ?? null : null);
-    const gradeWarning = gradeSelectionWarning(effectiveGradingType, gradeValue);
-    if (gradeWarning) {
-      await interaction.reply({
-        embeds: [warningEmbed('Invalid Grade Preference', gradeWarning)],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-    const grade = buildGradePreference(effectiveGradingType, gradeValue);
-    const conditionRaw = interaction.options.getString('condition') as Parameters<typeof normalizeConditionChoice>[0];
-    const condition = normalizeConditionChoice(conditionRaw);
+    const gradingType = (interaction.options.getString('grading_type') as Parameters<typeof updateUserChase>[0]['changes']['gradingType']) ?? undefined;
+    const gradeValue = (interaction.options.getString('grade_value') as Parameters<typeof updateUserChase>[0]['changes']['gradeValue']) ?? undefined;
+    const condition = (interaction.options.getString('condition') as Parameters<typeof updateUserChase>[0]['changes']['condition']) ?? undefined;
     const listingType = (interaction.options.getString('listing_type') as 'ANY' | 'AUCTION' | 'BUY_IT_NOW' | null) ?? undefined;
     const priority = (interaction.options.getString('priority') as 'GRAIL' | 'HIGH' | 'NORMAL' | null) ?? undefined;
     const targetNoteRaw = interaction.options.getString('target_note');
-    const targetNote = targetNoteRaw === null ? undefined : /^none$/i.test(targetNoteRaw.trim()) ? null : targetNoteRaw;
     const negativeKeywordsRaw = interaction.options.getString('custom_exclusions');
-    const plan = getUserPlan(interaction.user.id);
-    const activeTier = activePlanTier(plan);
-    const entitlements = getEntitlementsForTier(activeTier);
-    const blockedProControls = entitlements.advancedFiltering ? [] : proControlNames({ conditionRaw, listingType, priority, targetNoteRaw, negativeKeywordsRaw });
-    const canUsePrecisionControls = entitlements.advancedFiltering;
-    const negativeKeywords = !canUsePrecisionControls || negativeKeywordsRaw === null ? undefined : parseNegativeKeywords(negativeKeywordsRaw);
 
-    if (negativeKeywords && negativeKeywords.length > 15) {
-      await interaction.reply({
-        embeds: [warningEmbed('Too Many Custom Exclusions', 'Use at most 15 comma-separated custom exclusions')],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    if (!cardName && maxPrice === undefined && grade === undefined && condition === undefined && !listingType && !priority && targetNote === undefined && negativeKeywords === undefined) {
-      await interaction.reply({
-        embeds: [warningEmbed('Nothing To Edit', 'Choose at least one edit field after picking a chase')],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    if (!cardName && maxPrice === undefined && grade === undefined && blockedProControls.length > 0) {
-      await interaction.reply({
-        embeds: [
-          warningEmbed(
-            'Pro Controls Not Applied',
-            `Free Vaults cannot change ${blockedProControls.join(', ')}.\n\n${proControlsNextLine()}`
-          )
-        ],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    const updated = updateChase(interaction.user.id, match.id, {
-      cardName,
-      priority: canUsePrecisionControls ? priority : undefined,
-      targetNote: canUsePrecisionControls ? targetNote : undefined,
-      maxPrice,
-      grade,
-      condition: canUsePrecisionControls ? condition : undefined,
-      listingType: canUsePrecisionControls ? listingType : undefined,
-      negativeKeywords
+    const result = updateUserChase({
+      userId: interaction.user.id,
+      chaseId: match.id,
+      changes: {
+        cardName,
+        maxPrice,
+        gradingType,
+        gradeValue,
+        condition,
+        listingType,
+        priority,
+        targetNote: targetNoteRaw ?? undefined,
+        customExclusions: negativeKeywordsRaw ?? undefined
+      }
     });
 
-    if (!updated) {
+    if (!result.ok) {
+      if (result.code === 'CHASE_NOT_FOUND') {
+        await interaction.reply({ embeds: [errorEmbed('Update Failed', 'Unable to update chase')], flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (result.code === 'INVALID_GRADE_PREFERENCE') {
+        await interaction.reply({
+          embeds: [warningEmbed('Invalid Grade Preference', result.message ?? 'Choose a valid grade preference')],
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      if (result.code === 'TOO_MANY_CUSTOM_EXCLUSIONS') {
+        await interaction.reply({
+          embeds: [warningEmbed('Too Many Custom Exclusions', 'Use at most 15 comma-separated custom exclusions')],
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      if (result.code === 'NO_CHANGES_REQUESTED') {
+        await interaction.reply({
+          embeds: [warningEmbed('Nothing To Edit', 'Choose at least one edit field after picking a chase')],
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      if (result.code === 'NO_APPLICABLE_CHANGES') {
+        await interaction.reply({
+          embeds: [
+            warningEmbed(
+              'Pro Controls Not Applied',
+              `Free Vaults cannot change ${result.blockedControls?.join(', ') ?? 'those controls'}.\n\n${proControlsNextLine()}`
+            )
+          ],
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      if (result.code === 'DUPLICATE_CHASE') {
+        await interaction.reply({
+          embeds: [warningEmbed('Already In Vault', `**${result.duplicateChase?.cardName ?? cardName}** is already an active chase`)],
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
       await interaction.reply({ embeds: [errorEmbed('Update Failed', 'Unable to update chase')], flags: MessageFlags.Ephemeral });
       return;
     }
 
     const lines = [
-      ...chaseDetailLines(updated),
-      ...(blockedProControls.length > 0
+      ...chaseDetailLines(result.chase),
+      ...(result.blockedControls.length > 0
         ? [
             '',
-            `**Pro Controls Not Applied:** ${blockedProControls.join(', ')}`,
+            `**Pro Controls Not Applied:** ${result.blockedControls.join(', ')}`,
             proControlsNextLine()
           ]
         : []),
