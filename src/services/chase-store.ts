@@ -481,6 +481,11 @@ const removeAllChasesByUserStmt = db.prepare(`
 const updateChaseStmt = db.prepare(`
   UPDATE chases
   SET card_name = @card_name,
+      card_image_url = @card_image_url,
+      card_image_identity = @card_image_identity,
+      card_image_source_name = @card_image_source_name,
+      card_image_source_kind = @card_image_source_kind,
+      card_image_source_card_id = @card_image_source_card_id,
       query_name = @query_name,
       priority = @priority,
       target_note = @target_note,
@@ -1918,12 +1923,17 @@ export function markChasesPollAttempted(chaseIds: string[], attemptedAtIso = new
 export function updateChase(
   userId: string,
   chaseId: string,
-  patch: Partial<Omit<Chase, 'id' | 'userId' | 'createdAt' | 'targetNote' | 'maxPrice' | 'grade' | 'condition' | 'negativeKeywords'>> & {
+  patch: Partial<Omit<Chase, 'id' | 'userId' | 'createdAt' | 'targetNote' | 'maxPrice' | 'grade' | 'condition' | 'negativeKeywords' | 'cardImageUrl' | 'cardImageIdentity' | 'cardImageSourceName' | 'cardImageSourceKind' | 'cardImageSourceCardId'>> & {
     targetNote?: string | null;
     maxPrice?: number | null;
     grade?: string | null;
     condition?: string | null;
     negativeKeywords?: string[] | null;
+    cardImageUrl?: string | null;
+    cardImageIdentity?: string | null;
+    cardImageSourceName?: string | null;
+    cardImageSourceKind?: Chase['cardImageSourceKind'] | null;
+    cardImageSourceCardId?: string | null;
   }
 ): Chase | null {
   const current = listChases(userId).find((c) => c.id === chaseId);
@@ -1932,6 +1942,11 @@ export function updateChase(
   const next: Chase = {
     ...current,
     cardName: patch.cardName ?? current.cardName,
+    cardImageUrl: patch.cardImageUrl === null ? undefined : patch.cardImageUrl ?? current.cardImageUrl,
+    cardImageIdentity: patch.cardImageIdentity === null ? undefined : patch.cardImageIdentity ?? current.cardImageIdentity,
+    cardImageSourceName: patch.cardImageSourceName === null ? undefined : patch.cardImageSourceName ?? current.cardImageSourceName,
+    cardImageSourceKind: patch.cardImageSourceKind === null ? undefined : patch.cardImageSourceKind ?? current.cardImageSourceKind,
+    cardImageSourceCardId: patch.cardImageSourceCardId === null ? undefined : patch.cardImageSourceCardId ?? current.cardImageSourceCardId,
     priority: patch.priority ?? current.priority ?? 'NORMAL',
     targetNote: patch.targetNote === null ? undefined : patch.targetNote ?? current.targetNote,
     maxPrice: patch.maxPrice === null ? undefined : patch.maxPrice ?? current.maxPrice,
@@ -1940,12 +1955,19 @@ export function updateChase(
     listingType: patch.listingType ?? current.listingType ?? 'ANY',
     negativeKeywords: patch.negativeKeywords === null ? undefined : patch.negativeKeywords ?? current.negativeKeywords
   };
+  const queryName = buildEbaySearchKeywords(next);
+  next.queryName = queryName;
 
   const result = updateChaseStmt.run({
     id: chaseId,
     user_id: userId,
     card_name: next.cardName,
-    query_name: next.queryName ?? buildEbaySearchKeywords(next),
+    card_image_url: next.cardImageUrl ?? null,
+    card_image_identity: next.cardImageIdentity ?? null,
+    card_image_source_name: next.cardImageSourceName ?? null,
+    card_image_source_kind: next.cardImageSourceKind ?? null,
+    card_image_source_card_id: next.cardImageSourceCardId ?? null,
+    query_name: queryName,
     priority: next.priority ?? 'NORMAL',
     target_note: next.targetNote ?? null,
     max_price: next.maxPrice ?? null,
