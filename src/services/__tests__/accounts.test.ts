@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   createUser,
   getIdentitiesForUser,
@@ -8,6 +8,10 @@ import {
   resolveOrCreateDiscordUser
 } from '../accounts.js';
 import { db, migrateLegacyDiscordUserIdsToAccounts } from '../db.js';
+
+beforeEach(() => {
+  db.pragma('foreign_keys = ON');
+});
 
 function cleanupUserIds(userIds: string[]): void {
   for (const userId of userIds) {
@@ -65,6 +69,26 @@ function seedLegacyUser(discordUserId: string, suffix: string): void {
       user_id, drop_type, period_key, status, title, currency, available_at, generated_at, updated_at
     ) VALUES (?, 'WEEKLY_DISCOVERY', ?, 'READY', 'Weekly Shelf', 'CAD', ?, ?, ?)`
   ).run(discordUserId, `2026-W${suffix}`, '2026-08-20T10:00:00.000Z', '2026-08-20T10:00:00.000Z', '2026-08-20T10:00:00.000Z');
+  db.prepare(
+    `INSERT INTO discovery_scheduled_drop_items (
+      user_id, drop_type, period_key, position, suggestion_name, suggestion_json, market_status,
+      market_currency, created_at, updated_at
+    ) VALUES (?, 'WEEKLY_DISCOVERY', ?, 1, ?, '{}', 'READY', 'CAD', ?, ?)`
+  ).run(discordUserId, `2026-W${suffix}`, `Mew ${suffix}`, '2026-08-20T10:00:00.000Z', '2026-08-20T10:00:00.000Z');
+}
+
+function seedBrokenLegacyScheduledDropItem(discordUserId: string, suffix: string): void {
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.prepare(
+      `INSERT INTO discovery_scheduled_drop_items (
+        user_id, drop_type, period_key, position, suggestion_name, suggestion_json, market_status,
+        market_currency, created_at, updated_at
+      ) VALUES (?, 'WEEKLY_DISCOVERY', ?, 1, ?, '{}', 'READY', 'CAD', ?, ?)`
+    ).run(discordUserId, `2026-W${suffix}`, `Broken Mew ${suffix}`, '2026-08-20T10:00:00.000Z', '2026-08-20T10:00:00.000Z');
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
 }
 
 describe('accounts', () => {
@@ -131,11 +155,15 @@ describe('accounts', () => {
     expect(db.prepare('SELECT user_id FROM alert_events WHERE id = ?').get('legacy-alert-41')).toMatchObject({ user_id: vaultrUserId });
     expect(db.prepare('SELECT user_id FROM alert_deliveries WHERE id = ?').get('legacy-delivery-41')).toMatchObject({ user_id: vaultrUserId });
     expect(db.prepare('SELECT user_id FROM discovery_scheduled_drops WHERE period_key = ?').get('2026-W41')).toMatchObject({ user_id: vaultrUserId });
+    expect(db.prepare('SELECT user_id FROM discovery_scheduled_drop_items WHERE period_key = ?').get('2026-W41')).toMatchObject({ user_id: vaultrUserId });
+    expect(db.prepare('PRAGMA foreign_key_check;').all()).toEqual([]);
 
     migrateLegacyDiscordUserIdsToAccounts();
     expect(
       db.prepare(`SELECT COUNT(*) AS count FROM user_identities WHERE provider = 'DISCORD' AND provider_user_id = ?`).get(discordUserId)
     ).toMatchObject({ count: 1 });
+    expect(db.prepare('SELECT user_id FROM discovery_scheduled_drops WHERE period_key = ?').get('2026-W41')).toMatchObject({ user_id: vaultrUserId });
+    expect(db.prepare('SELECT user_id FROM discovery_scheduled_drop_items WHERE period_key = ?').get('2026-W41')).toMatchObject({ user_id: vaultrUserId });
 
     cleanupUserIds([discordUserId, vaultrUserId]);
   });
@@ -158,5 +186,23 @@ describe('accounts', () => {
     expect(db.prepare('SELECT user_id FROM chases WHERE id = ?').get('legacy-chase-43')).toMatchObject({ user_id: secondIdentity?.userId });
 
     cleanupUserIds([firstDiscordId, secondDiscordId, firstIdentity!.userId, secondIdentity!.userId]);
+  });
+
+  it('rolls back ownership rewrites when final foreign key validation fails', () => {
+    const discordUserId = `legacy-broken-fk-${Date.now()}`;
+    cleanupUserIds([discordUserId]);
+    seedBrokenLegacyScheduledDropItem(discordUserId, '44');
+
+    expect(db.prepare('PRAGMA foreign_key_check;').all()).not.toEqual([]);
+    expect(() => migrateLegacyDiscordUserIdsToAccounts()).toThrow(/Foreign key violations after legacy account migration/);
+    expect(db.prepare('SELECT user_id FROM discovery_scheduled_drop_items WHERE period_key = ?').get('2026-W44')).toMatchObject({ user_id: discordUserId });
+    expect(getIdentity('DISCORD', discordUserId)).toBeNull();
+
+    db.pragma('foreign_keys = OFF');
+    try {
+      cleanupUserIds([discordUserId]);
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
   });
 });

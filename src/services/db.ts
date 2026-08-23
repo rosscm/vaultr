@@ -601,11 +601,27 @@ function bestLegacyDiscordProfile(discordUserId: string): { username?: string; d
   };
 }
 
+function assertNoForeignKeyViolations(): void {
+  const violations = db.prepare('PRAGMA foreign_key_check;').all() as Array<{
+    table: string;
+    rowid: number | null;
+    parent: string;
+    fkid: number;
+  }>;
+  if (violations.length === 0) return;
+  const sample = violations
+    .slice(0, 5)
+    .map((violation) => `${violation.table}(rowid=${violation.rowid ?? 'unknown'}) -> ${violation.parent} fk=${violation.fkid}`)
+    .join('; ');
+  throw new Error(`Foreign key violations after legacy account migration: ${sample}`);
+}
+
 export function migrateLegacyDiscordUserIdsToAccounts(): void {
   const legacyDiscordUserIds = collectLegacyUserIds();
   if (legacyDiscordUserIds.length === 0) return;
 
   db.transaction(() => {
+    db.pragma('defer_foreign_keys = ON');
     const now = new Date().toISOString();
     for (const discordUserId of legacyDiscordUserIds) {
       const existingIdentity = db
@@ -644,6 +660,7 @@ export function migrateLegacyDiscordUserIdsToAccounts(): void {
         db.prepare(`UPDATE ${tableName} SET user_id = ? WHERE user_id = ?`).run(vaultrUserId, discordUserId);
       }
     }
+    assertNoForeignKeyViolations();
   })();
 }
 
