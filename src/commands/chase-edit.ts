@@ -130,6 +130,13 @@ export const chaseEdit = {
     });
 
     if (!result.ok) {
+      if (result.code === 'INVALID_INPUT') {
+        await interaction.reply({
+          embeds: [warningEmbed('Invalid Chase Input', result.message ?? 'Check the chase details and try again')],
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
       if (result.code === 'CHASE_NOT_FOUND') {
         await interaction.reply({ embeds: [errorEmbed('Update Failed', 'Unable to update chase')], flags: MessageFlags.Ephemeral });
         return;

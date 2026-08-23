@@ -138,6 +138,13 @@ export const chaseAdd = {
     });
 
     if (!result.ok) {
+      if (result.code === 'INVALID_INPUT') {
+        await interaction.reply({
+          embeds: [warningEmbed('Invalid Chase Input', result.message ?? 'Check the chase details and try again')],
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
       if (result.code === 'VAULT_LIMIT_REACHED') {
         const message =
           result.activeTier === 'PRO'

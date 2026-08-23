@@ -1302,49 +1302,64 @@ function mapTasteMemoryRow(row: UserTasteMemoryRow): Chase {
 }
 
 export function addChase(input: Omit<Chase, 'id' | 'createdAt'>): Chase {
-  const existing = getChaseByUserAndNormalizedNameStmt.get(input.userId, input.cardName) as ChaseRow | undefined;
-  if (existing) return mapRow(existing);
+  const result = createChaseForUser(input);
+  if (result.status === 'CREATED' || result.status === 'DUPLICATE') return result.chase;
+  throw new Error('Unable to create chase');
+}
 
-  const chase: Chase = {
-    ...input,
-    id: randomUUID(),
-    createdAt: new Date().toISOString()
-  };
+export type CreateChaseForUserResult =
+  | { status: 'CREATED'; chase: Chase; previousCount: number }
+  | { status: 'DUPLICATE'; chase: Chase; previousCount: number }
+  | { status: 'LIMIT_REACHED'; previousCount: number };
 
+export function createChaseForUser(input: Omit<Chase, 'id' | 'createdAt'>, options: { maxChases?: number } = {}): CreateChaseForUserResult {
+  const persist = db.transaction((rowInput: Omit<Chase, 'id' | 'createdAt'>, maxChases?: number): CreateChaseForUserResult => {
+    const previousCount = (countChasesByUserStmt.get(rowInput.userId) as { count: number } | undefined)?.count ?? 0;
+    const existing = getChaseByUserAndNormalizedNameStmt.get(rowInput.userId, rowInput.cardName) as ChaseRow | undefined;
+    if (existing) return { status: 'DUPLICATE', chase: mapRow(existing), previousCount };
+    if (maxChases !== undefined && previousCount >= maxChases) return { status: 'LIMIT_REACHED', previousCount };
+
+    const chase: Chase = {
+      ...rowInput,
+      id: randomUUID(),
+      createdAt: new Date().toISOString()
+    };
+    const computedQueryName = buildEbaySearchKeywords(chase);
+    insertChaseStmt.run({
+      id: chase.id,
+      user_id: chase.userId,
+      guild_id: chase.guildId ?? null,
+      card_name: chase.cardName,
+      card_image_url: chase.cardImageUrl ?? null,
+      card_image_identity: chase.cardImageIdentity ?? null,
+      card_image_source_name: chase.cardImageSourceName ?? null,
+      card_image_source_kind: chase.cardImageSourceKind ?? null,
+      card_image_source_card_id: chase.cardImageSourceCardId ?? null,
+      query_name: computedQueryName,
+      priority: chase.priority ?? 'NORMAL',
+      target_note: chase.targetNote ?? null,
+      max_price: chase.maxPrice ?? null,
+      grade: chase.grade ?? null,
+      condition: chase.condition ?? null,
+      listing_type: chase.listingType ?? 'ANY',
+      negative_keywords: chase.negativeKeywords?.join(',') ?? null,
+      created_at: chase.createdAt
+    });
+    if (chaseStoreTestState.failNextAddChase) {
+      chaseStoreTestState.failNextAddChase = false;
+      throw new Error('Simulated chase add failure');
+    }
+    const row = getChaseByIdStmt.get(chase.userId, chase.id) as ChaseRow | undefined;
+    return { status: 'CREATED', chase: row ? mapRow(row) : { ...chase, queryName: computedQueryName }, previousCount };
+  });
   try {
-    const persisted = db.transaction(() => {
-      const computedQueryName = buildEbaySearchKeywords(chase);
-      insertChaseStmt.run({
-        id: chase.id,
-        user_id: chase.userId,
-        guild_id: chase.guildId ?? null,
-        card_name: chase.cardName,
-        card_image_url: chase.cardImageUrl ?? null,
-        card_image_identity: chase.cardImageIdentity ?? null,
-        card_image_source_name: chase.cardImageSourceName ?? null,
-        card_image_source_kind: chase.cardImageSourceKind ?? null,
-        card_image_source_card_id: chase.cardImageSourceCardId ?? null,
-        query_name: computedQueryName,
-        priority: chase.priority ?? 'NORMAL',
-        target_note: chase.targetNote ?? null,
-        max_price: chase.maxPrice ?? null,
-        grade: chase.grade ?? null,
-        condition: chase.condition ?? null,
-        listing_type: chase.listingType ?? 'ANY',
-        negative_keywords: chase.negativeKeywords?.join(',') ?? null,
-        created_at: chase.createdAt
-      });
-      if (chaseStoreTestState.failNextAddChase) {
-        chaseStoreTestState.failNextAddChase = false;
-        throw new Error('Simulated chase add failure');
-      }
-      const row = getChaseByIdStmt.get(chase.userId, chase.id) as ChaseRow | undefined;
-      return row ? mapRow(row) : chase;
-    })();
-    return persisted;
+    return persist.immediate(input, options.maxChases);
   } catch (error) {
     const duplicate = getChaseByUserAndNormalizedNameStmt.get(input.userId, input.cardName) as ChaseRow | undefined;
-    if (duplicate) return mapRow(duplicate);
+    if (duplicate) {
+      const previousCount = (countChasesByUserStmt.get(input.userId) as { count: number } | undefined)?.count ?? 0;
+      return { status: 'DUPLICATE', chase: mapRow(duplicate), previousCount };
+    }
     throw error;
   }
 }

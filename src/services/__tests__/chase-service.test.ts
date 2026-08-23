@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, afterEach } from 'vitest';
 import {
+  createChaseForUser,
   listChases,
   listUserTasteMemoryChases,
   removeAllChases,
@@ -53,6 +54,76 @@ describe('chase service', () => {
 
     const duplicate = addUserChase({ userId: id, cardName: 'Mew RC24' });
     expect(duplicate).toMatchObject({ ok: false, code: 'DUPLICATE_CHASE' });
+  });
+
+  it('rejects malformed add input before persistence', () => {
+    const cases: Array<{ patch: Record<string, unknown>; field: string; code?: string }> = [
+      { patch: { cardName: '' }, field: 'cardName' },
+      { patch: { cardName: 'ab' }, field: 'cardName' },
+      { patch: { cardName: 'x'.repeat(101) }, field: 'cardName' },
+      { patch: { maxPrice: 0 }, field: 'maxPrice' },
+      { patch: { maxPrice: -1 }, field: 'maxPrice' },
+      { patch: { maxPrice: Number.NaN }, field: 'maxPrice' },
+      { patch: { maxPrice: Number.POSITIVE_INFINITY }, field: 'maxPrice' },
+      { patch: { gradingType: 'NOPE' }, field: 'gradingType' },
+      { patch: { gradeValue: 'PSA_10' }, field: 'gradeValue' },
+      { patch: { condition: 'BANANAS' }, field: 'condition' },
+      { patch: { listingType: 'BEST_OFFER' }, field: 'listingType' },
+      { patch: { priority: 'URGENT' }, field: 'priority' },
+      { patch: { targetNote: 'n'.repeat(121) }, field: 'targetNote' },
+      { patch: { targetNote: { text: 'bad' } }, field: 'targetNote' },
+      { patch: { customExclusions: 'x'.repeat(241) }, field: 'customExclusions' },
+      { patch: { customExclusions: ['proxy', { nested: true }] }, field: 'customExclusions' },
+      { patch: { guildId: 12345 }, field: 'guildId' }
+    ];
+
+    for (const testCase of cases) {
+      const id = userId(`bad-add-${testCase.field}`);
+      const result = addUserChase({ userId: id, cardName: 'Mew RC24', ...testCase.patch } as any);
+      expect(result).toMatchObject({ ok: false, code: testCase.code ?? 'INVALID_INPUT', field: testCase.field });
+      expect(listChases(id)).toHaveLength(0);
+    }
+
+    const tooManyUser = userId('bad-add-too-many');
+    const tooMany = addUserChase({
+      userId: tooManyUser,
+      cardName: 'Mew RC24',
+      customExclusions: Array.from({ length: 16 }, (_, index) => `term-${index}`)
+    } as any);
+    expect(tooMany).toMatchObject({ ok: false, code: 'TOO_MANY_CUSTOM_EXCLUSIONS' });
+    expect(listChases(tooManyUser)).toHaveLength(0);
+  });
+
+  it('accepts valid untyped add input after service validation', () => {
+    const id = userId('valid-runtime-add');
+    setUserPlan(id, 'PRO');
+    const result = addUserChase({
+      userId: id,
+      guildId: 'guild-1',
+      cardName: '  Gardevoir ex 233/091  ',
+      maxPrice: 100.5,
+      gradingType: 'PSA',
+      gradeValue: '10',
+      condition: 'NM_OR_BETTER',
+      listingType: 'BUY_IT_NOW',
+      priority: 'GRAIL',
+      targetNote: 'clean copy',
+      customExclusions: ['proxy', 'played']
+    } as any);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.chase).toMatchObject({
+      guildId: 'guild-1',
+      cardName: 'Gardevoir ex 233/091',
+      maxPrice: 100.5,
+      grade: 'PSA 10',
+      condition: 'NM',
+      listingType: 'BUY_IT_NOW',
+      priority: 'GRAIL',
+      targetNote: 'clean copy',
+      negativeKeywords: ['proxy', 'played']
+    });
   });
 
   it('enforces Free and Pro chase limits through the shared service', () => {
@@ -204,6 +275,70 @@ describe('chase service', () => {
     expect(renamed.chase.queryName).not.toContain('RC24');
   });
 
+  it('rejects malformed edit input without mutating the chase', () => {
+    const id = userId('bad-edit');
+    setUserPlan(id, 'PRO');
+    const added = addUserChase({
+      userId: id,
+      cardName: 'Pichu Expedition 22/165',
+      maxPrice: 80,
+      condition: 'NM_OR_BETTER',
+      priority: 'HIGH'
+    });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    const cases: Array<{ changes: Record<string, unknown>; field: string }> = [
+      { changes: { cardName: '  ' }, field: 'cardName' },
+      { changes: { cardName: 'ab' }, field: 'cardName' },
+      { changes: { maxPrice: 0 }, field: 'maxPrice' },
+      { changes: { maxPrice: Number.NEGATIVE_INFINITY }, field: 'maxPrice' },
+      { changes: { gradingType: 'BAD' }, field: 'gradingType' },
+      { changes: { gradeValue: 'PSA_10' }, field: 'gradeValue' },
+      { changes: { condition: 'BANANAS' }, field: 'condition' },
+      { changes: { listingType: 'MARKETPLACE' }, field: 'listingType' },
+      { changes: { priority: 'MUST_HAVE' }, field: 'priority' },
+      { changes: { targetNote: 'n'.repeat(121) }, field: 'targetNote' },
+      { changes: { targetNote: { text: 'bad' } }, field: 'targetNote' },
+      { changes: { customExclusions: ['proxy', 123] }, field: 'customExclusions' }
+    ];
+
+    for (const testCase of cases) {
+      const result = updateUserChase({ userId: id, chaseId: added.chase.id, changes: testCase.changes as any });
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_INPUT', field: testCase.field });
+      expect(listChases(id)[0]).toMatchObject({
+        cardName: 'Pichu Expedition 22/165',
+        maxPrice: 80,
+        condition: 'NM',
+        priority: 'HIGH'
+      });
+    }
+
+    const tooMany = updateUserChase({
+      userId: id,
+      chaseId: added.chase.id,
+      changes: { customExclusions: Array.from({ length: 16 }, (_, index) => `term-${index}`) as any }
+    });
+    expect(tooMany).toMatchObject({ ok: false, code: 'TOO_MANY_CUSTOM_EXCLUSIONS' });
+  });
+
+  it('does not normalize invalid condition input into DMG', () => {
+    const id = userId('condition-bananas');
+    setUserPlan(id, 'PRO');
+    const added = addUserChase({ userId: id, cardName: 'Mew RC24' });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    const result = updateUserChase({
+      userId: id,
+      chaseId: added.chase.id,
+      changes: { condition: 'BANANAS' as any }
+    });
+
+    expect(result).toMatchObject({ ok: false, code: 'INVALID_INPUT', field: 'condition' });
+    expect(listChases(id)[0].condition).toBeUndefined();
+  });
+
   it('edits Pro controls, clears text extras with none, and rejects excessive custom exclusions', () => {
     const id = userId('edit-pro');
     setUserPlan(id, 'PRO');
@@ -247,6 +382,31 @@ describe('chase service', () => {
       ok: false,
       code: 'TOO_MANY_CUSTOM_EXCLUSIONS'
     });
+  });
+
+  it('preserves edit clear semantics for null max price and none text extras', () => {
+    const id = userId('edit-clears');
+    setUserPlan(id, 'PRO');
+    const added = addUserChase({
+      userId: id,
+      cardName: 'Gardevoir ex 233/091',
+      maxPrice: 150,
+      targetNote: 'binder',
+      customExclusions: 'proxy'
+    });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    const result = updateUserChase({
+      userId: id,
+      chaseId: added.chase.id,
+      changes: { maxPrice: null, targetNote: 'none', customExclusions: 'none' }
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.chase.maxPrice).toBeUndefined();
+    expect(result.chase.targetNote).toBeUndefined();
+    expect(result.chase.negativeKeywords).toBeUndefined();
   });
 
   it('keeps Free edit controls blocked unless a normal field also changes', () => {
@@ -306,6 +466,20 @@ describe('chase service', () => {
       pausedCount: 1
     });
     expect(vault.chases.filter((view) => view.monitoringState === 'PAUSED_PLAN_LIMIT')).toHaveLength(1);
+  });
+
+  it('low-level atomic create distinguishes newly created, duplicate, and limit outcomes', () => {
+    const id = userId('atomic-create');
+    const first = createChaseForUser({ userId: id, cardName: 'Mew RC24' }, { maxChases: 2 });
+    expect(first.status).toBe('CREATED');
+    const duplicate = createChaseForUser({ userId: id, cardName: 'Mew RC24' }, { maxChases: 2 });
+    expect(duplicate.status).toBe('DUPLICATE');
+    expect(duplicate.status === 'DUPLICATE' ? duplicate.chase.id : undefined).toBe(first.status === 'CREATED' ? first.chase.id : undefined);
+    const second = createChaseForUser({ userId: id, cardName: 'Pichu Expedition 22/165' }, { maxChases: 2 });
+    expect(second.status).toBe('CREATED');
+    const limited = createChaseForUser({ userId: id, cardName: 'Gardevoir ex 233/091' }, { maxChases: 2 });
+    expect(limited).toMatchObject({ status: 'LIMIT_REACHED', previousCount: 2 });
+    expect(listChases(id).map((chase) => chase.cardName)).toEqual(['Mew RC24', 'Pichu Expedition 22/165']);
   });
 
   it('contains no Discord UI dependency in the shared service layer', () => {

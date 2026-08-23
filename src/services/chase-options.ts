@@ -36,9 +36,23 @@ export const CONDITION_CHOICES = [
   { name: 'Damaged only', value: 'DMG' }
 ] as const;
 
+export const LISTING_TYPE_CHOICES = [
+  { name: 'Any', value: 'ANY' },
+  { name: 'Auction', value: 'AUCTION' },
+  { name: 'Buy It Now', value: 'BUY_IT_NOW' }
+] as const;
+
+export const PRIORITY_CHOICES = [
+  { name: 'Casual', value: 'NORMAL' },
+  { name: 'High', value: 'HIGH' },
+  { name: 'Grail', value: 'GRAIL' }
+] as const;
+
 export type GradingType = (typeof GRADING_TYPE_CHOICES)[number]['value'];
 export type GradeValue = (typeof GRADE_VALUE_CHOICES)[number]['value'];
 export type ConditionChoice = (typeof CONDITION_CHOICES)[number]['value'];
+export type ListingTypeChoice = (typeof LISTING_TYPE_CHOICES)[number]['value'];
+export type PriorityChoice = (typeof PRIORITY_CHOICES)[number]['value'];
 
 export function buildGradePreference(gradingType: GradingType | null, value: GradeValue | null): string | null | undefined {
   if (gradingType === null && value === null) return undefined;

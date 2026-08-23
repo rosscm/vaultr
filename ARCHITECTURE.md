@@ -39,6 +39,8 @@ After that boundary, product operations use the Vaultr account ID. Discord-only 
 
 Chase product behavior lives in `src/services/chase-service.ts`. It owns add, edit, list, and removal semantics for an internal Vaultr account ID, including plan limits, Pro-only controls, duplicate checks, trusted card image persistence, active/paused list state, and completed-removal taste history.
 
+The Chase application service also performs runtime input validation; Discord and web adapters should translate its typed results rather than reproduce Chase rules.
+
 Discord command handlers should call the shared service and limit themselves to autocomplete, interaction flow, embeds, buttons, and copy. Web routes should use the same service rather than reimplementing Chase rules.
 
 ## Alert Delivery
