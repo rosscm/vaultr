@@ -113,7 +113,7 @@ export const plan = {
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === 'set') {
       const ownerId = process.env.OWNER_USER_ID;
-      if (!ownerId || interaction.user.id !== ownerId) {
+      if (!ownerId || (interaction.discordUserId ?? interaction.user.id) !== ownerId) {
         await interaction.reply({
           embeds: [warningEmbed('Owner Only', 'This subcommand is reserved for the Vaultr owner')],
           flags: MessageFlags.Ephemeral

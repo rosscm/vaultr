@@ -2025,13 +2025,12 @@ export function markAlertSent(chaseId: string, userId: string, listingId: string
   return markAlertSentWithDetails(chaseId, userId, listingId, source, {});
 }
 
-export function enqueueAlertEventDelivery(input: {
+export type AlertEventUpsertInput = {
   userId: string;
   chaseId: string;
   guildId?: string;
   listingId: string;
   source: ListingSource;
-  channel: AlertDeliveryChannel;
   chaseName?: string;
   chasePriority?: Chase['priority'];
   listingTitle?: string;
@@ -2048,49 +2047,77 @@ export function enqueueAlertEventDelivery(input: {
   sourceRank?: number;
   payload?: Record<string, unknown>;
   now?: string;
-}): { alertId: string; deliveryId: string } {
+};
+
+export function upsertAlertEvent(input: AlertEventUpsertInput): { alertId: string } {
   const now = input.now ?? new Date().toISOString();
   const alertId = deterministicAlertEventId(input.userId, input.chaseId, input.listingId, input.source);
-  const deliveryId = deterministicAlertDeliveryId(alertId, input.channel);
-  const persist = db.transaction(() => {
-    upsertAlertEventStmt.run({
-      id: alertId,
-      user_id: input.userId,
-      chase_id: input.chaseId,
-      guild_id: input.guildId ?? null,
-      listing_id: input.listingId,
-      source: input.source,
-      status: 'DELIVERY_PENDING',
-      chase_name: input.chaseName ?? null,
-      chase_priority: input.chasePriority ?? null,
-      listing_title: input.listingTitle ?? null,
-      listing_price: input.listingPrice ?? null,
-      listing_currency: input.listingCurrency ?? null,
-      price_delta: input.priceDelta ?? null,
-      listing_url: input.listingUrl ?? null,
-      listing_image_url: input.listingImageUrl ?? null,
-      match_score: input.matchScore ?? null,
-      listing_posted_at: input.listingPostedAt ?? null,
-      alert_latency_seconds: input.alertLatencySeconds ?? null,
-      source_first_seen_at: input.sourceFirstSeenAt ?? null,
-      source_last_seen_at: input.sourceLastSeenAt ?? null,
-      source_rank: input.sourceRank ?? null,
-      payload_json: input.payload ? JSON.stringify(input.payload) : null,
-      created_at: now,
-      updated_at: now
-    });
-    upsertAlertDeliveryStmt.run({
-      id: deliveryId,
-      alert_id: alertId,
-      user_id: input.userId,
-      channel: input.channel,
-      status: 'PENDING',
-      created_at: now,
-      updated_at: now
-    });
+  upsertAlertEventStmt.run({
+    id: alertId,
+    user_id: input.userId,
+    chase_id: input.chaseId,
+    guild_id: input.guildId ?? null,
+    listing_id: input.listingId,
+    source: input.source,
+    status: 'MATCHED',
+    chase_name: input.chaseName ?? null,
+    chase_priority: input.chasePriority ?? null,
+    listing_title: input.listingTitle ?? null,
+    listing_price: input.listingPrice ?? null,
+    listing_currency: input.listingCurrency ?? null,
+    price_delta: input.priceDelta ?? null,
+    listing_url: input.listingUrl ?? null,
+    listing_image_url: input.listingImageUrl ?? null,
+    match_score: input.matchScore ?? null,
+    listing_posted_at: input.listingPostedAt ?? null,
+    alert_latency_seconds: input.alertLatencySeconds ?? null,
+    source_first_seen_at: input.sourceFirstSeenAt ?? null,
+    source_last_seen_at: input.sourceLastSeenAt ?? null,
+    source_rank: input.sourceRank ?? null,
+    payload_json: input.payload ? JSON.stringify(input.payload) : null,
+    created_at: now,
+    updated_at: now
   });
-  persist();
-  return { alertId, deliveryId };
+  return { alertId };
+}
+
+export function enqueueAlertDelivery(input: {
+  alertId: string;
+  userId: string;
+  channel: AlertDeliveryChannel;
+  now?: string;
+}): { deliveryId: string } {
+  const now = input.now ?? new Date().toISOString();
+  const deliveryId = deterministicAlertDeliveryId(input.alertId, input.channel);
+  upsertAlertDeliveryStmt.run({
+    id: deliveryId,
+    alert_id: input.alertId,
+    user_id: input.userId,
+    channel: input.channel,
+    status: 'PENDING',
+    created_at: now,
+    updated_at: now
+  });
+  updateAlertEventStatusStmt.run({
+    id: input.alertId,
+    status: 'DELIVERY_PENDING',
+    updated_at: now
+  });
+  return { deliveryId };
+}
+
+export function enqueueAlertEventDelivery(input: AlertEventUpsertInput & { channel: AlertDeliveryChannel }): { alertId: string; deliveryId: string } {
+  const persist = db.transaction(() => {
+    const { alertId } = upsertAlertEvent(input);
+    const { deliveryId } = enqueueAlertDelivery({
+      alertId,
+      userId: input.userId,
+      channel: input.channel,
+      now: input.now
+    });
+    return { alertId, deliveryId };
+  });
+  return persist();
 }
 
 export function markAlertDeliverySent(deliveryId: string, options: { externalMessageId?: string; now?: string } = {}): boolean {

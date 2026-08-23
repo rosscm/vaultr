@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 
 const dbFile = process.env.DATABASE_PATH ?? './data/vaultr.db';
@@ -12,6 +13,29 @@ export const db = new Database(resolvedDbPath);
 db.pragma('journal_mode = WAL');
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    display_name TEXT,
+    avatar_url TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS user_identities (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    username TEXT,
+    display_name TEXT,
+    avatar_url TEXT,
+    email TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(provider, provider_user_id),
+    UNIQUE(user_id, provider)
+  );
+
   CREATE TABLE IF NOT EXISTS chases (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -502,6 +526,127 @@ db.exec(`
   );
 `);
 
+const VAULTR_USER_ID_PREFIX = 'usr_';
+const USER_ID_OWNED_TABLES = [
+  'chases',
+  'sent_alerts',
+  'alert_events',
+  'alert_deliveries',
+  'web_sessions',
+  'source_observations',
+  'user_plans',
+  'user_alert_settings',
+  'user_discovery_preferences',
+  'user_discovery_seen',
+  'user_discovery_feedback',
+  'discovery_training_examples',
+  'user_discovery_state',
+  'discovery_market_refresh_jobs',
+  'discovery_user_universe',
+  'discovery_scheduled_drops',
+  'discovery_scheduled_drop_items',
+  'weekly_discovery_preparation_state',
+  'weekly_discovery_prepared_reserve',
+  'ignored_listing_fingerprints',
+  'alert_fingerprint_claims',
+  'guild_started_users',
+  'user_weekly_reflection_posts',
+  'alert_feedback',
+  'discovery_vault_actions',
+  'user_taste_memory'
+] as const;
+
+function sqliteTableExists(tableName: string): boolean {
+  const row = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(tableName) as { name: string } | undefined;
+  return Boolean(row);
+}
+
+function sqliteColumnExists(tableName: string, columnName: string): boolean {
+  if (!sqliteTableExists(tableName)) return false;
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  return columns.some((column) => column.name === columnName);
+}
+
+function collectLegacyUserIds(): string[] {
+  const userIds = new Set<string>();
+  for (const tableName of USER_ID_OWNED_TABLES) {
+    if (!sqliteColumnExists(tableName, 'user_id')) continue;
+    const rows = db.prepare(`SELECT DISTINCT user_id FROM ${tableName} WHERE user_id IS NOT NULL AND user_id != ''`).all() as Array<{ user_id: string }>;
+    for (const row of rows) {
+      if (!row.user_id.startsWith(VAULTR_USER_ID_PREFIX)) userIds.add(row.user_id);
+    }
+  }
+  return [...userIds].sort();
+}
+
+function bestLegacyDiscordProfile(discordUserId: string): { username?: string; displayName?: string; avatarUrl?: string } {
+  if (!sqliteTableExists('web_sessions')) return {};
+  const row = db
+    .prepare(
+      `SELECT discord_username, discord_global_name, discord_avatar
+       FROM web_sessions
+       WHERE user_id = ?
+       ORDER BY last_seen_at DESC, created_at DESC
+       LIMIT 1`
+    )
+    .get(discordUserId) as { discord_username: string | null; discord_global_name: string | null; discord_avatar: string | null } | undefined;
+  const avatarUrl =
+    row?.discord_avatar
+      ? `https://cdn.discordapp.com/avatars/${encodeURIComponent(discordUserId)}/${encodeURIComponent(row.discord_avatar)}.png?size=80`
+      : undefined;
+  return {
+    username: row?.discord_username ?? undefined,
+    displayName: row?.discord_global_name ?? row?.discord_username ?? undefined,
+    avatarUrl
+  };
+}
+
+export function migrateLegacyDiscordUserIdsToAccounts(): void {
+  const legacyDiscordUserIds = collectLegacyUserIds();
+  if (legacyDiscordUserIds.length === 0) return;
+
+  db.transaction(() => {
+    const now = new Date().toISOString();
+    for (const discordUserId of legacyDiscordUserIds) {
+      const existingIdentity = db
+        .prepare(`SELECT user_id FROM user_identities WHERE provider = 'DISCORD' AND provider_user_id = ?`)
+        .get(discordUserId) as { user_id: string } | undefined;
+      const vaultrUserId = existingIdentity?.user_id ?? `${VAULTR_USER_ID_PREFIX}${randomUUID()}`;
+      const profile = bestLegacyDiscordProfile(discordUserId);
+
+      db.prepare(
+        `INSERT OR IGNORE INTO users (id, display_name, avatar_url, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(vaultrUserId, profile.displayName ?? profile.username ?? null, profile.avatarUrl ?? null, now, now);
+      db.prepare(
+        `UPDATE users
+         SET display_name = COALESCE(display_name, ?),
+             avatar_url = COALESCE(avatar_url, ?),
+             updated_at = ?
+         WHERE id = ?`
+      ).run(profile.displayName ?? profile.username ?? null, profile.avatarUrl ?? null, now, vaultrUserId);
+      db.prepare(
+        `INSERT OR IGNORE INTO user_identities (
+          id, user_id, provider, provider_user_id, username, display_name, avatar_url, email, created_at, updated_at
+        ) VALUES (?, ?, 'DISCORD', ?, ?, ?, ?, NULL, ?, ?)`
+      ).run(`${VAULTR_USER_ID_PREFIX}ident_${randomUUID()}`, vaultrUserId, discordUserId, profile.username ?? null, profile.displayName ?? null, profile.avatarUrl ?? null, now, now);
+      db.prepare(
+        `UPDATE user_identities
+         SET username = COALESCE(?, username),
+             display_name = COALESCE(?, display_name),
+             avatar_url = COALESCE(?, avatar_url),
+             updated_at = ?
+         WHERE provider = 'DISCORD' AND provider_user_id = ?`
+      ).run(profile.username ?? null, profile.displayName ?? null, profile.avatarUrl ?? null, now, discordUserId);
+
+      for (const tableName of USER_ID_OWNED_TABLES) {
+        if (!sqliteColumnExists(tableName, 'user_id')) continue;
+        db.prepare(`UPDATE ${tableName} SET user_id = ? WHERE user_id = ?`).run(vaultrUserId, discordUserId);
+      }
+    }
+  })();
+}
+
 try {
   db.exec(`ALTER TABLE chases ADD COLUMN guild_id TEXT;`);
 } catch {
@@ -730,7 +875,11 @@ try {
   // Column already exists on upgraded databases.
 }
 
+migrateLegacyDiscordUserIdsToAccounts();
+
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_user_identities_user_provider ON user_identities(user_id, provider);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_user_identities_provider_user ON user_identities(provider, provider_user_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_user_time ON sent_alerts(user_id, sent_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_guild_time ON sent_alerts(guild_id, sent_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_listing_lookup ON sent_alerts(chase_id, listing_id, source);`);

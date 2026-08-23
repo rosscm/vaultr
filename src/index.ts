@@ -13,6 +13,7 @@ import { backfillChaseQueryNames } from './services/chase-store.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
 import { startDiscoveryDropScheduler } from './services/discovery-drop-scheduler.js';
 import { startPoller } from './services/poller.js';
+import { productScopedInteraction } from './services/discord-account-adapter.js';
 import { errorEmbed, warningEmbed } from './ui/embeds.js';
 
 const token = process.env.DISCORD_TOKEN;
@@ -23,6 +24,7 @@ if (!token) {
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const commandMap = new Map(commands.map((c) => [c.data.name, c]));
+const accountScopedCommands = new Set(['alerts', 'chase', 'discover', 'plan', 'upgrade']);
 
 function isUnknownInteractionError(error: unknown): boolean {
   const candidate = error as { code?: unknown; rawError?: { code?: unknown }; message?: unknown } | undefined;
@@ -74,19 +76,20 @@ client.on(Events.Error, (error) => {
 
 client.on(Events.InteractionCreate, async (interaction: Interaction) => {
   try {
-    if (await handleChaseAddAutocomplete(interaction)) return;
-    if (await handleChaseEditAutocomplete(interaction)) return;
-    if (await handleChaseRemoveAutocomplete(interaction)) return;
-    if (await handleChaseRemoveButtons(interaction)) return;
-    if (await handleChaseListPagination(interaction)) return;
-    if (await handleAlertFeedback(interaction)) return;
-    if (await handleAlertSourceButtons(interaction)) return;
-    if (await handleDiscoveryDropOpen(interaction)) return;
-    if (await handleDiscoveryDropPage(interaction)) return;
-    if (await handleDiscoveryActionSelect(interaction)) return;
-    if (await handleDiscoveryFeedbackUndo(interaction)) return;
-    if (await handleDiscoveryFeedback(interaction)) return;
-    if (await handleDiscoveryVaultAdd(interaction)) return;
+    const scopedInteraction = 'user' in interaction ? productScopedInteraction(interaction as any) : interaction;
+    if (await handleChaseAddAutocomplete(scopedInteraction)) return;
+    if (await handleChaseEditAutocomplete(scopedInteraction)) return;
+    if (await handleChaseRemoveAutocomplete(scopedInteraction)) return;
+    if (await handleChaseRemoveButtons(scopedInteraction)) return;
+    if (await handleChaseListPagination(scopedInteraction)) return;
+    if (await handleAlertFeedback(scopedInteraction)) return;
+    if (await handleAlertSourceButtons(scopedInteraction)) return;
+    if (await handleDiscoveryDropOpen(scopedInteraction)) return;
+    if (await handleDiscoveryDropPage(scopedInteraction)) return;
+    if (await handleDiscoveryActionSelect(scopedInteraction)) return;
+    if (await handleDiscoveryFeedbackUndo(scopedInteraction)) return;
+    if (await handleDiscoveryFeedback(scopedInteraction)) return;
+    if (await handleDiscoveryVaultAdd(scopedInteraction)) return;
     if (!interaction.isChatInputCommand()) return;
 
     const command = commandMap.get(interaction.commandName);
@@ -121,7 +124,7 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
       }
     }
 
-    await command.execute(interaction);
+    await command.execute(accountScopedCommands.has(interaction.commandName) ? scopedInteraction : interaction);
   } catch (error) {
     if (interaction.isChatInputCommand()) {
       await handleCommandError(interaction, error);

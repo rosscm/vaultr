@@ -20,11 +20,14 @@ import {
 import {
   enqueueAlertEventDelivery,
   getAlertDeliveryById,
+  getAlertEventById,
   getSentAlertByKey,
   getUserAlertSettings,
   resetUserAlertSettings,
-  setUserAlertSettings
+  setUserAlertSettings,
+  upsertAlertEvent
 } from '../chase-store.js';
+import { createUser, linkIdentity } from '../accounts.js';
 import { db } from '../db.js';
 import { matchChaseToListing } from '../matcher.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
@@ -307,11 +310,21 @@ describe('pending Discord alert deliveries', () => {
     db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM sent_alerts WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   }
 
-  it('sends pending Discord DM deliveries and records sent alert details', async () => {
-    const userId = `pending-delivery-${Date.now()}`;
-    clearAlertRows(userId);
+  it('sends pending Discord DM deliveries through the linked Discord identity and records sent alert details', async () => {
+    const discordUserId = `discord-pending-delivery-${Date.now()}`;
+    clearAlertRows(discordUserId);
+    const account = createUser({ displayName: 'Pending Collector' });
+    const userId = account.id;
+    linkIdentity({
+      userId,
+      provider: 'DISCORD',
+      providerUserId: discordUserId,
+      username: 'pending-collector'
+    });
     const send = vi.fn(async () => ({ id: 'discord-message-1' }));
     const client = {
       users: {
@@ -338,7 +351,7 @@ describe('pending Discord alert deliveries', () => {
     const result = await processPendingDiscordAlertDeliveries(client as never, 5);
 
     expect(result).toEqual({ sent: 1, failed: 0, skipped: 0 });
-    expect(client.users.fetch).toHaveBeenCalledWith(userId);
+    expect(client.users.fetch).toHaveBeenCalledWith(discordUserId);
     expect(send).toHaveBeenCalledTimes(1);
     expect(getAlertDeliveryById(deliveryId)).toMatchObject({
       status: 'SENT',
@@ -354,6 +367,34 @@ describe('pending Discord alert deliveries', () => {
       listingCurrency: 'CAD',
       matchScore: 94
     });
+
+    clearAlertRows(userId);
+    clearAlertRows(discordUserId);
+  });
+
+  it('allows an account without Discord to own an alert event without a delivery row', () => {
+    const account = createUser({ displayName: 'Web Only Collector' });
+    const userId = account.id;
+    clearAlertRows(userId);
+
+    const { alertId } = upsertAlertEvent({
+      userId,
+      chaseId: 'web-only-chase',
+      listingId: 'web-only-listing',
+      source: 'EBAY',
+      chaseName: 'Mew RC24',
+      listingTitle: 'Mew RC24 raw',
+      listingUrl: 'https://example.test/web-only-listing',
+      now: '2026-08-19T12:00:00.000Z'
+    });
+
+    expect(getAlertEventById(alertId)).toMatchObject({
+      userId,
+      status: 'MATCHED',
+      chaseName: 'Mew RC24',
+      listingTitle: 'Mew RC24 raw'
+    });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM alert_deliveries WHERE alert_id = ?').get(alertId)).toMatchObject({ count: 0 });
 
     clearAlertRows(userId);
   });

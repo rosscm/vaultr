@@ -7,13 +7,13 @@ const LAST_SEEN_THROTTLE_MS = 30 * 60 * 1000;
 
 export type WebSessionProfile = {
   userId: string;
-  discordUsername?: string;
-  discordGlobalName?: string;
-  discordAvatar?: string;
 };
 
 export type WebSession = WebSessionProfile & {
   tokenHash: string;
+  discordUsername?: string;
+  discordGlobalName?: string;
+  discordAvatar?: string;
   createdAt: string;
   expiresAt: string;
   lastSeenAt?: string;
@@ -93,9 +93,9 @@ export function createWebSession(
   insertSessionStmt.run(
     tokenHash,
     profile.userId,
-    profile.discordUsername ?? null,
-    profile.discordGlobalName ?? null,
-    profile.discordAvatar ?? null,
+    null,
+    null,
+    null,
     createdAtIso,
     expiresAtIso,
     createdAtIso
@@ -106,9 +106,6 @@ export function createWebSession(
     session: {
       tokenHash,
       userId: profile.userId,
-      discordUsername: profile.discordUsername,
-      discordGlobalName: profile.discordGlobalName,
-      discordAvatar: profile.discordAvatar,
       createdAt: createdAtIso,
       expiresAt: expiresAtIso,
       lastSeenAt: createdAtIso

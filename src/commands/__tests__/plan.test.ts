@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildPlanViewPayload, plan } from '../plan.js';
 import { getUserPlan, resetUserAlertSettings, setUserPlan } from '../../services/chase-store.js';
+import { getIdentity } from '../../services/accounts.js';
 import { formatActivePlanAccess, formatPollInterval, PLAN_LIMITS } from '../../services/plans.js';
 
 const originalOwnerUserId = process.env.OWNER_USER_ID;
@@ -130,6 +131,8 @@ describe('plan command', () => {
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({
       embeds: expect.arrayContaining([expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('Plan Updated') }) })])
     }));
-    expect(getUserPlan(targetId).tier).toBe('PRO');
+    const accountId = getIdentity('DISCORD', targetId)?.userId;
+    expect(accountId).toMatch(/^usr_/);
+    expect(getUserPlan(accountId!).tier).toBe('PRO');
   });
 });

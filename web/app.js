@@ -22,14 +22,13 @@ function escapeHtml(value) {
 }
 
 function userDisplayName(user) {
-  return user?.globalName || user?.username || 'Collector';
+  return user?.displayName || 'Collector';
 }
 
 function avatarHtml(user) {
   const name = userDisplayName(user);
-  if (user?.id && user?.avatar) {
-    const url = `https://cdn.discordapp.com/avatars/${encodeURIComponent(user.id)}/${encodeURIComponent(user.avatar)}.png?size=80`;
-    return `<img class="avatar" src="${url}" alt="">`;
+  if (user?.avatarUrl) {
+    return `<img class="avatar" src="${escapeHtml(user.avatarUrl)}" alt="">`;
   }
   return `<span class="avatar-fallback" aria-hidden="true">${escapeHtml(name.trim().charAt(0).toUpperCase() || 'V')}</span>`;
 }

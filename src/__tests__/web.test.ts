@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { enqueueAlertEventDelivery } from '../services/chase-store.js';
+import { getIdentity, getUserById } from '../services/accounts.js';
 import { db } from '../services/db.js';
 import {
   createWebSession,
@@ -20,6 +21,8 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 }
 
 function cookieValue(headers: Record<string, string | string[]> | undefined, name: string): string | undefined {
@@ -57,12 +60,12 @@ function seedAlert(userId: string, index: number, overrides: Partial<Parameters<
 }
 
 describe('web sessions', () => {
-  it('stores session tokens hashed, not raw, and resolves the Discord user ID', () => {
+  it('stores session tokens hashed, not raw, and resolves the Vaultr account ID', () => {
     const userId = 'web-session-user';
     clearUser(userId);
 
     const { token, session } = createWebSession(
-      { userId, discordUsername: 'collector' },
+      { userId },
       { now: new Date('2026-08-20T12:00:00.000Z'), token: 'raw-session-token' }
     );
 
@@ -177,8 +180,8 @@ describe('web auth routes', () => {
   });
 
   it('creates a session from a successful mocked Discord callback', async () => {
-    const userId = 'web-oauth-user';
-    clearUser(userId);
+    const discordUserId = 'web-oauth-discord-user';
+    clearUser(discordUserId);
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
       const value = String(url);
       if (value.includes('/oauth2/token')) {
@@ -186,7 +189,7 @@ describe('web auth routes', () => {
       }
       if (value.includes('/users/@me')) {
         return new Response(
-          JSON.stringify({ id: userId, username: 'collector', global_name: 'Collector', avatar: 'avatar-hash' }),
+          JSON.stringify({ id: discordUserId, username: 'collector', global_name: 'Collector', avatar: 'avatar-hash' }),
           { status: 200 }
         );
       }
@@ -206,13 +209,35 @@ describe('web auth routes', () => {
     expect(response.status).toBe(302);
     expect(response.headers?.Location).toBe('/app');
     expect(token).toBeTruthy();
-    expect(getWebSessionByTokenHash(hashWebSessionToken(decodeURIComponent(token!)))?.userId).toBe(userId);
+    const session = getWebSessionByTokenHash(hashWebSessionToken(decodeURIComponent(token!)));
+    expect(session?.userId).toMatch(/^usr_/);
+    expect(session?.userId).not.toBe(discordUserId);
+    expect(getIdentity('DISCORD', discordUserId)?.userId).toBe(session?.userId);
+    expect(getUserById(session!.userId)).toMatchObject({
+      displayName: 'Collector',
+      avatarUrl: `https://cdn.discordapp.com/avatars/${discordUserId}/avatar-hash.png?size=80`
+    });
 
     const me = await handleWebRequest({ method: 'GET', url: '/api/me', headers: { cookie: sessionCookie(decodeURIComponent(token!)) } }, { config });
     expect(me.status).toBe(200);
-    expect(JSON.parse(me.body ?? '{}').user).toMatchObject({ id: userId, username: 'collector', globalName: 'Collector' });
+    expect(JSON.parse(me.body ?? '{}')).toMatchObject({
+      user: {
+        id: session?.userId,
+        displayName: 'Collector',
+        avatarUrl: `https://cdn.discordapp.com/avatars/${discordUserId}/avatar-hash.png?size=80`
+      },
+      identities: {
+        discord: {
+          connected: true,
+          username: 'collector',
+          displayName: 'Collector',
+          avatarUrl: `https://cdn.discordapp.com/avatars/${discordUserId}/avatar-hash.png?size=80`
+        }
+      }
+    });
 
-    clearUser(userId);
+    clearUser(discordUserId);
+    if (session?.userId) clearUser(session.userId);
   });
 
   it('does not create a session when Discord token or profile fetch fails', async () => {

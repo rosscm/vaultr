@@ -13,9 +13,14 @@ import {
   createWebSession,
   resolveWebSession,
   revokeWebSession,
-  type WebSession,
-  type WebSessionProfile
+  type WebSession
 } from './services/web-sessions.js';
+import {
+  discordAvatarUrl,
+  getIdentityForUser,
+  getUserById,
+  resolveOrCreateDiscordUser
+} from './services/accounts.js';
 import type { AlertHistoryCursor, AlertHistoryItem, ListingSource } from './types.js';
 
 const DISCORD_AUTHORIZE_URL = 'https://discord.com/oauth2/authorize';
@@ -64,6 +69,13 @@ type DiscordUserResponse = {
   username?: unknown;
   global_name?: unknown;
   avatar?: unknown;
+};
+
+type DiscordOAuthProfile = {
+  discordUserId: string;
+  username?: string;
+  displayName?: string;
+  avatarUrl?: string;
 };
 
 type WebHandlerOptions = {
@@ -240,7 +252,7 @@ async function exchangeDiscordCode(code: string, options: WebHandlerOptions): Pr
   return typeof payload.access_token === 'string' ? payload.access_token : null;
 }
 
-async function fetchDiscordUser(accessToken: string, options: WebHandlerOptions): Promise<WebSessionProfile | null> {
+async function fetchDiscordUser(accessToken: string, options: WebHandlerOptions): Promise<DiscordOAuthProfile | null> {
   const response = await (options.fetchImpl ?? fetch)(DISCORD_ME_URL, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
@@ -248,10 +260,10 @@ async function fetchDiscordUser(accessToken: string, options: WebHandlerOptions)
   const payload = (await response.json()) as DiscordUserResponse;
   if (typeof payload.id !== 'string' || !payload.id) return null;
   return {
-    userId: payload.id,
-    discordUsername: typeof payload.username === 'string' ? payload.username : undefined,
-    discordGlobalName: typeof payload.global_name === 'string' ? payload.global_name : undefined,
-    discordAvatar: typeof payload.avatar === 'string' ? payload.avatar : undefined
+    discordUserId: payload.id,
+    username: typeof payload.username === 'string' ? payload.username : undefined,
+    displayName: typeof payload.global_name === 'string' ? payload.global_name : undefined,
+    avatarUrl: discordAvatarUrl(payload.id, typeof payload.avatar === 'string' ? payload.avatar : undefined)
   };
 }
 
@@ -308,7 +320,8 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       if (!accessToken) return errorResponse(502, 'discord_oauth_failed', { 'Set-Cookie': clearStateCookie });
       const profile = await fetchDiscordUser(accessToken, options);
       if (!profile) return errorResponse(502, 'discord_profile_failed', { 'Set-Cookie': clearStateCookie });
-      const { token } = createWebSession(profile, { now: options.now?.() ?? new Date(), ttlDays: SESSION_TTL_DAYS });
+      const user = resolveOrCreateDiscordUser(profile);
+      const { token } = createWebSession({ userId: user.id }, { now: options.now?.() ?? new Date(), ttlDays: SESSION_TTL_DAYS });
       const sessionCookie = cookieHeaderParts(SESSION_COOKIE, token, {
         maxAgeSeconds: SESSION_TTL_DAYS * 24 * 60 * 60,
         secure: secureCookies
@@ -335,12 +348,23 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
   if (method === 'GET' && url.pathname === '/api/me') {
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');
+    const user = getUserById(session.userId);
+    const discord = getIdentityForUser(session.userId, 'DISCORD');
     return jsonResponse(200, {
       user: {
         id: session.userId,
-        username: session.discordUsername,
-        globalName: session.discordGlobalName,
-        avatar: session.discordAvatar
+        displayName: user?.displayName ?? discord?.displayName ?? discord?.username,
+        avatarUrl: user?.avatarUrl ?? discord?.avatarUrl
+      },
+      identities: {
+        discord: discord
+          ? {
+              connected: true,
+              username: discord.username,
+              displayName: discord.displayName,
+              avatarUrl: discord.avatarUrl
+            }
+          : { connected: false }
       }
     });
   }

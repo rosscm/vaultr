@@ -18,7 +18,7 @@ import {
   markPostedGuildDailyStats,
   markChasesPollAttempted,
   markChasesPollChecked,
-  enqueueAlertEventDelivery,
+  enqueueAlertDelivery,
   getAlertEventById,
   listPendingAlertDeliveries,
   markAlertDeliveryFailed,
@@ -27,6 +27,7 @@ import {
   releaseIncompleteAlertSendClaim,
   releaseUserAlertFingerprintSendClaim,
   updateSentAlertDetails,
+  upsertAlertEvent,
   pruneSourceObservations,
   recordSourceObservations
 } from './chase-store.js';
@@ -57,6 +58,7 @@ import {
 } from './poller-state.js';
 import { alertFeedbackButtons, keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
+import { resolveDiscordUserId } from './accounts.js';
 import type { Chase, Listing, ListingSourceModePreference } from '../types.js';
 
 function formatReasons(reasons: string[]): string {
@@ -634,9 +636,11 @@ async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAle
   const lastNotifiedAt = throttleNoticeTimestampsByUser.get(userId) ?? 0;
   const throttleNoticeCooldownMs = 60 * 60 * 1000;
   if (nowMs - lastNotifiedAt < throttleNoticeCooldownMs) return;
+  const discordUserId = resolveDiscordUserId(userId);
+  if (!discordUserId) return;
 
   try {
-    const user = await client.users.fetch(userId);
+    const user = await client.users.fetch(discordUserId);
     await withTimeout(
       user.send({
         embeds: [
@@ -651,7 +655,7 @@ async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAle
     );
     throttleNoticeTimestampsByUser.set(userId, nowMs);
   } catch (error) {
-    console.error(`Failed to send throttle notice to user ${userId}`, error);
+    console.error(`Failed to send throttle notice to Vaultr user ${userId}`, error);
   }
 }
 
@@ -696,9 +700,11 @@ async function sendChaseTuningNoticeIfNeeded(
   const tuningNoticeCooldownMs = 24 * 60 * 60 * 1000;
   if (nowMs - lastNotifiedAt < tuningNoticeCooldownMs) return;
   const activeTier = activePlanTier(getUserPlan(chase.userId));
+  const discordUserId = resolveDiscordUserId(chase.userId);
+  if (!discordUserId) return;
 
   try {
-    const user = await client.users.fetch(chase.userId);
+    const user = await client.users.fetch(discordUserId);
     await withTimeout(
       user.send({
         embeds: [
@@ -713,7 +719,7 @@ async function sendChaseTuningNoticeIfNeeded(
     );
     chaseTuningNoticeTimestamps.set(key, nowMs);
   } catch (error) {
-    console.error(`Failed to send chase tuning notice to user ${chase.userId}`, error);
+    console.error(`Failed to send chase tuning notice to Vaultr user ${chase.userId}`, error);
   }
 }
 
@@ -778,7 +784,13 @@ export async function processPendingDiscordAlertDeliveries(client: Client, limit
     }
 
     try {
-      const user = await client.users.fetch(event.userId);
+      const discordUserId = resolveDiscordUserId(event.userId);
+      if (!discordUserId) {
+        markAlertDeliveryFailed(delivery.id, new Error('Missing linked Discord identity for pending delivery'));
+        failed += 1;
+        continue;
+      }
+      const user = await client.users.fetch(discordUserId);
       const message = await withTimeout(
         user.send({
           embeds: [buildStoredAlertEmbed(event)],
@@ -1169,12 +1181,11 @@ async function runPoll(client: Client): Promise<void> {
         sourceLastSeenAt: sourceObservation?.lastSeenAt,
         sourceRank: sourceObservation?.sourceRank
       };
-      const delivery = enqueueAlertEventDelivery({
+      const { alertId } = upsertAlertEvent({
         userId: chase.userId,
         chaseId: chase.id,
         listingId: listing.listingId,
         source: listing.source,
-        channel: 'DISCORD_DM',
         chaseName: chase.cardName,
         chasePriority: chase.priority,
         ...alertDetails,
@@ -1184,9 +1195,20 @@ async function runPoll(client: Client): Promise<void> {
           matchReasons: match.reasons
         }
       });
+      const discordUserId = resolveDiscordUserId(chase.userId);
+      if (!discordUserId) {
+        sentForChaseThisPoll += 1;
+        markPollerMatchSent();
+        continue;
+      }
+      const delivery = enqueueAlertDelivery({
+        alertId,
+        userId: chase.userId,
+        channel: 'DISCORD_DM'
+      });
 
       try {
-        const user = await client.users.fetch(chase.userId);
+        const user = await client.users.fetch(discordUserId);
         const message = await withTimeout(
           user.send({
             embeds: [embed],
@@ -1205,7 +1227,7 @@ async function runPoll(client: Client): Promise<void> {
         if (listingFingerprint) {
           releaseUserAlertFingerprintSendClaim(chase.userId, listingFingerprint, listing.listingId, listing.source);
         }
-        console.error(`Failed to send DM alert to user ${chase.userId}`, error);
+        console.error(`Failed to send DM alert to Vaultr user ${chase.userId}`, error);
       }
     }
       await sendChaseTuningNoticeIfNeeded(client, chase, sentForChaseThisPoll, orderedCandidates.length, maxForChaseThisPoll);
