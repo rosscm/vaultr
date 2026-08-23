@@ -112,6 +112,7 @@ export type AlertEvent = {
   listingCurrency?: string;
   priceDelta?: number;
   listingUrl?: string;
+  imageUrl?: string;
   matchScore?: number;
   listingPostedAt?: string;
   alertLatencySeconds?: number;
@@ -154,6 +155,7 @@ export type AlertHistoryItem = {
   listingCurrency?: string;
   priceDelta?: number;
   listingUrl?: string;
+  imageUrl?: string;
   matchScore?: number;
   listingPostedAt?: string;
   alertLatencySeconds?: number;

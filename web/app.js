@@ -99,12 +99,12 @@ function shellMarkup(content) {
   const displayName = userDisplayName(state.user);
   return `
     <div class="app-shell">
-      <header class="app-header">
+      <aside class="app-sidebar">
         <a class="brand" href="/app" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span>Vaultr</span>
         </a>
-        <nav class="app-nav" aria-label="Vaultr app navigation">
+        <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
           ${navButton('vault', 'My Vault')}
           ${navButton('alerts', 'Alerts')}
           ${navButton('shelf', 'Weekly Shelf')}
@@ -114,10 +114,25 @@ function shellMarkup(content) {
           <span class="user-name">${escapeHtml(displayName)}</span>
           <button class="button-ghost" type="button" data-action="logout">Log out</button>
         </div>
+      </aside>
+      <header class="mobile-header">
+        <a class="brand" href="/app" aria-label="Vaultr app">
+          <span class="brand-mark" aria-hidden="true"><span>V</span></span>
+          <span>Vaultr</span>
+        </a>
+        <div class="user-area">
+          ${avatarHtml(state.user)}
+          <button class="button-ghost" type="button" data-action="logout">Log out</button>
+        </div>
       </header>
       <main id="app-main" class="app-main">
         ${content}
       </main>
+      <nav class="mobile-nav" aria-label="Vaultr mobile navigation">
+        ${navButton('vault', 'My Vault')}
+        ${navButton('alerts', 'Alerts')}
+        ${navButton('shelf', 'Weekly Shelf')}
+      </nav>
     </div>
   `;
 }
@@ -132,7 +147,7 @@ function alertsPageMarkup(inner) {
     <section aria-labelledby="alerts-title">
       <header class="page-header">
         <p class="eyebrow">Private Alerts</p>
-        <h1 id="alerts-title">What Vaultr found for your Chases.</h1>
+        <h1 id="alerts-title">What Vaultr found for your Chases</h1>
         <p>Matches worth a look, based on the cards and filters you saved.</p>
       </header>
       <div class="toolbar">
@@ -206,37 +221,41 @@ function alertCardMarkup(alert) {
     ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer">View listing</a>`
     : '';
   return `
-    <article class="alert-card">
-      <div class="alert-main">
-        <div class="alert-meta">
-          <span class="priority-pill ${priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priority)}</span>
-          <span class="alert-age">${escapeHtml(relativeTime(alert.createdAt))}</span>
-        </div>
-        <h2 class="chase-name">${escapeHtml(alert.chaseName || 'Saved Chase')}</h2>
-        ${alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
-        <div class="price-line">
-          ${price ? `<span class="price">${escapeHtml(price)}</span>` : ''}
-          ${delta ? `<span class="price-delta">${escapeHtml(delta)}</span>` : ''}
+    <article class="alert-card ${alert.imageUrl ? 'has-image' : 'no-image'}">
+      ${alert.imageUrl ? `<img class="alert-image" src="${escapeHtml(alert.imageUrl)}" alt="${escapeHtml(alert.listingTitle || alert.chaseName || 'Alert listing image')}" loading="lazy" data-alert-image>` : ''}
+      <div class="alert-content">
+        <div class="alert-main">
+          <div class="alert-meta">
+            <span class="priority-pill ${priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priority)}</span>
+            <span class="alert-age">${escapeHtml(relativeTime(alert.createdAt))}</span>
+          </div>
+          <h2 class="chase-name">${escapeHtml(alert.chaseName || 'Saved Chase')}</h2>
+          ${alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
+          <div class="price-line">
+            ${price ? `<span class="price">${escapeHtml(price)}</span>` : ''}
+            ${delta ? `<span class="price-delta">${escapeHtml(delta)}</span>` : ''}
+          </div>
         </div>
         <div class="alert-footer">
           <span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span>
           <span class="source-pill">${escapeHtml(sourceLabel(alert.source))}</span>
+          ${listingLink}
         </div>
       </div>
-      ${listingLink}
     </article>
   `;
 }
 
 function placeholderMarkup(kind) {
   const content = kind === 'vault'
-    ? ['My Vault', 'Your active Chases will live here.', 'Coming during beta.']
-    : ['Weekly Shelf', 'Your next Shelf will have a home here too.', 'Coming during beta.'];
+    ? ['My Vault', 'Your active Chases will live here', 'View and manage the cards Vaultr is watching for you.', 'Coming during beta.']
+    : ['Weekly Shelf', 'Your next Shelf will have a home here too', 'Recommendations shaped by what you collect and how you respond.', 'Coming during beta.'];
   return `
     <section class="placeholder" aria-labelledby="placeholder-title">
       <p class="eyebrow">${escapeHtml(content[0])}</p>
       <h1 id="placeholder-title">${escapeHtml(content[1])}</h1>
       <p>${escapeHtml(content[2])}</p>
+      <p class="placeholder-note">${escapeHtml(content[3])}</p>
     </section>
   `;
 }
@@ -384,5 +403,19 @@ app.addEventListener('change', async (event) => {
     await loadAlerts();
   }
 });
+
+app.addEventListener(
+  'error',
+  (event) => {
+    const target = event.target;
+    if (target instanceof HTMLImageElement && target.matches('[data-alert-image]')) {
+      const card = target.closest('.alert-card');
+      card?.classList.remove('has-image');
+      card?.classList.add('no-image');
+      target.remove();
+    }
+  },
+  true
+);
 
 bootstrap();

@@ -196,6 +196,7 @@ type AlertEventRow = {
   listing_currency: string | null;
   price_delta: number | null;
   listing_url: string | null;
+  listing_image_url: string | null;
   match_score: number | null;
   listing_posted_at: string | null;
   alert_latency_seconds: number | null;
@@ -234,6 +235,7 @@ type AlertHistoryRow = Pick<
   | 'listing_currency'
   | 'price_delta'
   | 'listing_url'
+  | 'listing_image_url'
   | 'match_score'
   | 'listing_posted_at'
   | 'alert_latency_seconds'
@@ -344,6 +346,7 @@ function mapAlertEvent(row: AlertEventRow): AlertEvent {
     listingCurrency: row.listing_currency ?? undefined,
     priceDelta: row.price_delta ?? undefined,
     listingUrl: row.listing_url ?? undefined,
+    imageUrl: row.listing_image_url ?? undefined,
     matchScore: row.match_score ?? undefined,
     listingPostedAt: row.listing_posted_at ?? undefined,
     alertLatencySeconds: row.alert_latency_seconds ?? undefined,
@@ -385,6 +388,7 @@ function mapAlertHistoryItem(row: AlertHistoryRow): AlertHistoryItem {
     listingCurrency: row.listing_currency ?? undefined,
     priceDelta: row.price_delta ?? undefined,
     listingUrl: row.listing_url ?? undefined,
+    imageUrl: row.listing_image_url ?? undefined,
     matchScore: row.match_score ?? undefined,
     listingPostedAt: row.listing_posted_at ?? undefined,
     alertLatencySeconds: row.alert_latency_seconds ?? undefined,
@@ -540,13 +544,13 @@ const deleteSentAlertStmt = db.prepare(`
 const upsertAlertEventStmt = db.prepare(`
   INSERT INTO alert_events (
     id, user_id, chase_id, guild_id, listing_id, source, status, chase_name, chase_priority,
-    listing_title, listing_price, listing_currency, price_delta, listing_url, match_score,
+    listing_title, listing_price, listing_currency, price_delta, listing_url, listing_image_url, match_score,
     listing_posted_at, alert_latency_seconds, source_first_seen_at, source_last_seen_at,
     source_rank, payload_json, created_at, updated_at
   )
   VALUES (
     @id, @user_id, @chase_id, @guild_id, @listing_id, @source, @status, @chase_name, @chase_priority,
-    @listing_title, @listing_price, @listing_currency, @price_delta, @listing_url, @match_score,
+    @listing_title, @listing_price, @listing_currency, @price_delta, @listing_url, @listing_image_url, @match_score,
     @listing_posted_at, @alert_latency_seconds, @source_first_seen_at, @source_last_seen_at,
     @source_rank, @payload_json, @created_at, @updated_at
   )
@@ -560,6 +564,7 @@ const upsertAlertEventStmt = db.prepare(`
     listing_currency = excluded.listing_currency,
     price_delta = excluded.price_delta,
     listing_url = excluded.listing_url,
+    listing_image_url = excluded.listing_image_url,
     match_score = excluded.match_score,
     listing_posted_at = excluded.listing_posted_at,
     alert_latency_seconds = excluded.alert_latency_seconds,
@@ -603,7 +608,7 @@ const updateAlertEventStatusStmt = db.prepare(`
 
 const getAlertEventByIdStmt = db.prepare(`
   SELECT id, user_id, chase_id, guild_id, listing_id, source, status, chase_name, chase_priority,
-    listing_title, listing_price, listing_currency, price_delta, listing_url, match_score,
+    listing_title, listing_price, listing_currency, price_delta, listing_url, listing_image_url, match_score,
     listing_posted_at, alert_latency_seconds, source_first_seen_at, source_last_seen_at,
     source_rank, payload_json, created_at, updated_at
   FROM alert_events
@@ -2034,6 +2039,7 @@ export function enqueueAlertEventDelivery(input: {
   listingCurrency?: string;
   priceDelta?: number;
   listingUrl?: string;
+  listingImageUrl?: string;
   matchScore?: number;
   listingPostedAt?: string;
   alertLatencySeconds?: number;
@@ -2062,6 +2068,7 @@ export function enqueueAlertEventDelivery(input: {
       listing_currency: input.listingCurrency ?? null,
       price_delta: input.priceDelta ?? null,
       listing_url: input.listingUrl ?? null,
+      listing_image_url: input.listingImageUrl ?? null,
       match_score: input.matchScore ?? null,
       listing_posted_at: input.listingPostedAt ?? null,
       alert_latency_seconds: input.alertLatencySeconds ?? null,
@@ -2183,7 +2190,7 @@ export function listAlertEventsForUser(userId: string, options: ListAlertEventsF
     .prepare(
       `
         SELECT id, chase_id, chase_name, chase_priority, listing_id, source, listing_title, listing_price,
-          listing_currency, price_delta, listing_url, match_score, listing_posted_at, alert_latency_seconds,
+          listing_currency, price_delta, listing_url, listing_image_url, match_score, listing_posted_at, alert_latency_seconds,
           created_at, updated_at
         FROM alert_events
         WHERE ${where.join(' AND ')}
@@ -2205,7 +2212,7 @@ export function getAlertEventForUser(userId: string, alertId: string): AlertHist
     .prepare(
       `
         SELECT id, chase_id, chase_name, chase_priority, listing_id, source, listing_title, listing_price,
-          listing_currency, price_delta, listing_url, match_score, listing_posted_at, alert_latency_seconds,
+          listing_currency, price_delta, listing_url, listing_image_url, match_score, listing_posted_at, alert_latency_seconds,
           created_at, updated_at
         FROM alert_events
         WHERE user_id = ? AND id = ?

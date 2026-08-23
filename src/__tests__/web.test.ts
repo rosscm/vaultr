@@ -260,7 +260,7 @@ describe('authenticated alert API', () => {
     const otherUserId = 'web-alert-other';
     clearUser(userId);
     clearUser(otherUserId);
-    seedAlert(userId, 1);
+    seedAlert(userId, 1, { listingImageUrl: 'https://example.test/alert-image.jpg' });
     seedAlert(otherUserId, 2);
     const { token } = createWebSession({ userId }, { token: 'alert-user-token' });
 
@@ -269,7 +269,11 @@ describe('authenticated alert API', () => {
 
     expect(response.status).toBe(200);
     expect(body.items).toHaveLength(1);
-    expect(body.items[0]).toMatchObject({ chaseName: 'Mew 1', listingTitle: 'Mew listing 1' });
+    expect(body.items[0]).toMatchObject({
+      chaseName: 'Mew 1',
+      listingTitle: 'Mew listing 1',
+      imageUrl: 'https://example.test/alert-image.jpg'
+    });
     expect(body.items[0]).not.toHaveProperty('payload');
     expect(body.nextCursor).toBeNull();
 

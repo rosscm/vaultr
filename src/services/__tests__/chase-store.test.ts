@@ -302,6 +302,7 @@ describe('user alert history read model', () => {
       chaseId: chase.id,
       chaseName: chase.cardName,
       chasePriority: 'HIGH',
+      listingImageUrl: 'https://example.test/listing-image.jpg',
       payload: { internalOnly: true, shouldNotLeak: 'secret' }
     });
     db.prepare('UPDATE chases SET priority = ? WHERE id = ?').run('GRAIL', chase.id);
@@ -312,7 +313,8 @@ describe('user alert history read model', () => {
     expect(item).toMatchObject({
       chaseId: chase.id,
       chaseName: 'Umbreon ex 217/187',
-      chasePriority: 'HIGH'
+      chasePriority: 'HIGH',
+      imageUrl: 'https://example.test/listing-image.jpg'
     });
     expect(rawEvent?.payload).toEqual({ internalOnly: true, shouldNotLeak: 'secret' });
     expect(item).not.toHaveProperty('payload');

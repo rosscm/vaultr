@@ -1136,12 +1136,15 @@ async function runPoll(client: Client): Promise<void> {
 
       embed.setTimestamp().setFooter({ text: `Vaultr • ${sightingLabel}` });
 
+      const alertImageUrl = listing.imageUrl && /^https?:\/\//i.test(listing.imageUrl)
+        ? listing.imageUrl
+        : listing.thumbnailUrl && /^https?:\/\//i.test(listing.thumbnailUrl)
+          ? listing.thumbnailUrl
+          : undefined;
+
       if (SHOW_ALERT_IMAGES) {
-        if (listing.imageUrl && /^https?:\/\//i.test(listing.imageUrl)) {
-          embed.setImage(listing.imageUrl);
-        } else if (listing.thumbnailUrl && /^https?:\/\//i.test(listing.thumbnailUrl)) {
-          embed.setThumbnail(listing.thumbnailUrl);
-        }
+        if (alertImageUrl && alertImageUrl === listing.imageUrl) embed.setImage(alertImageUrl);
+        else if (alertImageUrl) embed.setThumbnail(alertImageUrl);
       }
 
       const sourceObservation = getSourceObservationForItem(chase.id, listing.listingId);
@@ -1158,6 +1161,7 @@ async function runPoll(client: Client): Promise<void> {
         listingCurrency: targetCurrency,
         priceDelta,
         listingUrl: listing.url,
+        listingImageUrl: alertImageUrl,
         matchScore: match.score,
         listingPostedAt: listing.postedAt,
         alertLatencySeconds: alertLatencySeconds(listing.postedAt, sentAtMs),

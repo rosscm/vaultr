@@ -74,6 +74,7 @@ db.exec(`
     listing_currency TEXT,
     price_delta REAL,
     listing_url TEXT,
+    listing_image_url TEXT,
     match_score INTEGER,
     listing_posted_at TEXT,
     alert_latency_seconds INTEGER,
@@ -720,6 +721,11 @@ try {
 }
 try {
   db.exec(`ALTER TABLE alert_feedback ADD COLUMN feedback_reason TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE alert_events ADD COLUMN listing_image_url TEXT;`);
 } catch {
   // Column already exists on upgraded databases.
 }
