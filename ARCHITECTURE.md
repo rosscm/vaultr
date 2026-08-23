@@ -27,6 +27,8 @@ Current web sign-in uses Discord OAuth:
 
 The web inbox reads `alert_events` directly. It does not require a Discord delivery row.
 
+`/api/chases` powers the authenticated My Vault web app. It derives the account from the web session, ignores client-supplied account or guild identifiers, and delegates add, edit, list, removal, plan-limit, and image metadata behavior to the Chase application service.
+
 ## Discord Flow
 
 Discord commands resolve:

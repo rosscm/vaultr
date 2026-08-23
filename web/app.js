@@ -9,7 +9,23 @@ const state = {
   nextCursor: null,
   requestId: 0,
   hasCheckedAllAlerts: false,
-  isLoadingMore: false
+  isLoadingMore: false,
+  vault: [],
+  vaultPlan: null,
+  vaultCurrency: 'CAD',
+  vaultOptions: null,
+  isVaultLoading: false,
+  vaultLoaded: false,
+  vaultError: null,
+  vaultNotice: '',
+  vaultFormMode: null,
+  vaultEditingId: null,
+  vaultFormError: '',
+  vaultSubmitting: false,
+  vaultAutocompleteTimer: null,
+  vaultAutocompleteRequestId: 0,
+  removeTargetId: null,
+  removeError: ''
 };
 
 function escapeHtml(value) {
@@ -42,6 +58,67 @@ function currencySymbol(currency) {
 function formatMoney(amount, currency) {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return '';
   return `${currencySymbol(currency)}${amount.toFixed(2)}`;
+}
+
+function planLabel(tier) {
+  return tier === 'PRO' ? 'Full Vault' : 'Free Vault';
+}
+
+function priorityLabel(priority) {
+  if (priority === 'GRAIL') return 'Grail';
+  if (priority === 'HIGH') return 'High';
+  return 'Casual';
+}
+
+function listingTypeLabel(value) {
+  if (value === 'BUY_IT_NOW') return 'Buy Now';
+  if (value === 'AUCTION') return 'Auction';
+  return 'Any listing';
+}
+
+function gradeToChoices(grade) {
+  if (!grade) return { gradingType: 'ANY', gradeValue: 'ANY' };
+  if (grade === 'UNGRADED' || grade === 'RAW') return { gradingType: 'RAW', gradeValue: 'ANY' };
+  const [type, value] = String(grade).split(/\s+/, 2);
+  return { gradingType: type || 'ANY', gradeValue: value || 'ANY' };
+}
+
+function conditionToChoice(condition) {
+  if (!condition) return 'ANY';
+  if (condition === 'NM') return 'NM_OR_BETTER';
+  if (condition === 'NM,LP') return 'LP_OR_BETTER';
+  if (condition === 'NM,LP,MP') return 'MP_OR_BETTER';
+  if (condition === 'NM,LP,MP,HP') return 'HP_OR_BETTER';
+  if (condition === 'DMG') return 'DMG';
+  return 'ANY';
+}
+
+function displayGradeValue(grade) {
+  if (!grade) return 'Any grade';
+  if (grade === 'UNGRADED') return 'Raw';
+  return grade;
+}
+
+function displayConditionValue(condition) {
+  const mapped = conditionToChoice(condition);
+  const option = state.vaultOptions?.conditions?.find((item) => item.value === mapped);
+  return option?.name || 'Any condition';
+}
+
+function optionMarkup(options, selected) {
+  return (options || []).map((option) => `<option value="${escapeHtml(option.value)}"${option.value === selected ? ' selected' : ''}>${escapeHtml(option.name)}</option>`).join('');
+}
+
+function apiErrorMessage(error) {
+  const body = error?.body || {};
+  if (body.message) return body.message;
+  if (body.error === 'VAULT_LIMIT_REACHED') return 'This Vault has reached its active Chase limit.';
+  if (body.error === 'DUPLICATE_CHASE') return 'That card is already saved in your Vault.';
+  if (body.error === 'NO_APPLICABLE_CHANGES') return 'Those changes are Full Vault controls.';
+  if (body.error === 'NO_CHANGES_REQUESTED') return 'Choose at least one change.';
+  if (body.error === 'INVALID_GRADE_PREFERENCE') return 'Choose a valid grade preference.';
+  if (body.error === 'TOO_MANY_CUSTOM_EXCLUSIONS') return 'Use at most 15 custom exclusions.';
+  return 'Something went wrong. Try again.';
 }
 
 function formatPriceDelta(delta, currency) {
@@ -245,6 +322,206 @@ function alertCardMarkup(alert) {
   `;
 }
 
+function vaultPageMarkup() {
+  if (state.isVaultLoading) {
+    return `
+      <section aria-labelledby="vault-title">
+        ${vaultHeaderMarkup()}
+        <div class="alert-list" aria-label="Loading Vault">
+          <div class="skeleton-row"></div>
+          <div class="skeleton-row"></div>
+        </div>
+      </section>
+    `;
+  }
+  if (state.vaultError) {
+    return `
+      <section aria-labelledby="vault-title">
+        ${vaultHeaderMarkup()}
+        ${statePanelMarkup("Couldn't load your Vault.", 'Try again when you are ready.', 'Try again').replace('data-action="retry-alerts"', 'data-action="retry-vault"')}
+      </section>
+    `;
+  }
+  const items = state.vault || [];
+  return `
+    <section aria-labelledby="vault-title">
+      ${vaultHeaderMarkup()}
+      ${state.vaultNotice ? `<div class="vault-notice" role="status">${escapeHtml(state.vaultNotice)}</div>` : ''}
+      ${vaultSummaryMarkup()}
+      ${items.length ? `<div class="vault-grid" aria-label="Saved Chases">${items.map(vaultCardMarkup).join('')}</div>` : vaultEmptyMarkup()}
+      ${vaultDialogMarkup()}
+      ${removeDialogMarkup()}
+    </section>
+  `;
+}
+
+function vaultHeaderMarkup() {
+  return `
+    <header class="page-header vault-page-header">
+      <div>
+        <p class="eyebrow">MY VAULT</p>
+        <h1 id="vault-title">The cards Vaultr is watching for you</h1>
+        <p>Add, refine, or complete a Chase without leaving your Vault.</p>
+      </div>
+      <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add Chase</button>
+    </header>
+  `;
+}
+
+function vaultSummaryMarkup() {
+  const plan = state.vaultPlan || {};
+  const active = plan.activeCount ?? 0;
+  const max = plan.maxActiveChases ?? 0;
+  const paused = plan.pausedCount ?? 0;
+  return `
+    <div class="vault-summary" aria-label="Vault plan summary">
+      <div>
+        <span class="summary-label">Active Chases</span>
+        <strong>${escapeHtml(active)} / ${escapeHtml(max)}</strong>
+      </div>
+      <div>
+        <span class="summary-label">Plan</span>
+        <strong>${escapeHtml(planLabel(plan.tier))}</strong>
+      </div>
+      ${paused > 0 ? `<p>${escapeHtml(paused)} saved ${paused === 1 ? 'Chase is' : 'Chases are'} paused while this Vault is on Free.</p>` : ''}
+    </div>
+  `;
+}
+
+function vaultEmptyMarkup() {
+  return `
+    <div class="state-panel vault-empty">
+      <h2>Your Vault is ready for its first Chase</h2>
+      <p>Save a specific card and Vaultr will start watching for listings that match your preferences.</p>
+      <button class="button-primary" type="button" data-action="open-add-chase">Add a Chase</button>
+    </div>
+  `;
+}
+
+function vaultCardMarkup(item) {
+  const chase = item.chase || {};
+  const paused = item.monitoringState === 'PAUSED_PLAN_LIMIT';
+  const details = [
+    chase.maxPrice !== undefined ? `Max ${formatMoney(chase.maxPrice, state.vaultCurrency)}` : undefined,
+    chase.grade ? displayGradeValue(chase.grade) : undefined,
+    chase.condition ? displayConditionValue(chase.condition) : undefined,
+    chase.listingType && chase.listingType !== 'ANY' ? listingTypeLabel(chase.listingType) : undefined
+  ].filter(Boolean);
+  return `
+    <article class="vault-card ${paused ? 'paused' : ''}">
+      ${chase.cardImageUrl ? `<img class="vault-card-image" src="${escapeHtml(chase.cardImageUrl)}" alt="${escapeHtml(chase.cardName)} card image" loading="lazy">` : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
+      <div class="vault-card-body">
+        <div class="vault-card-meta">
+          <span class="status-pill ${paused ? 'paused' : 'active'}">${paused ? 'Paused' : 'Watching'}</span>
+          <span class="priority-pill ${chase.priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priorityLabel(chase.priority))}</span>
+        </div>
+        <h2>${escapeHtml(chase.cardName || 'Saved Chase')}</h2>
+        ${paused ? '<p class="paused-copy">Saved in your Vault, not currently monitored on Free.</p>' : ''}
+        ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
+        ${chase.targetNote ? `<p class="vault-note">${escapeHtml(chase.targetNote)}</p>` : ''}
+        ${chase.negativeKeywords?.length ? `<p class="vault-note">Excludes ${escapeHtml(chase.negativeKeywords.join(', '))}</p>` : ''}
+        <div class="vault-actions">
+          <button class="button-ghost" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit</button>
+          <button class="button-ghost danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function vaultDialogMarkup() {
+  if (!state.vaultFormMode) return '';
+  const editing = state.vaultFormMode === 'edit';
+  const item = editing ? state.vault.find((entry) => entry.chase.id === state.vaultEditingId) : null;
+  const chase = item?.chase || {};
+  const grade = gradeToChoices(chase.grade);
+  const isFullVault = state.vaultPlan?.tier === 'PRO';
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <form class="vault-dialog" data-vault-form="${editing ? 'edit' : 'add'}" aria-labelledby="vault-form-title">
+        <header>
+          <p class="eyebrow">${editing ? 'EDIT CHASE' : 'ADD CHASE'}</p>
+          <h2 id="vault-form-title">${editing ? 'Refine this Chase' : 'Add a Chase'}</h2>
+        </header>
+        ${state.vaultFormError ? `<p class="form-error" role="alert">${escapeHtml(state.vaultFormError)}</p>` : ''}
+        <label class="field">
+          <span>Card</span>
+          <input name="cardName" type="text" required maxlength="100" autocomplete="off" list="card-suggestions" value="${escapeHtml(chase.cardName || '')}">
+          <datalist id="card-suggestions"></datalist>
+        </label>
+        <div class="form-grid">
+          <label class="field">
+            <span>Max price</span>
+            <input name="maxPrice" type="number" min="0.01" step="0.01" value="${chase.maxPrice !== undefined ? escapeHtml(chase.maxPrice) : ''}">
+          </label>
+          <label class="field">
+            <span>Grading type</span>
+            <select name="gradingType">${optionMarkup(state.vaultOptions?.gradingTypes, grade.gradingType)}</select>
+          </label>
+          <label class="field">
+            <span>Grade value</span>
+            <select name="gradeValue">${optionMarkup(state.vaultOptions?.gradeValues, grade.gradeValue)}</select>
+          </label>
+        </div>
+        <fieldset class="advanced-fields" ${isFullVault ? '' : 'disabled'}>
+          <legend>Full Vault controls${isFullVault ? '' : ' · Full Vault'}</legend>
+          <div class="form-grid">
+            <label class="field">
+              <span>Condition</span>
+              <select name="condition">${optionMarkup(state.vaultOptions?.conditions, conditionToChoice(chase.condition))}</select>
+            </label>
+            <label class="field">
+              <span>Listing type</span>
+              <select name="listingType">${optionMarkup(state.vaultOptions?.listingTypes, chase.listingType || 'ANY')}</select>
+            </label>
+            <label class="field">
+              <span>Priority</span>
+              <select name="priority">${optionMarkup(state.vaultOptions?.priorities, chase.priority || 'NORMAL')}</select>
+            </label>
+          </div>
+          <label class="field">
+            <span>Target note</span>
+            <input name="targetNote" type="text" maxlength="120" value="${escapeHtml(chase.targetNote || '')}">
+          </label>
+          <label class="field">
+            <span>Custom exclusions</span>
+            <input name="customExclusions" type="text" maxlength="240" value="${escapeHtml(chase.negativeKeywords?.join(', ') || '')}">
+          </label>
+        </fieldset>
+        <footer class="dialog-actions">
+          <button class="button-ghost" type="button" data-action="close-vault-dialog">Cancel</button>
+          <button class="button-primary" type="submit" ${state.vaultSubmitting ? 'disabled' : ''}>${state.vaultSubmitting ? 'Saving...' : editing ? 'Save Changes' : 'Add Chase'}</button>
+        </footer>
+      </form>
+    </div>
+  `;
+}
+
+function removeDialogMarkup() {
+  if (!state.removeTargetId) return '';
+  const item = state.vault.find((entry) => entry.chase.id === state.removeTargetId);
+  if (!item) return '';
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="vault-dialog" aria-labelledby="remove-title">
+        <header>
+          <p class="eyebrow">REMOVE CHASE</p>
+          <h2 id="remove-title">Remove ${escapeHtml(item.chase.cardName)}?</h2>
+        </header>
+        ${state.removeError ? `<p class="form-error" role="alert">${escapeHtml(state.removeError)}</p>` : ''}
+        <div class="remove-options">
+          <button class="button-primary" type="button" data-action="remove-chase" data-outcome="COMPLETED">Completed<br><span>I found or bought the card</span></button>
+          <button class="button-ghost" type="button" data-action="remove-chase" data-outcome="NO_LONGER_INTERESTED">No longer interested<br><span>Remove it without marking it completed</span></button>
+          <button class="button-ghost" type="button" data-action="remove-chase" data-outcome="ADDED_BY_MISTAKE">Added by mistake<br><span>Remove it without changing my collector profile</span></button>
+        </div>
+        <footer class="dialog-actions">
+          <button class="button-ghost" type="button" data-action="close-remove-dialog">Cancel</button>
+        </footer>
+      </section>
+    </div>
+  `;
+}
+
 function placeholderMarkup(kind) {
   const content = kind === 'vault'
     ? ['My Vault', 'Your active Chases will live here', 'View and manage the cards Vaultr is watching for you.', 'Coming during beta.']
@@ -274,7 +551,7 @@ function renderCurrentPage() {
     return;
   }
   if (state.activePage === 'vault') {
-    renderShell(placeholderMarkup('vault'));
+    renderShell(vaultPageMarkup());
     return;
   }
   if (state.activePage === 'shelf') {
@@ -286,12 +563,25 @@ function renderCurrentPage() {
 
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
+  let body = null;
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    body = await response.json().catch(() => null);
+  }
   if (response.status === 401) {
     renderSignedOut();
-    throw new Error('unauthorized');
+    const error = new Error('unauthorized');
+    error.status = 401;
+    error.body = body;
+    throw error;
   }
-  if (!response.ok) throw new Error('request_failed');
-  return response.json();
+  if (!response.ok) {
+    const error = new Error(body?.error || 'request_failed');
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body;
 }
 
 function alertQuery(cursor) {
@@ -332,6 +622,124 @@ async function loadAlerts({ append = false } = {}) {
   }
 }
 
+async function loadVault({ force = false } = {}) {
+  if (state.vaultLoaded && !force) {
+    renderCurrentPage();
+    return;
+  }
+  state.isVaultLoading = true;
+  state.vaultError = null;
+  renderCurrentPage();
+  try {
+    const body = await fetchJson('/api/chases');
+    state.vault = body.items || [];
+    state.vaultPlan = body.plan || null;
+    state.vaultCurrency = body.currency || 'CAD';
+    state.vaultOptions = body.options || null;
+    state.vaultLoaded = true;
+    state.isVaultLoading = false;
+    renderCurrentPage();
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.vaultError = 'load_failed';
+    state.isVaultLoading = false;
+    renderCurrentPage();
+  }
+}
+
+function vaultFormBody(form) {
+  const data = new FormData(form);
+  const body = {};
+  const editing = state.vaultFormMode === 'edit';
+  const current = editing ? state.vault.find((entry) => entry.chase.id === state.vaultEditingId)?.chase : null;
+  const cardName = String(data.get('cardName') || '').trim();
+  if (cardName) body.cardName = cardName;
+  const maxPriceRaw = String(data.get('maxPrice') || '').trim();
+  if (maxPriceRaw) body.maxPrice = Number(maxPriceRaw);
+  else if (editing && current?.maxPrice !== undefined) body.maxPrice = null;
+  const gradingType = String(data.get('gradingType') || 'ANY');
+  const gradeValue = String(data.get('gradeValue') || 'ANY');
+  if (gradingType) body.gradingType = gradingType;
+  if (gradeValue) body.gradeValue = gradeValue;
+  const advancedDisabled = form.querySelector('.advanced-fields')?.disabled;
+  if (!advancedDisabled) {
+    body.condition = String(data.get('condition') || 'ANY');
+    body.listingType = String(data.get('listingType') || 'ANY');
+    body.priority = String(data.get('priority') || 'NORMAL');
+    const targetNote = String(data.get('targetNote') || '').trim();
+    if (targetNote) body.targetNote = targetNote;
+    else if (editing && current?.targetNote) body.targetNote = null;
+    const customExclusions = String(data.get('customExclusions') || '').trim();
+    if (customExclusions) body.customExclusions = customExclusions;
+    else if (editing && current?.negativeKeywords?.length) body.customExclusions = null;
+  }
+  return body;
+}
+
+async function submitVaultForm(form) {
+  state.vaultSubmitting = true;
+  state.vaultFormError = '';
+  renderCurrentPage();
+  const body = vaultFormBody(form);
+  const editing = state.vaultFormMode === 'edit';
+  try {
+    const response = await fetchJson(editing ? `/api/chases/${encodeURIComponent(state.vaultEditingId)}` : '/api/chases', {
+      method: editing ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    state.vaultNotice = response.blockedControls?.length
+      ? `Saved. Some Full Vault controls were not applied: ${response.blockedControls.join(', ')}.`
+      : editing ? 'Chase updated.' : 'Chase added.';
+    state.vaultFormMode = null;
+    state.vaultEditingId = null;
+    state.vaultSubmitting = false;
+    await loadVault({ force: true });
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.vaultSubmitting = false;
+    state.vaultFormError = apiErrorMessage(error);
+    renderCurrentPage();
+  }
+}
+
+function scheduleAutocomplete(input) {
+  window.clearTimeout(state.vaultAutocompleteTimer);
+  const query = input.value.trim();
+  if (query.length < 2) return;
+  state.vaultAutocompleteTimer = window.setTimeout(async () => {
+    const requestId = ++state.vaultAutocompleteRequestId;
+    try {
+      const body = await fetchJson(`/api/chases/autocomplete?q=${encodeURIComponent(query)}`);
+      if (requestId !== state.vaultAutocompleteRequestId) return;
+      const list = document.querySelector('#card-suggestions');
+      if (!list) return;
+      list.innerHTML = (body.items || []).map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.name)}</option>`).join('');
+    } catch {
+      // Autocomplete is helpful, not required.
+    }
+  }, 240);
+}
+
+async function removeChase(outcome) {
+  if (!state.removeTargetId) return;
+  state.removeError = '';
+  try {
+    await fetchJson(`/api/chases/${encodeURIComponent(state.removeTargetId)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ outcome })
+    });
+    state.vaultNotice = outcome === 'COMPLETED' ? 'Chase completed.' : 'Chase removed.';
+    state.removeTargetId = null;
+    await loadVault({ force: true });
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.removeError = apiErrorMessage(error);
+    renderCurrentPage();
+  }
+}
+
 async function bootstrap() {
   try {
     const body = await fetchJson('/api/me');
@@ -363,6 +771,7 @@ app.addEventListener('click', async (event) => {
     state.activePage = page;
     renderCurrentPage();
     if (page === 'alerts' && !state.alerts.length) await loadAlerts();
+    if (page === 'vault') await loadVault();
     return;
   }
 
@@ -383,6 +792,49 @@ app.addEventListener('click', async (event) => {
     await loadAlerts();
     return;
   }
+  if (action === 'retry-vault') {
+    await loadVault({ force: true });
+    return;
+  }
+  if (action === 'open-add-chase') {
+    state.vaultFormMode = 'add';
+    state.vaultEditingId = null;
+    state.vaultFormError = '';
+    renderCurrentPage();
+    document.querySelector('[name="cardName"]')?.focus();
+    return;
+  }
+  if (action === 'open-edit-chase') {
+    state.vaultFormMode = 'edit';
+    state.vaultEditingId = target.getAttribute('data-chase-id');
+    state.vaultFormError = '';
+    renderCurrentPage();
+    document.querySelector('[name="cardName"]')?.focus();
+    return;
+  }
+  if (action === 'close-vault-dialog') {
+    state.vaultFormMode = null;
+    state.vaultEditingId = null;
+    state.vaultFormError = '';
+    renderCurrentPage();
+    return;
+  }
+  if (action === 'open-remove-chase') {
+    state.removeTargetId = target.getAttribute('data-chase-id');
+    state.removeError = '';
+    renderCurrentPage();
+    return;
+  }
+  if (action === 'close-remove-dialog') {
+    state.removeTargetId = null;
+    state.removeError = '';
+    renderCurrentPage();
+    return;
+  }
+  if (action === 'remove-chase') {
+    await removeChase(target.getAttribute('data-outcome'));
+    return;
+  }
   if (action === 'logout') {
     await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => undefined);
     renderSignedOut();
@@ -400,6 +852,22 @@ app.addEventListener('change', async (event) => {
     state.source = target.value;
     state.activePage = 'alerts';
     await loadAlerts();
+  }
+});
+
+app.addEventListener('submit', async (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement)) return;
+  if (!form.matches('[data-vault-form]')) return;
+  event.preventDefault();
+  await submitVaultForm(form);
+});
+
+app.addEventListener('input', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.name === 'cardName' && target.closest('[data-vault-form]')) {
+    scheduleAutocomplete(target);
   }
 });
 

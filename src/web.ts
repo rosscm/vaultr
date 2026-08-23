@@ -5,10 +5,26 @@ import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import {
+  getUserAlertSettings,
   getAlertEventForUser,
   listAlertEventsForUser,
   type ListAlertEventsForUserOptions
 } from './services/chase-store.js';
+import { autocompleteChaseCards } from './services/chase-card-catalog.js';
+import {
+  addUserChase,
+  getVaultChases,
+  resolveUserChaseRemoval,
+  updateUserChase,
+  type ChaseServiceError
+} from './services/chase-service.js';
+import {
+  CONDITION_CHOICES,
+  GRADE_VALUE_CHOICES,
+  GRADING_TYPE_CHOICES,
+  LISTING_TYPE_CHOICES,
+  PRIORITY_CHOICES
+} from './services/chase-options.js';
 import {
   createWebSession,
   resolveWebSession,
@@ -31,6 +47,7 @@ const SESSION_COOKIE = 'vaultr_session';
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const SESSION_TTL_DAYS = 30;
 const WEB_ASSET_ROOT = path.resolve('web');
+const MAX_JSON_BODY_BYTES = 32 * 1024;
 const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/app': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
   '/app/': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
@@ -51,6 +68,7 @@ export type WebRequest = {
   method: string;
   url: string;
   headers?: Record<string, string | string[] | undefined>;
+  body?: string;
 };
 
 export type WebResponse = {
@@ -156,6 +174,100 @@ function redirectResponse(location: string, headers: Record<string, string | str
 
 function errorResponse(status: number, error: string, headers: Record<string, string | string[]> = {}): WebResponse {
   return jsonResponse(status, { error }, headers);
+}
+
+function chaseErrorResponse(error: ChaseServiceError): WebResponse {
+  const statusByCode: Record<ChaseServiceError['code'], number> = {
+    INVALID_INPUT: 400,
+    INVALID_GRADE_PREFERENCE: 400,
+    TOO_MANY_CUSTOM_EXCLUSIONS: 400,
+    NO_CHANGES_REQUESTED: 400,
+    NO_APPLICABLE_CHANGES: 422,
+    CHASE_NOT_FOUND: 404,
+    DUPLICATE_CHASE: 409,
+    VAULT_LIMIT_REACHED: 409
+  };
+  return jsonResponse(statusByCode[error.code] ?? 400, {
+    error: error.code,
+    field: error.field,
+    message: error.message,
+    blockedControls: error.blockedControls,
+    maxChases: error.maxChases,
+    activeTier: error.activeTier
+  });
+}
+
+function requireJsonBody(request: WebRequest): { ok: true; body: Record<string, unknown> } | WebResponse {
+  const contentType = getHeader(request.headers, 'content-type') ?? '';
+  if (!/^application\/json\b/i.test(contentType)) return errorResponse(415, 'unsupported_media_type');
+  const raw = request.body ?? '';
+  if (Buffer.byteLength(raw, 'utf8') > MAX_JSON_BODY_BYTES) return errorResponse(413, 'payload_too_large');
+  if (!raw.trim()) return { ok: true, body: {} };
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return errorResponse(400, 'invalid_json');
+    return { ok: true, body: parsed as Record<string, unknown> };
+  } catch {
+    return errorResponse(400, 'invalid_json');
+  }
+}
+
+function publicChase(chase: ReturnType<typeof getVaultChases>['chases'][number]['chase']) {
+  return {
+    id: chase.id,
+    cardName: chase.cardName,
+    cardImageUrl: chase.cardImageUrl,
+    priority: chase.priority,
+    targetNote: chase.targetNote,
+    maxPrice: chase.maxPrice,
+    grade: chase.grade,
+    condition: chase.condition,
+    listingType: chase.listingType,
+    negativeKeywords: chase.negativeKeywords,
+    createdAt: chase.createdAt
+  };
+}
+
+function publicVaultItem(view: ReturnType<typeof getVaultChases>['chases'][number]) {
+  return {
+    chase: publicChase(view.chase),
+    monitoringState: view.monitoringState
+  };
+}
+
+function vaultOptions() {
+  return {
+    gradingTypes: GRADING_TYPE_CHOICES,
+    gradeValues: GRADE_VALUE_CHOICES,
+    conditions: CONDITION_CHOICES,
+    listingTypes: LISTING_TYPE_CHOICES,
+    priorities: PRIORITY_CHOICES
+  };
+}
+
+function vaultResponse(userId: string): WebResponse {
+  const vault = getVaultChases(userId);
+  const settings = getUserAlertSettings(userId);
+  return jsonResponse(200, {
+    items: vault.chases.map(publicVaultItem),
+    plan: vault.plan,
+    currency: settings.alertCurrency,
+    options: vaultOptions()
+  });
+}
+
+function chasePayload(body: Record<string, unknown>) {
+  return {
+    cardName: body.cardName,
+    maxPrice: body.maxPrice,
+    gradingType: body.gradingType,
+    gradeValue: body.gradeValue,
+    condition: body.condition,
+    listingType: body.listingType,
+    priority: body.priority,
+    targetNote: body.targetNote,
+    customExclusions: body.customExclusions
+  };
 }
 
 function staticResponse(pathname: string): WebResponse | null {
@@ -396,6 +508,68 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     return jsonResponse(200, { item: publicAlertItem(alert) });
   }
 
+  if (url.pathname === '/api/chases' || url.pathname.startsWith('/api/chases/')) {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+
+    if (method === 'GET' && url.pathname === '/api/chases') {
+      return vaultResponse(session.userId);
+    }
+
+    if (method === 'GET' && url.pathname === '/api/chases/autocomplete') {
+      const query = url.searchParams.get('q') ?? '';
+      if (query.length > 100) return errorResponse(400, 'invalid_query');
+      const items = await autocompleteChaseCards(query, 25);
+      return jsonResponse(200, { items: items.slice(0, 25) });
+    }
+
+    if (method === 'POST' && url.pathname === '/api/chases') {
+      const parsed = requireJsonBody(request);
+      if ('status' in parsed) return parsed;
+      const result = addUserChase({ userId: session.userId, ...chasePayload(parsed.body) } as Parameters<typeof addUserChase>[0]);
+      if (!result.ok) return chaseErrorResponse(result);
+      return jsonResponse(201, {
+        item: publicVaultItem({ chase: result.chase, monitoringState: 'ACTIVE' }),
+        blockedControls: result.blockedControls,
+        isFirstChase: result.isFirstChase
+      });
+    }
+
+    const chaseMatch = url.pathname.match(/^\/api\/chases\/([^/]+)$/);
+    if (chaseMatch && (method === 'PATCH' || method === 'DELETE')) {
+      let chaseId: string;
+      try {
+        chaseId = decodeURIComponent(chaseMatch[1]);
+      } catch {
+        return errorResponse(400, 'invalid_chase_id');
+      }
+      const parsed = requireJsonBody(request);
+      if ('status' in parsed) return parsed;
+
+      if (method === 'PATCH') {
+        const result = updateUserChase({
+          userId: session.userId,
+          chaseId,
+          changes: chasePayload(parsed.body) as Parameters<typeof updateUserChase>[0]['changes']
+        });
+        if (!result.ok) return chaseErrorResponse(result);
+        const view = getVaultChases(session.userId).chases.find((item) => item.chase.id === result.chase.id);
+        return jsonResponse(200, {
+          item: publicVaultItem(view ?? { chase: result.chase, monitoringState: 'ACTIVE' }),
+          blockedControls: result.blockedControls
+        });
+      }
+
+      const outcome = parsed.body.outcome;
+      if (outcome !== 'COMPLETED' && outcome !== 'NO_LONGER_INTERESTED' && outcome !== 'ADDED_BY_MISTAKE') {
+        return errorResponse(400, 'invalid_outcome');
+      }
+      const result = resolveUserChaseRemoval({ userId: session.userId, chaseId, outcome });
+      if (!result.ok) return chaseErrorResponse(result);
+      return jsonResponse(200, { ok: true, outcome });
+    }
+  }
+
   return errorResponse(404, 'not_found');
 }
 
@@ -406,6 +580,25 @@ function toHeaderRecord(headers: IncomingMessage['headers']): Record<string, str
 function writeWebResponse(res: ServerResponse, response: WebResponse): void {
   res.writeHead(response.status, response.headers);
   res.end(response.body);
+}
+
+export function readRequestBody(req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    let size = 0;
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => {
+      size += Buffer.byteLength(chunk, 'utf8');
+      if (size > maxBytes) {
+        reject(Object.assign(new Error('payload_too_large'), { statusCode: 413 }));
+        req.destroy();
+        return;
+      }
+      body += chunk;
+    });
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
 }
 
 export function webConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WebConfig {
@@ -424,20 +617,29 @@ export function webConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WebConfi
 }
 
 export function createVaultrWebServer(options: WebHandlerOptions) {
-  return createServer((req: IncomingMessage, res: ServerResponse) => {
-    handleWebRequest(
+  return createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const method = req.method ?? 'GET';
+      const shouldReadBody = !['GET', 'HEAD'].includes(method.toUpperCase());
+      const body = shouldReadBody ? await readRequestBody(req) : undefined;
+      const response = await handleWebRequest(
       {
-        method: req.method ?? 'GET',
+        method,
         url: req.url ?? '/',
-        headers: toHeaderRecord(req.headers)
+        headers: toHeaderRecord(req.headers),
+        body
       },
       options
-    )
-      .then((response) => writeWebResponse(res, response))
-      .catch((error) => {
-        options.logger?.error('[web] request failed', error);
-        writeWebResponse(res, errorResponse(500, 'internal_error'));
-      });
+      );
+      writeWebResponse(res, response);
+    } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === 413) {
+        writeWebResponse(res, errorResponse(413, 'payload_too_large'));
+        return;
+      }
+      options.logger?.error('[web] request failed', error);
+      writeWebResponse(res, errorResponse(500, 'internal_error'));
+    }
   });
 }
 

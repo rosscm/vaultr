@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { enqueueAlertEventDelivery } from '../services/chase-store.js';
+import { addChase, enqueueAlertEventDelivery, listChases, listUserTasteMemoryChases, removeAllChases, setUserPlan } from '../services/chase-store.js';
 import { getIdentity, getUserById } from '../services/accounts.js';
 import { db } from '../services/db.js';
 import {
@@ -18,8 +18,11 @@ const config: WebConfig = {
 };
 
 function clearUser(userId: string): void {
+  removeAllChases(userId);
   db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
@@ -393,6 +396,235 @@ describe('authenticated alert API', () => {
 
     expect(response.status).toBe(400);
     expect(JSON.parse(response.body ?? '{}')).toEqual({ error: 'invalid_alert_id' });
+
+    clearUser(userId);
+  });
+});
+
+describe('authenticated chase API', () => {
+  function auth(userId: string, token: string) {
+    clearUser(userId);
+    createWebSession({ userId }, { token });
+    return { cookie: sessionCookie(token) };
+  }
+
+  function json(body: unknown) {
+    return {
+      'content-type': 'application/json',
+      body: JSON.stringify(body)
+    };
+  }
+
+  it('requires authentication for every chase endpoint', async () => {
+    const routes = [
+      { method: 'GET', url: '/api/chases' },
+      { method: 'POST', url: '/api/chases', ...json({ cardName: 'Mew RC24' }) },
+      { method: 'PATCH', url: '/api/chases/chase-1', ...json({ maxPrice: 10 }) },
+      { method: 'DELETE', url: '/api/chases/chase-1', ...json({ outcome: 'COMPLETED' }) },
+      { method: 'GET', url: '/api/chases/autocomplete?q=mew' }
+    ];
+
+    for (const route of routes) {
+      const response = await handleWebRequest(route, { config });
+      expect(response.status).toBe(401);
+      expect(JSON.parse(response.body ?? '{}')).toEqual({ error: 'unauthorized' });
+    }
+  });
+
+  it('returns only the authenticated account chases with plan metadata, currency, options, and paused state', async () => {
+    const userId = 'web-chases-list-user';
+    const otherUserId = 'web-chases-list-other';
+    const headers = auth(userId, 'chases-list-token');
+    clearUser(otherUserId);
+    setUserPlan(userId, 'PRO');
+    for (let index = 0; index < 4; index += 1) addChase({ userId, cardName: `Saved Card ${index}`, priority: 'HIGH', maxPrice: 50 + index });
+    addChase({ userId: otherUserId, cardName: 'Other User Card' });
+    setUserPlan(userId, 'FREE');
+
+    const response = await handleWebRequest({ method: 'GET', url: '/api/chases', headers }, { config });
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(200);
+    expect(body.items).toHaveLength(4);
+    expect(body.items.map((item: any) => item.chase.cardName)).not.toContain('Other User Card');
+    expect(body.items.some((item: any) => item.monitoringState === 'PAUSED_PLAN_LIMIT')).toBe(true);
+    expect(body.plan).toMatchObject({ tier: 'FREE', maxActiveChases: 3, activeCount: 3, pausedCount: 1 });
+    expect(body.currency).toBe('USD');
+    expect(body.options.gradingTypes.some((option: any) => option.value === 'PSA')).toBe(true);
+    expect(body.items[0].chase).not.toHaveProperty('guildId');
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
+  it('creates chases for the session account only and ignores body userId and guildId', async () => {
+    const userId = 'web-chases-create-user';
+    const otherUserId = 'web-chases-create-other';
+    const headers = auth(userId, 'chases-create-token');
+    clearUser(otherUserId);
+    const response = await handleWebRequest({
+      method: 'POST',
+      url: '/api/chases',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        userId: otherUserId,
+        guildId: 'guild-from-client',
+        cardName: 'Mew RC24',
+        maxPrice: 100,
+        gradingType: 'PSA',
+        gradeValue: '10',
+        condition: 'NM_OR_BETTER',
+        listingType: 'BUY_IT_NOW',
+        priority: 'GRAIL',
+        targetNote: 'clean',
+        customExclusions: 'proxy'
+      })
+    }, { config });
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(201);
+    expect(body.item.chase).toMatchObject({ cardName: 'Mew RC24', maxPrice: 100, grade: 'PSA 10' });
+    expect(listChases(userId)).toHaveLength(1);
+    expect(listChases(otherUserId)).toHaveLength(0);
+    expect(listChases(userId)[0].guildId).toBeUndefined();
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
+  it('maps create duplicate, limit, invalid input, invalid grade, and Free advanced controls', async () => {
+    const userId = 'web-chases-create-errors';
+    const headers = auth(userId, 'chases-create-errors-token');
+    addChase({ userId, cardName: 'Mew RC24' });
+
+    const duplicate = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Mew RC24' }) }, { config });
+    expect(duplicate.status).toBe(409);
+    expect(JSON.parse(duplicate.body ?? '{}').error).toBe('DUPLICATE_CHASE');
+
+    const invalid = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'ab' }) }, { config });
+    expect(invalid.status).toBe(400);
+    expect(JSON.parse(invalid.body ?? '{}')).toMatchObject({ error: 'INVALID_INPUT', field: 'cardName' });
+
+    const invalidGrade = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Pichu Expedition 22/165', gradingType: 'RAW', gradeValue: '10' }) }, { config });
+    expect(invalidGrade.status).toBe(400);
+    expect(JSON.parse(invalidGrade.body ?? '{}').error).toBe('INVALID_GRADE_PREFERENCE');
+
+    const freeBlocked = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Gardevoir ex 233/091', priority: 'GRAIL', customExclusions: 'proxy' }) }, { config });
+    expect(freeBlocked.status).toBe(201);
+    expect(JSON.parse(freeBlocked.body ?? '{}').blockedControls).toEqual(['priority', 'custom exclusions']);
+    expect(listChases(userId).find((chase) => chase.cardName === 'Gardevoir ex 233/091')?.priority).toBe('NORMAL');
+
+    const third = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Third Card' }) }, { config });
+    expect(third.status).toBe(201);
+    const limit = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Fourth Card' }) }, { config });
+    expect(limit.status).toBe(409);
+    expect(JSON.parse(limit.body ?? '{}').error).toBe('VAULT_LIMIT_REACHED');
+
+    clearUser(userId);
+  });
+
+  it('supports Pro create/edit controls, duplicate rename, cross-account 404, Free blocked edit, mixed edit, and clear semantics', async () => {
+    const userId = 'web-chases-edit-user';
+    const otherUserId = 'web-chases-edit-other';
+    const headers = auth(userId, 'chases-edit-token');
+    clearUser(otherUserId);
+    setUserPlan(userId, 'PRO');
+    const first = addChase({ userId, cardName: 'Mew RC24', priority: 'NORMAL', listingType: 'ANY' });
+    const second = addChase({ userId, cardName: 'Pichu Expedition 22/165' });
+    const other = addChase({ userId: otherUserId, cardName: 'Other Chase' });
+
+    const update = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${first.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ maxPrice: 125, condition: 'LP_OR_BETTER', listingType: 'BUY_IT_NOW', priority: 'GRAIL', targetNote: 'binder', customExclusions: 'proxy' }) }, { config });
+    expect(update.status).toBe(200);
+    expect(JSON.parse(update.body ?? '{}').item.chase).toMatchObject({ maxPrice: 125, condition: 'NM,LP', listingType: 'BUY_IT_NOW', priority: 'GRAIL', targetNote: 'binder', negativeKeywords: ['proxy'] });
+
+    const duplicateRename = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${first.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: second.cardName }) }, { config });
+    expect(duplicateRename.status).toBe(409);
+
+    const otherPatch = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${other.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ maxPrice: 10 }) }, { config });
+    expect(otherPatch.status).toBe(404);
+
+    const invalid = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${first.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ maxPrice: 0 }) }, { config });
+    expect(invalid.status).toBe(400);
+
+    const cleared = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${first.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ maxPrice: null, targetNote: 'none', customExclusions: 'none' }) }, { config });
+    expect(cleared.status).toBe(200);
+    expect(JSON.parse(cleared.body ?? '{}').item.chase.maxPrice).toBeUndefined();
+
+    setUserPlan(userId, 'FREE');
+    const blockedOnly = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${second.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ priority: 'GRAIL' }) }, { config });
+    expect(blockedOnly.status).toBe(422);
+    const mixed = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${second.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ maxPrice: 80, priority: 'GRAIL' }) }, { config });
+    expect(mixed.status).toBe(200);
+    expect(JSON.parse(mixed.body ?? '{}').blockedControls).toEqual(['priority']);
+    expect(JSON.parse(mixed.body ?? '{}').item.chase).toMatchObject({ maxPrice: 80, priority: 'NORMAL' });
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
+  it('requires explicit removal outcomes and preserves completion semantics', async () => {
+    const userId = 'web-chases-remove-user';
+    const otherUserId = 'web-chases-remove-other';
+    const headers = auth(userId, 'chases-remove-token');
+    clearUser(otherUserId);
+    const completed = addChase({ userId, cardName: 'Mew RC24' });
+    const notInterested = addChase({ userId, cardName: 'Pichu Expedition 22/165' });
+    const mistake = addChase({ userId, cardName: 'Zapdos Expedition 48' });
+    const other = addChase({ userId: otherUserId, cardName: 'Other Remove' });
+
+    const invalid = await handleWebRequest({ method: 'DELETE', url: `/api/chases/${completed.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ outcome: 'DELETE' }) }, { config });
+    expect(invalid.status).toBe(400);
+
+    const otherDelete = await handleWebRequest({ method: 'DELETE', url: `/api/chases/${other.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ outcome: 'COMPLETED' }) }, { config });
+    expect(otherDelete.status).toBe(404);
+
+    for (const [chase, outcome] of [[completed, 'COMPLETED'], [notInterested, 'NO_LONGER_INTERESTED'], [mistake, 'ADDED_BY_MISTAKE']] as const) {
+      const response = await handleWebRequest({ method: 'DELETE', url: `/api/chases/${chase.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ outcome }) }, { config });
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body ?? '{}')).toEqual({ ok: true, outcome });
+    }
+    expect(listChases(userId)).toHaveLength(0);
+    expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).toContain('Mew RC24');
+    expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).not.toContain('Zapdos Expedition 48');
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
+  it('uses the existing autocomplete flow and bounds malformed queries', async () => {
+    const userId = 'web-chases-autocomplete-user';
+    const headers = auth(userId, 'chases-autocomplete-token');
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      data: [{ id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' }, images: { large: 'https://images.example/mew.png' } }]
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+
+    const response = await handleWebRequest({ method: 'GET', url: '/api/chases/autocomplete?q=mew', headers }, { config });
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body ?? '{}').items.length).toBeLessThanOrEqual(25);
+    expect(globalThis.fetch).toHaveBeenCalled();
+
+    const malformed = await handleWebRequest({ method: 'GET', url: `/api/chases/autocomplete?q=${'x'.repeat(101)}`, headers }, { config });
+    expect(malformed.status).toBe(400);
+    globalThis.fetch = originalFetch;
+    clearUser(userId);
+  });
+
+  it('validates JSON bodies without affecting existing GET routes', async () => {
+    const userId = 'web-chases-body-user';
+    const headers = auth(userId, 'chases-body-token');
+
+    const malformed = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: '{' }, { config });
+    expect(malformed.status).toBe(400);
+
+    const wrongType = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'text/plain' }, body: JSON.stringify({ cardName: 'Mew RC24' }) }, { config });
+    expect(wrongType.status).toBe(415);
+
+    const oversized = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Mew RC24', targetNote: 'x'.repeat(40_000) }) }, { config });
+    expect(oversized.status).toBe(413);
+
+    const me = await handleWebRequest({ method: 'GET', url: '/api/me', headers }, { config });
+    expect(me.status).toBe(200);
 
     clearUser(userId);
   });
