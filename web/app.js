@@ -24,6 +24,11 @@ const state = {
   vaultSubmitting: false,
   vaultAutocompleteTimer: null,
   vaultAutocompleteRequestId: 0,
+  vaultAutocompleteItems: [],
+  vaultAutocompleteOpen: false,
+  vaultAutocompleteLoading: false,
+  vaultAutocompleteActiveIndex: -1,
+  vaultAutocompleteQuery: '',
   removeTargetId: null,
   removeError: ''
 };
@@ -107,6 +112,51 @@ function displayConditionValue(condition) {
 
 function optionMarkup(options, selected) {
   return (options || []).map((option) => `<option value="${escapeHtml(option.value)}"${option.value === selected ? ' selected' : ''}>${escapeHtml(option.name)}</option>`).join('');
+}
+
+function resetVaultAutocomplete() {
+  window.clearTimeout(state.vaultAutocompleteTimer);
+  state.vaultAutocompleteItems = [];
+  state.vaultAutocompleteOpen = false;
+  state.vaultAutocompleteLoading = false;
+  state.vaultAutocompleteActiveIndex = -1;
+  state.vaultAutocompleteQuery = '';
+}
+
+function autocompleteListMarkup() {
+  if (!state.vaultAutocompleteOpen) return '';
+  if (state.vaultAutocompleteLoading) {
+    return '<div class="card-suggestion-status" role="status">Searching cards...</div>';
+  }
+  if (!state.vaultAutocompleteItems.length && state.vaultAutocompleteQuery.length >= 2) {
+    return '<div class="card-suggestion-status">No card suggestions found. You can still use this name.</div>';
+  }
+  return state.vaultAutocompleteItems.map((item, index) => `
+    <button
+      id="card-suggestion-${index}"
+      class="card-suggestion-option ${index === state.vaultAutocompleteActiveIndex ? 'active' : ''}"
+      type="button"
+      role="option"
+      aria-selected="${index === state.vaultAutocompleteActiveIndex ? 'true' : 'false'}"
+      data-action="select-card-suggestion"
+      data-index="${index}"
+    >
+      <span>${escapeHtml(item.value)}</span>
+      ${item.name && item.name !== item.value ? `<small>${escapeHtml(item.name)}</small>` : ''}
+    </button>
+  `).join('');
+}
+
+function updateAutocompleteDom(input) {
+  const list = document.querySelector('#card-suggestion-list');
+  if (!list) return;
+  const hint = document.querySelector('#card-autocomplete-hint');
+  const hasPopup = state.vaultAutocompleteOpen && (state.vaultAutocompleteLoading || state.vaultAutocompleteItems.length > 0 || state.vaultAutocompleteQuery.length >= 2);
+  input.setAttribute('aria-expanded', hasPopup ? 'true' : 'false');
+  input.setAttribute('aria-activedescendant', state.vaultAutocompleteActiveIndex >= 0 ? `card-suggestion-${state.vaultAutocompleteActiveIndex}` : '');
+  if (hint) hint.hidden = hasPopup;
+  list.hidden = !hasPopup;
+  list.innerHTML = autocompleteListMarkup();
 }
 
 function apiErrorMessage(error) {
@@ -446,8 +496,24 @@ function vaultDialogMarkup() {
         ${state.vaultFormError ? `<p class="form-error" role="alert">${escapeHtml(state.vaultFormError)}</p>` : ''}
         <label class="field">
           <span>Card</span>
-          <input name="cardName" type="text" required maxlength="100" autocomplete="off" list="card-suggestions" value="${escapeHtml(chase.cardName || '')}">
-          <datalist id="card-suggestions"></datalist>
+          <div class="card-autocomplete">
+            <input
+              id="vault-card-input"
+              name="cardName"
+              type="text"
+              required
+              maxlength="100"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-controls="card-suggestion-list"
+              aria-expanded="false"
+              aria-describedby="card-autocomplete-hint"
+              value="${escapeHtml(chase.cardName || '')}"
+            >
+            <p id="card-autocomplete-hint" class="field-hint">Start typing a card name to see suggestions</p>
+            <div id="card-suggestion-list" class="card-suggestion-list" role="listbox" hidden></div>
+          </div>
         </label>
         <div class="form-grid">
           <label class="field">
@@ -510,9 +576,18 @@ function removeDialogMarkup() {
         </header>
         ${state.removeError ? `<p class="form-error" role="alert">${escapeHtml(state.removeError)}</p>` : ''}
         <div class="remove-options">
-          <button class="button-primary" type="button" data-action="remove-chase" data-outcome="COMPLETED">Completed<br><span>I found or bought the card</span></button>
-          <button class="button-ghost" type="button" data-action="remove-chase" data-outcome="NO_LONGER_INTERESTED">No longer interested<br><span>Remove it without marking it completed</span></button>
-          <button class="button-ghost" type="button" data-action="remove-chase" data-outcome="ADDED_BY_MISTAKE">Added by mistake<br><span>Remove it without changing my collector profile</span></button>
+          <button class="button-primary remove-option" type="button" data-action="remove-chase" data-outcome="COMPLETED">
+            <span class="remove-option-title">Completed</span>
+            <span class="remove-option-copy">I found or bought the card</span>
+          </button>
+          <button class="button-ghost remove-option" type="button" data-action="remove-chase" data-outcome="NO_LONGER_INTERESTED">
+            <span class="remove-option-title">No longer interested</span>
+            <span class="remove-option-copy">Remove it without marking it completed</span>
+          </button>
+          <button class="button-ghost remove-option" type="button" data-action="remove-chase" data-outcome="ADDED_BY_MISTAKE">
+            <span class="remove-option-title">Added by mistake</span>
+            <span class="remove-option-copy">Remove it without changing my collector profile</span>
+          </button>
         </div>
         <footer class="dialog-actions">
           <button class="button-ghost" type="button" data-action="close-remove-dialog">Cancel</button>
@@ -705,20 +780,59 @@ async function submitVaultForm(form) {
 
 function scheduleAutocomplete(input) {
   window.clearTimeout(state.vaultAutocompleteTimer);
+  const requestId = ++state.vaultAutocompleteRequestId;
   const query = input.value.trim();
-  if (query.length < 2) return;
+  state.vaultAutocompleteQuery = query;
+  state.vaultAutocompleteActiveIndex = -1;
+  if (query.length < 2) {
+    state.vaultAutocompleteItems = [];
+    state.vaultAutocompleteOpen = false;
+    state.vaultAutocompleteLoading = false;
+    updateAutocompleteDom(input);
+    return;
+  }
+  state.vaultAutocompleteItems = [];
+  state.vaultAutocompleteOpen = true;
+  state.vaultAutocompleteLoading = true;
+  updateAutocompleteDom(input);
   state.vaultAutocompleteTimer = window.setTimeout(async () => {
-    const requestId = ++state.vaultAutocompleteRequestId;
     try {
       const body = await fetchJson(`/api/chases/autocomplete?q=${encodeURIComponent(query)}`);
-      if (requestId !== state.vaultAutocompleteRequestId) return;
-      const list = document.querySelector('#card-suggestions');
-      if (!list) return;
-      list.innerHTML = (body.items || []).map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.name)}</option>`).join('');
+      if (requestId !== state.vaultAutocompleteRequestId || input.value.trim() !== query) return;
+      state.vaultAutocompleteItems = body.items || [];
+      state.vaultAutocompleteOpen = true;
+      state.vaultAutocompleteLoading = false;
+      state.vaultAutocompleteActiveIndex = -1;
+      updateAutocompleteDom(input);
     } catch {
-      // Autocomplete is helpful, not required.
+      if (requestId !== state.vaultAutocompleteRequestId) return;
+      state.vaultAutocompleteItems = [];
+      state.vaultAutocompleteOpen = false;
+      state.vaultAutocompleteLoading = false;
+      updateAutocompleteDom(input);
     }
   }, 240);
+}
+
+function selectAutocompleteSuggestion(index) {
+  const item = state.vaultAutocompleteItems[index];
+  const input = document.querySelector('#vault-card-input');
+  if (!item || !(input instanceof HTMLInputElement)) return;
+  input.value = item.value;
+  resetVaultAutocomplete();
+  updateAutocompleteDom(input);
+  input.focus();
+}
+
+function moveAutocompleteActive(delta, input) {
+  if (!state.vaultAutocompleteItems.length) return;
+  const count = state.vaultAutocompleteItems.length;
+  const next = state.vaultAutocompleteActiveIndex < 0
+    ? delta > 0 ? 0 : count - 1
+    : (state.vaultAutocompleteActiveIndex + delta + count) % count;
+  state.vaultAutocompleteActiveIndex = next;
+  state.vaultAutocompleteOpen = true;
+  updateAutocompleteDom(input);
 }
 
 async function removeChase(outcome) {
@@ -797,6 +911,7 @@ app.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'open-add-chase') {
+    resetVaultAutocomplete();
     state.vaultFormMode = 'add';
     state.vaultEditingId = null;
     state.vaultFormError = '';
@@ -805,6 +920,7 @@ app.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'open-edit-chase') {
+    resetVaultAutocomplete();
     state.vaultFormMode = 'edit';
     state.vaultEditingId = target.getAttribute('data-chase-id');
     state.vaultFormError = '';
@@ -813,6 +929,7 @@ app.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'close-vault-dialog') {
+    resetVaultAutocomplete();
     state.vaultFormMode = null;
     state.vaultEditingId = null;
     state.vaultFormError = '';
@@ -833,6 +950,10 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'remove-chase') {
     await removeChase(target.getAttribute('data-outcome'));
+    return;
+  }
+  if (action === 'select-card-suggestion') {
+    selectAutocompleteSuggestion(Number(target.getAttribute('data-index')));
     return;
   }
   if (action === 'logout') {
@@ -868,6 +989,25 @@ app.addEventListener('input', (event) => {
   if (!(target instanceof HTMLInputElement)) return;
   if (target.name === 'cardName' && target.closest('[data-vault-form]')) {
     scheduleAutocomplete(target);
+  }
+});
+
+app.addEventListener('keydown', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.name !== 'cardName' || !target.closest('[data-vault-form]')) return;
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    moveAutocompleteActive(1, target);
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    moveAutocompleteActive(-1, target);
+  } else if (event.key === 'Enter' && state.vaultAutocompleteActiveIndex >= 0) {
+    event.preventDefault();
+    selectAutocompleteSuggestion(state.vaultAutocompleteActiveIndex);
+  } else if (event.key === 'Escape') {
+    resetVaultAutocomplete();
+    updateAutocompleteDom(target);
   }
 });
 

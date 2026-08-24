@@ -503,6 +503,18 @@ const updateChaseMaxPriceStmt = db.prepare(`
   WHERE user_id = @user_id AND id = @id
 `);
 
+const backfillChaseCardImageStmt = db.prepare(`
+  UPDATE chases
+  SET card_image_url = @card_image_url,
+      card_image_identity = @card_image_identity,
+      card_image_source_name = @card_image_source_name,
+      card_image_source_kind = @card_image_source_kind,
+      card_image_source_card_id = @card_image_source_card_id
+  WHERE user_id = @user_id
+    AND id = @id
+    AND (card_image_url IS NULL OR trim(card_image_url) = '')
+`);
+
 const listUserTasteMemoryMaxPricesStmt = db.prepare(`
   SELECT signal_id, source, max_price
   FROM user_taste_memory
@@ -1993,6 +2005,30 @@ export function updateChase(
   });
 
   return result.changes > 0 ? next : null;
+}
+
+export function backfillChaseCardImage(input: {
+  userId: string;
+  chaseId: string;
+  imageUrl: string;
+  imageIdentity: string;
+  imageSourceName?: string;
+  imageSourceKind: Chase['cardImageSourceKind'];
+  imageSourceCardId?: string;
+}): boolean {
+  if (input.imageSourceKind !== 'CARD_REFERENCE') throw new Error('Chase image backfill requires CARD_REFERENCE imagery');
+  if (!input.imageUrl.trim()) throw new Error('Chase image backfill requires an image URL');
+  if (!input.imageIdentity.trim()) throw new Error('Chase image backfill requires an image identity');
+  const result = backfillChaseCardImageStmt.run({
+    id: input.chaseId,
+    user_id: input.userId,
+    card_image_url: input.imageUrl,
+    card_image_identity: input.imageIdentity,
+    card_image_source_name: input.imageSourceName ?? null,
+    card_image_source_kind: input.imageSourceKind,
+    card_image_source_card_id: input.imageSourceCardId ?? null
+  });
+  return result.changes > 0;
 }
 
 export function hasAlertBeenSent(chaseId: string, listingId: string, source: ListingSource): boolean {
