@@ -7,8 +7,10 @@ import {
   autocompleteChaseCards,
   getCachedChaseCardPreview,
   normalizeChaseCardName,
+  resolveTrustedChaseCardReference,
   type CachedChaseCardPreview,
-  type ChaseCardAutocompleteChoice
+  type ChaseCardAutocompleteChoice,
+  type TrustedChaseCardReferenceResolution
 } from './chase-card-catalog.js';
 import type { Chase } from '../types.js';
 
@@ -18,6 +20,9 @@ export type ChaseImageBackfillStatus =
   | 'SKIPPED_EXISTING_IMAGE'
   | 'SKIPPED_NO_MATCH'
   | 'SKIPPED_AMBIGUOUS'
+  | 'SKIPPED_FALLBACK_ONLY'
+  | 'SKIPPED_CONFLICTING_NUMBER'
+  | 'SKIPPED_CONFLICTING_RELEASE'
   | 'SKIPPED_NO_TRUSTED_IMAGE'
   | 'ERROR';
 
@@ -32,6 +37,7 @@ export type ChaseImageBackfillItem = {
   imageSourceName?: string;
   imageSourceKind?: CachedChaseCardPreview['imageSourceKind'];
   imageSourceCardId?: string;
+  resolvedCardName?: string;
 };
 
 export type ChaseImageBackfillSummary = {
@@ -44,6 +50,9 @@ export type ChaseImageBackfillSummary = {
   skippedExistingImage: number;
   skippedNoMatch: number;
   skippedAmbiguous: number;
+  skippedFallbackOnly: number;
+  skippedConflictingNumber: number;
+  skippedConflictingRelease: number;
   skippedNoTrustedImage: number;
   errors: number;
   items: ChaseImageBackfillItem[];
@@ -52,6 +61,7 @@ export type ChaseImageBackfillSummary = {
 type ChaseImageBackfillDependencies = {
   autocomplete?: (cardName: string, limit: number) => Promise<ChaseCardAutocompleteChoice[]>;
   preview?: (cardName: string) => CachedChaseCardPreview | undefined;
+  resolve?: (cardName: string) => Promise<TrustedChaseCardReferenceResolution>;
   update?: typeof backfillChaseCardImage;
 };
 
@@ -73,11 +83,71 @@ function normalizedIdentity(value: string): string {
   return normalizeChaseCardName(value).toLowerCase();
 }
 
-function trustedPreviewForBackfill(chase: Chase, preview: CachedChaseCardPreview | undefined): CachedChaseCardPreview | undefined {
+function trustedPreviewForBackfill(
+  chase: Chase,
+  preview: CachedChaseCardPreview | undefined,
+  acceptedIdentities = [chase.cardName]
+): CachedChaseCardPreview | undefined {
   if (!preview?.imageUrl) return undefined;
   if (preview.imageSourceKind !== 'CARD_REFERENCE') return undefined;
-  if (!preview.imageIdentity || normalizedIdentity(preview.imageIdentity) !== normalizedIdentity(chase.cardName)) return undefined;
+  if (!preview.imageIdentity || !acceptedIdentities.some((identity) => normalizedIdentity(preview.imageIdentity!) === normalizedIdentity(identity))) return undefined;
   return preview;
+}
+
+function itemFromTrustedResolution(chase: Chase, resolution: TrustedChaseCardReferenceResolution): ChaseImageBackfillItem | undefined {
+  if (resolution.status !== 'RESOLVED') return undefined;
+  const preview = trustedPreviewForBackfill(chase, resolution.preview, [
+    chase.cardName,
+    resolution.resolvedCardName,
+    resolution.preview.imageIdentity
+  ]);
+  if (!preview?.imageUrl) {
+    return {
+      userId: chase.userId,
+      chaseId: chase.id,
+      cardName: chase.cardName,
+      status: 'SKIPPED_NO_TRUSTED_IMAGE',
+      message: 'trusted resolver returned a mismatched image identity'
+    };
+  }
+  return {
+    userId: chase.userId,
+    chaseId: chase.id,
+    cardName: chase.cardName,
+    status: 'MATCH',
+    message: 'trusted CARD_REFERENCE resolved by catalog identity',
+    imageUrl: preview.imageUrl,
+    imageIdentity: preview.imageIdentity,
+    imageSourceName: preview.imageSourceName,
+    imageSourceKind: preview.imageSourceKind,
+    imageSourceCardId: preview.imageSourceCardId,
+    resolvedCardName: resolution.resolvedCardName
+  };
+}
+
+function skippedItemFromTrustedResolution(chase: Chase, resolution: TrustedChaseCardReferenceResolution): ChaseImageBackfillItem | undefined {
+  if (resolution.status === 'RESOLVED') return undefined;
+  if (resolution.status === 'NO_MATCH') return undefined;
+  const status = resolution.status === 'AMBIGUOUS'
+    ? 'SKIPPED_AMBIGUOUS'
+    : resolution.status === 'FALLBACK_ONLY'
+      ? 'SKIPPED_FALLBACK_ONLY'
+      : resolution.status === 'CONFLICTING_NUMBER'
+        ? 'SKIPPED_CONFLICTING_NUMBER'
+        : 'SKIPPED_CONFLICTING_RELEASE';
+  return {
+    userId: chase.userId,
+    chaseId: chase.id,
+    cardName: chase.cardName,
+    status,
+    message: resolution.status === 'AMBIGUOUS'
+      ? `ambiguous trusted source candidates (${resolution.candidateCount ?? 0})`
+      : resolution.status === 'FALLBACK_ONLY'
+        ? 'fallback autocomplete choice only; no trusted source reference'
+        : resolution.status === 'CONFLICTING_NUMBER'
+          ? 'trusted source candidates conflicted with requested number'
+          : 'trusted source candidates conflicted with requested release'
+  };
 }
 
 async function inspectChaseImageBackfill(
@@ -93,6 +163,12 @@ async function inspectChaseImageBackfill(
       message: 'existing image present'
     };
   }
+
+  const resolution = await dependencies.resolve(chase.cardName);
+  const resolvedItem = itemFromTrustedResolution(chase, resolution);
+  if (resolvedItem) return resolvedItem;
+  const skippedResolutionItem = skippedItemFromTrustedResolution(chase, resolution);
+  if (skippedResolutionItem) return skippedResolutionItem;
 
   const choices = await dependencies.autocomplete(chase.cardName, 25);
   const expected = normalizedIdentity(chase.cardName);
@@ -153,6 +229,9 @@ function emptySummary(apply: boolean, userId: string | undefined): ChaseImageBac
     skippedExistingImage: 0,
     skippedNoMatch: 0,
     skippedAmbiguous: 0,
+    skippedFallbackOnly: 0,
+    skippedConflictingNumber: 0,
+    skippedConflictingRelease: 0,
     skippedNoTrustedImage: 0,
     errors: 0,
     items: []
@@ -166,6 +245,9 @@ function countItem(summary: ChaseImageBackfillSummary, item: ChaseImageBackfillI
   if (item.status === 'SKIPPED_EXISTING_IMAGE') summary.skippedExistingImage += 1;
   if (item.status === 'SKIPPED_NO_MATCH') summary.skippedNoMatch += 1;
   if (item.status === 'SKIPPED_AMBIGUOUS') summary.skippedAmbiguous += 1;
+  if (item.status === 'SKIPPED_FALLBACK_ONLY') summary.skippedFallbackOnly += 1;
+  if (item.status === 'SKIPPED_CONFLICTING_NUMBER') summary.skippedConflictingNumber += 1;
+  if (item.status === 'SKIPPED_CONFLICTING_RELEASE') summary.skippedConflictingRelease += 1;
   if (item.status === 'SKIPPED_NO_TRUSTED_IMAGE') summary.skippedNoTrustedImage += 1;
   if (item.status === 'ERROR') summary.errors += 1;
 }
@@ -175,6 +257,7 @@ export async function backfillMissingChaseImages(options: ChaseImageBackfillOpti
   const dependencies: Required<ChaseImageBackfillDependencies> = {
     autocomplete: options.dependencies?.autocomplete ?? autocompleteChaseCards,
     preview: options.dependencies?.preview ?? getCachedChaseCardPreview,
+    resolve: options.dependencies?.resolve ?? resolveTrustedChaseCardReference,
     update: options.dependencies?.update ?? backfillChaseCardImage
   };
   const candidates = chasesForBackfill(options.userId).filter(isMissingImage);

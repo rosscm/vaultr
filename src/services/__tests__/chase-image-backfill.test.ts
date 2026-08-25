@@ -29,6 +29,29 @@ function trustedPreview(identity = 'Mew RC24'): CachedChaseCardPreview {
   };
 }
 
+function noMatchResolution(cardName: string) {
+  return {
+    status: 'NO_MATCH' as const,
+    requestedCardName: cardName,
+    normalizedCardName: cardName
+  };
+}
+
+function resolvedReference(requestedCardName: string, resolvedCardName = requestedCardName, identity = resolvedCardName) {
+  return {
+    status: 'RESOLVED' as const,
+    requestedCardName,
+    resolvedCardName,
+    preview: {
+      imageUrl: 'https://images.example/resolved.png',
+      imageIdentity: identity,
+      imageSourceName: 'POKEMONTCG',
+      imageSourceKind: 'CARD_REFERENCE' as const,
+      imageSourceCardId: 'xyp-XY192'
+    }
+  };
+}
+
 afterEach(() => {
   for (const id of testUserIds) cleanupUser(id);
   testUserIds.clear();
@@ -42,6 +65,7 @@ describe('chase image backfill', () => {
     const summary = await backfillMissingChaseImages({
       userId: id,
       dependencies: {
+        resolve: async (cardName) => noMatchResolution(cardName),
         autocomplete: async () => [choice('Mew RC24')],
         preview: () => trustedPreview()
       }
@@ -58,6 +82,7 @@ describe('chase image backfill', () => {
     const chase = addChase({ userId: id, cardName: '  Mew   RC24  ', listingType: 'BUY_IT_NOW' });
 
     const dependencies = {
+      resolve: async (cardName: string) => noMatchResolution(cardName),
       autocomplete: async () => [choice('Mew RC24')],
       preview: () => trustedPreview('Mew RC24')
     };
@@ -106,6 +131,7 @@ describe('chase image backfill', () => {
     const fuzzy = await backfillMissingChaseImages({
       userId: fuzzyUser,
       dependencies: {
+        resolve: async (cardName) => noMatchResolution(cardName),
         autocomplete: async () => [choice('Mew Legendary Treasures RC24')],
         preview: () => trustedPreview()
       }
@@ -117,6 +143,7 @@ describe('chase image backfill', () => {
     const ambiguous = await backfillMissingChaseImages({
       userId: ambiguousUser,
       dependencies: {
+        resolve: async (cardName) => noMatchResolution(cardName),
         autocomplete: async () => [choice('Mew RC24'), choice('Mew RC24')],
         preview: () => trustedPreview()
       }
@@ -135,6 +162,7 @@ describe('chase image backfill', () => {
       const summary = await backfillMissingChaseImages({
         userId: id,
         dependencies: {
+          resolve: async (cardName) => noMatchResolution(cardName),
           autocomplete: async () => [choice('Mew RC24')],
           preview: () => preview
         }
@@ -154,5 +182,59 @@ describe('chase image backfill', () => {
       imageIdentity: 'Mew RC24',
       imageSourceKind: 'MARKET_LISTING'
     })).toThrow(/CARD_REFERENCE/);
+  });
+
+  it('uses trusted resolver results to backfill images without exact display-string equality', async () => {
+    const id = userId('resolver');
+    addChase({ userId: id, cardName: 'Mew XY Black Star Promos XY192' });
+
+    const summary = await backfillMissingChaseImages({
+      userId: id,
+      apply: true,
+      dependencies: {
+        resolve: async () => resolvedReference('Mew XY Black Star Promos XY192', 'Mew Black Star Promos XY192'),
+        autocomplete: async () => {
+          throw new Error('legacy autocomplete should not run after resolver success');
+        },
+        preview: () => undefined
+      }
+    });
+
+    expect(summary).toMatchObject({ examined: 1, exactTrustedMatches: 1, updated: 1 });
+    expect(summary.items[0]).toMatchObject({
+      status: 'UPDATED',
+      resolvedCardName: 'Mew Black Star Promos XY192'
+    });
+    expect(listChases(id)[0]).toMatchObject({
+      cardName: 'Mew XY Black Star Promos XY192',
+      cardImageUrl: 'https://images.example/resolved.png',
+      cardImageIdentity: 'Mew Black Star Promos XY192',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceName: 'POKEMONTCG',
+      cardImageSourceCardId: 'xyp-XY192'
+    });
+  });
+
+  it('reports fallback-only trusted resolver outcomes and leaves rows untouched', async () => {
+    const id = userId('fallback-only');
+    addChase({ userId: id, cardName: 'Mew CoroCoro Promo 151' });
+
+    const summary = await backfillMissingChaseImages({
+      userId: id,
+      dependencies: {
+        resolve: async (cardName) => ({
+          status: 'FALLBACK_ONLY' as const,
+          requestedCardName: cardName,
+          normalizedCardName: cardName
+        }),
+        autocomplete: async () => {
+          throw new Error('legacy autocomplete should not run after explicit fallback-only result');
+        },
+        preview: () => undefined
+      }
+    });
+
+    expect(summary).toMatchObject({ examined: 1, skippedFallbackOnly: 1, wouldUpdate: 0 });
+    expect(listChases(id)[0]?.cardImageUrl).toBeUndefined();
   });
 });

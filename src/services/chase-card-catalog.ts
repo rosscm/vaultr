@@ -24,6 +24,23 @@ export type CachedChaseCardPreview = {
 
 type ChaseCardCatalogResult = ChaseCardAutocompleteChoice & CachedChaseCardPreview;
 
+export type TrustedChaseCardPreview = Required<Pick<CachedChaseCardPreview, 'imageUrl' | 'imageIdentity' | 'imageSourceKind' | 'imageSourceName' | 'imageSourceCardId'>>;
+
+export type TrustedChaseCardReferenceResolution =
+  | {
+      status: 'RESOLVED';
+      requestedCardName: string;
+      resolvedCardName: string;
+      preview: TrustedChaseCardPreview;
+    }
+  | {
+      status: 'NO_MATCH' | 'AMBIGUOUS' | 'FALLBACK_ONLY' | 'CONFLICTING_NUMBER' | 'CONFLICTING_RELEASE';
+      requestedCardName: string;
+      normalizedCardName: string;
+      candidateCount?: number;
+      candidates?: Array<{ name: string; value: string; imageSourceName?: string; imageSourceCardId?: string }>;
+    };
+
 type PokemonTcgCard = {
   id?: string;
   name?: string;
@@ -192,11 +209,11 @@ function pokemonTcgQuerySubject(query: string): string | undefined {
 
 function pokemonTcgRequestedNumberPrefix(query: string): string | undefined {
   const terms = normalize(query).split(' ').filter(Boolean).slice(1);
-  const candidate = terms.find((term) => /^[a-z]{1,4}\d{0,4}$/.test(term) && !POKEMON_CONTEXT_STOP_TERMS.has(term));
-  if (!candidate) return undefined;
-  const hasDigit = /\d/.test(candidate);
-  if (!hasDigit && candidate !== 'rc') return undefined;
-  return candidate;
+  return terms.find((term) => {
+    if (POKEMON_CONTEXT_STOP_TERMS.has(term)) return false;
+    if (term === 'rc') return true;
+    return /^[a-z]{1,4}\d{1,4}$/.test(term);
+  });
 }
 
 function pokemonTcgCardMatchesQuerySubject(card: PokemonTcgCard, querySubject: string | undefined): boolean {
@@ -207,6 +224,62 @@ function pokemonTcgCardMatchesQuerySubject(card: PokemonTcgCard, querySubject: s
 function pokemonTcgCardMatchesNumberPrefix(card: PokemonTcgCard, numberPrefix: string | undefined): boolean {
   if (!numberPrefix) return true;
   return normalize(card.number ?? '').startsWith(numberPrefix);
+}
+
+function pokemonTcgCardMatchesCollectorNumber(card: PokemonTcgCard, collectorNumber: RequestedCollectorNumber | undefined): boolean {
+  if (!collectorNumber) return true;
+  const number = card.number ?? '';
+  const localNumber = number.replace(/\/\d+$/, '');
+  if (localNumber.padStart(3, '0') !== collectorNumber.localId) return false;
+  if (!card.set?.printedTotal) return true;
+  return printedTotalMatchesPrefix(card.set.printedTotal, collectorNumber.totalPrefix);
+}
+
+function pokemonTcgCardMatchesStandaloneNumber(card: PokemonTcgCard, cardNumber: RequestedStandaloneCardNumber | undefined): boolean {
+  if (!cardNumber) return true;
+  const number = card.number ?? '';
+  if (!/^\d{1,4}$/.test(number)) return true;
+  const normalizedNumber = number.padStart(3, '0');
+  if (cardNumber.raw.length >= 3) return normalizedNumber === cardNumber.normalized;
+  return localIdMatchesStandaloneRequest(number, cardNumber);
+}
+
+function pokemonTcgExplicitSetContextTerms(query: string, card: PokemonTcgCard): string[] {
+  const nameTermCounts = new Map<string, number>();
+  for (const term of normalize(card.name ?? '').split(' ').filter(Boolean)) {
+    nameTermCounts.set(term, (nameTermCounts.get(term) ?? 0) + 1);
+  }
+  const requestedNumbers = [
+    requestedCollectorNumber(query)?.localId,
+    requestedStandaloneCardNumber(query)?.normalized,
+    pokemonTcgRequestedNumberPrefix(query)
+  ].filter((value): value is string => !!value);
+  const requestedNumberTerms = new Set(requestedNumbers.flatMap((number) => [
+    number,
+    number.replace(/^0+/, '')
+  ]));
+  return normalize(query)
+    .split(' ')
+    .filter((term) => term.length >= 2)
+    .filter((term) => {
+      const remainingNameUses = nameTermCounts.get(term) ?? 0;
+      if (remainingNameUses <= 0) return true;
+      nameTermCounts.set(term, remainingNameUses - 1);
+      return false;
+    })
+    .filter((term) => !requestedNumberTerms.has(term))
+    .filter((term) => !/^\d+$/.test(term) && !/^\d+\/\d+$/.test(term) && !/^[a-z]{1,4}\d{1,4}$/.test(term))
+    .filter((term) => !POKEMON_CONTEXT_STOP_TERMS.has(term))
+    .filter((term) => !POKEMON_PROMO_PUBLICATION_TERMS.has(term))
+    .filter((term) => !POKEMON_PROMO_STYLE_STOP_TERMS.has(term));
+}
+
+function pokemonTcgCardMatchesExplicitSetContext(card: PokemonTcgCard, query: string): boolean {
+  if (pokemonTcgReleaseAlias(query)) return true;
+  const terms = pokemonTcgExplicitSetContextTerms(query, card);
+  if (terms.length < 2) return true;
+  const setText = normalize(card.set?.name ?? '');
+  return terms.every((term) => setText.includes(term));
 }
 
 async function pokemonTcgAutocompleteChoices(query: string, limit: number): Promise<ChaseCardCatalogResult[]> {
@@ -225,12 +298,17 @@ async function pokemonTcgAutocompleteChoices(query: string, limit: number): Prom
   const querySubject = pokemonTcgQuerySubject(query);
   const numberPrefix = pokemonTcgRequestedNumberPrefix(query);
   const releaseAlias = pokemonTcgReleaseAlias(query);
+  const collectorNumber = requestedCollectorNumber(query);
+  const standaloneCardNumber = requestedStandaloneCardNumber(query);
   const includePrintedTotal = !!requestedCollectorNumber(query);
   return cards
     .filter((card) => card.name && card.number)
     .filter((card) => pokemonTcgCardMatchesQuerySubject(card, querySubject))
     .filter((card) => pokemonTcgCardMatchesNumberPrefix(card, numberPrefix))
+    .filter((card) => pokemonTcgCardMatchesCollectorNumber(card, collectorNumber))
+    .filter((card) => pokemonTcgCardMatchesStandaloneNumber(card, standaloneCardNumber))
     .filter((card) => !releaseAlias || pokemonTcgReleaseSetMatches(card, releaseAlias))
+    .filter((card) => pokemonTcgCardMatchesExplicitSetContext(card, query))
     .map((card) => {
       const setName = card.set?.name;
       const releaseLabel = pokemonTcgReleaseChoiceLabel(card, releaseAlias);
@@ -387,6 +465,59 @@ function choiceMatchesStandaloneCardNumber(choice: ChaseCardCatalogResult, cardN
   return tokens.some((token) => /^0?\d{1,3}$/.test(token) && localIdMatchesStandaloneRequest(token, cardNumber));
 }
 
+function fallbackOnlyChoice(query: string): ChaseCardAutocompleteChoice | undefined {
+  return japanesePromoFallbackChoice(query) ?? pokemonReleaseFallbackChoice(query);
+}
+
+function choiceHasTrustedPreview(choice: ChaseCardCatalogResult): boolean {
+  return !!choice.imageUrl &&
+    !!choice.imageIdentity &&
+    !!choice.imageSourceName &&
+    !!choice.imageSourceCardId &&
+    choice.imageSourceKind === 'CARD_REFERENCE';
+}
+
+function trustedChoicePreview(choice: ChaseCardCatalogResult): TrustedChaseCardPreview {
+  return {
+    imageUrl: choice.imageUrl!,
+    imageIdentity: choice.imageIdentity!,
+    imageSourceName: choice.imageSourceName!,
+    imageSourceKind: 'CARD_REFERENCE',
+    imageSourceCardId: choice.imageSourceCardId!
+  };
+}
+
+function choiceMatchesStructuredIdentity(choice: ChaseCardCatalogResult, query: string): boolean {
+  const normalizedQuery = normalize(normalizeChaseCardName(query));
+  const normalizedChoiceIdentity = normalize(normalizeChaseCardName(choice.imageIdentity ?? choice.value));
+  if (normalizedChoiceIdentity === normalizedQuery) return true;
+
+  const subject = pokemonTcgQuerySubject(query) ?? tcgDexQuerySubject(query);
+  if (subject && !normalize(choice.value).split(' ').includes(subject)) return false;
+
+  const collectorNumber = requestedCollectorNumber(query);
+  if (collectorNumber && !choiceMatchesCollectorNumber(choice, collectorNumber)) return false;
+
+  const standaloneCardNumber = requestedStandaloneCardNumber(query);
+  if (standaloneCardNumber && !choiceMatchesStandaloneCardNumber(choice, standaloneCardNumber)) return false;
+
+  const numberPrefix = pokemonTcgRequestedNumberPrefix(query);
+  if (numberPrefix && !normalize(choice.value).split(' ').some((term) => term.startsWith(numberPrefix))) return false;
+
+  const releaseAlias = pokemonTcgReleaseAlias(query);
+  if (releaseAlias && !normalize(choice.value).includes(normalize(releaseAlias.label))) return false;
+
+  return !!subject || !!collectorNumber || !!standaloneCardNumber || !!numberPrefix || !!releaseAlias;
+}
+
+async function sourceBackedChaseCardChoices(query: string, limit: number): Promise<ChaseCardCatalogResult[]> {
+  const [pokemonChoices, japaneseChoices] = await Promise.all([
+    pokemonTcgAutocompleteChoices(query, limit).catch(() => []),
+    tcgDexAutocompleteChoices(query, limit).catch(() => [])
+  ]);
+  return hasTcgDexAutocompleteSignal(query) ? [...japaneseChoices, ...pokemonChoices] : [...pokemonChoices, ...japaneseChoices];
+}
+
 function tcgDexDisplayName(card: TcgDexCard, query: string): string | undefined {
   if (!card.name || !card.localId) return undefined;
   const querySubject = tcgDexQuerySubject(query);
@@ -521,6 +652,74 @@ export async function autocompleteChaseCards(query: string, limit = 25): Promise
   if (fallbackChoice) return [fallbackChoice];
   if (choices.length > 0) autocompleteCache.set(normalizedQuery, { expiresAt: Date.now() + AUTOCOMPLETE_CACHE_TTL_MS, choices });
   return choices;
+}
+
+export async function resolveTrustedChaseCardReference(cardName: string): Promise<TrustedChaseCardReferenceResolution> {
+  const normalizedCardName = normalizeChaseCardName(cardName);
+  const queryVariants = [...new Set([cardName, normalizedCardName].map((value) => value.trim()).filter(Boolean))];
+  const sourceChoices = (await Promise.all(queryVariants.map((query) => sourceBackedChaseCardChoices(query, 40)))).flat();
+  const trustedMatches = sourceChoices
+    .filter(choiceHasTrustedPreview)
+    .filter((choice) => queryVariants.some((query) => choiceMatchesStructuredIdentity(choice, query)));
+  const uniqueMatches = new Map<string, ChaseCardCatalogResult>();
+  for (const match of trustedMatches) {
+    const key = `${match.imageSourceName}:${match.imageSourceCardId}`;
+    if (!uniqueMatches.has(key)) uniqueMatches.set(key, match);
+  }
+  const matches = [...uniqueMatches.values()];
+
+  if (matches.length === 1) {
+    const match = matches[0]!;
+    const preview = trustedChoicePreview(match);
+    cacheAutocompletePreview(cardName, preview);
+    cacheAutocompletePreview(normalizedCardName, preview);
+    cacheAutocompletePreview(match.value, preview);
+    return {
+      status: 'RESOLVED',
+      requestedCardName: cardName,
+      resolvedCardName: match.value,
+      preview
+    };
+  }
+
+  if (matches.length > 1) {
+    return {
+      status: 'AMBIGUOUS',
+      requestedCardName: cardName,
+      normalizedCardName,
+      candidateCount: matches.length,
+      candidates: matches.slice(0, 5).map((match) => ({
+        name: match.name,
+        value: match.value,
+        imageSourceName: match.imageSourceName,
+        imageSourceCardId: match.imageSourceCardId
+      }))
+    };
+  }
+
+  if (queryVariants.some((query) => fallbackOnlyChoice(query))) {
+    return {
+      status: 'FALLBACK_ONLY',
+      requestedCardName: cardName,
+      normalizedCardName
+    };
+  }
+
+  const hadNumberedSourceCandidate = sourceChoices.some((choice) => choiceHasTrustedPreview(choice));
+  const hasRequestedNumber = queryVariants.some((query) => !!requestedCollectorNumber(query) || !!requestedStandaloneCardNumber(query) || !!pokemonTcgRequestedNumberPrefix(query));
+  const hasRelease = queryVariants.some((query) => !!pokemonTcgReleaseAlias(query));
+  return {
+    status: hadNumberedSourceCandidate && hasRequestedNumber ? 'CONFLICTING_NUMBER' : hadNumberedSourceCandidate && hasRelease ? 'CONFLICTING_RELEASE' : 'NO_MATCH',
+    requestedCardName: cardName,
+    normalizedCardName,
+    candidateCount: sourceChoices.length,
+    candidates: sourceChoices.slice(0, 5).map((choice) => ({
+      name: choice.name,
+      value: choice.value,
+      imageSourceName: choice.imageSourceName,
+      imageSourceCardId: choice.imageSourceCardId
+    }))
+  };
 }
 
 export function clearChaseCardAutocompleteCache(): void {

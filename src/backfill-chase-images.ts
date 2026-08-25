@@ -40,7 +40,13 @@ function printItem(item: ChaseImageBackfillSummary['items'][number]): void {
         : 'SKIP';
   console.log(`${label.padEnd(6)} ${item.cardName} (${item.userId})`);
   if (item.status === 'MATCH' || item.status === 'UPDATED') {
-    console.log(`  -> ${item.imageSourceName ?? 'unknown source'} / ${item.imageSourceCardId ?? 'unknown id'} / ${item.imageUrl}`);
+    if (item.resolvedCardName && item.resolvedCardName !== item.cardName) {
+      console.log(`  -> resolved as: ${item.resolvedCardName}`);
+    } else {
+      console.log(`  -> resolved: ${item.resolvedCardName ?? item.imageIdentity ?? item.cardName}`);
+    }
+    console.log(`  -> ${item.imageSourceName ?? 'unknown source'} / ${item.imageSourceCardId ?? 'unknown id'}`);
+    console.log(`  -> ${item.imageUrl}`);
     return;
   }
   console.log(`  -> ${item.message}`);
@@ -59,6 +65,9 @@ export async function runBackfillChaseImagesCli(argv: string[]): Promise<ChaseIm
     skippedExistingImage: summary.skippedExistingImage,
     skippedNoMatch: summary.skippedNoMatch,
     skippedAmbiguous: summary.skippedAmbiguous,
+    skippedFallbackOnly: summary.skippedFallbackOnly,
+    skippedConflictingNumber: summary.skippedConflictingNumber,
+    skippedConflictingRelease: summary.skippedConflictingRelease,
     skippedNoTrustedImage: summary.skippedNoTrustedImage,
     errors: summary.errors
   }, null, 2));

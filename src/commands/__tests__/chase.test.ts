@@ -21,7 +21,8 @@ import {
 import {
   __chaseCardCatalogTestHooks,
   autocompleteChaseCards,
-  clearChaseCardAutocompleteCache
+  clearChaseCardAutocompleteCache,
+  resolveTrustedChaseCardReference
 } from '../../services/chase-card-catalog.js';
 import { db } from '../../services/db.js';
 import { evaluateWeeklyDiscoveryEligibility } from '../../services/weekly-discovery-eligibility.js';
@@ -550,6 +551,68 @@ describe('chase command', () => {
     expect(choices[0].value.toLowerCase()).toContain('xy192');
   });
 
+  it('does not let an earlier plain series token hide a later numbered promo token', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'bwp-BW98', name: 'Mew', number: 'BW98', set: { name: 'BW Black Star Promos' } },
+          { id: 'xyp-XY192', name: 'Mew', number: 'XY192', set: { name: 'XY Black Star Promos' } }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const choices = await autocompleteChaseCards('Mew XY Black Star Promos XY192', 10);
+
+    expect(choices).toEqual([
+      { name: 'Mew — Black Star Promos #XY192', value: 'Mew Black Star Promos XY192' }
+    ]);
+    expect(choices.some((choice) => choice.value.includes('BW98'))).toBe(false);
+  });
+
+  it('honors exact prefixed and bare PokemonTCG card numbers after broad fallback queries', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'bw11-RC2', name: 'Mew-EX', number: 'RC2', set: { name: 'Legendary Treasures' } },
+          { id: 'bw11-RC24', name: 'Mew-EX', number: 'RC24', set: { name: 'Legendary Treasures' } },
+          { id: 'smp-SM36', name: 'Umbreon-GX', number: 'SM36', set: { name: 'SM Black Star Promos' } },
+          { id: 'smp-SM210', name: 'Moltres & Zapdos & Articuno-GX', number: 'SM210', set: { name: 'SM Black Star Promos' } },
+          { id: 'swsh10-39', name: 'Origin Forme Palkia V', number: '39', set: { name: 'Astral Radiance', printedTotal: 189 } },
+          { id: 'swsh10-167', name: 'Origin Forme Palkia V', number: '167', set: { name: 'Astral Radiance', printedTotal: 189 } },
+          { id: 'xy11-79', name: 'M Gardevoir-EX', number: '79', set: { name: 'Steam Siege', printedTotal: 114 } },
+          { id: 'm1l-178', name: 'Mega Gardevoir ex', number: '178', set: { name: 'Mega Evolution', printedTotal: 132 } },
+          { id: 'xy11-178', name: 'Mega Gardevoir ex', number: '178', set: { name: 'Steam Siege', printedTotal: 114 } }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await autocompleteChaseCards('Mew-EX Legendary Treasures RC24', 10)).toEqual([
+      { name: 'Mew-EX — Legendary Treasures #RC24', value: 'Mew-EX Legendary Treasures RC24' }
+    ]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('Moltres Zapdos Articuno SM210', 10)).toEqual([
+      { name: 'Moltres & Zapdos & Articuno-GX — SM Black Star Promos #SM210', value: 'Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210' }
+    ]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('Origin Forme Palkia V Astral Radiance 167', 10)).toEqual([
+      { name: 'Origin Forme Palkia V — Astral Radiance #167', value: 'Origin Forme Palkia V Astral Radiance 167' }
+    ]);
+
+    clearChaseCardAutocompleteCache();
+
+    expect(await autocompleteChaseCards('Mega Gardevoir ex Mega Evolution 178', 10)).toEqual([
+      { name: 'Mega Gardevoir ex — Mega Evolution #178', value: 'Mega Gardevoir ex Mega Evolution 178' }
+    ]);
+  });
+
   it('filters Pokemon alphanumeric card-number prefixes as they are typed', async () => {
     const requestedQueries: string[] = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -982,6 +1045,84 @@ describe('chase command', () => {
     ]);
   });
 
+  it('resolves trusted card references by structured identity instead of display equality', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'bwp-BW98', name: 'Mew', number: 'BW98', set: { name: 'BW Black Star Promos' } },
+          { id: 'xyp-XY192', name: 'Mew', number: 'XY192', set: { name: 'XY Black Star Promos' } }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const resolution = await resolveTrustedChaseCardReference('Mew XY Black Star Promos XY192');
+
+    expect(resolution).toMatchObject({
+      status: 'RESOLVED',
+      requestedCardName: 'Mew XY Black Star Promos XY192',
+      resolvedCardName: 'Mew Black Star Promos XY192',
+      preview: {
+        imageUrl: 'https://images.pokemontcg.io/xyp/XY192_hires.png',
+        imageIdentity: 'Mew Black Star Promos XY192',
+        imageSourceName: 'POKEMONTCG',
+        imageSourceKind: 'CARD_REFERENCE',
+        imageSourceCardId: 'xyp-XY192'
+      }
+    });
+  });
+
+  it('does not resolve trusted references from fallback-only autocomplete choices', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io') && !url.includes('api.tcgdex.net')) throw new Error(`Unexpected source call: ${url}`);
+      return new Response(url.includes('api.pokemontcg.io') ? JSON.stringify({ data: [] }) : JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await autocompleteChaseCards('Mew CoroCoro Promo 151', 10)).toEqual([
+      { name: 'Mew CoroCoro Promo 151', value: 'Mew CoroCoro Promo 151' }
+    ]);
+    expect(await resolveTrustedChaseCardReference('Mew CoroCoro Promo 151')).toMatchObject({
+      status: 'FALLBACK_ONLY'
+    });
+  });
+
+  it('keeps wrong-number and wrong-set trusted reference candidates unresolved', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'swsh10-39', name: 'Origin Forme Palkia V', number: '39', set: { name: 'Astral Radiance', printedTotal: 189 } },
+          { id: 'swsh11-167', name: 'Origin Forme Palkia V', number: '167', set: { name: 'Lost Origin', printedTotal: 196 } }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await resolveTrustedChaseCardReference('Origin Forme Palkia V Astral Radiance 167')).toMatchObject({
+      status: 'NO_MATCH'
+    });
+  });
+
+  it('reports ambiguous trusted reference candidates instead of choosing one', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('api.pokemontcg.io')) return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'promo-a-1', name: 'Mew', number: '1', set: { name: 'CoroCoro Promo' } },
+          { id: 'promo-b-1', name: 'Mew', number: '1', set: { name: 'CoroCoro Promo' } }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    expect(await resolveTrustedChaseCardReference('Mew CoroCoro Promo 1')).toMatchObject({
+      status: 'AMBIGUOUS',
+      candidateCount: 2
+    });
+  });
+
   it('keeps bare English subject autocomplete broad instead of jumping to Japanese aliases', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -1106,6 +1247,50 @@ describe('chase command', () => {
     const choices = await autocompleteChaseCards('Gardevoir 087', 25);
 
     expect(choices[0]).toEqual({ name: 'Gardevoir Japanese 087/063', value: 'Gardevoir Japanese 087/063' });
+  });
+
+  it('uses known refinement when resolving a trusted Japanese slash-number legacy chase', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/SV8a-217')) {
+        return new Response(JSON.stringify({
+          id: 'SV8a-217',
+          localId: '217',
+          name: 'ブラッキーex',
+          image: 'https://assets.tcgdex.net/ja/SV/SV8a/217',
+          set: { id: 'SV8a', cardCount: { official: 187 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('localId=217') || url.includes('name=%E3%83%96%E3%83%A9%E3%83%83%E3%82%AD%E3%83%BC')) {
+        return new Response(JSON.stringify([
+          { id: 'SV8a-217', localId: '217', name: 'ブラッキーex', image: 'https://assets.tcgdex.net/ja/SV/SV8a/217' }
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const autocompleteChoices = await autocompleteChaseCards('Umbreon Japanese 217/187', 25);
+    clearChaseCardAutocompleteCache();
+    const resolution = await resolveTrustedChaseCardReference('Umbreon Japanese 217/187');
+
+    expect(autocompleteChoices).toEqual([
+      { name: 'Umbreon Japanese 217/187', value: 'Umbreon Japanese 217/187' }
+    ]);
+    expect(resolution).toMatchObject({
+      status: 'RESOLVED',
+      requestedCardName: 'Umbreon Japanese 217/187',
+      resolvedCardName: 'Umbreon Japanese 217/187',
+      preview: {
+        imageUrl: 'https://assets.tcgdex.net/ja/SV/SV8a/217/high.png',
+        imageIdentity: 'Umbreon ex SAR Terastal Festival Japanese 217/187',
+        imageSourceName: 'TCGDEX',
+        imageSourceKind: 'CARD_REFERENCE',
+        imageSourceCardId: 'SV8a-217'
+      }
+    });
   });
 
   it('matches Japanese autocomplete when card number is typed before the subject without a space', async () => {
