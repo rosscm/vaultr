@@ -313,7 +313,7 @@ export function getVaultChases(userId: VaultrUserId): VaultChasesResult {
 export function addUserChase(input: AddUserChaseInput): AddUserChaseResult {
   const guildId = validateGuildId(input.guildId);
   if (!guildId.ok) return guildId;
-  const cardName = validateCardName(input.cardName, { normalizeAlias: true });
+  const cardName = validateCardName(input.cardName, { normalizeAlias: false });
   if (!cardName.ok) return cardName;
   const maxPrice = validateMaxPrice(input.maxPrice);
   if (!maxPrice.ok) return maxPrice;
@@ -353,10 +353,11 @@ export function addUserChase(input: AddUserChaseInput): AddUserChaseResult {
   const customExclusions = canUseAdvanced ? parsedCustomExclusions : undefined;
 
   const trustedPreview = trustedChasePreviewForPersistence(cardName.value.displayName, normalizedCardName);
+  const persistedCardName = trustedPreview?.imageIdentity ?? cardName.value.displayName;
   const createResult = createChaseForUser({
     userId: input.userId,
     guildId: guildId.value,
-    cardName: cardName.value.displayName,
+    cardName: persistedCardName,
     cardImageUrl: trustedPreview?.imageUrl,
     cardImageIdentity: trustedPreview?.imageIdentity,
     cardImageSourceName: trustedPreview?.imageSourceName,

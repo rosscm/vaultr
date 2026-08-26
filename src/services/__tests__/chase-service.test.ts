@@ -237,6 +237,32 @@ describe('chase service', () => {
     expect(mismatch.chase.cardImageUrl).toBeUndefined();
   });
 
+  it('preserves unresolved freeform chase text without inferring catalog semantics', () => {
+    const id = userId('freeform-display');
+
+    const freeform = addUserChase({ userId: id, cardName: '  mew   corocoro  ' });
+
+    expect(freeform.ok).toBe(true);
+    if (!freeform.ok) return;
+    expect(freeform.chase.cardName).toBe('mew corocoro');
+    expect(freeform.chase.queryName).toBe('mew corocoro');
+    expect(freeform.chase.cardImageUrl).toBeUndefined();
+
+    __chaseCardCatalogTestHooks.cachePreview('Mew RC24', {
+      imageUrl: 'https://images.pokemontcg.io/rc/24_hires.png',
+      imageIdentity: 'Mew RC24',
+      imageSourceName: 'Pokemon TCG',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'rc-24'
+    });
+    const trusted = addUserChase({ userId: id, cardName: 'Mew RC24' });
+
+    expect(trusted.ok).toBe(true);
+    if (!trusted.ok) return;
+    expect(trusted.chase.cardName).toBe('Mew RC24');
+    expect(trusted.chase.cardImageUrl).toBe('https://images.pokemontcg.io/rc/24_hires.png');
+  });
+
   it('updates owned chases, rejects cross-user and duplicate edits, and clears stale image metadata on rename', () => {
     const id = userId('edit');
     const otherId = userId('edit-other');

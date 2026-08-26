@@ -21,6 +21,7 @@ import {
 import {
   __chaseCardCatalogTestHooks,
   autocompleteChaseCards,
+  autocompleteChaseCardsWithStatus,
   clearChaseCardAutocompleteCache,
   resolveTrustedChaseCardReference
 } from '../../services/chase-card-catalog.js';
@@ -1009,6 +1010,122 @@ describe('chase command', () => {
     ]);
   });
 
+  it('returns PokemonTCG results when TCGdex is unavailable', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.tcgdex.net')) throw new TypeError('fetch failed');
+      return new Response(JSON.stringify({
+        data: [
+          { id: 'si1-1', name: 'Mew', number: '1', set: { name: 'Southern Islands' } },
+          { id: 'sv4pt5-232', name: 'Mew ex', number: '232', set: { name: 'Paldean Fates' } }
+        ]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const result = await autocompleteChaseCardsWithStatus('mew', 25);
+
+    expect(result.availability).toBe('PARTIAL');
+    expect(result.unavailable).toBe(false);
+    expect(result.choices.map((choice) => choice.value)).toContain('Mew Southern Islands 1');
+  });
+
+  it('retries transient PokemonTCG 500 responses once', async () => {
+    let pokemonCalls = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.tcgdex.net')) throw new TypeError('fetch failed');
+      pokemonCalls += 1;
+      if (pokemonCalls === 1) {
+        return new Response('', { status: 500, headers: { 'Content-Type': 'text/plain' } });
+      }
+      return new Response(JSON.stringify({
+        data: [{ id: 'si1-1', name: 'Mew', number: '1', set: { name: 'Southern Islands' } }]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const result = await autocompleteChaseCardsWithStatus('mew', 25);
+
+    expect(pokemonCalls).toBeGreaterThanOrEqual(2);
+    expect(result.choices[0]).toEqual({ name: 'Mew — Southern Islands #1', value: 'Mew Southern Islands 1' });
+  });
+
+  it('returns TCGdex English results when PokemonTCG fails', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io')) {
+        return new Response('', { status: 502, headers: { 'Content-Type': 'text/plain' } });
+      }
+      if (url.includes('/en/cards/en-mew-1')) {
+        return new Response(JSON.stringify({
+          id: 'en-mew-1',
+          localId: '1',
+          name: 'Mew',
+          image: 'https://assets.tcgdex.net/en/base/mew/001',
+          set: { id: 'base', name: 'Test Set', cardCount: { official: 100 } }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify([
+        { id: 'en-mew-1', localId: '1', name: 'Mew', image: 'https://assets.tcgdex.net/en/base/mew/001' }
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const result = await autocompleteChaseCardsWithStatus('mew', 25);
+
+    expect(result.availability).toBe('PARTIAL');
+    expect(result.choices[0]).toEqual({ name: 'Mew — Test Set #1', value: 'Mew Test Set 1' });
+    expect(__chaseCardCatalogTestHooks.cachedPreview('Mew Test Set 1')).toMatchObject({
+      imageUrl: 'https://assets.tcgdex.net/en/base/mew/001/high.png',
+      imageSourceName: 'TCGDEX_EN',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'en-mew-1'
+    });
+  });
+
+  it('marks autocomplete unavailable when every applicable provider fails', async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    }) as any;
+
+    const result = await autocompleteChaseCardsWithStatus('mew', 25);
+
+    expect(result).toMatchObject({ choices: [], availability: 'UNAVAILABLE', unavailable: true });
+  });
+
+  it('keeps genuine empty provider results distinct from outage results', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(JSON.stringify(url.includes('api.pokemontcg.io') ? { data: [] } : []), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+
+    const empty = await autocompleteChaseCardsWithStatus('mew', 25);
+
+    expect(empty).toMatchObject({ choices: [], availability: 'AVAILABLE', unavailable: false });
+  });
+
+  it('returns stale successful autocomplete results during a later outage without caching outage emptiness', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.tcgdex.net')) throw new TypeError('fetch failed');
+      return new Response(JSON.stringify({
+        data: [{ id: 'si1-1', name: 'Mew', number: '1', set: { name: 'Southern Islands' } }]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+    const fresh = await autocompleteChaseCardsWithStatus('mew', 25);
+    expect(fresh.choices[0]?.value).toBe('Mew Southern Islands 1');
+
+    __chaseCardCatalogTestHooks.expireAutocompleteFreshCache('mew');
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    }) as any;
+
+    const stale = await autocompleteChaseCardsWithStatus('mew', 25);
+    const second = await autocompleteChaseCardsWithStatus('mew', 25);
+
+    expect(stale).toMatchObject({ availability: 'PARTIAL', stale: true, unavailable: false });
+    expect(stale.choices[0]?.value).toBe('Mew Southern Islands 1');
+    expect(second.choices[0]?.value).toBe('Mew Southern Islands 1');
+  });
+
   it('narrows Japanese autocomplete choices by slash-total card numbers', async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -1409,17 +1526,6 @@ describe('chase command', () => {
       }
     });
 
-    await expect(resolveTrustedChaseCardReference('Mew CoroCoro Promo 151')).resolves.toMatchObject({
-      status: 'RESOLVED',
-      resolvedCardName: 'Mew CoroCoro Promo 151',
-      preview: {
-        imageUrl: 'https://static.dextcg.com/cards/jpn_unp/124.png',
-        imageSourceName: 'DEXTCG',
-        imageSourceKind: 'CARD_REFERENCE',
-        imageSourceCardId: 'jpn_unp-124'
-      }
-    });
-
     await expect(resolveTrustedChaseCardReference('Squirtle Japanese Promo 007/018')).resolves.toMatchObject({
       status: 'RESOLVED',
       resolvedCardName: "Squirtle Japanese McDonald's Pokémon-e Minimum Pack 007/018",
@@ -1496,6 +1602,18 @@ describe('chase command', () => {
         imageSourceCardId: 'SV4a-347'
       }
     });
+  });
+
+  it('does not trust the known wrong CoroCoro Mew image override', async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    }) as any;
+
+    const resolution = await resolveTrustedChaseCardReference('Mew CoroCoro Promo 151');
+
+    expect(resolution.status).toBe('FALLBACK_ONLY');
+    expect(JSON.stringify(resolution)).not.toContain('jpn_unp-124');
+    expect(JSON.stringify(resolution)).not.toContain('static.dextcg.com/cards/jpn_unp/124.png');
   });
 
   it('matches Japanese autocomplete when card number is typed before the subject without a space', async () => {
@@ -2027,7 +2145,7 @@ describe('chase command', () => {
     const duplicateInteraction = mockInteraction(userId, 'add', { card: '  umbreon   217/187 japanese  ', max_price: 550 });
     await chase.execute(duplicateInteraction);
 
-    expect(listChases(userId).map((item) => item.cardName)).toEqual(['Umbreon ex SAR Terastal Festival Japanese 217/187']);
+    expect(listChases(userId).map((item) => item.cardName)).toEqual(['Umbreon 217/187 Japanese']);
     expect(duplicateInteraction.reply).toHaveBeenCalledWith(expect.objectContaining({
       embeds: expect.arrayContaining([expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('Already In Vault') }) })])
     }));

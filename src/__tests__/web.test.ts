@@ -8,6 +8,7 @@ import {
   hashWebSessionToken,
   resolveWebSession
 } from '../services/web-sessions.js';
+import { clearChaseCardAutocompleteCache } from '../services/chase-card-catalog.js';
 import { decodeAlertCursor, handleWebRequest, type WebConfig } from '../web.js';
 
 const config: WebConfig = {
@@ -18,6 +19,7 @@ const config: WebConfig = {
 };
 
 function clearUser(userId: string): void {
+  clearChaseCardAutocompleteCache();
   removeAllChases(userId);
   db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
@@ -601,11 +603,58 @@ describe('authenticated chase API', () => {
 
     const response = await handleWebRequest({ method: 'GET', url: '/api/chases/autocomplete?q=mew', headers }, { config });
     expect(response.status).toBe(200);
+    expect(JSON.parse(response.body ?? '{}')).toMatchObject({ unavailable: false, stale: false });
     expect(JSON.parse(response.body ?? '{}').items.length).toBeLessThanOrEqual(25);
     expect(globalThis.fetch).toHaveBeenCalled();
 
     const malformed = await handleWebRequest({ method: 'GET', url: `/api/chases/autocomplete?q=${'x'.repeat(101)}`, headers }, { config });
     expect(malformed.status).toBe(400);
+    globalThis.fetch = originalFetch;
+    clearUser(userId);
+  });
+
+  it('distinguishes autocomplete outage from a genuine empty result', async () => {
+    const userId = 'web-chases-autocomplete-outage';
+    const headers = auth(userId, 'chases-autocomplete-outage-token');
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    }) as typeof fetch;
+    const unavailable = await handleWebRequest({ method: 'GET', url: '/api/chases/autocomplete?q=mew', headers }, { config });
+    expect(unavailable.status).toBe(200);
+    expect(JSON.parse(unavailable.body ?? '{}')).toMatchObject({ items: [], unavailable: true });
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return new Response(JSON.stringify(url.includes('api.pokemontcg.io') ? { data: [] } : []), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+    const empty = await handleWebRequest({ method: 'GET', url: '/api/chases/autocomplete?q=zzzmew', headers }, { config });
+    expect(empty.status).toBe(200);
+    expect(JSON.parse(empty.body ?? '{}')).toMatchObject({ items: [], unavailable: false });
+
+    globalThis.fetch = originalFetch;
+    clearUser(userId);
+  });
+
+  it('returns autocomplete choices during partial provider failure', async () => {
+    const userId = 'web-chases-autocomplete-partial';
+    const headers = auth(userId, 'chases-autocomplete-partial-token');
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.tcgdex.net')) throw new TypeError('fetch failed');
+      return new Response(JSON.stringify({
+        data: [{ id: 'si1-1', name: 'Mew', number: '1', set: { name: 'Southern Islands' } }]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+
+    const response = await handleWebRequest({ method: 'GET', url: '/api/chases/autocomplete?q=mew', headers }, { config });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body ?? '{}')).toMatchObject({ unavailable: false });
+    expect(JSON.parse(response.body ?? '{}').items).toContainEqual({ name: 'Mew — Southern Islands #1', value: 'Mew Southern Islands 1' });
+
     globalThis.fetch = originalFetch;
     clearUser(userId);
   });

@@ -26,6 +26,25 @@ type ChaseCardCatalogResult = ChaseCardAutocompleteChoice & CachedChaseCardPrevi
 
 export type TrustedChaseCardPreview = Required<Pick<CachedChaseCardPreview, 'imageUrl' | 'imageIdentity' | 'imageSourceKind' | 'imageSourceName' | 'imageSourceCardId'>>;
 
+type CardCatalogProvider = 'POKEMONTCG' | 'TCGDEX_EN' | 'TCGDEX_JA';
+type ProviderSearchStatus = 'SUCCESS' | 'TIMEOUT' | 'NETWORK_ERROR' | 'UPSTREAM_ERROR';
+
+type ProviderSearchResult = {
+  provider: CardCatalogProvider;
+  status: ProviderSearchStatus;
+  choices: ChaseCardCatalogResult[];
+  httpStatus?: number;
+  durationMs: number;
+  attempted: boolean;
+};
+
+export type ChaseCardAutocompleteResult = {
+  choices: ChaseCardAutocompleteChoice[];
+  availability: 'AVAILABLE' | 'PARTIAL' | 'UNAVAILABLE';
+  unavailable: boolean;
+  stale: boolean;
+};
+
 export type TrustedChaseCardReferenceResolution =
   | {
       status: 'RESOLVED';
@@ -67,29 +86,20 @@ type ExactTrustedSourceChoice = {
 const POKEMON_TCG_ENDPOINT = 'https://api.pokemontcg.io/v2/cards';
 const TCGDEX_EN_CARDS_ENDPOINT = 'https://api.tcgdex.net/v2/en/cards';
 const TCGDEX_JA_CARDS_ENDPOINT = 'https://api.tcgdex.net/v2/ja/cards';
-const AUTOCOMPLETE_TIMEOUT_MS = 2600;
-const AUTOCOMPLETE_CACHE_TTL_MS = 5 * 60 * 1000;
+const POKEMONTCG_AUTOCOMPLETE_TIMEOUT_MS = 5000;
+const TCGDEX_AUTOCOMPLETE_TIMEOUT_MS = 3000;
+const AUTOCOMPLETE_CACHE_TTL_MS = 60 * 60 * 1000;
+const AUTOCOMPLETE_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
+const AUTOCOMPLETE_STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const POKEMON_AUTOCOMPLETE_LIMIT = 16;
 const POKEMON_QUERY_VARIANT_LIMIT = 8;
 const POKEMON_CONTEXT_STOP_TERMS = new Set(['card', 'cards', 'pokemon', 'tcg']);
 const POKEMON_NUMBER_PREFIX_TERMS = new Set(['bw', 'dp', 'rc', 'sm', 'sv', 'svp', 'swsh', 'xy']);
 const BARE_CARD_NUMBER_HELPER_TEXT = 'Keep typing: add the card name with this number';
-const autocompleteCache = new Map<string, { expiresAt: number; choices: ChaseCardAutocompleteChoice[] }>();
+const autocompleteCache = new Map<string, { freshUntil: number; staleUntil: number; result: ChaseCardAutocompleteResult }>();
 const autocompletePreviewCache = new Map<string, { expiresAt: number; preview: CachedChaseCardPreview }>();
 
 const EXACT_TRUSTED_SOURCE_CHOICES: ExactTrustedSourceChoice[] = [
-  {
-    pattern: /\bmew\b.*\bcorocoro\b.*\b151\b|\bmew\b.*\blily\s+pad\b.*\b151\b|\bshining\s+mew\b.*\bcorocoro\b.*\b151\b/i,
-    choice: {
-      name: 'Mew CoroCoro Promo 151',
-      value: 'Mew CoroCoro Promo 151',
-      imageUrl: 'https://static.dextcg.com/cards/jpn_unp/124.png',
-      imageIdentity: 'Mew CoroCoro Promo 151',
-      imageSourceName: 'DEXTCG',
-      imageSourceKind: 'CARD_REFERENCE',
-      imageSourceCardId: 'jpn_unp-124'
-    }
-  },
   {
     pattern: /\bsquirtle\b.*\bjapanese\b.*\bpromo\b.*0?07\s*\/\s*0?18\b|\bsquirtle\b.*\bmcdonald'?s\b.*0?07\s*\/\s*0?18\b|\bsquirtle\b.*0?07\s*\/\s*0?18\b.*\bmcdonald'?s\b/i,
     choice: {
@@ -244,15 +254,112 @@ function cacheAutocompletePreview(cardName: string, preview: CachedChaseCardPrev
   }
 }
 
-async function fetchJsonWithTimeout(url: string): Promise<any> {
+class ProviderFetchError extends Error {
+  constructor(
+    message: string,
+    readonly status: Exclude<ProviderSearchStatus, 'SUCCESS'>,
+    readonly provider: CardCatalogProvider,
+    readonly durationMs: number,
+    readonly httpStatus?: number
+  ) {
+    super(message);
+  }
+}
+
+function providerTimeoutMs(provider: CardCatalogProvider): number {
+  return provider === 'POKEMONTCG' ? POKEMONTCG_AUTOCOMPLETE_TIMEOUT_MS : TCGDEX_AUTOCOMPLETE_TIMEOUT_MS;
+}
+
+function isRetryableProviderError(error: unknown): boolean {
+  if (error instanceof ProviderFetchError) {
+    return error.status === 'TIMEOUT' || error.status === 'NETWORK_ERROR' || [500, 502, 503, 504].includes(error.httpStatus ?? 0);
+  }
+  return false;
+}
+
+function providerFailureFromError(error: unknown, provider: CardCatalogProvider, startedAt: number): ProviderFetchError {
+  if (error instanceof ProviderFetchError) return error;
+  const durationMs = Date.now() - startedAt;
+  if (error instanceof Error && error.name === 'AbortError') {
+    return new ProviderFetchError('Card autocomplete provider timed out', 'TIMEOUT', provider, durationMs);
+  }
+  return new ProviderFetchError('Card autocomplete provider network error', 'NETWORK_ERROR', provider, durationMs);
+}
+
+function logProviderFailure(error: ProviderFetchError, query: string): void {
+  const http = error.httpStatus ? ` http=${error.httpStatus}` : '';
+  console.warn(`card catalog provider failure provider=${error.provider} status=${error.status}${http} durationMs=${error.durationMs} query=${normalize(query)}`);
+}
+
+async function fetchJsonWithProvider(url: string, provider: CardCatalogProvider): Promise<any> {
+  const startedAt = Date.now();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), AUTOCOMPLETE_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), providerTimeoutMs(provider));
   try {
     const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`Card autocomplete request failed: ${response.status}`);
+    if (!response.ok) {
+      throw new ProviderFetchError(
+        `Card autocomplete request failed: ${response.status}`,
+        response.status === 429 || response.status >= 500 ? 'UPSTREAM_ERROR' : 'NETWORK_ERROR',
+        provider,
+        Date.now() - startedAt,
+        response.status
+      );
+    }
     return await response.json();
+  } catch (error) {
+    throw providerFailureFromError(error, provider, startedAt);
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function fetchJsonWithRetry(url: string, provider: CardCatalogProvider, query: string): Promise<any> {
+  try {
+    return await fetchJsonWithProvider(url, provider);
+  } catch (error) {
+    const first = providerFailureFromError(error, provider, Date.now());
+    logProviderFailure(first, query);
+    if (!isRetryableProviderError(first) || first.httpStatus === 429) throw first;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    try {
+      return await fetchJsonWithProvider(url, provider);
+    } catch (retryError) {
+      const second = providerFailureFromError(retryError, provider, Date.now());
+      logProviderFailure(second, query);
+      throw second;
+    }
+  }
+}
+
+async function providerSearch(
+  provider: CardCatalogProvider,
+  query: string,
+  attempted: boolean,
+  search: () => Promise<ChaseCardCatalogResult[]>
+): Promise<ProviderSearchResult> {
+  const startedAt = Date.now();
+  if (!attempted) {
+    return { provider, status: 'SUCCESS', choices: [], durationMs: 0, attempted: false };
+  }
+  try {
+    return {
+      provider,
+      status: 'SUCCESS',
+      choices: await search(),
+      durationMs: Date.now() - startedAt,
+      attempted: true
+    };
+  } catch (error) {
+    const failure = providerFailureFromError(error, provider, startedAt);
+    return {
+      provider,
+      status: failure.status,
+      choices: [],
+      httpStatus: failure.httpStatus,
+      durationMs: failure.durationMs,
+      attempted: true
+    };
   }
 }
 
@@ -408,16 +515,19 @@ function pokemonTcgCardMatchesExplicitSetContext(card: PokemonTcgCard, query: st
 async function pokemonTcgAutocompleteChoices(query: string, limit: number): Promise<ChaseCardCatalogResult[]> {
   const queries = pokemonTcgSearchQueries(query);
   if (queries.length === 0) return [];
-  const responses = await Promise.all(queries.map(async (q) => {
+  const responses = await Promise.all(queries.map(async (q): Promise<{ ok: true; cards: PokemonTcgCard[] } | { ok: false; error: unknown }> => {
     try {
       const params = new URLSearchParams({ q, pageSize: String(Math.min(limit, POKEMON_AUTOCOMPLETE_LIMIT)), select: 'id,name,number,set' });
-      const json = await fetchJsonWithTimeout(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`);
-      return Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [];
-    } catch {
-      return [];
+      const json = await fetchJsonWithRetry(`${POKEMON_TCG_ENDPOINT}?${params.toString()}`, 'POKEMONTCG', query);
+      return { ok: true, cards: Array.isArray(json?.data) ? (json.data as PokemonTcgCard[]) : [] };
+    } catch (error) {
+      return { ok: false, error };
     }
   }));
-  const cards = responses.flat();
+  if (responses.length > 0 && responses.every((response) => !response.ok)) {
+    throw (responses.find((response) => !response.ok) as { ok: false; error: unknown }).error;
+  }
+  const cards = responses.flatMap((response) => response.ok ? response.cards : []);
   const querySubject = pokemonTcgQuerySubject(query);
   const numberPrefix = pokemonTcgRequestedNumberPrefix(query);
   const releaseAlias = pokemonTcgReleaseAlias(query);
@@ -583,7 +693,7 @@ function hasTcgDexEnglishAutocompleteSignal(query: string): boolean {
   if (/\bjapanese\b/i.test(query) || /[\u3040-\u30ff\u3400-\u9fff]/.test(query)) return false;
   const subject = pokemonTcgQuerySubject(query);
   if (!subject) return false;
-  return tcgDexEnglishLocalIdCandidates(query).length > 0;
+  return subject.length >= 3 || tcgDexEnglishLocalIdCandidates(query).length > 0;
 }
 
 function tcgDexKnownSubject(querySubject: string | undefined): string | undefined {
@@ -679,18 +789,26 @@ function choiceMatchesStructuredIdentity(choice: ChaseCardCatalogResult, query: 
 }
 
 async function sourceBackedChaseCardChoices(query: string, limit: number, options: { dedupe?: boolean; includeExactTrustedFallback?: boolean } = {}): Promise<ChaseCardCatalogResult[]> {
+  return (await sourceBackedChaseCardSearch(query, limit, options)).choices;
+}
+
+async function sourceBackedChaseCardSearch(query: string, limit: number, options: { dedupe?: boolean; includeExactTrustedFallback?: boolean } = {}): Promise<{ choices: ChaseCardCatalogResult[]; providers: ProviderSearchResult[] }> {
   const exactTrustedChoices = options.includeExactTrustedFallback === true ? exactTrustedSourceChoicesForQuery(query) : [];
-  const [pokemonChoices, tcgDexEnglishChoices, japaneseChoices] = await Promise.all([
-    pokemonTcgAutocompleteChoices(query, limit).catch(() => []),
-    tcgDexEnglishAutocompleteChoices(query, limit).catch(() => []),
-    tcgDexAutocompleteChoices(query, limit).catch(() => [])
+  const [pokemonResult, tcgDexEnglishResult, japaneseResult] = await Promise.all([
+    providerSearch('POKEMONTCG', query, pokemonTcgSearchQueries(query).length > 0, () => pokemonTcgAutocompleteChoices(query, limit)),
+    providerSearch('TCGDEX_EN', query, hasTcgDexEnglishAutocompleteSignal(query), () => tcgDexEnglishAutocompleteChoices(query, limit)),
+    providerSearch('TCGDEX_JA', query, hasTcgDexAutocompleteSignal(query), () => tcgDexAutocompleteChoices(query, limit))
   ]);
+  const pokemonChoices = pokemonResult.choices;
+  const tcgDexEnglishChoices = tcgDexEnglishResult.choices;
+  const japaneseChoices = japaneseResult.choices;
   const choices = hasTcgDexAutocompleteSignal(query)
     ? [...exactTrustedChoices, ...japaneseChoices, ...pokemonChoices, ...tcgDexEnglishChoices]
     : [...exactTrustedChoices, ...pokemonChoices, ...tcgDexEnglishChoices, ...japaneseChoices];
-  return options.dedupe === false
+  const rankedChoices = options.dedupe === false
     ? [...choices].sort((a, b) => autocompleteChoiceScore(b, query) - autocompleteChoiceScore(a, query))
     : rankAndDeduplicateSourceChoices(choices, query);
+  return { choices: rankedChoices, providers: [pokemonResult, tcgDexEnglishResult, japaneseResult] };
 }
 
 function sourcePreference(choice: ChaseCardCatalogResult): number {
@@ -838,12 +956,18 @@ async function tcgDexEnglishAutocompleteChoices(query: string, limit: number): P
   const nameUrl = querySubject
     ? `${TCGDEX_EN_CARDS_ENDPOINT}?${new URLSearchParams({ name: querySubject }).toString()}`
     : undefined;
-  const [nameSummariesRaw, localIdSummariesRaw] = await Promise.all([
-    nameUrl ? fetchJsonWithTimeout(nameUrl).catch(() => []) : [],
-    Promise.all(localIds.map((localId) => fetchJsonWithTimeout(`${TCGDEX_EN_CARDS_ENDPOINT}?${new URLSearchParams({ localId }).toString()}`).catch(() => [])))
+  const [nameSummariesResult, localIdSummariesResults] = await Promise.all([
+    nameUrl ? fetchJsonWithRetry(nameUrl, 'TCGDEX_EN', query).then((json) => ({ ok: true as const, json })).catch((error) => ({ ok: false as const, error })) : { ok: true as const, json: [] },
+    Promise.all(localIds.map((localId) => fetchJsonWithRetry(`${TCGDEX_EN_CARDS_ENDPOINT}?${new URLSearchParams({ localId }).toString()}`, 'TCGDEX_EN', query).then((json) => ({ ok: true as const, json })).catch((error) => ({ ok: false as const, error }))))
   ]);
+  const summaryResults = [nameSummariesResult, ...localIdSummariesResults];
+  if (summaryResults.length > 0 && summaryResults.every((result) => !result.ok)) {
+    throw (summaryResults.find((result) => !result.ok) as { ok: false; error: unknown }).error;
+  }
+  const nameSummariesRaw = nameSummariesResult.ok ? nameSummariesResult.json : [];
+  const localIdSummariesRaw = localIdSummariesResults.flatMap((result) => result.ok ? result.json : []);
   const nameSummaries = (Array.isArray(nameSummariesRaw) ? nameSummariesRaw : []).filter((card): card is TcgDexCardSummary => !!card && typeof card === 'object');
-  const localIdSummaries = localIdSummariesRaw.flat().filter((card): card is TcgDexCardSummary => !!card && typeof card === 'object');
+  const localIdSummaries = (Array.isArray(localIdSummariesRaw) ? localIdSummariesRaw : []).filter((card): card is TcgDexCardSummary => !!card && typeof card === 'object');
   const summariesById = new Map<string, TcgDexCardSummary>();
   for (const card of [...localIdSummaries, ...nameSummaries]) {
     if (card.id && !summariesById.has(card.id)) summariesById.set(card.id, card);
@@ -852,7 +976,7 @@ async function tcgDexEnglishAutocompleteChoices(query: string, limit: number): P
     .filter((card) => tcgDexEnglishCardMatchesQuerySubject(card as TcgDexCard, querySubject))
     .slice(0, Math.min(limit * 2, 40));
   const detailed = await Promise.all(
-    filtered.map((card) => card.id ? fetchJsonWithTimeout(`${TCGDEX_EN_CARDS_ENDPOINT}/${encodeURIComponent(card.id)}`).catch(() => card) : card)
+    filtered.map((card) => card.id ? fetchJsonWithRetry(`${TCGDEX_EN_CARDS_ENDPOINT}/${encodeURIComponent(card.id)}`, 'TCGDEX_EN', query).catch(() => card) : card)
   );
   return detailed
     .filter((card) => tcgDexEnglishCardMatchesQuerySubject(card as TcgDexCard, querySubject))
@@ -890,11 +1014,18 @@ async function tcgDexAutocompleteChoices(query: string, limit: number): Promise<
   const querySubject = tcgDexQuerySubject(query);
   const nameUrl = `${TCGDEX_JA_CARDS_ENDPOINT}?${new URLSearchParams({ name: query }).toString()}`;
   const aliasNameUrls = tcgDexAliasNameQueries(querySubject).map((alias) => `${TCGDEX_JA_CARDS_ENDPOINT}?${new URLSearchParams({ name: alias }).toString()}`);
-  const [nameSummariesRaw, aliasNameSummariesRaw, localIdSummariesRaw] = await Promise.all([
-    fetchJsonWithTimeout(nameUrl).catch(() => []),
-    Promise.all(aliasNameUrls.map((url) => fetchJsonWithTimeout(url).catch(() => []))),
-    Promise.all(localIds.map((localId) => fetchJsonWithTimeout(`${TCGDEX_JA_CARDS_ENDPOINT}?${new URLSearchParams({ localId }).toString()}`).catch(() => [])))
+  const [nameSummariesResult, aliasNameSummariesResults, localIdSummariesResults] = await Promise.all([
+    fetchJsonWithRetry(nameUrl, 'TCGDEX_JA', query).then((json) => ({ ok: true as const, json })).catch((error) => ({ ok: false as const, error })),
+    Promise.all(aliasNameUrls.map((url) => fetchJsonWithRetry(url, 'TCGDEX_JA', query).then((json) => ({ ok: true as const, json })).catch((error) => ({ ok: false as const, error })))),
+    Promise.all(localIds.map((localId) => fetchJsonWithRetry(`${TCGDEX_JA_CARDS_ENDPOINT}?${new URLSearchParams({ localId }).toString()}`, 'TCGDEX_JA', query).then((json) => ({ ok: true as const, json })).catch((error) => ({ ok: false as const, error }))))
   ]);
+  const summaryResults = [nameSummariesResult, ...aliasNameSummariesResults, ...localIdSummariesResults];
+  if (summaryResults.length > 0 && summaryResults.every((result) => !result.ok)) {
+    throw (summaryResults.find((result) => !result.ok) as { ok: false; error: unknown }).error;
+  }
+  const nameSummariesRaw = nameSummariesResult.ok ? nameSummariesResult.json : [];
+  const aliasNameSummariesRaw = aliasNameSummariesResults.flatMap((result) => result.ok ? result.json : []);
+  const localIdSummariesRaw = localIdSummariesResults.flatMap((result) => result.ok ? result.json : []);
   const nameSummaries = (Array.isArray(nameSummariesRaw) ? nameSummariesRaw : []).filter((card): card is TcgDexCardSummary => !!card && typeof card === 'object');
   const aliasNameSummaries = aliasNameSummariesRaw.flat().filter((card): card is TcgDexCardSummary => !!card && typeof card === 'object');
   const localIdSummaries = localIdSummariesRaw.flat().filter((card): card is TcgDexCardSummary => !!card && typeof card === 'object');
@@ -909,7 +1040,7 @@ async function tcgDexAutocompleteChoices(query: string, limit: number): Promise<
     .filter((card) => localIdSet.size === 0 || (!!card.localId && standaloneCardNumber && localIdMatchesStandaloneRequest(card.localId, standaloneCardNumber)) || (!!card.localId && localIdSet.has(card.localId)))
     .slice(0, candidateLimit);
   const detailed = await Promise.all(
-    filtered.map((card) => card.id ? fetchJsonWithTimeout(`${TCGDEX_JA_CARDS_ENDPOINT}/${encodeURIComponent(card.id)}`).catch(() => card) : card)
+    filtered.map((card) => card.id ? fetchJsonWithRetry(`${TCGDEX_JA_CARDS_ENDPOINT}/${encodeURIComponent(card.id)}`, 'TCGDEX_JA', query).catch(() => card) : card)
   );
   return detailed
     .filter((card) => requestedTotalPrefix === undefined || printedTotalMatchesPrefix(tcgDexPrintedTotal(card as TcgDexCard), requestedTotalPrefix))
@@ -938,18 +1069,46 @@ async function tcgDexAutocompleteChoices(query: string, limit: number): Promise<
     }));
 }
 
-export async function autocompleteChaseCards(query: string, limit = 25): Promise<ChaseCardAutocompleteChoice[]> {
-  const normalizedQuery = normalize(query);
-  if (normalizedQuery.length < 2) return [];
-  const helperChoice = bareCardNumberHelperChoice(query);
-  if (helperChoice) return [helperChoice];
-  const cached = autocompleteCache.get(normalizedQuery);
-  if (cached && cached.expiresAt > Date.now()) return cached.choices.slice(0, limit);
+function autocompleteResultFromChoices(
+  choices: ChaseCardAutocompleteChoice[],
+  availability: ChaseCardAutocompleteResult['availability'],
+  stale = false
+): ChaseCardAutocompleteResult {
+  return { choices, availability, unavailable: availability === 'UNAVAILABLE', stale };
+}
 
-  const sourceOrderedChoices = await sourceBackedChaseCardChoices(query, limit).catch((error) => {
-    console.error('sourceBackedChaseCardChoices failed', error);
-    return [];
+function providerAvailability(providers: ProviderSearchResult[], choices: ChaseCardAutocompleteChoice[]): ChaseCardAutocompleteResult['availability'] {
+  const attempted = providers.filter((provider) => provider.attempted);
+  const failed = attempted.filter((provider) => provider.status !== 'SUCCESS');
+  if (attempted.length > 0 && failed.length === attempted.length) return 'UNAVAILABLE';
+  if (failed.length > 0) return choices.length > 0 ? 'PARTIAL' : 'UNAVAILABLE';
+  return 'AVAILABLE';
+}
+
+function cacheAutocompleteResult(queryKey: string, result: ChaseCardAutocompleteResult): void {
+  if (result.availability === 'UNAVAILABLE') return;
+  const now = Date.now();
+  const freshTtl = result.choices.length > 0 ? AUTOCOMPLETE_CACHE_TTL_MS : AUTOCOMPLETE_NEGATIVE_CACHE_TTL_MS;
+  const staleTtl = result.choices.length > 0 ? AUTOCOMPLETE_STALE_CACHE_TTL_MS : freshTtl;
+  autocompleteCache.set(queryKey, {
+    freshUntil: now + freshTtl,
+    staleUntil: now + staleTtl,
+    result: { ...result, stale: false }
   });
+}
+
+export async function autocompleteChaseCardsWithStatus(query: string, limit = 25): Promise<ChaseCardAutocompleteResult> {
+  const normalizedQuery = normalize(query);
+  if (normalizedQuery.length < 2) return autocompleteResultFromChoices([], 'AVAILABLE');
+  const helperChoice = bareCardNumberHelperChoice(query);
+  if (helperChoice) return autocompleteResultFromChoices([helperChoice], 'AVAILABLE');
+  const cached = autocompleteCache.get(normalizedQuery);
+  if (cached && cached.freshUntil > Date.now()) {
+    return autocompleteResultFromChoices(cached.result.choices.slice(0, limit), cached.result.availability, false);
+  }
+
+  const search = await sourceBackedChaseCardSearch(query, limit);
+  const sourceOrderedChoices = search.choices;
   const collectorNumber = requestedCollectorNumber(query);
   const standaloneCardNumber = requestedStandaloneCardNumber(query);
   const filteredChoices = collectorNumber
@@ -978,9 +1137,19 @@ export async function autocompleteChaseCards(query: string, limit = 25): Promise
   }
   const choices = uniqueChoices(prioritizedChoices, limit);
   const fallbackChoice = choices.length === 0 ? japanesePromoFallbackChoice(query) ?? pokemonReleaseFallbackChoice(query) : undefined;
-  if (fallbackChoice) return [fallbackChoice];
-  if (choices.length > 0) autocompleteCache.set(normalizedQuery, { expiresAt: Date.now() + AUTOCOMPLETE_CACHE_TTL_MS, choices });
-  return choices;
+  const finalChoices = fallbackChoice ? [fallbackChoice] : choices;
+  let availability = providerAvailability(search.providers, finalChoices);
+  if (availability === 'UNAVAILABLE' && cached && cached.staleUntil > Date.now() && cached.result.choices.length > 0) {
+    return autocompleteResultFromChoices(cached.result.choices.slice(0, limit), 'PARTIAL', true);
+  }
+  if (finalChoices.length > 0 && availability === 'UNAVAILABLE') availability = 'PARTIAL';
+  const result = autocompleteResultFromChoices(finalChoices, availability);
+  cacheAutocompleteResult(normalizedQuery, result);
+  return result;
+}
+
+export async function autocompleteChaseCards(query: string, limit = 25): Promise<ChaseCardAutocompleteChoice[]> {
+  return (await autocompleteChaseCardsWithStatus(query, limit)).choices;
 }
 
 export async function resolveTrustedChaseCardReference(cardName: string): Promise<TrustedChaseCardReferenceResolution> {
@@ -1113,5 +1282,10 @@ export const __chaseCardCatalogTestHooks = {
   },
   cachedPreview(cardName: string): CachedChaseCardPreview | undefined {
     return getCachedChaseCardPreview(cardName);
+  },
+  expireAutocompleteFreshCache(cardName: string): void {
+    const key = normalize(cardName);
+    const cached = autocompleteCache.get(key);
+    if (cached) autocompleteCache.set(key, { ...cached, freshUntil: Date.now() - 1 });
   }
 };

@@ -27,6 +27,7 @@ const state = {
   vaultAutocompleteItems: [],
   vaultAutocompleteOpen: false,
   vaultAutocompleteLoading: false,
+  vaultAutocompleteUnavailable: false,
   vaultAutocompleteActiveIndex: -1,
   vaultAutocompleteQuery: '',
   removeTargetId: null,
@@ -119,6 +120,7 @@ function resetVaultAutocomplete() {
   state.vaultAutocompleteItems = [];
   state.vaultAutocompleteOpen = false;
   state.vaultAutocompleteLoading = false;
+  state.vaultAutocompleteUnavailable = false;
   state.vaultAutocompleteActiveIndex = -1;
   state.vaultAutocompleteQuery = '';
 }
@@ -129,7 +131,9 @@ function autocompleteListMarkup() {
     return '<div class="card-suggestion-status" role="status">Searching cards...</div>';
   }
   if (!state.vaultAutocompleteItems.length && state.vaultAutocompleteQuery.length >= 2) {
-    return '<div class="card-suggestion-status">No card suggestions found. You can still use this name.</div>';
+    return state.vaultAutocompleteUnavailable
+      ? '<div class="card-suggestion-status">Card search is temporarily unavailable. Try again in a moment.</div>'
+      : '<div class="card-suggestion-status">No matching cards found. You can still use this name.</div>';
   }
   return state.vaultAutocompleteItems.map((item, index) => `
     <button
@@ -788,18 +792,21 @@ function scheduleAutocomplete(input) {
     state.vaultAutocompleteItems = [];
     state.vaultAutocompleteOpen = false;
     state.vaultAutocompleteLoading = false;
+    state.vaultAutocompleteUnavailable = false;
     updateAutocompleteDom(input);
     return;
   }
   state.vaultAutocompleteItems = [];
   state.vaultAutocompleteOpen = true;
   state.vaultAutocompleteLoading = true;
+  state.vaultAutocompleteUnavailable = false;
   updateAutocompleteDom(input);
   state.vaultAutocompleteTimer = window.setTimeout(async () => {
     try {
       const body = await fetchJson(`/api/chases/autocomplete?q=${encodeURIComponent(query)}`);
       if (requestId !== state.vaultAutocompleteRequestId || input.value.trim() !== query) return;
       state.vaultAutocompleteItems = body.items || [];
+      state.vaultAutocompleteUnavailable = body.unavailable === true;
       state.vaultAutocompleteOpen = true;
       state.vaultAutocompleteLoading = false;
       state.vaultAutocompleteActiveIndex = -1;
@@ -807,7 +814,8 @@ function scheduleAutocomplete(input) {
     } catch {
       if (requestId !== state.vaultAutocompleteRequestId) return;
       state.vaultAutocompleteItems = [];
-      state.vaultAutocompleteOpen = false;
+      state.vaultAutocompleteUnavailable = true;
+      state.vaultAutocompleteOpen = true;
       state.vaultAutocompleteLoading = false;
       updateAutocompleteDom(input);
     }

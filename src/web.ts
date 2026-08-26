@@ -10,7 +10,7 @@ import {
   listAlertEventsForUser,
   type ListAlertEventsForUserOptions
 } from './services/chase-store.js';
-import { autocompleteChaseCards } from './services/chase-card-catalog.js';
+import { autocompleteChaseCardsWithStatus } from './services/chase-card-catalog.js';
 import {
   addUserChase,
   getVaultChases,
@@ -519,8 +519,12 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     if (method === 'GET' && url.pathname === '/api/chases/autocomplete') {
       const query = url.searchParams.get('q') ?? '';
       if (query.length > 100) return errorResponse(400, 'invalid_query');
-      const items = await autocompleteChaseCards(query, 25);
-      return jsonResponse(200, { items: items.slice(0, 25) });
+      const result = await autocompleteChaseCardsWithStatus(query, 25);
+      return jsonResponse(200, {
+        items: result.choices.slice(0, 25),
+        unavailable: result.unavailable,
+        stale: result.stale
+      });
     }
 
     if (method === 'POST' && url.pathname === '/api/chases') {
