@@ -7,6 +7,7 @@ import {
   autocompleteChaseCards,
   getCachedChaseCardPreview,
   normalizeChaseCardName,
+  resolveExactTrustedChaseCardReference,
   resolveTrustedChaseCardReference,
   type CachedChaseCardPreview,
   type ChaseCardAutocompleteChoice,
@@ -94,6 +95,25 @@ function trustedPreviewForBackfill(
   return preview;
 }
 
+function exactTrustedRepairPreview(chase: Chase): CachedChaseCardPreview | undefined {
+  if (isMissingImage(chase)) return undefined;
+  const resolution = resolveExactTrustedChaseCardReference(chase.cardName);
+  if (resolution?.status !== 'RESOLVED') return undefined;
+  const preview = trustedPreviewForBackfill(chase, resolution.preview, [
+    chase.cardName,
+    resolution.resolvedCardName,
+    resolution.preview.imageIdentity
+  ]);
+  if (!preview?.imageUrl) return undefined;
+  return chase.cardImageUrl !== preview.imageUrl ||
+    chase.cardImageIdentity !== preview.imageIdentity ||
+    chase.cardImageSourceName !== preview.imageSourceName ||
+    chase.cardImageSourceKind !== preview.imageSourceKind ||
+    chase.cardImageSourceCardId !== preview.imageSourceCardId
+    ? preview
+    : undefined;
+}
+
 function itemFromTrustedResolution(chase: Chase, resolution: TrustedChaseCardReferenceResolution): ChaseImageBackfillItem | undefined {
   if (resolution.status !== 'RESOLVED') return undefined;
   const preview = trustedPreviewForBackfill(chase, resolution.preview, [
@@ -155,6 +175,21 @@ async function inspectChaseImageBackfill(
   dependencies: Required<ChaseImageBackfillDependencies>
 ): Promise<ChaseImageBackfillItem> {
   if (!isMissingImage(chase)) {
+    const repairPreview = exactTrustedRepairPreview(chase);
+    if (repairPreview) {
+      return {
+        userId: chase.userId,
+        chaseId: chase.id,
+        cardName: chase.cardName,
+        status: 'MATCH',
+        message: 'trusted CARD_REFERENCE metadata refreshed from exact catalog identity',
+        imageUrl: repairPreview.imageUrl,
+        imageIdentity: repairPreview.imageIdentity,
+        imageSourceName: repairPreview.imageSourceName,
+        imageSourceKind: repairPreview.imageSourceKind,
+        imageSourceCardId: repairPreview.imageSourceCardId
+      };
+    }
     return {
       userId: chase.userId,
       chaseId: chase.id,
@@ -260,7 +295,7 @@ export async function backfillMissingChaseImages(options: ChaseImageBackfillOpti
     resolve: options.dependencies?.resolve ?? resolveTrustedChaseCardReference,
     update: options.dependencies?.update ?? backfillChaseCardImage
   };
-  const candidates = chasesForBackfill(options.userId).filter(isMissingImage);
+  const candidates = chasesForBackfill(options.userId).filter((chase) => isMissingImage(chase) || !!exactTrustedRepairPreview(chase));
   const summary = emptySummary(apply, options.userId);
 
   for (const chase of candidates) {

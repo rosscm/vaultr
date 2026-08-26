@@ -512,7 +512,26 @@ const backfillChaseCardImageStmt = db.prepare(`
       card_image_source_card_id = @card_image_source_card_id
   WHERE user_id = @user_id
     AND id = @id
-    AND (card_image_url IS NULL OR trim(card_image_url) = '')
+    AND (
+      card_image_url IS NULL
+      OR trim(card_image_url) = ''
+      OR (
+        card_image_source_kind = 'CARD_REFERENCE'
+        AND card_image_source_card_id = @card_image_source_card_id
+        AND (
+          card_image_url != @card_image_url
+          OR card_image_identity != @card_image_identity
+          OR coalesce(card_image_source_name, '') != coalesce(@card_image_source_name, '')
+        )
+      )
+      OR (
+        @card_image_source_card_id IS NOT NULL
+        AND
+        card_image_source_kind = 'CARD_REFERENCE'
+        AND card_image_identity = @card_image_identity
+        AND card_image_url != @card_image_url
+      )
+    )
 `);
 
 const listUserTasteMemoryMaxPricesStmt = db.prepare(`

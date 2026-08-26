@@ -125,6 +125,30 @@ describe('chase image backfill', () => {
     expect(listChases(id)[0]?.cardImageUrl).toBe('https://images.example/original.png');
   });
 
+  it('repairs stale exact trusted image metadata', async () => {
+    const id = userId('stale-exact');
+    addChase({
+      userId: id,
+      cardName: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063',
+      cardImageUrl: 'https://assets.tcgdex.net/ja/M1/M1S/087/high.png',
+      cardImageIdentity: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063',
+      cardImageSourceName: 'TCGDEX',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceCardId: 'M1S-087'
+    });
+
+    const summary = await backfillMissingChaseImages({ userId: id, apply: true });
+
+    expect(summary).toMatchObject({ examined: 1, exactTrustedMatches: 1, updated: 1 });
+    expect(listChases(id)[0]).toMatchObject({
+      cardImageUrl: 'https://static.dextcg.com/cards/jpn_m1s/87.png',
+      cardImageIdentity: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063',
+      cardImageSourceName: 'DEXTCG',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceCardId: 'jpn_m1s-87'
+    });
+  });
+
   it('skips fuzzy and ambiguous autocomplete matches', async () => {
     const fuzzyUser = userId('fuzzy');
     addChase({ userId: fuzzyUser, cardName: 'Mew RC24' });

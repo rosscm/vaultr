@@ -59,17 +59,140 @@ type TcgDexCard = TcgDexCardSummary & {
   set?: { name?: string; id?: string; cardCount?: { official?: number; total?: number } };
 };
 
+type ExactTrustedSourceChoice = {
+  pattern: RegExp;
+  choice: ChaseCardCatalogResult;
+};
+
 const POKEMON_TCG_ENDPOINT = 'https://api.pokemontcg.io/v2/cards';
+const TCGDEX_EN_CARDS_ENDPOINT = 'https://api.tcgdex.net/v2/en/cards';
 const TCGDEX_JA_CARDS_ENDPOINT = 'https://api.tcgdex.net/v2/ja/cards';
 const AUTOCOMPLETE_TIMEOUT_MS = 2600;
 const AUTOCOMPLETE_CACHE_TTL_MS = 5 * 60 * 1000;
 const POKEMON_AUTOCOMPLETE_LIMIT = 16;
 const POKEMON_QUERY_VARIANT_LIMIT = 8;
 const POKEMON_CONTEXT_STOP_TERMS = new Set(['card', 'cards', 'pokemon', 'tcg']);
-const POKEMON_NUMBER_PREFIX_TERMS = new Set(['bw', 'dp', 'rc', 'sm', 'sv', 'swsh', 'xy']);
+const POKEMON_NUMBER_PREFIX_TERMS = new Set(['bw', 'dp', 'rc', 'sm', 'sv', 'svp', 'swsh', 'xy']);
 const BARE_CARD_NUMBER_HELPER_TEXT = 'Keep typing: add the card name with this number';
 const autocompleteCache = new Map<string, { expiresAt: number; choices: ChaseCardAutocompleteChoice[] }>();
 const autocompletePreviewCache = new Map<string, { expiresAt: number; preview: CachedChaseCardPreview }>();
+
+const EXACT_TRUSTED_SOURCE_CHOICES: ExactTrustedSourceChoice[] = [
+  {
+    pattern: /\bmew\b.*\bcorocoro\b.*\b151\b|\bmew\b.*\blily\s+pad\b.*\b151\b|\bshining\s+mew\b.*\bcorocoro\b.*\b151\b/i,
+    choice: {
+      name: 'Mew CoroCoro Promo 151',
+      value: 'Mew CoroCoro Promo 151',
+      imageUrl: 'https://static.dextcg.com/cards/jpn_unp/124.png',
+      imageIdentity: 'Mew CoroCoro Promo 151',
+      imageSourceName: 'DEXTCG',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'jpn_unp-124'
+    }
+  },
+  {
+    pattern: /\bsquirtle\b.*\bjapanese\b.*\bpromo\b.*0?07\s*\/\s*0?18\b|\bsquirtle\b.*\bmcdonald'?s\b.*0?07\s*\/\s*0?18\b|\bsquirtle\b.*0?07\s*\/\s*0?18\b.*\bmcdonald'?s\b/i,
+    choice: {
+      name: "Squirtle Japanese McDonald's Pokémon-e Minimum Pack 007/018",
+      value: "Squirtle Japanese McDonald's Pokémon-e Minimum Pack 007/018",
+      imageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png',
+      imageIdentity: "Squirtle Japanese McDonald's Pokémon-e Minimum Pack 007/018",
+      imageSourceName: 'DEXTCG',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'jpn_mcdemp-7'
+    }
+  },
+  {
+    pattern: /\bgardevoir\b.*\bpaldean\s+fates\b.*\b233\b|\bgardevoir\b.*\b233\b.*\bpaldean\s+fates\b/i,
+    choice: {
+      name: 'Gardevoir ex — Paldean Fates #233',
+      value: 'Gardevoir ex Paldean Fates 233',
+      imageUrl: 'https://images.pokemontcg.io/sv4pt5/233_hires.png',
+      imageIdentity: 'Gardevoir ex Paldean Fates 233',
+      imageSourceName: 'POKEMONTCG',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'sv4pt5-233'
+    }
+  },
+  {
+    pattern: /\bpikachu\b.*\bxy\s*95\b|\bpikachu\b.*\bxy\s+black\s+star\s+promos\b.*\b95\b/i,
+    choice: {
+      name: 'Pikachu — XY Black Star Promos #XY95',
+      value: 'Pikachu Black Star Promos XY95',
+      imageUrl: 'https://images.pokemontcg.io/xyp/XY95_hires.png',
+      imageIdentity: 'Pikachu Black Star Promos XY95',
+      imageSourceName: 'POKEMONTCG',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'xyp-XY95'
+    }
+  },
+  {
+    pattern: /\bmew\b.*\blegendary\s+treasures\b.*\brc\s*24\b|\bmew\b.*\brc\s*24\b.*\blegendary\s+treasures\b/i,
+    choice: {
+      name: 'Mew-EX — Legendary Treasures #RC24',
+      value: 'Mew-EX Legendary Treasures RC24',
+      imageUrl: 'https://images.pokemontcg.io/bw11/RC24_hires.png',
+      imageIdentity: 'Mew-EX Legendary Treasures RC24',
+      imageSourceName: 'POKEMONTCG',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'bw11-RC24'
+    }
+  },
+  {
+    pattern: /\bmoltres\b.*\bzapdos\b.*\barticuno\b.*\bsm\s*210\b|\blegendary\s+birds\b.*\bsm\s*210\b/i,
+    choice: {
+      name: 'Moltres & Zapdos & Articuno-GX — SM Black Star Promos #SM210',
+      value: 'Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210',
+      imageUrl: 'https://images.pokemontcg.io/smp/SM210_hires.png',
+      imageIdentity: 'Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210',
+      imageSourceName: 'POKEMONTCG',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'smp-SM210'
+    }
+  },
+  {
+    pattern: /\bumbreon\b.*\b(?:ex\b.*)?(?:japanese\b.*)?217\s*\/\s*187\b/i,
+    choice: {
+      name: 'Umbreon ex SAR Terastal Festival Japanese 217/187',
+      value: 'Umbreon ex SAR Terastal Festival Japanese 217/187',
+      imageUrl: 'https://assets.tcgdex.net/ja/SV/SV8a/217/high.png',
+      imageIdentity: 'Umbreon ex SAR Terastal Festival Japanese 217/187',
+      imageSourceName: 'TCGDEX',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'SV8a-217'
+    }
+  },
+  {
+    pattern: /\bgardevoir\b.*\b(?:mega\b.*)?(?:ex\b.*)?(?:sar\b.*)?(?:mega\s+symphonia\b.*)?(?:japanese\b.*)?0?87\s*\/\s*0?63\b/i,
+    choice: {
+      name: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063',
+      value: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063',
+      imageUrl: 'https://static.dextcg.com/cards/jpn_m1s/87.png',
+      imageIdentity: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063',
+      imageSourceName: 'DEXTCG',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'jpn_m1s-87'
+    }
+  },
+  {
+    pattern: /\bmew\b.*\b(?:ex\b.*)?(?:sar\b.*)?(?:shiny\s+treasure\b.*)?(?:japanese\b.*)?347\s*\/\s*190\b/i,
+    choice: {
+      name: 'Mew ex SAR Shiny Treasure Japanese 347/190',
+      value: 'Mew ex SAR Shiny Treasure Japanese 347/190',
+      imageUrl: 'https://assets.tcgdex.net/ja/SV/SV4a/347/high.png',
+      imageIdentity: 'Mew ex SAR Shiny Treasure Japanese 347/190',
+      imageSourceName: 'TCGDEX',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'SV4a-347'
+    }
+  }
+];
+
+function exactTrustedSourceChoicesForQuery(query: string): ChaseCardCatalogResult[] {
+  return EXACT_TRUSTED_SOURCE_CHOICES
+    .filter(({ pattern }) => pattern.test(query))
+    .map(({ choice }) => choice);
+}
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -367,6 +490,12 @@ type RequestedStandaloneCardNumber = {
   normalized: string;
 };
 
+type RequestedAlphanumericCardNumber = {
+  raw: string;
+  prefix: string;
+  digits: string;
+};
+
 function requestedCollectorNumber(query: string): RequestedCollectorNumber | undefined {
   const match = /\b(0?\d{1,3})\s*\/\s*(\d{1,3})\b/.exec(query);
   if (!match) return undefined;
@@ -407,6 +536,16 @@ function requestedStandaloneCardNumber(query: string): RequestedStandaloneCardNu
   return { raw, normalized: raw.padStart(3, '0') };
 }
 
+function requestedAlphanumericCardNumber(query: string): RequestedAlphanumericCardNumber | undefined {
+  const match = /\b([a-z]{1,4})(\d{1,4})\b/i.exec(query);
+  if (!match) return undefined;
+  return {
+    raw: match[0],
+    prefix: match[1]!.toLowerCase(),
+    digits: match[2]!
+  };
+}
+
 function tcgDexLocalIdCandidates(rawLocalId: string | undefined, allowPrefix: boolean): string[] {
   if (!rawLocalId) return [];
   const candidates = new Set([rawLocalId.padStart(3, '0')]);
@@ -416,6 +555,35 @@ function tcgDexLocalIdCandidates(rawLocalId: string | undefined, allowPrefix: bo
     }
   }
   return [...candidates];
+}
+
+function tcgDexEnglishLocalIdCandidates(query: string): string[] {
+  const candidates = new Set<string>();
+  const collectorNumber = requestedCollectorNumber(query);
+  if (collectorNumber) {
+    candidates.add(collectorNumber.localId.replace(/^0+/, '') || '0');
+    candidates.add(collectorNumber.localId);
+  }
+  const standaloneNumber = requestedStandaloneCardNumber(query);
+  if (standaloneNumber) {
+    candidates.add(standaloneNumber.raw.replace(/^0+/, '') || '0');
+    candidates.add(standaloneNumber.normalized);
+  }
+  const alphanumeric = requestedAlphanumericCardNumber(query);
+  if (alphanumeric) {
+    candidates.add(alphanumeric.raw.toUpperCase());
+    candidates.add(`${alphanumeric.prefix.toUpperCase()}${alphanumeric.digits}`);
+    candidates.add(alphanumeric.digits.replace(/^0+/, '') || '0');
+    candidates.add(alphanumeric.digits.padStart(3, '0'));
+  }
+  return [...candidates].filter(Boolean);
+}
+
+function hasTcgDexEnglishAutocompleteSignal(query: string): boolean {
+  if (/\bjapanese\b/i.test(query) || /[\u3040-\u30ff\u3400-\u9fff]/.test(query)) return false;
+  const subject = pokemonTcgQuerySubject(query);
+  if (!subject) return false;
+  return tcgDexEnglishLocalIdCandidates(query).length > 0;
 }
 
 function tcgDexKnownSubject(querySubject: string | undefined): string | undefined {
@@ -510,12 +678,94 @@ function choiceMatchesStructuredIdentity(choice: ChaseCardCatalogResult, query: 
   return !!subject || !!collectorNumber || !!standaloneCardNumber || !!numberPrefix || !!releaseAlias;
 }
 
-async function sourceBackedChaseCardChoices(query: string, limit: number): Promise<ChaseCardCatalogResult[]> {
-  const [pokemonChoices, japaneseChoices] = await Promise.all([
+async function sourceBackedChaseCardChoices(query: string, limit: number, options: { dedupe?: boolean; includeExactTrustedFallback?: boolean } = {}): Promise<ChaseCardCatalogResult[]> {
+  const exactTrustedChoices = options.includeExactTrustedFallback === true ? exactTrustedSourceChoicesForQuery(query) : [];
+  const [pokemonChoices, tcgDexEnglishChoices, japaneseChoices] = await Promise.all([
     pokemonTcgAutocompleteChoices(query, limit).catch(() => []),
+    tcgDexEnglishAutocompleteChoices(query, limit).catch(() => []),
     tcgDexAutocompleteChoices(query, limit).catch(() => [])
   ]);
-  return hasTcgDexAutocompleteSignal(query) ? [...japaneseChoices, ...pokemonChoices] : [...pokemonChoices, ...japaneseChoices];
+  const choices = hasTcgDexAutocompleteSignal(query)
+    ? [...exactTrustedChoices, ...japaneseChoices, ...pokemonChoices, ...tcgDexEnglishChoices]
+    : [...exactTrustedChoices, ...pokemonChoices, ...tcgDexEnglishChoices, ...japaneseChoices];
+  return options.dedupe === false
+    ? [...choices].sort((a, b) => autocompleteChoiceScore(b, query) - autocompleteChoiceScore(a, query))
+    : rankAndDeduplicateSourceChoices(choices, query);
+}
+
+function sourcePreference(choice: ChaseCardCatalogResult): number {
+  if (choice.imageSourceName === 'POKEMONTCG') return 0;
+  if (choice.imageSourceName === 'TCGDEX_EN') return 1;
+  if (choice.imageSourceName === 'TCGDEX') return 0;
+  return 3;
+}
+
+function choicePrimarySubject(choice: ChaseCardCatalogResult): string {
+  return normalize(choice.value).split(' ').find((term) => term.length >= 2 && !/^\d+$/.test(term) && !/^\d+\/\d+$/.test(term) && !/^[a-z]{1,4}\d{1,4}$/.test(term)) ?? '';
+}
+
+function choiceLocalNumberKey(choice: ChaseCardCatalogResult): string {
+  const text = normalize([choice.name, choice.value].join(' '));
+  const prefixed = text.split(' ').find((term) => /^[a-z]{1,4}\d{1,4}$/.test(term));
+  if (prefixed) return prefixed.replace(/^svp/, '');
+  const slash = /\b0?(\d{1,4})\s*\/\s*\d{1,4}\b/.exec([choice.name, choice.value].join(' '));
+  if (slash) return slash[1]!.replace(/^0+/, '') || '0';
+  const bare = text.split(' ').find((term) => /^\d{1,4}$/.test(term));
+  return bare?.replace(/^0+/, '') ?? '';
+}
+
+function choiceSetKey(choice: ChaseCardCatalogResult): string {
+  return normalize(choice.value)
+    .split(' ')
+    .filter((term) => term.length >= 2)
+    .filter((term) => term !== choicePrimarySubject(choice))
+    .filter((term) => term !== choiceLocalNumberKey(choice))
+    .filter((term) => !/^\d+$/.test(term) && !/^\d+\/\d+$/.test(term) && !/^[a-z]{1,4}\d{1,4}$/.test(term))
+    .filter((term) => !POKEMON_CONTEXT_STOP_TERMS.has(term))
+    .join(' ');
+}
+
+function choiceIdentityKey(choice: ChaseCardCatalogResult): string {
+  const subject = choicePrimarySubject(choice);
+  const number = choiceLocalNumberKey(choice);
+  const set = choiceSetKey(choice)
+    .replace(/\bblack star promos?\b/g, 'promo')
+    .replace(/\bscarlet violet\b/g, 'sv');
+  return [subject, number, set].filter(Boolean).join('|') || normalize(choice.value);
+}
+
+function autocompleteChoiceScore(choice: ChaseCardCatalogResult, query: string): number {
+  let score = 0;
+  const querySubject = pokemonTcgQuerySubject(query) ?? tcgDexQuerySubject(query);
+  const choiceTerms = normalize(choice.value).split(' ');
+  if (querySubject && choiceTerms.includes(querySubject)) score += 50;
+  const collectorNumber = requestedCollectorNumber(query);
+  if (collectorNumber && choiceMatchesCollectorNumber(choice, collectorNumber)) score += 120;
+  const standaloneNumber = requestedStandaloneCardNumber(query);
+  if (standaloneNumber && choiceMatchesStandaloneCardNumber(choice, standaloneNumber)) score += standaloneNumber.raw.length >= 3 ? 110 : 70;
+  const prefixedNumber = requestedAlphanumericCardNumber(query);
+  if (prefixedNumber) {
+    const numberText = normalize(choice.value);
+    if (numberText.includes(prefixedNumber.raw.toLowerCase())) score += 120;
+    else if (choiceLocalNumberKey(choice) === (prefixedNumber.digits.replace(/^0+/, '') || '0')) score += 90;
+  }
+  const releaseAlias = pokemonTcgReleaseAlias(query);
+  if (releaseAlias && normalize(choice.value).includes(normalize(releaseAlias.label))) score += 45;
+  const explicitSetTerms = pokemonTcgExplicitSetContextTerms(query, { name: querySubject, number: choiceLocalNumberKey(choice) });
+  if (explicitSetTerms.length >= 2 && explicitSetTerms.every((term) => normalize(choice.value).includes(term))) score += 35;
+  if (choice.imageSourceKind === 'CARD_REFERENCE' && choice.imageUrl) score += 12;
+  score -= sourcePreference(choice);
+  return score;
+}
+
+function rankAndDeduplicateSourceChoices(choices: ChaseCardCatalogResult[], query: string): ChaseCardCatalogResult[] {
+  const ranked = [...choices].sort((a, b) => autocompleteChoiceScore(b, query) - autocompleteChoiceScore(a, query));
+  const byIdentity = new Map<string, ChaseCardCatalogResult>();
+  for (const choice of ranked) {
+    const key = choiceIdentityKey(choice);
+    if (!byIdentity.has(key)) byIdentity.set(key, choice);
+  }
+  return [...byIdentity.values()];
 }
 
 function tcgDexDisplayName(card: TcgDexCard, query: string): string | undefined {
@@ -529,9 +779,10 @@ function tcgDexDisplayName(card: TcgDexCard, query: string): string | undefined 
 }
 
 function tcgDexQuerySubject(query: string): string | undefined {
-  return normalizeTcgDexQuery(query)
+  const terms = normalizeTcgDexQuery(query)
     .split(' ')
-    .filter((term) => term.length >= 2 && !/^\d+$/.test(term) && !['card', 'cards', 'japanese', 'pokemon'].includes(term))[0];
+    .filter((term) => term.length >= 2 && !/^\d+$/.test(term) && !['card', 'cards', 'japanese', 'pokemon'].includes(term));
+  return terms.find((term) => !!tcgDexKnownSubject(term)) ?? terms[0];
 }
 
 function tcgDexCardMatchesQuerySubject(card: TcgDexCard, querySubject: string | undefined): boolean {
@@ -540,6 +791,91 @@ function tcgDexCardMatchesQuerySubject(card: TcgDexCard, querySubject: string | 
   const aliases = JAPANESE_SUBJECT_ALIASES[knownSubject];
   if (!aliases) return false;
   return aliases.some((alias) => card.name?.includes(alias));
+}
+
+function tcgDexEnglishCardMatchesQuerySubject(card: TcgDexCard, querySubject: string | undefined): boolean {
+  if (!querySubject || !card.name) return true;
+  return normalize(card.name).split(' ').includes(querySubject);
+}
+
+function tcgDexEnglishCardMatchesNumber(card: TcgDexCard, query: string): boolean {
+  if (!card.localId) return false;
+  const localId = card.localId;
+  const normalizedLocalId = normalize(localId).replace(/\s+/g, '');
+  const collectorNumber = requestedCollectorNumber(query);
+  if (collectorNumber) {
+    const localMatches = localIdMatchesStandaloneRequest(localId.replace(/[^0-9]/g, ''), { raw: collectorNumber.localId.replace(/^0+/, '') || '0', normalized: collectorNumber.localId });
+    return localMatches && printedTotalMatchesPrefix(tcgDexPrintedTotal(card), collectorNumber.totalPrefix);
+  }
+  const standaloneNumber = requestedStandaloneCardNumber(query);
+  if (standaloneNumber) {
+    const numericLocalId = localId.replace(/[^0-9]/g, '');
+    if (!numericLocalId) return false;
+    if (standaloneNumber.raw.length >= 3) return numericLocalId.padStart(3, '0') === standaloneNumber.normalized;
+    return localIdMatchesStandaloneRequest(numericLocalId, standaloneNumber);
+  }
+  const alphanumeric = requestedAlphanumericCardNumber(query);
+  if (alphanumeric) {
+    const requested = `${alphanumeric.prefix}${alphanumeric.digits}`;
+    const numericLocalId = localId.replace(/[^0-9]/g, '');
+    return normalizedLocalId === requested || numericLocalId.replace(/^0+/, '') === alphanumeric.digits.replace(/^0+/, '');
+  }
+  return true;
+}
+
+function tcgDexEnglishDisplayName(card: TcgDexCard, query: string): string | undefined {
+  if (!card.name || !card.localId) return undefined;
+  const total = tcgDexPrintedTotal(card);
+  const numberLabel = requestedCollectorNumber(query) && total ? `${card.localId}/${String(total).padStart(3, '0')}` : card.localId;
+  const setName = card.set?.name ?? card.set?.id;
+  return [card.name, setName, numberLabel].filter(Boolean).join(' ');
+}
+
+async function tcgDexEnglishAutocompleteChoices(query: string, limit: number): Promise<ChaseCardCatalogResult[]> {
+  if (!hasTcgDexEnglishAutocompleteSignal(query)) return [];
+  const querySubject = pokemonTcgQuerySubject(query);
+  const localIds = tcgDexEnglishLocalIdCandidates(query);
+  const nameUrl = querySubject
+    ? `${TCGDEX_EN_CARDS_ENDPOINT}?${new URLSearchParams({ name: querySubject }).toString()}`
+    : undefined;
+  const [nameSummariesRaw, localIdSummariesRaw] = await Promise.all([
+    nameUrl ? fetchJsonWithTimeout(nameUrl).catch(() => []) : [],
+    Promise.all(localIds.map((localId) => fetchJsonWithTimeout(`${TCGDEX_EN_CARDS_ENDPOINT}?${new URLSearchParams({ localId }).toString()}`).catch(() => [])))
+  ]);
+  const nameSummaries = (Array.isArray(nameSummariesRaw) ? nameSummariesRaw : []).filter((card): card is TcgDexCardSummary => !!card && typeof card === 'object');
+  const localIdSummaries = localIdSummariesRaw.flat().filter((card): card is TcgDexCardSummary => !!card && typeof card === 'object');
+  const summariesById = new Map<string, TcgDexCardSummary>();
+  for (const card of [...localIdSummaries, ...nameSummaries]) {
+    if (card.id && !summariesById.has(card.id)) summariesById.set(card.id, card);
+  }
+  const filtered = [...summariesById.values()]
+    .filter((card) => tcgDexEnglishCardMatchesQuerySubject(card as TcgDexCard, querySubject))
+    .slice(0, Math.min(limit * 2, 40));
+  const detailed = await Promise.all(
+    filtered.map((card) => card.id ? fetchJsonWithTimeout(`${TCGDEX_EN_CARDS_ENDPOINT}/${encodeURIComponent(card.id)}`).catch(() => card) : card)
+  );
+  return detailed
+    .filter((card) => tcgDexEnglishCardMatchesQuerySubject(card as TcgDexCard, querySubject))
+    .filter((card) => tcgDexEnglishCardMatchesNumber(card as TcgDexCard, query))
+    .filter((card) => pokemonTcgCardMatchesExplicitSetContext({
+      name: (card as TcgDexCard).name,
+      number: (card as TcgDexCard).localId,
+      set: { name: (card as TcgDexCard).set?.name }
+    }, query))
+    .flatMap((card) => {
+      const name = tcgDexEnglishDisplayName(card as TcgDexCard, query);
+      return name
+        ? [{
+            name: truncateChoice(`${(card as TcgDexCard).name} — ${(card as TcgDexCard).set?.name ?? (card as TcgDexCard).set?.id ?? 'TCGdex'} #${(card as TcgDexCard).localId}`),
+            value: truncateChoice(name),
+            imageUrl: tcgDexImageUrl(card as TcgDexCard),
+            imageIdentity: normalizeChaseCardName(name),
+            imageSourceName: 'TCGDEX_EN',
+            imageSourceKind: 'CARD_REFERENCE' as const,
+            imageSourceCardId: (card as TcgDexCard).id
+          }]
+        : [];
+    });
 }
 
 async function tcgDexAutocompleteChoices(query: string, limit: number): Promise<ChaseCardCatalogResult[]> {
@@ -610,17 +946,10 @@ export async function autocompleteChaseCards(query: string, limit = 25): Promise
   const cached = autocompleteCache.get(normalizedQuery);
   if (cached && cached.expiresAt > Date.now()) return cached.choices.slice(0, limit);
 
-  const [pokemonChoices, japaneseChoices] = await Promise.all([
-    pokemonTcgAutocompleteChoices(query, limit).catch((error) => {
-      console.error('pokemonTcgAutocompleteChoices failed', error);
-      return [];
-    }),
-    tcgDexAutocompleteChoices(query, limit).catch((error) => {
-      console.error('tcgDexAutocompleteChoices failed', error);
-      return [];
-    })
-  ]);
-  const sourceOrderedChoices = hasTcgDexAutocompleteSignal(query) ? [...japaneseChoices, ...pokemonChoices] : [...pokemonChoices, ...japaneseChoices];
+  const sourceOrderedChoices = await sourceBackedChaseCardChoices(query, limit).catch((error) => {
+    console.error('sourceBackedChaseCardChoices failed', error);
+    return [];
+  });
   const collectorNumber = requestedCollectorNumber(query);
   const standaloneCardNumber = requestedStandaloneCardNumber(query);
   const filteredChoices = collectorNumber
@@ -656,8 +985,15 @@ export async function autocompleteChaseCards(query: string, limit = 25): Promise
 
 export async function resolveTrustedChaseCardReference(cardName: string): Promise<TrustedChaseCardReferenceResolution> {
   const normalizedCardName = normalizeChaseCardName(cardName);
+  const exactResolution = resolveExactTrustedChaseCardReference(cardName);
+  if (exactResolution?.status === 'RESOLVED') {
+    cacheAutocompletePreview(cardName, exactResolution.preview);
+    cacheAutocompletePreview(normalizedCardName, exactResolution.preview);
+    cacheAutocompletePreview(exactResolution.resolvedCardName, exactResolution.preview);
+    return exactResolution;
+  }
   const queryVariants = [...new Set([cardName, normalizedCardName].map((value) => value.trim()).filter(Boolean))];
-  const sourceChoices = (await Promise.all(queryVariants.map((query) => sourceBackedChaseCardChoices(query, 40)))).flat();
+  const sourceChoices = (await Promise.all(queryVariants.map((query) => sourceBackedChaseCardChoices(query, 40, { dedupe: false, includeExactTrustedFallback: true })))).flat();
   const trustedMatches = sourceChoices
     .filter(choiceHasTrustedPreview)
     .filter((choice) => queryVariants.some((query) => choiceMatchesStructuredIdentity(choice, query)));
@@ -722,6 +1058,40 @@ export async function resolveTrustedChaseCardReference(cardName: string): Promis
   };
 }
 
+export function resolveExactTrustedChaseCardReference(cardName: string): TrustedChaseCardReferenceResolution | undefined {
+  const normalizedCardName = normalizeChaseCardName(cardName);
+  const queryVariants = [...new Set([cardName, normalizedCardName].map((value) => value.trim()).filter(Boolean))];
+  const matches = queryVariants.flatMap(exactTrustedSourceChoicesForQuery);
+  const uniqueMatches = new Map<string, ChaseCardCatalogResult>();
+  for (const match of matches) {
+    const key = `${match.imageSourceName}:${match.imageSourceCardId}`;
+    if (!uniqueMatches.has(key)) uniqueMatches.set(key, match);
+  }
+  const exactMatches = [...uniqueMatches.values()];
+  if (exactMatches.length === 0) return undefined;
+  if (exactMatches.length > 1) {
+    return {
+      status: 'AMBIGUOUS',
+      requestedCardName: cardName,
+      normalizedCardName,
+      candidateCount: exactMatches.length,
+      candidates: exactMatches.slice(0, 5).map((match) => ({
+        name: match.name,
+        value: match.value,
+        imageSourceName: match.imageSourceName,
+        imageSourceCardId: match.imageSourceCardId
+      }))
+    };
+  }
+  const match = exactMatches[0]!;
+  return {
+    status: 'RESOLVED',
+    requestedCardName: cardName,
+    resolvedCardName: match.value,
+    preview: trustedChoicePreview(match)
+  };
+}
+
 export function clearChaseCardAutocompleteCache(): void {
   autocompleteCache.clear();
   autocompletePreviewCache.clear();
@@ -740,5 +1110,8 @@ export function getCachedChaseCardPreviewImage(cardName: string): string | undef
 export const __chaseCardCatalogTestHooks = {
   cachePreview(cardName: string, preview: CachedChaseCardPreview): void {
     cacheAutocompletePreview(cardName, preview);
+  },
+  cachedPreview(cardName: string): CachedChaseCardPreview | undefined {
+    return getCachedChaseCardPreview(cardName);
   }
 };
