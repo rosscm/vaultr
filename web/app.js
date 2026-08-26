@@ -459,7 +459,7 @@ function vaultCardMarkup(item) {
   ].filter(Boolean);
   return `
     <article class="vault-card ${paused ? 'paused' : ''}">
-      ${chase.cardImageUrl ? `<img class="vault-card-image" src="${escapeHtml(chase.cardImageUrl)}" alt="${escapeHtml(chase.cardName)} card image" loading="lazy">` : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
+      ${chase.cardImageUrl ? `<img class="vault-card-image" src="${escapeHtml(chase.cardImageUrl)}" alt="${escapeHtml(chase.cardName)} card image" loading="lazy" data-vault-card-image>` : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
       <div class="vault-card-body">
         <div class="vault-card-meta">
           <span class="status-pill ${paused ? 'paused' : 'active'}">${paused ? 'Paused' : 'Watching'}</span>
@@ -1020,6 +1020,12 @@ app.addEventListener(
       card?.classList.remove('has-image');
       card?.classList.add('no-image');
       target.remove();
+    } else if (target instanceof HTMLImageElement && target.matches('[data-vault-card-image]')) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'vault-card-image placeholder-image';
+      placeholder.setAttribute('aria-hidden', 'true');
+      placeholder.textContent = 'V';
+      target.replaceWith(placeholder);
     }
   },
   true
