@@ -9,6 +9,7 @@ export type CardCatalogRecord = {
   normalizedName: string;
   setId?: string;
   setName?: string;
+  translatedSetName?: string;
   normalizedSetName?: string;
   series?: string;
   cardNumber?: string;
@@ -67,6 +68,7 @@ export type LocalCardCatalogChoice = {
   sourceCardId: string;
   language: CardCatalogLanguage;
   setName?: string;
+  translatedSetName?: string;
   cardNumber?: string;
   printedTotal?: string;
   score: number;

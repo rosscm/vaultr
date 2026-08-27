@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cardCatalogStats, initializeCardCatalogDb, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
 import { searchLocalCardCatalog } from '../card-catalog/search.js';
 import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
-import { loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
+import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
 import { runCatalogImportPokemonTcgCli } from '../../catalog-import-pokemontcg.js';
 
@@ -35,6 +35,46 @@ function record(overrides: Partial<ReturnType<typeof pokemonTcgRecordFromCard>> 
     images: { large: `https://images.pokemontcg.io/test/${overrides.sourceCardId}.png` }
   })!;
   return { ...base, ...overrides };
+}
+
+function writeTcgDexSet(root: string, setId: string, nativeName: string, translatedName: string, total: number): void {
+  const era = setId.startsWith('SV') ? 'SV' : 'S';
+  fs.mkdirSync(path.join(root, 'data-asia', era, setId), { recursive: true });
+  fs.writeFileSync(path.join(root, 'data-asia', era, `${setId}.ts`), `
+    const set: Set = {
+      id: '${setId}',
+      name: { ja: '${nativeName}', id: '${translatedName}' },
+      cardCount: { official: ${total} },
+      releaseDate: { ja: '2023-12-01' }
+    }
+    export default set
+  `);
+}
+
+function writeTcgDexCard(root: string, setId: string, number: string, nativeName: string, latinName: string): void {
+  const era = setId.startsWith('SV') ? 'SV' : 'S';
+  fs.mkdirSync(path.join(root, 'data-asia', era, setId), { recursive: true });
+  fs.writeFileSync(path.join(root, 'data-asia', era, setId, `${number}.ts`), `
+    const card: Card = {
+      set: Set,
+      category: CardCategory.POKEMON,
+      name: { ja: '${nativeName}', id: '${latinName}' },
+      rarity: 'SAR'
+    }
+    export default card
+  `);
+}
+
+function writeTcgDexTranslations(root: string): void {
+  fs.mkdirSync(path.join(root, 'scripts', 'utils-data'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'scripts', 'utils-data', 'jp_set_translations.ts'), `
+    export const jpSetTranslations = {
+      SV1S: 'Scarlet ex',
+      SV3a: 'Raging Surf',
+      SV4a: 'Shiny Treasure ex',
+      SV8a: 'Terastal Festival ex'
+    }
+  `);
 }
 
 afterEach(() => {
@@ -86,7 +126,8 @@ describe('local card catalog', () => {
         name: { ja: 'テラスタルフェスex', id: 'Terastal Festival ex' },
         cardCount: { official: 187 },
         releaseDate: { ja: '2024-12-06' }
-      }
+      },
+      setTranslations: new Map([['SV8a', 'Terastal Festival ex']])
     })).toMatchObject({
       source: 'TCGDEX',
       sourceCardId: 'SV8a-217',
@@ -95,6 +136,7 @@ describe('local card catalog', () => {
       printedTotal: '187',
       imageUrl: 'https://assets.tcgdex.net/ja/SV/SV8a/217/high.png',
       releaseDate: '2024-12-06',
+      translatedSetName: 'Terastal Festival ex',
       aliases: expect.arrayContaining([
         expect.objectContaining({ alias: 'Umbreon ex', locale: 'id', kind: 'localized_name' })
       ])
@@ -130,34 +172,20 @@ describe('local card catalog', () => {
 
   it('loads real-format TCGdex TypeScript card files with localized aliases', () => {
     const root = tempDir('tcgdex-fixture');
-    fs.mkdirSync(path.join(root, 'data-asia', 'SV', 'SV4a'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'data-asia', 'SV', 'SV4a.ts'), `
-      const set: Set = {
-        id: 'SV4a',
-        name: { ja: 'シャイニートレジャーex', id: 'Shiny Treasure ex' },
-        cardCount: { official: 190 },
-        releaseDate: { ja: '2023-12-01' }
-      }
-      export default set
-    `);
-    fs.writeFileSync(path.join(root, 'data-asia', 'SV', 'SV4a', '347.ts'), `
-      const card: Card = {
-        set: Set,
-        category: CardCategory.POKEMON,
-        name: { ja: 'ミュウex', id: 'Mew ex' },
-        rarity: 'SAR'
-      }
-      export default card
-    `);
+    writeTcgDexTranslations(root);
+    writeTcgDexSet(root, 'SV4a', 'レイジングサーフ', 'Wrong Native Name', 190);
+    writeTcgDexCard(root, 'SV4a', '347', 'ミュウex', 'Mew ex');
 
     const loaded = loadTcgDexRepositoryRecords(root, '2026-08-27T00:00:00.000Z');
 
     expect(loaded).toMatchObject({ examined: 1, errors: 0 });
+    expect(loadTcgDexJapaneseSetTranslations(root).get('SV4a')).toBe('Shiny Treasure ex');
     expect(loaded.records[0]).toMatchObject({
       sourceCardId: 'SV4a-347',
       language: 'ja',
       name: 'ミュウex',
-      setName: 'シャイニートレジャーex',
+      setName: 'レイジングサーフ',
+      translatedSetName: 'Shiny Treasure ex',
       cardNumber: '347',
       printedTotal: '190',
       imageUrl: 'https://assets.tcgdex.net/ja/SV/SV4a/347/high.png',
@@ -184,6 +212,36 @@ describe('local card catalog', () => {
     expect(searchLocalCardCatalog('umbreon 176', 5, { dbPath })[0]).toMatchObject({ value: 'Umbreon Scarlet & Violet Black Star Promos 176' });
   });
 
+  it('uses existing Japanese subject aliases for structured local searches', () => {
+    const dbPath = tempCatalogPath('jp-subject-alias');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      tcgDexRecordFromCard({
+        name: { ja: 'サーナイトex' },
+        set: {}
+      }, {
+        language: 'ja',
+        filePath: '/repo/data-asia/SV/SV1S/101.ts',
+        setMetadata: { id: 'SV1S', name: { ja: 'スカーレットex', id: 'Scarlet ex' }, cardCount: { official: 78 } },
+        setTranslations: new Map([['SV1S', 'Scarlet ex']])
+      })!,
+      tcgDexRecordFromCard({
+        name: { ja: 'ピカチュウ', id: 'Pikachu' },
+        set: {}
+      }, {
+        language: 'ja',
+        filePath: '/repo/data-asia/SV/SV1S/101.ts',
+        setMetadata: { id: 'SV1S', name: { ja: 'スカーレットex', id: 'Scarlet ex' }, cardCount: { official: 78 } },
+        setTranslations: new Map([['SV1S', 'Scarlet ex']])
+      })!
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('gardevoir 101/078', 5, { dbPath })[0]).toMatchObject({
+      value: 'サーナイトex Scarlet ex 101/78 Japanese',
+      sourceCardId: 'SV1S-101',
+      imageUrl: 'https://assets.tcgdex.net/ja/SV/SV1S/101/high.png'
+    });
+  });
+
   it('lets exact Japanese number evidence outrank unrelated local Mew cards', () => {
     const dbPath = tempCatalogPath('japanese');
     replaceCardCatalogSourceRecords('TCGDEX', [
@@ -193,7 +251,8 @@ describe('local card catalog', () => {
       }, {
         language: 'ja',
         filePath: '/repo/data-asia/SV/SV4a/347.ts',
-        setMetadata: { id: 'SV4a', name: { ja: 'シャイニートレジャーex', id: 'Shiny Treasure ex' }, cardCount: { official: 190 } }
+        setMetadata: { id: 'SV4a', name: { ja: 'レイジングサーフ', id: 'Wrong Native Name' }, cardCount: { official: 190 } },
+        setTranslations: new Map([['SV4a', 'Shiny Treasure ex']])
       })!,
       tcgDexRecordFromCard({
         name: { ja: 'ピカチュウ', id: 'Pikachu' },
@@ -206,7 +265,7 @@ describe('local card catalog', () => {
     ], dbPath);
 
     expect(searchLocalCardCatalog('mew 347/190', 5, { dbPath })[0]).toMatchObject({
-      value: 'ミュウex シャイニートレジャーex 347/190 Japanese',
+      value: 'ミュウex Shiny Treasure ex 347/190 Japanese',
       imageSourceName: 'TCGDEX',
       imageSourceKind: 'CARD_REFERENCE'
     });
@@ -264,6 +323,39 @@ describe('local card catalog', () => {
 
     const coro = await autocompleteChaseCardsWithStatus('mew corocoro 151', 25);
     expect(JSON.stringify(coro)).not.toContain('jpn_unp-124');
+  });
+
+  it('requires explicit promo publication context to match local records', () => {
+    const dbPath = tempCatalogPath('promo-context');
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({ sourceCardId: 'wotc-8', name: 'Mew', cardNumber: '8', normalizedCardNumber: '8', setName: 'Wizards Black Star Promos', normalizedSetName: 'wizards black star promos', isPromo: true, promoContext: 'Wizards Black Star Promos' }),
+      record({ sourceCardId: 'np-40', name: 'Mew', cardNumber: '40', normalizedCardNumber: '40', setName: 'Nintendo Black Star Promos', normalizedSetName: 'nintendo black star promos', isPromo: true, promoContext: 'Nintendo Black Star Promos' }),
+      record({ sourceCardId: 'exp-19', name: 'Mew', cardNumber: '19', normalizedCardNumber: '19', setName: 'Expedition Base Set', normalizedSetName: 'expedition base set', isPromo: false }),
+      record({ sourceCardId: 'coro-151', name: 'Mew', cardNumber: '151', normalizedCardNumber: '151', setName: 'CoroCoro Promo', normalizedSetName: 'corocoro promo', isPromo: true, promoContext: 'CoroCoro Promo' })
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('mew corocoro', 10, { dbPath }).map((choice) => choice.sourceCardId)).toEqual(['coro-151']);
+  });
+
+  it('returns no local CoroCoro substitute when only unrelated Mew promos exist', () => {
+    const dbPath = tempCatalogPath('promo-context-miss');
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({ sourceCardId: 'wotc-8', name: 'Mew', cardNumber: '8', normalizedCardNumber: '8', setName: 'Wizards Black Star Promos', normalizedSetName: 'wizards black star promos', isPromo: true, promoContext: 'Wizards Black Star Promos' }),
+      record({ sourceCardId: 'np-40', name: 'Mew', cardNumber: '40', normalizedCardNumber: '40', setName: 'Nintendo Black Star Promos', normalizedSetName: 'nintendo black star promos', isPromo: true, promoContext: 'Nintendo Black Star Promos' }),
+      record({ sourceCardId: 'exp-19', name: 'Mew', cardNumber: '19', normalizedCardNumber: '19', setName: 'Expedition Base Set', normalizedSetName: 'expedition base set', isPromo: false })
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('mew corocoro', 10, { dbPath })).toEqual([]);
+  });
+
+  it('requires McDonalds publication context to match Squirtle records', () => {
+    const dbPath = tempCatalogPath('mcdonalds-context');
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({ sourceCardId: 'random-007', name: 'Squirtle', cardNumber: '007', normalizedCardNumber: '7', setName: 'Random Japanese Promo', normalizedSetName: 'random japanese promo', printedTotal: '018', isPromo: true }),
+      record({ sourceCardId: 'mcd-007', name: 'Squirtle', cardNumber: '007', normalizedCardNumber: '7', setName: "McDonald's Pokemon-e Minimum Pack", normalizedSetName: 'mcdonalds pokemon e minimum pack', printedTotal: '018', isPromo: true, promoContext: "McDonald's Promo" })
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('squirtle mcdonalds 007/018', 10, { dbPath }).map((choice) => choice.sourceCardId)).toEqual(['mcd-007']);
   });
 
   it('falls back to remote providers when no local catalog exists and tolerates corrupt local DB files', async () => {

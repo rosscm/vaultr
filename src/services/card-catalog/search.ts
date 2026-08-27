@@ -1,4 +1,5 @@
 import { queryCardCatalogRecords } from '../card-catalog-db.js';
+import { JAPANESE_SUBJECT_ALIASES } from '../collector-card-aliases.js';
 import { catalogDisplayValue, normalizeCatalogCardNumber, normalizeCatalogText, parseCatalogSearchQuery } from './normalize.js';
 import type { LocalCardCatalogChoice, StoredCardCatalogRecord } from './types.js';
 
@@ -11,15 +12,16 @@ function sourceRank(source: string): number {
 function recordScore(record: StoredCardCatalogRecord, query: ReturnType<typeof parseCatalogSearchQuery>): number {
   let score = 0;
   const recordName = record.normalizedName;
-  const recordSet = record.normalizedSetName ?? '';
+  const recordSet = normalizeCatalogText([record.normalizedSetName, record.translatedSetName].filter(Boolean).join(' '));
   const aliases = [recordName, ...(record.aliases ?? []).map((alias) => alias.normalizedAlias)].filter(Boolean);
   const subject = query.subject;
   if (subject) {
-    if (aliases.some((alias) => alias === subject)) score += 70;
-    else if (aliases.some((alias) => alias.split(' ').includes(subject))) score += 55;
-    else if (aliases.some((alias) => alias.includes(subject))) score += 35;
-    else if (recordSet.includes(subject)) score += 10;
-    if (ACCESSORY_TERMS.test(record.name) && !aliases.some((alias) => alias === subject)) score -= 80;
+    const subjectAliases = subjectIdentityTerms(subject);
+    if (subjectAliases.some((term) => aliases.some((alias) => alias === term))) score += 70;
+    else if (subjectAliases.some((term) => aliases.some((alias) => alias.split(' ').includes(term)))) score += 55;
+    else if (subjectAliases.some((term) => aliases.some((alias) => alias.includes(term)))) score += 35;
+    else if (subjectAliases.some((term) => recordSet.includes(term))) score += 10;
+    if (ACCESSORY_TERMS.test(record.name) && !subjectAliases.some((term) => aliases.some((alias) => alias === term))) score -= 80;
   }
 
   if (query.localNumber) {
@@ -49,7 +51,8 @@ function recordScore(record: StoredCardCatalogRecord, query: ReturnType<typeof p
 
 function hardReject(record: StoredCardCatalogRecord, query: ReturnType<typeof parseCatalogSearchQuery>): boolean {
   const aliases = [record.normalizedName, ...(record.aliases ?? []).map((alias) => alias.normalizedAlias)].filter(Boolean);
-  if (query.subject && !aliases.some((alias) => alias === query.subject || alias.split(' ').includes(query.subject!) || alias.includes(query.subject!))) return true;
+  const subjectAliases = subjectIdentityTerms(query.subject);
+  if (query.subject && !subjectAliases.some((subject) => aliases.some((alias) => alias === subject || alias.split(' ').includes(subject) || alias.includes(subject)))) return true;
   if (query.language && record.language !== query.language) return true;
   if (query.printedTotal && normalizeCatalogCardNumber(record.printedTotal) !== normalizeCatalogCardNumber(query.printedTotal)) return true;
   if (query.localNumber && record.normalizedCardNumber !== normalizeCatalogCardNumber(query.localNumber)) return true;
@@ -59,6 +62,7 @@ function hardReject(record: StoredCardCatalogRecord, query: ReturnType<typeof pa
     const raw = (record.cardNumber ?? '').toUpperCase();
     if (normalized !== requested && raw !== requested) return true;
   }
+  if (query.releaseContext && !recordMatchesReleaseContext(record, query.releaseContext)) return true;
   return false;
 }
 
@@ -68,7 +72,7 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
     ? `${record.cardNumber}/${record.printedTotal}`
     : record.cardNumber;
   return {
-    name: `${record.name}${record.setName ? ` - ${record.setName}` : ''}${labelNumber ? ` #${labelNumber}` : ''}${record.language === 'ja' ? ' (Japanese)' : ''}`,
+    name: `${record.name}${record.translatedSetName ?? record.setName ? ` - ${record.translatedSetName ?? record.setName}` : ''}${labelNumber ? ` #${labelNumber}` : ''}${record.language === 'ja' ? ' (Japanese)' : ''}`,
     value,
     imageUrl: record.imageUrl,
     imageIdentity: value,
@@ -79,10 +83,36 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
     sourceCardId: record.sourceCardId,
     language: record.language,
     setName: record.setName,
+    translatedSetName: record.translatedSetName,
     cardNumber: record.cardNumber,
     printedTotal: record.printedTotal,
     score
   };
+}
+
+function subjectIdentityTerms(subject: string | undefined): string[] {
+  if (!subject) return [];
+  return [...new Set([
+    subject,
+    ...(JAPANESE_SUBJECT_ALIASES[subject] ?? []).map(normalizeCatalogText)
+  ].filter(Boolean))];
+}
+
+function recordMatchesReleaseContext(record: StoredCardCatalogRecord, releaseContext: string): boolean {
+  const release = normalizeCatalogText(releaseContext);
+  const haystack = normalizeCatalogText([
+    record.setName,
+    record.translatedSetName,
+    record.promoContext,
+    record.series,
+    ...(record.aliases ?? []).map((alias) => alias.alias)
+  ].filter(Boolean).join(' '));
+  if (release.includes('corocoro')) return haystack.includes('corocoro') || haystack.includes('coro coro');
+  if (release.includes('mcdonald')) return haystack.includes('mcdonald');
+  if (release.includes('pokemon center')) return haystack.includes('pokemon center');
+  if (release.includes('black star')) return haystack.includes('black star');
+  if (release.includes('toys r us')) return haystack.includes('toys r us');
+  return haystack.includes(release);
 }
 
 export function searchLocalCardCatalog(query: string, limit = 25, options: { dbPath?: string } = {}): LocalCardCatalogChoice[] {
@@ -91,6 +121,7 @@ export function searchLocalCardCatalog(query: string, limit = 25, options: { dbP
   const records = queryCardCatalogRecords({
     dbPath: options.dbPath,
     subject: parsed.subject,
+    subjectAliases: subjectIdentityTerms(parsed.subject),
     normalizedQuery: parsed.normalized,
     normalizedCardNumber: normalizeCatalogCardNumber(parsed.alphanumericNumber ?? parsed.localNumber),
     printedTotal: parsed.printedTotal,

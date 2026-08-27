@@ -31,6 +31,7 @@ export function initializeCardCatalogDb(dbPath = cardCatalogPath()): void {
         normalized_name TEXT NOT NULL,
         set_id TEXT,
         set_name TEXT,
+        translated_set_name TEXT,
         normalized_set_name TEXT,
         series TEXT,
         card_number TEXT,
@@ -67,6 +68,10 @@ export function initializeCardCatalogDb(dbPath = cardCatalogPath()): void {
       CREATE INDEX IF NOT EXISTS idx_card_catalog_alias_normalized ON card_catalog_aliases(normalized_alias);
       CREATE INDEX IF NOT EXISTS idx_card_catalog_alias_record ON card_catalog_aliases(record_id);
     `);
+    const columns = db.prepare('PRAGMA table_info(card_catalog_records)').all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'translated_set_name')) {
+      db.exec('ALTER TABLE card_catalog_records ADD COLUMN translated_set_name TEXT;');
+    }
   } finally {
     db.close();
   }
@@ -82,12 +87,12 @@ export function replaceCardCatalogSourceRecords(
   const insert = db.prepare(`
     INSERT INTO card_catalog_records (
       source, source_card_id, language, name, normalized_name, set_id, set_name,
-      normalized_set_name, series, card_number, normalized_card_number,
+      translated_set_name, normalized_set_name, series, card_number, normalized_card_number,
       printed_total, rarity, image_url, release_date, is_promo, promo_context,
       source_updated_at, imported_at
     ) VALUES (
       @source, @sourceCardId, @language, @name, @normalizedName, @setId, @setName,
-      @normalizedSetName, @series, @cardNumber, @normalizedCardNumber,
+      @translatedSetName, @normalizedSetName, @series, @cardNumber, @normalizedCardNumber,
       @printedTotal, @rarity, @imageUrl, @releaseDate, @isPromo, @promoContext,
       @sourceUpdatedAt, @importedAt
     )
@@ -108,6 +113,7 @@ export function replaceCardCatalogSourceRecords(
     bySource: {},
     errors: 0
   };
+  const dbValue = (value: string | number | boolean | undefined | null): string | number | boolean | null => value ?? null;
   const replace = db.transaction(() => {
     db.prepare('DELETE FROM card_catalog_records WHERE source = ?').run(source);
     for (const record of records) {
@@ -117,8 +123,26 @@ export function replaceCardCatalogSourceRecords(
       }
       try {
         insert.run({
-          ...record,
-          isPromo: record.isPromo ? 1 : 0
+          source: record.source,
+          sourceCardId: record.sourceCardId,
+          language: record.language,
+          name: record.name,
+          normalizedName: record.normalizedName,
+          setId: dbValue(record.setId),
+          setName: dbValue(record.setName),
+          translatedSetName: dbValue(record.translatedSetName),
+          normalizedSetName: dbValue(record.normalizedSetName),
+          series: dbValue(record.series),
+          cardNumber: dbValue(record.cardNumber),
+          normalizedCardNumber: dbValue(record.normalizedCardNumber),
+          printedTotal: dbValue(record.printedTotal),
+          rarity: dbValue(record.rarity),
+          imageUrl: dbValue(record.imageUrl),
+          releaseDate: dbValue(record.releaseDate),
+          isPromo: record.isPromo ? 1 : 0,
+          promoContext: dbValue(record.promoContext),
+          sourceUpdatedAt: dbValue(record.sourceUpdatedAt),
+          importedAt: record.importedAt
         });
         const recordId = (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
         for (const alias of record.aliases ?? []) {
@@ -127,7 +151,7 @@ export function replaceCardCatalogSourceRecords(
             recordId,
             alias: alias.alias,
             normalizedAlias: alias.normalizedAlias,
-            locale: alias.locale,
+            locale: alias.locale ?? '',
             kind: alias.kind
           });
         }
@@ -172,6 +196,7 @@ function rowToRecord(row: any): StoredCardCatalogRecord {
     normalizedName: row.normalized_name,
     setId: row.set_id ?? undefined,
     setName: row.set_name ?? undefined,
+    translatedSetName: row.translated_set_name ?? undefined,
     normalizedSetName: row.normalized_set_name ?? undefined,
     series: row.series ?? undefined,
     cardNumber: row.card_number ?? undefined,
@@ -191,6 +216,7 @@ function rowToRecord(row: any): StoredCardCatalogRecord {
 export function queryCardCatalogRecords(params: {
   dbPath?: string;
   subject?: string;
+  subjectAliases?: string[];
   normalizedQuery: string;
   normalizedCardNumber?: string;
   printedTotal?: string;
@@ -201,7 +227,17 @@ export function queryCardCatalogRecords(params: {
   let db: Database.Database | undefined;
   try {
     db = openCardCatalogDb(resolved, { readonly: true, fileMustExist: true });
-    const likeSubject = params.subject ? `%${params.subject}%` : undefined;
+    const subjectAliases = [...new Set([params.subject, ...(params.subjectAliases ?? [])].filter((value): value is string => !!value))].slice(0, 8);
+    const subjectChecks = subjectAliases.map((_, index) => `
+            normalized_name LIKE @subject${index}
+            OR EXISTS (
+              SELECT 1 FROM card_catalog_aliases a
+              WHERE a.record_id = card_catalog_records.id
+                AND a.normalized_alias LIKE @subject${index}
+            )
+    `);
+    const subjectClause = subjectChecks.length > 0 ? subjectChecks.map((check) => `(${check})`).join(' OR ') : '1 = 1';
+    const subjectParams = Object.fromEntries(subjectAliases.map((alias, index) => [`subject${index}`, `%${alias}%`]));
     const likeQuery = `%${params.normalizedQuery}%`;
     const hasNumber = params.normalizedCardNumber !== undefined;
     const rows = db.prepare(`
@@ -216,13 +252,7 @@ export function queryCardCatalogRecords(params: {
             OR CAST(printed_total AS INTEGER) = CAST(@printedTotal AS INTEGER)
           )
           AND (
-            @likeSubject IS NULL
-            OR normalized_name LIKE @likeSubject
-            OR EXISTS (
-              SELECT 1 FROM card_catalog_aliases a
-              WHERE a.record_id = card_catalog_records.id
-                AND a.normalized_alias LIKE @likeSubject
-            )
+            ${subjectClause}
           )
         )
         OR (
@@ -235,20 +265,13 @@ export function queryCardCatalogRecords(params: {
               WHERE a.record_id = card_catalog_records.id
                 AND a.normalized_alias LIKE @likeQuery
             )
-            OR (
-              @likeSubject IS NOT NULL
-              AND EXISTS (
-                SELECT 1 FROM card_catalog_aliases a
-                WHERE a.record_id = card_catalog_records.id
-                  AND a.normalized_alias LIKE @likeSubject
-              )
-            )
+            OR (${subjectClause})
           )
         )
       ORDER BY is_promo DESC, release_date DESC, id ASC
       LIMIT @limit
     `).all({
-      likeSubject,
+      ...subjectParams,
       likeQuery,
       hasNumber: hasNumber ? 1 : 0,
       normalizedCardNumber: params.normalizedCardNumber,

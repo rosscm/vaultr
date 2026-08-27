@@ -102,7 +102,17 @@ function setMetadataFromFile(filePath: string): Record<string, any> | undefined 
   return parseTcgDexModuleObject(fs.readFileSync(filePath, 'utf8'), 'set');
 }
 
-export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string; importedAt?: string; language?: CardCatalogLanguage; setMetadata?: Record<string, any> } = {}): CardCatalogRecord | undefined {
+export function loadTcgDexJapaneseSetTranslations(sourceDir: string): Map<string, string> {
+  const filePath = path.join(sourceDir, 'scripts', 'utils-data', 'jp_set_translations.ts');
+  const translations = new Map<string, string>();
+  if (!fs.existsSync(filePath)) return translations;
+  const source = fs.readFileSync(filePath, 'utf8');
+  const entryPattern = /['"]?([A-Za-z0-9]+)['"]?\s*:\s*['"]([^'"]+)['"]/g;
+  for (const entry of source.matchAll(entryPattern)) translations.set(entry[1]!, entry[2]!);
+  return translations;
+}
+
+export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string; importedAt?: string; language?: CardCatalogLanguage; setMetadata?: Record<string, any>; setTranslations?: Map<string, string> } = {}): CardCatalogRecord | undefined {
   const row = asRecord(card);
   if (!row) return undefined;
   const rowSet = asRecord(row.set);
@@ -116,6 +126,7 @@ export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string
   const name = localizedString(row.name, preferredLocale);
   if (!sourceCardId || !name) return undefined;
   const setName = localizedString(set?.name, preferredLocale) ?? setId;
+  const translatedSetName = language === 'ja' && setId ? options.setTranslations?.get(setId) : undefined;
   const cardNumber = typeof row.localId === 'string' || typeof row.localId === 'number'
     ? String(row.localId)
     : typeof row.number === 'string' || typeof row.number === 'number'
@@ -129,7 +140,7 @@ export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string
   const rarity = typeof row.rarity === 'string' ? row.rarity : undefined;
   const series = typeof set?.serie === 'string' ? set.serie : typeof set?.series === 'string' ? set.series : undefined;
   const isPromo = isPromoRecord({ setName, series, rarity });
-  const displayValue = catalogDisplayValue({ name, setName, cardNumber, printedTotal, language });
+  const displayValue = catalogDisplayValue({ name, setName, translatedSetName, cardNumber, printedTotal, language });
   return {
     source: 'TCGDEX',
     sourceCardId,
@@ -138,6 +149,7 @@ export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string
     normalizedName: normalizeCatalogText(name),
     setId,
     setName,
+    translatedSetName,
     normalizedSetName: normalizeCatalogText(setName),
     series,
     cardNumber,
@@ -152,7 +164,8 @@ export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string
     importedAt: options.importedAt ?? new Date().toISOString(),
     aliases: uniqueCatalogAliases([
       ...aliasesFromLocalizedName(row.name),
-      { alias: displayValue, locale: language, kind: 'display_name' }
+      { alias: displayValue, locale: language, kind: 'display_name' },
+      ...(translatedSetName ? [{ alias: translatedSetName, locale: 'en', kind: 'source_alias' as const }] : [])
     ])
   };
 }
@@ -161,6 +174,7 @@ export function loadTcgDexRepositoryRecords(sourceDir: string, importedAt = new 
   const records: CardCatalogRecord[] = [];
   let examined = 0;
   let errors = 0;
+  const setTranslations = loadTcgDexJapaneseSetTranslations(sourceDir);
   const roots = [path.join(sourceDir, 'data'), path.join(sourceDir, 'data-asia')].filter((root) => fs.existsSync(root));
   const files: string[] = [];
   for (const root of roots) {
@@ -181,7 +195,7 @@ export function loadTcgDexRepositoryRecords(sourceDir: string, importedAt = new 
       if (!card) continue;
       examined += 1;
       const setPath = `${path.dirname(filePath)}.ts`;
-      const record = tcgDexRecordFromCard(card, { filePath, importedAt, setMetadata: setMetadataFromFile(setPath) });
+      const record = tcgDexRecordFromCard(card, { filePath, importedAt, setMetadata: setMetadataFromFile(setPath), setTranslations });
       if (record) records.push(record);
     } catch {
       errors += 1;

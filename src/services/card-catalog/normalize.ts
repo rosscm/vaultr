@@ -95,14 +95,15 @@ export function isPromoRecord(input: { setName?: string; series?: string; rarity
 export function catalogDisplayValue(record: {
   name: string;
   setName?: string;
+  translatedSetName?: string;
   cardNumber?: string;
   printedTotal?: string;
   language: string;
 }): string {
-  const parts = [record.name, record.setName, record.cardNumber].filter(Boolean);
+  const parts = [record.name, record.translatedSetName ?? record.setName, record.cardNumber].filter(Boolean);
   const base = parts.join(' ').replace(/\s+/g, ' ').trim();
   const withFraction = record.printedTotal && record.cardNumber && /^\d+$/.test(record.cardNumber) && !base.includes('/')
-    ? `${record.name} ${record.setName ?? ''} ${record.cardNumber}/${record.printedTotal}`
+    ? `${record.name} ${record.translatedSetName ?? record.setName ?? ''} ${record.cardNumber}/${record.printedTotal}`
     : base;
   return record.language === 'ja' && !/\bjapanese\b/i.test(withFraction)
     ? `${withFraction} Japanese`
