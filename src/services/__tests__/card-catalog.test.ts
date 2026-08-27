@@ -68,12 +68,12 @@ function writeTcgDexCard(root: string, setId: string, number: string, nativeName
 function writeTcgDexTranslations(root: string): void {
   fs.mkdirSync(path.join(root, 'scripts', 'utils-data'), { recursive: true });
   fs.writeFileSync(path.join(root, 'scripts', 'utils-data', 'jp_set_translations.ts'), `
-    export const jpSetTranslations = {
-      SV1S: 'Scarlet ex',
-      SV3a: 'Raging Surf',
-      SV4a: 'Shiny Treasure ex',
-      SV8a: 'Terastal Festival ex'
-    }
+    export const jpSetTranslationsMap = new Map<string, string>([
+      ['SV1S', 'Scarlet ex'],
+      ['SV3a', 'Raging Surf'],
+      ['SV4a', 'Shiny Treasure ex'],
+      ['SV8a', 'Terastal Festival ex'],
+    ])
   `);
 }
 
@@ -179,7 +179,11 @@ describe('local card catalog', () => {
     const loaded = loadTcgDexRepositoryRecords(root, '2026-08-27T00:00:00.000Z');
 
     expect(loaded).toMatchObject({ examined: 1, errors: 0 });
-    expect(loadTcgDexJapaneseSetTranslations(root).get('SV4a')).toBe('Shiny Treasure ex');
+    const translations = loadTcgDexJapaneseSetTranslations(root);
+    expect(translations.get('SV1S')).toBe('Scarlet ex');
+    expect(translations.get('SV3a')).toBe('Raging Surf');
+    expect(translations.get('SV4a')).toBe('Shiny Treasure ex');
+    expect(translations.get('SV8a')).toBe('Terastal Festival ex');
     expect(loaded.records[0]).toMatchObject({
       sourceCardId: 'SV4a-347',
       language: 'ja',

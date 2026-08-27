@@ -107,8 +107,12 @@ export function loadTcgDexJapaneseSetTranslations(sourceDir: string): Map<string
   const translations = new Map<string, string>();
   if (!fs.existsSync(filePath)) return translations;
   const source = fs.readFileSync(filePath, 'utf8');
-  const entryPattern = /['"]?([A-Za-z0-9]+)['"]?\s*:\s*['"]([^'"]+)['"]/g;
-  for (const entry of source.matchAll(entryPattern)) translations.set(entry[1]!, entry[2]!);
+  const tuplePattern = /\[\s*['"]([A-Za-z0-9]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\]/g;
+  for (const entry of source.matchAll(tuplePattern)) translations.set(entry[1]!, entry[2]!);
+  const objectPattern = /['"]?([A-Za-z0-9]+)['"]?\s*:\s*['"]([^'"]+)['"]/g;
+  for (const entry of source.matchAll(objectPattern)) {
+    if (!translations.has(entry[1]!)) translations.set(entry[1]!, entry[2]!);
+  }
   return translations;
 }
 
