@@ -6,6 +6,8 @@ import {
   normalizeChaseCardName
 } from './collector-card-aliases.js';
 import type { PokemonReleaseAlias } from './collector-card-aliases.js';
+import { searchLocalCardCatalog } from './card-catalog/search.js';
+import type { LocalCardCatalogChoice } from './card-catalog/types.js';
 
 export { normalizeChaseCardName } from './collector-card-aliases.js';
 
@@ -792,8 +794,24 @@ async function sourceBackedChaseCardChoices(query: string, limit: number, option
   return (await sourceBackedChaseCardSearch(query, limit, options)).choices;
 }
 
-async function sourceBackedChaseCardSearch(query: string, limit: number, options: { dedupe?: boolean; includeExactTrustedFallback?: boolean } = {}): Promise<{ choices: ChaseCardCatalogResult[]; providers: ProviderSearchResult[] }> {
+function localCatalogChoiceToCatalogResult(choice: LocalCardCatalogChoice): ChaseCardCatalogResult {
+  return {
+    name: choice.name,
+    value: choice.value,
+    imageUrl: choice.imageUrl,
+    imageIdentity: choice.imageIdentity,
+    imageSourceName: choice.imageSourceName,
+    imageSourceKind: choice.imageSourceKind,
+    imageSourceCardId: choice.imageSourceCardId
+  };
+}
+
+async function sourceBackedChaseCardSearch(query: string, limit: number, options: { dedupe?: boolean; includeExactTrustedFallback?: boolean } = {}): Promise<{ choices: ChaseCardCatalogResult[]; providers: ProviderSearchResult[]; localChoices: ChaseCardCatalogResult[] }> {
   const exactTrustedChoices = options.includeExactTrustedFallback === true ? exactTrustedSourceChoicesForQuery(query) : [];
+  const localChoices = searchLocalCardCatalog(query, limit).map(localCatalogChoiceToCatalogResult);
+  for (const choice of localChoices.filter(choiceHasTrustedPreview)) {
+    cacheAutocompletePreview(choice.value, trustedChoicePreview(choice));
+  }
   const [pokemonResult, tcgDexEnglishResult, japaneseResult] = await Promise.all([
     providerSearch('POKEMONTCG', query, pokemonTcgSearchQueries(query).length > 0, () => pokemonTcgAutocompleteChoices(query, limit)),
     providerSearch('TCGDEX_EN', query, hasTcgDexEnglishAutocompleteSignal(query), () => tcgDexEnglishAutocompleteChoices(query, limit)),
@@ -803,12 +821,12 @@ async function sourceBackedChaseCardSearch(query: string, limit: number, options
   const tcgDexEnglishChoices = tcgDexEnglishResult.choices;
   const japaneseChoices = japaneseResult.choices;
   const choices = hasTcgDexAutocompleteSignal(query)
-    ? [...exactTrustedChoices, ...japaneseChoices, ...pokemonChoices, ...tcgDexEnglishChoices]
-    : [...exactTrustedChoices, ...pokemonChoices, ...tcgDexEnglishChoices, ...japaneseChoices];
+    ? [...exactTrustedChoices, ...localChoices, ...japaneseChoices, ...pokemonChoices, ...tcgDexEnglishChoices]
+    : [...exactTrustedChoices, ...localChoices, ...pokemonChoices, ...tcgDexEnglishChoices, ...japaneseChoices];
   const rankedChoices = options.dedupe === false
     ? [...choices].sort((a, b) => autocompleteChoiceScore(b, query) - autocompleteChoiceScore(a, query))
     : rankAndDeduplicateSourceChoices(choices, query);
-  return { choices: rankedChoices, providers: [pokemonResult, tcgDexEnglishResult, japaneseResult] };
+  return { choices: rankedChoices, providers: [pokemonResult, tcgDexEnglishResult, japaneseResult], localChoices };
 }
 
 function sourcePreference(choice: ChaseCardCatalogResult): number {
@@ -1077,7 +1095,8 @@ function autocompleteResultFromChoices(
   return { choices, availability, unavailable: availability === 'UNAVAILABLE', stale };
 }
 
-function providerAvailability(providers: ProviderSearchResult[], choices: ChaseCardAutocompleteChoice[]): ChaseCardAutocompleteResult['availability'] {
+function providerAvailability(providers: ProviderSearchResult[], choices: ChaseCardAutocompleteChoice[], hasLocalChoices = false): ChaseCardAutocompleteResult['availability'] {
+  if (hasLocalChoices && choices.length > 0) return 'AVAILABLE';
   const attempted = providers.filter((provider) => provider.attempted);
   const failed = attempted.filter((provider) => provider.status !== 'SUCCESS');
   if (attempted.length > 0 && failed.length === attempted.length) return 'UNAVAILABLE';
@@ -1138,7 +1157,7 @@ export async function autocompleteChaseCardsWithStatus(query: string, limit = 25
   const choices = uniqueChoices(prioritizedChoices, limit);
   const fallbackChoice = choices.length === 0 ? japanesePromoFallbackChoice(query) ?? pokemonReleaseFallbackChoice(query) : undefined;
   const finalChoices = fallbackChoice ? [fallbackChoice] : choices;
-  let availability = providerAvailability(search.providers, finalChoices);
+  let availability = providerAvailability(search.providers, finalChoices, search.localChoices.length > 0);
   if (availability === 'UNAVAILABLE' && cached && cached.staleUntil > Date.now() && cached.result.choices.length > 0) {
     return autocompleteResultFromChoices(cached.result.choices.slice(0, limit), 'PARTIAL', true);
   }

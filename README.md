@@ -95,6 +95,34 @@ Cloudflare Pages is a straightforward fit:
 - `/setup channel` (admin setup)
 - `/upgrade`
 
+## Local Card Catalog
+
+Vaultr can use a rebuildable local Pokemon card catalog for `/chase add` autocomplete before falling back to live providers.
+
+- Catalog DB path: `CARD_CATALOG_PATH`, default `./data/card-catalog.db`
+- This database is source metadata only. It is safe to delete and rebuild, and it is separate from `DATABASE_PATH` / `data/vaultr.db`.
+- Imported image fields are remote reference URLs only. Vaultr does not mirror card image binaries.
+- Source precedence for autocomplete is: exact trusted Vaultr references, local catalog, live PokemonTCG/TCGdex providers, then safe freeform fallback.
+
+First local import on the Pi:
+
+```sh
+cd /home/pi/Documents/GitHub
+git clone https://github.com/tcgdex/cards-database.git
+git clone https://github.com/PokemonTCG/pokemon-tcg-data.git
+cd /home/pi/Documents/GitHub/vaultr
+npm run catalog:init
+npm run catalog:import:tcgdex -- /home/pi/Documents/GitHub/cards-database
+npm run catalog:import:pokemontcg -- /home/pi/Documents/GitHub/pokemon-tcg-data
+npm run catalog:stats
+npm run catalog:search -- "gardevoir 101/078"
+npm run catalog:search -- "mew 347/190"
+npm run catalog:search -- "umbreon 176"
+npm run catalog:search -- "mew rc24"
+```
+
+The importers expect local checkouts and do not clone or call provider APIs at runtime. Do not commit cloned source repositories or generated `data/card-catalog.db*` files. Review upstream dataset licenses and attribution requirements before public distribution.
+
 ## User Plans
 
 - Default tier is `FREE`
