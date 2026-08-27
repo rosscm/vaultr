@@ -52,6 +52,20 @@ export function initializeCardCatalogDb(dbPath = cardCatalogPath()): void {
       CREATE INDEX IF NOT EXISTS idx_card_catalog_language ON card_catalog_records(language);
       CREATE INDEX IF NOT EXISTS idx_card_catalog_set_name ON card_catalog_records(normalized_set_name);
       CREATE INDEX IF NOT EXISTS idx_card_catalog_promo ON card_catalog_records(is_promo);
+
+      CREATE TABLE IF NOT EXISTS card_catalog_aliases (
+        id INTEGER PRIMARY KEY,
+        record_id INTEGER NOT NULL,
+        alias TEXT NOT NULL,
+        normalized_alias TEXT NOT NULL,
+        locale TEXT,
+        alias_kind TEXT NOT NULL,
+        FOREIGN KEY(record_id) REFERENCES card_catalog_records(id) ON DELETE CASCADE,
+        UNIQUE(record_id, normalized_alias, alias_kind, locale)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_card_catalog_alias_normalized ON card_catalog_aliases(normalized_alias);
+      CREATE INDEX IF NOT EXISTS idx_card_catalog_alias_record ON card_catalog_aliases(record_id);
     `);
   } finally {
     db.close();
@@ -78,6 +92,13 @@ export function replaceCardCatalogSourceRecords(
       @sourceUpdatedAt, @importedAt
     )
   `);
+  const insertAlias = db.prepare(`
+    INSERT OR IGNORE INTO card_catalog_aliases (
+      record_id, alias, normalized_alias, locale, alias_kind
+    ) VALUES (
+      @recordId, @alias, @normalizedAlias, @locale, @kind
+    )
+  `);
   const report: CardCatalogImportReport = {
     examined: records.length,
     imported: 0,
@@ -99,6 +120,17 @@ export function replaceCardCatalogSourceRecords(
           ...record,
           isPromo: record.isPromo ? 1 : 0
         });
+        const recordId = (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
+        for (const alias of record.aliases ?? []) {
+          if (!alias.alias || !alias.normalizedAlias) continue;
+          insertAlias.run({
+            recordId,
+            alias: alias.alias,
+            normalizedAlias: alias.normalizedAlias,
+            locale: alias.locale,
+            kind: alias.kind
+          });
+        }
         report.imported += 1;
         if (!record.imageUrl) report.missingImage += 1;
         report.byLanguage[record.language] = (report.byLanguage[record.language] ?? 0) + 1;
@@ -113,6 +145,20 @@ export function replaceCardCatalogSourceRecords(
     return report;
   } finally {
     db.close();
+  }
+}
+
+export function countCardCatalogSourceRecords(source: string, dbPath = cardCatalogPath()): number {
+  if (!fs.existsSync(dbPath)) return 0;
+  let db: Database.Database | undefined;
+  try {
+    db = openCardCatalogDb(dbPath, { readonly: true, fileMustExist: true });
+    const row = db.prepare('SELECT COUNT(*) AS count FROM card_catalog_records WHERE source = ?').get(source) as { count: number };
+    return row.count;
+  } catch {
+    return 0;
+  } finally {
+    db?.close();
   }
 }
 
@@ -137,7 +183,8 @@ function rowToRecord(row: any): StoredCardCatalogRecord {
     isPromo: row.is_promo === 1,
     promoContext: row.promo_context ?? undefined,
     sourceUpdatedAt: row.source_updated_at ?? undefined,
-    importedAt: row.imported_at
+    importedAt: row.imported_at,
+    aliases: []
   };
 }
 
@@ -156,24 +203,80 @@ export function queryCardCatalogRecords(params: {
     db = openCardCatalogDb(resolved, { readonly: true, fileMustExist: true });
     const likeSubject = params.subject ? `%${params.subject}%` : undefined;
     const likeQuery = `%${params.normalizedQuery}%`;
+    const hasNumber = params.normalizedCardNumber !== undefined;
     const rows = db.prepare(`
       SELECT * FROM card_catalog_records
       WHERE
-        (@likeSubject IS NOT NULL AND (normalized_name LIKE @likeSubject OR normalized_set_name LIKE @likeSubject))
-        OR normalized_name LIKE @likeQuery
-        OR normalized_set_name LIKE @likeQuery
-        OR (@normalizedCardNumber IS NOT NULL AND normalized_card_number = @normalizedCardNumber)
-        OR (@normalizedCardNumber IS NOT NULL AND @printedTotal IS NOT NULL AND normalized_card_number = @normalizedCardNumber AND printed_total = @printedTotal)
+        (
+          @hasNumber = 1
+          AND normalized_card_number = @normalizedCardNumber
+          AND (
+            @printedTotal IS NULL
+            OR printed_total = @printedTotal
+            OR CAST(printed_total AS INTEGER) = CAST(@printedTotal AS INTEGER)
+          )
+          AND (
+            @likeSubject IS NULL
+            OR normalized_name LIKE @likeSubject
+            OR EXISTS (
+              SELECT 1 FROM card_catalog_aliases a
+              WHERE a.record_id = card_catalog_records.id
+                AND a.normalized_alias LIKE @likeSubject
+            )
+          )
+        )
+        OR (
+          @hasNumber = 0
+          AND (
+            normalized_name LIKE @likeQuery
+            OR normalized_set_name LIKE @likeQuery
+            OR EXISTS (
+              SELECT 1 FROM card_catalog_aliases a
+              WHERE a.record_id = card_catalog_records.id
+                AND a.normalized_alias LIKE @likeQuery
+            )
+            OR (
+              @likeSubject IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM card_catalog_aliases a
+                WHERE a.record_id = card_catalog_records.id
+                  AND a.normalized_alias LIKE @likeSubject
+              )
+            )
+          )
+        )
       ORDER BY is_promo DESC, release_date DESC, id ASC
       LIMIT @limit
     `).all({
       likeSubject,
       likeQuery,
+      hasNumber: hasNumber ? 1 : 0,
       normalizedCardNumber: params.normalizedCardNumber,
       printedTotal: params.printedTotal,
       limit: Math.max(params.limit, 20)
     }) as any[];
-    return rows.map(rowToRecord);
+    const records = rows.map(rowToRecord);
+    if (records.length === 0) return records;
+    const ids = records.map((record) => record.id);
+    const placeholders = ids.map(() => '?').join(',');
+    const aliasRows = db.prepare(`
+      SELECT record_id, alias, normalized_alias, locale, alias_kind
+      FROM card_catalog_aliases
+      WHERE record_id IN (${placeholders})
+      ORDER BY id ASC
+    `).all(...ids) as Array<{ record_id: number; alias: string; normalized_alias: string; locale: string | null; alias_kind: string }>;
+    const aliasesByRecord = new Map<number, StoredCardCatalogRecord['aliases']>();
+    for (const row of aliasRows) {
+      const aliases = aliasesByRecord.get(row.record_id) ?? [];
+      aliases.push({
+        alias: row.alias,
+        normalizedAlias: row.normalized_alias,
+        locale: row.locale ?? undefined,
+        kind: row.alias_kind as any
+      });
+      aliasesByRecord.set(row.record_id, aliases);
+    }
+    return records.map((record) => ({ ...record, aliases: aliasesByRecord.get(record.id) ?? [] }));
   } catch (error) {
     console.warn(`local card catalog unavailable: ${error instanceof Error ? error.message : String(error)}`);
     return [];

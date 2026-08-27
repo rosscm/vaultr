@@ -12,13 +12,14 @@ function recordScore(record: StoredCardCatalogRecord, query: ReturnType<typeof p
   let score = 0;
   const recordName = record.normalizedName;
   const recordSet = record.normalizedSetName ?? '';
+  const aliases = [recordName, ...(record.aliases ?? []).map((alias) => alias.normalizedAlias)].filter(Boolean);
   const subject = query.subject;
   if (subject) {
-    if (recordName === subject) score += 70;
-    else if (recordName.split(' ').includes(subject)) score += 55;
-    else if (recordName.includes(subject)) score += 35;
+    if (aliases.some((alias) => alias === subject)) score += 70;
+    else if (aliases.some((alias) => alias.split(' ').includes(subject))) score += 55;
+    else if (aliases.some((alias) => alias.includes(subject))) score += 35;
     else if (recordSet.includes(subject)) score += 10;
-    if (ACCESSORY_TERMS.test(record.name) && recordName !== subject) score -= 80;
+    if (ACCESSORY_TERMS.test(record.name) && !aliases.some((alias) => alias === subject)) score -= 80;
   }
 
   if (query.localNumber) {
@@ -47,6 +48,8 @@ function recordScore(record: StoredCardCatalogRecord, query: ReturnType<typeof p
 }
 
 function hardReject(record: StoredCardCatalogRecord, query: ReturnType<typeof parseCatalogSearchQuery>): boolean {
+  const aliases = [record.normalizedName, ...(record.aliases ?? []).map((alias) => alias.normalizedAlias)].filter(Boolean);
+  if (query.subject && !aliases.some((alias) => alias === query.subject || alias.split(' ').includes(query.subject!) || alias.includes(query.subject!))) return true;
   if (query.language && record.language !== query.language) return true;
   if (query.printedTotal && normalizeCatalogCardNumber(record.printedTotal) !== normalizeCatalogCardNumber(query.printedTotal)) return true;
   if (query.localNumber && record.normalizedCardNumber !== normalizeCatalogCardNumber(query.localNumber)) return true;
@@ -110,4 +113,12 @@ export function searchLocalCardCatalog(query: string, limit = 25, options: { dbP
     if (!deduped.has(key)) deduped.set(key, toChoice(item.record, item.score));
   }
   return [...deduped.values()].slice(0, limit);
+}
+
+export function hasHighConfidenceLocalCatalogMatch(query: string, choices: LocalCardCatalogChoice[]): boolean {
+  const parsed = parseCatalogSearchQuery(query);
+  if (choices.length === 0) return false;
+  const hasStructuredEvidence = !!parsed.printedTotal || !!parsed.alphanumericNumber || (!!parsed.localNumber && !!parsed.releaseContext);
+  if (!parsed.subject || !hasStructuredEvidence) return false;
+  return choices.some((choice) => choice.score >= 120 && !!choice.imageUrl && choice.imageSourceKind === 'CARD_REFERENCE');
 }

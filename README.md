@@ -103,6 +103,10 @@ Vaultr can use a rebuildable local Pokemon card catalog for `/chase add` autocom
 - This database is source metadata only. It is safe to delete and rebuild, and it is separate from `DATABASE_PATH` / `data/vaultr.db`.
 - Imported image fields are remote reference URLs only. Vaultr does not mirror card image binaries.
 - Source precedence for autocomplete is: exact trusted Vaultr references, local catalog, live PokemonTCG/TCGdex providers, then safe freeform fallback.
+- PokemonTCG imports join `cards/en/*.json` to `sets/en.json`.
+- TCGdex imports real repository TypeScript files from `data/` and `data-asia/`, including companion set modules such as `data-asia/SV/SV4a.ts`.
+- Search uses source aliases when available, including localized TCGdex names. Japanese records are not matched to English collector queries unless source data supplies a useful Latin alias.
+- Import safety rejects zero-record and implausibly tiny imports unless `--force` or `--allow-tiny-fixture` is provided.
 
 First local import on the Pi:
 
@@ -116,12 +120,17 @@ npm run catalog:import:tcgdex -- /home/pi/Documents/GitHub/cards-database
 npm run catalog:import:pokemontcg -- /home/pi/Documents/GitHub/pokemon-tcg-data
 npm run catalog:stats
 npm run catalog:search -- "gardevoir 101/078"
+npm run catalog:search -- "gardevoir 101"
 npm run catalog:search -- "mew 347/190"
+npm run catalog:search -- "umbreon 217/187"
 npm run catalog:search -- "umbreon 176"
 npm run catalog:search -- "mew rc24"
+npm run catalog:search -- "pikachu xy95"
+npm run catalog:search -- "mew xy192"
+npm run catalog:search -- "mew corocoro"
 ```
 
-The importers expect local checkouts and do not clone or call provider APIs at runtime. Do not commit cloned source repositories or generated `data/card-catalog.db*` files. Review upstream dataset licenses and attribution requirements before public distribution.
+The importers expect local checkouts and do not clone or call provider APIs at runtime. `mew corocoro` may remain unresolved until a trusted promo/Japanese source covers that printing. Do not commit cloned source repositories or generated `data/card-catalog.db*` files. Review upstream dataset licenses and attribution requirements before public distribution.
 
 ## User Plans
 

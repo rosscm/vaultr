@@ -21,10 +21,18 @@ export type CardCatalogRecord = {
   promoContext?: string;
   sourceUpdatedAt?: string;
   importedAt: string;
+  aliases?: CardCatalogAlias[];
 };
 
 export type StoredCardCatalogRecord = CardCatalogRecord & {
   id: number;
+};
+
+export type CardCatalogAlias = {
+  alias: string;
+  normalizedAlias: string;
+  locale?: string;
+  kind: 'native_name' | 'localized_name' | 'display_name' | 'source_alias';
 };
 
 export type CardCatalogImportReport = {

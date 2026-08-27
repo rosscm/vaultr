@@ -6,7 +6,7 @@ import {
   normalizeChaseCardName
 } from './collector-card-aliases.js';
 import type { PokemonReleaseAlias } from './collector-card-aliases.js';
-import { searchLocalCardCatalog } from './card-catalog/search.js';
+import { hasHighConfidenceLocalCatalogMatch, searchLocalCardCatalog } from './card-catalog/search.js';
 import type { LocalCardCatalogChoice } from './card-catalog/types.js';
 
 export { normalizeChaseCardName } from './collector-card-aliases.js';
@@ -808,9 +808,16 @@ function localCatalogChoiceToCatalogResult(choice: LocalCardCatalogChoice): Chas
 
 async function sourceBackedChaseCardSearch(query: string, limit: number, options: { dedupe?: boolean; includeExactTrustedFallback?: boolean } = {}): Promise<{ choices: ChaseCardCatalogResult[]; providers: ProviderSearchResult[]; localChoices: ChaseCardCatalogResult[] }> {
   const exactTrustedChoices = options.includeExactTrustedFallback === true ? exactTrustedSourceChoicesForQuery(query) : [];
-  const localChoices = searchLocalCardCatalog(query, limit).map(localCatalogChoiceToCatalogResult);
+  const localSearchChoices = searchLocalCardCatalog(query, limit);
+  const localChoices = localSearchChoices.map(localCatalogChoiceToCatalogResult);
   for (const choice of localChoices.filter(choiceHasTrustedPreview)) {
     cacheAutocompletePreview(choice.value, trustedChoicePreview(choice));
+  }
+  if (hasHighConfidenceLocalCatalogMatch(query, localSearchChoices)) {
+    const choices = options.dedupe === false
+      ? [...exactTrustedChoices, ...localChoices].sort((a, b) => autocompleteChoiceScore(b, query) - autocompleteChoiceScore(a, query))
+      : rankAndDeduplicateSourceChoices([...exactTrustedChoices, ...localChoices], query);
+    return { choices, providers: [], localChoices };
   }
   const [pokemonResult, tcgDexEnglishResult, japaneseResult] = await Promise.all([
     providerSearch('POKEMONTCG', query, pokemonTcgSearchQueries(query).length > 0, () => pokemonTcgAutocompleteChoices(query, limit)),

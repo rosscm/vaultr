@@ -22,7 +22,7 @@ export function normalizeCatalogText(value: string | undefined | null): string {
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/&/g, ' and ')
-    .replace(/[^a-zA-Z0-9/]+/g, ' ')
+    .replace(/[^\p{L}\p{N}/]+/gu, ' ')
     .trim()
     .replace(/\s+/g, ' ')
     .toLowerCase();
@@ -107,4 +107,17 @@ export function catalogDisplayValue(record: {
   return record.language === 'ja' && !/\bjapanese\b/i.test(withFraction)
     ? `${withFraction} Japanese`
     : withFraction;
+}
+
+export function uniqueCatalogAliases(aliases: Array<{ alias: string; locale?: string; kind: 'native_name' | 'localized_name' | 'display_name' | 'source_alias' }>): Array<{ alias: string; normalizedAlias: string; locale?: string; kind: 'native_name' | 'localized_name' | 'display_name' | 'source_alias' }> {
+  const byKey = new Map<string, { alias: string; normalizedAlias: string; locale?: string; kind: 'native_name' | 'localized_name' | 'display_name' | 'source_alias' }>();
+  for (const alias of aliases) {
+    const cleaned = alias.alias.trim().replace(/\s+/g, ' ');
+    if (!cleaned) continue;
+    const normalizedAlias = normalizeCatalogText(cleaned);
+    if (!normalizedAlias) continue;
+    const key = `${normalizedAlias}|${alias.locale ?? ''}|${alias.kind}`;
+    if (!byKey.has(key)) byKey.set(key, { ...alias, alias: cleaned, normalizedAlias });
+  }
+  return [...byKey.values()];
 }

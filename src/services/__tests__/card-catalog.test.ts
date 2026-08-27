@@ -4,9 +4,10 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cardCatalogStats, initializeCardCatalogDb, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
 import { searchLocalCardCatalog } from '../card-catalog/search.js';
-import { pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
-import { tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
+import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
+import { loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
+import { runCatalogImportPokemonTcgCli } from '../../catalog-import-pokemontcg.js';
 
 const originalFetch = globalThis.fetch;
 const originalCatalogPath = process.env.CARD_CATALOG_PATH;
@@ -16,6 +17,12 @@ function tempCatalogPath(label: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `vaultr-card-catalog-${label}-`));
   tempDirs.add(dir);
   return path.join(dir, 'card-catalog.db');
+}
+
+function tempDir(label: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `vaultr-card-catalog-${label}-`));
+  tempDirs.add(dir);
+  return dir;
 }
 
 function record(overrides: Partial<ReturnType<typeof pokemonTcgRecordFromCard>> & { sourceCardId: string; name: string }) {
@@ -53,7 +60,7 @@ describe('local card catalog', () => {
     expect(stats.path).toBe(dbPath);
   });
 
-  it('normalizes representative PokemonTCG and TCGdex source records', () => {
+  it('normalizes representative PokemonTCG and real-format TCGdex source records', () => {
     expect(pokemonTcgRecordFromCard({
       id: 'bw11-RC24',
       name: 'Mew-EX',
@@ -69,21 +76,95 @@ describe('local card catalog', () => {
     });
 
     expect(tcgDexRecordFromCard({
-      id: 'SV8a-217',
-      localId: '217',
-      name: 'ブラッキーex',
-      image: 'https://assets.tcgdex.net/ja/SV/SV8a/217',
-      set: { id: 'SV8a', name: 'Terastal Festival ex', cardCount: { official: 187 } }
-    }, { language: 'ja' })).toMatchObject({
+      set: {},
+      name: { ja: 'ブラッキーex', id: 'Umbreon ex' }
+    }, {
+      language: 'ja',
+      filePath: '/repo/data-asia/SV/SV8a/217.ts',
+      setMetadata: {
+        id: 'SV8a',
+        name: { ja: 'テラスタルフェスex', id: 'Terastal Festival ex' },
+        cardCount: { official: 187 },
+        releaseDate: { ja: '2024-12-06' }
+      }
+    })).toMatchObject({
       source: 'TCGDEX',
       sourceCardId: 'SV8a-217',
       language: 'ja',
       cardNumber: '217',
       printedTotal: '187',
-      imageUrl: 'https://assets.tcgdex.net/ja/SV/SV8a/217/high.png'
+      imageUrl: 'https://assets.tcgdex.net/ja/SV/SV8a/217/high.png',
+      releaseDate: '2024-12-06',
+      aliases: expect.arrayContaining([
+        expect.objectContaining({ alias: 'Umbreon ex', locale: 'id', kind: 'localized_name' })
+      ])
     });
 
     expect(pokemonTcgRecordFromCard({ id: 'bad' })).toBeUndefined();
+  });
+
+  it('loads PokemonTCG repository cards by joining cards/en files to sets/en.json', () => {
+    const root = tempDir('ptcg-fixture');
+    fs.mkdirSync(path.join(root, 'sets'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'cards', 'en'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'sets', 'en.json'), JSON.stringify([
+      { id: 'sv2', name: 'Paldea Evolved', series: 'Scarlet & Violet', printedTotal: 193, releaseDate: '2023/06/09' }
+    ]));
+    fs.writeFileSync(path.join(root, 'cards', 'en', 'sv2.json'), JSON.stringify([
+      { id: 'sv2-101', name: 'Gardevoir', number: '101', rarity: 'Rare Holo', images: { large: 'https://images.pokemontcg.io/sv2/101_hires.png' } }
+    ]));
+    fs.writeFileSync(path.join(root, 'sets', 'ignored.json'), JSON.stringify([{ id: 'fake', name: 'Not a card' }]));
+
+    const loaded = loadPokemonTcgRepositoryRecords(root, '2026-08-27T00:00:00.000Z');
+
+    expect(loaded).toMatchObject({ examined: 1, errors: 0 });
+    expect(loaded.records[0]).toMatchObject({
+      sourceCardId: 'sv2-101',
+      setId: 'sv2',
+      setName: 'Paldea Evolved',
+      series: 'Scarlet & Violet',
+      printedTotal: '193',
+      releaseDate: '2023/06/09'
+    });
+  });
+
+  it('loads real-format TCGdex TypeScript card files with localized aliases', () => {
+    const root = tempDir('tcgdex-fixture');
+    fs.mkdirSync(path.join(root, 'data-asia', 'SV', 'SV4a'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'data-asia', 'SV', 'SV4a.ts'), `
+      const set: Set = {
+        id: 'SV4a',
+        name: { ja: 'シャイニートレジャーex', id: 'Shiny Treasure ex' },
+        cardCount: { official: 190 },
+        releaseDate: { ja: '2023-12-01' }
+      }
+      export default set
+    `);
+    fs.writeFileSync(path.join(root, 'data-asia', 'SV', 'SV4a', '347.ts'), `
+      const card: Card = {
+        set: Set,
+        category: CardCategory.POKEMON,
+        name: { ja: 'ミュウex', id: 'Mew ex' },
+        rarity: 'SAR'
+      }
+      export default card
+    `);
+
+    const loaded = loadTcgDexRepositoryRecords(root, '2026-08-27T00:00:00.000Z');
+
+    expect(loaded).toMatchObject({ examined: 1, errors: 0 });
+    expect(loaded.records[0]).toMatchObject({
+      sourceCardId: 'SV4a-347',
+      language: 'ja',
+      name: 'ミュウex',
+      setName: 'シャイニートレジャーex',
+      cardNumber: '347',
+      printedTotal: '190',
+      imageUrl: 'https://assets.tcgdex.net/ja/SV/SV4a/347/high.png',
+      aliases: expect.arrayContaining([
+        expect.objectContaining({ alias: 'Mew ex', locale: 'id' })
+      ])
+    });
   });
 
   it('ranks structured local searches and rejects conflicting collector fractions', () => {
@@ -107,26 +188,44 @@ describe('local card catalog', () => {
     const dbPath = tempCatalogPath('japanese');
     replaceCardCatalogSourceRecords('TCGDEX', [
       tcgDexRecordFromCard({
-        id: 'SV4a-347',
-        localId: '347',
-        name: 'ミュウex',
-        image: 'https://assets.tcgdex.net/ja/SV/SV4a/347',
-        set: { id: 'SV4a', name: 'Shiny Treasure ex', cardCount: { official: 190 } }
-      }, { language: 'ja' })!,
+        name: { ja: 'ミュウex', id: 'Mew ex' },
+        set: {}
+      }, {
+        language: 'ja',
+        filePath: '/repo/data-asia/SV/SV4a/347.ts',
+        setMetadata: { id: 'SV4a', name: { ja: 'シャイニートレジャーex', id: 'Shiny Treasure ex' }, cardCount: { official: 190 } }
+      })!,
       tcgDexRecordFromCard({
-        id: 'S12a-51',
-        localId: '051',
-        name: 'ミュウ',
-        image: 'https://assets.tcgdex.net/ja/S/S12a/051',
-        set: { id: 'S12a', name: 'VSTAR Universe', cardCount: { official: 172 } }
-      }, { language: 'ja' })!
+        name: { ja: 'ピカチュウ', id: 'Pikachu' },
+        set: {}
+      }, {
+        language: 'ja',
+        filePath: '/repo/data-asia/S/S12a/347.ts',
+        setMetadata: { id: 'S12a', name: { ja: 'VSTARユニバース', id: 'VSTAR Universe' }, cardCount: { official: 190 } }
+      })!
     ], dbPath);
 
     expect(searchLocalCardCatalog('mew 347/190', 5, { dbPath })[0]).toMatchObject({
-      value: 'ミュウex Shiny Treasure ex 347/190 Japanese',
+      value: 'ミュウex シャイニートレジャーex 347/190 Japanese',
       imageSourceName: 'TCGDEX',
       imageSourceKind: 'CARD_REFERENCE'
     });
+  });
+
+  it('does not match Japanese exact numbers without a matching source alias', () => {
+    const dbPath = tempCatalogPath('japanese-alias');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      tcgDexRecordFromCard({
+        name: { ja: 'ピカチュウ', id: 'Pikachu' },
+        set: {}
+      }, {
+        language: 'ja',
+        filePath: '/repo/data-asia/SV/SV4a/347.ts',
+        setMetadata: { id: 'SV4a', name: { ja: 'シャイニートレジャーex', id: 'Shiny Treasure ex' }, cardCount: { official: 190 } }
+      })!
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('mew 347/190', 5, { dbPath })).toEqual([]);
   });
 
   it('deduplicates obvious cross-source copies while preserving trusted preview metadata', () => {
@@ -159,6 +258,7 @@ describe('local card catalog', () => {
 
     const result = await autocompleteChaseCardsWithStatus('mew rc24', 25);
 
+    expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(result).toMatchObject({ unavailable: false, stale: false, availability: 'AVAILABLE' });
     expect(result.choices[0]).toEqual({ name: 'Mew-EX - Legendary Treasures #RC24', value: 'Mew-EX Legendary Treasures RC24' });
 
@@ -183,5 +283,21 @@ describe('local card catalog', () => {
     process.env.CARD_CATALOG_PATH = corruptPath;
     clearChaseCardAutocompleteCache();
     expect((await autocompleteChaseCardsWithStatus('mew', 10)).choices[0]).toEqual({ name: 'Mew — Southern Islands #1', value: 'Mew Southern Islands 1' });
+  });
+
+  it('aborts tiny full-repository imports without replacing existing catalog records', () => {
+    const dbPath = tempCatalogPath('import-safety');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({ sourceCardId: 'bw11-RC24', name: 'Mew-EX', cardNumber: 'RC24', normalizedCardNumber: 'RC24', setName: 'Legendary Treasures', normalizedSetName: 'legendary treasures' })
+    ], dbPath);
+    const root = tempDir('tiny-ptcg');
+    fs.mkdirSync(path.join(root, 'sets'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'cards', 'en'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'sets', 'en.json'), JSON.stringify([{ id: 'sv2', name: 'Paldea Evolved', printedTotal: 193 }]));
+    fs.writeFileSync(path.join(root, 'cards', 'en', 'sv2.json'), JSON.stringify([{ id: 'sv2-1', name: 'Tiny Fixture', number: '1' }]));
+
+    expect(() => runCatalogImportPokemonTcgCli([root])).toThrow(/only 1 records/);
+    expect(searchLocalCardCatalog('mew rc24', 5, { dbPath })[0]).toMatchObject({ value: 'Mew-EX Legendary Treasures RC24' });
   });
 });
