@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { addChase, enqueueAlertEventDelivery, listChases, listUserTasteMemoryChases, removeAllChases, setUserPlan } from '../services/chase-store.js';
+import { addChase, enqueueAlertEventDelivery, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, setUserPlan } from '../services/chase-store.js';
 import { getIdentity, getUserById } from '../services/accounts.js';
 import { db } from '../services/db.js';
 import {
@@ -21,6 +21,7 @@ const config: WebConfig = {
 function clearUser(userId: string): void {
   clearChaseCardAutocompleteCache();
   removeAllChases(userId);
+  db.prepare('DELETE FROM completed_chases WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
@@ -146,6 +147,8 @@ describe('web app static routes', () => {
     expect(cssResponse.headers?.['Content-Type']).toBe('text/css; charset=utf-8');
     expect(jsResponse.status).toBe(200);
     expect(jsResponse.headers?.['Content-Type']).toBe('text/javascript; charset=utf-8');
+    expect(jsResponse.body).toContain('COMPLETED CHASES');
+    expect(jsResponse.body).toContain('completedChasesSectionMarkup');
   });
 
   it('returns 404 for unknown or traversal-style static paths', async () => {
@@ -448,6 +451,7 @@ describe('authenticated chase API', () => {
 
     expect(response.status).toBe(200);
     expect(body.items).toHaveLength(4);
+    expect(body.completedItems).toEqual([]);
     expect(body.items.map((item: any) => item.chase.cardName)).not.toContain('Other User Card');
     expect(body.items.some((item: any) => item.monitoringState === 'PAUSED_PLAN_LIMIT')).toBe(true);
     expect(body.plan).toMatchObject({ tier: 'FREE', maxActiveChases: 3, activeCount: 3, pausedCount: 1 });
@@ -586,8 +590,15 @@ describe('authenticated chase API', () => {
       expect(JSON.parse(response.body ?? '{}')).toEqual({ ok: true, outcome });
     }
     expect(listChases(userId)).toHaveLength(0);
+    expect(listCompletedChases(userId).map((chase) => chase.cardName)).toEqual(['Mew RC24']);
     expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).toContain('Mew RC24');
+    expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).not.toContain('Pichu Expedition 22/165');
     expect(listUserTasteMemoryChases(userId).map((chase) => chase.cardName)).not.toContain('Zapdos Expedition 48');
+
+    const list = await handleWebRequest({ method: 'GET', url: '/api/chases', headers }, { config });
+    const listBody = JSON.parse(list.body ?? '{}');
+    expect(listBody.items).toEqual([]);
+    expect(listBody.completedItems.map((chase: any) => chase.cardName)).toEqual(['Mew RC24']);
 
     clearUser(userId);
     clearUser(otherUserId);

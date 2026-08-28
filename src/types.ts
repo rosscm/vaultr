@@ -24,6 +24,10 @@ export type Chase = {
   tasteSource?: 'ACTIVE_CHASE' | 'REMOVED_CHASE' | 'GOOD_ALERT' | 'BOUGHT_OR_SEEN' | 'DISCOVERY_ADD' | 'DISCOVERY_LIKE';
 };
 
+export type CompletedChase = Omit<Chase, 'tasteWeight' | 'tasteSource'> & {
+  completedAt: string;
+};
+
 export type Listing = {
   source: ListingSource;
   listingId: string;

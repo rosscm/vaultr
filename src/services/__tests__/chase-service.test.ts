@@ -3,6 +3,7 @@ import { describe, expect, it, afterEach } from 'vitest';
 import {
   createChaseForUser,
   listChases,
+  listCompletedChases,
   listUserTasteMemoryChases,
   removeAllChases,
   setUserPlan
@@ -30,6 +31,7 @@ function userId(label: string): string {
 
 function cleanupUser(id: string): void {
   removeAllChases(id);
+  db.prepare('DELETE FROM completed_chases WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(id);
 }
@@ -130,6 +132,12 @@ describe('chase service', () => {
     const freeUser = userId('free-limit');
     for (let index = 0; index < PLAN_LIMITS.FREE.maxActiveChases; index += 1) {
       expect(addUserChase({ userId: freeUser, cardName: `Free Card ${index}` }).ok).toBe(true);
+    }
+    const completedCandidate = listChases(freeUser)[0];
+    expect(completedCandidate).toBeTruthy();
+    if (completedCandidate) {
+      expect(resolveUserChaseRemoval({ userId: freeUser, chaseId: completedCandidate.id, outcome: 'COMPLETED' })).toMatchObject({ ok: true });
+      expect(addUserChase({ userId: freeUser, cardName: 'Replacement Active Card' }).ok).toBe(true);
     }
     expect(addUserChase({ userId: freeUser, cardName: 'One Too Many' })).toMatchObject({
       ok: false,
@@ -472,8 +480,11 @@ describe('chase service', () => {
     expect(resolveUserChaseRemoval({ userId: id, chaseId: mistake.chase.id, outcome: 'ADDED_BY_MISTAKE' })).toMatchObject({ ok: true });
 
     expect(listChases(id)).toHaveLength(0);
+    expect(listCompletedChases(id).map((chase) => chase.cardName)).toEqual(['Mew RC24']);
     expect(listUserTasteMemoryChases(id).map((chase) => chase.cardName)).toContain('Mew RC24');
+    expect(listUserTasteMemoryChases(id).map((chase) => chase.cardName)).not.toContain('Pichu Expedition 22/165');
     expect(listUserTasteMemoryChases(id).map((chase) => chase.cardName)).not.toContain('Zapdos Expedition 48');
+    expect(getVaultChases(id).completedChases.map((chase) => chase.cardName)).toEqual(['Mew RC24']);
   });
 
   it('marks plan-overflow chases as paused without losing list visibility', () => {

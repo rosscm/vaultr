@@ -63,6 +63,31 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_chases_user_normalized_card_name
     ON chases(user_id, lower(trim(card_name)));
 
+  CREATE TABLE IF NOT EXISTS completed_chases (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    guild_id TEXT,
+    card_name TEXT NOT NULL,
+    card_image_url TEXT,
+    card_image_identity TEXT,
+    card_image_source_name TEXT,
+    card_image_source_kind TEXT,
+    card_image_source_card_id TEXT,
+    query_name TEXT,
+    priority TEXT NOT NULL DEFAULT 'NORMAL',
+    target_note TEXT,
+    max_price REAL,
+    grade TEXT,
+    condition TEXT,
+    listing_type TEXT NOT NULL DEFAULT 'ANY',
+    negative_keywords TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_completed_chases_user_completed
+    ON completed_chases(user_id, completed_at DESC);
+
   CREATE TABLE IF NOT EXISTS sent_alerts (
     chase_id TEXT NOT NULL,
     listing_id TEXT NOT NULL,
@@ -529,6 +554,7 @@ db.exec(`
 const VAULTR_USER_ID_PREFIX = 'usr_';
 const USER_ID_OWNED_TABLES = [
   'chases',
+  'completed_chases',
   'sent_alerts',
   'alert_events',
   'alert_deliveries',
@@ -895,6 +921,7 @@ try {
 migrateLegacyDiscordUserIdsToAccounts();
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_completed_chases_user_completed ON completed_chases(user_id, completed_at DESC);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_identities_user_provider ON user_identities(user_id, provider);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_identities_provider_user ON user_identities(provider, provider_user_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_alerts_user_time ON sent_alerts(user_id, sent_at);`);

@@ -665,6 +665,23 @@ a {
   border-color: rgba(255, 211, 135, 0.24);
 }
 
+.vault-card.completed {
+  opacity: 0.88;
+}
+
+.completed-vault-section {
+  margin-top: 24px;
+}
+
+.completed-vault-section .section-heading {
+  margin-bottom: 12px;
+}
+
+.completed-vault-section h2 {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+}
+
 .vault-card-image {
   width: 96px;
   height: 122px;
@@ -719,6 +736,11 @@ a {
 .status-pill.paused {
   border: 1px solid rgba(255, 211, 135, 0.42);
   color: var(--gold);
+}
+
+.status-pill.completed {
+  border: 1px solid rgba(184, 148, 255, 0.36);
+  color: var(--muted-strong);
 }
 
 .paused-copy,

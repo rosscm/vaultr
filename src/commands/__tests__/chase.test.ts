@@ -9,6 +9,7 @@ import {
   addChase,
   getDiscoveryGlobalCollectorGrammarSummary,
   getDiscoveryLearnedSignalSummary,
+  listCompletedChases,
   listChases,
   listRecentUserDiscoveryFeedback,
   listUserTasteMemoryChases,
@@ -2346,6 +2347,7 @@ describe('chase command', () => {
     const button = mockButtonInteraction(userId, buttonId);
     await handleChaseRemoveButtons(button);
     expect(listChases(userId)).toEqual([]);
+    expect(listCompletedChases(userId).map((item) => item.cardName)).toEqual(['Meowth 18/53']);
     expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Meowth 18/53:BOUGHT_OR_SEEN']);
     expect(evaluateWeeklyDiscoveryEligibility([], listUserTasteMemoryChases(userId), 1).uniqueSignalCount).toBe(1);
     expect(button.update.mock.calls[0]![0].embeds[0].data.title).toBe('✅ Chase Completed');
@@ -2369,7 +2371,8 @@ describe('chase command', () => {
     await handleChaseRemoveButtons(button);
 
     expect(listChases(userId)).toEqual([]);
-    expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Pikachu Pokemon Rumble 7:REMOVED_CHASE']);
+    expect(listUserTasteMemoryChases(userId)).toEqual([]);
+    expect(listCompletedChases(userId)).toEqual([]);
     expect(evaluateWeeklyDiscoveryEligibility([], listUserTasteMemoryChases(userId), 1).uniqueSignalCount).toBe(0);
     expect(button.update.mock.calls[0]![0].embeds[0].data.description).toContain('It was not marked as completed.');
   });
@@ -2530,10 +2533,8 @@ describe('chase command', () => {
     const mistakePayload = mistakeInteraction.reply.mock.calls[0]![0] as any;
     await handleChaseRemoveButtons(mockButtonInteraction(userId, mistakePayload.components[0].components[2].data.custom_id as string));
 
-    expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual([
-      'Meowth 18/53:BOUGHT_OR_SEEN',
-      'Zapdos Aquapolis 44:REMOVED_CHASE'
-    ]);
+    expect(listCompletedChases(userId).map((item) => item.cardName)).toEqual(['Meowth 18/53']);
+    expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Meowth 18/53:BOUGHT_OR_SEEN']);
   });
 
   it('lists default exclusions once while showing chase-specific custom exclusions inline', () => {

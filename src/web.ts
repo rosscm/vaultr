@@ -228,6 +228,13 @@ function publicChase(chase: ReturnType<typeof getVaultChases>['chases'][number][
   };
 }
 
+function publicCompletedChase(chase: ReturnType<typeof getVaultChases>['completedChases'][number]) {
+  return {
+    ...publicChase(chase),
+    completedAt: chase.completedAt
+  };
+}
+
 function publicVaultItem(view: ReturnType<typeof getVaultChases>['chases'][number]) {
   return {
     chase: publicChase(view.chase),
@@ -250,6 +257,7 @@ function vaultResponse(userId: string): WebResponse {
   const settings = getUserAlertSettings(userId);
   return jsonResponse(200, {
     items: vault.chases.map(publicVaultItem),
+    completedItems: vault.completedChases.map(publicCompletedChase),
     plan: vault.plan,
     currency: settings.alertCurrency,
     options: vaultOptions()

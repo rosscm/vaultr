@@ -1,19 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   addChase,
+  __chaseStoreTestHooks,
   enqueueAlertEventDelivery,
   getAlertDeliveryById,
   getAlertEventById,
   getAlertEventForUser,
   getChaseLastPollAttemptAt,
   getChaseLastPollCheckAt,
+  listCompletedChases,
   listAlertDeliveriesForEvent,
   listAlertEventsForUser,
   markAlertDeliveryFailed,
   markAlertDeliverySent,
   markChasesPollAttempted,
   markChasesPollChecked,
-  removeAllChases
+  removeAllChases,
+  resolveChaseRemoval,
 } from '../chase-store.js';
 import { db } from '../db.js';
 
@@ -42,6 +45,97 @@ describe('chase poll state', () => {
     expect(getChaseLastPollAttemptAt(chase.id)).toBe('2026-07-05T16:10:00.000Z');
 
     removeAllChases(userId);
+  });
+});
+
+describe('completed chase history', () => {
+  function clearCompleted(userId: string): void {
+    db.prepare('DELETE FROM completed_chases WHERE user_id = ?').run(userId);
+  }
+
+  it('initializes completed chase schema and user ordering index', () => {
+    const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'completed_chases'").get();
+    const index = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_completed_chases_user_completed'").get();
+    expect(table).toBeTruthy();
+    expect(index).toBeTruthy();
+  });
+
+  it('snapshots completed removals atomically and clears active polling', () => {
+    const userId = 'completed-history-user';
+    removeAllChases(userId);
+    clearCompleted(userId);
+    const chase = addChase({
+      userId,
+      cardName: 'Mew RC24',
+      cardImageUrl: 'https://images.example/mew.png',
+      cardImageIdentity: 'Mew RC24',
+      cardImageSourceName: 'Pokemon TCG',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceCardId: 'bw11-RC24',
+      priority: 'GRAIL',
+      targetNote: 'clean',
+      maxPrice: 120,
+      grade: 'PSA 10',
+      condition: 'NM',
+      listingType: 'BUY_IT_NOW',
+      negativeKeywords: ['proxy']
+    });
+    markChasesPollChecked([chase.id], '2026-08-01T00:00:00.000Z');
+
+    const result = resolveChaseRemoval(userId, chase.id, 'COMPLETED');
+
+    expect(result.removed).toBe(true);
+    expect(getChaseLastPollCheckAt(chase.id)).toBeUndefined();
+    expect(listCompletedChases(userId)[0]).toMatchObject({
+      id: chase.id,
+      cardName: 'Mew RC24',
+      cardImageUrl: 'https://images.example/mew.png',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceCardId: 'bw11-RC24',
+      priority: 'GRAIL',
+      maxPrice: 120,
+      listingType: 'BUY_IT_NOW',
+      negativeKeywords: ['proxy']
+    });
+  });
+
+  it('rolls back completed snapshot, active removal, and poll clearing on failure', () => {
+    const userId = 'completed-history-rollback-user';
+    removeAllChases(userId);
+    clearCompleted(userId);
+    const chase = addChase({ userId, cardName: 'Pichu Expedition 22/165' });
+    markChasesPollChecked([chase.id], '2026-08-01T00:00:00.000Z');
+
+    __chaseStoreTestHooks.failNextResolvedRemoval();
+    expect(() => resolveChaseRemoval(userId, chase.id, 'COMPLETED')).toThrow('Simulated resolved chase removal failure');
+
+    expect(listCompletedChases(userId)).toEqual([]);
+    expect(getChaseLastPollCheckAt(chase.id)).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('does not archive no-longer-interested or mistake removals', () => {
+    const userId = 'completed-history-non-completed-user';
+    removeAllChases(userId);
+    clearCompleted(userId);
+    const uninterested = addChase({ userId, cardName: 'Zapdos Expedition 48' });
+    const mistake = addChase({ userId, cardName: 'Random Bulk Card' });
+
+    expect(resolveChaseRemoval(userId, uninterested.id, 'NO_LONGER_INTERESTED').removed).toBe(true);
+    expect(resolveChaseRemoval(userId, mistake.id, 'ADDED_BY_MISTAKE').removed).toBe(true);
+
+    expect(listCompletedChases(userId)).toEqual([]);
+  });
+
+  it('orders completed history newest first and allows rechasing the same card', () => {
+    const userId = 'completed-history-plan-user';
+    removeAllChases(userId);
+    clearCompleted(userId);
+    const first = addChase({ userId, cardName: 'Mew RC24' });
+    resolveChaseRemoval(userId, first.id, 'COMPLETED');
+    const second = addChase({ userId, cardName: 'Mew RC24' });
+    resolveChaseRemoval(userId, second.id, 'COMPLETED');
+
+    expect(listCompletedChases(userId).map((item) => item.id)).toEqual([second.id, first.id]);
   });
 });
 

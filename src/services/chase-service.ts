@@ -1,8 +1,9 @@
-import type { Chase } from '../types.js';
+import type { Chase, CompletedChase } from '../types.js';
 import {
   createChaseForUser,
   getUserPlan,
   listChases,
+  listCompletedChases,
   resolveChaseRemoval,
   updateChase
 } from './chase-store.js';
@@ -76,6 +77,7 @@ export type VaultChaseView = {
 
 export type VaultChasesResult = {
   chases: VaultChaseView[];
+  completedChases: CompletedChase[];
   plan: {
     tier: 'FREE' | 'PRO';
     maxActiveChases: number;
@@ -301,6 +303,7 @@ export function getVaultChases(userId: VaultrUserId): VaultChasesResult {
   }));
   return {
     chases: views,
+    completedChases: listCompletedChases(userId),
     plan: {
       tier: activeTier,
       maxActiveChases: limits.maxActiveChases,

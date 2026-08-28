@@ -12,6 +12,7 @@ import type {
   AlertHistoryItem,
   AlertHistoryPage,
   Chase,
+  CompletedChase,
   Listing,
   ListingSource,
   ListingSourceModePreference,
@@ -43,6 +44,10 @@ type ChaseRow = {
   listing_type: 'ANY' | 'AUCTION' | 'BUY_IT_NOW';
   negative_keywords: string | null;
   created_at: string;
+};
+
+type CompletedChaseRow = ChaseRow & {
+  completed_at: string;
 };
 
 export type DiscoveryVaultAction = {
@@ -295,6 +300,13 @@ function mapRow(row: ChaseRow): Chase {
   };
 }
 
+function mapCompletedRow(row: CompletedChaseRow): CompletedChase {
+  return {
+    ...mapRow(row),
+    completedAt: row.completed_at
+  };
+}
+
 function mapSourceObservation(row: SourceObservationRow): SourceObservation {
   return {
     chaseId: row.chase_id,
@@ -466,6 +478,24 @@ const selectChasesMissingQueryNameStmt = db.prepare(`
 
 const updateChaseQueryNameOnlyStmt = db.prepare(`
   UPDATE chases SET query_name = ? WHERE id = ?
+`);
+
+const insertCompletedChaseStmt = db.prepare(`
+  INSERT OR IGNORE INTO completed_chases (
+    id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id,
+    query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at, completed_at
+  )
+  VALUES (
+    @id, @user_id, @guild_id, @card_name, @card_image_url, @card_image_identity, @card_image_source_name, @card_image_source_kind, @card_image_source_card_id,
+    @query_name, @priority, @target_note, @max_price, @grade, @condition, @listing_type, @negative_keywords, @created_at, @completed_at
+  )
+`);
+
+const listCompletedChasesStmt = db.prepare(`
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at, completed_at
+  FROM completed_chases
+  WHERE user_id = ?
+  ORDER BY completed_at DESC, created_at DESC
 `);
 
 const removeChaseStmt = db.prepare(`
@@ -1439,6 +1469,11 @@ export function listChases(userId: string): Chase[] {
   return rows.map(mapRow);
 }
 
+export function listCompletedChases(userId: string): CompletedChase[] {
+  const rows = listCompletedChasesStmt.all(userId) as CompletedChaseRow[];
+  return rows.map(mapCompletedRow);
+}
+
 export function getChase(userId: string, chaseId: string): Chase | null {
   const row = getChaseByIdStmt.get(userId, chaseId) as ChaseRow | undefined;
   return row ? mapRow(row) : null;
@@ -1848,7 +1883,6 @@ function chaseRemovalTasteSource(reason: ChaseRemovalReason): TasteMemorySource 
 
 function chaseRemovalOutcomeTasteSource(outcome: ChaseRemovalOutcome): TasteMemorySource | undefined {
   if (outcome === 'COMPLETED') return 'BOUGHT_OR_SEEN';
-  if (outcome === 'NO_LONGER_INTERESTED') return 'REMOVED_CHASE';
   return undefined;
 }
 
@@ -1865,6 +1899,30 @@ export function resolveChaseRemoval(
   const result = db.transaction(() => {
     const chase = currentChaseForTaste(userId, chaseId);
     if (!chase) return { removed: false as const, chase: undefined };
+    const completedAt = new Date().toISOString();
+    if (outcome === 'COMPLETED') {
+      insertCompletedChaseStmt.run({
+        id: chase.id,
+        user_id: chase.userId,
+        guild_id: chase.guildId ?? null,
+        card_name: chase.cardName,
+        card_image_url: chase.cardImageUrl ?? null,
+        card_image_identity: chase.cardImageIdentity ?? null,
+        card_image_source_name: chase.cardImageSourceName ?? null,
+        card_image_source_kind: chase.cardImageSourceKind ?? null,
+        card_image_source_card_id: chase.cardImageSourceCardId ?? null,
+        query_name: chase.queryName ?? null,
+        priority: chase.priority ?? 'NORMAL',
+        target_note: chase.targetNote ?? null,
+        max_price: chase.maxPrice ?? null,
+        grade: chase.grade ?? null,
+        condition: chase.condition ?? null,
+        listing_type: chase.listingType ?? 'ANY',
+        negative_keywords: chase.negativeKeywords?.join(',') ?? null,
+        created_at: chase.createdAt,
+        completed_at: completedAt
+      });
+    }
     const removed = removeChaseStmt.run(userId, chaseId);
     if (removed.changes <= 0) return { removed: false as const, chase: undefined };
     deleteChasePollStateStmt.run(chaseId);

@@ -11,6 +11,7 @@ const state = {
   hasCheckedAllAlerts: false,
   isLoadingMore: false,
   vault: [],
+  completedChases: [],
   vaultPlan: null,
   vaultCurrency: 'CAD',
   vaultOptions: null,
@@ -64,6 +65,12 @@ function currencySymbol(currency) {
 function formatMoney(amount, currency) {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return '';
   return `${currencySymbol(currency)}${amount.toFixed(2)}`;
+}
+
+function formatDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function planLabel(tier) {
@@ -403,6 +410,7 @@ function vaultPageMarkup() {
       ${state.vaultNotice ? `<div class="vault-notice" role="status">${escapeHtml(state.vaultNotice)}</div>` : ''}
       ${vaultSummaryMarkup()}
       ${items.length ? `<div class="vault-grid" aria-label="Saved Chases">${items.map(vaultCardMarkup).join('')}</div>` : vaultEmptyMarkup()}
+      ${completedChasesSectionMarkup()}
       ${vaultDialogMarkup()}
       ${removeDialogMarkup()}
     </section>
@@ -427,6 +435,7 @@ function vaultSummaryMarkup() {
   const active = plan.activeCount ?? 0;
   const max = plan.maxActiveChases ?? 0;
   const paused = plan.pausedCount ?? 0;
+  const completed = state.completedChases?.length ?? 0;
   return `
     <div class="vault-summary" aria-label="Vault plan summary">
       <div>
@@ -437,6 +446,10 @@ function vaultSummaryMarkup() {
         <span class="summary-label">Plan</span>
         <strong>${escapeHtml(planLabel(plan.tier))}</strong>
       </div>
+      ${completed > 0 ? `<div>
+        <span class="summary-label">Completed</span>
+        <strong>${escapeHtml(completed)}</strong>
+      </div>` : ''}
       ${paused > 0 ? `<p>${escapeHtml(paused)} saved ${paused === 1 ? 'Chase is' : 'Chases are'} paused while this Vault is on Free.</p>` : ''}
     </div>
   `;
@@ -480,6 +493,46 @@ function vaultCardMarkup(item) {
         </div>
       </div>
     </article>
+  `;
+}
+
+function completedChaseMarkup(chase) {
+  const completedDate = chase.completedAt ? formatDate(chase.completedAt) : '';
+  const details = [
+    completedDate ? `Completed ${completedDate}` : 'Completed',
+    chase.maxPrice !== undefined ? `Max ${formatMoney(chase.maxPrice, state.vaultCurrency)}` : undefined,
+    chase.grade ? displayGradeValue(chase.grade) : undefined,
+    chase.condition ? displayConditionValue(chase.condition) : undefined,
+    chase.listingType && chase.listingType !== 'ANY' ? listingTypeLabel(chase.listingType) : undefined,
+    chase.priority ? priorityLabel(chase.priority) : undefined
+  ].filter(Boolean);
+  return `
+    <article class="vault-card completed">
+      ${chase.cardImageUrl ? `<img class="vault-card-image" src="${escapeHtml(chase.cardImageUrl)}" alt="${escapeHtml(chase.cardName)} card image" loading="lazy" data-vault-card-image>` : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
+      <div class="vault-card-body">
+        <div class="vault-card-meta">
+          <span class="status-pill completed">Completed</span>
+        </div>
+        <h2>${escapeHtml(chase.cardName || 'Completed Chase')}</h2>
+        ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
+      </div>
+    </article>
+  `;
+}
+
+function completedChasesSectionMarkup() {
+  const completed = state.completedChases || [];
+  if (!completed.length) return '';
+  return `
+    <section class="completed-vault-section" aria-labelledby="completed-vault-title">
+      <div class="section-heading">
+        <p class="eyebrow">COMPLETED CHASES</p>
+        <h2 id="completed-vault-title">Found cards, kept as history</h2>
+      </div>
+      <div class="vault-grid completed-grid" aria-label="Completed Chases">
+        ${completed.map(completedChaseMarkup).join('')}
+      </div>
+    </section>
   `;
 }
 
@@ -712,6 +765,7 @@ async function loadVault({ force = false } = {}) {
   try {
     const body = await fetchJson('/api/chases');
     state.vault = body.items || [];
+    state.completedChases = body.completedItems || [];
     state.vaultPlan = body.plan || null;
     state.vaultCurrency = body.currency || 'CAD';
     state.vaultOptions = body.options || null;
