@@ -20,6 +20,7 @@ import {
 } from '../chase-service.js';
 import { PLAN_LIMITS } from '../plans.js';
 import { db } from '../db.js';
+import { matchChaseToListing } from '../matcher.js';
 
 const testUserIds = new Set<string>();
 
@@ -124,7 +125,7 @@ describe('chase service', () => {
       listingType: 'BUY_IT_NOW',
       priority: 'GRAIL',
       targetNote: 'clean copy',
-      negativeKeywords: ['proxy', 'played']
+      negativeKeywords: ['played']
     });
   });
 
@@ -207,7 +208,7 @@ describe('chase service', () => {
       listingType: 'BUY_IT_NOW',
       priority: 'GRAIL',
       targetNote: 'clean raw copy',
-      negativeKeywords: ['played', 'proxy']
+      negativeKeywords: ['played']
     });
   });
 
@@ -398,7 +399,7 @@ describe('chase service', () => {
       listingType: 'AUCTION',
       priority: 'HIGH',
       targetNote: 'binder copy',
-      negativeKeywords: ['slab', 'proxy']
+      negativeKeywords: ['slab']
     });
 
     const cleared = updateUserChase({
@@ -441,6 +442,15 @@ describe('chase service', () => {
     expect(result.chase.maxPrice).toBeUndefined();
     expect(result.chase.targetNote).toBeUndefined();
     expect(result.chase.negativeKeywords).toBeUndefined();
+    expect(matchChaseToListing(result.chase, {
+      source: 'EBAY',
+      listingId: 'default-blocked-after-clear',
+      title: 'Gardevoir ex 233/091 proxy',
+      price: 100,
+      currency: 'USD',
+      url: 'https://example.test/default-blocked-after-clear',
+      region: 'US'
+    }).isMatch).toBe(false);
   });
 
   it('keeps Free edit controls blocked unless a normal field also changes', () => {

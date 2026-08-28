@@ -12,6 +12,7 @@ import {
   normalizeChaseCardName,
   type CachedChaseCardPreview
 } from './chase-card-catalog.js';
+import { customExclusionTerms } from './chase-exclusions.js';
 import { getEntitlementsForTier } from './entitlements.js';
 import { activePlanChases, activePlanLimits, activePlanTier, PLAN_LIMITS } from './plans.js';
 import {
@@ -245,7 +246,8 @@ function parseCustomExclusions(value: string | string[] | null | undefined, opti
     ? value.map((term) => term.trim()).filter(Boolean)
     : value.split(',').map((term) => term.trim()).filter(Boolean);
   if (options.noneClears && !Array.isArray(value) && /^none$/i.test(value.trim())) return null;
-  return terms.length > 0 ? terms : options.noneClears ? null : undefined;
+  const customTerms = customExclusionTerms(terms);
+  return customTerms.length > 0 ? customTerms : options.noneClears ? null : undefined;
 }
 
 function requestedAddAdvancedControls(input: AddUserChaseInput): ChaseAdvancedControl[] {

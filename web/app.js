@@ -89,6 +89,28 @@ function listingTypeLabel(value) {
   return 'Any listing';
 }
 
+function pageFromHash(hash = window.location.hash) {
+  const value = String(hash || '').replace(/^#/, '').toLowerCase();
+  if (value === 'vault' || value === 'alerts' || value === 'shelf') return value;
+  return 'alerts';
+}
+
+async function loadActivePageData() {
+  if (state.activePage === 'alerts' && !state.alerts.length) await loadAlerts();
+  if (state.activePage === 'vault') await loadVault();
+}
+
+async function navigateToPage(page, { updateHash = true } = {}) {
+  const nextPage = page === 'vault' || page === 'alerts' || page === 'shelf' ? page : 'alerts';
+  state.activePage = nextPage;
+  if (updateHash && window.location.hash !== `#${nextPage}`) {
+    window.location.hash = nextPage;
+    return;
+  }
+  renderCurrentPage();
+  await loadActivePageData();
+}
+
 function gradeToChoices(grade) {
   if (!grade) return { gradingType: 'ANY', gradeValue: 'ANY' };
   if (grade === 'UNGRADED' || grade === 'RAW') return { gradingType: 'RAW', gradeValue: 'ANY' };
@@ -427,6 +449,7 @@ function vaultHeaderMarkup() {
       </div>
       <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add Chase</button>
     </header>
+    <p class="vault-auto-filter-note">Common proxy, reprint, lot, code-card, and non-card listings are filtered automatically.</p>
   `;
 }
 
@@ -486,7 +509,7 @@ function vaultCardMarkup(item) {
         ${paused ? '<p class="paused-copy">Saved in your Vault, not currently monitored on Free.</p>' : ''}
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${chase.targetNote ? `<p class="vault-note">${escapeHtml(chase.targetNote)}</p>` : ''}
-        ${chase.negativeKeywords?.length ? `<p class="vault-note">Excludes ${escapeHtml(chase.negativeKeywords.join(', '))}</p>` : ''}
+        ${chase.negativeKeywords?.length ? `<p class="vault-note">Custom exclusions: ${escapeHtml(chase.negativeKeywords.join(', '))}</p>` : ''}
         <div class="vault-actions">
           <button class="button-ghost" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit</button>
           <button class="button-ghost danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button>
@@ -920,9 +943,9 @@ async function bootstrap() {
   try {
     const body = await fetchJson('/api/me');
     state.user = body.user;
-    state.activePage = 'alerts';
+    state.activePage = pageFromHash();
     renderShell(skeletonMarkup());
-    await loadAlerts();
+    await loadActivePageData();
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
     app.innerHTML = `
@@ -944,18 +967,14 @@ app.addEventListener('click', async (event) => {
 
   const page = target.getAttribute('data-page');
   if (page) {
-    state.activePage = page;
-    renderCurrentPage();
-    if (page === 'alerts' && !state.alerts.length) await loadAlerts();
-    if (page === 'vault') await loadVault();
+    await navigateToPage(page);
     return;
   }
 
   const priority = target.getAttribute('data-priority');
   if (priority) {
     state.priority = priority;
-    state.activePage = 'alerts';
-    await loadAlerts();
+    await navigateToPage('alerts');
     return;
   }
 
@@ -1033,9 +1052,13 @@ app.addEventListener('change', async (event) => {
   if (!(target instanceof HTMLSelectElement)) return;
   if (target.getAttribute('data-action') === 'source-filter') {
     state.source = target.value;
-    state.activePage = 'alerts';
-    await loadAlerts();
+    await navigateToPage('alerts');
   }
+});
+
+window.addEventListener('hashchange', () => {
+  if (!state.user) return;
+  void navigateToPage(pageFromHash(), { updateHash: false });
 });
 
 app.addEventListener('submit', async (event) => {

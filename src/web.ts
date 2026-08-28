@@ -11,6 +11,7 @@ import {
   type ListAlertEventsForUserOptions
 } from './services/chase-store.js';
 import { autocompleteChaseCardsWithStatus } from './services/chase-card-catalog.js';
+import { customExclusionTerms } from './services/chase-exclusions.js';
 import {
   addUserChase,
   getVaultChases,
@@ -223,7 +224,7 @@ function publicChase(chase: ReturnType<typeof getVaultChases>['chases'][number][
     grade: chase.grade,
     condition: chase.condition,
     listingType: chase.listingType,
-    negativeKeywords: chase.negativeKeywords,
+    negativeKeywords: customExclusionTerms(chase.negativeKeywords),
     createdAt: chase.createdAt
   };
 }

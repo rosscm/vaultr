@@ -239,6 +239,15 @@ describe('matchChaseToListing', () => {
     expect(replica.reasons).toEqual(['custom_or_unofficial_item_block']);
   });
 
+  it('keeps default exclusions active when a chase also has custom exclusions', () => {
+    const chase = baseChase({ cardName: 'Mew XY Black Star Promos XY110', negativeKeywords: ['korean'] });
+
+    expect(matchChaseToListing(chase, baseListing({ title: 'Mew XY110 Korean Pokemon Card' })).reasons).toEqual(['negative_keyword_block']);
+    expect(matchChaseToListing(chase, baseListing({ title: 'Mew XY110 proxy Pokemon Card' })).reasons).toEqual(['custom_or_unofficial_item_block']);
+    expect(matchChaseToListing(chase, baseListing({ title: 'Mew XY110 Pokemon Card reprint' })).reasons).toEqual(['default_exclusion_block', 'default_exclusion:reprint']);
+    expect(matchChaseToListing(chase, baseListing({ title: 'Mew Pokemon Mythical Collection Promo XY110 Online Code' })).reasons).toEqual(['default_exclusion_block', 'default_exclusion:code card']);
+  });
+
   it('keeps legitimate Art Rare, SAR, Alternate Art, and Full Art listings eligible', () => {
     const chase = baseChase({ cardName: 'Gardevoir ex 233/091', queryName: 'Gardevoir ex 233/091' });
     const titles = [
@@ -389,6 +398,42 @@ describe('matchChaseToListing', () => {
         title: 'Lot of 5 Pikachu 26/83 Promo NM',
         term: 'multi-card lot',
         reasons: ['default_exclusion_block', 'default_exclusion:multi-card lot']
+      },
+      {
+        cardName: 'Mew',
+        title: 'Pokemon Mew Card Lot',
+        term: 'multi-card lot',
+        reasons: ['default_exclusion_block', 'default_exclusion:multi-card lot']
+      },
+      {
+        cardName: 'Mew',
+        title: 'Lot Mew Pokemon Cards',
+        term: 'multi-card lot',
+        reasons: ['default_exclusion_block', 'default_exclusion:multi-card lot']
+      },
+      {
+        cardName: 'Mew',
+        title: '5x Mew Pokemon Cards',
+        term: 'multi-card lot',
+        reasons: ['default_exclusion_block', 'default_exclusion:multi-card lot']
+      },
+      {
+        cardName: 'Mew XY Black Star Promos XY110',
+        title: 'Mew Pokemon Mythical Collection Promo XY110 Online Code',
+        term: 'code card',
+        reasons: ['default_exclusion_block', 'default_exclusion:code card']
+      },
+      {
+        cardName: 'Mew XY Black Star Promos XY110',
+        title: 'Mew XY110 PTCGL code card',
+        term: 'code card',
+        reasons: ['default_exclusion_block', 'default_exclusion:code card']
+      },
+      {
+        cardName: 'Mew XY Black Star Promos XY110',
+        title: 'Mew XY110 digital redemption code',
+        term: 'code card',
+        reasons: ['default_exclusion_block', 'default_exclusion:code card']
       }
     ];
 
@@ -434,6 +479,15 @@ describe('matchChaseToListing', () => {
     expect(result.isMatch).toBe(true);
     expect(result.reasons).toContain('suspicious_title_penalty');
     expect(result.reasons.some((reason) => reason.startsWith('suspicious_terms:'))).toBe(true);
+  });
+
+  it('keeps normal physical listings eligible when no exclusion phrase is present', () => {
+    const chase = baseChase({ cardName: 'Mew XY Black Star Promos XY110', queryName: 'Mew XY110' });
+    const result = matchChaseToListing(chase, baseListing({ title: 'Mew XY110 Mythical Collection Promo Pokemon Card NM' }));
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).not.toContain('default_exclusion_block');
+    expect(result.reasons).not.toContain('custom_or_unofficial_item_block');
   });
 
   it('penalizes unrated sellers without blocking the match', () => {

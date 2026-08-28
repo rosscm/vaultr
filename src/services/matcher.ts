@@ -1,4 +1,5 @@
 import type { Chase, Listing, MatchResult } from '../types.js';
+import { defaultExcludedTitleTerm } from './chase-exclusions.js';
 
 function normalize(text: string): string {
   return text
@@ -157,30 +158,6 @@ function unintendedLanguageVariants(chase: Chase, listing: Listing): LanguageVar
   return [...listingVariants].filter((variant) => !chaseVariants.has(variant) && (chaseVariants.size > 0 || variant !== 'japanese'));
 }
 
-const DEFAULT_EXCLUDED_TITLE_PATTERNS: Array<{ term: string; pattern: RegExp }> = [
-  { term: 'proxy', pattern: /\bproxy\b/ },
-  { term: 'custom', pattern: /\bcustom\b/ },
-  { term: 'reprint', pattern: /\breprints?\b/ },
-  { term: 'replica', pattern: /\breplicas?\b/ },
-  { term: 'orica', pattern: /\borica\b/ },
-  { term: 'fan art', pattern: /\bfan\s*art\b|\bfanart\b/ },
-  { term: 'novelty', pattern: /\bnovelty\b/ },
-  { term: 'keychain', pattern: /\bkey\s*chains?\b|\bkeychains?\b/ },
-  { term: 'sticker', pattern: /\bstickers?\b/ },
-  { term: 'extended art', pattern: /\bextended\s+art(?:work)?\b/ },
-  { term: 'acrylic case', pattern: /\bacrylic\s+(?:cases?|card|display|holder)\b/ },
-  { term: 'magnetic case', pattern: /\bmagnetic\s+(?:cases?|card|display|holder)\b/ },
-  { term: 'card case', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+cases?\b|\bcase\s+card\b|\bart\s+case\b/ },
-  { term: 'card holder', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+holders?\b/ },
-  { term: 'display accessory', pattern: /\b(?:display|protector)\s+cases?\b|\b(?:display|protector)\s+case\b|\bcases?\s+(?:for|only)\b|\bslab\s+stand\b/ },
-  { term: 'display card', pattern: /\bdisplay\s+cards?\b/ },
-  { term: 'frame', pattern: /\b(?:art|display|photo|magnetic)?\s*frames?\b/ },
-  { term: 'stand', pattern: /\bstands?\b/ },
-  { term: 'no card', pattern: /\bno\s+card\b/ },
-  { term: 'handmade art', pattern: /\bhand[ -]?drawn\b|\bsketch\s+card\b/ },
-  { term: 'multi-card lot', pattern: /\b\d+x\b|\bx\d+\b|\blot\s+of\b/ }
-];
-
 const CUSTOM_OR_UNOFFICIAL_PATTERNS: RegExp[] = [
   /\bart\s+by\s+me\b/,
   /\bmy\s+art(?:work)?\b/,
@@ -198,11 +175,6 @@ const CUSTOM_OR_UNOFFICIAL_PATTERNS: RegExp[] = [
 function hasCustomOrUnofficialSignals(text: string): boolean {
   const normalized = normalizePhraseText(text);
   return CUSTOM_OR_UNOFFICIAL_PATTERNS.some((pattern) => pattern.test(normalized));
-}
-
-export function defaultExcludedTitleTerm(title: string): string | undefined {
-  const normalized = normalize(title).replace(/\btoys\s*r\s*us\b/g, 'retail promo');
-  return DEFAULT_EXCLUDED_TITLE_PATTERNS.find(({ pattern }) => pattern.test(normalized))?.term;
 }
 
 function coreSubjectTokens(chaseNameForMatch: string): string[] {

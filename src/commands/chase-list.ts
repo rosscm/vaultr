@@ -1,22 +1,12 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { getUserAlertSettings } from '../services/chase-store.js';
 import { getVaultChases } from '../services/chase-service.js';
+import { customExclusionTerms } from '../services/chase-exclusions.js';
 import { infoEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 
 const PAGE_SIZE = 10;
 const PAGE_ID_PREFIX = 'chase-list';
-const DEFAULT_BLOCKED_TERMS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case'];
-
-function normalizedTerm(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
-function chaseSpecificBlockedTerms(terms: string[] | undefined): string[] {
-  if (!terms || terms.length === 0) return [];
-  const defaults = new Set(DEFAULT_BLOCKED_TERMS.map(normalizedTerm));
-  return terms.filter((term) => !defaults.has(normalizedTerm(term)));
-}
 
 function displayAny(value: string | undefined): string {
   if (!value || value === 'ANY') return OUTPUT_STYLE.any;
@@ -104,7 +94,7 @@ export function buildChaseListEmbed(userId: string, page: number) {
 
       const extras: string[] = [];
       if (!paused && c.targetNote) extras.push(`Note: ${orNone(c.targetNote)}`);
-      const customBlockedTerms = chaseSpecificBlockedTerms(c.negativeKeywords);
+      const customBlockedTerms = customExclusionTerms(c.negativeKeywords);
       if (!paused && customBlockedTerms.length > 0) extras.push(`Custom Exclusions: ${customBlockedTerms.join(', ')}`);
 
       return [`**${chaseIndexBadge(absoluteIndex)}  ${c.cardName}**`, `↳ ${details}`, ...(extras.length > 0 ? [`↳ ${extras.join(' | ')}`] : [])].join('\n');
@@ -134,8 +124,7 @@ export function buildChaseListEmbed(userId: string, page: number) {
     groupedSections.join('\n\n'),
     '',
     '---',
-    '**Default Exclusions**',
-    DEFAULT_BLOCKED_TERMS.join(', '),
+    'Common non-card and unofficial listings are filtered automatically.',
     '',
     '---',
     '**Next Actions**',

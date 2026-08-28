@@ -1,6 +1,6 @@
 import type { Chase, Listing } from '../types.js';
 import { setBackoffUntil } from './poller-state.js';
-import { defaultExcludedTitleTerm } from './matcher.js';
+import { defaultExcludedTitleTerm } from './chase-exclusions.js';
 
 export type ShippingDestination = {
   country?: string;

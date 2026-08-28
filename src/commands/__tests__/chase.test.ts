@@ -2537,7 +2537,7 @@ describe('chase command', () => {
     expect(listUserTasteMemoryChases(userId).map((item) => `${item.cardName}:${item.tasteSource}`)).toEqual(['Meowth 18/53:BOUGHT_OR_SEEN']);
   });
 
-  it('lists default exclusions once while showing chase-specific custom exclusions inline', () => {
+  it('shows concise automatic filtering copy while showing only chase-specific custom exclusions inline', () => {
     const userId = testUserId('list-default-exclusions');
     setUserPlan(userId, 'PRO');
     addChase({
@@ -2560,13 +2560,13 @@ describe('chase command', () => {
     const data = payload.embeds[0].toJSON();
     const text = [data.description, ...(data.fields ?? []).map((field) => `${field.name}\n${field.value}`)].join('\n');
 
-    expect(data.description).toContain('**Default Exclusions**');
     expect(data.description).toContain('**#01  Umbreon 217/187**\n↳ Max: 550 USD | Grade: Ungraded | Condition: Any | Listing: Buy Now');
     expect(data.description).toContain('Listing: Buy Now');
     expect(data.description).not.toContain('BUY_IT_NOW');
     expect(data.description).toContain('**Next Actions**\n✏️ Refine with `/chase edit`');
-    expect(data.description).toContain('**Default Exclusions**\nproxy, custom, reprint, lot, orica, replica, fan art, novelty, keychain, extended art, acrylic case, magnetic case\n\n---\n**Next Actions**');
-    expect(text.match(/proxy, custom/g)).toHaveLength(1);
+    expect(data.description).toContain('Common non-card and unofficial listings are filtered automatically.');
+    expect(data.description).not.toContain('**Default Exclusions**');
+    expect(text).not.toContain('proxy, custom');
     expect(text).toContain('Custom Exclusions: korean');
     expect(text).not.toContain('Blocked:');
   });

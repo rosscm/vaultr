@@ -149,6 +149,12 @@ describe('web app static routes', () => {
     expect(jsResponse.headers?.['Content-Type']).toBe('text/javascript; charset=utf-8');
     expect(jsResponse.body).toContain('COMPLETED CHASES');
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
+    expect(jsResponse.body).toContain("function pageFromHash(hash = window.location.hash)");
+    expect(jsResponse.body).toContain("if (value === 'vault' || value === 'alerts' || value === 'shelf') return value;");
+    expect(jsResponse.body).toContain("return 'alerts';");
+    expect(jsResponse.body).toContain('window.location.hash = nextPage;');
+    expect(jsResponse.body).toContain("window.addEventListener('hashchange'");
+    expect(jsResponse.body).toContain('await loadActivePageData();');
   });
 
   it('returns 404 for unknown or traversal-style static paths', async () => {
@@ -463,6 +469,24 @@ describe('authenticated chase API', () => {
     clearUser(otherUserId);
   });
 
+  it('hides legacy stored default exclusions from custom-exclusion presentation', async () => {
+    const userId = 'web-chases-legacy-exclusions-user';
+    const headers = auth(userId, 'chases-legacy-exclusions-token');
+    addChase({
+      userId,
+      cardName: 'Mew RC24',
+      negativeKeywords: ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'Korean', 'Chinese']
+    });
+
+    const response = await handleWebRequest({ method: 'GET', url: '/api/chases', headers }, { config });
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(200);
+    expect(body.items[0].chase.negativeKeywords).toEqual(['Korean', 'Chinese']);
+
+    clearUser(userId);
+  });
+
   it('creates chases for the session account only and ignores body userId and guildId', async () => {
     const userId = 'web-chases-create-user';
     const otherUserId = 'web-chases-create-other';
@@ -483,7 +507,7 @@ describe('authenticated chase API', () => {
         listingType: 'BUY_IT_NOW',
         priority: 'GRAIL',
         targetNote: 'clean',
-        customExclusions: 'proxy'
+        customExclusions: 'korean'
       })
     }, { config });
     const body = JSON.parse(response.body ?? '{}');
@@ -515,7 +539,7 @@ describe('authenticated chase API', () => {
     expect(invalidGrade.status).toBe(400);
     expect(JSON.parse(invalidGrade.body ?? '{}').error).toBe('INVALID_GRADE_PREFERENCE');
 
-    const freeBlocked = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Gardevoir ex 233/091', priority: 'GRAIL', customExclusions: 'proxy' }) }, { config });
+    const freeBlocked = await handleWebRequest({ method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Gardevoir ex 233/091', priority: 'GRAIL', customExclusions: 'korean' }) }, { config });
     expect(freeBlocked.status).toBe(201);
     expect(JSON.parse(freeBlocked.body ?? '{}').blockedControls).toEqual(['priority', 'custom exclusions']);
     expect(listChases(userId).find((chase) => chase.cardName === 'Gardevoir ex 233/091')?.priority).toBe('NORMAL');
@@ -539,9 +563,9 @@ describe('authenticated chase API', () => {
     const second = addChase({ userId, cardName: 'Pichu Expedition 22/165' });
     const other = addChase({ userId: otherUserId, cardName: 'Other Chase' });
 
-    const update = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${first.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ maxPrice: 125, condition: 'LP_OR_BETTER', listingType: 'BUY_IT_NOW', priority: 'GRAIL', targetNote: 'binder', customExclusions: 'proxy' }) }, { config });
+    const update = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${first.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ maxPrice: 125, condition: 'LP_OR_BETTER', listingType: 'BUY_IT_NOW', priority: 'GRAIL', targetNote: 'binder', customExclusions: 'proxy, korean' }) }, { config });
     expect(update.status).toBe(200);
-    expect(JSON.parse(update.body ?? '{}').item.chase).toMatchObject({ maxPrice: 125, condition: 'NM,LP', listingType: 'BUY_IT_NOW', priority: 'GRAIL', targetNote: 'binder', negativeKeywords: ['proxy'] });
+    expect(JSON.parse(update.body ?? '{}').item.chase).toMatchObject({ maxPrice: 125, condition: 'NM,LP', listingType: 'BUY_IT_NOW', priority: 'GRAIL', targetNote: 'binder', negativeKeywords: ['korean'] });
 
     const duplicateRename = await handleWebRequest({ method: 'PATCH', url: `/api/chases/${first.id}`, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: second.cardName }) }, { config });
     expect(duplicateRename.status).toBe(409);

@@ -5,13 +5,12 @@ import {
   markGuildUserStarted
 } from '../services/chase-store.js';
 import { autocompleteChaseCards } from '../services/chase-card-catalog.js';
+import { customExclusionTerms } from '../services/chase-exclusions.js';
 import { addUserChase, type ChaseAdvancedControl } from '../services/chase-service.js';
 import type { Chase } from '../types.js';
 import { successEmbed, warningEmbed } from '../ui/embeds.js';
 import { OUTPUT_STYLE, displayCondition, displayGrade, orNone } from '../ui/style.js';
 import { freeVaultLimitMessage, proControlsNextLine } from './pro-copy.js';
-
-const DEFAULT_NEGATIVE_KEYWORDS = ['proxy', 'custom', 'reprint', 'lot', 'orica', 'replica', 'fan art', 'novelty', 'keychain', 'extended art', 'acrylic case', 'magnetic case'];
 
 function displayAny(value: string | undefined): string {
   if (!value || value === 'ANY') return OUTPUT_STYLE.any;
@@ -48,6 +47,7 @@ function buildChaseAddedEmbed(
     listingType: chase.listingType,
     negativeKeywords: chase.negativeKeywords
   });
+  const customExclusions = customExclusionTerms(chase.negativeKeywords);
   const lines = [
     'Nice pick! Vaultr is on it 🫡',
     noFiltersApplied ? broadChaseNudge(chase.cardName) : chaseNameQualityLine(chase.cardName),
@@ -64,8 +64,8 @@ function buildChaseAddedEmbed(
     `**Grade:** ${displayGrade(chase.grade)}`,
     `**Condition:** ${displayCondition(chase.condition)}`,
     `**Listing Type:** ${displayAny(chase.listingType)}`,
-    `**Custom Exclusions:** ${chase.negativeKeywords?.join(', ') ?? OUTPUT_STYLE.none}`,
-    `**Default Exclusions:** ${DEFAULT_NEGATIVE_KEYWORDS.join(', ')}`,
+    `**Custom Exclusions:** ${customExclusions.length > 0 ? customExclusions.join(', ') : OUTPUT_STYLE.none}`,
+    'Common non-card and unofficial listings are filtered automatically.',
     ...(blockedProControls.length > 0
       ? [
           '',

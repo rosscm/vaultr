@@ -619,6 +619,13 @@ a {
   color: var(--green);
 }
 
+.vault-auto-filter-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .vault-summary {
   display: flex;
   flex-wrap: wrap;
