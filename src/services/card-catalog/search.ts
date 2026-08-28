@@ -6,7 +6,7 @@ import type { LocalCardCatalogChoice, StoredCardCatalogRecord } from './types.js
 const ACCESSORY_TERMS = /\b(spirit link|tool|energy|stadium|supporter|trainer)\b/i;
 
 function sourceRank(source: string): number {
-  return source === 'POKEMONTCG' ? 3 : source === 'TCGDEX' ? 2 : 0;
+  return source === 'POKEMONTCG' ? 3 : source === 'TCGDEX' ? 2 : source === 'VAULTR_PROMO' ? 1 : 0;
 }
 
 function recordScore(record: StoredCardCatalogRecord, query: ReturnType<typeof parseCatalogSearchQuery>): number {
@@ -27,6 +27,7 @@ function recordScore(record: StoredCardCatalogRecord, query: ReturnType<typeof p
   if (query.localNumber) {
     const requested = normalizeCatalogCardNumber(query.localNumber);
     if (record.normalizedCardNumber === requested) score += 45;
+    else if (query.releaseContext && !query.printedTotal && record.isUnnumbered && record.identifiers?.some((identifier) => identifier.normalizedValue === requested)) score += 25;
     else score -= 80;
   }
   if (query.printedTotal) {
@@ -41,7 +42,7 @@ function recordScore(record: StoredCardCatalogRecord, query: ReturnType<typeof p
   if (query.language) score += record.language === query.language ? 30 : -90;
   if (query.releaseContext) {
     const release = normalizeCatalogText(query.releaseContext);
-    if (recordSet.includes(release) || normalizeCatalogText(record.promoContext).includes(release)) score += 30;
+    if (recordSet.includes(release) || releaseMetadataText(record).includes(release)) score += 30;
   }
   if (record.isPromo && /\bpromo|promos|promotional|black star|mcdonald|corocoro\b/.test(query.normalized)) score += 20;
   if (record.imageUrl) score += 8;
@@ -55,7 +56,13 @@ function hardReject(record: StoredCardCatalogRecord, query: ReturnType<typeof pa
   if (query.subject && !subjectAliases.some((subject) => aliases.some((alias) => alias === subject || alias.split(' ').includes(subject) || alias.includes(subject)))) return true;
   if (query.language && record.language !== query.language) return true;
   if (query.printedTotal && normalizeCatalogCardNumber(record.printedTotal) !== normalizeCatalogCardNumber(query.printedTotal)) return true;
-  if (query.localNumber && record.normalizedCardNumber !== normalizeCatalogCardNumber(query.localNumber)) return true;
+  if (query.localNumber && record.normalizedCardNumber !== normalizeCatalogCardNumber(query.localNumber)) {
+    const safeAlternateIdentifierMatch = query.releaseContext
+      && !query.printedTotal
+      && record.isUnnumbered
+      && record.identifiers?.some((identifier) => identifier.normalizedValue === normalizeCatalogCardNumber(query.localNumber));
+    if (!safeAlternateIdentifierMatch) return true;
+  }
   if (query.alphanumericNumber) {
     const requested = query.alphanumericNumber.toUpperCase();
     const normalized = (record.normalizedCardNumber ?? '').toUpperCase();
@@ -68,7 +75,9 @@ function hardReject(record: StoredCardCatalogRecord, query: ReturnType<typeof pa
 
 function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCatalogChoice {
   const value = catalogDisplayValue(record);
-  const labelNumber = record.printedTotal && record.cardNumber && /^\d+$/.test(record.cardNumber)
+  const labelNumber = record.isUnnumbered
+    ? 'unnumbered'
+    : record.printedTotal && record.cardNumber && /^\d+$/.test(record.cardNumber)
     ? `${record.cardNumber}/${record.printedTotal}`
     : record.cardNumber;
   return {
@@ -86,6 +95,7 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
     translatedSetName: record.translatedSetName,
     cardNumber: record.cardNumber,
     printedTotal: record.printedTotal,
+    isUnnumbered: record.isUnnumbered,
     score
   };
 }
@@ -100,19 +110,29 @@ function subjectIdentityTerms(subject: string | undefined): string[] {
 
 function recordMatchesReleaseContext(record: StoredCardCatalogRecord, releaseContext: string): boolean {
   const release = normalizeCatalogText(releaseContext);
-  const haystack = normalizeCatalogText([
-    record.setName,
-    record.translatedSetName,
-    record.promoContext,
-    record.series,
-    ...(record.aliases ?? []).map((alias) => alias.alias)
-  ].filter(Boolean).join(' '));
+  const haystack = releaseMetadataText(record);
   if (release.includes('corocoro')) return haystack.includes('corocoro') || haystack.includes('coro coro');
   if (release.includes('mcdonald')) return haystack.includes('mcdonald');
   if (release.includes('pokemon center')) return haystack.includes('pokemon center');
   if (release.includes('black star')) return haystack.includes('black star');
   if (release.includes('toys r us')) return haystack.includes('toys r us');
+  if (release.includes('ana') || release.includes('all nippon')) return haystack.includes('ana') || haystack.includes('all nippon');
+  if (release.includes('jr') || release.includes('train') || release.includes('rail') || release.includes('stamp rally')) {
+    return haystack.includes('jr') || haystack.includes('train') || haystack.includes('rail') || haystack.includes('stamp rally');
+  }
   return haystack.includes(release);
+}
+
+function releaseMetadataText(record: StoredCardCatalogRecord): string {
+  return normalizeCatalogText([
+    record.setName,
+    record.translatedSetName,
+    record.promoContext,
+    record.series,
+    record.releaseType,
+    record.releaseEvent,
+    ...(record.aliases ?? []).map((alias) => alias.alias)
+  ].filter(Boolean).join(' '));
 }
 
 export function searchLocalCardCatalog(query: string, limit = 25, options: { dbPath?: string } = {}): LocalCardCatalogChoice[] {
@@ -125,6 +145,7 @@ export function searchLocalCardCatalog(query: string, limit = 25, options: { dbP
     normalizedQuery: parsed.normalized,
     normalizedCardNumber: normalizeCatalogCardNumber(parsed.alphanumericNumber ?? parsed.localNumber),
     printedTotal: parsed.printedTotal,
+    releaseContext: parsed.releaseContext,
     limit: Math.max(limit * 8, 80)
   });
   const scored = records
@@ -134,11 +155,13 @@ export function searchLocalCardCatalog(query: string, limit = 25, options: { dbP
     .sort((a, b) => b.score - a.score || a.record.id - b.record.id);
   const deduped = new Map<string, LocalCardCatalogChoice>();
   for (const item of scored) {
+    const numberKey = item.record.normalizedCardNumber ?? '';
+    const printedTotalKey = /^[A-Z]+\d+$/i.test(numberKey) ? '' : item.record.printedTotal ?? '';
     const key = [
       item.record.normalizedName,
       item.record.normalizedSetName ?? '',
-      item.record.normalizedCardNumber ?? '',
-      item.record.printedTotal ?? '',
+      numberKey,
+      printedTotalKey,
       item.record.language
     ].join('|');
     if (!deduped.has(key)) deduped.set(key, toChoice(item.record, item.score));

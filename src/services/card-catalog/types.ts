@@ -1,5 +1,19 @@
-export type CardCatalogSource = 'TCGDEX' | 'POKEMONTCG';
+export type CardCatalogSource = 'TCGDEX' | 'POKEMONTCG' | 'VAULTR_PROMO';
 export type CardCatalogLanguage = 'en' | 'ja';
+export type CardCatalogVerificationStatus = 'VERIFIED' | 'REVIEW';
+
+export type CardCatalogIdentifier = {
+  value: string;
+  normalizedValue: string;
+  kind: 'collector_alias' | 'pokedex' | 'legacy_catalog';
+};
+
+export type CardCatalogReference = {
+  sourceName: string;
+  sourceId?: string;
+  url?: string;
+  kind?: string;
+};
 
 export type CardCatalogRecord = {
   source: CardCatalogSource;
@@ -15,14 +29,21 @@ export type CardCatalogRecord = {
   cardNumber?: string;
   normalizedCardNumber?: string;
   printedTotal?: string;
+  isUnnumbered?: boolean;
   rarity?: string;
   imageUrl?: string;
   releaseDate?: string;
   isPromo: boolean;
   promoContext?: string;
+  releaseType?: string;
+  releaseEvent?: string;
+  releaseYear?: number;
+  verificationStatus?: CardCatalogVerificationStatus;
   sourceUpdatedAt?: string;
   importedAt: string;
   aliases?: CardCatalogAlias[];
+  identifiers?: CardCatalogIdentifier[];
+  references?: CardCatalogReference[];
 };
 
 export type StoredCardCatalogRecord = CardCatalogRecord & {
@@ -71,5 +92,6 @@ export type LocalCardCatalogChoice = {
   translatedSetName?: string;
   cardNumber?: string;
   printedTotal?: string;
+  isUnnumbered?: boolean;
   score: number;
 };

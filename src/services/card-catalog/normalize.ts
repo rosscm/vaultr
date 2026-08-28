@@ -98,8 +98,13 @@ export function catalogDisplayValue(record: {
   translatedSetName?: string;
   cardNumber?: string;
   printedTotal?: string;
+  isUnnumbered?: boolean;
   language: string;
 }): string {
+  if (record.isUnnumbered) {
+    const parts = [record.name, record.translatedSetName ?? record.setName, record.language === 'ja' ? 'Japanese unnumbered' : 'unnumbered'].filter(Boolean);
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  }
   const parts = [record.name, record.translatedSetName ?? record.setName, record.cardNumber].filter(Boolean);
   const base = parts.join(' ').replace(/\s+/g, ' ').trim();
   const withFraction = record.printedTotal && record.cardNumber && /^\d+$/.test(record.cardNumber) && !base.includes('/')

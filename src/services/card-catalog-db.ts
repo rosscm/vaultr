@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { normalizeCatalogText } from './card-catalog/normalize.js';
 import type { CardCatalogImportReport, CardCatalogRecord, CardCatalogStats, StoredCardCatalogRecord } from './card-catalog/types.js';
 
 const DEFAULT_CATALOG_PATH = './data/card-catalog.db';
@@ -37,11 +38,16 @@ export function initializeCardCatalogDb(dbPath = cardCatalogPath()): void {
         card_number TEXT,
         normalized_card_number TEXT,
         printed_total TEXT,
+        is_unnumbered INTEGER NOT NULL DEFAULT 0,
         rarity TEXT,
         image_url TEXT,
         release_date TEXT,
         is_promo INTEGER NOT NULL DEFAULT 0,
         promo_context TEXT,
+        release_type TEXT,
+        release_event TEXT,
+        release_year INTEGER,
+        verification_status TEXT,
         source_updated_at TEXT,
         imported_at TEXT NOT NULL,
         UNIQUE(source, source_card_id, language)
@@ -67,10 +73,53 @@ export function initializeCardCatalogDb(dbPath = cardCatalogPath()): void {
 
       CREATE INDEX IF NOT EXISTS idx_card_catalog_alias_normalized ON card_catalog_aliases(normalized_alias);
       CREATE INDEX IF NOT EXISTS idx_card_catalog_alias_record ON card_catalog_aliases(record_id);
+
+      CREATE TABLE IF NOT EXISTS card_catalog_identifiers (
+        id INTEGER PRIMARY KEY,
+        record_id INTEGER NOT NULL,
+        identifier_value TEXT NOT NULL,
+        normalized_value TEXT NOT NULL,
+        identifier_kind TEXT NOT NULL,
+        FOREIGN KEY(record_id) REFERENCES card_catalog_records(id) ON DELETE CASCADE,
+        UNIQUE(record_id, normalized_value, identifier_kind)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_card_catalog_identifier_normalized ON card_catalog_identifiers(normalized_value);
+      CREATE INDEX IF NOT EXISTS idx_card_catalog_identifier_record ON card_catalog_identifiers(record_id);
+
+      CREATE TABLE IF NOT EXISTS card_catalog_references (
+        id INTEGER PRIMARY KEY,
+        record_id INTEGER NOT NULL,
+        source_name TEXT NOT NULL,
+        source_id TEXT,
+        url TEXT,
+        reference_kind TEXT,
+        FOREIGN KEY(record_id) REFERENCES card_catalog_records(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_card_catalog_reference_record ON card_catalog_references(record_id);
+
+      CREATE TABLE IF NOT EXISTS card_catalog_misses (
+        normalized_query TEXT PRIMARY KEY,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        miss_count INTEGER NOT NULL
+      );
     `);
     const columns = db.prepare('PRAGMA table_info(card_catalog_records)').all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === 'translated_set_name')) {
       db.exec('ALTER TABLE card_catalog_records ADD COLUMN translated_set_name TEXT;');
+    }
+    const existingColumns = new Set((db.prepare('PRAGMA table_info(card_catalog_records)').all() as Array<{ name: string }>).map((column) => column.name));
+    const additiveColumns: Array<[string, string]> = [
+      ['is_unnumbered', 'INTEGER NOT NULL DEFAULT 0'],
+      ['release_type', 'TEXT'],
+      ['release_event', 'TEXT'],
+      ['release_year', 'INTEGER'],
+      ['verification_status', 'TEXT']
+    ];
+    for (const [name, definition] of additiveColumns) {
+      if (!existingColumns.has(name)) db.exec(`ALTER TABLE card_catalog_records ADD COLUMN ${name} ${definition};`);
     }
   } finally {
     db.close();
@@ -88,13 +137,13 @@ export function replaceCardCatalogSourceRecords(
     INSERT INTO card_catalog_records (
       source, source_card_id, language, name, normalized_name, set_id, set_name,
       translated_set_name, normalized_set_name, series, card_number, normalized_card_number,
-      printed_total, rarity, image_url, release_date, is_promo, promo_context,
-      source_updated_at, imported_at
+      printed_total, is_unnumbered, rarity, image_url, release_date, is_promo, promo_context,
+      release_type, release_event, release_year, verification_status, source_updated_at, imported_at
     ) VALUES (
       @source, @sourceCardId, @language, @name, @normalizedName, @setId, @setName,
       @translatedSetName, @normalizedSetName, @series, @cardNumber, @normalizedCardNumber,
-      @printedTotal, @rarity, @imageUrl, @releaseDate, @isPromo, @promoContext,
-      @sourceUpdatedAt, @importedAt
+      @printedTotal, @isUnnumbered, @rarity, @imageUrl, @releaseDate, @isPromo, @promoContext,
+      @releaseType, @releaseEvent, @releaseYear, @verificationStatus, @sourceUpdatedAt, @importedAt
     )
   `);
   const insertAlias = db.prepare(`
@@ -102,6 +151,20 @@ export function replaceCardCatalogSourceRecords(
       record_id, alias, normalized_alias, locale, alias_kind
     ) VALUES (
       @recordId, @alias, @normalizedAlias, @locale, @kind
+    )
+  `);
+  const insertIdentifier = db.prepare(`
+    INSERT OR IGNORE INTO card_catalog_identifiers (
+      record_id, identifier_value, normalized_value, identifier_kind
+    ) VALUES (
+      @recordId, @value, @normalizedValue, @kind
+    )
+  `);
+  const insertReference = db.prepare(`
+    INSERT INTO card_catalog_references (
+      record_id, source_name, source_id, url, reference_kind
+    ) VALUES (
+      @recordId, @sourceName, @sourceId, @url, @kind
     )
   `);
   const report: CardCatalogImportReport = {
@@ -136,11 +199,16 @@ export function replaceCardCatalogSourceRecords(
           cardNumber: dbValue(record.cardNumber),
           normalizedCardNumber: dbValue(record.normalizedCardNumber),
           printedTotal: dbValue(record.printedTotal),
+          isUnnumbered: record.isUnnumbered ? 1 : 0,
           rarity: dbValue(record.rarity),
           imageUrl: dbValue(record.imageUrl),
           releaseDate: dbValue(record.releaseDate),
           isPromo: record.isPromo ? 1 : 0,
           promoContext: dbValue(record.promoContext),
+          releaseType: dbValue(record.releaseType),
+          releaseEvent: dbValue(record.releaseEvent),
+          releaseYear: dbValue(record.releaseYear),
+          verificationStatus: dbValue(record.verificationStatus),
           sourceUpdatedAt: dbValue(record.sourceUpdatedAt),
           importedAt: record.importedAt
         });
@@ -153,6 +221,25 @@ export function replaceCardCatalogSourceRecords(
             normalizedAlias: alias.normalizedAlias,
             locale: alias.locale ?? '',
             kind: alias.kind
+          });
+        }
+        for (const identifier of record.identifiers ?? []) {
+          if (!identifier.value || !identifier.normalizedValue) continue;
+          insertIdentifier.run({
+            recordId,
+            value: identifier.value,
+            normalizedValue: identifier.normalizedValue,
+            kind: identifier.kind
+          });
+        }
+        for (const reference of record.references ?? []) {
+          if (!reference.sourceName) continue;
+          insertReference.run({
+            recordId,
+            sourceName: reference.sourceName,
+            sourceId: reference.sourceId ?? null,
+            url: reference.url ?? null,
+            kind: reference.kind ?? null
           });
         }
         report.imported += 1;
@@ -202,14 +289,21 @@ function rowToRecord(row: any): StoredCardCatalogRecord {
     cardNumber: row.card_number ?? undefined,
     normalizedCardNumber: row.normalized_card_number ?? undefined,
     printedTotal: row.printed_total ?? undefined,
+    isUnnumbered: row.is_unnumbered === 1,
     rarity: row.rarity ?? undefined,
     imageUrl: row.image_url ?? undefined,
     releaseDate: row.release_date ?? undefined,
     isPromo: row.is_promo === 1,
     promoContext: row.promo_context ?? undefined,
+    releaseType: row.release_type ?? undefined,
+    releaseEvent: row.release_event ?? undefined,
+    releaseYear: row.release_year ?? undefined,
+    verificationStatus: row.verification_status ?? undefined,
     sourceUpdatedAt: row.source_updated_at ?? undefined,
     importedAt: row.imported_at,
-    aliases: []
+    aliases: [],
+    identifiers: [],
+    references: []
   };
 }
 
@@ -220,6 +314,7 @@ export function queryCardCatalogRecords(params: {
   normalizedQuery: string;
   normalizedCardNumber?: string;
   printedTotal?: string;
+  releaseContext?: string;
   limit: number;
 }): StoredCardCatalogRecord[] {
   const resolved = params.dbPath ?? cardCatalogPath();
@@ -243,29 +338,47 @@ export function queryCardCatalogRecords(params: {
     const rows = db.prepare(`
       SELECT * FROM card_catalog_records
       WHERE
+        (source != 'VAULTR_PROMO' OR verification_status = 'VERIFIED')
+        AND
         (
-          @hasNumber = 1
-          AND normalized_card_number = @normalizedCardNumber
-          AND (
-            @printedTotal IS NULL
-            OR printed_total = @printedTotal
-            OR CAST(printed_total AS INTEGER) = CAST(@printedTotal AS INTEGER)
-          )
-          AND (
-            ${subjectClause}
-          )
-        )
-        OR (
-          @hasNumber = 0
-          AND (
-            normalized_name LIKE @likeQuery
-            OR normalized_set_name LIKE @likeQuery
-            OR EXISTS (
-              SELECT 1 FROM card_catalog_aliases a
-              WHERE a.record_id = card_catalog_records.id
-                AND a.normalized_alias LIKE @likeQuery
+          (
+            @hasNumber = 1
+            AND normalized_card_number = @normalizedCardNumber
+            AND (
+              @printedTotal IS NULL
+              OR printed_total = @printedTotal
+              OR CAST(printed_total AS INTEGER) = CAST(@printedTotal AS INTEGER)
             )
-            OR (${subjectClause})
+            AND (
+              ${subjectClause}
+            )
+          )
+          OR (
+            @hasNumber = 1
+            AND @printedTotal IS NULL
+            AND @releaseContext IS NOT NULL
+            AND is_unnumbered = 1
+            AND EXISTS (
+              SELECT 1 FROM card_catalog_identifiers i
+              WHERE i.record_id = card_catalog_records.id
+                AND i.normalized_value = @normalizedCardNumber
+            )
+            AND (
+              ${subjectClause}
+            )
+          )
+          OR (
+            @hasNumber = 0
+            AND (
+              normalized_name LIKE @likeQuery
+              OR normalized_set_name LIKE @likeQuery
+              OR EXISTS (
+                SELECT 1 FROM card_catalog_aliases a
+                WHERE a.record_id = card_catalog_records.id
+                  AND a.normalized_alias LIKE @likeQuery
+              )
+              OR (${subjectClause})
+            )
           )
         )
       ORDER BY is_promo DESC, release_date DESC, id ASC
@@ -276,6 +389,7 @@ export function queryCardCatalogRecords(params: {
       hasNumber: hasNumber ? 1 : 0,
       normalizedCardNumber: params.normalizedCardNumber,
       printedTotal: params.printedTotal,
+      releaseContext: params.releaseContext ?? null,
       limit: Math.max(params.limit, 20)
     }) as any[];
     const records = rows.map(rowToRecord);
@@ -288,6 +402,18 @@ export function queryCardCatalogRecords(params: {
       WHERE record_id IN (${placeholders})
       ORDER BY id ASC
     `).all(...ids) as Array<{ record_id: number; alias: string; normalized_alias: string; locale: string | null; alias_kind: string }>;
+    const identifierRows = db.prepare(`
+      SELECT record_id, identifier_value, normalized_value, identifier_kind
+      FROM card_catalog_identifiers
+      WHERE record_id IN (${placeholders})
+      ORDER BY id ASC
+    `).all(...ids) as Array<{ record_id: number; identifier_value: string; normalized_value: string; identifier_kind: string }>;
+    const referenceRows = db.prepare(`
+      SELECT record_id, source_name, source_id, url, reference_kind
+      FROM card_catalog_references
+      WHERE record_id IN (${placeholders})
+      ORDER BY id ASC
+    `).all(...ids) as Array<{ record_id: number; source_name: string; source_id: string | null; url: string | null; reference_kind: string | null }>;
     const aliasesByRecord = new Map<number, StoredCardCatalogRecord['aliases']>();
     for (const row of aliasRows) {
       const aliases = aliasesByRecord.get(row.record_id) ?? [];
@@ -299,7 +425,33 @@ export function queryCardCatalogRecords(params: {
       });
       aliasesByRecord.set(row.record_id, aliases);
     }
-    return records.map((record) => ({ ...record, aliases: aliasesByRecord.get(record.id) ?? [] }));
+    const identifiersByRecord = new Map<number, StoredCardCatalogRecord['identifiers']>();
+    for (const row of identifierRows) {
+      const identifiers = identifiersByRecord.get(row.record_id) ?? [];
+      identifiers.push({
+        value: row.identifier_value,
+        normalizedValue: row.normalized_value,
+        kind: row.identifier_kind as any
+      });
+      identifiersByRecord.set(row.record_id, identifiers);
+    }
+    const referencesByRecord = new Map<number, StoredCardCatalogRecord['references']>();
+    for (const row of referenceRows) {
+      const references = referencesByRecord.get(row.record_id) ?? [];
+      references.push({
+        sourceName: row.source_name,
+        sourceId: row.source_id ?? undefined,
+        url: row.url ?? undefined,
+        kind: row.reference_kind ?? undefined
+      });
+      referencesByRecord.set(row.record_id, references);
+    }
+    return records.map((record) => ({
+      ...record,
+      aliases: aliasesByRecord.get(record.id) ?? [],
+      identifiers: identifiersByRecord.get(record.id) ?? [],
+      references: referencesByRecord.get(record.id) ?? []
+    }));
   } catch (error) {
     console.warn(`local card catalog unavailable: ${error instanceof Error ? error.message : String(error)}`);
     return [];
@@ -326,6 +478,51 @@ export function cardCatalogStats(dbPath = cardCatalogPath()): CardCatalogStats {
       imageCoverage: { withImage: images.withImage ?? 0, withoutImage: images.withoutImage ?? 0 },
       promoMarked
     };
+  } finally {
+    db.close();
+  }
+}
+
+export function normalizeCatalogMissQuery(query: string): string {
+  return normalizeCatalogText(query).slice(0, 160);
+}
+
+export function recordCardCatalogMiss(query: string, dbPath = cardCatalogPath(), now = new Date().toISOString()): void {
+  const normalizedQuery = normalizeCatalogMissQuery(query);
+  if (!normalizedQuery) return;
+  initializeCardCatalogDb(dbPath);
+  const db = openCardCatalogDb(dbPath);
+  try {
+    db.prepare(`
+      INSERT INTO card_catalog_misses (normalized_query, first_seen_at, last_seen_at, miss_count)
+      VALUES (@normalizedQuery, @now, @now, 1)
+      ON CONFLICT(normalized_query) DO UPDATE SET
+        last_seen_at = excluded.last_seen_at,
+        miss_count = miss_count + 1
+    `).run({ normalizedQuery, now });
+  } finally {
+    db.close();
+  }
+}
+
+export function listCardCatalogMisses(options: { dbPath?: string; limit?: number } = {}): Array<{ normalizedQuery: string; firstSeenAt: string; lastSeenAt: string; missCount: number }> {
+  const resolved = options.dbPath ?? cardCatalogPath();
+  if (!fs.existsSync(resolved)) return [];
+  initializeCardCatalogDb(resolved);
+  const db = openCardCatalogDb(resolved, { readonly: true, fileMustExist: true });
+  try {
+    const rows = db.prepare(`
+      SELECT normalized_query, first_seen_at, last_seen_at, miss_count
+      FROM card_catalog_misses
+      ORDER BY miss_count DESC, last_seen_at DESC
+      LIMIT @limit
+    `).all({ limit: Math.max(1, Math.min(options.limit ?? 25, 100)) }) as Array<{ normalized_query: string; first_seen_at: string; last_seen_at: string; miss_count: number }>;
+    return rows.map((row) => ({
+      normalizedQuery: row.normalized_query,
+      firstSeenAt: row.first_seen_at,
+      lastSeenAt: row.last_seen_at,
+      missCount: row.miss_count
+    }));
   } finally {
     db.close();
   }

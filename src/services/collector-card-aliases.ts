@@ -18,10 +18,12 @@ export const POKEMON_RELEASE_ALIASES: Array<{ pattern: RegExp; alias: PokemonRel
   { pattern: /\bpok(?:e|é)mon\s*center\b/i, alias: { label: 'Pokemon Center Promo', setNamePrefix: 'Pokemon Center' } },
   { pattern: /\bblack\s*star\s*promos?\b/i, alias: { label: 'Black Star Promos', setNamePrefix: 'Black Star Promos' } },
   { pattern: /\btoys?\s*r\s*us\b/i, alias: { label: 'Toys R Us Promo', setNamePrefix: 'generations' } },
+  { pattern: /\bana\b|\ball\s+nippon\s+airways\b/i, alias: { label: 'ANA Promo', setNamePrefix: 'ANA' } },
+  { pattern: /\bjr\b|\btrain\b|\brail\b|\bstamp\s+rally\b/i, alias: { label: 'JR Stamp Rally Promo', setNamePrefix: 'JR Stamp Rally' } },
   { pattern: /\bcorocoro\b/i, alias: { label: 'CoroCoro Promo', setNamePrefix: 'CoroCoro' } }
 ];
 
-export const POKEMON_PROMO_PUBLICATION_TERMS = new Set(['corocoro', 'coro coro', 'mcdonald', 'mcdonalds', 'center']);
+export const POKEMON_PROMO_PUBLICATION_TERMS = new Set(['corocoro', 'coro coro', 'mcdonald', 'mcdonalds', 'center', 'ana', 'all nippon airways', 'jr', 'train', 'rail', 'stamp rally']);
 export const POKEMON_PROMO_STYLE_STOP_TERMS = new Set(['promo', 'promos', 'promotional', 'shining', 'holo', 'foil', 'magazine', 'manga', 'japanese', 'jumbo']);
 
 export const JAPANESE_SUBJECT_ALIASES: Record<string, string[]> = {

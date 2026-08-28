@@ -6,6 +6,7 @@ import {
   normalizeChaseCardName
 } from './collector-card-aliases.js';
 import type { PokemonReleaseAlias } from './collector-card-aliases.js';
+import { recordCardCatalogMiss } from './card-catalog-db.js';
 import { hasHighConfidenceLocalCatalogMatch, searchLocalCardCatalog } from './card-catalog/search.js';
 import type { LocalCardCatalogChoice } from './card-catalog/types.js';
 
@@ -1165,6 +1166,13 @@ export async function autocompleteChaseCardsWithStatus(query: string, limit = 25
   const fallbackChoice = choices.length === 0 ? japanesePromoFallbackChoice(query) ?? pokemonReleaseFallbackChoice(query) : undefined;
   const finalChoices = fallbackChoice ? [fallbackChoice] : choices;
   let availability = providerAvailability(search.providers, finalChoices, search.localChoices.length > 0);
+  if (sourceOrderedChoices.length === 0 && isMeaningfulCatalogMissQuery(query) && providersCompletedSuccessfully(search.providers)) {
+    try {
+      recordCardCatalogMiss(query);
+    } catch (error) {
+      console.warn(`card catalog miss tracking failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   if (availability === 'UNAVAILABLE' && cached && cached.staleUntil > Date.now() && cached.result.choices.length > 0) {
     return autocompleteResultFromChoices(cached.result.choices.slice(0, limit), 'PARTIAL', true);
   }
@@ -1172,6 +1180,19 @@ export async function autocompleteChaseCardsWithStatus(query: string, limit = 25
   const result = autocompleteResultFromChoices(finalChoices, availability);
   cacheAutocompleteResult(normalizedQuery, result);
   return result;
+}
+
+function providersCompletedSuccessfully(providers: ProviderSearchResult[]): boolean {
+  const attempted = providers.filter((provider) => provider.attempted);
+  return attempted.length > 0 && attempted.every((provider) => provider.status === 'SUCCESS');
+}
+
+function isMeaningfulCatalogMissQuery(query: string): boolean {
+  const normalizedQuery = normalize(query);
+  if (normalizedQuery.length < 4) return false;
+  return !!pokemonTcgReleaseAlias(query)
+    || !!requestedCollectorNumber(query)
+    || !!requestedAlphanumericCardNumber(query);
 }
 
 export async function autocompleteChaseCards(query: string, limit = 25): Promise<ChaseCardAutocompleteChoice[]> {

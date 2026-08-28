@@ -2,11 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cardCatalogStats, initializeCardCatalogDb, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
+import { cardCatalogStats, initializeCardCatalogDb, listCardCatalogMisses, openCardCatalogDb, recordCardCatalogMiss, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
 import { searchLocalCardCatalog } from '../card-catalog/search.js';
 import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
+import { importVaultrPromoSupplementRecords, loadVaultrPromoSupplementRecords, vaultrPromoRecordFromDefinition } from '../card-catalog/importers/vaultr-promos.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
+import { runCatalogMissesCli } from '../../catalog-misses.js';
 import { runCatalogImportPokemonTcgCli } from '../../catalog-import-pokemontcg.js';
 
 const originalFetch = globalThis.fetch;
@@ -98,6 +100,17 @@ describe('local card catalog', () => {
     expect(report).toMatchObject({ examined: 2, imported: 1, errors: 1 });
     expect(stats).toMatchObject({ totalRecords: 1, promoMarked: 1 });
     expect(stats.path).toBe(dbPath);
+    const db = openCardCatalogDb(dbPath, { readonly: true, fileMustExist: true });
+    try {
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>;
+      expect(tables.map((table) => table.name)).toEqual(expect.arrayContaining([
+        'card_catalog_identifiers',
+        'card_catalog_references',
+        'card_catalog_misses'
+      ]));
+    } finally {
+      db.close();
+    }
   });
 
   it('normalizes representative PokemonTCG and real-format TCGdex source records', () => {
@@ -329,6 +342,38 @@ describe('local card catalog', () => {
     expect(JSON.stringify(coro)).not.toContain('jpn_unp-124');
   });
 
+  it('records only specific trustworthy autocomplete misses', async () => {
+    const dbPath = tempCatalogPath('autocomplete-misses');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    initializeCardCatalogDb(dbPath);
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('api.pokemontcg.io') || url.includes('api.tcgdex.net')) {
+        return new Response(JSON.stringify(url.includes('pokemontcg') ? { data: [] } : []), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    }) as typeof fetch;
+
+    await autocompleteChaseCardsWithStatus('mew corocoro', 25);
+    await autocompleteChaseCardsWithStatus('mew', 25);
+    expect(listCardCatalogMisses({ dbPath })).toHaveLength(1);
+    expect(listCardCatalogMisses({ dbPath })[0]).toMatchObject({ normalizedQuery: 'mew corocoro', missCount: 1 });
+
+    clearChaseCardAutocompleteCache();
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({ sourceCardId: 'bw11-RC24', name: 'Mew-EX', cardNumber: 'RC24', normalizedCardNumber: 'RC24', setName: 'Legendary Treasures', normalizedSetName: 'legendary treasures' })
+    ], dbPath);
+    await autocompleteChaseCardsWithStatus('mew rc24', 25);
+    expect(listCardCatalogMisses({ dbPath })[0]?.missCount).toBe(1);
+
+    clearChaseCardAutocompleteCache();
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError('provider unavailable');
+    }) as typeof fetch;
+    await autocompleteChaseCardsWithStatus('mew corocoro jumbo', 25);
+    expect(listCardCatalogMisses({ dbPath })[0]?.missCount).toBe(1);
+  });
+
   it('requires explicit promo publication context to match local records', () => {
     const dbPath = tempCatalogPath('promo-context');
     replaceCardCatalogSourceRecords('POKEMONTCG', [
@@ -360,6 +405,160 @@ describe('local card catalog', () => {
     ], dbPath);
 
     expect(searchLocalCardCatalog('squirtle mcdonalds 007/018', 10, { dbPath }).map((choice) => choice.sourceCardId)).toEqual(['mcd-007']);
+  });
+
+  it('imports the verified Vaultr promo Squirtle supplement without replacing core sources', () => {
+    const dbPath = tempCatalogPath('vaultr-promo-squirtle');
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({ sourceCardId: 'random-007', name: 'Squirtle', cardNumber: '007', normalizedCardNumber: '7', setName: 'Random Japanese Promo', normalizedSetName: 'random japanese promo', printedTotal: '018', isPromo: true })
+    ], dbPath);
+
+    const report = importVaultrPromoSupplementRecords({ dbPath, importedAt: '2026-08-27T00:00:00.000Z' });
+    const results = searchLocalCardCatalog('squirtle mcdonalds 007/018', 10, { dbPath });
+
+    expect(loadVaultrPromoSupplementRecords('2026-08-27T00:00:00.000Z')).toHaveLength(1);
+    expect(report).toMatchObject({ examined: 1, imported: 1, bySource: { VAULTR_PROMO: 1 } });
+    expect(cardCatalogStats(dbPath).sourceCounts).toMatchObject({ POKEMONTCG: 1, VAULTR_PROMO: 1 });
+    expect(results[0]).toMatchObject({
+      source: 'VAULTR_PROMO',
+      sourceCardId: 'vaultr-promo-dextcg-jpn-mcdemp-7',
+      value: "Squirtle McDonald's Pokemon-e Minimum Pack 007/18 Japanese",
+      imageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png'
+    });
+    expect(searchLocalCardCatalog('squirtle corocoro 007/018', 10, { dbPath })).toEqual([]);
+  });
+
+  it('supports verified unnumbered promo fixtures without treating alternate identifiers as printed numbers', () => {
+    const dbPath = tempCatalogPath('unnumbered-promo');
+    replaceCardCatalogSourceRecords('VAULTR_PROMO', [
+      vaultrPromoRecordFromDefinition({
+        sourceCardId: 'fixture-corocoro-mew',
+        name: 'Mew',
+        language: 'ja',
+        isUnnumbered: true,
+        promoContext: 'CoroCoro Promo',
+        releaseType: 'magazine_promo',
+        releaseEvent: 'CoroCoro',
+        aliases: ['Shining Mew', 'CoroCoro Mew'],
+        identifiers: [{ value: '151', kind: 'pokedex' }],
+        verificationStatus: 'VERIFIED',
+        references: [{ sourceName: 'Fixture', sourceId: 'corocoro-mew' }]
+      }, '2026-08-27T00:00:00.000Z')
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('mew corocoro', 10, { dbPath })[0]).toMatchObject({
+      source: 'VAULTR_PROMO',
+      value: 'Mew CoroCoro Promo Japanese unnumbered',
+      isUnnumbered: true,
+      cardNumber: undefined
+    });
+    expect(searchLocalCardCatalog('shining mew corocoro', 10, { dbPath })[0]?.sourceCardId).toBe('fixture-corocoro-mew');
+    expect(searchLocalCardCatalog('mew corocoro 151', 10, { dbPath })[0]).toMatchObject({
+      sourceCardId: 'fixture-corocoro-mew',
+      isUnnumbered: true,
+      cardNumber: undefined
+    });
+    expect(searchLocalCardCatalog('mew 151', 10, { dbPath })).toEqual([]);
+    expect(searchLocalCardCatalog('mew corocoro 151/999', 10, { dbPath })).toEqual([]);
+  });
+
+  it('hides REVIEW Vaultr promo records while returning VERIFIED records', () => {
+    const dbPath = tempCatalogPath('promo-verification');
+    replaceCardCatalogSourceRecords('VAULTR_PROMO', [
+      vaultrPromoRecordFromDefinition({
+        sourceCardId: 'review-mew',
+        name: 'Mew',
+        language: 'ja',
+        isUnnumbered: true,
+        promoContext: 'CoroCoro Promo',
+        aliases: ['CoroCoro Mew'],
+        identifiers: [{ value: '151', kind: 'pokedex' }],
+        verificationStatus: 'REVIEW',
+        references: [{ sourceName: 'Fixture' }]
+      }, '2026-08-27T00:00:00.000Z'),
+      vaultrPromoRecordFromDefinition({
+        sourceCardId: 'verified-pikachu',
+        name: 'Pikachu',
+        language: 'ja',
+        isUnnumbered: true,
+        promoContext: 'ANA Promo',
+        aliases: ['Pikachu ANA Promo'],
+        verificationStatus: 'VERIFIED',
+        references: [{ sourceName: 'Fixture' }]
+      }, '2026-08-27T00:00:00.000Z')
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('mew corocoro', 10, { dbPath })).toEqual([]);
+    expect(searchLocalCardCatalog('pikachu ana', 10, { dbPath })[0]).toMatchObject({ sourceCardId: 'verified-pikachu' });
+  });
+
+  it('keeps core upstream records ahead of equivalent Vaultr promo supplements', () => {
+    const dbPath = tempCatalogPath('promo-precedence');
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({ sourceCardId: 'bw11-RC24', name: 'Mew-EX', cardNumber: 'RC24', normalizedCardNumber: 'RC24', setName: 'Legendary Treasures', normalizedSetName: 'legendary treasures' })
+    ], dbPath);
+    replaceCardCatalogSourceRecords('VAULTR_PROMO', [
+      vaultrPromoRecordFromDefinition({
+        sourceCardId: 'supplement-rc24',
+        name: 'Mew-EX',
+        language: 'en',
+        setName: 'Legendary Treasures',
+        cardNumber: 'RC24',
+        promoContext: 'Radiant Collection',
+        verificationStatus: 'VERIFIED',
+        references: [{ sourceName: 'Fixture' }]
+      }, '2026-08-27T00:00:00.000Z')
+    ], dbPath);
+
+    const results = searchLocalCardCatalog('mew rc24', 10, { dbPath });
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ source: 'POKEMONTCG', sourceCardId: 'bw11-RC24' });
+  });
+
+  it('tracks anonymous catalog misses by normalized query only', () => {
+    const dbPath = tempCatalogPath('misses');
+    recordCardCatalogMiss('Mew   CoroCoro', dbPath, '2026-08-27T00:00:00.000Z');
+    recordCardCatalogMiss('mew corocoro', dbPath, '2026-08-28T00:00:00.000Z');
+    recordCardCatalogMiss('Squirtle McDonalds 007/018', dbPath, '2026-08-29T00:00:00.000Z');
+
+    expect(listCardCatalogMisses({ dbPath })).toEqual([
+      {
+        normalizedQuery: 'mew corocoro',
+        firstSeenAt: '2026-08-27T00:00:00.000Z',
+        lastSeenAt: '2026-08-28T00:00:00.000Z',
+        missCount: 2
+      },
+      {
+        normalizedQuery: 'squirtle mcdonalds 007/018',
+        firstSeenAt: '2026-08-29T00:00:00.000Z',
+        lastSeenAt: '2026-08-29T00:00:00.000Z',
+        missCount: 1
+      }
+    ]);
+  });
+
+  it('reports catalog misses from the CLI without user identifiers', () => {
+    const dbPath = tempCatalogPath('misses-cli');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    recordCardCatalogMiss('Mew CoroCoro', dbPath, '2026-08-27T00:00:00.000Z');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    let payload: unknown;
+
+    try {
+      runCatalogMissesCli(['--limit=5']);
+      payload = JSON.parse(log.mock.calls[0]?.[0] as string);
+    } finally {
+      log.mockRestore();
+    }
+
+    expect(payload).toEqual({
+      misses: [{
+        normalizedQuery: 'mew corocoro',
+        firstSeenAt: '2026-08-27T00:00:00.000Z',
+        lastSeenAt: '2026-08-27T00:00:00.000Z',
+        missCount: 1
+      }]
+    });
   });
 
   it('falls back to remote providers when no local catalog exists and tolerates corrupt local DB files', async () => {
