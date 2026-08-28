@@ -25,6 +25,7 @@
     "catalog:stats": "tsx src/catalog-stats.ts",
     "catalog:misses": "tsx src/catalog-misses.ts",
     "catalog:search": "tsx src/catalog-search.ts",
+    "profile:inspect": "tsx src/collector-profile-inspect.ts",
     "ops:check": "tsx src/ops-check.ts",
     "ops:check:dist": "node dist/ops-check.js",
     "weekly:refresh": "tsx src/weekly-discovery-refresh.ts",

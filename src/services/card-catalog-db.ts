@@ -307,6 +307,26 @@ function rowToRecord(row: any): StoredCardCatalogRecord {
   };
 }
 
+export function getCardCatalogRecordBySourceCardId(source: string, sourceCardId: string, dbPath = cardCatalogPath()): StoredCardCatalogRecord | null {
+  const resolved = dbPath;
+  if (!fs.existsSync(resolved)) return null;
+  let db: Database.Database | undefined;
+  try {
+    db = openCardCatalogDb(resolved, { readonly: true, fileMustExist: true });
+    const row = db.prepare(`
+      SELECT * FROM card_catalog_records
+      WHERE source = ? AND source_card_id = ?
+        AND (source != 'VAULTR_PROMO' OR verification_status = 'VERIFIED')
+      LIMIT 1
+    `).get(source, sourceCardId) as any | undefined;
+    return row ? rowToRecord(row) : null;
+  } catch {
+    return null;
+  } finally {
+    db?.close();
+  }
+}
+
 export function queryCardCatalogRecords(params: {
   dbPath?: string;
   subject?: string;
