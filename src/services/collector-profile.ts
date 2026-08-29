@@ -98,7 +98,7 @@ const PRIORITY_MULTIPLIERS: Record<NonNullable<Chase['priority']>, number> = {
 
 const MAX_EXACT_IDENTITY_CONTRIBUTION = 2.6;
 
-const KNOWN_SUBJECTS = [
+export const KNOWN_COLLECTOR_SUBJECTS = [
   'Moltres', 'Zapdos', 'Articuno', 'Gardevoir', 'Umbreon', 'Sylveon', 'Espeon', 'Vaporeon',
   'Jolteon', 'Flareon', 'Leafeon', 'Glaceon', 'Pikachu', 'Raichu', 'Pichu', 'Mewtwo', 'Mew',
   'Squirtle', 'Wartortle', 'Blastoise', 'Charizard', 'Dragonite', 'Celebi', 'Lapras'
@@ -167,7 +167,7 @@ function subjectsFromName(name: string): string[] {
     .filter(([, aliases]) => aliases.some((alias) => normalizedName.includes(normalizeKey(alias))))
     .map(([subject]) => canonicalSubjectLabel(subject));
   if (japaneseSubjects.length > 0) return [...new Set(japaneseSubjects)];
-  const subjects = KNOWN_SUBJECTS.filter((subject) => new RegExp(`\\b${normalizeKey(subject)}\\b`, 'i').test(normalizedName));
+  const subjects = KNOWN_COLLECTOR_SUBJECTS.filter((subject) => new RegExp(`\\b${normalizeKey(subject)}\\b`, 'i').test(normalizedName));
   if (subjects.length > 0) return subjects;
   const beforeContext = name.split(/\s+(?:ex|gx|vmax|vstar|v|lv\.?x|sar|sir|ir|ar|promo|japanese|english|\d)/i)[0]?.trim();
   if (!beforeContext) return [];

@@ -63,6 +63,8 @@ export type DiscoveryCardFeatures = {
   themeTags: string[];
 };
 
+export type WeeklyDiscoveryFeatureExtractor = (candidate: DiscoveryCandidate) => DiscoveryCardFeatures;
+
 export type CollectorTasteProfile = {
   subjects: Record<string, number>;
   evolutionFamilies: Record<string, number>;
@@ -605,9 +607,10 @@ function candidateAnalysis(
   candidate: DiscoveryCandidate,
   profile: CollectorTasteProfile,
   policies: WeeklyDiscoveryPolicies,
-  stableSeed = ''
+  stableSeed = '',
+  featureExtractor: WeeklyDiscoveryFeatureExtractor = extractDiscoveryCardFeatures
 ): WeeklyDiscoveryCandidateAnalysis {
-  const features = extractDiscoveryCardFeatures(candidate);
+  const features = featureExtractor(candidate);
   const personal = computePersonalRelevance(features, profile);
   const discoveryValue = computeDiscoveryValue(features, profile);
   const market = computeMarketSuitability(candidate, policies);
@@ -684,11 +687,12 @@ export function analyzeWeeklyDiscoveryCandidateReserve(
   reserve: DiscoveryCandidate[],
   profile: CollectorTasteProfile,
   policies: Partial<WeeklyDiscoveryPolicies> = {},
-  stableTieBreakerSeed = ''
+  stableTieBreakerSeed = '',
+  featureExtractor: WeeklyDiscoveryFeatureExtractor = extractDiscoveryCardFeatures
 ): DiscoveryCandidate[] {
   const mergedPolicies = { ...DEFAULT_POLICIES, ...policies };
   return reserve.map((candidate) => {
-    const analysis = candidateAnalysis(candidate, profile, mergedPolicies, stableTieBreakerSeed);
+    const analysis = candidateAnalysis(candidate, profile, mergedPolicies, stableTieBreakerSeed, featureExtractor);
     return {
       ...candidate,
       suggestion: {
@@ -702,6 +706,16 @@ export function analyzeWeeklyDiscoveryCandidateReserve(
       weeklyDiscovery: analysis
     };
   });
+}
+
+export function analyzeWeeklyDiscoveryCandidateReserveWithFeatures(
+  reserve: DiscoveryCandidate[],
+  profile: CollectorTasteProfile,
+  featureExtractor: WeeklyDiscoveryFeatureExtractor,
+  policies: Partial<WeeklyDiscoveryPolicies> = {},
+  stableTieBreakerSeed = ''
+): DiscoveryCandidate[] {
+  return analyzeWeeklyDiscoveryCandidateReserve(reserve, profile, policies, stableTieBreakerSeed, featureExtractor);
 }
 
 export function rerankWeeklyDiscoveryReserve(

@@ -1,8 +1,11 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { DiscoveryCandidate } from './commands/discover.js';
 import { getIdentity } from './services/accounts.js';
 import { getCollectorInterestProfile } from './services/collector-profile.js';
-import { collectorInterestProfileToTasteProfile } from './services/collector-profile-ranking-adapter.js';
+import { analyzeCollectorProfileShadowReserve, collectorInterestProfileToTasteProfile } from './services/collector-profile-ranking-adapter.js';
+import { listWeeklyDiscoveryPreparedReservesForUser } from './services/weekly-discovery-prepared-reserve.js';
+import { rerankWeeklyDiscoveryReserve } from './services/weekly-discovery-ranking.js';
 
 export type CollectorProfileInspectArgs = {
   userId: string;
@@ -10,6 +13,7 @@ export type CollectorProfileInspectArgs = {
   json: boolean;
   evidence: boolean;
   ranker: boolean;
+  rankerReserve: boolean;
 };
 
 export function parseCollectorProfileInspectArgs(argv: string[]): CollectorProfileInspectArgs {
@@ -18,6 +22,7 @@ export function parseCollectorProfileInspectArgs(argv: string[]): CollectorProfi
   let json = false;
   let evidence = false;
   let ranker = false;
+  let rankerReserve = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--user') userId = argv[++i] ?? '';
@@ -25,15 +30,16 @@ export function parseCollectorProfileInspectArgs(argv: string[]): CollectorProfi
     else if (arg === '--json') json = true;
     else if (arg === '--evidence') evidence = true;
     else if (arg === '--ranker') ranker = true;
+    else if (arg === '--ranker-reserve') rankerReserve = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
   userId = userId.trim();
   discordUserId = discordUserId.trim();
   if (userId && discordUserId) throw new Error('Use either --user or --discord-user, not both.');
   if (userId && !userId.startsWith('usr_')) throw new Error('--user expects a Vaultr account ID beginning with usr_. Use --discord-user for a Discord ID.');
-  if (json && ranker) throw new Error('--ranker is human-readable inspection only. Use it without --json.');
-  if (!userId && !discordUserId) throw new Error('Usage: npm run profile:inspect -- --user usr_<ID> [--json] [--evidence] [--ranker]\n       npm run profile:inspect -- --discord-user <DISCORD_ID> [--json] [--evidence] [--ranker]');
-  return { userId, discordUserId: discordUserId || undefined, json, evidence, ranker };
+  if (json && (ranker || rankerReserve)) throw new Error('--ranker and --ranker-reserve are human-readable inspection only. Use them without --json.');
+  if (!userId && !discordUserId) throw new Error('Usage: npm run profile:inspect -- --user usr_<ID> [--json] [--evidence] [--ranker] [--ranker-reserve]\n       npm run profile:inspect -- --discord-user <DISCORD_ID> [--json] [--evidence] [--ranker] [--ranker-reserve]');
+  return { userId, discordUserId: discordUserId || undefined, json, evidence, ranker, rankerReserve };
 }
 
 function sourceCountLabel(trait: { activeEvidenceCount: number; completedEvidenceCount: number; legacyEvidenceCount: number }): string {
@@ -57,6 +63,34 @@ function printRankerSection(title: string, values: Record<string, number>): void
   if (entries.length === 0) return;
   console.log(`\n${title}`);
   for (const [key, weight] of entries.slice(0, 8)) console.log(`  ${key.padEnd(28)} ${weight.toFixed(2)}`);
+}
+
+function score(value: number | undefined): string {
+  return (value ?? 0).toFixed(3);
+}
+
+function printRankerReserveComparison(userId: string, rankerProfile: ReturnType<typeof collectorInterestProfileToTasteProfile>): void {
+  const reserves = listWeeklyDiscoveryPreparedReservesForUser<DiscoveryCandidate>(userId);
+  const latest = reserves[reserves.length - 1];
+  if (!latest) throw new Error(`No prepared Weekly Discovery reserve found for ${userId}.`);
+  const shadow = rerankWeeklyDiscoveryReserve(analyzeCollectorProfileShadowReserve(latest.reserveCandidates, rankerProfile, {}, latest.periodKey));
+  console.log(`\nPrepared reserve shadow comparison`);
+  console.log(`Period: ${latest.periodKey}`);
+  console.log(`Reserve candidates: ${latest.reserveCandidates.length}`);
+  for (const [index, candidate] of shadow.slice(0, 20).entries()) {
+    const analysis = candidate.weeklyDiscovery;
+    if (!analysis) continue;
+    const personal = analysis.rankExplanation.scoreComponents.personalRelevance;
+    const old = latest.reserveCandidates.find((entry) => entry.suggestion.referenceSourceCardId === candidate.suggestion.referenceSourceCardId || entry.suggestion.name === candidate.suggestion.name)?.weeklyDiscovery;
+    console.log(`${String(index + 1).padStart(2, '0')}  ${candidate.suggestion.name.slice(0, 56).padEnd(56)} ${analysis.discoveryRole}`);
+    console.log(`    shadow  base=${score(analysis.rankExplanation.scoreComponents.baseScore)} subject=${score(personal.subjectAffinity)} set=${score(personal.setAffinity)} lang=${score(personal.languageAffinity)} format=${score(personal.formatAffinity)} promo=${score(personal.promoAffinity)}`);
+    if (old) {
+      console.log(`    old     base=${score(old.rankExplanation.scoreComponents.baseScore)} role=${old.discoveryRole} signals=${old.rankExplanation.strongestSignals.join(', ') || 'none'}`);
+    } else {
+      console.log('    old     Stored live analysis unavailable');
+    }
+    console.log(`    signals ${analysis.rankExplanation.strongestSignals.join(', ') || 'none'}`);
+  }
 }
 
 export function runCollectorProfileInspectCli(argv: string[]): void {
@@ -84,6 +118,10 @@ export function runCollectorProfileInspectCli(argv: string[]): void {
     printRankerSection('Rarity tiers', rankerProfile.rarityTiers);
     printRankerSection('Promo types', rankerProfile.promoTypes);
     printRankerSection('Release types', rankerProfile.releaseTypes);
+    return;
+  }
+  if (args.rankerReserve) {
+    printRankerReserveComparison(userId, collectorInterestProfileToTasteProfile(profile));
     return;
   }
   printTraitSection('Top subjects', profile.traits.subjects);

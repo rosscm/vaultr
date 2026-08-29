@@ -1,5 +1,13 @@
-import type { CollectorInterestProfile, CollectorInterestTrait, CollectorProfileTraitGroup } from './collector-profile.js';
-import type { CollectorTasteProfile, WeeklyDiscoveryFinalizationInput } from './weekly-discovery-ranking.js';
+import type { DiscoveryCandidate } from '../commands/discover.js';
+import { JAPANESE_SUBJECT_ALIASES } from './collector-card-aliases.js';
+import { KNOWN_COLLECTOR_SUBJECTS, type CollectorInterestProfile, type CollectorInterestTrait, type CollectorProfileTraitGroup } from './collector-profile.js';
+import {
+  analyzeWeeklyDiscoveryCandidateReserveWithFeatures,
+  type CollectorTasteProfile,
+  type DiscoveryCardFeatures,
+  type WeeklyDiscoveryFinalizationInput,
+  type WeeklyDiscoveryPolicies
+} from './weekly-discovery-ranking.js';
 
 const EMPTY_PROFILE_GROUPS = {
   subjects: {},
@@ -88,7 +96,7 @@ function emptyCollectorTasteProfile(feedbackPreferences: WeeklyDiscoveryFinaliza
   };
 }
 
-function rankerSetFamily(setName: string): string {
+export function rankerSetFamily(setName: string): string {
   return setName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').slice(0, 2).join(' ');
 }
 
@@ -137,6 +145,167 @@ export function collectorInterestProfileToTasteProfile(
     addWeighted(rankerProfile.setFamilies, rankerSetFamily(setName), 2);
   }
   return rankerProfile;
+}
+
+function shadowText(candidate: DiscoveryCandidate): string {
+  return [
+    candidate.suggestion.name,
+    candidate.suggestion.lane,
+    candidate.suggestion.laneWhy,
+    candidate.suggestion.why,
+    candidate.suggestion.referenceSourceName,
+    candidate.weeklyDiscovery?.canonicalReference?.setName,
+    candidate.suggestion.canonicalReference?.setName,
+    ...(candidate.suggestion.sourceTasteTokens ?? [])
+  ].filter(Boolean).join(' ');
+}
+
+function addUnique(target: string[], ...values: Array<string | undefined>): void {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed && !target.includes(trimmed)) target.push(trimmed);
+  }
+}
+
+function normalizedAscii(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function shadowSetNameFromCandidate(candidate: DiscoveryCandidate, text: string): string | undefined {
+  return candidate.weeklyDiscovery?.canonicalReference?.setName
+    ?? candidate.suggestion.canonicalReference?.setName
+    ?? candidate.suggestion.referenceSourceName
+      ?.replace(/^Pokemon TCG\s*/i, '')
+      .replace(/^TCGdex Japanese\s*/i, '')
+      .replace(/[()]/g, ' ')
+      .trim()
+    ?? (/\bxy\s+black\s+star\s+promos?\b/i.test(text) ? 'XY Black Star Promos' : undefined)
+    ?? (/\bsm\s+black\s+star\s+promos?\b/i.test(text) ? 'SM Black Star Promos' : undefined)
+    ?? (/\blegendary\s+treasures\b/i.test(text) ? 'Legendary Treasures' : undefined)
+    ?? (/\bmega\s+symphonia\b/i.test(text) ? 'Mega Symphonia' : undefined)
+    ?? (/\bscarlet\s+ex\b/i.test(text) ? 'Scarlet ex' : undefined)
+    ?? (/\bterastal\s+festival(?:\s+ex)?\b/i.test(text) ? 'Terastal Festival ex' : undefined)
+    ?? (/\bexpedition(?:\s+base\s+set)?\b/i.test(text) ? 'Expedition Base Set' : undefined);
+}
+
+function shadowLanguage(text: string): 'ENGLISH' | 'JAPANESE' | undefined {
+  if (/\bjapanese\b|tcgdex japanese|[\u3040-\u30ff\u3400-\u9fff]/i.test(text)) return 'JAPANESE';
+  if (/\benglish\b/i.test(text)) return 'ENGLISH';
+  return undefined;
+}
+
+function shadowSubjectsFromText(text: string): string[] {
+  const subjects: string[] = [];
+  const ascii = normalizedAscii(text);
+  for (const subject of KNOWN_COLLECTOR_SUBJECTS) {
+    if (new RegExp(`\\b${normalizedAscii(subject)}\\b`, 'i').test(ascii)) addUnique(subjects, subject);
+  }
+  for (const [canonicalKey, aliases] of Object.entries(JAPANESE_SUBJECT_ALIASES)) {
+    if (aliases.some((alias) => text.includes(alias))) {
+      const canonical = KNOWN_COLLECTOR_SUBJECTS.find((subject) => normalizedAscii(subject) === canonicalKey) ?? canonicalKey;
+      addUnique(subjects, canonical);
+    }
+  }
+  return subjects;
+}
+
+function shadowFormatTokens(text: string): string[] {
+  const formats: string[] = [];
+  if (/\b(vmax|gx|ex|vstar|sar|sir|ir|ar|alt art|full art)\b/i.test(text)) addUnique(formats, 'special-art');
+  if (/\b(?:[A-Za-z]+-EX|EX)\b/.test(text)) addUnique(formats, 'EX');
+  if (/(?<!-)\bex\b/.test(text)) addUnique(formats, 'ex');
+  if (/\bgx\b/i.test(text)) addUnique(formats, 'GX');
+  if (/\btag\s*team\b|&.*&.*-gx\b/i.test(text)) addUnique(formats, 'TAG_TEAM');
+  if (/\bv\b/i.test(text)) addUnique(formats, 'V');
+  if (/\bvmax\b/i.test(text)) addUnique(formats, 'VMAX');
+  if (/\bvstar\b/i.test(text)) addUnique(formats, 'VSTAR');
+  if (/\bpromo|black star|mcdonald'?s|league promo|nintendo promo|corocoro|coro\s*coro\b/i.test(text)) addUnique(formats, 'promo');
+  if (/\be-reader|skyridge|aquapolis|expedition\b/i.test(text)) addUnique(formats, 'e-reader');
+  if (/\btrainer gallery|galarian gallery|radiant collection|classic collection\b/i.test(text)) addUnique(formats, 'gallery');
+  return formats;
+}
+
+function shadowRarityTokens(text: string): string[] {
+  const tiers: string[] = [];
+  if (/\b(sar|sir|hr|secret rare)\b/i.test(text)) addUnique(tiers, 'premium');
+  if (/\b(ir|ar|illustration rare|art rare)\b/i.test(text)) addUnique(tiers, 'illustration');
+  if (/\bpromo\b/i.test(text)) addUnique(tiers, 'promo');
+  return tiers;
+}
+
+function shadowPromoTypes(text: string): string[] {
+  const promoTypes: string[] = [];
+  if (/\b(?:xy|sm)?\s*black\s+star\s+promos?\b|\bblack\s+star\b/i.test(text)) addUnique(promoTypes, 'black-star');
+  if (/\bcorocoro|coro\s*coro\b/i.test(text)) addUnique(promoTypes, 'corocoro');
+  if (/\bmcdonald'?s\b/i.test(text)) addUnique(promoTypes, 'mcdonalds');
+  if (/\bleague promo|staff promo|prerelease\b/i.test(text)) addUnique(promoTypes, 'event');
+  return promoTypes;
+}
+
+function shadowReleaseTypes(text: string): string[] {
+  const releaseTypes: string[] = [];
+  if (/\bjapanese\b|tcgdex japanese|[\u3040-\u30ff\u3400-\u9fff]/i.test(text)) addUnique(releaseTypes, 'japanese-release');
+  if (/\bpromo|black star|corocoro|coro\s*coro|mcdonald'?s\b/i.test(text)) addUnique(releaseTypes, 'promo-release');
+  if (/\blimited|exclusive|anniversary|collection|corocoro|coro\s*coro|mcdonald'?s\b/i.test(text)) addUnique(releaseTypes, 'special-release');
+  return releaseTypes;
+}
+
+function shadowEras(text: string, setName: string | undefined): string[] {
+  const source = `${text} ${setName ?? ''}`;
+  const eras: string[] = [];
+  if (/\b(base set|jungle|fossil|neo|gym heroes|gym challenge|skyridge|aquapolis|expedition)\b/i.test(source)) addUnique(eras, 'WOTC');
+  if (/\b(ex deoxys|ex team magma|hidden legends)\b/i.test(source)) addUnique(eras, 'EX');
+  if (/\b(sun\s*&\s*moon|sm black star|tag team)\b/i.test(source)) addUnique(eras, 'SM');
+  if (/\b(sword\s*&\s*shield|swsh|evolving skies|vstar universe)\b/i.test(source)) addUnique(eras, 'SWSH');
+  if (/\b(scarlet\s*&\s*violet|pokemon\s+151|pok[eé]mon\s+151|paldean fates|stellar crown|terastal festival|scarlet ex|mega symphonia)\b/i.test(source)) addUnique(eras, 'SV');
+  if (/\bxy black star|legendary treasures\b/i.test(source)) addUnique(eras, 'XY');
+  return eras;
+}
+
+export function extractCollectorProfileDiscoveryFeatures(candidate: DiscoveryCandidate): DiscoveryCardFeatures {
+  const text = shadowText(candidate);
+  const setName = shadowSetNameFromCandidate(candidate, text);
+  const sets: string[] = [];
+  addUnique(sets, setName);
+  const rarityTiers = shadowRarityTokens(text);
+  return {
+    subjects: shadowSubjectsFromText(text),
+    evolutionFamilies: [],
+    artists: [],
+    eras: shadowEras(text, setName),
+    sets,
+    setFamilies: sets.map(rankerSetFamily).filter(Boolean),
+    languages: [shadowLanguage(text)].filter((value): value is 'ENGLISH' | 'JAPANESE' => !!value),
+    formats: shadowFormatTokens(text),
+    rarityTiers,
+    artTiers: rarityTiers.includes('illustration') ? ['illustration'] : rarityTiers.includes('premium') ? ['premium'] : [],
+    promoTypes: shadowPromoTypes(text),
+    releaseTypes: shadowReleaseTypes(text),
+    aestheticTags: [],
+    sceneTags: [],
+    themeTags: []
+  };
+}
+
+export function analyzeCollectorProfileShadowReserve(
+  reserve: DiscoveryCandidate[],
+  profile: CollectorTasteProfile,
+  policies: Partial<WeeklyDiscoveryPolicies> = {},
+  stableTieBreakerSeed = ''
+): DiscoveryCandidate[] {
+  return analyzeWeeklyDiscoveryCandidateReserveWithFeatures(
+    reserve.map((candidate) => ({
+      ...candidate,
+      suggestion: { ...candidate.suggestion },
+      image: candidate.image ? { ...candidate.image } : undefined,
+      listing: candidate.listing ? { ...candidate.listing } : undefined,
+      weeklyDiscovery: candidate.weeklyDiscovery ? { ...candidate.weeklyDiscovery } : undefined
+    })),
+    profile,
+    extractCollectorProfileDiscoveryFeatures,
+    policies,
+    stableTieBreakerSeed
+  );
 }
 
 export const __collectorProfileRankingAdapterTestHooks = {

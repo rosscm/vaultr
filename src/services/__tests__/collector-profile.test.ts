@@ -2,15 +2,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { DiscoveryCandidate } from '../../commands/discover.js';
 import type { CompletedChase } from '../../types.js';
 import { getCardCatalogRecordBySourceCardId, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
 import type { CardCatalogRecord } from '../card-catalog/types.js';
 import { addChase, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, resolveChaseRemoval } from '../chase-store.js';
 import { buildCollectorInterestProfile, type CollectorInterestProfile } from '../collector-profile.js';
-import { collectorInterestProfileToTasteProfile } from '../collector-profile-ranking-adapter.js';
+import { analyzeCollectorProfileShadowReserve, collectorInterestProfileToTasteProfile, extractCollectorProfileDiscoveryFeatures } from '../collector-profile-ranking-adapter.js';
 import { db } from '../db.js';
 import { parseCollectorProfileInspectArgs, runCollectorProfileInspectCli } from '../../collector-profile-inspect.js';
 import { createUser, linkIdentity } from '../accounts.js';
+import { deleteWeeklyDiscoveryPreparedReserve, getWeeklyDiscoveryPreparedReserve, upsertWeeklyDiscoveryPreparedReserve } from '../weekly-discovery-prepared-reserve.js';
+import { analyzeWeeklyDiscoveryCandidateReserve } from '../weekly-discovery-ranking.js';
 
 const originalCatalogPath = process.env.CARD_CATALOG_PATH;
 const tempDirs = new Set<string>();
@@ -25,6 +28,26 @@ function clearUser(userId: string): void {
   removeAllChases(userId);
   db.prepare('DELETE FROM completed_chases WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM weekly_discovery_prepared_reserve WHERE user_id = ?').run(userId);
+}
+
+function candidate(
+  name: string,
+  overrides: Partial<Omit<DiscoveryCandidate, 'suggestion'>> & { suggestion?: Partial<DiscoveryCandidate['suggestion']> } = {}
+): DiscoveryCandidate {
+  return {
+    ...overrides,
+    suggestion: {
+      name,
+      lane: 'Test',
+      laneWhy: 'Test lane',
+      why: 'Test rationale',
+      nearby: [],
+      ...overrides.suggestion
+    },
+    marketSampleSize: 3,
+    typicalRawAskingTotal: 50
+  } as DiscoveryCandidate;
 }
 
 function record(overrides: Partial<CardCatalogRecord> & { sourceCardId: string; name: string }): CardCatalogRecord {
@@ -403,11 +426,12 @@ describe('collector interest profile', () => {
     addChase({ userId, cardName: 'Mew RC24' });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    expect(parseCollectorProfileInspectArgs(['--user', userId, '--json'])).toEqual({ userId, discordUserId: undefined, json: true, evidence: false, ranker: false });
+    expect(parseCollectorProfileInspectArgs(['--user', userId, '--json'])).toEqual({ userId, discordUserId: undefined, json: true, evidence: false, ranker: false, rankerReserve: false });
     expect(() => parseCollectorProfileInspectArgs([])).toThrow('Usage: npm run profile:inspect');
     expect(() => parseCollectorProfileInspectArgs(['--user', '875643283995500625'])).toThrow('--discord-user');
     expect(() => parseCollectorProfileInspectArgs(['--user', userId, '--discord-user', '875643283995500625'])).toThrow('either --user or --discord-user');
     expect(() => parseCollectorProfileInspectArgs(['--user', userId, '--json', '--ranker'])).toThrow('--ranker');
+    expect(() => parseCollectorProfileInspectArgs(['--user', userId, '--json', '--ranker-reserve'])).toThrow('--ranker');
     runCollectorProfileInspectCli(['--user', userId, '--json']);
 
     const printed = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
@@ -492,6 +516,107 @@ describe('collector interest profile', () => {
     expect(adapted.aestheticTags).toEqual({});
     expect(adapted.sceneTags).toEqual({});
     expect(adapted.themeTags).toEqual({});
+  });
+
+  it('extracts shadow-compatible candidate subjects without first-token false positives', () => {
+    expect(extractCollectorProfileDiscoveryFeatures(candidate('Mew-EX Legendary Treasures RC24')).subjects).toEqual(['Mew']);
+    expect(extractCollectorProfileDiscoveryFeatures(candidate('Mega Gardevoir ex SAR Japanese 087/063')).subjects).toEqual(['Gardevoir']);
+    expect(extractCollectorProfileDiscoveryFeatures(candidate('サーナイトex SAR 087/063')).subjects).toEqual(['Gardevoir']);
+    expect(extractCollectorProfileDiscoveryFeatures(candidate('ミュウex Japanese Promo')).subjects).toEqual(['Mew']);
+    expect(extractCollectorProfileDiscoveryFeatures(candidate('Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210')).subjects).toEqual(['Moltres', 'Zapdos', 'Articuno']);
+    expect(extractCollectorProfileDiscoveryFeatures(candidate('Mega Dark Shining Card'))).toMatchObject({ subjects: [], evolutionFamilies: [] });
+  });
+
+  it('extracts shadow-compatible formats, promos, sets, and safe 151 eras', () => {
+    const exFeatures = extractCollectorProfileDiscoveryFeatures(candidate('Mew-EX Legendary Treasures RC24'));
+    const modernExFeatures = extractCollectorProfileDiscoveryFeatures(candidate('Gardevoir ex Scarlet ex SAR Japanese'));
+    const tagTeamFeatures = extractCollectorProfileDiscoveryFeatures(candidate('Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210'));
+    const corocoroFeatures = extractCollectorProfileDiscoveryFeatures(candidate('Mew CoroCoro Promo 151'));
+    const pokemon151Features = extractCollectorProfileDiscoveryFeatures(candidate('Mew Pokemon 151 151/165'));
+
+    expect(exFeatures.formats).toEqual(expect.arrayContaining(['special-art', 'EX']));
+    expect(exFeatures.formats).not.toContain('ex');
+    expect(modernExFeatures.formats).toEqual(expect.arrayContaining(['special-art', 'ex']));
+    expect(tagTeamFeatures.formats).toEqual(expect.arrayContaining(['special-art', 'GX', 'TAG_TEAM', 'promo']));
+    expect(corocoroFeatures.formats).toContain('promo');
+    expect(corocoroFeatures.promoTypes).toContain('corocoro');
+    expect(corocoroFeatures.eras).not.toContain('SV');
+    expect(pokemon151Features.eras).toContain('SV');
+    expect(tagTeamFeatures.promoTypes).toContain('black-star');
+    expect(exFeatures.sets).toContain('Legendary Treasures');
+    expect(exFeatures.setFamilies).toContain('legendary treasures');
+  });
+
+  it('uses compatible shadow feature keys for adapter profile scoring without changing the default extractor', () => {
+    const profile = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Mew-EX Legendary Treasures RC24 English', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    }));
+    const reserve = [candidate('Mew-EX Legendary Treasures RC24 English')];
+
+    const live = analyzeWeeklyDiscoveryCandidateReserve(reserve, profile, {}, 'same-seed')[0];
+    const shadow = analyzeCollectorProfileShadowReserve(reserve, profile, {}, 'same-seed')[0];
+
+    expect(live.weeklyDiscovery?.features.subjects).toContain('mew');
+    expect(shadow.weeklyDiscovery?.features.subjects).toContain('Mew');
+    expect(shadow.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance.subjectAffinity).toBeGreaterThan(0);
+    expect(shadow.weeklyDiscovery?.features.evolutionFamilies).toEqual([]);
+    expect(shadow.weeklyDiscovery?.features.formats).toEqual(expect.arrayContaining(['EX']));
+  });
+
+  it('prints a read-only shadow comparison for the latest prepared reserve', () => {
+    const userId = 'usr_collector_profile_ranker_reserve_cli';
+    clearUser(userId);
+    addChase({ userId, cardName: 'Mew-EX Legendary Treasures RC24 English' });
+    const reserve = [
+      analyzeWeeklyDiscoveryCandidateReserve([candidate('Mew-EX Legendary Treasures RC24 English', {
+        suggestion: { referenceSourceCardId: 'bw11-RC24', referenceSourceName: 'Pokemon TCG Legendary Treasures' }
+      })], collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({ activeChases: [], completedChases: [] })), {}, 'old')[0]
+    ];
+    upsertWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, Record<string, never>>({
+      userId,
+      periodKey: '2026-W32',
+      preparationGeneration: 1,
+      reserveCandidates: reserve,
+      canonicalLookupEvidence: {},
+      reserveCount: reserve.length,
+      canonicalReadyCount: 1,
+      imageReadyCount: 0,
+      marketReadyCount: 1,
+      personallyDefensibleCount: 1,
+      projectedSelectableCount: 1,
+      projectedMarketResolvedCount: 1,
+      viableAlternativeCount: 0,
+      pendingMarketJobCount: 0,
+      failedMarketJobCount: 0,
+      blockingShortages: [],
+      lastCompletedStage: 'test',
+      lastMeaningfulProgressAt: '2026-08-29T00:00:00.000Z',
+      updatedAt: '2026-08-29T00:00:00.000Z'
+    });
+    const before = getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate>(userId, '2026-W32');
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    runCollectorProfileInspectCli(['--user', userId, '--ranker-reserve']);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(output).toContain('Prepared reserve shadow comparison');
+    expect(output).toContain('Period: 2026-W32');
+    expect(output).toContain('shadow  base=');
+    expect(output).toContain('old     base=');
+    expect(getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate>(userId, '2026-W32')).toEqual(before);
+    logSpy.mockRestore();
+    deleteWeeklyDiscoveryPreparedReserve(userId, '2026-W32');
+  });
+
+  it('reports when ranker reserve inspection has no prepared reserve', () => {
+    const userId = 'usr_collector_profile_ranker_reserve_empty';
+    clearUser(userId);
+    addChase({ userId, cardName: 'Mew RC24' });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    expect(() => runCollectorProfileInspectCli(['--user', userId, '--ranker-reserve'])).toThrow('No prepared Weekly Discovery reserve found');
+    logSpy.mockRestore();
   });
 
   it('shows the adapted ranker profile in human CLI output only', () => {
