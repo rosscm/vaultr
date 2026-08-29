@@ -127,6 +127,24 @@ export type WeeklyDiscoveryRankExplanation = {
   noveltyReason: string;
   discoveryRole: WeeklyDiscoveryRole;
   scoreComponents: WeeklyDiscoveryScoreComponents;
+  shadowDiagnostics?: {
+    personalAggregate: number;
+    collectorAnchorStrength: number;
+  };
+};
+
+export type WeeklyDiscoveryScoringStrategy = {
+  computeDiscoveryValue?: (
+    features: DiscoveryCardFeatures,
+    profile: CollectorTasteProfile,
+    personal: PersonalRelevanceComponents
+  ) => DiscoveryValueComponents;
+  determineRole?: (components: PersonalRelevanceComponents, value: DiscoveryValueComponents) => WeeklyDiscoveryRole;
+  personalRelevanceAggregate?: (components: PersonalRelevanceComponents) => number;
+  shadowDiagnostics?: (
+    components: PersonalRelevanceComponents,
+    value: DiscoveryValueComponents
+  ) => WeeklyDiscoveryRankExplanation['shadowDiagnostics'];
 };
 
 export type WeeklyDiscoveryCandidateOutcome =
@@ -591,8 +609,14 @@ function average(values: number[]): number {
   return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function baseScore(components: PersonalRelevanceComponents, value: DiscoveryValueComponents, market: MarketSuitabilityComponents, policies: WeeklyDiscoveryPolicies): number {
-  const personal = average(Object.values(components));
+function baseScore(
+  components: PersonalRelevanceComponents,
+  value: DiscoveryValueComponents,
+  market: MarketSuitabilityComponents,
+  policies: WeeklyDiscoveryPolicies,
+  personalAggregate = average(Object.values(components))
+): number {
+  const personal = personalAggregate;
   const novelty = average(Object.values(value));
   const confidence = average([market.estimateConfidence, market.availabilityConfidence, market.marketResolved ? 1 : 0.35]);
   return Number((
@@ -608,15 +632,17 @@ function candidateAnalysis(
   profile: CollectorTasteProfile,
   policies: WeeklyDiscoveryPolicies,
   stableSeed = '',
-  featureExtractor: WeeklyDiscoveryFeatureExtractor = extractDiscoveryCardFeatures
+  featureExtractor: WeeklyDiscoveryFeatureExtractor = extractDiscoveryCardFeatures,
+  scoringStrategy: WeeklyDiscoveryScoringStrategy = {}
 ): WeeklyDiscoveryCandidateAnalysis {
   const features = featureExtractor(candidate);
   const personal = computePersonalRelevance(features, profile);
-  const discoveryValue = computeDiscoveryValue(features, profile);
+  const discoveryValue = scoringStrategy.computeDiscoveryValue?.(features, profile, personal) ?? computeDiscoveryValue(features, profile);
   const market = computeMarketSuitability(candidate, policies);
-  const role = determineRole(personal, discoveryValue);
+  const role = scoringStrategy.determineRole?.(personal, discoveryValue) ?? determineRole(personal, discoveryValue);
   const strategy = determineGenerationStrategies(role, personal, discoveryValue, features);
-  const base = baseScore(personal, discoveryValue, market, policies);
+  const personalAggregate = scoringStrategy.personalRelevanceAggregate?.(personal);
+  const base = baseScore(personal, discoveryValue, market, policies, personalAggregate);
   const strongest = strongestSignals(personal, discoveryValue);
   const stableTieBreaker = createHash('sha256')
     .update(JSON.stringify([stableSeed, candidate.suggestion.referenceSourceCardId ?? '', candidate.suggestion.name, candidate.selectionIndex ?? -1]))
@@ -637,7 +663,8 @@ function candidateAnalysis(
         marketSuitability: market,
         baseScore: base,
         slateScore: base
-      }
+      },
+      shadowDiagnostics: scoringStrategy.shadowDiagnostics?.(personal, discoveryValue)
     },
     stableTieBreaker
   };
@@ -688,11 +715,12 @@ export function analyzeWeeklyDiscoveryCandidateReserve(
   profile: CollectorTasteProfile,
   policies: Partial<WeeklyDiscoveryPolicies> = {},
   stableTieBreakerSeed = '',
-  featureExtractor: WeeklyDiscoveryFeatureExtractor = extractDiscoveryCardFeatures
+  featureExtractor: WeeklyDiscoveryFeatureExtractor = extractDiscoveryCardFeatures,
+  scoringStrategy: WeeklyDiscoveryScoringStrategy = {}
 ): DiscoveryCandidate[] {
   const mergedPolicies = { ...DEFAULT_POLICIES, ...policies };
   return reserve.map((candidate) => {
-    const analysis = candidateAnalysis(candidate, profile, mergedPolicies, stableTieBreakerSeed, featureExtractor);
+    const analysis = candidateAnalysis(candidate, profile, mergedPolicies, stableTieBreakerSeed, featureExtractor, scoringStrategy);
     return {
       ...candidate,
       suggestion: {
@@ -713,9 +741,10 @@ export function analyzeWeeklyDiscoveryCandidateReserveWithFeatures(
   profile: CollectorTasteProfile,
   featureExtractor: WeeklyDiscoveryFeatureExtractor,
   policies: Partial<WeeklyDiscoveryPolicies> = {},
-  stableTieBreakerSeed = ''
+  stableTieBreakerSeed = '',
+  scoringStrategy: WeeklyDiscoveryScoringStrategy = {}
 ): DiscoveryCandidate[] {
-  return analyzeWeeklyDiscoveryCandidateReserve(reserve, profile, policies, stableTieBreakerSeed, featureExtractor);
+  return analyzeWeeklyDiscoveryCandidateReserve(reserve, profile, policies, stableTieBreakerSeed, featureExtractor, scoringStrategy);
 }
 
 export function rerankWeeklyDiscoveryReserve(

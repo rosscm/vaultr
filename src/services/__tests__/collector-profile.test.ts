@@ -13,7 +13,7 @@ import { db } from '../db.js';
 import { parseCollectorProfileInspectArgs, runCollectorProfileInspectCli } from '../../collector-profile-inspect.js';
 import { createUser, linkIdentity } from '../accounts.js';
 import { deleteWeeklyDiscoveryPreparedReserve, getWeeklyDiscoveryPreparedReserve, upsertWeeklyDiscoveryPreparedReserve } from '../weekly-discovery-prepared-reserve.js';
-import { analyzeWeeklyDiscoveryCandidateReserve } from '../weekly-discovery-ranking.js';
+import { analyzeWeeklyDiscoveryCandidateReserve, rerankWeeklyDiscoveryReserve, type CollectorTasteProfile } from '../weekly-discovery-ranking.js';
 
 const originalCatalogPath = process.env.CARD_CATALOG_PATH;
 const tempDirs = new Set<string>();
@@ -48,6 +48,27 @@ function candidate(
     marketSampleSize: 3,
     typicalRawAskingTotal: 50
   } as DiscoveryCandidate;
+}
+
+function tasteProfile(overrides: Partial<CollectorTasteProfile> = {}): CollectorTasteProfile {
+  return {
+    subjects: {},
+    evolutionFamilies: {},
+    artists: {},
+    eras: {},
+    sets: {},
+    setFamilies: {},
+    languages: {},
+    formats: {},
+    rarityTiers: {},
+    artTiers: {},
+    promoTypes: {},
+    releaseTypes: {},
+    aestheticTags: {},
+    sceneTags: {},
+    themeTags: {},
+    ...overrides
+  };
 }
 
 function record(overrides: Partial<CardCatalogRecord> & { sourceCardId: string; name: string }): CardCatalogRecord {
@@ -612,6 +633,93 @@ describe('collector interest profile', () => {
     expect(shadow.weeklyDiscovery?.features.formats).toEqual(expect.arrayContaining(['EX']));
   });
 
+  it('keeps zero-affinity unseen traits as controlled exploration in shadow scoring', () => {
+    const profile = tasteProfile({ subjects: { Mew: 8 }, languages: { ENGLISH: 4 } });
+    const reserve = [candidate('Pichu Expedition Base Set 22')];
+
+    const live = analyzeWeeklyDiscoveryCandidateReserve(reserve, profile, {}, 'seed')[0];
+    const shadow = analyzeCollectorProfileShadowReserve(reserve, profile, {}, 'seed')[0];
+
+    expect(live.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+    expect(shadow.weeklyDiscovery?.discoveryRole).toBe('CONTROLLED_EXPLORATION');
+    expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBe(0);
+  });
+
+  it('treats language-only affinity as support rather than adjacency', () => {
+    const profile = tasteProfile({ languages: { ENGLISH: 4 } });
+    const [shadow] = analyzeCollectorProfileShadowReserve([candidate('Unlistedmon English Promo 1')], profile, {}, 'seed');
+
+    const personal = shadow.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.languageAffinity).toBeGreaterThan(0);
+    expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.personalAggregate).toBeLessThan(0.1);
+    expect(shadow.weeklyDiscovery?.discoveryRole).toBe('CONTROLLED_EXPLORATION');
+  });
+
+  it('classifies strong subject and multi-trait profile matches as shadow core', () => {
+    const profile = tasteProfile({
+      subjects: { Mew: 8, Pikachu: 3.34 },
+      sets: { 'XY Black Star Promos': 5 },
+      setFamilies: { 'xy black': 5 },
+      promoTypes: { 'black-star': 5.13 },
+      formats: { EX: 1.92 },
+      languages: { ENGLISH: 4 }
+    });
+    const [mew, pikachu] = analyzeCollectorProfileShadowReserve([
+      candidate('Mew HS Triumphant 97 English'),
+      candidate('Pikachu-EX XY Black Star Promos XY174', {
+        suggestion: { referenceSourceName: 'Pokemon TCG XY Black Star Promos', referenceSourceCardId: 'xyp-XY174' }
+      })
+    ], profile, {}, 'seed');
+
+    expect(mew.weeklyDiscovery?.discoveryRole).toBe('CORE_MATCH');
+    expect(pikachu.weeklyDiscovery?.discoveryRole).toBe('CORE_MATCH');
+    expect(pikachu.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBeGreaterThan(0.4);
+  });
+
+  it('allows secondary subject plus format to become adjacent below core strength', () => {
+    const profile = tasteProfile({
+      subjects: { Umbreon: 2.5 },
+      formats: { GX: 5 },
+      languages: { ENGLISH: 4 }
+    });
+    const [shadow] = analyzeCollectorProfileShadowReserve([candidate('Umbreon-GX SM Black Star Promos SM36')], profile, {}, 'seed');
+
+    expect(shadow.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+    expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBeGreaterThanOrEqual(0.16);
+  });
+
+  it('uses subject affinity strength for shadow novelty instead of binary known-subject presence', () => {
+    const strong = analyzeCollectorProfileShadowReserve([candidate('Mew HS Triumphant 97')], tasteProfile({ subjects: { Mew: 8 } }), {}, 'seed')[0];
+    const weak = analyzeCollectorProfileShadowReserve([candidate('Meowth Promo 10')], tasteProfile({ subjects: { Meowth: 0.97 } }), {}, 'seed')[0];
+
+    expect(weak.weeklyDiscovery?.rankExplanation.scoreComponents.discoveryValue.novelty)
+      .toBeGreaterThan(strong.weeklyDiscovery?.rankExplanation.scoreComponents.discoveryValue.novelty ?? 0);
+    expect(weak.weeklyDiscovery?.discoveryRole).toBe('CONTROLLED_EXPLORATION');
+  });
+
+  it('does not dilute shadow personal relevance for unsupported profile dimensions', () => {
+    const profile = tasteProfile({ subjects: { Mew: 8 } });
+    const [shadow] = analyzeCollectorProfileShadowReserve([candidate('Mew HS Triumphant 97')], profile, {}, 'seed');
+
+    expect(shadow.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance.subjectAffinity).toBe(0.8);
+    expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.personalAggregate).toBeCloseTo(0.288, 3);
+  });
+
+  it('keeps shadow scoring deterministic for the same seed', () => {
+    const profile = tasteProfile({ subjects: { Mew: 8, Pikachu: 3 }, formats: { EX: 2 }, languages: { ENGLISH: 4 } });
+    const reserve = [
+      candidate('Pikachu-EX XY Black Star Promos XY174'),
+      candidate('Mew HS Triumphant 97 English'),
+      candidate('Pichu Expedition Base Set 22')
+    ];
+
+    const first = rerankWeeklyDiscoveryReserve(analyzeCollectorProfileShadowReserve(reserve, profile, {}, 'stable'));
+    const second = rerankWeeklyDiscoveryReserve(analyzeCollectorProfileShadowReserve(reserve, profile, {}, 'stable'));
+
+    expect(first.map((entry) => [entry.suggestion.name, entry.weeklyDiscovery?.discoveryRole, entry.weeklyDiscovery?.rankExplanation.scoreComponents.baseScore]))
+      .toEqual(second.map((entry) => [entry.suggestion.name, entry.weeklyDiscovery?.discoveryRole, entry.weeklyDiscovery?.rankExplanation.scoreComponents.baseScore]));
+  });
+
   it('prints a read-only shadow comparison for the latest prepared reserve', () => {
     const userId = 'usr_collector_profile_ranker_reserve_cli';
     clearUser(userId);
@@ -651,6 +759,8 @@ describe('collector interest profile', () => {
     expect(output).toContain('Prepared reserve shadow comparison');
     expect(output).toContain('Period: 2026-W32');
     expect(output).toContain('shadow  base=');
+    expect(output).toContain('personal=');
+    expect(output).toContain('features subjects=');
     expect(output).toContain('old     base=');
     expect(getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate>(userId, '2026-W32')).toEqual(before);
     logSpy.mockRestore();
