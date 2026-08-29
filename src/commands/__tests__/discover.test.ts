@@ -92,6 +92,7 @@ import {
 import { discoveryCanonicalLookupKey, type CanonicalLookupEvidenceMap } from '../../services/discovery-canonical-resolution.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
+import type { CollectorInterestProfile } from '../../services/collector-profile.js';
 import * as ebayService from '../../services/ebay.js';
 
 afterEach(() => {
@@ -110,6 +111,33 @@ function trustedReferenceImageUrl(sourceName: string, sourceCardId: string): str
   const setId = dashIndex > 0 ? sourceCardId.slice(0, dashIndex) : 'test';
   const number = dashIndex > 0 ? sourceCardId.slice(dashIndex + 1) : sourceCardId;
   return `https://images.pokemontcg.io/${setId}/${encodeURIComponent(number)}_hires.png`;
+}
+
+function collectorInterestProfileFixture(tier: CollectorInterestProfile['confidence']['tier']): CollectorInterestProfile {
+  return {
+    version: 1,
+    sourceSummary: {
+      activeChases: 1,
+      completedChases: 0,
+      legacyBoughtOrSeen: 0,
+      distinctCards: 1
+    },
+    confidence: { tier, score: tier === 'STRONG' ? 0.82 : tier === 'USABLE' ? 0.62 : tier === 'EMERGING' ? 0.35 : 0.1, reasons: [] },
+    traits: {
+      subjects: [{ key: 'mew', label: 'Mew', score: 5, evidenceCount: 1, activeEvidenceCount: 1, completedEvidenceCount: 0, legacyEvidenceCount: 0, confidence: 'MEDIUM', evidenceIds: ['e1'] }],
+      eras: [],
+      sets: [],
+      languages: [],
+      formats: [],
+      rarities: [],
+      promoTypes: [],
+      releaseTypes: [],
+      releaseEvents: [],
+      gradingPreferences: [],
+      conditionPreferences: []
+    },
+    evidence: []
+  };
 }
 
 function trustedReferenceSourceCardId(sourceName: string, selectionIndex: number): string {
@@ -132,6 +160,85 @@ function candidate(name: string, lane: string, selectionIndex: number, marketSam
     marketSampleSize
   };
 }
+
+describe('weekly discovery ranking mode integration', () => {
+  it('uses legacy ranking for low-confidence collector profiles', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const selection = __discoveryPersistenceTestHooks.selectWeeklyDiscoveryRankingProfile(
+      'usr_rank_seed',
+      [{ id: 'c1', userId: 'usr_rank_seed', cardName: 'Pikachu RC29', createdAt: '2026-01-01T00:00:00.000Z' }],
+      { budgetPreferenceCad: 30 },
+      () => collectorInterestProfileFixture('SEED')
+    );
+
+    expect(selection.rankingMode).toBe('LEGACY');
+    expect(selection.collectorProfile.subjects).toHaveProperty('pikachu');
+    expect(selection.collectorProfile.subjects).not.toHaveProperty('Mew');
+    warnSpy.mockRestore();
+  });
+
+  it('uses Collector Profile v1 ranking for usable and strong profiles without blending legacy weights', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const tier of ['USABLE', 'STRONG'] as const) {
+      const selection = __discoveryPersistenceTestHooks.selectWeeklyDiscoveryRankingProfile(
+        `usr_rank_${tier.toLowerCase()}`,
+        [{ id: 'c1', userId: 'usr_rank', cardName: 'Pikachu RC29', createdAt: '2026-01-01T00:00:00.000Z' }],
+        { budgetPreferenceCad: 30 },
+        () => collectorInterestProfileFixture(tier)
+      );
+
+      expect(selection.rankingMode).toBe('COLLECTOR_PROFILE_V1');
+      expect(selection.collectorProfile.subjects).toHaveProperty('Mew');
+      expect(selection.collectorProfile.subjects).not.toHaveProperty('pikachu');
+    }
+    warnSpy.mockRestore();
+  });
+
+  it('falls back to legacy ranking when Collector Profile construction fails', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const selection = __discoveryPersistenceTestHooks.selectWeeklyDiscoveryRankingProfile(
+      'usr_rank_failure',
+      [{ id: 'c1', userId: 'usr_rank_failure', cardName: 'Pikachu RC29', createdAt: '2026-01-01T00:00:00.000Z' }],
+      { budgetPreferenceCad: 30 },
+      () => { throw new Error('profile unavailable'); }
+    );
+
+    expect(selection.rankingMode).toBe('LEGACY');
+    expect(selection.collectorProfile.subjects).toHaveProperty('pikachu');
+    expect(warnSpy.mock.calls.some((call) => String(call[0]).includes('collector profile unavailable'))).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  it('uses Collector Profile features and calibrated roles at the live finalization boundary', () => {
+    const profile = {
+      ...buildCollectorTasteProfile([]),
+      subjects: { Mew: 8 },
+      languages: { ENGLISH: 4 }
+    };
+    const input: WeeklyDiscoveryFinalizationInput = {
+      targetPeriod: '2026-W33',
+      frozenTime: '2026-08-10T00:00:00.000Z',
+      userCurrency: 'CAD',
+      exchangeRates: {},
+      activeVault: [],
+      anchorProfileSignals: [],
+      collectorProfile: profile,
+      priorShelfHistory: [],
+      orderedCandidateReserve: [
+        candidate('Mew HS Triumphant 97 English', 'Core', 0, 3),
+        candidate('Pichu Expedition Base Set 22', 'Explore', 1, 3)
+      ],
+      feedbackPreferences: { budgetPreferenceCad: 30 },
+      stableTieBreakerSeed: 'seed',
+      rankingMode: 'COLLECTOR_PROFILE_V1'
+    };
+
+    const result = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf(input);
+
+    expect(result.candidateOutcomes.find((entry) => entry.suggestionName === 'Mew HS Triumphant 97 English')?.discoveryRole).toBe('CORE_MATCH');
+    expect(result.candidateOutcomes.find((entry) => entry.suggestionName === 'Pichu Expedition Base Set 22')?.discoveryRole).toBe('CONTROLLED_EXPLORATION');
+  });
+});
 
 describe('buildDiscoveryShelfPayload weekly eligibility', () => {
   it('explains the thin-profile requirement for Pro users below the weekly threshold', async () => {

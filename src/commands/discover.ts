@@ -64,8 +64,16 @@ import {
   type WeeklyDiscoveryCandidateAnalysis,
   type WeeklyDiscoveryCandidateOutcome,
   type WeeklyDiscoveryFinalizationInput,
-  type WeeklyDiscoveryFinalizationResult
+  type WeeklyDiscoveryFinalizationResult,
+  type WeeklyDiscoveryRankingMode
 } from '../services/weekly-discovery-ranking.js';
+import {
+  COLLECTOR_PROFILE_SCORING_STRATEGY,
+  collectorInterestProfileToTasteProfile,
+  extractCollectorProfileDiscoveryFeatures,
+  weeklyDiscoveryRankingModeForCollectorProfile
+} from '../services/collector-profile-ranking-adapter.js';
+import { getCollectorInterestProfile } from '../services/collector-profile.js';
 import { resolveSourceBackedDiscoveryCards, snapshotDiscoverySourceCatalogRuntimeStats, type DiscoverySourceCatalogRuntimeStats } from '../services/discovery-source-catalog.js';
 import {
   mergeCanonicalLookupEvidenceMaps,
@@ -458,6 +466,7 @@ type WeeklyDiscoveryPreparationProfileContext = {
   profileConfidence: DiscoveryProfileConfidence;
   negativeProfile: DiscoveryNegativeProfile;
   collectorProfile: CollectorTasteProfile;
+  rankingMode: WeeklyDiscoveryRankingMode;
   priorShelfHistory: ScheduledDiscoveryDrop[];
   sourceFingerprint: string;
 };
@@ -467,6 +476,32 @@ type WeeklyDiscoveryRegenerationExclusions = {
   nameKeys: Set<string>;
   itemCount: number;
 };
+
+type WeeklyDiscoveryRankingProfileSelection = {
+  collectorProfile: CollectorTasteProfile;
+  rankingMode: WeeklyDiscoveryRankingMode;
+};
+
+function selectWeeklyDiscoveryRankingProfile(
+  userId: string,
+  tasteProfileChases: Chase[],
+  feedbackPreferences: WeeklyDiscoveryFinalizationInput['feedbackPreferences'],
+  loadInterestProfile = getCollectorInterestProfile
+): WeeklyDiscoveryRankingProfileSelection {
+  const legacyCollectorProfile = buildCollectorTasteProfile(tasteProfileChases, feedbackPreferences);
+  try {
+    const interestProfile = loadInterestProfile(userId);
+    const rankingMode = weeklyDiscoveryRankingModeForCollectorProfile(interestProfile);
+    const collectorProfile = rankingMode === 'COLLECTOR_PROFILE_V1'
+      ? collectorInterestProfileToTasteProfile(interestProfile, feedbackPreferences)
+      : legacyCollectorProfile;
+    console.warn(`[DiscoveryShelf] ranking mode=${rankingMode} confidence=${interestProfile.confidence.tier} score=${interestProfile.confidence.score.toFixed(2)} user=${userId}`);
+    return { collectorProfile, rankingMode };
+  } catch (error) {
+    console.warn(`[DiscoveryShelf] ranking mode=LEGACY collector profile unavailable user=${userId} error=${error instanceof Error ? error.message : 'unknown'}`);
+    return { collectorProfile: legacyCollectorProfile, rankingMode: 'LEGACY' };
+  }
+}
 
 export type WeeklyPreparationDiagnostics = {
   regenerateCurrent: boolean;
@@ -573,6 +608,7 @@ function serializedWeeklyDiscoveryInput(input: WeeklyDiscoveryFinalizationInput)
     targetPeriod: input.targetPeriod,
     frozenTime: input.frozenTime,
     userCurrency: input.userCurrency,
+    rankingMode: input.rankingMode ?? 'LEGACY',
     activeVault: input.activeVault.map((chase) => ({
       cardName: chase.cardName,
       priority: chase.priority ?? 'NORMAL',
@@ -706,9 +742,10 @@ function currentWeeklyDiscoveryPreparationProfileContext(
   const profileConfidence = discoveryProfileConfidence(tasteProfileChases);
   const recentlyRejected = listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME');
   const negativeProfile = discoveryNegativeProfile(recentlyRejected, tasteProfileChases);
-  const collectorProfile = buildCollectorTasteProfile(tasteProfileChases, {
+  const feedbackPreferences = {
     budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
-  });
+  };
+  const { collectorProfile, rankingMode } = selectWeeklyDiscoveryRankingProfile(userId, tasteProfileChases, feedbackPreferences);
   const priorShelfHistory = listPriorWeeklyDiscoveryDropsForTargetPeriod(userId, date, 12);
   const sourceFingerprint = createHash('sha256')
     .update(JSON.stringify({
@@ -728,6 +765,8 @@ function currentWeeklyDiscoveryPreparationProfileContext(
         tasteWeight: chase.tasteWeight ?? null,
         priority: chase.priority ?? 'NORMAL'
       })),
+      rankingMode,
+      collectorProfile,
       recentShelves: priorShelfHistory.slice(0, 4).map((drop) => ({
         periodKey: drop.periodKey,
         canonicalIds: drop.items.map((item) => item.suggestion.referenceSourceCardId ?? item.suggestion.name)
@@ -742,6 +781,7 @@ function currentWeeklyDiscoveryPreparationProfileContext(
     profileConfidence,
     negativeProfile,
     collectorProfile,
+    rankingMode,
     priorShelfHistory,
     sourceFingerprint
   };
@@ -3952,6 +3992,7 @@ export const __discoveryPersistenceTestHooks = {
   reliableWeeklyDiscoveryMarketEstimate,
   repairExistingScheduledWeeklyDropReferences,
   finalizeWeeklyDiscoveryShelf,
+  selectWeeklyDiscoveryRankingProfile,
   buildWeeklyDiscoveryFinalizationInput,
   buildWeeklyDiscoverySupplyReadiness,
   hydratePendingDiscoveryMarketCandidates,
@@ -9742,7 +9783,9 @@ export function finalizeWeeklyDiscoveryShelf(input: WeeklyDiscoveryFinalizationI
     noveltyOrderedReserve,
     input.collectorProfile,
     input.policies,
-    input.stableTieBreakerSeed ?? input.targetPeriod
+    input.stableTieBreakerSeed ?? input.targetPeriod,
+    input.rankingMode === 'COLLECTOR_PROFILE_V1' ? extractCollectorProfileDiscoveryFeatures : undefined,
+    input.rankingMode === 'COLLECTOR_PROFILE_V1' ? COLLECTOR_PROFILE_SCORING_STRATEGY : undefined
   );
   const rerankedReserve = rerankWeeklyDiscoveryReserve(analyzedReserve, input.policies);
   const selection = selectPublishableWeeklyDiscoveryShelf(
@@ -9840,7 +9883,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     feedbackPreferences: {
       budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
     },
-    stableTieBreakerSeed: context.userId
+    stableTieBreakerSeed: context.userId,
+    rankingMode: profileContext.rankingMode
   });
   const preparedReserve = context.mode === 'LIVE' && context.regenerateCurrent !== true
     ? getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>(context.userId, weeklyPeriod)
@@ -10745,9 +10789,10 @@ function persistValidatedWeeklyDiscoveryDrop(
   const eligibleCandidates = candidates
     .filter((candidate) => !isDiscoveryNameExcluded(candidate.suggestion.name, rejectedNameKeys));
   for (const candidate of eligibleCandidates.filter(isFinishedShelfCandidate)) persistDiscoveryUniverseCandidate(candidate);
-  const collectorProfile = buildCollectorTasteProfile(tasteProfileChases, {
+  const feedbackPreferences = {
     budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
-  });
+  };
+  const { collectorProfile, rankingMode } = selectWeeklyDiscoveryRankingProfile(userId, tasteProfileChases, feedbackPreferences);
   const finalizationInput: WeeklyDiscoveryFinalizationInput = {
     targetPeriod: scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date),
     frozenTime: date.toISOString(),
@@ -10761,7 +10806,8 @@ function persistValidatedWeeklyDiscoveryDrop(
     feedbackPreferences: {
       budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
     },
-    stableTieBreakerSeed: userId
+    stableTieBreakerSeed: userId,
+    rankingMode
   };
   maybeWriteWeeklyDiscoveryFinalizationSnapshot(userId, finalizationInput, 'LIVE_PRE_FINALIZE', canonicalLookupEvidence);
   const finalization = finalizeWeeklyDiscoveryShelf(finalizationInput);

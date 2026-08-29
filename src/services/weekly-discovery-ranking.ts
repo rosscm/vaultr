@@ -65,6 +65,8 @@ export type DiscoveryCardFeatures = {
 
 export type WeeklyDiscoveryFeatureExtractor = (candidate: DiscoveryCandidate) => DiscoveryCardFeatures;
 
+export type WeeklyDiscoveryRankingMode = 'LEGACY' | 'COLLECTOR_PROFILE_V1';
+
 export type CollectorTasteProfile = {
   subjects: Record<string, number>;
   evolutionFamilies: Record<string, number>;
@@ -145,6 +147,7 @@ export type WeeklyDiscoveryScoringStrategy = {
     components: PersonalRelevanceComponents,
     value: DiscoveryValueComponents
   ) => WeeklyDiscoveryRankExplanation['shadowDiagnostics'];
+  strongestSignals?: (components: PersonalRelevanceComponents, value: DiscoveryValueComponents) => string[];
 };
 
 export type WeeklyDiscoveryCandidateOutcome =
@@ -208,6 +211,7 @@ export type WeeklyDiscoveryFinalizationInput = {
   };
   policies?: Partial<WeeklyDiscoveryPolicies>;
   stableTieBreakerSeed?: string;
+  rankingMode?: WeeklyDiscoveryRankingMode;
 };
 
 export type WeeklyDiscoveryStructuralGate = {
@@ -643,7 +647,7 @@ function candidateAnalysis(
   const strategy = determineGenerationStrategies(role, personal, discoveryValue, features);
   const personalAggregate = scoringStrategy.personalRelevanceAggregate?.(personal);
   const base = baseScore(personal, discoveryValue, market, policies, personalAggregate);
-  const strongest = strongestSignals(personal, discoveryValue);
+  const strongest = scoringStrategy.strongestSignals?.(personal, discoveryValue) ?? strongestSignals(personal, discoveryValue);
   const stableTieBreaker = createHash('sha256')
     .update(JSON.stringify([stableSeed, candidate.suggestion.referenceSourceCardId ?? '', candidate.suggestion.name, candidate.selectionIndex ?? -1]))
     .digest('hex');
