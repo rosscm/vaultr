@@ -8,6 +8,7 @@ import {
   type PersonalRelevanceComponents,
   type WeeklyDiscoveryFinalizationInput,
   type WeeklyDiscoveryPolicies,
+  type WeeklyDiscoveryRankingMode,
   type WeeklyDiscoveryScoringStrategy
 } from './weekly-discovery-ranking.js';
 
@@ -303,7 +304,13 @@ function shadowMeaningfulAffinityCount(components: PersonalRelevanceComponents):
   ].filter((value) => value >= 0.18).length;
 }
 
-const COLLECTOR_PROFILE_SHADOW_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy = {
+export function weeklyDiscoveryRankingModeForCollectorProfile(profile: CollectorInterestProfile): WeeklyDiscoveryRankingMode {
+  return profile.confidence.tier === 'USABLE' || profile.confidence.tier === 'STRONG'
+    ? 'COLLECTOR_PROFILE_V1'
+    : 'LEGACY';
+}
+
+export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy = {
   personalRelevanceAggregate: shadowPersonalAggregate,
   computeDiscoveryValue: (features, profile, personal) => {
     const anchor = shadowCollectorAnchorStrength(personal);
@@ -328,7 +335,24 @@ const COLLECTOR_PROFILE_SHADOW_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
   shadowDiagnostics: (components) => ({
     personalAggregate: shadowPersonalAggregate(components),
     collectorAnchorStrength: shadowCollectorAnchorStrength(components)
-  })
+  }),
+  strongestSignals: (components, value) => {
+    const signals: Array<{ label: string; value: number }> = [
+      { label: 'subject match', value: components.subjectAffinity },
+      { label: 'set match', value: components.setAffinity },
+      { label: 'promo match', value: components.promoAffinity },
+      { label: 'format match', value: components.formatAffinity },
+      { label: 'era match', value: components.eraAffinity },
+      { label: 'language match', value: components.languageAffinity },
+      { label: 'novelty', value: value.novelty }
+    ];
+    if (value.adjacency >= 0.5) signals.push({ label: 'adjacent trait', value: value.adjacency });
+    return signals
+      .sort((left, right) => right.value - left.value)
+      .filter((entry) => entry.value > 0.2)
+      .slice(0, 3)
+      .map((entry) => entry.label);
+  }
 };
 
 function shadowEras(text: string, setName: string | undefined): string[] {
@@ -370,7 +394,7 @@ export function extractCollectorProfileDiscoveryFeatures(candidate: DiscoveryCan
   };
 }
 
-export function analyzeCollectorProfileShadowReserve(
+export function analyzeCollectorProfileReserve(
   reserve: DiscoveryCandidate[],
   profile: CollectorTasteProfile,
   policies: Partial<WeeklyDiscoveryPolicies> = {},
@@ -388,9 +412,11 @@ export function analyzeCollectorProfileShadowReserve(
     extractCollectorProfileDiscoveryFeatures,
     policies,
     stableTieBreakerSeed,
-    COLLECTOR_PROFILE_SHADOW_SCORING_STRATEGY
+    COLLECTOR_PROFILE_SCORING_STRATEGY
   );
 }
+
+export const analyzeCollectorProfileShadowReserve = analyzeCollectorProfileReserve;
 
 export const __collectorProfileRankingAdapterTestHooks = {
   EMPTY_PROFILE_GROUPS,

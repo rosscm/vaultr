@@ -8,7 +8,7 @@ import { getCardCatalogRecordBySourceCardId, replaceCardCatalogSourceRecords } f
 import type { CardCatalogRecord } from '../card-catalog/types.js';
 import { addChase, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, resolveChaseRemoval } from '../chase-store.js';
 import { buildCollectorInterestProfile, type CollectorInterestProfile } from '../collector-profile.js';
-import { analyzeCollectorProfileShadowReserve, collectorInterestProfileToTasteProfile, extractCollectorProfileDiscoveryFeatures } from '../collector-profile-ranking-adapter.js';
+import { analyzeCollectorProfileShadowReserve, collectorInterestProfileToTasteProfile, extractCollectorProfileDiscoveryFeatures, weeklyDiscoveryRankingModeForCollectorProfile } from '../collector-profile-ranking-adapter.js';
 import { db } from '../db.js';
 import { parseCollectorProfileInspectArgs, runCollectorProfileInspectCli } from '../../collector-profile-inspect.js';
 import { createUser, linkIdentity } from '../accounts.js';
@@ -495,6 +495,18 @@ describe('collector interest profile', () => {
     expect(collectorInterestProfileToTasteProfile(second)).toEqual(adapted);
   });
 
+  it('selects live weekly ranking mode from collector profile confidence tier', () => {
+    const base = buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    });
+
+    expect(weeklyDiscoveryRankingModeForCollectorProfile({ ...base, confidence: { tier: 'SEED', score: 0.1 } })).toBe('LEGACY');
+    expect(weeklyDiscoveryRankingModeForCollectorProfile({ ...base, confidence: { tier: 'EMERGING', score: 0.4 } })).toBe('LEGACY');
+    expect(weeklyDiscoveryRankingModeForCollectorProfile({ ...base, confidence: { tier: 'USABLE', score: 0.6 } })).toBe('COLLECTOR_PROFILE_V1');
+    expect(weeklyDiscoveryRankingModeForCollectorProfile({ ...base, confidence: { tier: 'STRONG', score: 0.8 } })).toBe('COLLECTOR_PROFILE_V1');
+  });
+
   it('maps compatible languages, sets, eras, rarities, promos, and explicit feedback preferences', () => {
     const profile = buildCollectorInterestProfile({
       activeChases: [
@@ -643,6 +655,8 @@ describe('collector interest profile', () => {
     expect(live.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
     expect(shadow.weeklyDiscovery?.discoveryRole).toBe('CONTROLLED_EXPLORATION');
     expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBe(0);
+    expect(shadow.weeklyDiscovery?.rankExplanation.strongestSignals).not.toContain('adjacent trait');
+    expect(shadow.weeklyDiscovery?.rankExplanation.strongestSignals).toContain('novelty');
   });
 
   it('treats language-only affinity as support rather than adjacency', () => {
