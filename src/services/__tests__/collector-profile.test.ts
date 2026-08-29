@@ -7,6 +7,7 @@ import { getCardCatalogRecordBySourceCardId, replaceCardCatalogSourceRecords } f
 import type { CardCatalogRecord } from '../card-catalog/types.js';
 import { addChase, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, resolveChaseRemoval } from '../chase-store.js';
 import { buildCollectorInterestProfile, type CollectorInterestProfile } from '../collector-profile.js';
+import { collectorInterestProfileToTasteProfile } from '../collector-profile-ranking-adapter.js';
 import { db } from '../db.js';
 import { parseCollectorProfileInspectArgs, runCollectorProfileInspectCli } from '../../collector-profile-inspect.js';
 import { createUser, linkIdentity } from '../accounts.js';
@@ -402,10 +403,11 @@ describe('collector interest profile', () => {
     addChase({ userId, cardName: 'Mew RC24' });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    expect(parseCollectorProfileInspectArgs(['--user', userId, '--json'])).toEqual({ userId, discordUserId: undefined, json: true, evidence: false });
+    expect(parseCollectorProfileInspectArgs(['--user', userId, '--json'])).toEqual({ userId, discordUserId: undefined, json: true, evidence: false, ranker: false });
     expect(() => parseCollectorProfileInspectArgs([])).toThrow('Usage: npm run profile:inspect');
     expect(() => parseCollectorProfileInspectArgs(['--user', '875643283995500625'])).toThrow('--discord-user');
     expect(() => parseCollectorProfileInspectArgs(['--user', userId, '--discord-user', '875643283995500625'])).toThrow('either --user or --discord-user');
+    expect(() => parseCollectorProfileInspectArgs(['--user', userId, '--json', '--ranker'])).toThrow('--ranker');
     runCollectorProfileInspectCli(['--user', userId, '--json']);
 
     const printed = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
@@ -428,6 +430,82 @@ describe('collector interest profile', () => {
 
     expect(logSpy.mock.calls.map((call) => String(call[0]))).toContain(`User: ${user.id}`);
     expect(() => runCollectorProfileInspectCli(['--discord-user', '000000000000000000'])).toThrow('No Vaultr account is linked');
+    logSpy.mockRestore();
+  });
+
+  it('adapts collector profile subjects into bounded order-independent ranker weights', () => {
+    const first = buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'Mew XY192', createdAt: '2026-01-02T00:00:00.000Z' },
+        { id: 'a3', userId: 'u1', cardName: 'Gardevoir ex Scarlet ex 101/78', createdAt: '2026-01-03T00:00:00.000Z' }
+      ],
+      completedChases: []
+    });
+    const second = { ...first, traits: { ...first.traits, subjects: [...first.traits.subjects].reverse() } };
+
+    const adapted = collectorInterestProfileToTasteProfile(first);
+    expect(adapted.subjects.Mew).toBeGreaterThan(adapted.subjects.Gardevoir ?? 0);
+    expect(adapted.subjects.Mew).toBeLessThanOrEqual(8);
+    expect(collectorInterestProfileToTasteProfile(second)).toEqual(adapted);
+  });
+
+  it('maps compatible languages, sets, eras, rarities, promos, and explicit feedback preferences', () => {
+    const profile = buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'Umbreon ex SAR Terastal Festival ex Japanese 217/187', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210', createdAt: '2026-01-02T00:00:00.000Z' },
+        { id: 'a3', userId: 'u1', cardName: "Squirtle Japanese McDonald's Promo 007/018", createdAt: '2026-01-03T00:00:00.000Z' },
+        { id: 'a4', userId: 'u1', cardName: 'Mew-EX Legendary Treasures RC24 English', createdAt: '2026-01-04T00:00:00.000Z' }
+      ],
+      completedChases: []
+    });
+    const adapted = collectorInterestProfileToTasteProfile(profile, {
+      preferredLanguages: ['JAPANESE'],
+      preferredEras: ['XY'],
+      preferredSets: ['XY Black Star Promos'],
+      budgetPreferenceCad: 45
+    });
+
+    expect(adapted.languages).toMatchObject({ ENGLISH: expect.any(Number), JAPANESE: expect.any(Number) });
+    expect(adapted.sets).toHaveProperty('Terastal Festival ex');
+    expect(adapted.sets).toHaveProperty('SM Black Star Promos');
+    expect(adapted.sets).toHaveProperty('XY Black Star Promos');
+    expect(adapted.setFamilies).toHaveProperty('terastal festival');
+    expect(adapted.eras).toMatchObject({ SV: expect.any(Number), SM: expect.any(Number), XY: expect.any(Number) });
+    expect(adapted.formats).toMatchObject({ ex: expect.any(Number), EX: expect.any(Number), GX: expect.any(Number), TAG_TEAM: expect.any(Number) });
+    expect(adapted.rarityTiers).toHaveProperty('premium');
+    expect(adapted.artTiers).toHaveProperty('premium');
+    expect(adapted.promoTypes).toMatchObject({ 'black-star': expect.any(Number), mcdonalds: expect.any(Number) });
+    expect(adapted.releaseTypes).toMatchObject({ 'promo-release': expect.any(Number), 'japanese-release': expect.any(Number) });
+    expect(adapted.budgetPreferenceCad).toBe(45);
+  });
+
+  it('leaves unsupported ranker dimensions empty in the shadow adapter', () => {
+    const adapted = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    }));
+
+    expect(adapted.evolutionFamilies).toEqual({});
+    expect(adapted.artists).toEqual({});
+    expect(adapted.aestheticTags).toEqual({});
+    expect(adapted.sceneTags).toEqual({});
+    expect(adapted.themeTags).toEqual({});
+  });
+
+  it('shows the adapted ranker profile in human CLI output only', () => {
+    const userId = 'usr_collector_profile_ranker_cli';
+    clearUser(userId);
+    addChase({ userId, cardName: 'Mew-EX Legendary Treasures RC24' });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    runCollectorProfileInspectCli(['--user', userId, '--ranker']);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(output).toContain('Ranker adapter');
+    expect(output).toContain('Subjects');
+    expect(output).toContain('Formats');
     logSpy.mockRestore();
   });
 });
