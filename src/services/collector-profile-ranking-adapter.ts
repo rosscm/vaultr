@@ -147,19 +147,6 @@ export function collectorInterestProfileToTasteProfile(
   return rankerProfile;
 }
 
-function shadowText(candidate: DiscoveryCandidate): string {
-  return [
-    candidate.suggestion.name,
-    candidate.suggestion.lane,
-    candidate.suggestion.laneWhy,
-    candidate.suggestion.why,
-    candidate.suggestion.referenceSourceName,
-    candidate.weeklyDiscovery?.canonicalReference?.setName,
-    candidate.suggestion.canonicalReference?.setName,
-    ...(candidate.suggestion.sourceTasteTokens ?? [])
-  ].filter(Boolean).join(' ');
-}
-
 function addUnique(target: string[], ...values: Array<string | undefined>): void {
   for (const value of values) {
     const trimmed = value?.trim();
@@ -171,26 +158,51 @@ function normalizedAscii(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function shadowSetNameFromCandidate(candidate: DiscoveryCandidate, text: string): string | undefined {
-  return candidate.weeklyDiscovery?.canonicalReference?.setName
-    ?? candidate.suggestion.canonicalReference?.setName
-    ?? candidate.suggestion.referenceSourceName
-      ?.replace(/^Pokemon TCG\s*/i, '')
-      .replace(/^TCGdex Japanese\s*/i, '')
-      .replace(/[()]/g, ' ')
-      .trim()
-    ?? (/\bxy\s+black\s+star\s+promos?\b/i.test(text) ? 'XY Black Star Promos' : undefined)
-    ?? (/\bsm\s+black\s+star\s+promos?\b/i.test(text) ? 'SM Black Star Promos' : undefined)
-    ?? (/\blegendary\s+treasures\b/i.test(text) ? 'Legendary Treasures' : undefined)
-    ?? (/\bmega\s+symphonia\b/i.test(text) ? 'Mega Symphonia' : undefined)
-    ?? (/\bscarlet\s+ex\b/i.test(text) ? 'Scarlet ex' : undefined)
-    ?? (/\bterastal\s+festival(?:\s+ex)?\b/i.test(text) ? 'Terastal Festival ex' : undefined)
-    ?? (/\bexpedition(?:\s+base\s+set)?\b/i.test(text) ? 'Expedition Base Set' : undefined);
+function shadowCardNameText(candidate: DiscoveryCandidate): string {
+  return [
+    candidate.weeklyDiscovery?.canonicalReference?.canonicalName,
+    candidate.suggestion.canonicalReference?.canonicalName,
+    candidate.suggestion.name
+  ].filter(Boolean).join(' ');
 }
 
-function shadowLanguage(text: string): 'ENGLISH' | 'JAPANESE' | undefined {
-  if (/\bjapanese\b|tcgdex japanese|[\u3040-\u30ff\u3400-\u9fff]/i.test(text)) return 'JAPANESE';
-  if (/\benglish\b/i.test(text)) return 'ENGLISH';
+function trustedSourceName(candidate: DiscoveryCandidate): string | undefined {
+  return candidate.weeklyDiscovery?.canonicalReference?.provider
+    ?? candidate.suggestion.canonicalReference?.provider
+    ?? candidate.suggestion.referenceSourceName
+    ?? candidate.image?.sourceName;
+}
+
+function setNameFromSourceName(sourceName: string | undefined): string | undefined {
+  const cleaned = sourceName
+    ?.replace(/^Pokemon TCG\s*/i, '')
+    .replace(/^TCGdex Japanese\s*/i, '')
+    .replace(/[()]/g, ' ')
+    .trim();
+  return cleaned || undefined;
+}
+
+function shadowSetNameFromCandidate(candidate: DiscoveryCandidate, cardName: string): string | undefined {
+  const sourceSetName = setNameFromSourceName(candidate.suggestion.referenceSourceName);
+  return candidate.weeklyDiscovery?.canonicalReference?.setName
+    ?? candidate.suggestion.canonicalReference?.setName
+    ?? sourceSetName
+    ?? (/\bxy\s+black\s+star\s+promos?\b/i.test(cardName) ? 'XY Black Star Promos' : undefined)
+    ?? (/\bsm\s+black\s+star\s+promos?\b/i.test(cardName) ? 'SM Black Star Promos' : undefined)
+    ?? (/\blegendary\s+treasures\b/i.test(cardName) ? 'Legendary Treasures' : undefined)
+    ?? (/\bmega\s+symphonia\b/i.test(cardName) ? 'Mega Symphonia' : undefined)
+    ?? (/\bscarlet\s+ex\b/i.test(cardName) ? 'Scarlet ex' : undefined)
+    ?? (/\bterastal\s+festival(?:\s+ex)?\b/i.test(cardName) ? 'Terastal Festival ex' : undefined)
+    ?? (/\bexpedition(?:\s+base\s+set)?\b/i.test(cardName) ? 'Expedition Base Set' : undefined);
+}
+
+function shadowLanguage(candidate: DiscoveryCandidate, cardName: string, sourceName: string | undefined): 'ENGLISH' | 'JAPANESE' | undefined {
+  const canonicalLanguage = candidate.weeklyDiscovery?.canonicalReference?.language ?? candidate.suggestion.canonicalReference?.language;
+  if (canonicalLanguage) return canonicalLanguage;
+  if (/[\u3040-\u30ff\u3400-\u9fff]/.test(cardName) || /\bjapanese\b/i.test(cardName)) return 'JAPANESE';
+  if (/\benglish\b/i.test(cardName)) return 'ENGLISH';
+  if (/^TCGdex Japanese/i.test(sourceName ?? '')) return 'JAPANESE';
+  if (/^Pokemon TCG/i.test(sourceName ?? '')) return 'ENGLISH';
   return undefined;
 }
 
@@ -263,24 +275,26 @@ function shadowEras(text: string, setName: string | undefined): string[] {
 }
 
 export function extractCollectorProfileDiscoveryFeatures(candidate: DiscoveryCandidate): DiscoveryCardFeatures {
-  const text = shadowText(candidate);
-  const setName = shadowSetNameFromCandidate(candidate, text);
+  const cardName = shadowCardNameText(candidate);
+  const setName = shadowSetNameFromCandidate(candidate, cardName);
+  const sourceName = trustedSourceName(candidate);
+  const identityText = [cardName, setName, sourceName].filter(Boolean).join(' ');
   const sets: string[] = [];
   addUnique(sets, setName);
-  const rarityTiers = shadowRarityTokens(text);
+  const rarityTiers = shadowRarityTokens(cardName);
   return {
-    subjects: shadowSubjectsFromText(text),
+    subjects: shadowSubjectsFromText(cardName),
     evolutionFamilies: [],
     artists: [],
-    eras: shadowEras(text, setName),
+    eras: shadowEras(cardName, setName),
     sets,
     setFamilies: sets.map(rankerSetFamily).filter(Boolean),
-    languages: [shadowLanguage(text)].filter((value): value is 'ENGLISH' | 'JAPANESE' => !!value),
-    formats: shadowFormatTokens(text),
+    languages: [shadowLanguage(candidate, cardName, sourceName)].filter((value): value is 'ENGLISH' | 'JAPANESE' => !!value),
+    formats: shadowFormatTokens(identityText),
     rarityTiers,
     artTiers: rarityTiers.includes('illustration') ? ['illustration'] : rarityTiers.includes('premium') ? ['premium'] : [],
-    promoTypes: shadowPromoTypes(text),
-    releaseTypes: shadowReleaseTypes(text),
+    promoTypes: shadowPromoTypes(identityText),
+    releaseTypes: shadowReleaseTypes(identityText),
     aestheticTags: [],
     sceneTags: [],
     themeTags: []

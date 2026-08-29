@@ -547,6 +547,54 @@ describe('collector interest profile', () => {
     expect(exFeatures.setFamilies).toContain('legendary treasures');
   });
 
+  it('keeps generation rationale and taste tokens out of shadow intrinsic features', () => {
+    const features = extractCollectorProfileDiscoveryFeatures(candidate('Pikachu-EX XY Black Star Promos XY174', {
+      suggestion: {
+        lane: 'Japanese CoroCoro Mew',
+        laneWhy: 'Because you collect Japanese Mew and Gardevoir promos',
+        why: 'Similar to your CoroCoro Mew and Umbreon tastes',
+        sourceTasteTokens: ['Japanese', 'CoroCoro', 'Mew', 'Gardevoir', 'Umbreon', 'VMAX', 'SAR', 'Mega Symphonia'],
+        referenceSourceName: 'Pokemon TCG XY Black Star Promos',
+        referenceSourceCardId: 'xyp-XY174'
+      }
+    }));
+
+    expect(features.subjects).toEqual(['Pikachu']);
+    expect(features.subjects).not.toEqual(expect.arrayContaining(['Mew', 'Gardevoir', 'Umbreon']));
+    expect(features.languages).toEqual(['ENGLISH']);
+    expect(features.sets).toContain('XY Black Star Promos');
+    expect(features.sets).not.toContain('Mega Symphonia');
+    expect(features.formats).toContain('EX');
+    expect(features.formats).not.toContain('VMAX');
+    expect(features.rarityTiers).not.toContain('premium');
+    expect(features.promoTypes).toContain('black-star');
+    expect(features.promoTypes).not.toContain('corocoro');
+  });
+
+  it('does not derive Japanese promo traits or subjects from poisoned shadow context', () => {
+    const articuno = extractCollectorProfileDiscoveryFeatures(candidate('Articuno Japanese S12a 049/172', {
+      suggestion: {
+        lane: 'CoroCoro Mew Black Star',
+        why: 'Matches your Mew and Pikachu taste',
+        sourceTasteTokens: ['CoroCoro', 'Mew', 'Black Star'],
+        referenceSourceName: 'TCGdex Japanese VSTAR Universe',
+        referenceSourceCardId: 'S12a-049'
+      }
+    }));
+    const moltres = extractCollectorProfileDiscoveryFeatures(candidate('Galarian Moltres V Brilliant Stars 183', {
+      suggestion: {
+        sourceTasteTokens: ['Mew', 'Pikachu', 'Gardevoir'],
+        why: 'For Mew, Pikachu, and Gardevoir collectors'
+      }
+    }));
+
+    expect(articuno.subjects).toEqual(['Articuno']);
+    expect(articuno.languages).toEqual(['JAPANESE']);
+    expect(articuno.promoTypes).not.toEqual(expect.arrayContaining(['corocoro', 'black-star']));
+    expect(moltres.subjects).toEqual(['Moltres']);
+    expect(moltres.subjects).not.toEqual(expect.arrayContaining(['Mew', 'Pikachu', 'Gardevoir']));
+  });
+
   it('uses compatible shadow feature keys for adapter profile scoring without changing the default extractor', () => {
     const profile = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
       activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Mew-EX Legendary Treasures RC24 English', createdAt: '2026-01-01T00:00:00.000Z' }],

@@ -69,6 +69,13 @@ function score(value: number | undefined): string {
   return (value ?? 0).toFixed(3);
 }
 
+function featureLine(values: Array<[string, string[]]>): string {
+  return values
+    .filter(([, entries]) => entries.length > 0)
+    .map(([label, entries]) => `${label}=${entries.join(',')}`)
+    .join(' ');
+}
+
 function printRankerReserveComparison(userId: string, rankerProfile: ReturnType<typeof collectorInterestProfileToTasteProfile>): void {
   const reserves = listWeeklyDiscoveryPreparedReservesForUser<DiscoveryCandidate>(userId);
   const latest = reserves[reserves.length - 1];
@@ -89,6 +96,16 @@ function printRankerReserveComparison(userId: string, rankerProfile: ReturnType<
     } else {
       console.log('    old     Stored live analysis unavailable');
     }
+    const features = analysis.features;
+    const featuresText = featureLine([
+      ['subjects', features.subjects],
+      ['lang', features.languages],
+      ['sets', features.sets],
+      ['eras', features.eras],
+      ['formats', features.formats],
+      ['promo', features.promoTypes]
+    ]);
+    if (featuresText) console.log(`    features ${featuresText}`);
     console.log(`    signals ${analysis.rankExplanation.strongestSignals.join(', ') || 'none'}`);
   }
 }
