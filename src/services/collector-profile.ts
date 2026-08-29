@@ -113,8 +113,7 @@ const SET_PATTERNS: Array<[RegExp, string]> = [
   [/\bterastal\s+festival\b/i, 'Terastal Festival ex'],
   [/\bmega\s+symphonia\b/i, 'Mega Symphonia'],
   [/\bsm\s+black\s+star\s+promos\b|\bblack\s+star\s+promos\b/i, 'SM Black Star Promos'],
-  [/\bxy\s+black\s+star\s+promos\b/i, 'XY Black Star Promos'],
-  [/\b151\b/i, '151']
+  [/\bxy\s+black\s+star\s+promos\b/i, 'XY Black Star Promos']
 ];
 
 function normalizeKey(value: string | undefined): string {
@@ -195,7 +194,7 @@ function eraFromRecord(record: StoredCardCatalogRecord): string | undefined {
 function eraFromName(name: string): string | undefined {
   const normalized = normalizeKey(name);
   if (/\bexpedition|aquapolis|skyridge\b/.test(normalized)) return 'WOTC e-Reader';
-  if (/\bpaldean fates|terastal festival|mega symphonia|151\b/.test(normalized)) return 'SV';
+  if (/\bpaldean fates|terastal festival|mega symphonia\b/.test(normalized)) return 'SV';
   if (/\bsm\b|sun and moon/.test(normalized)) return 'SM';
   if (/\bxy\b/.test(normalized)) return 'XY';
   if (/\blegendary treasures\b/.test(normalized)) return 'BW';

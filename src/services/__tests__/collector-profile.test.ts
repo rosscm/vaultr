@@ -210,6 +210,73 @@ describe('collector interest profile', () => {
     expect(profile.traits.rarities).toEqual([]);
   });
 
+  it('does not infer Pokemon 151 set from CoroCoro Mew identifier text', () => {
+    const profile = buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Mew CoroCoro Promo 151', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    });
+
+    expect(traitLabels(profile, 'subjects')).toContain('Mew');
+    expect(traitLabels(profile, 'promoTypes')).toContain('PROMO');
+    expect(traitLabels(profile, 'releaseEvents')).toContain('COROCORO');
+    expect(traitLabels(profile, 'sets')).not.toContain('151');
+    expect(traitLabels(profile, 'eras')).not.toContain('SV');
+  });
+
+  it('keeps structured catalog set 151 authoritative for exact trusted records', () => {
+    const dbPath = tempCatalogPath('structured-151');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('POKEMONTCG', [record({
+      sourceCardId: 'sv3pt5-205',
+      name: 'Mew ex',
+      normalizedName: 'mew ex',
+      setName: '151',
+      normalizedSetName: '151',
+      series: 'Scarlet & Violet',
+      cardNumber: '205',
+      normalizedCardNumber: '205',
+      printedTotal: '165'
+    })], dbPath);
+
+    const profile = buildCollectorInterestProfile({
+      activeChases: [{
+        id: 'a1',
+        userId: 'u1',
+        cardName: 'Pokemon 151 Mew ex 205/165',
+        cardImageSourceKind: 'CARD_REFERENCE',
+        cardImageSourceName: 'POKEMONTCG',
+        cardImageSourceCardId: 'sv3pt5-205',
+        createdAt: '2026-01-01T00:00:00.000Z'
+      }],
+      completedChases: []
+    });
+
+    expect(traitLabels(profile, 'sets')).toContain('151');
+    expect(traitLabels(profile, 'eras')).toContain('SV');
+  });
+
+  it('does not infer set 151 from unrelated bare numeric context', () => {
+    const profile = buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Mew Japanese 151', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    });
+
+    expect(traitLabels(profile, 'subjects')).toContain('Mew');
+    expect(traitLabels(profile, 'sets')).not.toContain('151');
+  });
+
+  it('preserves existing safe textual set fallbacks', () => {
+    const profile = buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'Mew-EX Legendary Treasures RC24', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'Mew XY Black Star Promos XY192', createdAt: '2026-01-02T00:00:00.000Z' }
+      ],
+      completedChases: []
+    });
+
+    expect(traitLabels(profile, 'sets')).toEqual(expect.arrayContaining(['Legendary Treasures', 'XY Black Star Promos']));
+  });
+
   it('suppresses completed legacy mirrors by origin ID and safe exact identity fallback', () => {
     const userId = 'collector-profile-legacy';
     clearUser(userId);
