@@ -9,6 +9,7 @@ import { addChase, listChases, listCompletedChases, listUserTasteMemoryChases, r
 import { buildCollectorInterestProfile, type CollectorInterestProfile } from '../collector-profile.js';
 import { db } from '../db.js';
 import { parseCollectorProfileInspectArgs, runCollectorProfileInspectCli } from '../../collector-profile-inspect.js';
+import { createUser, linkIdentity } from '../accounts.js';
 
 const originalCatalogPath = process.env.CARD_CATALOG_PATH;
 const tempDirs = new Set<string>();
@@ -112,6 +113,28 @@ describe('collector interest profile', () => {
     ]));
   });
 
+  it('canonicalizes Japanese catalog subjects through existing subject aliases', () => {
+    const dbPath = tempCatalogPath('jp-subjects');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({ source: 'TCGDEX', sourceCardId: 'SV1S-101', language: 'ja', name: 'サーナイトex', normalizedName: 'サーナイトex', setName: 'Scarlet ex', normalizedSetName: 'scarlet ex', cardNumber: '101', normalizedCardNumber: '101', printedTotal: '078' }),
+      record({ source: 'TCGDEX', sourceCardId: 'SV-P-mew', language: 'ja', name: 'ミュウex', normalizedName: 'ミュウex', setName: 'Japanese Promo', normalizedSetName: 'japanese promo', cardNumber: '1', normalizedCardNumber: '1' }),
+      record({ source: 'TCGDEX', sourceCardId: 'SV8a-217', language: 'ja', name: 'ブラッキーex', normalizedName: 'ブラッキーex', setName: 'Terastal Festival ex', normalizedSetName: 'terastal festival ex', cardNumber: '217', normalizedCardNumber: '217' })
+    ], dbPath);
+
+    const profile = buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'サーナイトex Scarlet ex 101/78 Japanese', cardImageSourceKind: 'CARD_REFERENCE', cardImageSourceName: 'TCGDEX', cardImageSourceCardId: 'SV1S-101', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'ミュウex Japanese Promo', cardImageSourceKind: 'CARD_REFERENCE', cardImageSourceName: 'TCGDEX', cardImageSourceCardId: 'SV-P-mew', createdAt: '2026-01-02T00:00:00.000Z' },
+        { id: 'a3', userId: 'u1', cardName: 'ブラッキーex Terastal Festival Japanese 217', cardImageSourceKind: 'CARD_REFERENCE', cardImageSourceName: 'TCGDEX', cardImageSourceCardId: 'SV8a-217', createdAt: '2026-01-03T00:00:00.000Z' }
+      ],
+      completedChases: []
+    });
+
+    expect(traitLabels(profile, 'subjects')).toEqual(['Gardevoir', 'Mew', 'Umbreon']);
+    expect(traitLabels(profile, 'subjects')).not.toContain('サーナイトex');
+  });
+
   it('caps repeated exact-card reinforcement without discarding lifecycle evidence', () => {
     const repeated = Array.from({ length: 4 }, (_, index) => ({
       id: `a${index}`,
@@ -187,7 +210,7 @@ describe('collector interest profile', () => {
     expect(profile.traits.rarities).toEqual([]);
   });
 
-  it('does not include legacy removed memory and avoids double-counting completed bought memory', () => {
+  it('suppresses completed legacy mirrors by origin ID and safe exact identity fallback', () => {
     const userId = 'collector-profile-legacy';
     clearUser(userId);
     const completed = addChase({ userId, cardName: 'Mew RC24' });
@@ -200,15 +223,62 @@ describe('collector interest profile', () => {
       completedChases: listCompletedChases(userId),
       legacyTasteMemoryChases: [
         ...listUserTasteMemoryChases(userId),
-        { id: 'taste:removed', userId, cardName: 'Pichu Expedition 22/165', createdAt: '2026-01-01T00:00:00.000Z', tasteSource: 'REMOVED_CHASE' }
+        { id: 'taste:removed', userId, cardName: 'Pichu Expedition 22/165', createdAt: '2026-01-01T00:00:00.000Z', tasteSource: 'REMOVED_CHASE' },
+        { id: 'taste:BOUGHT_OR_SEEN:legacy-name', userId, cardName: 'Mew RC24', createdAt: '2026-01-02T00:00:00.000Z', tasteSource: 'BOUGHT_OR_SEEN' },
+        { id: 'taste:BOUGHT_OR_SEEN:xy192', userId, cardName: 'Mew XY Black Star Promos XY192', createdAt: '2026-01-03T00:00:00.000Z', tasteSource: 'BOUGHT_OR_SEEN' }
       ],
       includeLegacyBoughtOrSeen: true
     });
 
     expect(profile.sourceSummary.completedChases).toBe(1);
-    expect(profile.sourceSummary.legacyBoughtOrSeen).toBe(0);
-    expect(profile.evidence.map((item) => item.source)).toEqual(['COMPLETED_CHASE']);
-    expect(profile.evidence.map((item) => item.cardName)).toEqual(['Mew RC24']);
+    expect(profile.sourceSummary.legacyBoughtOrSeen).toBe(1);
+    expect(profile.evidence.map((item) => item.cardName)).toEqual(expect.arrayContaining(['Mew RC24', 'Mew XY Black Star Promos XY192']));
+  });
+
+  it('dedupes legacy bought evidence per exact identity and reports legacy trait counts', () => {
+    const legacy = Array.from({ length: 4 }, (_, index) => ({
+      id: `taste:BOUGHT_OR_SEEN:umbreon-${index}`,
+      userId: 'u1',
+      cardName: 'Umbreon ex SAR Terastal Festival Japanese 217/187',
+      createdAt: `2026-01-0${index + 1}T00:00:00.000Z`,
+      tasteSource: 'BOUGHT_OR_SEEN' as const,
+      maxPrice: 100 + index
+    }));
+
+    const profile = buildCollectorInterestProfile({ activeChases: [], completedChases: [], legacyTasteMemoryChases: legacy, includeLegacyBoughtOrSeen: true });
+
+    expect(profile.sourceSummary).toMatchObject({ activeChases: 0, completedChases: 0, legacyBoughtOrSeen: 1, distinctCards: 1 });
+    expect(profile.evidence).toHaveLength(1);
+    expect(profile.evidence[0]).toMatchObject({ source: 'LEGACY_BOUGHT_OR_SEEN', weight: 0.65 });
+    expect(profile.traits.subjects[0]).toMatchObject({ label: 'Umbreon', activeEvidenceCount: 0, completedEvidenceCount: 0, legacyEvidenceCount: 1 });
+    expect(profile.budget).toBeUndefined();
+  });
+
+  it('reports mixed source counts on reinforced traits', () => {
+    const profile = buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'Mew XY192', createdAt: '2026-01-02T00:00:00.000Z' }
+      ],
+      completedChases: [{ id: 'c1', userId: 'u1', cardName: 'Mew XY110', createdAt: '2026-01-03T00:00:00.000Z', completedAt: '2026-01-04T00:00:00.000Z' }],
+      legacyTasteMemoryChases: [{ id: 'taste:BOUGHT_OR_SEEN:mew-old', userId: 'u1', cardName: 'Mew Expedition Base Set 19', createdAt: '2026-01-05T00:00:00.000Z', tasteSource: 'BOUGHT_OR_SEEN' }],
+      includeLegacyBoughtOrSeen: true
+    });
+
+    expect(profile.traits.subjects[0]).toMatchObject({ label: 'Mew', activeEvidenceCount: 2, completedEvidenceCount: 1, legacyEvidenceCount: 1 });
+    expect(profile.sourceSummary).toMatchObject({ activeChases: 2, completedChases: 1, legacyBoughtOrSeen: 1, distinctCards: 4 });
+  });
+
+  it('keeps Pokemon-EX and modern Pokemon ex as separate format traits', () => {
+    const profile = buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'Mew-EX Legendary Treasures RC24', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'Mega Gardevoir ex SAR Mega Symphonia Japanese 087/063', createdAt: '2026-01-02T00:00:00.000Z' }
+      ],
+      completedChases: []
+    });
+
+    expect(traitLabels(profile, 'formats')).toEqual(expect.arrayContaining(['EX', 'ex']));
   });
 
   it('reports confidence from independent evidence breadth', () => {
@@ -238,22 +308,59 @@ describe('collector interest profile', () => {
       })),
       completedChases: []
     }).confidence.tier).toBe('STRONG');
+    expect(buildCollectorInterestProfile({
+      activeChases: Array.from({ length: 12 }, (_, index) => ({
+        id: `b${index}`,
+        userId: 'u1',
+        cardName: `Testmon ${index} Promo ${index}`,
+        createdAt: `2026-02-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`
+      })),
+      completedChases: []
+    }).confidence.score).toBeLessThan(1);
+    expect(buildCollectorInterestProfile({
+      activeChases: [{ id: 'same-1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    }).confidence.score).toBeLessThan(buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'Pichu Expedition 22/165', createdAt: '2026-01-02T00:00:00.000Z' }
+      ],
+      completedChases: []
+    }).confidence.score);
   });
 
   it('parses inspector CLI args and prints concise JSON output without mutation', () => {
-    const userId = 'collector-profile-cli';
+    const userId = 'usr_collector_profile_cli';
     clearUser(userId);
     addChase({ userId, cardName: 'Mew RC24' });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    expect(parseCollectorProfileInspectArgs(['--user', userId, '--json'])).toEqual({ userId, json: true, evidence: false });
+    expect(parseCollectorProfileInspectArgs(['--user', userId, '--json'])).toEqual({ userId, discordUserId: undefined, json: true, evidence: false });
     expect(() => parseCollectorProfileInspectArgs([])).toThrow('Usage: npm run profile:inspect');
+    expect(() => parseCollectorProfileInspectArgs(['--user', '875643283995500625'])).toThrow('--discord-user');
+    expect(() => parseCollectorProfileInspectArgs(['--user', userId, '--discord-user', '875643283995500625'])).toThrow('either --user or --discord-user');
     runCollectorProfileInspectCli(['--user', userId, '--json']);
 
     const printed = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
     expect(printed.version).toBe(1);
     expect(printed.sourceSummary.activeChases).toBe(1);
     expect(listChases(userId)).toHaveLength(1);
+    logSpy.mockRestore();
+  });
+
+  it('resolves linked Discord IDs in the inspector without creating accounts', () => {
+    const user = createUser({ displayName: 'Profile CLI' });
+    clearUser(user.id);
+    const discordUserId = '875643283995500625';
+    db.prepare('DELETE FROM user_identities WHERE provider = ? AND provider_user_id = ?').run('DISCORD', discordUserId);
+    linkIdentity({ userId: user.id, provider: 'DISCORD', providerUserId: discordUserId });
+    addChase({ userId: user.id, cardName: 'Mew RC24' });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    runCollectorProfileInspectCli(['--discord-user', discordUserId]);
+
+    expect(logSpy.mock.calls.map((call) => String(call[0]))).toContain(`User: ${user.id}`);
+    expect(() => runCollectorProfileInspectCli(['--discord-user', '000000000000000000'])).toThrow('No Vaultr account is linked');
     logSpy.mockRestore();
   });
 });

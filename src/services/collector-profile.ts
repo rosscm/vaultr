@@ -3,6 +3,7 @@ import { getCardCatalogRecordBySourceCardId } from './card-catalog-db.js';
 import { normalizeCatalogText } from './card-catalog/normalize.js';
 import type { StoredCardCatalogRecord } from './card-catalog/types.js';
 import { listChases, listCompletedChases, listUserTasteMemoryChases } from './chase-store.js';
+import { JAPANESE_SUBJECT_ALIASES } from './collector-card-aliases.js';
 
 export type CollectorProfileEvidenceSource = 'ACTIVE_CHASE' | 'COMPLETED_CHASE' | 'LEGACY_BOUGHT_OR_SEEN';
 export type CollectorProfileConfidenceTier = 'SEED' | 'EMERGING' | 'USABLE' | 'STRONG';
@@ -48,6 +49,7 @@ export type CollectorInterestTrait = {
   evidenceCount: number;
   activeEvidenceCount: number;
   completedEvidenceCount: number;
+  legacyEvidenceCount: number;
   confidence: CollectorProfileTraitConfidence;
   evidenceIds: string[];
 };
@@ -150,18 +152,33 @@ function addTrait(traits: CollectorProfileTraitExtraction, group: CollectorProfi
   const cleaned = value?.trim();
   if (!cleaned) return;
   const values = traits[group] ?? [];
-  if (!values.some((existing) => normalizeKey(existing) === normalizeKey(cleaned))) values.push(cleaned);
+  if (!values.some((existing) => traitKey(group, existing) === traitKey(group, cleaned))) values.push(cleaned);
   traits[group] = values;
+}
+
+function traitKey(group: CollectorProfileTraitGroup, value: string): string {
+  if (group === 'formats' && value === 'EX') return 'pokemon-ex';
+  if (group === 'formats' && value === 'ex') return 'pokemon-ex-lowercase';
+  return normalizeKey(value);
 }
 
 function subjectsFromName(name: string): string[] {
   const normalizedName = normalizeKey(name);
+  const japaneseSubjects = Object.entries(JAPANESE_SUBJECT_ALIASES)
+    .filter(([, aliases]) => aliases.some((alias) => normalizedName.includes(normalizeKey(alias))))
+    .map(([subject]) => canonicalSubjectLabel(subject));
+  if (japaneseSubjects.length > 0) return [...new Set(japaneseSubjects)];
   const subjects = KNOWN_SUBJECTS.filter((subject) => new RegExp(`\\b${normalizeKey(subject)}\\b`, 'i').test(normalizedName));
   if (subjects.length > 0) return subjects;
   const beforeContext = name.split(/\s+(?:ex|gx|vmax|vstar|v|lv\.?x|sar|sir|ir|ar|promo|japanese|english|\d)/i)[0]?.trim();
   if (!beforeContext) return [];
   const cleaned = beforeContext.replace(/^mega\s+/i, '').trim();
   return cleaned && cleaned.split(/\s+/).length <= 2 ? [cleaned] : [];
+}
+
+function canonicalSubjectLabel(subject: string): string {
+  if (subject.toLowerCase() === 'mew') return 'Mew';
+  return subject.charAt(0).toUpperCase() + subject.slice(1).toLowerCase();
 }
 
 function eraFromRecord(record: StoredCardCatalogRecord): string | undefined {
@@ -208,21 +225,24 @@ function extractTraits(chase: Chase | CompletedChase, record: StoredCardCatalogR
     if (/\bmcdonald'?s\b/i.test(chase.cardName)) addTrait(traits, 'releaseEvents', 'MCDONALDS');
   }
   const name = chase.cardName;
-  for (const [pattern, label] of [
-    [/\blv\.?\s*x\b/i, 'LV.X'],
-    [/\bvmax\b/i, 'VMAX'],
-    [/\bvstar\b/i, 'VSTAR'],
-    [/\btag\s*team\b|&.*&.*-gx\b/i, 'TAG_TEAM'],
-    [/\bgx\b/i, 'GX'],
-    [/\bex\b/i, 'ex'],
-    [/\bv\b/i, 'V'],
-    [/\bsar\b/i, 'SAR'],
-    [/\bsir\b/i, 'SIR'],
-    [/\bir\b/i, 'IR'],
-    [/\bar\b/i, 'AR']
-  ] as Array<[RegExp, string]>) {
-    if (pattern.test(name)) addTrait(traits, pattern.source.includes('sar') || pattern.source.includes('sir') || pattern.source === '\\bir\\b' || pattern.source === '\\bar\\b' ? 'rarities' : 'formats', label);
+  for (const [pattern, label, group] of [
+    [/\blv\.?\s*x\b/i, 'LV.X', 'formats'],
+    [/\bvmax\b/i, 'VMAX', 'formats'],
+    [/\bvstar\b/i, 'VSTAR', 'formats'],
+    [/\btag\s*team\b|&.*&.*-gx\b/i, 'TAG_TEAM', 'formats'],
+    [/\bgx\b/i, 'GX', 'formats'],
+    [/\b(?:[A-Za-z]+-EX|EX)\b/, 'EX', 'formats'],
+    [/\bex\b/, 'ex', 'formats'],
+    [/\bv\b/i, 'V', 'formats'],
+    [/\bsar\b/i, 'SAR', 'rarities'],
+    [/\bsir\b/i, 'SIR', 'rarities'],
+    [/\bir\b/i, 'IR', 'rarities'],
+    [/\bar\b/i, 'AR', 'rarities']
+  ] as Array<[RegExp, string, CollectorProfileTraitGroup]>) {
+    if (pattern.test(name)) addTrait(traits, group, label);
   }
+  if (!traits.formats?.includes('EX') && /\b(?:Black\s*&\s*White|BW|XY)\b/i.test([record?.series, record?.setName, name].filter(Boolean).join(' ')) && /\bex\b/i.test(name)) addTrait(traits, 'formats', 'EX');
+  if (!traits.formats?.includes('ex') && /\b(?:Scarlet\s*&\s*Violet|SV)\b/i.test([record?.series, record?.setName, name].filter(Boolean).join(' ')) && /\bex\b/i.test(name)) addTrait(traits, 'formats', 'ex');
   if (record?.setName && /\bexpedition|aquapolis|skyridge\b/i.test(record.setName)) addTrait(traits, 'formats', 'e-Reader');
   if (chase.grade) addTrait(traits, 'gradingPreferences', normalizeGrade(chase.grade));
   if (chase.condition) addTrait(traits, 'conditionPreferences', chase.condition.toUpperCase());
@@ -285,7 +305,7 @@ function aggregateTraits(evidence: CollectorProfileEvidence[]): CollectorInteres
   for (const item of evidence) {
     for (const [group, values] of Object.entries(item.extractedTraits) as Array<[CollectorProfileTraitGroup, string[] | undefined]>) {
       for (const value of values ?? []) {
-        const key = normalizeKey(value);
+        const key = traitKey(group, value);
         const existing = groups[group].get(key) ?? {
           key,
           label: value,
@@ -293,6 +313,7 @@ function aggregateTraits(evidence: CollectorProfileEvidence[]): CollectorInteres
           evidenceCount: 0,
           activeEvidenceCount: 0,
           completedEvidenceCount: 0,
+          legacyEvidenceCount: 0,
           confidence: 'LOW' as const,
           evidenceIds: []
         };
@@ -300,6 +321,7 @@ function aggregateTraits(evidence: CollectorProfileEvidence[]): CollectorInteres
         existing.evidenceCount += 1;
         if (item.source === 'ACTIVE_CHASE') existing.activeEvidenceCount += 1;
         if (item.source === 'COMPLETED_CHASE') existing.completedEvidenceCount += 1;
+        if (item.source === 'LEGACY_BOUGHT_OR_SEEN') existing.legacyEvidenceCount += 1;
         existing.evidenceIds.push(item.id);
         existing.confidence = existing.evidenceCount >= 3 || existing.completedEvidenceCount >= 2 ? 'HIGH' : existing.evidenceCount >= 2 || existing.completedEvidenceCount >= 1 ? 'MEDIUM' : 'LOW';
         groups[group].set(key, existing);
@@ -314,7 +336,7 @@ function aggregateTraits(evidence: CollectorProfileEvidence[]): CollectorInteres
 }
 
 function profileConfidence(distinctCards: number, evidenceCount: number): CollectorInterestProfile['confidence'] {
-  const score = Math.min(1, Number(((distinctCards * 0.14) + (Math.min(evidenceCount, 12) * 0.025)).toFixed(2)));
+  const score = Number((0.95 * (1 - Math.exp(-distinctCards / 7))).toFixed(2));
   const tier: CollectorProfileConfidenceTier = distinctCards >= 8 ? 'STRONG' : distinctCards >= 4 ? 'USABLE' : distinctCards >= 2 ? 'EMERGING' : 'SEED';
   return {
     tier,
@@ -334,12 +356,34 @@ function budgetFrom(chases: Array<Chase | CompletedChase>): CollectorInterestPro
   return { observedTargetCount: values.length, minTarget: values[0]!, medianTarget: Number(median.toFixed(2)), maxTarget: values[values.length - 1]! };
 }
 
+function legacyOriginChaseId(chase: Chase): string | undefined {
+  const match = /^taste:BOUGHT_OR_SEEN:(.+)$/.exec(chase.id);
+  return match?.[1];
+}
+
+function retainedLegacyBoughtOrSeen(legacyTasteMemoryChases: Chase[], completedChases: CompletedChase[]): Chase[] {
+  const completedIds = new Set(completedChases.map((chase) => chase.id));
+  const completedIdentities = new Set(completedChases.map(identityKeyFor));
+  const completedNames = new Set(completedChases.map((chase) => normalizeKey(chase.cardName)));
+  const byIdentity = new Map<string, Chase>();
+  for (const chase of legacyTasteMemoryChases) {
+    if (chase.tasteSource !== 'BOUGHT_OR_SEEN') continue;
+    const originId = legacyOriginChaseId(chase);
+    if (originId && completedIds.has(originId)) continue;
+    const identity = identityKeyFor(chase);
+    if (completedIdentities.has(identity)) continue;
+    if (completedNames.has(normalizeKey(chase.cardName))) continue;
+    const existing = byIdentity.get(identity);
+    if (!existing || chase.createdAt.localeCompare(existing.createdAt) < 0 || (chase.createdAt === existing.createdAt && chase.id.localeCompare(existing.id) < 0)) {
+      byIdentity.set(identity, chase);
+    }
+  }
+  return [...byIdentity.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+}
+
 export function buildCollectorInterestProfile(input: BuildCollectorInterestProfileInput): CollectorInterestProfile {
-  const completedIdentityKeys = new Set(input.completedChases.map(identityKeyFor));
   const legacy = input.includeLegacyBoughtOrSeen
-    ? (input.legacyTasteMemoryChases ?? [])
-        .filter((chase) => chase.tasteSource === 'BOUGHT_OR_SEEN')
-        .filter((chase) => !completedIdentityKeys.has(identityKeyFor(chase)))
+    ? retainedLegacyBoughtOrSeen(input.legacyTasteMemoryChases ?? [], input.completedChases)
     : [];
   const rawEvidence = [
     ...input.activeChases.map((chase) => evidenceFromChase(chase, 'ACTIVE_CHASE')),
@@ -351,14 +395,14 @@ export function buildCollectorInterestProfile(input: BuildCollectorInterestProfi
   return {
     version: 1,
     sourceSummary: {
-      activeChases: input.activeChases.length,
-      completedChases: input.completedChases.length,
+      activeChases: evidence.filter((item) => item.source === 'ACTIVE_CHASE').length,
+      completedChases: evidence.filter((item) => item.source === 'COMPLETED_CHASE').length,
       legacyBoughtOrSeen: legacy.length,
       distinctCards
     },
     confidence: profileConfidence(distinctCards, evidence.length),
     traits: aggregateTraits(evidence),
-    budget: budgetFrom([...input.activeChases, ...input.completedChases, ...legacy]),
+    budget: budgetFrom([...input.activeChases, ...input.completedChases]),
     evidence
   };
 }
