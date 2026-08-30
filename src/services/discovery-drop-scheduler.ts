@@ -234,8 +234,12 @@ function stateFromDrop(
   });
 }
 
-function shouldAttemptPreparation(state: WeeklyDiscoveryPreparationState, now: Date): boolean {
-  if (state.state === 'READY' || state.state === 'FAILED_FINAL') return false;
+function shouldAttemptPreparation(state: WeeklyDiscoveryPreparationState, targetDate: Date, now: Date): boolean {
+  if (state.state === 'FAILED_FINAL') return false;
+  if (state.state === 'READY') {
+    const existing = getScheduledDiscoveryDrop(state.userId, WEEKLY_DROP_TYPE, state.periodKey);
+    return shouldPrepareWeeklyDrop(existing, targetDate, now);
+  }
   if (state.state === 'PREPARING' && state.leaseExpiresAt && Date.parse(state.leaseExpiresAt) > now.getTime()) return false;
   if (state.state === 'RETRY_SCHEDULED' && state.nextRetryAt && Date.parse(state.nextRetryAt) > now.getTime()) return false;
   return true;
@@ -342,7 +346,7 @@ async function prepareWeeklyDrops(now: Date): Promise<{ periodKey: string; prepa
   let failed = 0;
 
   for (const state of reconciled) {
-    if (!shouldAttemptPreparation(state, now)) continue;
+    if (!shouldAttemptPreparation(state, targetDate, now)) continue;
     if (scheduled >= batchSize) break;
     scheduled += 1;
 
