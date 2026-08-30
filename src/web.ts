@@ -27,6 +27,14 @@ import {
   PRIORITY_CHOICES
 } from './services/chase-options.js';
 import {
+  getLatestAvailableScheduledDiscoveryDrop,
+  getScheduledDiscoveryDrop,
+  scheduledDiscoveryPeriodKey,
+  type ScheduledDiscoveryDrop,
+  type ScheduledDiscoveryDropItem
+} from './services/scheduled-discovery-drops.js';
+import { weeklyPreparationTargetDate } from './services/discovery-drop-scheduler.js';
+import {
   createWebSession,
   resolveWebSession,
   revokeWebSession,
@@ -265,6 +273,82 @@ function vaultResponse(userId: string): WebResponse {
   });
 }
 
+function validDashboardShelf(drop: ScheduledDiscoveryDrop | null): drop is ScheduledDiscoveryDrop {
+  return !!drop && (drop.status === 'READY' || drop.status === 'PARTIAL') && drop.itemCount > 0;
+}
+
+function weeklyShelfRoleLabel(role: ScheduledDiscoveryDropItem['suggestion']['discoveryRole']): string | undefined {
+  if (role === 'CORE_MATCH') return 'Right up your alley';
+  if (role === 'ADJACENT_DISCOVERY') return 'Worth exploring';
+  if (role === 'CONTROLLED_EXPLORATION') return 'Something different';
+  return undefined;
+}
+
+function safeShelfReason(item: ScheduledDiscoveryDropItem): string | undefined {
+  const reason = item.suggestion.why?.trim();
+  if (!reason) return undefined;
+  if (/\b(score|rank|vector|confidence|debug|feature tag|affinity)\b/i.test(reason)) return undefined;
+  return reason;
+}
+
+function publicShelfItem(item: ScheduledDiscoveryDropItem) {
+  const reference = item.suggestion.canonicalReference;
+  const marketReady = item.market.status === 'READY';
+  return {
+    position: item.position,
+    name: item.suggestion.name,
+    imageUrl: item.imageSourceKind === 'CARD_REFERENCE' ? item.imageUrl : undefined,
+    setName: reference?.setName,
+    language: reference?.language,
+    roleLabel: weeklyShelfRoleLabel(item.suggestion.discoveryRole),
+    lane: item.suggestion.lane,
+    reason: safeShelfReason(item),
+    market: marketReady
+      ? {
+          status: item.market.status,
+          currency: item.market.currency,
+          askingTotal: item.market.askingTotal,
+          askingSampleSize: item.market.askingSampleSize,
+          soldTotal: item.market.soldTotal,
+          soldSampleSize: item.market.soldSampleSize,
+          updatedAt: item.market.updatedAt
+        }
+      : { status: item.market.status, currency: item.market.currency }
+  };
+}
+
+function shelfResponse(userId: string, now = new Date()): WebResponse {
+  const targetDate = weeklyPreparationTargetDate(now);
+  const targetPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', targetDate);
+  const targetDrop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', targetPeriod);
+  const drop = validDashboardShelf(targetDrop)
+    ? targetDrop
+    : getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', now.toISOString());
+
+  if (!validDashboardShelf(drop)) {
+    return jsonResponse(200, {
+      status: 'UPCOMING',
+      periodKey: targetPeriod,
+      title: 'Weekly Shelf',
+      items: []
+    });
+  }
+
+  return jsonResponse(200, {
+    status: drop.status,
+    periodKey: drop.periodKey,
+    title: drop.title,
+    summary: drop.summary,
+    availableAt: drop.availableAt,
+    updatedAt: drop.updatedAt,
+    itemCount: drop.itemCount,
+    marketReadyCount: drop.marketReadyCount,
+    imageReadyCount: drop.imageReadyCount,
+    currency: drop.currency,
+    items: drop.items.map(publicShelfItem)
+  });
+}
+
 function chasePayload(body: Record<string, unknown>) {
   return {
     cardName: body.cardName,
@@ -500,6 +584,12 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       items: page.items.map(publicAlertItem),
       nextCursor: encodeCursor(page.nextCursor)
     });
+  }
+
+  if (method === 'GET' && url.pathname === '/api/shelf') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    return shelfResponse(session.userId, options.now?.() ?? new Date());
   }
 
   const alertMatch = url.pathname.match(/^\/api\/alerts\/([^/]+)$/);

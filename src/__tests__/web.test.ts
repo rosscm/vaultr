@@ -9,6 +9,12 @@ import {
   resolveWebSession
 } from '../services/web-sessions.js';
 import { clearChaseCardAutocompleteCache } from '../services/chase-card-catalog.js';
+import {
+  deleteScheduledDiscoveryDrop,
+  scheduledDiscoveryAvailability,
+  scheduledDiscoveryPeriodKey,
+  upsertScheduledDiscoveryDrop
+} from '../services/scheduled-discovery-drops.js';
 import { decodeAlertCursor, handleWebRequest, type WebConfig } from '../web.js';
 
 const config: WebConfig = {
@@ -27,6 +33,8 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM discovery_scheduled_drop_items WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM discovery_scheduled_drops WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 }
@@ -63,6 +71,77 @@ function seedAlert(userId: string, index: number, overrides: Partial<Parameters<
     now: `2026-08-20T12:0${index}:00.000Z`,
     ...overrides
   });
+}
+
+function seedWeeklyShelf(userId: string, date = new Date('2026-08-31T13:00:00.000Z')) {
+  const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
+  const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
+  const drop = upsertScheduledDiscoveryDrop({
+    userId,
+    dropType: 'WEEKLY_DISCOVERY',
+    periodKey,
+    status: 'READY',
+    title: 'Weekly Shelf',
+    summary: 'A collector shelf tuned from your Vault and recent taste signals',
+    currency: 'CAD',
+    availableAt,
+    expiresAt,
+    items: [
+      {
+        position: 1,
+        suggestion: {
+          name: 'Mew CoroCoro Promo 151',
+          lane: 'Japanese promos',
+          laneWhy: 'Matches your Japanese promo interest',
+          why: 'Connects to the Japanese promo cards already in your Vault',
+          nearby: [],
+          referenceSourceCardId: 'vaultr-promo-mew-corocoro-151',
+          discoveryRole: 'CORE_MATCH',
+          canonicalReference: {
+            provider: 'VAULTR_PROMO',
+            sourceCardId: 'vaultr-promo-mew-corocoro-151',
+            canonicalCardId: 'vaultr-promo-mew-corocoro-151',
+            canonicalName: 'Mew CoroCoro Promo 151',
+            setName: 'CoroCoro Promo',
+            cardNumber: '151',
+            language: 'JAPANESE',
+            imageUrl: 'https://example.test/mew-reference.png',
+            imageSourceKind: 'CARD_REFERENCE'
+          },
+          rankExplanation: {
+            recommendationStrength: 'DIRECT_PROFILE',
+            anchors: ['internal-score-should-not-leak']
+          } as any
+        },
+        imageUrl: 'https://example.test/mew-reference.png',
+        imageSourceName: 'VAULTR_PROMO',
+        imageSourceKind: 'CARD_REFERENCE',
+        market: {
+          status: 'READY',
+          currency: 'CAD',
+          askingTotal: 185,
+          askingSampleSize: 4,
+          updatedAt: '2026-08-30T12:00:00.000Z'
+        }
+      },
+      {
+        position: 2,
+        suggestion: {
+          name: 'Marketplace Image Card',
+          lane: 'E-reader era',
+          laneWhy: 'Matches your e-reader interest',
+          why: 'feature tag score debug',
+          nearby: [],
+          discoveryRole: 'CONTROLLED_EXPLORATION'
+        },
+        imageUrl: 'https://i.ebayimg.test/listing.jpg',
+        imageSourceName: 'eBay',
+        imageSourceKind: 'MARKET_LISTING',
+        market: { status: 'TIMEOUT', currency: 'CAD' }
+      }
+    ]
+  }, '2026-08-30T12:00:00.000Z');
+  return drop;
 }
 
 describe('web sessions', () => {
@@ -408,6 +487,140 @@ describe('authenticated alert API', () => {
     expect(response.status).toBe(400);
     expect(JSON.parse(response.body ?? '{}')).toEqual({ error: 'invalid_alert_id' });
 
+    clearUser(userId);
+  });
+});
+
+describe('authenticated Weekly Shelf API', () => {
+  it('requires authentication for Weekly Shelf data', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/api/shelf' }, { config });
+    expect(response.status).toBe(401);
+  });
+
+  it('returns the authenticated user prepared Weekly Shelf without internal ranking fields', async () => {
+    const userId = 'web-shelf-user';
+    const otherUserId = 'web-shelf-other';
+    clearUser(userId);
+    clearUser(otherUserId);
+    seedWeeklyShelf(userId);
+    seedWeeklyShelf(otherUserId);
+    const { token } = createWebSession({ userId }, { token: 'shelf-user-token' });
+
+    const response = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      status: 'READY',
+      title: 'Weekly Shelf',
+      itemCount: 2,
+      marketReadyCount: 1,
+      imageReadyCount: 1
+    });
+    expect(body.items).toHaveLength(2);
+    expect(body.items[0]).toMatchObject({
+      position: 1,
+      name: 'Mew CoroCoro Promo 151',
+      imageUrl: 'https://example.test/mew-reference.png',
+      setName: 'CoroCoro Promo',
+      language: 'JAPANESE',
+      roleLabel: 'Right up your alley',
+      reason: 'Connects to the Japanese promo cards already in your Vault',
+      market: { status: 'READY', currency: 'CAD', askingTotal: 185 }
+    });
+    expect(body.items[1].imageUrl).toBeUndefined();
+    expect(body.items[1].reason).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('rankExplanation');
+    expect(JSON.stringify(body)).not.toContain('CORE_MATCH');
+    expect(JSON.stringify(body)).not.toContain('internal-score-should-not-leak');
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
+  it('returns an upcoming Weekly Shelf state when no prepared shelf exists', async () => {
+    const userId = 'web-shelf-empty-user';
+    clearUser(userId);
+    const { token } = createWebSession({ userId }, { token: 'shelf-empty-token' });
+
+    const response = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body ?? '{}')).toMatchObject({
+      status: 'UPCOMING',
+      title: 'Weekly Shelf',
+      items: []
+    });
+
+    clearUser(userId);
+  });
+
+  it('does not expose another account shelf', async () => {
+    const userId = 'web-shelf-isolated-user';
+    const otherUserId = 'web-shelf-isolated-other';
+    clearUser(userId);
+    clearUser(otherUserId);
+    seedWeeklyShelf(otherUserId);
+    const { token } = createWebSession({ userId }, { token: 'shelf-isolated-token' });
+
+    const response = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(200);
+    expect(body.status).toBe('UPCOMING');
+    expect(JSON.stringify(body)).not.toContain('Mew CoroCoro Promo 151');
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
+  it('keeps malformed optional shelf fields usable', async () => {
+    const userId = 'web-shelf-malformed-user';
+    clearUser(userId);
+    const date = new Date('2026-08-31T13:00:00.000Z');
+    const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
+    const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey,
+      status: 'PARTIAL',
+      title: 'Weekly Shelf',
+      currency: 'USD',
+      availableAt,
+      expiresAt,
+      items: [
+        {
+          position: 1,
+          suggestion: { name: 'Shelf Card', lane: 'Collector Compass', laneWhy: '', why: '', nearby: [] },
+          market: { status: 'MISSING', currency: 'USD' }
+        }
+      ]
+    }, '2026-08-30T12:00:00.000Z');
+    const { token } = createWebSession({ userId }, { token: 'shelf-malformed-token' });
+
+    const response = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => date }
+    );
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(200);
+    expect(body.status).toBe('PARTIAL');
+    expect(body.items[0]).toMatchObject({ name: 'Shelf Card', market: { status: 'MISSING', currency: 'USD' } });
+    expect(body.items[0].imageUrl).toBeUndefined();
+    expect(body.items[0].reason).toBeUndefined();
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
     clearUser(userId);
   });
 });

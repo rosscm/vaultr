@@ -18,6 +18,10 @@ const state = {
   isVaultLoading: false,
   vaultLoaded: false,
   vaultError: null,
+  shelf: null,
+  isShelfLoading: false,
+  shelfLoaded: false,
+  shelfError: null,
   vaultNotice: '',
   vaultFormMode: null,
   vaultEditingId: null,
@@ -98,6 +102,7 @@ function pageFromHash(hash = window.location.hash) {
 async function loadActivePageData() {
   if (state.activePage === 'alerts' && !state.alerts.length) await loadAlerts();
   if (state.activePage === 'vault') await loadVault();
+  if (state.activePage === 'shelf') await loadShelf();
 }
 
 async function navigateToPage(page, { updateHash = true } = {}) {
@@ -559,6 +564,100 @@ function completedChasesSectionMarkup() {
   `;
 }
 
+function shelfPageMarkup() {
+  if (state.isShelfLoading) {
+    return `
+      <section aria-labelledby="shelf-title">
+        ${shelfHeaderMarkup()}
+        <div class="shelf-grid" aria-label="Loading Weekly Shelf">
+          <div class="skeleton-row"></div>
+          <div class="skeleton-row"></div>
+          <div class="skeleton-row"></div>
+        </div>
+      </section>
+    `;
+  }
+  if (state.shelfError) {
+    return `
+      <section aria-labelledby="shelf-title">
+        ${shelfHeaderMarkup()}
+        ${statePanelMarkup("Couldn't load your Weekly Shelf.", 'Try again when you are ready.', 'Try again').replace('data-action="retry-alerts"', 'data-action="retry-shelf"')}
+      </section>
+    `;
+  }
+  const items = state.shelf?.items || [];
+  return `
+    <section aria-labelledby="shelf-title">
+      ${shelfHeaderMarkup()}
+      ${items.length ? shelfMetaMarkup(state.shelf) : ''}
+      ${items.length ? `<div class="shelf-grid" aria-label="Weekly Shelf picks">${items.map(shelfCardMarkup).join('')}</div>` : shelfEmptyMarkup()}
+    </section>
+  `;
+}
+
+function shelfHeaderMarkup() {
+  return `
+    <header class="page-header">
+      <p class="eyebrow">WEEKLY SHELF</p>
+      <h1 id="shelf-title">Collector discoveries picked for you</h1>
+      <p>A read-only shelf shaped by your Vault, completed Chases, and the cards you keep coming back to.</p>
+    </header>
+  `;
+}
+
+function shelfMetaMarkup(shelf) {
+  const updated = shelf.updatedAt ? formatDate(shelf.updatedAt) : '';
+  const marketReady = shelf.marketReadyCount !== undefined && shelf.itemCount !== undefined
+    ? `${shelf.marketReadyCount} priced`
+    : '';
+  const details = [
+    shelf.periodKey,
+    shelf.status === 'READY' ? 'Ready' : shelf.status === 'PARTIAL' ? 'Preview' : '',
+    `${shelf.itemCount || shelf.items?.length || 0} picks`,
+    marketReady,
+    updated ? `Updated ${updated}` : ''
+  ].filter(Boolean);
+  return `
+    <div class="shelf-summary" aria-label="Weekly Shelf summary">
+      ${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}
+    </div>
+  `;
+}
+
+function shelfEmptyMarkup() {
+  return `
+    <div class="state-panel shelf-empty">
+      <h2>Your next Weekly Shelf is brewing</h2>
+      <p>Personalized picks will appear here when your next shelf is prepared.</p>
+    </div>
+  `;
+}
+
+function shelfCardMarkup(item) {
+  const details = [item.setName, item.language].filter(Boolean);
+  const price = item.market?.askingTotal !== undefined
+    ? formatMoney(item.market.askingTotal, item.market.currency)
+    : item.market?.soldTotal !== undefined
+      ? formatMoney(item.market.soldTotal, item.market.currency)
+      : '';
+  const priceLabel = item.market?.askingTotal !== undefined ? 'Market' : item.market?.soldTotal !== undefined ? 'Sold' : '';
+  return `
+    <article class="shelf-card">
+      ${item.imageUrl ? `<img class="shelf-card-image" src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)} card image" loading="lazy" data-shelf-card-image>` : `<div class="shelf-card-image placeholder-image" aria-hidden="true">V</div>`}
+      <div class="shelf-card-body">
+        <div class="shelf-card-meta">
+          ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
+          ${item.lane ? `<span class="source-pill">${escapeHtml(item.lane)}</span>` : ''}
+        </div>
+        <h2>${escapeHtml(item.name || 'Weekly Shelf pick')}</h2>
+        ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
+        ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
+        ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : ''}
+      </div>
+    </article>
+  `;
+}
+
 function vaultDialogMarkup() {
   if (!state.vaultFormMode) return '';
   const editing = state.vaultFormMode === 'edit';
@@ -677,20 +776,6 @@ function removeDialogMarkup() {
   `;
 }
 
-function placeholderMarkup(kind) {
-  const content = kind === 'vault'
-    ? ['My Vault', 'Your active Chases will live here', 'View and manage the cards Vaultr is watching for you.', 'Coming during beta.']
-    : ['Weekly Shelf', 'Your next Shelf will have a home here too', 'Recommendations shaped by what you collect and how you respond.', 'Coming during beta.'];
-  return `
-    <section class="placeholder" aria-labelledby="placeholder-title">
-      <p class="eyebrow">${escapeHtml(content[0])}</p>
-      <h1 id="placeholder-title">${escapeHtml(content[1])}</h1>
-      <p>${escapeHtml(content[2])}</p>
-      <p class="placeholder-note">${escapeHtml(content[3])}</p>
-    </section>
-  `;
-}
-
 function renderSignedOut() {
   state.user = null;
   app.innerHTML = signedOutMarkup();
@@ -710,7 +795,7 @@ function renderCurrentPage() {
     return;
   }
   if (state.activePage === 'shelf') {
-    renderShell(placeholderMarkup('shelf'));
+    renderShell(shelfPageMarkup());
     return;
   }
   renderShell(alertsMarkup());
@@ -799,6 +884,28 @@ async function loadVault({ force = false } = {}) {
     if (String(error?.message) === 'unauthorized') return;
     state.vaultError = 'load_failed';
     state.isVaultLoading = false;
+    renderCurrentPage();
+  }
+}
+
+async function loadShelf({ force = false } = {}) {
+  if (state.shelfLoaded && !force) {
+    renderCurrentPage();
+    return;
+  }
+  state.isShelfLoading = true;
+  state.shelfError = null;
+  renderCurrentPage();
+  try {
+    const body = await fetchJson('/api/shelf');
+    state.shelf = body || null;
+    state.shelfLoaded = true;
+    state.isShelfLoading = false;
+    renderCurrentPage();
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.shelfError = 'load_failed';
+    state.isShelfLoading = false;
     renderCurrentPage();
   }
 }
@@ -991,6 +1098,10 @@ app.addEventListener('click', async (event) => {
     await loadVault({ force: true });
     return;
   }
+  if (action === 'retry-shelf') {
+    await loadShelf({ force: true });
+    return;
+  }
   if (action === 'open-add-chase') {
     resetVaultAutocomplete();
     state.vaultFormMode = 'add';
@@ -1105,9 +1216,9 @@ app.addEventListener(
       card?.classList.remove('has-image');
       card?.classList.add('no-image');
       target.remove();
-    } else if (target instanceof HTMLImageElement && target.matches('[data-vault-card-image]')) {
+    } else if (target instanceof HTMLImageElement && target.matches('[data-vault-card-image], [data-shelf-card-image]')) {
       const placeholder = document.createElement('div');
-      placeholder.className = 'vault-card-image placeholder-image';
+      placeholder.className = `${target.matches('[data-shelf-card-image]') ? 'shelf-card-image' : 'vault-card-image'} placeholder-image`;
       placeholder.setAttribute('aria-hidden', 'true');
       placeholder.textContent = 'V';
       target.replaceWith(placeholder);
