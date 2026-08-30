@@ -31,6 +31,30 @@ function proCollector(userId: string): void {
   }
 }
 
+function seedReadyWeeklyDrop(userId: string, periodKey: string, targetDate: Date, updatedAt: string): void {
+  const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', targetDate);
+  drops.push({ userId, periodKey });
+  upsertScheduledDiscoveryDrop({
+    userId,
+    dropType: 'WEEKLY_DISCOVERY',
+    periodKey,
+    status: 'READY',
+    title: 'Weekly Shelf',
+    currency: 'CAD',
+    availableAt,
+    expiresAt,
+    items: [
+      {
+        position: 1,
+        suggestion: { name: 'Mew RC24', lane: 'Collector Compass', laneWhy: 'profile fit', why: 'profile fit', nearby: [] },
+        imageUrl: 'https://example.com/mew.png',
+        imageSourceKind: 'CARD_REFERENCE',
+        market: { status: 'READY', currency: 'CAD', askingTotal: 120, updatedAt }
+      }
+    ]
+  }, updatedAt);
+}
+
 describe('discovery drop scheduler', () => {
   it('starts preparing the next Weekly Shelf before Monday delivery day', () => {
     const fridayBeforeDrop = new Date('2026-06-19T13:00:00.000Z');
@@ -48,6 +72,86 @@ describe('discovery drop scheduler', () => {
     expect(shouldPrepareWeeklyDrop(staleDrop, targetDate, new Date('2026-06-21T13:00:00.000Z'), 12)).toBe(true);
     expect(shouldPrepareWeeklyDrop(freshDrop, targetDate, new Date('2026-06-22T01:00:00.000Z'), 12)).toBe(false);
     expect(shouldPrepareWeeklyDrop(staleDrop, targetDate, new Date('2026-06-22T13:00:00.000Z'), 12)).toBe(false);
+  });
+
+  it('refreshes a stale READY prepared shelf through the scheduler before release', async () => {
+    const now = new Date('2026-07-26T13:00:00.000Z');
+    const targetDate = weeklyPreparationTargetDate(now, 3);
+    const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', targetDate);
+    const userId = `weekly-stale-ready-${Date.now()}`;
+    proCollector(userId);
+    seedReadyWeeklyDrop(userId, periodKey, targetDate, '2026-07-25T23:00:00.000Z');
+
+    const prepareSpy = vi.spyOn(discover, 'prepareWeeklyDiscoveryDropForUser').mockResolvedValue({
+      outcome: 'PREPARED',
+      status: 'READY',
+      itemCount: 20,
+      hasFullDiscovery: true,
+      prepared: true
+    });
+
+    try {
+      await runDiscoveryDropSchedulerOnce({ channels: { fetch: vi.fn() } } as any, now);
+      expect(prepareSpy).toHaveBeenCalledTimes(1);
+      expect(prepareSpy).toHaveBeenCalledWith(
+        userId,
+        targetDate,
+        expect.objectContaining({ force: true, preparationGeneration: 1 })
+      );
+      const state = listWeeklyDiscoveryPreparationStates(periodKey).find((entry) => entry.userId === userId);
+      expect(state?.state).toBe('READY');
+      expect(state?.attemptCount).toBe(1);
+    } finally {
+      prepareSpy.mockRestore();
+    }
+  });
+
+  it('does not refresh a fresh READY prepared shelf through the scheduler before release', async () => {
+    const now = new Date('2026-07-26T13:00:00.000Z');
+    const targetDate = weeklyPreparationTargetDate(now, 3);
+    const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', targetDate);
+    const userId = `weekly-fresh-ready-${Date.now()}`;
+    proCollector(userId);
+    seedReadyWeeklyDrop(userId, periodKey, targetDate, '2026-07-26T12:30:00.000Z');
+
+    const prepareSpy = vi.spyOn(discover, 'prepareWeeklyDiscoveryDropForUser').mockResolvedValue({
+      outcome: 'PREPARED',
+      status: 'READY',
+      itemCount: 20,
+      hasFullDiscovery: true,
+      prepared: true
+    });
+
+    try {
+      await runDiscoveryDropSchedulerOnce({ channels: { fetch: vi.fn() } } as any, now);
+      expect(prepareSpy).not.toHaveBeenCalled();
+    } finally {
+      prepareSpy.mockRestore();
+    }
+  });
+
+  it('does not refresh a stale READY prepared shelf through the scheduler after release', async () => {
+    const now = new Date('2026-07-27T13:00:00.000Z');
+    const targetDate = weeklyPreparationTargetDate(now, 3);
+    const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', targetDate);
+    const userId = `weekly-released-ready-${Date.now()}`;
+    proCollector(userId);
+    seedReadyWeeklyDrop(userId, periodKey, targetDate, '2026-07-25T23:00:00.000Z');
+
+    const prepareSpy = vi.spyOn(discover, 'prepareWeeklyDiscoveryDropForUser').mockResolvedValue({
+      outcome: 'PREPARED',
+      status: 'READY',
+      itemCount: 20,
+      hasFullDiscovery: true,
+      prepared: true
+    });
+
+    try {
+      await runDiscoveryDropSchedulerOnce({ channels: { fetch: vi.fn() } } as any, now);
+      expect(prepareSpy).not.toHaveBeenCalled();
+    } finally {
+      prepareSpy.mockRestore();
+    }
   });
 
   it('summarizes weekly prep coverage for Pro collectors before release', () => {
