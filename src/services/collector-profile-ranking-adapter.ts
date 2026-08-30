@@ -1,5 +1,6 @@
 import type { DiscoveryCandidate } from '../commands/discover.js';
 import { JAPANESE_SUBJECT_ALIASES } from './collector-card-aliases.js';
+import { collectorFamilyKeyForSubject, collectorFamilyKeysForSubjects } from './collector-card-families.js';
 import { KNOWN_COLLECTOR_SUBJECTS, type CollectorInterestProfile, type CollectorInterestTrait, type CollectorProfileTraitGroup } from './collector-profile.js';
 import {
   analyzeWeeklyDiscoveryCandidateReserveWithFeatures,
@@ -41,6 +42,9 @@ const RANKER_MAX_WEIGHTS: Partial<Record<CollectorProfileTraitGroup, number>> = 
   releaseTypes: 4,
   releaseEvents: 4
 };
+
+const RANKER_FAMILY_MAX_WEIGHT = 8;
+const RANKER_SINGLE_FAMILY_MEMBER_WEIGHT = 4;
 
 const ERA_TRANSLATIONS: Record<string, string | undefined> = {
   SV: 'SV',
@@ -126,12 +130,30 @@ function mergeScaled(target: Record<string, number>, values: Record<string, numb
   for (const [key, weight] of Object.entries(values)) addWeighted(target, key, weight);
 }
 
+function familyWeightsFromSubjectTraits(traits: CollectorInterestTrait[]): Record<string, number> {
+  const strongest = Math.max(...traits.map((trait) => trait.score), 0);
+  if (strongest <= 0) return {};
+  const seenSubjects = new Set<string>();
+  const weights: Record<string, number> = {};
+  for (const trait of [...traits].sort((a, b) => b.score - a.score || b.evidenceCount - a.evidenceCount || a.key.localeCompare(b.key))) {
+    const subjectKey = trait.key;
+    if (seenSubjects.has(subjectKey)) continue;
+    seenSubjects.add(subjectKey);
+    const familyKey = collectorFamilyKeyForSubject(trait.label);
+    if (!familyKey) continue;
+    const contribution = Math.max(0.5, (trait.score / strongest) * RANKER_SINGLE_FAMILY_MEMBER_WEIGHT);
+    weights[familyKey] = Number(Math.min(RANKER_FAMILY_MAX_WEIGHT, (weights[familyKey] ?? 0) + contribution).toFixed(3));
+  }
+  return weights;
+}
+
 export function collectorInterestProfileToTasteProfile(
   profile: CollectorInterestProfile,
   feedbackPreferences: WeeklyDiscoveryFinalizationInput['feedbackPreferences'] = {}
 ): CollectorTasteProfile {
   const rankerProfile = emptyCollectorTasteProfile(feedbackPreferences);
   mergeScaled(rankerProfile.subjects, scaleTraitsForRanker(profile.traits.subjects, RANKER_MAX_WEIGHTS.subjects!));
+  mergeScaled(rankerProfile.evolutionFamilies, familyWeightsFromSubjectTraits(profile.traits.subjects));
   mergeScaled(rankerProfile.languages, scaleTraitsForRanker(profile.traits.languages, RANKER_MAX_WEIGHTS.languages!));
   mergeScaled(rankerProfile.sets, scaleTraitsForRanker(profile.traits.sets, RANKER_MAX_WEIGHTS.sets!));
   mergeScaled(rankerProfile.eras, scaleTraitsForRanker(profile.traits.eras, RANKER_MAX_WEIGHTS.eras!, (trait) => ERA_TRANSLATIONS[trait.label]));
@@ -271,7 +293,8 @@ function clamp01(value: number): number {
 
 function shadowPersonalAggregate(components: PersonalRelevanceComponents): number {
   return Number(clamp01(
-    components.subjectAffinity * 0.36
+    components.subjectAffinity * 0.32
+    + components.familyAffinity * 0.04
     + components.setAffinity * 0.18
     + components.promoAffinity * 0.13
     + components.formatAffinity * 0.12
@@ -285,11 +308,11 @@ function shadowPersonalAggregate(components: PersonalRelevanceComponents): numbe
 function shadowCollectorAnchorStrength(components: PersonalRelevanceComponents): number {
   return Number(clamp01(
     components.subjectAffinity * 0.40
+    + components.familyAffinity * 0.04
     + components.setAffinity * 0.24
     + components.promoAffinity * 0.16
     + components.formatAffinity * 0.12
-    + components.eraAffinity * 0.06
-    + components.artTierAffinity * 0.02
+    + components.eraAffinity * 0.04
   ).toFixed(6));
 }
 
@@ -313,7 +336,6 @@ function shadowCorroboratingAffinityCount(components: PersonalRelevanceComponent
     components.languageAffinity,
     components.artTierAffinity,
     components.artistAffinity,
-    components.familyAffinity,
     components.patternAffinity,
     components.aestheticAffinity
   ].filter((value) => value >= 0.18).length;
@@ -334,12 +356,13 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
   computeDiscoveryValue: (features, profile, personal) => {
     const anchor = shadowCollectorAnchorStrength(personal);
     const subjectStrength = personal.subjectAffinity;
+    const familyStrength = personal.familyAffinity;
     const hasKnownEra = features.eras.some((era) => era in profile.eras);
     const hasKnownFormat = features.formats.some((format) => format in profile.formats);
     const hasUnseenTrait = features.eras.some((era) => !(era in profile.eras)) || features.formats.some((format) => !(format in profile.formats));
     return {
       novelty: Number(clamp01(subjectStrength >= 0.45 ? 0.25 : anchor >= 0.25 ? 0.45 : anchor > 0 ? 0.62 : 0.82).toFixed(6)),
-      adjacency: Number(clamp01(anchor >= 0.42 ? 0.72 : anchor >= 0.16 ? 0.56 : (hasKnownEra || hasKnownFormat) && anchor > 0 ? 0.42 : 0.24).toFixed(6)),
+      adjacency: Number(clamp01(anchor >= 0.42 ? 0.72 : anchor >= 0.16 || familyStrength >= 0.35 ? 0.56 : (hasKnownEra || hasKnownFormat) && anchor > 0 ? 0.42 : 0.24).toFixed(6)),
       serendipity: Number(clamp01(anchor >= 0.42 ? 0.25 : anchor >= 0.16 ? 0.45 : 0.72).toFixed(6)),
       underrepresentedTraitCoverage: hasUnseenTrait ? 1 : 0.2
     };
@@ -353,6 +376,7 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
       || (components.setAffinity >= 0.55 && meaningfulCount >= 2)
       || (anchor >= 0.40 && meaningfulCount >= 2)
     ) return 'CORE_MATCH';
+    if (components.familyAffinity >= 0.35 && value.adjacency >= 0.5) return 'ADJACENT_DISCOVERY';
     if (anchor >= 0.16 && value.adjacency >= 0.5) return 'ADJACENT_DISCOVERY';
     return 'CONTROLLED_EXPLORATION';
   },
@@ -363,6 +387,7 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
   strongestSignals: (components, value) => {
     const signals: Array<{ label: string; value: number }> = [
       { label: 'subject match', value: components.subjectAffinity },
+      { label: 'family match', value: components.familyAffinity },
       { label: 'set match', value: components.setAffinity },
       { label: 'promo match', value: components.promoAffinity },
       { label: 'format match', value: components.formatAffinity },
@@ -399,9 +424,10 @@ export function extractCollectorProfileDiscoveryFeatures(candidate: DiscoveryCan
   const sets: string[] = [];
   addUnique(sets, setName);
   const rarityTiers = shadowRarityTokens(cardName);
+  const subjects = shadowSubjectsFromText(cardName);
   return {
-    subjects: shadowSubjectsFromText(cardName),
-    evolutionFamilies: [],
+    subjects,
+    evolutionFamilies: collectorFamilyKeysForSubjects(subjects),
     artists: [],
     eras: shadowEras(cardName, setName),
     sets,

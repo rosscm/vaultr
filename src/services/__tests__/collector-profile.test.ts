@@ -538,7 +538,7 @@ describe('collector interest profile', () => {
     expect(adapted.budgetPreferenceCad).toBe(45);
   });
 
-  it('leaves unsupported ranker dimensions empty in the shadow adapter', () => {
+  it('leaves non-derived unsupported ranker dimensions empty in the shadow adapter', () => {
     const adapted = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
       activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-01-01T00:00:00.000Z' }],
       completedChases: []
@@ -680,7 +680,107 @@ describe('collector interest profile', () => {
     expect(personal?.setAffinity).toBe(0);
     expect(personal?.formatAffinity).toBe(0);
     expect(personal?.languageAffinity).toBe(0);
+    expect(personal?.familyAffinity).toBe(0);
+    expect(mew.weeklyDiscovery?.features.evolutionFamilies).toEqual([]);
     expect(mew.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+  });
+
+  it('uses Pikachu-line affinity to make Raichu an adjacent discovery without direct subject affinity', () => {
+    const profile = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Pikachu XY Black Star Promos XY95', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    }));
+    const [raichu] = analyzeCollectorProfileShadowReserve([candidate('Raichu Fossil 14')], profile, {}, 'seed');
+
+    const personal = raichu.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(raichu.weeklyDiscovery?.features.subjects).toEqual(['Raichu']);
+    expect(raichu.weeklyDiscovery?.features.evolutionFamilies).toEqual(['PIKACHU_LINE']);
+    expect(personal?.subjectAffinity).toBe(0);
+    expect(personal?.familyAffinity).toBeGreaterThan(0);
+    expect(raichu.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+  });
+
+  it('uses Pikachu-line affinity to make Pichu an adjacent discovery', () => {
+    const profile = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Pikachu XY Black Star Promos XY95', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    }));
+    const [pichu] = analyzeCollectorProfileShadowReserve([candidate('Pichu Expedition Base Set 22')], profile, {}, 'seed');
+
+    const personal = pichu.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(pichu.weeklyDiscovery?.features.evolutionFamilies).toEqual(['PIKACHU_LINE']);
+    expect(personal?.subjectAffinity).toBe(0);
+    expect(personal?.familyAffinity).toBeGreaterThan(0);
+    expect(pichu.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+  });
+
+  it('does not let same-subject family derivation promote Pikachu subject-only matches to core', () => {
+    const profile = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Pikachu XY Black Star Promos XY95', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    }));
+    const [pikachu] = analyzeCollectorProfileShadowReserve([candidate('Pikachu Skyridge 84')], profile, {}, 'seed');
+
+    const personal = pikachu.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.subjectAffinity).toBeGreaterThan(0);
+    expect(personal?.familyAffinity).toBeGreaterThan(0);
+    expect(pikachu.weeklyDiscovery?.rankExplanation.strongestSignals).toContain('family match');
+    expect(pikachu.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+  });
+
+  it('uses Eevee-family affinity to make Vaporeon adjacent to Umbreon taste', () => {
+    const profile = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Umbreon ex Terastal Festival ex 217/187 Japanese', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    }));
+    const [vaporeon] = analyzeCollectorProfileShadowReserve([candidate('Vaporeon VMAX SWSH182')], profile, {}, 'seed');
+
+    const personal = vaporeon.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(vaporeon.weeklyDiscovery?.features.evolutionFamilies).toEqual(['EEVEE_FAMILY']);
+    expect(personal?.subjectAffinity).toBe(0);
+    expect(personal?.familyAffinity).toBeGreaterThan(0);
+    expect(vaporeon.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+  });
+
+  it('strengthens family affinity from multiple distinct Eeveelution interests within the cap', () => {
+    const single = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Umbreon ex Terastal Festival ex 217/187 Japanese', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    }));
+    const multiple = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'Umbreon ex Terastal Festival ex 217/187 Japanese', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'Sylveon ex Terastal Festival ex 212/187 Japanese', createdAt: '2026-01-02T00:00:00.000Z' }
+      ],
+      completedChases: []
+    }));
+
+    expect(single.evolutionFamilies.EEVEE_FAMILY).toBeGreaterThan(0);
+    expect(multiple.evolutionFamilies.EEVEE_FAMILY).toBeGreaterThan(single.evolutionFamilies.EEVEE_FAMILY);
+    expect(multiple.evolutionFamilies.EEVEE_FAMILY).toBeLessThanOrEqual(8);
+  });
+
+  it('extracts Squirtle-line family features for Wartortle candidates', () => {
+    const features = extractCollectorProfileDiscoveryFeatures(candidate('Wartortle Expedition Base Set 58'));
+
+    expect(features.subjects).toEqual(['Wartortle']);
+    expect(features.evolutionFamilies).toEqual(['SQUIRTLE_LINE']);
+  });
+
+  it('keeps unrelated subjects and legendary birds out of family affinity', () => {
+    const profile = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
+      activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Pikachu XY Black Star Promos XY95', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    }));
+    const [mew, moltres] = analyzeCollectorProfileShadowReserve([
+      candidate('Mew Expedition Base Set 55'),
+      candidate('Moltres & Zapdos & Articuno-GX SM Black Star Promos SM210')
+    ], profile, {}, 'seed');
+
+    expect(mew.weeklyDiscovery?.features.evolutionFamilies).toEqual([]);
+    expect(mew.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance.familyAffinity).toBe(0);
+    expect(moltres.weeklyDiscovery?.features.evolutionFamilies).toEqual([]);
+    expect(moltres.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance.familyAffinity).toBe(0);
   });
 
   it('allows strong subject plus language corroboration to remain shadow core', () => {
@@ -787,7 +887,7 @@ describe('collector interest profile', () => {
     const [shadow] = analyzeCollectorProfileShadowReserve([candidate('Mew HS Triumphant 97')], profile, {}, 'seed');
 
     expect(shadow.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance.subjectAffinity).toBe(0.8);
-    expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.personalAggregate).toBeCloseTo(0.288, 3);
+    expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.personalAggregate).toBeCloseTo(0.256, 3);
   });
 
   it('keeps shadow scoring deterministic for the same seed', () => {

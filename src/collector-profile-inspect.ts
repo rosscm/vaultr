@@ -93,7 +93,7 @@ function printRankerReserveComparison(userId: string, rankerProfile: ReturnType<
     const old = latest.reserveCandidates.find((entry) => entry.suggestion.referenceSourceCardId === candidate.suggestion.referenceSourceCardId || entry.suggestion.name === candidate.suggestion.name)?.weeklyDiscovery;
     console.log(`${String(index + 1).padStart(2, '0')}  ${candidate.suggestion.name.slice(0, 56).padEnd(56)} ${analysis.discoveryRole}`);
     console.log(`    shadow  base=${score(analysis.rankExplanation.scoreComponents.baseScore)} personal=${score(shadowDiagnostics?.personalAggregate)} anchor=${score(shadowDiagnostics?.collectorAnchorStrength)} novelty=${score(discoveryValue.novelty)} adjacency=${score(discoveryValue.adjacency)}`);
-    console.log(`            subject=${score(personal.subjectAffinity)} set=${score(personal.setAffinity)} lang=${score(personal.languageAffinity)} format=${score(personal.formatAffinity)} promo=${score(personal.promoAffinity)}`);
+    console.log(`            subject=${score(personal.subjectAffinity)} family=${score(personal.familyAffinity)} set=${score(personal.setAffinity)} lang=${score(personal.languageAffinity)} format=${score(personal.formatAffinity)} promo=${score(personal.promoAffinity)}`);
     if (old) {
       console.log(`    old     base=${score(old.rankExplanation.scoreComponents.baseScore)} role=${old.discoveryRole} signals=${old.rankExplanation.strongestSignals.join(', ') || 'none'}`);
     } else {
@@ -102,6 +102,7 @@ function printRankerReserveComparison(userId: string, rankerProfile: ReturnType<
     const features = analysis.features;
     const featuresText = featureLine([
       ['subjects', features.subjects],
+      ['family', features.evolutionFamilies],
       ['lang', features.languages],
       ['sets', features.sets],
       ['eras', features.eras],
@@ -131,6 +132,7 @@ export function runCollectorProfileInspectCli(argv: string[]): void {
     const rankerProfile = collectorInterestProfileToTasteProfile(profile);
     console.log('\nRanker adapter');
     printRankerSection('Subjects', rankerProfile.subjects);
+    printRankerSection('Families', rankerProfile.evolutionFamilies);
     printRankerSection('Languages', rankerProfile.languages);
     printRankerSection('Sets', rankerProfile.sets);
     printRankerSection('Eras', rankerProfile.eras);
