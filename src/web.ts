@@ -29,11 +29,13 @@ import {
 import {
   getLatestAvailableScheduledDiscoveryDrop,
   getScheduledDiscoveryDrop,
+  listScheduledDiscoveryDropsForUser,
   scheduledDiscoveryPeriodKey,
   type ScheduledDiscoveryDrop,
   type ScheduledDiscoveryDropItem
 } from './services/scheduled-discovery-drops.js';
 import { weeklyPreparationTargetDate } from './services/discovery-drop-scheduler.js';
+import { buildEbaySearchKeywords } from './services/ebay.js';
 import {
   createWebSession,
   resolveWebSession,
@@ -284,11 +286,66 @@ function weeklyShelfRoleLabel(role: ScheduledDiscoveryDropItem['suggestion']['di
   return undefined;
 }
 
+function shelfSignalLabel(raw: string | undefined): string | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  const normalized = value.toLowerCase().replace(/\s+/g, ' ');
+  const mapped: Record<string, string> = {
+    'multi-card discovery': 'Collector Thread',
+    'adjacent collector source match': 'Collector Trail',
+    'language-wide discovery': 'Language Trail',
+    'source-backed matches': 'Collector Match',
+    'release-family discovery': 'Release Trail'
+  };
+  if (mapped[normalized]) return mapped[normalized];
+  if (/\btrail\b|\bcompass\b|\bmatch\b/i.test(value) && !/\b(discovery|source-backed|language-wide|adjacent)\b/i.test(value)) return value;
+  return undefined;
+}
+
 function safeShelfReason(item: ScheduledDiscoveryDropItem): string | undefined {
   const reason = item.suggestion.why?.trim();
   if (!reason) return undefined;
   if (/\b(score|rank|vector|confidence|debug|feature tag|affinity)\b/i.test(reason)) return undefined;
   return reason;
+}
+
+function shelfIdentitySearchText(item: ScheduledDiscoveryDropItem): string {
+  const reference = item.suggestion.canonicalReference;
+  const parts = [
+    reference?.canonicalName || item.suggestion.name,
+    reference?.cardNumber,
+    reference?.setName,
+    reference?.language === 'JAPANESE' ? 'Japanese' : undefined
+  ].filter((part): part is string => !!part?.trim());
+  const selected: string[] = [];
+  const normalizedSelected: string[] = [];
+  for (const part of parts) {
+    const normalized = part.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!normalized || normalizedSelected.some((existing) => existing === normalized || existing.includes(normalized))) continue;
+    selected.push(part.trim());
+    normalizedSelected.push(normalized);
+  }
+  return selected.join(' ');
+}
+
+function shelfEbayUrl(item: ScheduledDiscoveryDropItem, currency: ScheduledDiscoveryDrop['currency']): string {
+  const host = currency === 'CAD' ? 'www.ebay.ca' : 'www.ebay.com';
+  const keywords = buildEbaySearchKeywords({
+    id: 'dashboard-shelf-search',
+    userId: 'dashboard',
+    cardName: shelfIdentitySearchText(item),
+    createdAt: new Date(0).toISOString()
+  }).trim();
+  const query = /\bpokemon card\b/i.test(keywords) ? keywords : `${keywords} Pokemon card`;
+  return `https://${host}/sch/i.html?_nkw=${encodeURIComponent(query)}`;
+}
+
+function usefulShelfImageUrl(item: ScheduledDiscoveryDropItem): string | undefined {
+  if (item.imageSourceKind !== 'CARD_REFERENCE') return undefined;
+  const imageUrl = item.imageUrl?.trim();
+  if (!imageUrl) return undefined;
+  if (/card[_-]?back|back(?:\.|_|-)|placeholder|default-card/i.test(imageUrl)) return undefined;
+  return imageUrl;
 }
 
 function publicShelfItem(item: ScheduledDiscoveryDropItem) {
@@ -297,11 +354,11 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem) {
   return {
     position: item.position,
     name: item.suggestion.name,
-    imageUrl: item.imageSourceKind === 'CARD_REFERENCE' ? item.imageUrl : undefined,
+    imageUrl: usefulShelfImageUrl(item),
     setName: reference?.setName,
     language: reference?.language,
     roleLabel: weeklyShelfRoleLabel(item.suggestion.discoveryRole),
-    lane: item.suggestion.lane,
+    signalLabel: shelfSignalLabel(item.suggestion.lane),
     reason: safeShelfReason(item),
     market: marketReady
       ? {
@@ -313,7 +370,8 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem) {
           soldSampleSize: item.market.soldSampleSize,
           updatedAt: item.market.updatedAt
         }
-      : { status: item.market.status, currency: item.market.currency }
+      : { status: item.market.status, currency: item.market.currency },
+    ebayUrl: shelfEbayUrl(item, item.market.currency)
   };
 }
 
@@ -321,13 +379,42 @@ function shelfResponse(userId: string, now = new Date()): WebResponse {
   const targetDate = weeklyPreparationTargetDate(now);
   const targetPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', targetDate);
   const targetDrop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', targetPeriod);
+  const nowIso = now.toISOString();
+  const allDrops = listScheduledDiscoveryDropsForUser(userId, 'WEEKLY_DISCOVERY').filter(validDashboardShelf);
+  const upcomingDrop = allDrops
+    .filter((drop) => Date.parse(drop.availableAt) > now.getTime())
+    .sort((a, b) => Date.parse(a.availableAt) - Date.parse(b.availableAt))[0];
+  const currentDrop = allDrops
+    .filter((drop) => Date.parse(drop.availableAt) <= now.getTime() && (!drop.expiresAt || Date.parse(drop.expiresAt) > now.getTime()))
+    .sort((a, b) => Date.parse(b.availableAt) - Date.parse(a.availableAt))[0];
+  const latestAvailableDrop = getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', nowIso);
+  const latestHistoricalDrop = allDrops
+    .filter((drop) => Date.parse(drop.availableAt) <= now.getTime())
+    .sort((a, b) => Date.parse(b.availableAt) - Date.parse(a.availableAt))[0];
+  const targetShelfKind = validDashboardShelf(targetDrop) && Date.parse(targetDrop.availableAt) > now.getTime()
+    ? 'PREPARED'
+    : validDashboardShelf(targetDrop)
+      ? 'CURRENT'
+      : undefined;
+  const shelfKind = targetShelfKind
+    ? targetShelfKind
+    : upcomingDrop
+      ? 'PREPARED'
+      : currentDrop
+        ? 'CURRENT'
+        : validDashboardShelf(latestAvailableDrop)
+          ? 'PREVIOUS'
+          : latestHistoricalDrop
+            ? 'PREVIOUS'
+            : 'UPCOMING';
   const drop = validDashboardShelf(targetDrop)
     ? targetDrop
-    : getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', now.toISOString());
+    : upcomingDrop ?? currentDrop ?? latestAvailableDrop ?? latestHistoricalDrop;
 
   if (!validDashboardShelf(drop)) {
     return jsonResponse(200, {
       status: 'UPCOMING',
+      shelfKind,
       periodKey: targetPeriod,
       title: 'Weekly Shelf',
       items: []
@@ -336,6 +423,7 @@ function shelfResponse(userId: string, now = new Date()): WebResponse {
 
   return jsonResponse(200, {
     status: drop.status,
+    shelfKind,
     periodKey: drop.periodKey,
     title: drop.title,
     summary: drop.summary,

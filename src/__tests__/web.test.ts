@@ -73,9 +73,18 @@ function seedAlert(userId: string, index: number, overrides: Partial<Parameters<
   });
 }
 
-function seedWeeklyShelf(userId: string, date = new Date('2026-08-31T13:00:00.000Z')) {
+function seedWeeklyShelf(
+  userId: string,
+  date = new Date('2026-08-31T13:00:00.000Z'),
+  options: { name?: string; cardNumber?: string; setName?: string; language?: 'ENGLISH' | 'JAPANESE'; updatedAt?: string } = {}
+) {
   const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
   const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
+  const name = options.name ?? 'Mew CoroCoro Promo 151';
+  const cardNumber = options.cardNumber ?? '151';
+  const setName = options.setName ?? 'CoroCoro Promo';
+  const language = options.language ?? 'JAPANESE';
+  const updatedAt = options.updatedAt ?? '2026-08-30T12:00:00.000Z';
   const drop = upsertScheduledDiscoveryDrop({
     userId,
     dropType: 'WEEKLY_DISCOVERY',
@@ -90,21 +99,21 @@ function seedWeeklyShelf(userId: string, date = new Date('2026-08-31T13:00:00.00
       {
         position: 1,
         suggestion: {
-          name: 'Mew CoroCoro Promo 151',
-          lane: 'Japanese promos',
+          name,
+          lane: 'Promo Trail',
           laneWhy: 'Matches your Japanese promo interest',
           why: 'Connects to the Japanese promo cards already in your Vault',
           nearby: [],
-          referenceSourceCardId: 'vaultr-promo-mew-corocoro-151',
+          referenceSourceCardId: `vaultr-promo-${cardNumber}`,
           discoveryRole: 'CORE_MATCH',
           canonicalReference: {
             provider: 'VAULTR_PROMO',
-            sourceCardId: 'vaultr-promo-mew-corocoro-151',
-            canonicalCardId: 'vaultr-promo-mew-corocoro-151',
-            canonicalName: 'Mew CoroCoro Promo 151',
-            setName: 'CoroCoro Promo',
-            cardNumber: '151',
-            language: 'JAPANESE',
+            sourceCardId: `vaultr-promo-${cardNumber}`,
+            canonicalCardId: `vaultr-promo-${cardNumber}`,
+            canonicalName: name,
+            setName,
+            cardNumber,
+            language,
             imageUrl: 'https://example.test/mew-reference.png',
             imageSourceKind: 'CARD_REFERENCE'
           },
@@ -128,7 +137,7 @@ function seedWeeklyShelf(userId: string, date = new Date('2026-08-31T13:00:00.00
         position: 2,
         suggestion: {
           name: 'Marketplace Image Card',
-          lane: 'E-reader era',
+          lane: 'multi-card discovery',
           laneWhy: 'Matches your e-reader interest',
           why: 'feature tag score debug',
           nearby: [],
@@ -137,10 +146,18 @@ function seedWeeklyShelf(userId: string, date = new Date('2026-08-31T13:00:00.00
         imageUrl: 'https://i.ebayimg.test/listing.jpg',
         imageSourceName: 'eBay',
         imageSourceKind: 'MARKET_LISTING',
-        market: { status: 'TIMEOUT', currency: 'CAD' }
+        market: {
+          status: 'TIMEOUT',
+          currency: 'CAD',
+          listing: {
+            id: 'unsafe-listing',
+            title: 'Unsafe listing',
+            url: 'javascript:alert(1)'
+          }
+        }
       }
     ]
-  }, '2026-08-30T12:00:00.000Z');
+  }, updatedAt);
   return drop;
 }
 
@@ -234,6 +251,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('window.location.hash = nextPage;');
     expect(jsResponse.body).toContain("window.addEventListener('hashchange'");
     expect(jsResponse.body).toContain('await loadActivePageData();');
+    expect(jsResponse.body).toContain('Personalized picks shaped by your Vault, completed Chases, and the cards you keep coming back to.');
+    expect(jsResponse.body).not.toContain('A read-only shelf');
   });
 
   it('returns 404 for unknown or traversal-style static paths', async () => {
@@ -528,17 +547,115 @@ describe('authenticated Weekly Shelf API', () => {
       setName: 'CoroCoro Promo',
       language: 'JAPANESE',
       roleLabel: 'Right up your alley',
+      signalLabel: 'Promo Trail',
       reason: 'Connects to the Japanese promo cards already in your Vault',
       market: { status: 'READY', currency: 'CAD', askingTotal: 185 }
     });
+    expect(body.items[0].ebayUrl).toMatch(/^https:\/\/www\.ebay\.ca\/sch\/i\.html\?_nkw=/);
+    expect(decodeURIComponent(new URL(body.items[0].ebayUrl).searchParams.get('_nkw') ?? '')).toContain('CoroCoro Shining Mew');
     expect(body.items[1].imageUrl).toBeUndefined();
     expect(body.items[1].reason).toBeUndefined();
+    expect(body.items[1].signalLabel).toBe('Collector Thread');
+    expect(body.items[1].ebayUrl).toMatch(/^https:\/\/www\.ebay\.ca\/sch\/i\.html\?_nkw=/);
     expect(JSON.stringify(body)).not.toContain('rankExplanation');
     expect(JSON.stringify(body)).not.toContain('CORE_MATCH');
+    expect(JSON.stringify(body)).not.toContain('multi-card discovery');
+    expect(JSON.stringify(body)).not.toContain('javascript:alert');
     expect(JSON.stringify(body)).not.toContain('internal-score-should-not-leak');
 
     clearUser(userId);
     clearUser(otherUserId);
+  });
+
+  it('prefers a prepared target-period shelf over the still-current previous week', async () => {
+    const userId = 'web-shelf-target-period-user';
+    clearUser(userId);
+    seedWeeklyShelf(userId, new Date('2026-08-24T13:00:00.000Z'), {
+      name: 'W35 Shelf Card',
+      cardNumber: '035',
+      setName: 'Older Set',
+      language: 'ENGLISH',
+      updatedAt: '2026-08-21T12:00:00.000Z'
+    });
+    seedWeeklyShelf(userId, new Date('2026-08-31T13:00:00.000Z'), {
+      name: 'W36 Shelf Card',
+      cardNumber: '036',
+      setName: 'Upcoming Set',
+      language: 'ENGLISH',
+      updatedAt: '2026-08-29T12:00:00.000Z'
+    });
+    const { token } = createWebSession({ userId }, { token: 'shelf-target-period-token' });
+
+    const response = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(200);
+    expect(body.shelfKind).toBe('PREPARED');
+    expect(body.periodKey).toBe('2026-W36');
+    expect(body.items[0].name).toBe('W36 Shelf Card');
+    expect(JSON.stringify(body)).not.toContain('W35 Shelf Card');
+
+    clearUser(userId);
+  });
+
+  it('falls back to an older shelf only as an identifiable previous shelf', async () => {
+    const userId = 'web-shelf-previous-user';
+    clearUser(userId);
+    seedWeeklyShelf(userId, new Date('2026-08-17T13:00:00.000Z'), {
+      name: 'W34 Previous Shelf Card',
+      cardNumber: '034',
+      setName: 'Previous Set',
+      language: 'ENGLISH',
+      updatedAt: '2026-08-17T12:00:00.000Z'
+    });
+    const { token } = createWebSession({ userId }, { token: 'shelf-previous-token' });
+
+    const response = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(200);
+    expect(body.shelfKind).toBe('PREVIOUS');
+    expect(body.periodKey).toBe('2026-W34');
+    expect(body.items[0].name).toBe('W34 Previous Shelf Card');
+
+    clearUser(userId);
+  });
+
+  it('builds encoded eBay search URLs from shelf card identity only', async () => {
+    const userId = 'web-shelf-ebay-user';
+    clearUser(userId);
+    seedWeeklyShelf(userId, new Date('2026-08-31T13:00:00.000Z'), {
+      name: 'Mega Gardevoir ex 087/063',
+      cardNumber: '087/063',
+      setName: 'Mega Symphonia',
+      language: 'JAPANESE'
+    });
+    const { token } = createWebSession({ userId }, { token: 'shelf-ebay-token' });
+
+    const response = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+    const body = JSON.parse(response.body ?? '{}');
+    const url = new URL(body.items[0].ebayUrl);
+    const query = decodeURIComponent(url.searchParams.get('_nkw') ?? '');
+
+    expect(url.origin).toBe('https://www.ebay.ca');
+    expect(body.items.every((item: any) => /^https:\/\/www\.ebay\.ca\/sch\/i\.html\?_nkw=/.test(item.ebayUrl))).toBe(true);
+    expect(query).toContain('Mega Gardevoir ex');
+    expect(query).toContain('087/063');
+    expect(query).toContain('Mega Symphonia');
+    expect(query).toContain('Japanese');
+    expect(query).not.toContain('Connects to');
+    expect(query).not.toContain('feature tag');
+
+    clearUser(userId);
   });
 
   it('returns an upcoming Weekly Shelf state when no prepared shelf exists', async () => {
@@ -601,7 +718,9 @@ describe('authenticated Weekly Shelf API', () => {
       items: [
         {
           position: 1,
-          suggestion: { name: 'Shelf Card', lane: 'Collector Compass', laneWhy: '', why: '', nearby: [] },
+          suggestion: { name: 'Shelf Card', lane: 'language-wide discovery', laneWhy: '', why: '', nearby: [] },
+          imageUrl: 'https://static.example.test/pokemon-card-back.png',
+          imageSourceKind: 'CARD_REFERENCE',
           market: { status: 'MISSING', currency: 'USD' }
         }
       ]
@@ -616,7 +735,7 @@ describe('authenticated Weekly Shelf API', () => {
 
     expect(response.status).toBe(200);
     expect(body.status).toBe('PARTIAL');
-    expect(body.items[0]).toMatchObject({ name: 'Shelf Card', market: { status: 'MISSING', currency: 'USD' } });
+    expect(body.items[0]).toMatchObject({ name: 'Shelf Card', signalLabel: 'Language Trail', market: { status: 'MISSING', currency: 'USD' } });
     expect(body.items[0].imageUrl).toBeUndefined();
     expect(body.items[0].reason).toBeUndefined();
 

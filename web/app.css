@@ -359,6 +359,14 @@ a {
   max-width: 720px;
 }
 
+.shelf-page-header {
+  max-width: min(920px, 100%);
+}
+
+.shelf-page-header p:not(.eyebrow) {
+  max-width: 780px;
+}
+
 .eyebrow {
   margin: 0;
   color: var(--gold);
@@ -517,17 +525,30 @@ a {
 }
 
 .shelf-reason {
+  display: -webkit-box;
+  overflow: hidden;
   margin: 0;
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.42;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.shelf-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
 }
 
 .shelf-price {
   display: flex;
   gap: 8px;
   align-items: baseline;
-  margin: 2px 0 0;
+  margin: 0;
   color: var(--muted-strong);
   font-weight: 850;
 }

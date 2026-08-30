@@ -597,10 +597,10 @@ function shelfPageMarkup() {
 
 function shelfHeaderMarkup() {
   return `
-    <header class="page-header">
+    <header class="page-header shelf-page-header">
       <p class="eyebrow">WEEKLY SHELF</p>
       <h1 id="shelf-title">Collector discoveries picked for you</h1>
-      <p>A read-only shelf shaped by your Vault, completed Chases, and the cards you keep coming back to.</p>
+      <p>Personalized picks shaped by your Vault, completed Chases, and the cards you keep coming back to.</p>
     </header>
   `;
 }
@@ -612,7 +612,7 @@ function shelfMetaMarkup(shelf) {
     : '';
   const details = [
     shelf.periodKey,
-    shelf.status === 'READY' ? 'Ready' : shelf.status === 'PARTIAL' ? 'Preview' : '',
+    shelf.shelfKind === 'PREVIOUS' ? 'Previous shelf' : shelf.status === 'READY' ? 'Ready' : shelf.status === 'PARTIAL' ? 'Preview' : '',
     `${shelf.itemCount || shelf.items?.length || 0} picks`,
     marketReady,
     updated ? `Updated ${updated}` : ''
@@ -647,12 +647,15 @@ function shelfCardMarkup(item) {
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
           ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
-          ${item.lane ? `<span class="source-pill">${escapeHtml(item.lane)}</span>` : ''}
+          ${item.signalLabel ? `<span class="source-pill">${escapeHtml(item.signalLabel)}</span>` : ''}
         </div>
         <h2>${escapeHtml(item.name || 'Weekly Shelf pick')}</h2>
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
-        ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : ''}
+        <div class="shelf-card-footer">
+          ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : ''}
+          ${item.ebayUrl ? `<a class="listing-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
+        </div>
       </div>
     </article>
   `;
