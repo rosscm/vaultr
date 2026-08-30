@@ -307,12 +307,13 @@ function shadowPersonalAggregate(components: PersonalRelevanceComponents): numbe
 
 function shadowCollectorAnchorStrength(components: PersonalRelevanceComponents): number {
   return Number(clamp01(
-    components.subjectAffinity * 0.40
+    components.subjectAffinity * 0.36
     + components.familyAffinity * 0.04
     + components.setAffinity * 0.24
     + components.promoAffinity * 0.16
     + components.formatAffinity * 0.12
-    + components.eraAffinity * 0.04
+    + components.eraAffinity * 0.06
+    + components.artTierAffinity * 0.02
   ).toFixed(6));
 }
 

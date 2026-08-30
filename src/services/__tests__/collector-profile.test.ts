@@ -873,6 +873,25 @@ describe('collector interest profile', () => {
     expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBeGreaterThanOrEqual(0.16);
   });
 
+  it('preserves non-subject collector anchor dimensions while funding family from subject weight', () => {
+    const profile = tasteProfile({
+      subjects: { Pikachu: 10 },
+      evolutionFamilies: { PIKACHU_LINE: 10 },
+      sets: { 'XY Black Star Promos': 10 },
+      promoTypes: { 'black-star': 10 },
+      formats: { EX: 10 },
+      eras: { XY: 10 },
+      artTiers: { premium: 10 }
+    });
+    const [shadow] = analyzeCollectorProfileShadowReserve([
+      candidate('Pikachu-EX XY Black Star Promos XY174 Secret Rare', {
+        suggestion: { referenceSourceName: 'Pokemon TCG XY Black Star Promos', referenceSourceCardId: 'xyp-XY174' }
+      })
+    ], profile, {}, 'seed');
+
+    expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBeCloseTo(1, 6);
+  });
+
   it('uses subject affinity strength for shadow novelty instead of binary known-subject presence', () => {
     const strong = analyzeCollectorProfileShadowReserve([candidate('Mew HS Triumphant 97')], tasteProfile({ subjects: { Mew: 8 } }), {}, 'seed')[0];
     const weak = analyzeCollectorProfileShadowReserve([candidate('Meowth Promo 10')], tasteProfile({ subjects: { Meowth: 0.97 } }), {}, 'seed')[0];
