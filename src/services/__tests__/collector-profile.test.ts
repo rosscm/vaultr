@@ -669,25 +669,96 @@ describe('collector interest profile', () => {
     expect(shadow.weeklyDiscovery?.discoveryRole).toBe('CONTROLLED_EXPLORATION');
   });
 
-  it('classifies strong subject and multi-trait profile matches as shadow core', () => {
+  it('classifies strong subject-only matches as adjacent instead of shadow core', () => {
+    const profile = tasteProfile({ subjects: { Mew: 8 } });
+    const [mew] = analyzeCollectorProfileShadowReserve([
+      candidate('Mew VMAX Fusion Strike 269')
+    ], profile, {}, 'seed');
+
+    const personal = mew.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.subjectAffinity).toBeCloseTo(0.8, 3);
+    expect(personal?.setAffinity).toBe(0);
+    expect(personal?.formatAffinity).toBe(0);
+    expect(personal?.languageAffinity).toBe(0);
+    expect(mew.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+  });
+
+  it('allows strong subject plus language corroboration to remain shadow core', () => {
+    const profile = tasteProfile({ subjects: { Mew: 8 }, languages: { JAPANESE: 3.2 } });
+    const [mew] = analyzeCollectorProfileShadowReserve([
+      candidate('Mew Japanese S12a 052')
+    ], profile, {}, 'seed');
+
+    const personal = mew.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.subjectAffinity).toBeCloseTo(0.8, 3);
+    expect(personal?.languageAffinity).toBeGreaterThan(0.6);
+    expect(mew.weeklyDiscovery?.discoveryRole).toBe('CORE_MATCH');
+  });
+
+  it('classifies multi-trait profile matches as shadow core', () => {
     const profile = tasteProfile({
-      subjects: { Mew: 8, Pikachu: 3.34 },
+      subjects: { Pikachu: 3.34 },
       sets: { 'XY Black Star Promos': 5 },
       setFamilies: { 'xy black': 5 },
       promoTypes: { 'black-star': 5.13 },
       formats: { EX: 1.92 },
       languages: { ENGLISH: 4 }
     });
-    const [mew, pikachu] = analyzeCollectorProfileShadowReserve([
-      candidate('Mew HS Triumphant 97 English'),
+    const [pikachu] = analyzeCollectorProfileShadowReserve([
       candidate('Pikachu-EX XY Black Star Promos XY174', {
         suggestion: { referenceSourceName: 'Pokemon TCG XY Black Star Promos', referenceSourceCardId: 'xyp-XY174' }
       })
     ], profile, {}, 'seed');
 
-    expect(mew.weeklyDiscovery?.discoveryRole).toBe('CORE_MATCH');
     expect(pikachu.weeklyDiscovery?.discoveryRole).toBe('CORE_MATCH');
     expect(pikachu.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBeGreaterThan(0.4);
+  });
+
+  it('keeps moderate subject plus format and language as adjacent below core strength', () => {
+    const profile = tasteProfile({
+      subjects: { Pikachu: 3.34 },
+      formats: { ex: 5 },
+      languages: { ENGLISH: 4 }
+    });
+    const [shadow] = analyzeCollectorProfileShadowReserve([candidate('Pikachu ex Paldea Evolved 63 English')], profile, {}, 'seed');
+
+    const personal = shadow.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.subjectAffinity).toBeCloseTo(0.334, 3);
+    expect(personal?.formatAffinity).toBeGreaterThan(0.6);
+    expect(personal?.languageAffinity).toBeGreaterThan(0.7);
+    expect(shadow.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+  });
+
+  it('keeps weak subject plus language-only support as controlled exploration', () => {
+    const profile = tasteProfile({ subjects: { Moltres: 1.5 }, languages: { JAPANESE: 4 } });
+    const [shadow] = analyzeCollectorProfileShadowReserve([candidate('Moltres Japanese S12a 021')], profile, {}, 'seed');
+
+    const personal = shadow.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.subjectAffinity).toBeCloseTo(0.15, 3);
+    expect(personal?.languageAffinity).toBeGreaterThan(0.7);
+    expect(shadow.weeklyDiscovery?.discoveryRole).toBe('CONTROLLED_EXPLORATION');
+  });
+
+  it('still allows strong non-subject multi-trait matches to become shadow core', () => {
+    const profile = tasteProfile({
+      sets: { 'XY Black Star Promos': 5 },
+      setFamilies: { 'xy black': 5 },
+      promoTypes: { 'black-star': 4 },
+      formats: { EX: 5 },
+      languages: { ENGLISH: 4 }
+    });
+    const [shadow] = analyzeCollectorProfileShadowReserve([
+      candidate('Unlistedmon-EX XY Black Star Promos XY999 English', {
+        suggestion: { referenceSourceName: 'Pokemon TCG XY Black Star Promos', referenceSourceCardId: 'xyp-XY999' }
+      })
+    ], profile, {}, 'seed');
+
+    const personal = shadow.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.subjectAffinity).toBe(0);
+    expect(personal?.setAffinity).toBeGreaterThan(0.6);
+    expect(personal?.promoAffinity).toBeGreaterThan(0.4);
+    expect(personal?.formatAffinity).toBeGreaterThan(0.6);
+    expect(shadow.weeklyDiscovery?.discoveryRole).toBe('CORE_MATCH');
   });
 
   it('allows secondary subject plus format to become adjacent below core strength', () => {

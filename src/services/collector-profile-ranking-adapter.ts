@@ -304,6 +304,25 @@ function shadowMeaningfulAffinityCount(components: PersonalRelevanceComponents):
   ].filter((value) => value >= 0.18).length;
 }
 
+function shadowCorroboratingAffinityCount(components: PersonalRelevanceComponents): number {
+  return [
+    components.setAffinity,
+    components.promoAffinity,
+    components.formatAffinity,
+    components.eraAffinity,
+    components.languageAffinity,
+    components.artTierAffinity,
+    components.artistAffinity,
+    components.familyAffinity,
+    components.patternAffinity,
+    components.aestheticAffinity
+  ].filter((value) => value >= 0.18).length;
+}
+
+function hasMeaningfulCollectorCorroboration(components: PersonalRelevanceComponents): boolean {
+  return shadowCorroboratingAffinityCount(components) > 0;
+}
+
 export function weeklyDiscoveryRankingModeForCollectorProfile(profile: CollectorInterestProfile): WeeklyDiscoveryRankingMode {
   return profile.confidence.tier === 'USABLE' || profile.confidence.tier === 'STRONG'
     ? 'COLLECTOR_PROFILE_V1'
@@ -328,7 +347,12 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
   determineRole: (components, value) => {
     const anchor = shadowCollectorAnchorStrength(components);
     const meaningfulCount = shadowMeaningfulAffinityCount(components);
-    if (components.subjectAffinity >= 0.65 || components.setAffinity >= 0.55 || (anchor >= 0.40 && meaningfulCount >= 2)) return 'CORE_MATCH';
+    const hasCorroboration = hasMeaningfulCollectorCorroboration(components);
+    if (
+      (components.subjectAffinity >= 0.65 && hasCorroboration)
+      || (components.setAffinity >= 0.55 && meaningfulCount >= 2)
+      || (anchor >= 0.40 && meaningfulCount >= 2)
+    ) return 'CORE_MATCH';
     if (anchor >= 0.16 && value.adjacency >= 0.5) return 'ADJACENT_DISCOVERY';
     return 'CONTROLLED_EXPLORATION';
   },
