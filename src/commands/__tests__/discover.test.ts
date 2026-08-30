@@ -77,6 +77,7 @@ import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '.
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
 import {
   buildCollectorTasteProfile,
+  type CollectorTasteProfile,
   type WeeklyDiscoveryCandidateAnalysis,
   type WeeklyDiscoveryFinalizationInput
 } from '../../services/weekly-discovery-ranking.js';
@@ -409,6 +410,155 @@ function publishableShelfCandidates(count: number, overrides?: (candidate: Disco
     const base = publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index);
     return overrides ? overrides(base, index) : base;
   });
+}
+
+const collectorProfileTestSubjects = [
+  'Pikachu',
+  'Gardevoir',
+  'Squirtle',
+  'Umbreon',
+  'Rayquaza',
+  'Articuno',
+  'Zapdos',
+  'Blastoise',
+  'Sylveon',
+  'Charizard',
+  'Dragonite',
+  'Lugia',
+  'Espeon',
+  'Raichu',
+  'Suicune',
+  'Entei',
+  'Snorlax',
+  'Lapras',
+  'Celebi',
+  'Moltres',
+  'Mewtwo',
+  'Jirachi',
+  'Tyranitar',
+  'Vaporeon'
+];
+
+function collectorProfileForSubjects(subjects: string[]): CollectorTasteProfile {
+  const subjectWeights = Object.fromEntries(subjects.map((subject) => [subject, 8]));
+  return {
+    subjects: subjectWeights,
+    evolutionFamilies: {},
+    artists: {},
+    eras: {},
+    sets: {},
+    setFamilies: {},
+    languages: { english: 1 },
+    formats: {},
+    rarityTiers: {},
+    artTiers: {},
+    promoTypes: {},
+    releaseTypes: {},
+    aestheticTags: {},
+    sceneTags: {},
+    themeTags: {},
+    budgetPreferenceCad: 30
+  };
+}
+
+function collectorProfileCandidate(
+  name: string,
+  canonicalId: string,
+  selectionIndex: number,
+  role: WeeklyDiscoveryCandidateAnalysis['discoveryRole'],
+  features: Partial<WeeklyDiscoveryCandidateAnalysis['features']> = {}
+): DiscoveryCandidate {
+  const base = {
+    ...publishableSourceCandidate(
+      name,
+      canonicalId,
+      `Pokemon TCG (Profile Set ${selectionIndex})`,
+      selectionIndex,
+      ['Collector Compass', 'Promo Trail', 'Artwork Trail', 'Modern Spotlight Trail', 'E-Reader Era Trail'][selectionIndex % 5]!
+    ),
+    typicalRawSoldTotal: 80 + selectionIndex,
+    soldSampleSize: 3,
+    displayCurrency: 'CAD' as const
+  };
+  const mergedFeatures: WeeklyDiscoveryCandidateAnalysis['features'] = {
+    subjects: [],
+    evolutionFamilies: [],
+    artists: [],
+    eras: [],
+    sets: [],
+    setFamilies: [],
+    languages: ['ENGLISH'],
+    formats: [],
+    rarityTiers: [],
+    artTiers: [],
+    promoTypes: [],
+    releaseTypes: [],
+    aestheticTags: [],
+    sceneTags: [],
+    themeTags: [],
+    ...features
+  };
+  return {
+    ...base,
+    suggestion: {
+      ...base.suggestion,
+      discoveryRole: role
+    },
+    weeklyDiscovery: {
+      canonicalReference: {
+        provider: 'POKEMONTCG',
+        sourceCardId: canonicalId,
+        canonicalCardId: canonicalId,
+        canonicalName: name,
+        setName: `Profile Set ${selectionIndex}`,
+        cardNumber: canonicalId,
+        language: 'ENGLISH',
+        imageUrl: base.image!.url,
+        imageSourceKind: 'CARD_REFERENCE'
+      },
+      features: mergedFeatures,
+      generationStrategies: [role === 'CORE_MATCH' ? 'CORE_AFFINITY' : role],
+      generationReasons: [{ code: role === 'CORE_MATCH' ? 'DIRECT_SUBJECT_MATCH' : role === 'ADJACENT_DISCOVERY' ? 'SET_MATCH' : 'EXPLORATION_EDGE', weight: 1, detail: 'test profile signal' }],
+      discoveryRole: role,
+      rankExplanation: {
+        strongestSignals: ['test profile signal'],
+        noveltyReason: 'test novelty',
+        discoveryRole: role,
+        scoreComponents: {
+          personalRelevance: {
+            subjectAffinity: 1,
+            familyAffinity: 0,
+            artistAffinity: 0,
+            eraAffinity: 0,
+            setAffinity: 0,
+            promoAffinity: 0,
+            languageAffinity: 0,
+            formatAffinity: 0,
+            artTierAffinity: 0,
+            aestheticAffinity: 0,
+            patternAffinity: 0,
+            feedbackAffinity: 0
+          },
+          discoveryValue: {
+            novelty: 0.5,
+            adjacency: 0.5,
+            serendipity: 0.2,
+            underrepresentedTraitCoverage: 0.3
+          },
+          marketSuitability: {
+            estimateConfidence: 1,
+            availabilityConfidence: 1,
+            valueFloorPass: true,
+            marketResolved: true,
+            shoppable: true
+          },
+          baseScore: 1,
+          slateScore: 1
+        }
+      },
+      stableTieBreaker: canonicalId
+    }
+  };
 }
 
 function diversePublishableSourceCandidates(): DiscoveryCandidate[] {
@@ -5996,6 +6146,142 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(skyridgeSelected.length).toBeLessThanOrEqual(7);
     expect(genericFillSelected.length).toBeLessThanOrEqual(2);
     expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(result.items, 20)).toEqual([]);
+  });
+
+  it('uses Collector Profile roles for final publication instead of legacy generic-filler semantics', () => {
+    const activeVault = [chase('Mew Expedition Base Set 55', 0)];
+    const anchoredLegacyCandidate = {
+      ...publishableSourceCandidate('Mew Southern Islands Promo', 'mew-si-profile', 'Pokemon TCG (Southern Islands)', 0),
+      typicalRawSoldTotal: 120,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    };
+    const collectorProfileCandidates = Array.from({ length: 20 }, (_, index) =>
+      collectorProfileCandidate(
+        `${collectorProfileTestSubjects[index]!} Profile Pick ${index + 1}`,
+        `profile-pick-${index + 1}`,
+        index + 1,
+        index < 12 ? 'CORE_MATCH' : index < 17 ? 'ADJACENT_DISCOVERY' : 'CONTROLLED_EXPLORATION',
+        index < 12
+          ? { subjects: [collectorProfileTestSubjects[index]!] }
+          : index < 17
+            ? { setFamilies: [`profile-set-family-${index + 1}`] }
+            : { eras: [`profile-era-${index + 1}`] }
+      )
+    );
+
+    const legacy = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [anchoredLegacyCandidate, ...collectorProfileCandidates],
+      'CAD',
+      20,
+      [],
+      activeVault,
+      activeVault
+    );
+    const collectorProfile = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [anchoredLegacyCandidate, ...collectorProfileCandidates],
+      'CAD',
+      20,
+      [],
+      activeVault,
+      activeVault,
+      'COLLECTOR_PROFILE_V1'
+    );
+
+    expect(legacy.items.length).toBeLessThan(20);
+    expect(legacy.rejectionCounts.GENERIC_FILLER_SHELF_CAP).toBeGreaterThan(0);
+    expect(collectorProfile.items).toHaveLength(20);
+    expect(collectorProfile.marketResolvedCount).toBeGreaterThanOrEqual(18);
+    expect(collectorProfile.rejectionCounts.GENERIC_FILLER_SHELF_CAP).toBe(0);
+  });
+
+  it('keeps hard publication gates active in Collector Profile mode', () => {
+    const invalid = collectorProfileCandidate('Invalid Profile Pick', 'invalid-profile-pick', 0, 'CORE_MATCH', { subjects: ['invalid'] });
+    const pool = [
+      {
+        ...invalid,
+        suggestion: {
+          ...invalid.suggestion,
+          referenceImageUrl: undefined,
+          referenceSourceCardId: undefined
+        },
+        image: {
+          ...invalid.image!,
+          sourceKind: 'MARKET_LISTING' as const,
+          sourceCardId: undefined
+        },
+        weeklyDiscovery: undefined
+      },
+      ...Array.from({ length: 20 }, (_, index) =>
+        collectorProfileCandidate(`${collectorProfileTestSubjects[index]!} Valid Profile Pick ${index + 1}`, `valid-profile-pick-${index + 1}`, index + 1, 'CORE_MATCH', { subjects: [collectorProfileTestSubjects[index]!] })
+      )
+    ];
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      pool,
+      'CAD',
+      20,
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+
+    expect(result.items).toHaveLength(20);
+    expect(result.items.some((item) => item.suggestion.name === 'Invalid Profile Pick')).toBe(false);
+    expect(result.rejectionCounts.MISSING_CANONICAL_ID).toBe(1);
+  });
+
+  it('uses Collector Profile mode for market-shortfall hydration targeting and readiness', () => {
+    const reserve = [
+      ...Array.from({ length: 21 }, (_, index) => {
+        const candidate = collectorProfileCandidate(
+          `${collectorProfileTestSubjects[index]!} Hydration Profile Pick ${index + 1}`,
+          `hydration-profile-pick-${index + 1}`,
+          index,
+          'CORE_MATCH',
+          { subjects: [collectorProfileTestSubjects[index]!] }
+        );
+        return index < 20
+          ? candidate
+          : {
+              ...candidate,
+              listing: undefined,
+              typicalRawSoldTotal: undefined,
+              soldSampleSize: undefined
+            };
+      })
+    ];
+    const collectorProfile = collectorProfileForSubjects(collectorProfileTestSubjects.slice(0, 20));
+
+    const readiness = __discoveryPersistenceTestHooks.buildWeeklyDiscoverySupplyReadiness(
+      reserve,
+      collectorProfile,
+      'CAD',
+      [],
+      [],
+      {
+        rawGeneratedSuggestions: reserve.length,
+        sourceBackedSuggestions: reserve.length,
+        globalUniverseConsidered: 0,
+        userUniverseConsidered: 0,
+        deduplicatedCandidates: reserve.length
+      },
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+    const targets = __discoveryPersistenceTestHooks.selectMarketShortfallHydrationTargets(
+      reserve,
+      'CAD',
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+
+    expect(readiness.projectedSelectedCount).toBe(20);
+    expect(readiness.projectedMarketResolvedCount).toBeGreaterThanOrEqual(18);
+    expect(targets.some((candidate) => candidate.suggestion.name === 'Mewtwo Hydration Profile Pick 21')).toBe(true);
   });
 
   it('enforces evolution-family, format, and lane caps during final selection', () => {

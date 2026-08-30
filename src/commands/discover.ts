@@ -351,6 +351,8 @@ type DiscoveryRecommendationProfile = {
   isEraOnlyExploratory: boolean;
   eraSetFamilyKey?: string;
 };
+
+type WeeklyDiscoverySelectionMode = WeeklyDiscoveryRankingMode;
 type DiscoveryShelfSelectionResult = {
   items: ScheduledDiscoveryDropItem[];
   selectedCandidates: DiscoveryCandidate[];
@@ -922,9 +924,10 @@ function countUnresolvedReferenceCandidates(candidates: DiscoveryCandidate[], cu
 function referenceHydrationPriorityScore(
   candidate: DiscoveryCandidate,
   currency: SupportedCurrency,
-  collectorAnchorProfile: ReturnType<typeof buildWeeklyCollectorAnchorProfile>
+  collectorAnchorProfile: ReturnType<typeof buildWeeklyCollectorAnchorProfile>,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): number {
-  const recommendation = recommendationProfileForCandidate(candidate, collectorAnchorProfile);
+  const recommendation = recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode);
   return [
     candidateMarketStatus(candidate, currency) === 'READY' ? 10_000 : 0,
     candidateHasStableCanonicalId(candidate, currency) ? 4_000 : 0,
@@ -943,15 +946,16 @@ function selectWeeklyReferenceHydrationBatch(
   currency: SupportedCurrency,
   anchorProfileSignals: Chase[],
   maxBatchSize: number,
-  requestBudgetRemaining: number
+  requestBudgetRemaining: number,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): DiscoveryCandidate[] {
   if (requestBudgetRemaining <= 0) return [];
   const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
   return [...reserve]
     .filter((candidate) => !candidateHasCanonicalTrustedReference(candidate, currency))
     .sort((left, right) =>
-      referenceHydrationPriorityScore(right, currency, collectorAnchorProfile)
-      - referenceHydrationPriorityScore(left, currency, collectorAnchorProfile)
+      referenceHydrationPriorityScore(right, currency, collectorAnchorProfile, selectionMode)
+      - referenceHydrationPriorityScore(left, currency, collectorAnchorProfile, selectionMode)
       || (left.selectionIndex ?? 0) - (right.selectionIndex ?? 0)
       || left.suggestion.name.localeCompare(right.suggestion.name)
     )
@@ -1000,7 +1004,8 @@ async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
     input.recentDrops,
     input.activeVault,
     input.baseStageCounts,
-    input.profileContext.tasteProfileChases
+    input.profileContext.tasteProfileChases,
+    input.profileContext.rankingMode
   );
   let checkpointStage = input.initialCheckpointStage;
   let referenceBatchesCompleted = 0;
@@ -1024,7 +1029,8 @@ async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
       input.currency,
       input.profileContext.tasteProfileChases,
       DISCOVERY_WEEKLY_REFERENCE_HYDRATION_BATCH_SIZE,
-      DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_REQUESTS_PER_ATTEMPT - referenceRequestsStarted
+      DISCOVERY_WEEKLY_REFERENCE_HYDRATION_MAX_REQUESTS_PER_ATTEMPT - referenceRequestsStarted,
+      input.profileContext.rankingMode
     );
     if (batch.length === 0) break;
     referenceRequestsStarted += batch.length;
@@ -1079,7 +1085,8 @@ async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
       input.recentDrops,
       input.activeVault,
       input.baseStageCounts,
-      input.profileContext.tasteProfileChases
+      input.profileContext.tasteProfileChases,
+      input.profileContext.rankingMode
     );
     referenceResolvedThisAttempt = Math.max(0, countCandidatesWithTrustedCanonicalReference(reserve, input.currency) - initialTrustedCount);
     checkpointStage = progressStageName;
@@ -3992,6 +3999,7 @@ export const __discoveryPersistenceTestHooks = {
   reliableWeeklyDiscoveryMarketEstimate,
   repairExistingScheduledWeeklyDropReferences,
   finalizeWeeklyDiscoveryShelf,
+  selectMarketShortfallHydrationTargets,
   selectWeeklyDiscoveryRankingProfile,
   buildWeeklyDiscoveryFinalizationInput,
   buildWeeklyDiscoverySupplyReadiness,
@@ -6210,7 +6218,8 @@ function topOffCandidateScore(
   candidate: DiscoveryCandidate,
   readiness: WeeklyDiscoverySupplyReadiness,
   profileChases: Chase[],
-  negativeProfile: DiscoveryNegativeProfile | undefined
+  negativeProfile: DiscoveryNegativeProfile | undefined,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): number {
   const selectedFormatCounts = readiness.selectedFormatCounts ?? {};
   const viableStrengthCounts = readiness.viableStrengthCounts ?? {
@@ -6232,7 +6241,7 @@ function topOffCandidateScore(
   const familyKey = candidateEvolutionFamilyKey(candidate);
   const laneKey = candidateLaneShelfKey(candidate);
   const formatKey = candidateFormatShelfKey(candidate);
-  const recommendation = recommendationProfileForCandidate(candidate, buildWeeklyCollectorAnchorProfile(profileChases));
+  const recommendation = recommendationProfileForSelection(candidate, buildWeeklyCollectorAnchorProfile(profileChases), selectionMode);
   if (subjectKey && (readiness.selectedSubjectCounts[subjectKey] ?? 0) === 0) score += 24;
   else if (subjectKey && (readiness.selectedSubjectCounts[subjectKey] ?? 0) >= WEEKLY_DISCOVERY_SUBJECT_CAP) score -= 36;
   if (familyKey && (readiness.selectedFamilyCounts[familyKey] ?? 0) === 0) score += 12;
@@ -6250,14 +6259,15 @@ function topOffCandidateScore(
 function topOffCandidateSelectionAwareRejection(
   candidate: DiscoveryCandidate,
   readiness: WeeklyDiscoverySupplyReadiness,
-  profileChases: Chase[]
+  profileChases: Chase[],
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): TopOffViabilityRejectionCode | undefined {
   const saturatedSubjects = readiness.saturatedSubjects ?? [];
   const saturatedFamilies = readiness.saturatedFamilies ?? [];
   const saturatedFormats = readiness.saturatedFormats ?? [];
   const saturatedLanes = readiness.saturatedLanes ?? [];
   const saturatedEraSetFamilies = readiness.saturatedEraSetFamilies ?? [];
-  const recommendation = recommendationProfileForCandidate(candidate, buildWeeklyCollectorAnchorProfile(profileChases));
+  const recommendation = recommendationProfileForSelection(candidate, buildWeeklyCollectorAnchorProfile(profileChases), selectionMode);
   const subjectKey = candidateShelfSubjectKey(candidate);
   if (subjectKey && saturatedSubjects.includes(subjectKey)) return 'SATURATED_SUBJECT_CAP';
   const familyKey = candidateEvolutionFamilyKey(candidate);
@@ -6282,7 +6292,8 @@ function selectDeficitAwareTopOffCandidates(
   negativeProfile: DiscoveryNegativeProfile | undefined,
   recentDrops: ScheduledDiscoveryDrop[],
   limit: number,
-  diagnostics?: TopOffViabilityDiagnostics
+  diagnostics?: TopOffViabilityDiagnostics,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): DiscoveryCandidate[] {
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const seenKeys = new Set(readiness.selectedCandidates.map(topOffCandidateKey));
@@ -6290,7 +6301,7 @@ function selectDeficitAwareTopOffCandidates(
   for (const candidate of [...candidates]
     .filter((candidate) => !seenKeys.has(topOffCandidateKey(candidate)))
     .sort((left, right) =>
-      topOffCandidateScore(right, readiness, profileChases, negativeProfile) - topOffCandidateScore(left, readiness, profileChases, negativeProfile)
+      topOffCandidateScore(right, readiness, profileChases, negativeProfile, selectionMode) - topOffCandidateScore(left, readiness, profileChases, negativeProfile, selectionMode)
       || topOffCandidateKey(left).localeCompare(topOffCandidateKey(right))
     )) {
     if (selected.length >= limit) break;
@@ -6301,7 +6312,7 @@ function selectDeficitAwareTopOffCandidates(
       recordTopOffViabilityRejection(diagnostics, candidate, rejectionReason);
       continue;
     }
-    const selectionAwareRejection = topOffCandidateSelectionAwareRejection(candidate, readiness, profileChases);
+    const selectionAwareRejection = topOffCandidateSelectionAwareRejection(candidate, readiness, profileChases, selectionMode);
     if (selectionAwareRejection) {
       recordTopOffViabilityRejection(diagnostics, candidate, selectionAwareRejection);
       continue;
@@ -6332,6 +6343,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   freshExcludedNames: string[];
   regenerationExclusions: WeeklyDiscoveryRegenerationExclusions;
   skipSourceCatalogFetch: boolean;
+  selectionMode?: WeeklyDiscoverySelectionMode;
 }): Promise<{
   candidates: DiscoveryCandidate[];
   diagnostics: DiscoveryAssemblyStageDiagnostics;
@@ -6521,7 +6533,8 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     discovery.negativeProfile,
     recentDrops,
     Math.max(targetCount * 4, 64),
-    topOffDiagnostics
+    topOffDiagnostics,
+    input.selectionMode ?? 'LEGACY'
   );
   logWeeklyDiscoveryStage({
     event: 'WEEKLY_DISCOVERY_STAGE',
@@ -7218,9 +7231,80 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
   };
 }
 
-function candidateWithCollectorAnchoredRationale(candidate: DiscoveryCandidate, collectorProfile: WeeklyCollectorAnchorProfile): DiscoveryCandidate {
+function firstCollectorProfileAnchor(features: WeeklyDiscoveryCandidateAnalysis['features'] | undefined, role: NonNullable<DiscoverySuggestion['discoveryRole']>): DiscoveryRecommendationAnchor | undefined {
+  const subject = features?.subjects?.[0];
+  if (subject) return { kind: 'SUBJECT', key: normalize(subject), label: titleCase(subject) };
+  const family = features?.evolutionFamilies?.[0];
+  if (family) return { kind: 'EVOLUTION_FAMILY', key: normalize(family), label: titleCase(family) };
+  const setFamily = features?.setFamilies?.[0];
+  if (setFamily) return { kind: 'SET_RELATIONSHIP', key: normalize(setFamily), label: titleCase(setFamily) };
+  const set = features?.sets?.[0];
+  if (set) return { kind: 'SET_RELATIONSHIP', key: normalize(set), label: set };
+  const promo = features?.promoTypes?.[0] ?? features?.releaseTypes?.[0];
+  if (promo) return { kind: 'PROMO_PREFERENCE', key: normalize(promo), label: titleCase(promo) };
+  const art = features?.artists?.[0] ?? features?.artTiers?.[0] ?? features?.aestheticTags?.[0];
+  if (art) return { kind: 'ART_STYLE', key: normalize(art), label: titleCase(art) };
+  const format = features?.formats?.[0];
+  if (format) return { kind: 'FORMAT', key: normalize(format), label: titleCase(format) };
+  const japanese = features?.languages?.some((language) => normalize(language) === 'japanese');
+  if (japanese && role !== 'CONTROLLED_EXPLORATION') return { kind: 'REGIONAL_PRINT', key: 'JAPANESE', label: 'Japanese print affinity' };
+  const era = features?.eras?.[0];
+  if (era) return { kind: 'ERA', key: normalize(era), label: titleCase(era) };
+  return undefined;
+}
+
+function collectorProfileSelectionRecommendation(candidate: DiscoveryCandidate): DiscoveryRecommendationProfile | null {
+  const role = candidate.weeklyDiscovery?.discoveryRole ?? candidate.suggestion.discoveryRole;
+  if (!role) return null;
+  const anchor = firstCollectorProfileAnchor(candidate.weeklyDiscovery?.features, role);
+  const strength: DiscoveryRecommendationStrength = role === 'CORE_MATCH'
+    ? 'DIRECT_PROFILE'
+    : role === 'ADJACENT_DISCOVERY'
+      ? 'STRONG_ADJACENT'
+      : 'EXPLORATORY';
+  const anchors = anchor ? [anchor] : [];
+  const hasOnlyEraSignal = !!anchor
+    && anchor.kind === 'ERA'
+    && !(candidate.weeklyDiscovery?.features.subjects?.length)
+    && !(candidate.weeklyDiscovery?.features.evolutionFamilies?.length)
+    && !(candidate.weeklyDiscovery?.features.artists?.length)
+    && !(candidate.weeklyDiscovery?.features.sets?.length)
+    && !(candidate.weeklyDiscovery?.features.setFamilies?.length)
+    && !(candidate.weeklyDiscovery?.features.promoTypes?.length)
+    && !(candidate.weeklyDiscovery?.features.releaseTypes?.length)
+    && !(candidate.weeklyDiscovery?.features.formats?.length)
+    && !(candidate.weeklyDiscovery?.features.artTiers?.length)
+    && !(candidate.weeklyDiscovery?.features.aestheticTags?.length);
+  return {
+    profileHasSignals: true,
+    strength,
+    anchors,
+    primaryAnchor: anchor,
+    anchoredWhy: candidate.suggestion.why?.trim() || `${candidate.suggestion.name} fits the Collector Profile selection model through ${role.toLowerCase().replace(/_/g, ' ')} signals.`,
+    isEraOnlyExploratory: strength === 'EXPLORATORY' && hasOnlyEraSignal,
+    eraSetFamilyKey: candidateEraSetFamilyKey(candidate)
+  };
+}
+
+function recommendationProfileForSelection(
+  candidate: DiscoveryCandidate,
+  collectorProfile: WeeklyCollectorAnchorProfile,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
+): DiscoveryRecommendationProfile {
+  if (selectionMode === 'COLLECTOR_PROFILE_V1') {
+    const collectorProfileRecommendation = collectorProfileSelectionRecommendation(candidate);
+    if (collectorProfileRecommendation) return collectorProfileRecommendation;
+  }
+  return recommendationProfileForCandidate(candidate, collectorProfile);
+}
+
+function candidateWithCollectorAnchoredRationale(
+  candidate: DiscoveryCandidate,
+  collectorProfile: WeeklyCollectorAnchorProfile,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
+): DiscoveryCandidate {
   if (!collectorProfile.hasSignals) return candidate;
-  const recommendation = recommendationProfileForCandidate(candidate, collectorProfile);
+  const recommendation = recommendationProfileForSelection(candidate, collectorProfile, selectionMode);
   if (candidate.suggestion.why === recommendation.anchoredWhy) return candidate;
   return {
     ...candidate,
@@ -9230,7 +9314,8 @@ function selectPublishableWeeklyDiscoveryShelf(
   expectedSize = DISCOVERY_WEEKLY_DROP_SIZE,
   recentDrops: ScheduledDiscoveryDrop[] = [],
   activeVaultChases: Chase[] = [],
-  anchorProfileSignals: Chase[] = activeVaultChases
+  anchorProfileSignals: Chase[] = activeVaultChases,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): DiscoveryShelfSelectionResult {
   const rejectionCounts = emptyDiscoveryShelfRejectionCounts();
   const rejectionSamples = emptyDiscoveryShelfRejectionSamples();
@@ -9251,14 +9336,15 @@ function selectPublishableWeeklyDiscoveryShelf(
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
   const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
-  const reserveHasAnchoredCandidates = collectorAnchorProfile.hasSignals
-    && candidates.some((candidate) => recommendationProfileForCandidate(candidate, collectorAnchorProfile).anchors.length > 0);
+  const reserveHasAnchoredCandidates = candidates.some((candidate) =>
+    recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode).anchors.length > 0
+  );
 
   for (const rawCandidate of candidates) {
-    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile);
+    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile, selectionMode);
     const recommendation = reserveHasAnchoredCandidates
-      ? recommendationProfileForCandidate(candidate, collectorAnchorProfile)
-      : { ...recommendationProfileForCandidate(candidate, collectorAnchorProfile), profileHasSignals: false };
+      ? recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode)
+      : { ...recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode), profileHasSignals: false };
     inspectedCount += 1;
     const [item] = scheduledDropItemsFromCandidates([candidate], currency);
     if (!item) continue;
@@ -9315,7 +9401,7 @@ function selectPublishableWeeklyDiscoveryShelf(
     recordSelectedCandidate(
       entry.candidate,
       finalSelectionState,
-      recommendationProfileForCandidate(entry.candidate, collectorAnchorProfile)
+      recommendationProfileForSelection(entry.candidate, collectorAnchorProfile, selectionMode)
     );
   }
   for (const entry of selected) {
@@ -9336,7 +9422,7 @@ function selectPublishableWeeklyDiscoveryShelf(
     for (const entry of incompleteCandidates) {
       if (selected.length >= expectedSize) break;
       if (selectedIncompleteCount >= WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) break;
-      const recommendation = recommendationProfileForCandidate(entry.candidate, collectorAnchorProfile);
+      const recommendation = recommendationProfileForSelection(entry.candidate, collectorAnchorProfile, selectionMode);
       if (candidateShelfCapRejection(entry.candidate, finalSelectionState, recommendation)) continue;
       const canonicalId = scheduledItemCanonicalId(entry.item);
       if (!canonicalId || selectedCanonicalIds.has(canonicalId)) continue;
@@ -9429,7 +9515,8 @@ function selectDiversityEligibleWeeklyCandidates(
   currency: SupportedCurrency,
   recentDrops: ScheduledDiscoveryDrop[],
   activeVaultChases: Chase[],
-  anchorProfileSignals: Chase[] = activeVaultChases
+  anchorProfileSignals: Chase[] = activeVaultChases,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): DiscoveryCandidate[] {
   const eligible: DiscoveryCandidate[] = [];
   const seenCanonicalIds = new Set<string>();
@@ -9440,8 +9527,8 @@ function selectDiversityEligibleWeeklyCandidates(
   const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
 
   for (const rawCandidate of rerankedReserve) {
-    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile);
-    const recommendation = recommendationProfileForCandidate(candidate, collectorAnchorProfile);
+    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile, selectionMode);
+    const recommendation = recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode);
     const item = scheduledItemFromCandidate(candidate, currency);
     if (!item) continue;
     const rejection = candidateItemSelectionRejection(
@@ -9470,7 +9557,8 @@ function selectMarketShortfallHydrationTargets(
   currency: SupportedCurrency,
   recentDrops: ScheduledDiscoveryDrop[],
   activeVaultChases: Chase[],
-  anchorProfileSignals: Chase[] = activeVaultChases
+  anchorProfileSignals: Chase[] = activeVaultChases,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): DiscoveryCandidate[] {
   const eligible: DiscoveryCandidate[] = [];
   const seenCanonicalIds = new Set<string>();
@@ -9481,8 +9569,8 @@ function selectMarketShortfallHydrationTargets(
   const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
 
   for (const rawCandidate of rerankedReserve) {
-    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile);
-    const recommendation = recommendationProfileForCandidate(candidate, collectorAnchorProfile);
+    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile, selectionMode);
+    const recommendation = recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode);
     const item = scheduledItemFromCandidate(candidate, currency);
     if (!item) continue;
     const rejection = candidateItemSelectionRejection(
@@ -9515,14 +9603,19 @@ function buildWeeklyDiscoverySupplyReadiness(
   recentDrops: ScheduledDiscoveryDrop[],
   activeVaultChases: Chase[],
   generatedStageCounts: Pick<WeeklyDiscoverySupplyStageCounts, 'rawGeneratedSuggestions' | 'sourceBackedSuggestions' | 'globalUniverseConsidered' | 'userUniverseConsidered' | 'deduplicatedCandidates'>,
-  anchorProfileSignals: Chase[] = activeVaultChases
+  anchorProfileSignals: Chase[] = activeVaultChases,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): WeeklyDiscoverySupplyReadiness {
   const analyzedReserve = analyzeWeeklyDiscoveryCandidateReserve(
     reserve,
-    collectorProfile
+    collectorProfile,
+    undefined,
+    undefined,
+    selectionMode === 'COLLECTOR_PROFILE_V1' ? extractCollectorProfileDiscoveryFeatures : undefined,
+    selectionMode === 'COLLECTOR_PROFILE_V1' ? COLLECTOR_PROFILE_SCORING_STRATEGY : undefined
   );
   const rerankedReserve = rerankWeeklyDiscoveryReserve(analyzedReserve);
-  const selection = selectPublishableWeeklyDiscoveryShelf(rerankedReserve, currency, DISCOVERY_WEEKLY_DROP_SIZE, recentDrops, activeVaultChases, anchorProfileSignals);
+  const selection = selectPublishableWeeklyDiscoveryShelf(rerankedReserve, currency, DISCOVERY_WEEKLY_DROP_SIZE, recentDrops, activeVaultChases, anchorProfileSignals, selectionMode);
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
   const stableCanonicalIdCandidates = rerankedReserve.filter((candidate) => candidateHasStableCanonicalId(candidate, currency));
@@ -9540,7 +9633,7 @@ function buildWeeklyDiscoverySupplyReadiness(
     return !estimate || estimate.amount >= weeklyDiscoveryValueFloor(currency);
   });
   const marketResolvedEligibleCandidates = hardEligibleCandidates.filter((candidate) => candidateMarketStatus(candidate, currency) === 'READY');
-  const diversityEligibleCandidates = selectDiversityEligibleWeeklyCandidates(rerankedReserve, currency, recentDrops, activeVaultChases, anchorProfileSignals);
+  const diversityEligibleCandidates = selectDiversityEligibleWeeklyCandidates(rerankedReserve, currency, recentDrops, activeVaultChases, anchorProfileSignals, selectionMode);
   const postCapMarketReadyCount = diversityEligibleCandidates.filter((candidate) => candidateMarketStatus(candidate, currency) === 'READY').length;
   const repeatHistoryForHeadroom = exactRepeatHistoryByCanonicalId(recentDrops);
   const viableAlternativeCount = rerankedReserve.filter((candidate) => {
@@ -9602,11 +9695,11 @@ function buildWeeklyDiscoverySupplyReadiness(
     incrementCount(selectedFamilyCounts, candidateEvolutionFamilyKey(candidate));
     incrementCount(selectedLaneCounts, candidateLaneShelfKey(candidate));
     incrementCount(selectedFormatCounts, candidateFormatShelfKey(candidate));
-    const recommendation = recommendationProfileForCandidate(candidate, collectorAnchorProfile);
+    const recommendation = recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode);
     incrementCount(selectedEraSetFamilyCounts, recommendation.eraSetFamilyKey);
   }
   for (const candidate of diversityEligibleCandidates) {
-    const recommendation = recommendationProfileForCandidate(candidate, collectorAnchorProfile);
+    const recommendation = recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode);
     viableStrengthCounts[recommendation.strength] += 1;
   }
 
@@ -9674,10 +9767,11 @@ function weeklyDiscoveryCandidateOutcome(
   targetCurrency: SupportedCurrency,
   selectionState: WeeklyShelfSelectionState,
   vaultEntries: ParallelPrintVaultEntry[],
-  collectorAnchorProfile: WeeklyCollectorAnchorProfile
+  collectorAnchorProfile: WeeklyCollectorAnchorProfile,
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): WeeklyDiscoveryCandidateOutcomeRecord {
-  const preparedCandidate = candidateWithCollectorAnchoredRationale(candidate, collectorAnchorProfile);
-  const recommendation = recommendationProfileForCandidate(preparedCandidate, collectorAnchorProfile);
+  const preparedCandidate = candidateWithCollectorAnchoredRationale(candidate, collectorAnchorProfile, selectionMode);
+  const recommendation = recommendationProfileForSelection(preparedCandidate, collectorAnchorProfile, selectionMode);
   const [item] = scheduledDropItemsFromCandidates([preparedCandidate], targetCurrency);
   const canonicalId = item ? scheduledItemCanonicalId(item) : candidate.suggestion.referenceSourceCardId?.trim();
   if (canonicalId && selectedCanonicalIds.has(canonicalId)) {
@@ -9794,7 +9888,8 @@ export function finalizeWeeklyDiscoveryShelf(input: WeeklyDiscoveryFinalizationI
     DISCOVERY_WEEKLY_DROP_SIZE,
     input.priorShelfHistory,
     input.activeVault,
-    input.anchorProfileSignals ?? input.activeVault
+    input.anchorProfileSignals ?? input.activeVault,
+    input.rankingMode ?? 'LEGACY'
   );
   const selectedCanonicalIds = new Set(selection.items.map((item) => item.suggestion.referenceSourceCardId?.trim()).filter((value): value is string => !!value));
   const recentRepeatHistory = exactRepeatHistoryByCanonicalId(input.priorShelfHistory);
@@ -9805,12 +9900,12 @@ export function finalizeWeeklyDiscoveryShelf(input: WeeklyDiscoveryFinalizationI
     recordSelectedCandidate(
       candidate,
       selectionState,
-      recommendationProfileForCandidate(candidate, collectorAnchorProfile)
+      recommendationProfileForSelection(candidate, collectorAnchorProfile, input.rankingMode ?? 'LEGACY')
     );
   }
   const vaultEntries = parallelPrintVaultEntries(input.activeVault);
   const candidateOutcomes = rerankedReserve.map((candidate) =>
-    weeklyDiscoveryCandidateOutcome(candidate, selectedCanonicalIds, recentRepeatHistory, input.userCurrency, selectionState, vaultEntries, collectorAnchorProfile)
+    weeklyDiscoveryCandidateOutcome(candidate, selectedCanonicalIds, recentRepeatHistory, input.userCurrency, selectionState, vaultEntries, collectorAnchorProfile, input.rankingMode ?? 'LEGACY')
   );
   const analytics = finalizeWeeklyDiscoveryAnalytics(input, rerankedReserve, selection.items);
   return {
@@ -9913,7 +10008,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         userUniverseConsidered: 0,
         deduplicatedCandidates: preparedReserve.reserveCount
       },
-      profileContext.tasteProfileChases
+      profileContext.tasteProfileChases,
+      profileContext.rankingMode
     );
     const validatedSnapshot = capturePreparedWeeklyDiscoverySnapshot(
       preparedInput,
@@ -10213,7 +10309,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       recentDrops,
       activeVault,
       baseStageCounts,
-      profileContext.tasteProfileChases
+      profileContext.tasteProfileChases,
+      profileContext.rankingMode
     );
     if (context.mode === 'LIVE') {
       persistWeeklyDiscoveryPreparedReserve(
@@ -10297,7 +10394,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     recentDrops,
     activeVault,
     baseStageCounts,
-    profileContext.tasteProfileChases
+    profileContext.tasteProfileChases,
+    profileContext.rankingMode
   );
   let validatedSnapshot: PreparedWeeklyDiscoverySnapshot | null = capturePreparedWeeklyDiscoverySnapshot(
     buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discoveryContext.settings.alertCurrency),
@@ -10343,7 +10441,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       discoveryContext.settings.alertCurrency,
       recentDrops,
       activeVault,
-      discoveryContext.tasteProfileChases
+      discoveryContext.tasteProfileChases,
+      profileContext.rankingMode
     )
       .filter((candidate) => candidateMarketStatus(candidate, discoveryContext.settings.alertCurrency) !== 'READY')
       .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 2, supplyReadinessBeforeTopOff.marketResolvedShortfall * 4)));
@@ -10382,7 +10481,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
             recentDrops,
             activeVault,
             baseStageCounts,
-            profileContext.tasteProfileChases
+            profileContext.tasteProfileChases,
+            profileContext.rankingMode
           ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
@@ -10404,7 +10504,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         recentDrops,
         activeVault,
         baseStageCounts,
-        profileContext.tasteProfileChases
+        profileContext.tasteProfileChases,
+        profileContext.rankingMode
       );
       if (context.mode === 'LIVE') {
         persistWeeklyDiscoveryPreparedReserve(
@@ -10486,7 +10587,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       regenerationExclusions,
       skipSourceCatalogFetch: deferExpensiveHydration
         && supplyReadinessBeforeTopOff.selectedShortfall === 0
-        && supplyReadinessBeforeTopOff.marketResolvedShortfall === 0
+        && supplyReadinessBeforeTopOff.marketResolvedShortfall === 0,
+      selectionMode: profileContext.rankingMode
     }), {
       outputCount: (value) => value.candidates.length
     });
@@ -10608,7 +10710,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     recentDrops,
     activeVault,
     finalStageCounts,
-    profileContext.tasteProfileChases
+    profileContext.tasteProfileChases,
+    profileContext.rankingMode
   );
   if (!deferExpensiveHydration && discoveryContext.hasFullDiscovery && supplyReadinessAfterTopOff.marketResolvedShortfall > 0 && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const marketShortfallTargets = selectMarketShortfallHydrationTargets(
@@ -10616,7 +10719,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       discoveryContext.settings.alertCurrency,
       recentDrops,
       activeVault,
-      discoveryContext.tasteProfileChases
+      discoveryContext.tasteProfileChases,
+      profileContext.rankingMode
     )
       .filter((candidate) => candidateMarketStatus(candidate, discoveryContext.settings.alertCurrency) !== 'READY')
       .slice(0, Math.min(36, Math.max(WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED * 2, supplyReadinessAfterTopOff.marketResolvedShortfall * 4)));
@@ -10655,7 +10759,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
             recentDrops,
             activeVault,
             finalStageCounts,
-            profileContext.tasteProfileChases
+            profileContext.tasteProfileChases,
+            profileContext.rankingMode
           ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
@@ -10680,7 +10785,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         recentDrops,
         activeVault,
         finalStageCounts,
-        profileContext.tasteProfileChases
+        profileContext.tasteProfileChases,
+        profileContext.rankingMode
       );
       if (context.mode === 'LIVE') {
         persistWeeklyDiscoveryPreparedReserve(
