@@ -714,6 +714,62 @@ describe('collector interest profile', () => {
     expect(pichu.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
   });
 
+  it('keeps secondary Pikachu-line affinity adjacent in a mixed Mew-heavy profile', () => {
+    const profile = tasteProfile({
+      subjects: { Mew: 8, Pikachu: 1.67 },
+      evolutionFamilies: { PIKACHU_LINE: 1.67 }
+    });
+    const [pichu] = analyzeCollectorProfileShadowReserve([candidate('Pichu Expedition Base Set 22')], profile, {}, 'seed');
+
+    const personal = pichu.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.subjectAffinity).toBe(0);
+    expect(personal?.familyAffinity).toBeGreaterThanOrEqual(0.08);
+    expect(personal?.familyAffinity).toBeLessThan(0.35);
+    expect(pichu.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+    expect(pichu.weeklyDiscovery?.rankExplanation.strongestSignals).toContain('family match');
+  });
+
+  it('keeps secondary Squirtle-line affinity adjacent in a mixed profile', () => {
+    const profile = tasteProfile({
+      subjects: { Mew: 8, Squirtle: 0.93 },
+      evolutionFamilies: { SQUIRTLE_LINE: 0.93 }
+    });
+    const [wartortle] = analyzeCollectorProfileShadowReserve([candidate('Wartortle Team Rocket 42')], profile, {}, 'seed');
+
+    const personal = wartortle.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.subjectAffinity).toBe(0);
+    expect(personal?.familyAffinity).toBeGreaterThanOrEqual(0.08);
+    expect(personal?.familyAffinity).toBeLessThan(0.35);
+    expect(wartortle.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+    expect(wartortle.weeklyDiscovery?.rankExplanation.strongestSignals).toContain('family match');
+  });
+
+  it('keeps secondary Eevee-family affinity adjacent in a mixed profile', () => {
+    const profile = tasteProfile({
+      subjects: { Mew: 8, Umbreon: 1 },
+      evolutionFamilies: { EEVEE_FAMILY: 1 }
+    });
+    const [vaporeon] = analyzeCollectorProfileShadowReserve([candidate('Vaporeon VMAX SWSH182')], profile, {}, 'seed');
+
+    const personal = vaporeon.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.subjectAffinity).toBe(0);
+    expect(personal?.familyAffinity).toBeGreaterThanOrEqual(0.08);
+    expect(personal?.familyAffinity).toBeLessThan(0.35);
+    expect(vaporeon.weeklyDiscovery?.discoveryRole).toBe('ADJACENT_DISCOVERY');
+    expect(vaporeon.weeklyDiscovery?.rankExplanation.strongestSignals).toContain('family match');
+  });
+
+  it('keeps floor-level family affinity below adjacency as controlled exploration', () => {
+    const profile = tasteProfile({ evolutionFamilies: { PIKACHU_LINE: 0.5 } });
+    const [pichu] = analyzeCollectorProfileShadowReserve([candidate('Pichu Expedition Base Set 22')], profile, {}, 'seed');
+
+    const personal = pichu.weeklyDiscovery?.rankExplanation.scoreComponents.personalRelevance;
+    expect(personal?.familyAffinity).toBeGreaterThan(0);
+    expect(personal?.familyAffinity).toBeLessThan(0.08);
+    expect(pichu.weeklyDiscovery?.discoveryRole).toBe('CONTROLLED_EXPLORATION');
+    expect(pichu.weeklyDiscovery?.rankExplanation.strongestSignals).not.toContain('family match');
+  });
+
   it('does not let same-subject family derivation promote Pikachu subject-only matches to core', () => {
     const profile = collectorInterestProfileToTasteProfile(buildCollectorInterestProfile({
       activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Pikachu XY Black Star Promos XY95', createdAt: '2026-01-01T00:00:00.000Z' }],

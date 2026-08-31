@@ -45,6 +45,7 @@ const RANKER_MAX_WEIGHTS: Partial<Record<CollectorProfileTraitGroup, number>> = 
 
 const RANKER_FAMILY_MAX_WEIGHT = 8;
 const RANKER_SINGLE_FAMILY_MEMBER_WEIGHT = 4;
+const COLLECTOR_PROFILE_FAMILY_ADJACENCY_MIN = 0.08;
 
 const ERA_TRANSLATIONS: Record<string, string | undefined> = {
   SV: 'SV',
@@ -363,7 +364,7 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
     const hasUnseenTrait = features.eras.some((era) => !(era in profile.eras)) || features.formats.some((format) => !(format in profile.formats));
     return {
       novelty: Number(clamp01(subjectStrength >= 0.45 ? 0.25 : anchor >= 0.25 ? 0.45 : anchor > 0 ? 0.62 : 0.82).toFixed(6)),
-      adjacency: Number(clamp01(anchor >= 0.42 ? 0.72 : anchor >= 0.16 || familyStrength >= 0.35 ? 0.56 : (hasKnownEra || hasKnownFormat) && anchor > 0 ? 0.42 : 0.24).toFixed(6)),
+      adjacency: Number(clamp01(anchor >= 0.42 ? 0.72 : anchor >= 0.16 || familyStrength >= COLLECTOR_PROFILE_FAMILY_ADJACENCY_MIN ? 0.56 : (hasKnownEra || hasKnownFormat) && anchor > 0 ? 0.42 : 0.24).toFixed(6)),
       serendipity: Number(clamp01(anchor >= 0.42 ? 0.25 : anchor >= 0.16 ? 0.45 : 0.72).toFixed(6)),
       underrepresentedTraitCoverage: hasUnseenTrait ? 1 : 0.2
     };
@@ -377,7 +378,7 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
       || (components.setAffinity >= 0.55 && meaningfulCount >= 2)
       || (anchor >= 0.40 && meaningfulCount >= 2)
     ) return 'CORE_MATCH';
-    if (components.familyAffinity >= 0.35 && value.adjacency >= 0.5) return 'ADJACENT_DISCOVERY';
+    if (components.familyAffinity >= COLLECTOR_PROFILE_FAMILY_ADJACENCY_MIN && value.adjacency >= 0.5) return 'ADJACENT_DISCOVERY';
     if (anchor >= 0.16 && value.adjacency >= 0.5) return 'ADJACENT_DISCOVERY';
     return 'CONTROLLED_EXPLORATION';
   },
@@ -397,9 +398,10 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
       { label: 'novelty', value: value.novelty }
     ];
     if (value.adjacency >= 0.5) signals.push({ label: 'adjacent trait', value: value.adjacency });
+    const familyDrivesAdjacency = components.familyAffinity >= COLLECTOR_PROFILE_FAMILY_ADJACENCY_MIN && value.adjacency >= 0.5;
     return signals
       .sort((left, right) => right.value - left.value)
-      .filter((entry) => entry.value > 0.2)
+      .filter((entry) => entry.value > 0.2 || (entry.label === 'family match' && familyDrivesAdjacency))
       .slice(0, 3)
       .map((entry) => entry.label);
   }
