@@ -751,7 +751,7 @@ function currentWeeklyDiscoveryPreparationProfileContext(
   const priorShelfHistory = listPriorWeeklyDiscoveryDropsForTargetPeriod(userId, date, 12);
   const sourceFingerprint = createHash('sha256')
     .update(JSON.stringify({
-      date: date.toISOString(),
+      periodKey: scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date),
       currency: settings.alertCurrency,
       activeChases: storedChases.map((chase) => ({
         cardName: chase.cardName,
@@ -901,16 +901,33 @@ function isWeeklyDiscoveryResumeCheckpointStage(stage: string | undefined): bool
     || stage === 'post-topoff-market-shortfall-hydration';
 }
 
+type PreparedReserveCompatibilityReason =
+  | 'COMPATIBLE'
+  | 'MISSING_RESERVE'
+  | 'BAD_CHECKPOINT_STAGE'
+  | 'SOURCE_FINGERPRINT_MISMATCH'
+  | 'GENERATION_MISMATCH'
+  | 'EMPTY_RESERVE';
+
+function preparedReserveCompatibilityReason(
+  preparedReserve: ReturnType<typeof getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>>,
+  profileContext: WeeklyDiscoveryPreparationProfileContext,
+  generation: number | undefined
+): PreparedReserveCompatibilityReason {
+  if (!preparedReserve) return 'MISSING_RESERVE';
+  if (!isWeeklyDiscoveryResumeCheckpointStage(preparedReserve.lastCompletedStage)) return 'BAD_CHECKPOINT_STAGE';
+  if (preparedReserve.sourceFingerprint && preparedReserve.sourceFingerprint !== profileContext.sourceFingerprint) return 'SOURCE_FINGERPRINT_MISMATCH';
+  if (generation !== undefined && preparedReserve.preparationGeneration > generation) return 'GENERATION_MISMATCH';
+  if (preparedReserve.reserveCandidates.length <= 0) return 'EMPTY_RESERVE';
+  return 'COMPATIBLE';
+}
+
 function isPreparedReserveCompatibleForResume(
   preparedReserve: ReturnType<typeof getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>>,
   profileContext: WeeklyDiscoveryPreparationProfileContext,
   generation: number | undefined
 ): preparedReserve is NonNullable<typeof preparedReserve> {
-  if (!preparedReserve) return false;
-  if (!isWeeklyDiscoveryResumeCheckpointStage(preparedReserve.lastCompletedStage)) return false;
-  if (preparedReserve.sourceFingerprint && preparedReserve.sourceFingerprint !== profileContext.sourceFingerprint) return false;
-  if (generation !== undefined && preparedReserve.preparationGeneration > generation) return false;
-  return preparedReserve.reserveCandidates.length > 0;
+  return preparedReserveCompatibilityReason(preparedReserve, profileContext, generation) === 'COMPATIBLE';
 }
 
 function countCandidatesWithTrustedCanonicalReference(candidates: DiscoveryCandidate[], currency: SupportedCurrency): number {
@@ -1401,7 +1418,16 @@ function hasWeeklyOptionalStageBudget(deadlineAtMs: number | undefined, minimumM
 export function weeklyDiscoveryShouldPreferCachedRetry(
   state: { failureCode?: WeeklyPreparationFailureCode; attemptCount?: number } | null | undefined
 ): boolean {
-  return state?.failureCode === 'PREPARATION_TIMEOUT' && (state.attemptCount ?? 0) >= 2;
+  const attemptCount = state?.attemptCount ?? 0;
+  if (state?.failureCode === 'PREPARATION_TIMEOUT') return attemptCount >= 2;
+  return attemptCount >= 1 && (
+    state?.failureCode === 'RESERVE_ASSEMBLY_TIMEOUT'
+    || state?.failureCode === 'INSUFFICIENT_FINAL_CANDIDATES'
+    || state?.failureCode === 'INSUFFICIENT_MARKET_READY'
+    || state?.failureCode === 'INSUFFICIENT_TRUSTED_IMAGES'
+    || state?.failureCode === 'WORKER_RESULTS_PENDING'
+    || state?.failureCode === 'PROVIDER_TIMEOUT'
+  );
 }
 
 export function weeklyDiscoveryHasOptionalStageBudget(
@@ -4012,6 +4038,7 @@ export const __discoveryPersistenceTestHooks = {
   reliableWeeklyDiscoveryMarketEstimate,
   repairExistingScheduledWeeklyDropReferences,
   finalizeWeeklyDiscoveryShelf,
+  preparedReserveCompatibilityReason,
   selectMarketShortfallHydrationTargets,
   selectMarketShortfallHydrationTargetGroups,
   weeklyMarketShortfallHydrationTargetLimit,
@@ -10052,9 +10079,26 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   const preparedReserve = context.mode === 'LIVE' && context.regenerateCurrent !== true
     ? getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>(context.userId, weeklyPeriod)
     : null;
+  const preparedReserveCompatibility = preparedReserveCompatibilityReason(preparedReserve, profileContext, context.preparationGeneration);
   const canReusePreparedReserveFastPath = context.mode === 'LIVE'
     && context.regenerateCurrent !== true
-    && isPreparedReserveCompatibleForResume(preparedReserve, profileContext, context.preparationGeneration);
+    && preparedReserveCompatibility === 'COMPATIBLE';
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId: context.userId,
+    weeklyPeriod,
+    stage: 'prepared-reserve-compatibility',
+    status: 'SUCCESS',
+    inputCount: preparedReserve?.reserveCandidates.length ?? 0,
+    counters: {
+      preparedReserveFound: !!preparedReserve,
+      preparedReserveCompatible: canReusePreparedReserveFastPath,
+      preparedReserveCompatibilityReason: preparedReserveCompatibility,
+      preparedReserveCount: preparedReserve?.reserveCandidates.length ?? 0,
+      preparedReserveGeneration: preparedReserve?.preparationGeneration ?? null,
+      currentGeneration: context.preparationGeneration ?? null
+    }
+  });
   if (canReusePreparedReserveFastPath && preparedReserve && preparedReserve.reserveCandidates.length > 0) {
     const preparedInput = buildCurrentFinalizationInput(
       profileContext.activeChases,
@@ -10116,7 +10160,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   let sourceAssemblySkipped = false;
   let checkpointLoaded = false;
   let checkpointStage = preparedReserve?.lastCompletedStage ?? 'none';
-  let candidateReserve: DiscoveryCandidate[] = canResumePreparedReserve ? structuredClone(preparedReserve.reserveCandidates) : [];
+  let candidateReserve: DiscoveryCandidate[] = canResumePreparedReserve ? structuredClone(preparedReserve!.reserveCandidates) : [];
   let accumulatedCanonicalLookupEvidence: CanonicalLookupEvidenceMap = canResumePreparedReserve
     ? cloneCanonicalLookupEvidenceMap(preparedReserve?.canonicalLookupEvidence ?? {})
     : {};

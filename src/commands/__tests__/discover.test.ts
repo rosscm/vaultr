@@ -8962,7 +8962,39 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(weeklyDiscoveryShouldPreferCachedRetry(null)).toBe(false);
     expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'PREPARATION_TIMEOUT', attemptCount: 1 })).toBe(false);
     expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'PREPARATION_TIMEOUT', attemptCount: 2 })).toBe(true);
-    expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'INSUFFICIENT_FINAL_CANDIDATES', attemptCount: 4 })).toBe(false);
+    expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'INSUFFICIENT_FINAL_CANDIDATES', attemptCount: 1 })).toBe(true);
+    expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'INSUFFICIENT_MARKET_READY', attemptCount: 1 })).toBe(true);
+    expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'INSUFFICIENT_TRUSTED_IMAGES', attemptCount: 1 })).toBe(true);
+    expect(weeklyDiscoveryShouldPreferCachedRetry({ failureCode: 'UNEXPECTED_EXCEPTION', attemptCount: 4 })).toBe(false);
+  });
+
+  it('reports prepared reserve compatibility reasons without weakening fingerprint protection', () => {
+    const profileContext = { sourceFingerprint: 'stable-weekly-profile' };
+    const compatibleReserve = {
+      lastCompletedStage: 'initial-supply-readiness',
+      sourceFingerprint: 'stable-weekly-profile',
+      preparationGeneration: 1,
+      reserveCandidates: [publishableCandidate('Mew RC24', 'mew-rc24', 0)]
+    };
+
+    expect(__discoveryPersistenceTestHooks.preparedReserveCompatibilityReason(null, profileContext as never, 1)).toBe('MISSING_RESERVE');
+    expect(__discoveryPersistenceTestHooks.preparedReserveCompatibilityReason({
+      ...compatibleReserve,
+      lastCompletedStage: 'initial-reserve-assembly'
+    } as never, profileContext as never, 1)).toBe('BAD_CHECKPOINT_STAGE');
+    expect(__discoveryPersistenceTestHooks.preparedReserveCompatibilityReason({
+      ...compatibleReserve,
+      sourceFingerprint: 'different-profile'
+    } as never, profileContext as never, 1)).toBe('SOURCE_FINGERPRINT_MISMATCH');
+    expect(__discoveryPersistenceTestHooks.preparedReserveCompatibilityReason({
+      ...compatibleReserve,
+      preparationGeneration: 3
+    } as never, profileContext as never, 1)).toBe('GENERATION_MISMATCH');
+    expect(__discoveryPersistenceTestHooks.preparedReserveCompatibilityReason({
+      ...compatibleReserve,
+      reserveCandidates: []
+    } as never, profileContext as never, 1)).toBe('EMPTY_RESERVE');
+    expect(__discoveryPersistenceTestHooks.preparedReserveCompatibilityReason(compatibleReserve as never, profileContext as never, 1)).toBe('COMPATIBLE');
   });
 
   it('treats near-deadline weekly optional stages as budget-exhausted', () => {
