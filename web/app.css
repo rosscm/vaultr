@@ -349,7 +349,7 @@ a {
 
 .app-main {
   min-width: 0;
-  width: min(100%, 1060px);
+  width: min(100%, 1240px);
   padding: 32px 34px 48px;
 }
 
@@ -481,16 +481,23 @@ a {
 
 .shelf-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
   margin-top: 18px;
 }
 
 .shelf-card {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
-  padding: 13px;
+  gap: 14px;
+  padding: 16px;
+  transition: transform var(--ease), border-color var(--ease), box-shadow var(--ease);
+}
+
+.shelf-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(191, 165, 255, 0.28);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.24);
 }
 
 .shelf-card-image {
@@ -505,9 +512,9 @@ a {
 
 .shelf-card-body {
   min-width: 0;
-  display: grid;
-  gap: 8px;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .shelf-card-meta {
@@ -525,23 +532,20 @@ a {
 }
 
 .shelf-reason {
-  display: -webkit-box;
-  overflow: hidden;
   margin: 0;
   color: var(--muted);
   font-size: 0.9rem;
-  line-height: 1.42;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  line-height: 1.48;
 }
 
 .shelf-card-footer {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  margin-top: 2px;
+  margin-top: auto;
+  padding-top: 4px;
 }
 
 .shelf-price {
@@ -557,6 +561,37 @@ a {
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 740;
+}
+
+.shelf-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.shelf-card-actions .button-primary,
+.shelf-card-actions .listing-link {
+  min-height: 38px;
+  margin-top: 0;
+  padding: 0 13px;
+  font-size: 0.86rem;
+}
+
+.shelf-card-actions .shelf-add-button {
+  min-width: 112px;
+}
+
+.shelf-card-actions .shelf-ebay-link {
+  min-width: 104px;
+  border-color: rgba(191, 165, 255, 0.28);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted-strong);
+}
+
+.shelf-card-actions .shelf-ebay-link:hover {
+  border-color: rgba(255, 211, 135, 0.38);
+  color: var(--text);
 }
 
 .alert-card.no-image {
@@ -1228,6 +1263,16 @@ a {
     margin-left: 0;
   }
 
+  .shelf-card-actions {
+    width: 100%;
+  }
+
+  .shelf-card-actions .button-primary,
+  .shelf-card-actions .listing-link {
+    flex: 1 1 126px;
+    width: auto;
+  }
+
   .vault-card {
     grid-template-columns: 72px minmax(0, 1fr);
   }
@@ -1251,4 +1296,16 @@ a {
     width: 100%;
     height: 128px;
   }
+}
+
+/* Weekly Shelf: keep evidence/connection tags, hide abstract ranking-role labels */
+.shelf-card-meta > .status-pill.active {
+  display: none;
+}
+
+/* Weekly Shelf evidence tags */
+.shelf-card-meta > .source-pill {
+  border-color: rgba(142, 242, 202, 0.34);
+  background: rgba(142, 242, 202, 0.10);
+  color: var(--green);
 }

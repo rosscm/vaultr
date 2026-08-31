@@ -25,6 +25,7 @@ const state = {
   vaultNotice: '',
   vaultFormMode: null,
   vaultEditingId: null,
+  vaultPrefillCardName: '',
   vaultFormError: '',
   vaultSubmitting: false,
   vaultAutocompleteTimer: null,
@@ -589,8 +590,10 @@ function shelfPageMarkup() {
   return `
     <section aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
+      ${state.vaultNotice ? `<div class="vault-notice" role="status">${escapeHtml(state.vaultNotice)}</div>` : ''}
       ${items.length ? shelfMetaMarkup(state.shelf) : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Weekly Shelf picks">${items.map(shelfCardMarkup).join('')}</div>` : shelfEmptyMarkup()}
+      ${vaultDialogMarkup()}
     </section>
   `;
 }
@@ -646,7 +649,6 @@ function shelfCardMarkup(item) {
       ${item.imageUrl ? `<img class="shelf-card-image" src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)} card image" loading="lazy" data-shelf-card-image>` : `<div class="shelf-card-image placeholder-image" aria-hidden="true">V</div>`}
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
-          ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
           ${item.signalLabel ? `<span class="source-pill">${escapeHtml(item.signalLabel)}</span>` : ''}
         </div>
         <h2>${escapeHtml(item.name || 'Weekly Shelf pick')}</h2>
@@ -654,7 +656,10 @@ function shelfCardMarkup(item) {
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
         <div class="shelf-card-footer">
           ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : ''}
-          ${item.ebayUrl ? `<a class="listing-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
+          <div class="shelf-card-actions">
+            <button class="button-primary shelf-add-button" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name || '')}">Add to Vault</button>
+            ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
+          </div>
         </div>
       </div>
     </article>
@@ -665,7 +670,7 @@ function vaultDialogMarkup() {
   if (!state.vaultFormMode) return '';
   const editing = state.vaultFormMode === 'edit';
   const item = editing ? state.vault.find((entry) => entry.chase.id === state.vaultEditingId) : null;
-  const chase = item?.chase || {};
+  const chase = editing ? item?.chase || {} : { cardName: state.vaultPrefillCardName };
   const grade = gradeToChoices(chase.grade);
   const isFullVault = state.vaultPlan?.tier === 'PRO';
   return `
@@ -891,6 +896,13 @@ async function loadVault({ force = false } = {}) {
   }
 }
 
+async function ensureVaultLoaded() {
+  if (!state.vaultLoaded || !state.vaultOptions || !state.vaultPlan) {
+    await loadVault({ force: true });
+  }
+  return state.vaultLoaded;
+}
+
 async function loadShelf({ force = false } = {}) {
   if (state.shelfLoaded && !force) {
     renderCurrentPage();
@@ -959,6 +971,7 @@ async function submitVaultForm(form) {
       : editing ? 'Chase updated.' : 'Chase added.';
     state.vaultFormMode = null;
     state.vaultEditingId = null;
+    state.vaultPrefillCardName = '';
     state.vaultSubmitting = false;
     await loadVault({ force: true });
   } catch (error) {
@@ -1109,6 +1122,19 @@ app.addEventListener('click', async (event) => {
     resetVaultAutocomplete();
     state.vaultFormMode = 'add';
     state.vaultEditingId = null;
+    state.vaultPrefillCardName = '';
+    state.vaultFormError = '';
+    renderCurrentPage();
+    document.querySelector('[name="cardName"]')?.focus();
+    return;
+  }
+  if (action === 'add-shelf-card-to-vault') {
+    const cardName = target.getAttribute('data-card-name') || '';
+    resetVaultAutocomplete();
+    if (!await ensureVaultLoaded()) return;
+    state.vaultFormMode = 'add';
+    state.vaultEditingId = null;
+    state.vaultPrefillCardName = cardName;
     state.vaultFormError = '';
     renderCurrentPage();
     document.querySelector('[name="cardName"]')?.focus();
@@ -1118,6 +1144,7 @@ app.addEventListener('click', async (event) => {
     resetVaultAutocomplete();
     state.vaultFormMode = 'edit';
     state.vaultEditingId = target.getAttribute('data-chase-id');
+    state.vaultPrefillCardName = '';
     state.vaultFormError = '';
     renderCurrentPage();
     document.querySelector('[name="cardName"]')?.focus();
@@ -1127,6 +1154,7 @@ app.addEventListener('click', async (event) => {
     resetVaultAutocomplete();
     state.vaultFormMode = null;
     state.vaultEditingId = null;
+    state.vaultPrefillCardName = '';
     state.vaultFormError = '';
     renderCurrentPage();
     return;

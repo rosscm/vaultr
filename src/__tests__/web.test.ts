@@ -252,7 +252,19 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("window.addEventListener('hashchange'");
     expect(jsResponse.body).toContain('await loadActivePageData();');
     expect(jsResponse.body).toContain('Personalized picks shaped by your Vault, completed Chases, and the cards you keep coming back to.');
+    expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
+    expect(jsResponse.body).toContain('Add to Vault');
+    expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
+    expect(jsResponse.body).toContain("state.vaultPrefillCardName = cardName;");
+    expect(jsResponse.body).toContain('vaultNotice');
+    expect(jsResponse.body).toContain("fetchJson(editing ? `/api/chases/${encodeURIComponent(state.vaultEditingId)}` : '/api/chases'");
+    expect(jsResponse.body).not.toContain('${item.roleLabel ? `<span class="status-pill active">');
     expect(jsResponse.body).not.toContain('A read-only shelf');
+    expect(cssResponse.body).toContain('.shelf-card-actions');
+    expect(cssResponse.body).toContain('.shelf-card-actions .shelf-ebay-link');
+    expect(cssResponse.body).toContain('.shelf-card-meta > .status-pill.active');
+    expect(cssResponse.body).toContain('display: none;');
+    expect(cssResponse.body).not.toContain('-webkit-line-clamp: 4');
   });
 
   it('returns 404 for unknown or traversal-style static paths', async () => {
@@ -565,6 +577,27 @@ describe('authenticated Weekly Shelf API', () => {
 
     clearUser(userId);
     clearUser(otherUserId);
+  });
+
+  it('keeps Weekly Shelf read-only and uses the Chase API as the write path', async () => {
+    const userId = 'web-shelf-read-only-user';
+    clearUser(userId);
+    const { token } = createWebSession({ userId }, { token: 'shelf-read-only-token' });
+    const headers = { cookie: sessionCookie(token) };
+
+    const shelfWrite = await handleWebRequest(
+      { method: 'POST', url: '/api/shelf', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Mew RC24' }) },
+      { config }
+    );
+    const chaseWrite = await handleWebRequest(
+      { method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Mew RC24' }) },
+      { config }
+    );
+
+    expect(shelfWrite.status).toBe(404);
+    expect(chaseWrite.status).toBe(201);
+
+    clearUser(userId);
   });
 
   it('prefers a prepared target-period shelf over the still-current previous week', async () => {
