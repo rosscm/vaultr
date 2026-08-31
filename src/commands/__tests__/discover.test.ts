@@ -6284,6 +6284,136 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(targets.some((candidate) => candidate.suggestion.name === 'Mewtwo Hydration Profile Pick 21')).toBe(true);
   });
 
+  it('allows early market recovery when selected and market shortfalls both exist', () => {
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyMarketShortfallHydration({
+      hasFullDiscovery: true,
+      deferExpensiveHydration: false,
+      readiness: { selectedShortfall: 7, marketResolvedShortfall: 6 },
+      targetCount: 8,
+      deadlineAtMs: Date.now() + 60_000
+    })).toBe(true);
+  });
+
+  it('keeps market-only shortfall recovery eligible and skips when there is no market shortfall', () => {
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyMarketShortfallHydration({
+      hasFullDiscovery: true,
+      deferExpensiveHydration: false,
+      readiness: { selectedShortfall: 0, marketResolvedShortfall: 2 },
+      targetCount: 4,
+      deadlineAtMs: Date.now() + 60_000
+    })).toBe(true);
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyMarketShortfallHydration({
+      hasFullDiscovery: true,
+      deferExpensiveHydration: false,
+      readiness: { selectedShortfall: 4, marketResolvedShortfall: 0 },
+      targetCount: 4,
+      deadlineAtMs: Date.now() + 60_000
+    })).toBe(false);
+  });
+
+  it('prioritizes strict unresolved hydration targets before cap-recovery targets and excludes READY candidates', () => {
+    const capOne = { ...collectorProfileCandidate('Pikachu Cap Target 1', 'cap-pikachu-1', 1, 'CORE_MATCH', { subjects: ['Pikachu'] }), typicalRawSoldTotal: undefined, soldSampleSize: undefined, listing: undefined };
+    const capTwo = { ...collectorProfileCandidate('Pikachu Cap Target 2', 'cap-pikachu-2', 2, 'CORE_MATCH', { subjects: ['Pikachu'] }), typicalRawSoldTotal: undefined, soldSampleSize: undefined, listing: undefined };
+    const capThree = { ...collectorProfileCandidate('Pikachu Cap Target 3', 'cap-pikachu-3', 3, 'CORE_MATCH', { subjects: ['Pikachu'] }), typicalRawSoldTotal: undefined, soldSampleSize: undefined, listing: undefined };
+    const strictLater = { ...collectorProfileCandidate('Gardevoir Strict Target', 'strict-gardevoir-1', 4, 'CORE_MATCH', { subjects: ['Gardevoir'] }), typicalRawSoldTotal: undefined, soldSampleSize: undefined, listing: undefined };
+    const ready = collectorProfileCandidate('Squirtle Ready Target', 'ready-squirtle-1', 5, 'CORE_MATCH', { subjects: ['Squirtle'] });
+
+    const groups = __discoveryPersistenceTestHooks.selectMarketShortfallHydrationTargetGroups(
+      [capOne, capTwo, capThree, strictLater, ready],
+      'CAD',
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+
+    expect(groups.strictTargets.map((candidate) => candidate.suggestion.name)).toEqual([
+      'Pikachu Cap Target 1',
+      'Pikachu Cap Target 2',
+      'Gardevoir Strict Target'
+    ]);
+    expect(groups.capRecoveryTargets.map((candidate) => candidate.suggestion.name)).toEqual(['Pikachu Cap Target 3']);
+    expect(groups.targets.map((candidate) => candidate.suggestion.name)).toEqual([
+      'Pikachu Cap Target 1',
+      'Pikachu Cap Target 2',
+      'Gardevoir Strict Target',
+      'Pikachu Cap Target 3'
+    ]);
+    expect(groups.targets.some((candidate) => candidate.suggestion.name === 'Squirtle Ready Target')).toBe(false);
+  });
+
+  it('uses a shortfall-sensitive market hydration target count instead of a fixed 36 floor', () => {
+    expect(__discoveryPersistenceTestHooks.weeklyMarketShortfallHydrationTargetLimit(0)).toBe(0);
+    expect(__discoveryPersistenceTestHooks.weeklyMarketShortfallHydrationTargetLimit(2)).toBeLessThan(36);
+    expect(__discoveryPersistenceTestHooks.weeklyMarketShortfallHydrationTargetLimit(6)).toBeLessThan(36);
+    expect(__discoveryPersistenceTestHooks.weeklyMarketShortfallHydrationTargetLimit(2)).toBe(8);
+    expect(__discoveryPersistenceTestHooks.weeklyMarketShortfallHydrationTargetLimit(6)).toBe(16);
+  });
+
+  it('requires meaningful blocking-market deadline budget while protecting finalization time', () => {
+    expect(__discoveryPersistenceTestHooks.hasWeeklyBlockingMarketRecoveryBudget(Date.now() + 60_000)).toBe(true);
+    expect(__discoveryPersistenceTestHooks.hasWeeklyBlockingMarketRecoveryBudget(Date.now() + 5_000)).toBe(false);
+    expect(__discoveryPersistenceTestHooks.remainingBlockingMarketRecoveryMs(Date.now() + 5_000, 90_000)).toBe(0);
+  });
+
+  it('keeps Weekly Discovery hard publication size and market thresholds unchanged', () => {
+    const ready = publishableShelfCandidates(18, (candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 80 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    const unresolved = publishableShelfCandidates(2, (candidate, index) => ({
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        name: `Unresolved Threshold Pick ${index + 1}`,
+        referenceSourceCardId: `unresolved-threshold-${index + 1}`,
+        referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Card)', `unresolved-threshold-${index + 1}`)
+      },
+      image: {
+        ...candidate.image!,
+        name: `Unresolved Threshold Pick ${index + 1}`,
+        url: trustedReferenceImageUrl('Pokemon TCG (Card)', `unresolved-threshold-${index + 1}`),
+        sourceName: 'Pokemon TCG (Card)',
+        sourceCardId: `unresolved-threshold-${index + 1}`,
+        sourceKind: 'CARD_REFERENCE' as const
+      }
+    }));
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [...ready, ...unresolved],
+      'CAD',
+      20,
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+    const validation = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(result.items, 20);
+
+    expect(result.items).toHaveLength(20);
+    expect(result.marketResolvedCount).toBe(18);
+    expect(validation).toEqual([]);
+
+    const shortResult = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [...ready.slice(0, 17), ...unresolved],
+      'CAD',
+      20,
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+    const shortValidation = __discoveryPersistenceTestHooks.weeklyDiscoveryPublicationFailures(
+      shortResult.items,
+      shortResult.marketResolvedCount
+    );
+
+    expect(shortResult.marketResolvedCount).toBe(17);
+    expect(shortValidation.some((failure) => failure.code === 'INSUFFICIENT_MARKET_RESOLVED')).toBe(true);
+  });
+
   it('enforces evolution-family, format, and lane caps during final selection', () => {
     const pool: DiscoveryCandidate[] = [
       { ...publishableSourceCandidate('Squirtle Expedition Base Set 132', 'sq-132', 'Pokemon TCG (Expedition Base Set)', 0, 'Vintage Era Trail'), typicalRawSoldTotal: 110, soldSampleSize: 3, displayCurrency: 'CAD' as const },
