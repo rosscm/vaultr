@@ -922,14 +922,6 @@ function preparedReserveCompatibilityReason(
   return 'COMPATIBLE';
 }
 
-function isPreparedReserveCompatibleForResume(
-  preparedReserve: ReturnType<typeof getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>>,
-  profileContext: WeeklyDiscoveryPreparationProfileContext,
-  generation: number | undefined
-): preparedReserve is NonNullable<typeof preparedReserve> {
-  return preparedReserveCompatibilityReason(preparedReserve, profileContext, generation) === 'COMPATIBLE';
-}
-
 function countCandidatesWithTrustedCanonicalReference(candidates: DiscoveryCandidate[], currency: SupportedCurrency): number {
   return candidates.filter((candidate) => candidateHasCanonicalTrustedReference(candidate, currency)).length;
 }
