@@ -1,6 +1,7 @@
 import 'dotenv/config';
-import { prepareWeeklyDiscoveryDropForUser } from './commands/discover.js';
+import type { prepareWeeklyDiscoveryDropForUser } from './commands/discover.js';
 import { db } from './services/db.js';
+import { runWeeklyDiscoveryPreparationAttempt } from './services/discovery-drop-scheduler.js';
 import { getScheduledDiscoveryDrop, scheduledDiscoveryPeriodKey } from './services/scheduled-discovery-drops.js';
 import { listProUsersEligibleForWeeklyDiscovery, weeklyDiscoveryEligibilityForUser } from './services/weekly-discovery-eligibility.js';
 
@@ -180,7 +181,7 @@ try {
     console.log(`Before | ${describeDrop(userId, periodKey)}`);
     if (options.dryRun) continue;
 
-    const result = await prepareWeeklyDiscoveryDropForUser(userId, options.date, {
+    const { result } = await runWeeklyDiscoveryPreparationAttempt(userId, options.date, {
       force: true,
       hydrateMarketInline: options.hydrateMarketInline,
       allowRecentRepeatFiller: options.allowRepeatFiller,

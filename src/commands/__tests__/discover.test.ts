@@ -6356,6 +6356,125 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(__discoveryPersistenceTestHooks.remainingBlockingMarketRecoveryMs(Date.now() + 5_000, 90_000)).toBe(0);
   });
 
+  it('skips source top-off when local supply is sufficient and market readiness is the blocker', () => {
+    const w36LikeReadiness = {
+      canonicalReserveCount: 51,
+      hardEligibleReserveCount: 51,
+      marketResolvedEligibleCount: 18,
+      postCapSelectableCount: 20,
+      projectedSelectedCount: 17,
+      projectedMarketResolvedCount: 15,
+      viableAlternativeCount: 34,
+      selectedShortfall: 3,
+      marketResolvedShortfall: 3,
+      shouldTopOff: true
+    };
+    const deficientReadiness = {
+      ...w36LikeReadiness,
+      canonicalReserveCount: 19,
+      hardEligibleReserveCount: 19,
+      marketResolvedEligibleCount: 16,
+      postCapSelectableCount: 17,
+      viableAlternativeCount: 3
+    };
+
+    expect(__discoveryPersistenceTestHooks.weeklyDiscoveryLocalSupplySufficientForMarketRecovery(w36LikeReadiness as never)).toBe(true);
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff(w36LikeReadiness as never)).toBe(false);
+    expect(__discoveryPersistenceTestHooks.weeklyDiscoveryLocalSupplySufficientForMarketRecovery(deficientReadiness as never)).toBe(false);
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff(deficientReadiness as never)).toBe(true);
+  });
+
+  it('hydrates targeted unresolved market candidates to READY and records diagnostics', async () => {
+    vi.spyOn(ebayService, 'searchEbayListings').mockImplementation(async (inputChase) => [
+      listing({ listingId: `${inputChase.cardName}-ask-1`, title: `${inputChase.cardName} NM Pokemon card`, price: 71, currency: 'CAD' }),
+      listing({ listingId: `${inputChase.cardName}-ask-2`, title: `${inputChase.cardName} Near Mint Pokemon card`, price: 73, currency: 'CAD' }),
+      listing({ listingId: `${inputChase.cardName}-ask-3`, title: `${inputChase.cardName} Mint Pokemon card`, price: 75, currency: 'CAD' }),
+      listing({ listingId: `${inputChase.cardName}-ask-4`, title: `${inputChase.cardName} NM Pokemon card`, price: 77, currency: 'CAD' }),
+      listing({ listingId: `${inputChase.cardName}-ask-5`, title: `${inputChase.cardName} Near Mint Pokemon card`, price: 79, currency: 'CAD' })
+    ]);
+    vi.spyOn(ebayService, 'searchEbaySoldListings').mockImplementation(async (_inputChase, _destination, options) => [
+      listing({ listingId: `${options?.keywords}-sold-1`, title: `${options?.keywords} NM Pokemon card`, price: 80, currency: 'CAD' }),
+      listing({ listingId: `${options?.keywords}-sold-2`, title: `${options?.keywords} Near Mint Pokemon card`, price: 82, currency: 'CAD' }),
+      listing({ listingId: `${options?.keywords}-sold-3`, title: `${options?.keywords} Mint Pokemon card`, price: 84, currency: 'CAD' })
+    ]);
+
+    const candidate = {
+      ...publishableSourceCandidate('Pichu Expedition Base Set 22', 'exp1-22', 'Pokemon TCG (Expedition Base Set)', 0),
+      sourceStatus: 'PENDING' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined,
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined
+    };
+    const diagnostics: unknown[] = [];
+    const hydrated = await __discoveryPersistenceTestHooks.hydratePendingDiscoveryMarketCandidates(
+      [candidate],
+      {
+        userId: 'weekly-market-recovery-ready',
+        activeChases: [chase('Mew RC24', 0)],
+        targetCurrency: 'CAD'
+      },
+      {
+        forceHydrateMissingMarket: true,
+        diagnostics: diagnostics as never
+      }
+    );
+
+    expect(__discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(hydrated, 'CAD', 1).marketResolvedCount).toBe(1);
+    expect(diagnostics).toMatchObject([
+      {
+        candidateName: 'Pichu Expedition Base Set 22',
+        beforeStatus: 'PENDING',
+        hydrationAttempted: true,
+        externalLookupAttempted: true,
+        soldSampleCount: 3,
+        afterStatus: 'READY',
+        reason: 'became_ready'
+      }
+    ]);
+  });
+
+  it('records unsuccessful market hydration diagnostics when evidence remains thin', async () => {
+    vi.spyOn(ebayService, 'searchEbayListings').mockImplementation(async (inputChase) => [
+      listing({ listingId: `${inputChase.cardName}-ask-1`, title: `${inputChase.cardName} NM Pokemon card`, price: 71, currency: 'CAD' })
+    ]);
+    vi.spyOn(ebayService, 'searchEbaySoldListings').mockImplementation(async () => []);
+
+    const candidate = {
+      ...publishableSourceCandidate('Thin Market Card', 'thin-market-card', 'Pokemon TCG (Card)', 0),
+      sourceStatus: 'PENDING' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined,
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined
+    };
+    const diagnostics: unknown[] = [];
+    const hydrated = await __discoveryPersistenceTestHooks.hydratePendingDiscoveryMarketCandidates(
+      [candidate],
+      {
+        userId: 'weekly-market-recovery-thin',
+        activeChases: [chase('Mew RC24', 0)],
+        targetCurrency: 'CAD'
+      },
+      {
+        forceHydrateMissingMarket: true,
+        diagnostics: diagnostics as never
+      }
+    );
+
+    expect(__discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(hydrated, 'CAD', 1).marketResolvedCount).toBe(0);
+    expect(diagnostics).toMatchObject([
+      {
+        candidateName: 'Thin Market Card',
+        hydrationAttempted: true,
+        externalLookupAttempted: true,
+        askingSampleCount: 1,
+        afterStatus: 'THIN',
+        reason: 'insufficient_reliable_samples'
+      }
+    ]);
+  });
+
   it('keeps Weekly Discovery hard publication size and market thresholds unchanged', () => {
     const ready = publishableShelfCandidates(18, (candidate, index) => ({
       ...candidate,

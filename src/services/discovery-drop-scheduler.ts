@@ -248,7 +248,7 @@ function shouldAttemptPreparation(state: WeeklyDiscoveryPreparationState, target
 export async function runWeeklyDiscoveryPreparationAttempt(
   userId: string,
   date = new Date(),
-  options: { force?: boolean; hydrateMarketInline?: boolean; allowRecentRepeatFiller?: boolean } = {}
+  options: { force?: boolean; hydrateMarketInline?: boolean; allowRecentRepeatFiller?: boolean; regenerateCurrent?: boolean } = {}
 ): Promise<WeeklyPreparationAttemptExecution> {
   const periodKey = scheduledDiscoveryPeriodKey(WEEKLY_DROP_TYPE, date);
   const availability = scheduledDiscoveryAvailability(WEEKLY_DROP_TYPE, date);

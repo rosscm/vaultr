@@ -546,6 +546,23 @@ type WeeklyReferencePreparationDiagnostics = {
   deadlineExpired: boolean;
 };
 
+type WeeklyMarketHydrationTargetDiagnostic = {
+  candidateName: string;
+  canonicalId?: string;
+  supplySource?: DiscoverySupplySource;
+  beforeStatus: DiscoveryScheduledMarketStatus;
+  cacheStatusBefore: 'MISS' | 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR';
+  hydrationAttempted: boolean;
+  externalLookupAttempted: boolean;
+  askingSampleCount?: number;
+  askingValue?: number;
+  soldSampleCount?: number;
+  soldValue?: number;
+  sourceStatusAfter?: NonNullable<DiscoveryCandidate['sourceStatus']>;
+  afterStatus: DiscoveryScheduledMarketStatus;
+  reason: string;
+};
+
 export type WeeklyPreparationStructuredResult =
   | {
       outcome: 'PREPARED';
@@ -2819,6 +2836,7 @@ async function hydratePendingDiscoveryMarketCandidates(
     candidateKeys?: Set<string>;
     forceHydrateMissingMarket?: boolean;
     stopWhen?: (candidates: DiscoveryCandidate[]) => boolean;
+    diagnostics?: WeeklyMarketHydrationTargetDiagnostic[];
   } = {}
 ): Promise<DiscoveryCandidate[]> {
   throwIfAborted(options.abortSignal);
@@ -2833,6 +2851,33 @@ async function hydratePendingDiscoveryMarketCandidates(
     )
     .filter(({ candidate }) => !options.candidateKeys || options.candidateKeys.has(discoveryDisplayNameKey(candidate.suggestion.name)));
   const selectedPendingCandidates = pendingCandidates.slice(0, Math.max(0, options.maxCandidates ?? pendingCandidates.length));
+  const selectedIndexes = new Set(selectedPendingCandidates.map(({ index }) => index));
+  const diagnosticsByIndex = new Map<number, WeeklyMarketHydrationTargetDiagnostic>();
+  for (const { candidate, index } of pendingCandidates) {
+    const marketSuggestion = discoveryMarketSuggestionForCandidate(candidate);
+    const cacheKey = discoveryMarketCacheKeyForSuggestion(marketSuggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
+    const cacheEntry = getDiscoveryMarketCache(cacheKey);
+    if (options.diagnostics) {
+      const diagnostic: WeeklyMarketHydrationTargetDiagnostic = {
+        candidateName: candidate.suggestion.name,
+        canonicalId: candidate.suggestion.canonicalReference?.canonicalCardId ?? candidate.weeklyDiscovery?.canonicalReference?.canonicalCardId ?? candidate.suggestion.referenceSourceCardId ?? candidate.image?.sourceCardId,
+        supplySource: candidate.supplySource,
+        beforeStatus: candidateMarketStatus(candidate, context.targetCurrency),
+        cacheStatusBefore: discoveryMarketCacheDiagnosticStatus(cacheEntry),
+        hydrationAttempted: selectedIndexes.has(index),
+        externalLookupAttempted: false,
+        askingSampleCount: candidate.marketSampleSize,
+        askingValue: candidate.typicalRawAskingTotal,
+        soldSampleCount: candidate.soldSampleSize,
+        soldValue: candidate.typicalRawSoldTotal,
+        sourceStatusAfter: candidate.sourceStatus,
+        afterStatus: candidateMarketStatus(candidate, context.targetCurrency),
+        reason: selectedIndexes.has(index) ? 'hydration_pending' : 'not_selected_for_hydration'
+      };
+      options.diagnostics.push(diagnostic);
+      diagnosticsByIndex.set(index, diagnostic);
+    }
+  }
   if (selectedPendingCandidates.length === 0) return cacheRefreshedCandidates;
   const timeoutMs = Math.max(1, options.deadlineAtMs === undefined
     ? (options.timeoutMs ?? DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
@@ -2842,7 +2887,6 @@ async function hydratePendingDiscoveryMarketCandidates(
   let finished = false;
   let timeoutHandle: NodeJS.Timeout | undefined;
   let resolveEarly: (() => void) | undefined;
-
   const currentCandidates = () => cacheRefreshedCandidates.map((candidate, index) => hydratedByIndex.get(index) ?? candidate);
   const maybeResolveEarly = () => {
     if (finished) return;
@@ -2858,6 +2902,8 @@ async function hydratePendingDiscoveryMarketCandidates(
     if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(options.deadlineAtMs)) return;
     try {
       const marketSuggestion = discoveryMarketSuggestionForCandidate(candidate);
+      const diagnostic = diagnosticsByIndex.get(index);
+      if (diagnostic) diagnostic.externalLookupAttempted = true;
       const hydrated = await enrichSuggestion(
         marketSuggestion,
         candidate.selectionIndex ?? index,
@@ -2907,9 +2953,31 @@ async function hydratePendingDiscoveryMarketCandidates(
         image: candidate.image?.sourceKind === 'CARD_REFERENCE' ? candidate.image : hydrated.image ?? candidate.image,
         sourceStatus: hydrated.sourceStatus === 'PENDING' ? undefined : hydrated.sourceStatus
       });
+      const updatedCandidate = hydratedByIndex.get(index);
+      if (diagnostic && updatedCandidate) {
+        diagnostic.askingSampleCount = updatedCandidate.marketSampleSize;
+        diagnostic.askingValue = updatedCandidate.typicalRawAskingTotal;
+        diagnostic.soldSampleCount = updatedCandidate.soldSampleSize;
+        diagnostic.soldValue = updatedCandidate.typicalRawSoldTotal;
+        diagnostic.sourceStatusAfter = updatedCandidate.sourceStatus;
+        diagnostic.afterStatus = candidateMarketStatus(updatedCandidate, context.targetCurrency);
+        diagnostic.reason = marketHydrationNoReadyReason({
+          attempted: true,
+          beforeStatus: diagnostic.beforeStatus,
+          afterStatus: diagnostic.afterStatus,
+          soldSampleCount: diagnostic.soldSampleCount,
+          askingSampleCount: diagnostic.askingSampleCount,
+          sourceStatusAfter: diagnostic.sourceStatusAfter
+        });
+      }
       maybeResolveEarly();
     } catch {
       // Background refresh still owns retry/status handling; foreground hydration is best-effort.
+      const diagnostic = diagnosticsByIndex.get(index);
+      if (diagnostic) {
+        diagnostic.externalLookupAttempted = true;
+        diagnostic.reason = 'hydration_exception';
+      }
     }
   });
   const deadline = new Promise<void>((resolve) => {
@@ -2924,6 +2992,18 @@ async function hydratePendingDiscoveryMarketCandidates(
   await Promise.race([workers.then(() => undefined), deadline, earlyCompletion]);
   finished = true;
   if (timeoutHandle) clearTimeout(timeoutHandle);
+
+  for (const diagnostic of options.diagnostics ?? []) {
+    if (diagnostic.reason !== 'hydration_pending') continue;
+    diagnostic.reason = timedOut ? 'hydration_timed_out' : marketHydrationNoReadyReason({
+      attempted: diagnostic.hydrationAttempted,
+      beforeStatus: diagnostic.beforeStatus,
+      afterStatus: diagnostic.afterStatus,
+      soldSampleCount: diagnostic.soldSampleCount,
+      askingSampleCount: diagnostic.askingSampleCount,
+      sourceStatusAfter: diagnostic.sourceStatusAfter
+    });
+  }
 
   return currentCandidates();
 }
@@ -3111,6 +3191,32 @@ function candidateWithFreshMarketCache(
     displayCurrency: marketCandidate.displayCurrency ?? candidate.displayCurrency,
     sourceStatus: marketCandidate.sourceStatus
   };
+}
+
+function discoveryMarketCacheDiagnosticStatus(entry: DiscoveryMarketCacheEntry | null): WeeklyMarketHydrationTargetDiagnostic['cacheStatusBefore'] {
+  if (!entry) return 'MISS';
+  if (entry.sourceStatus === 'RATE_LIMITED' || entry.sourceStatus === 'TIMEOUT' || entry.sourceStatus === 'ERROR') return entry.sourceStatus;
+  if (discoveryMarketCacheHasReliableEstimate(entry)) return 'READY';
+  if (discoveryMarketCacheHasSignal(entry)) return 'THIN';
+  return 'PENDING';
+}
+
+function marketHydrationNoReadyReason(input: {
+  attempted: boolean;
+  beforeStatus: DiscoveryScheduledMarketStatus;
+  afterStatus: DiscoveryScheduledMarketStatus;
+  soldSampleCount?: number;
+  askingSampleCount?: number;
+  sourceStatusAfter?: DiscoveryCandidate['sourceStatus'];
+}): string {
+  if (!input.attempted) return 'not_selected_for_hydration';
+  if (input.afterStatus === 'READY') return 'became_ready';
+  if (input.sourceStatusAfter === 'RATE_LIMITED') return 'provider_rate_limited';
+  if (input.sourceStatusAfter === 'TIMEOUT') return 'provider_timeout';
+  if (input.sourceStatusAfter === 'ERROR') return 'provider_error';
+  if ((input.soldSampleCount ?? 0) > 0 || (input.askingSampleCount ?? 0) > 0) return 'insufficient_reliable_samples';
+  if (input.beforeStatus === input.afterStatus) return 'no_new_market_evidence';
+  return 'market_status_still_unready';
 }
 
 async function settlePendingDiscoveryMarketCandidates(
@@ -4035,6 +4141,8 @@ export const __discoveryPersistenceTestHooks = {
   selectMarketShortfallHydrationTargetGroups,
   weeklyMarketShortfallHydrationTargetLimit,
   shouldRunWeeklyMarketShortfallHydration,
+  weeklyDiscoveryLocalSupplySufficientForMarketRecovery,
+  shouldRunWeeklyDiscoverySourceTopOff,
   remainingBlockingMarketRecoveryMs,
   hasWeeklyBlockingMarketRecoveryBudget,
   selectWeeklyDiscoveryRankingProfile,
@@ -9683,6 +9791,20 @@ function shouldRunWeeklyMarketShortfallHydration(input: {
     && hasWeeklyBlockingMarketRecoveryBudget(input.deadlineAtMs);
 }
 
+function weeklyDiscoveryLocalSupplySufficientForMarketRecovery(readiness: WeeklyDiscoverySupplyReadiness): boolean {
+  return readiness.canonicalReserveCount >= DISCOVERY_WEEKLY_DROP_SIZE * 2
+    && readiness.hardEligibleReserveCount >= DISCOVERY_WEEKLY_DROP_SIZE * 2
+    && readiness.postCapSelectableCount >= DISCOVERY_WEEKLY_DROP_SIZE
+    && readiness.viableAlternativeCount >= DISCOVERY_SHELF_PAGE_SIZE
+    && readiness.marketResolvedEligibleCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
+    && readiness.selectedShortfall > 0
+    && readiness.marketResolvedShortfall > 0;
+}
+
+function shouldRunWeeklyDiscoverySourceTopOff(readiness: WeeklyDiscoverySupplyReadiness): boolean {
+  return readiness.shouldTopOff && !weeklyDiscoveryLocalSupplySufficientForMarketRecovery(readiness);
+}
+
 function buildWeeklyDiscoverySupplyReadiness(
   reserve: DiscoveryCandidate[],
   collectorProfile: CollectorTasteProfile,
@@ -10556,6 +10678,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       deadlineAtMs
     });
     if (canHydrateMarketShortfall) {
+      const marketHydrationDiagnostics: WeeklyMarketHydrationTargetDiagnostic[] = [];
       const beforeProjectedSelected = supplyReadinessBeforeTopOff.projectedSelectedCount;
       const beforeProjectedMarketResolved = supplyReadinessBeforeTopOff.projectedMarketResolvedCount;
       const beforeReadyEligible = supplyReadinessBeforeTopOff.marketResolvedEligibleCount;
@@ -10585,6 +10708,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         maxCandidates: marketShortfallTargetKeys.size,
         candidateKeys: marketShortfallTargetKeys,
         forceHydrateMissingMarket: true,
+        diagnostics: marketHydrationDiagnostics,
         stopWhen: (nextCandidates) =>
           buildWeeklyDiscoverySupplyReadiness(
               prunePublicationImpossibleReserve(
@@ -10651,6 +10775,15 @@ export async function buildWeeklyDiscoveryFinalizationInput(
           remainingMarketShortfall: supplyReadinessBeforeTopOff.marketResolvedShortfall
         }
       });
+      if (marketHydrationDiagnostics.length > 0) {
+        console.info(`[DiscoveryShelf] ${JSON.stringify({
+          event: 'WEEKLY_DISCOVERY_MARKET_RECOVERY_TARGETS',
+          userId: context.userId,
+          weeklyPeriod,
+          stage: 'market-shortfall-hydration',
+          samples: marketHydrationDiagnostics.slice(0, 10)
+        })}`);
+      }
       throwIfAborted(context.abortSignal);
       throwIfDeadlineExpired(deadlineAtMs);
     } else {
@@ -10706,7 +10839,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   });
   let topOffApplied = false;
   let finalStageCounts = baseStageCounts;
-  if (discoveryContext.hasFullDiscovery && supplyReadinessBeforeTopOff.shouldTopOff && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
+  const shouldRunSourceTopOff = shouldRunWeeklyDiscoverySourceTopOff(supplyReadinessBeforeTopOff);
+  if (discoveryContext.hasFullDiscovery && shouldRunSourceTopOff && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const topOff = await runWeeklyDiscoveryStage({
       userId: context.userId,
       weeklyPeriod,
@@ -10860,6 +10994,27 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'topoff-reserve-prune', topOffPruneDiagnostics);
       throwIfAborted(context.abortSignal);
     }
+  } else if (discoveryContext.hasFullDiscovery && supplyReadinessBeforeTopOff.shouldTopOff) {
+    logWeeklyDiscoveryStage({
+      event: 'WEEKLY_DISCOVERY_STAGE',
+      userId: context.userId,
+      weeklyPeriod,
+      stage: 'topoff-trigger',
+      status: 'SKIPPED',
+      inputCount: candidateReserve.length,
+      counters: {
+        reason: !shouldRunSourceTopOff
+          ? 'local_supply_sufficient_for_market_recovery'
+          : 'insufficient_deadline_budget',
+        canonicalTrusted: supplyReadinessBeforeTopOff.canonicalReserveCount,
+        hardEligible: supplyReadinessBeforeTopOff.hardEligibleReserveCount,
+        postCapSelectable: supplyReadinessBeforeTopOff.postCapSelectableCount,
+        marketResolvedEligible: supplyReadinessBeforeTopOff.marketResolvedEligibleCount,
+        projectedSelected: supplyReadinessBeforeTopOff.projectedSelectedCount,
+        projectedMarketResolved: supplyReadinessBeforeTopOff.projectedMarketResolvedCount,
+        viableAlternatives: supplyReadinessBeforeTopOff.viableAlternativeCount
+      }
+    });
   }
   let supplyReadinessAfterTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
@@ -10892,6 +11047,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       deadlineAtMs
     });
     if (canHydrateMarketShortfall) {
+      const marketHydrationDiagnostics: WeeklyMarketHydrationTargetDiagnostic[] = [];
       const beforeProjectedSelected = supplyReadinessAfterTopOff.projectedSelectedCount;
       const beforeProjectedMarketResolved = supplyReadinessAfterTopOff.projectedMarketResolvedCount;
       const beforeReadyEligible = supplyReadinessAfterTopOff.marketResolvedEligibleCount;
@@ -10921,6 +11077,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         maxCandidates: marketShortfallTargetKeys.size,
         candidateKeys: marketShortfallTargetKeys,
         forceHydrateMissingMarket: true,
+        diagnostics: marketHydrationDiagnostics,
         stopWhen: (nextCandidates) =>
           buildWeeklyDiscoverySupplyReadiness(
               prunePublicationImpossibleReserve(
@@ -10990,6 +11147,15 @@ export async function buildWeeklyDiscoveryFinalizationInput(
           remainingMarketShortfall: supplyReadinessAfterTopOff.marketResolvedShortfall
         }
       });
+      if (marketHydrationDiagnostics.length > 0) {
+        console.info(`[DiscoveryShelf] ${JSON.stringify({
+          event: 'WEEKLY_DISCOVERY_MARKET_RECOVERY_TARGETS',
+          userId: context.userId,
+          weeklyPeriod,
+          stage: topOffApplied ? 'post-topoff-market-shortfall-hydration' : 'market-shortfall-hydration',
+          samples: marketHydrationDiagnostics.slice(0, 10)
+        })}`);
+      }
       throwIfAborted(context.abortSignal);
       throwIfDeadlineExpired(deadlineAtMs);
     } else {
