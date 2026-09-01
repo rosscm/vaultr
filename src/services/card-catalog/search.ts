@@ -82,6 +82,7 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
     : record.cardNumber;
   return {
     name: `${record.name}${record.translatedSetName ?? record.setName ? ` - ${record.translatedSetName ?? record.setName}` : ''}${labelNumber ? ` #${labelNumber}` : ''}${record.language === 'ja' ? ' (Japanese)' : ''}`,
+    canonicalName: record.name,
     value,
     imageUrl: record.imageUrl,
     imageIdentity: value,

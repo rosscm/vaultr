@@ -75,7 +75,7 @@ import * as discoveryReferenceCacheService from '../../services/discovery-refere
 import type { DiscoveryReferenceCacheEntry } from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { replaceCardCatalogSourceRecords } from '../../services/card-catalog-db.js';
-import type { CardCatalogRecord } from '../../services/card-catalog/types.js';
+import type { CardCatalogRecord, LocalCardCatalogChoice } from '../../services/card-catalog/types.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
 import {
@@ -431,6 +431,38 @@ function testCatalogRecord(overrides: Partial<CardCatalogRecord> & { sourceCardI
       { alias: overrides.name, normalizedAlias: normalizedName, kind: 'display_name' },
       ...(overrides.aliases ?? [])
     ]
+  };
+}
+
+function localCatalogChoice(overrides: Partial<LocalCardCatalogChoice> & { canonicalName: string; sourceCardId: string }): LocalCardCatalogChoice {
+  const setName = overrides.setName ?? 'Test Set';
+  const cardNumber = overrides.cardNumber ?? '1';
+  return {
+    name: overrides.name ?? `${overrides.canonicalName} - ${setName} #${cardNumber}`,
+    canonicalName: overrides.canonicalName,
+    value: overrides.value ?? `${overrides.canonicalName} ${setName} ${cardNumber}`,
+    imageUrl: overrides.imageUrl ?? trustedReferenceImageUrl(`Pokemon TCG (${setName})`, overrides.sourceCardId),
+    imageIdentity: overrides.imageIdentity,
+    imageSourceName: overrides.imageSourceName,
+    imageSourceKind: overrides.imageSourceKind ?? 'CARD_REFERENCE',
+    imageSourceCardId: overrides.imageSourceCardId ?? overrides.sourceCardId,
+    source: overrides.source ?? 'POKEMONTCG',
+    sourceCardId: overrides.sourceCardId,
+    language: overrides.language ?? 'en',
+    setName,
+    translatedSetName: overrides.translatedSetName,
+    cardNumber,
+    printedTotal: overrides.printedTotal,
+    isUnnumbered: overrides.isUnnumbered,
+    rarity: overrides.rarity,
+    isPromo: overrides.isPromo ?? false,
+    promoContext: overrides.promoContext,
+    releaseType: overrides.releaseType,
+    releaseEvent: overrides.releaseEvent,
+    releaseYear: overrides.releaseYear,
+    setId: overrides.setId,
+    series: overrides.series,
+    score: overrides.score ?? 100
   };
 }
 
@@ -4173,6 +4205,51 @@ describe('Discovery listing enrichment eligibility', () => {
     expect(regularKey).not.toBe(reverseKey);
   });
 
+  it('requires exact canonical printing evidence for Mew ex Scarlet & Violet 151 market samples', () => {
+    const mew151Suggestion = {
+      name: 'Mew ex Scarlet & Violet 151 151',
+      lane: 'Core Match',
+      laneWhy: 'market-ready profile match',
+      why: 'profile',
+      nearby: [],
+      evidenceSearchTerm: 'Mew ex Scarlet & Violet 151 151 Pokemon card',
+      requiredEvidenceTokens: ['Mew ex', 'Scarlet & Violet 151', '151'],
+      referenceSourceName: 'Pokemon TCG (Scarlet & Violet 151)',
+      referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Scarlet & Violet 151)', 'sv3pt5-151'),
+      referenceSourceCardId: 'sv3pt5-151',
+      canonicalReference: {
+        provider: 'POKEMONTCG',
+        sourceCardId: 'sv3pt5-151',
+        canonicalCardId: 'sv3pt5-151',
+        canonicalName: 'Mew ex',
+        setId: 'sv3pt5',
+        setName: 'Scarlet & Violet 151',
+        cardNumber: '151',
+        language: 'ENGLISH' as const,
+        imageUrl: trustedReferenceImageUrl('Pokemon TCG (Scarlet & Violet 151)', 'sv3pt5-151'),
+        imageSourceKind: 'CARD_REFERENCE' as const
+      }
+    };
+
+    expect(isUsableDiscoveryMarketSample(mew151Suggestion, listing({
+      title: 'Mew ex 151/165 Scarlet & Violet 151 Pokemon Card Holo NM',
+      price: 55
+    }), 'CAD')).toBe(true);
+    expect(isUsableDiscoveryMarketSample(mew151Suggestion, listing({
+      title: 'Mew ex 193/165 Scarlet & Violet 151 Pokemon Card Full Art NM',
+      price: 65
+    }), 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(mew151Suggestion, listing({
+      title: 'Mew ex Promo SVP053 Pokemon Card Holo NM',
+      price: 60
+    }), 'CAD')).toBe(false);
+    expect(isUsableDiscoveryMarketSample(mew151Suggestion, listing({
+      title: 'PSA 9 Mew ex 151/165 Scarlet & Violet 151 Pokemon Card',
+      price: 95,
+      condition: 'Graded'
+    }), 'CAD')).toBe(false);
+  });
+
   it('accepts compact Pikachu 010/018 listings as McDonalds e-reader market samples', () => {
     const pikachu010Suggestion = {
       name: "Pikachu 010/018 Holo McDonald's Promo e-Reader 2002 Japanese",
@@ -6796,6 +6873,62 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     ]));
     expect(collected.candidates.every((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE')).toBe(true);
     expect(collected.candidates.every((candidate) => candidate.weeklyDiscovery?.canonicalReference?.sourceCardId)).toBe(true);
+  });
+
+  it('preserves raw local catalog canonical names separately from decorated labels', () => {
+    const choice = localCatalogChoice({
+      canonicalName: 'ブラッキーex',
+      name: 'ブラッキーex - Terastal Festival ex #217/187 (Japanese)',
+      value: 'Umbreon ex Terastal Festival ex 217/187 Japanese',
+      source: 'TCGDEX',
+      sourceCardId: 'SV8a-217',
+      language: 'ja',
+      setName: 'Terastal Festival ex',
+      cardNumber: '217',
+      printedTotal: '187'
+    });
+
+    const candidate = __discoveryPersistenceTestHooks.localCatalogChoiceToDiscoveryCandidate(choice, 0, [chase('Umbreon Terastal Festival Japanese 092', 0)]);
+
+    expect(candidate?.catalogFacts?.canonicalName).toBe('ブラッキーex');
+    expect(candidate?.suggestion.canonicalReference?.canonicalName).toBe('ブラッキーex');
+    expect(candidate?.suggestion.name).toBe('Umbreon ex Terastal Festival ex 217/187 Japanese');
+    expect(candidate?.suggestion.evidenceAliases).toContain('ブラッキーex - Terastal Festival ex #217/187 (Japanese)');
+  });
+
+  it('keeps family-only local catalog candidates controlled unless printing traits corroborate the profile', () => {
+    const familyOnly = __discoveryPersistenceTestHooks.localCatalogChoiceToDiscoveryCandidate(localCatalogChoice({
+      canonicalName: 'Blastoise',
+      sourceCardId: 'base1-2',
+      setName: 'Base Set',
+      series: 'Base',
+      cardNumber: '2',
+      rarity: 'Rare Holo',
+      releaseYear: 1999
+    }), 0, [chase('Squirtle', 0)]);
+    const corroborated = __discoveryPersistenceTestHooks.localCatalogChoiceToDiscoveryCandidate(localCatalogChoice({
+      canonicalName: 'Blastoise',
+      sourceCardId: 'ecard-37',
+      setName: 'Expedition Base Set',
+      series: 'Expedition',
+      cardNumber: '37',
+      rarity: 'Rare Holo',
+      releaseYear: 2002
+    }), 1, [chase('Squirtle Expedition Base Set 132', 0)]);
+
+    expect(familyOnly?.suggestion.discoveryRole).toBe('CONTROLLED_EXPLORATION');
+    expect(corroborated?.suggestion.discoveryRole).toBe('ADJACENT_DISCOVERY');
+  });
+
+  it('keeps direct-subject local catalog candidates as core matches', () => {
+    const direct = __discoveryPersistenceTestHooks.localCatalogChoiceToDiscoveryCandidate(localCatalogChoice({
+      canonicalName: 'Mew',
+      sourceCardId: 'dp3-15',
+      setName: 'Secret Wonders',
+      cardNumber: '15'
+    }), 0, [chase('Mew Expedition Base Set 55', 0)]);
+
+    expect(direct?.suggestion.discoveryRole).toBe('CORE_MATCH');
   });
 
   it('local catalog top-off avoids already saturated profile subjects when building queries', () => {
@@ -9746,9 +9879,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('rejects known card-back images even from trusted catalogue-shaped references', () => {
-    const imageUrl = trustedReferenceImageUrl('Pokemon TCG (backs)', 'backs-1');
+    const imageUrl = 'https://images.pokemontcg.io/mcd14/5_hires.png';
     const [item] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
-      publishableSourceCandidate('Card Back Image', 'backs-1', 'Pokemon TCG (backs)', 0)
+      publishableSourceCandidate("Pikachu McDonald's Collection 2014 5/12", 'mcd14-5', "Pokemon TCG (McDonald's Collection 2014)", 0)
     ], 'CAD');
 
     const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf([{ ...item!, imageUrl }], 1);

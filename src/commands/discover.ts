@@ -2087,6 +2087,10 @@ function listingHasCanonicalCardNumberEvidence(listingText: string, cardNumber: 
   const escaped = normalizedNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const compact = listingText.replace(/[^a-z0-9]+/g, '');
   if (cardNumber.includes('/')) return compact.includes(cardNumber.replace(/[^a-z0-9]+/gi, '').toLowerCase());
+  const explicitPrintedNumbers = [...listingText.matchAll(/(?:^|[^a-z0-9])0*([a-z]*\d+[a-z]*|[a-z]+\d*)\s*\/\s*([a-z]*\d+[a-z]*|[a-z]+\d*)(?=[^a-z0-9]|$)/gi)]
+    .map((match) => match[1]?.replace(/^0+/, '').toLowerCase())
+    .filter((value): value is string => !!value);
+  if (explicitPrintedNumbers.length > 0) return explicitPrintedNumbers.includes(normalizedNumber.toLowerCase());
   return new RegExp(`(?:^|[^a-z0-9])(?:#|no\\.?\\s*)?0*${escaped}(?:\\s*/\\s*\\d{1,3})?(?:[^a-z0-9]|$)`, 'i').test(listingText);
 }
 
@@ -4295,6 +4299,7 @@ export const __discoveryPersistenceTestHooks = {
   isCollectorWorthyWeeklyCandidate,
   reconcileWeeklyReserveWithReliableMarketCache,
   collectLocalCatalogTopOffCandidates,
+  localCatalogChoiceToDiscoveryCandidate,
   preparedReserveCompatibilityReason,
   selectMarketShortfallHydrationTargets,
   selectMarketShortfallHydrationTargetGroups,
@@ -6653,7 +6658,7 @@ function localCatalogChoiceIsPromo(choice: LocalCardCatalogChoice): boolean {
 function localCatalogChoiceHasPremiumTreatment(choice: LocalCardCatalogChoice): boolean {
   return /\b(?:sar|sir|ar|ir|illustration|art rare|special illustration|secret|hyper|ultra|rainbow|gold star|shining|crystal|trainer gallery|galarian gallery|radiant collection|lv\.?\s*x|tag team)\b/i.test([
     choice.rarity,
-    choice.name,
+    choice.canonicalName,
     choice.value,
     choice.setName,
     choice.translatedSetName,
@@ -6672,8 +6677,45 @@ function localCatalogChoiceLane(choice: LocalCardCatalogChoice, role: WeeklyDisc
   return 'Adjacent Finds';
 }
 
+function localCatalogChoicePrintingTraitText(choice: LocalCardCatalogChoice): string {
+  return normalize([
+    choice.setId,
+    choice.setName,
+    choice.translatedSetName,
+    choice.series,
+    choice.language === 'ja' ? 'japanese' : 'english',
+    choice.rarity,
+    choice.isPromo ? 'promo' : undefined,
+    choice.promoContext,
+    choice.releaseType,
+    choice.releaseEvent,
+    localCatalogChoiceHasPremiumTreatment(choice) ? 'premium' : undefined,
+    localCatalogChoiceIsPromo(choice) ? 'promo' : undefined,
+    /\b(?:tag team|gx|vmax|vstar|[A-Za-z]+-EX|ex|v)\b/i.exec(choice.canonicalName)?.[0]
+  ].filter(Boolean).join(' '));
+}
+
+function localCatalogChoiceHasProfilePrintingCorroboration(choice: LocalCardCatalogChoice, profileChases: Chase[]): boolean {
+  const choiceText = localCatalogChoicePrintingTraitText(choice);
+  if (!choiceText) return false;
+  return positiveTasteSubjectChases(profileChases).some((chase) => {
+    const chaseText = normalize([chase.cardName, chase.targetNote].filter(Boolean).join(' '));
+    const directSet = [choice.setName, choice.translatedSetName].filter(Boolean).some((setName) => chaseText.includes(normalize(setName!)));
+    const language = choice.language === 'ja'
+      ? /\b(?:japanese|japan|jp|jpn)\b/.test(chaseText) || JAPANESE_SCRIPT_PATTERN.test(chase.cardName)
+      : /\benglish\b/.test(chaseText);
+    const promo = localCatalogChoiceIsPromo(choice) && /\b(?:promo|promos|promotional|black star|mcdonald'?s|corocoro|coro\s*coro|special delivery|prerelease|winner|staff)\b/.test(chaseText);
+    const premium = localCatalogChoiceHasPremiumTreatment(choice) && /\b(?:sar|sir|ar|ir|illustration|art rare|special illustration|secret|hyper|ultra|rainbow|gold star|shining|crystal|trainer gallery|galarian gallery|radiant collection|lv\.?\s*x|tag team|alt(?:ernate)? art|full art)\b/.test(chaseText);
+    const format = /\b(?:tag team|gx|vmax|vstar|ex|v)\b/.exec(choiceText)?.[0];
+    const formatMatch = !!format && new RegExp(`\\b${escapeRegExp(format)}\\b`, 'i').test(chaseText);
+    const vintageEra = /\b(?:base set|jungle|fossil|neo|gym heroes|gym challenge|skyridge|aquapolis|expedition|e[- ]?reader)\b/.test(choiceText)
+      && /\b(?:base set|jungle|fossil|neo|gym heroes|gym challenge|skyridge|aquapolis|expedition|e[- ]?reader)\b/.test(chaseText);
+    return directSet || language || promo || premium || formatMatch || vintageEra;
+  });
+}
+
 function localCatalogTopOffRole(choice: LocalCardCatalogChoice, profileChases: Chase[]): WeeklyDiscoveryRole {
-  const subject = normalizedSubjectIdentity(choice.name);
+  const subject = normalizedSubjectIdentity(choice.canonicalName);
   const profileSubjects = new Set(
     positiveTasteSubjectChases(profileChases)
       .flatMap(chaseSpecificSubjectTokens)
@@ -6691,7 +6733,7 @@ function localCatalogTopOffRole(choice: LocalCardCatalogChoice, profileChases: C
     ? EVOLUTION_FAMILY_GROUPS.find((group) => subject.split(/\s+/).some((token) => group.includes(token)))?.[0]
     : undefined;
   if (subject && profileSubjects.has(subject)) return 'CORE_MATCH';
-  if (subjectFamily && profileFamilies.has(subjectFamily)) return 'ADJACENT_DISCOVERY';
+  if (subjectFamily && profileFamilies.has(subjectFamily) && localCatalogChoiceHasProfilePrintingCorroboration(choice, profileChases)) return 'ADJACENT_DISCOVERY';
   if (localCatalogChoiceIsPromo(choice) || localCatalogChoiceHasPremiumTreatment(choice)) {
     return 'ADJACENT_DISCOVERY';
   }
@@ -6706,7 +6748,7 @@ function localCatalogChoiceToDiscoveryCandidate(
   if (!choice.imageUrl || choice.imageSourceKind !== 'CARD_REFERENCE' || !choice.sourceCardId) return null;
   const sourceName = localCatalogReferenceSourceName(choice);
   if (!isAllowlistedCatalogueReferenceSource(sourceName) || isMarketplaceLikeImageUrl(choice.imageUrl)) return null;
-  if (isKnownNonFrontCardImageUrl(choice.imageUrl)) return null;
+  if (hasKnownNonFrontCatalogueReferenceImage(choice.imageUrl, sourceName)) return null;
   const setName = choice.translatedSetName ?? choice.setName ?? 'Card';
   const language = choice.language === 'ja' ? 'JAPANESE' : 'ENGLISH';
   const role = localCatalogTopOffRole(choice, profileChases);
@@ -6724,7 +6766,7 @@ function localCatalogChoiceToDiscoveryCandidate(
           : 'nearby catalog traits';
   const suggestion: DiscoverySuggestion = {
     name: choice.value,
-    why: `${choice.name.split(' - ')[0]} connects through ${anchorDetail}, with ${setName} and ${choice.cardNumber ?? choice.sourceCardId} confirming the exact printing.`,
+    why: `${choice.canonicalName} connects through ${anchorDetail}, with ${setName} and ${choice.cardNumber ?? choice.sourceCardId} confirming the exact printing.`,
     lane,
     laneWhy: `${setName}${choice.rarity ? ` ${choice.rarity}` : ''}${isPromo ? ' promo' : ''}`.replace(/\s+/g, ' ').trim(),
     nearby: [],
@@ -6732,16 +6774,17 @@ function localCatalogChoiceToDiscoveryCandidate(
     referenceSourceName: sourceName,
     referenceSourceCardId: choice.sourceCardId,
     evidenceSearchTerm: [
+      choice.canonicalName,
       choice.name,
       setName,
       choice.cardNumber,
       language === 'JAPANESE' ? 'Japanese' : undefined,
       'Pokemon card'
     ].filter(Boolean).join(' '),
-    evidenceAliases: [choice.value, choice.name].filter((value, index, values) => values.indexOf(value) === index),
-    requiredEvidenceTokens: [choice.name, setName, choice.cardNumber].filter((value): value is string => !!value),
+    evidenceAliases: [choice.value, choice.name, choice.canonicalName].filter((value, index, values) => values.indexOf(value) === index),
+    requiredEvidenceTokens: [choice.canonicalName, setName, choice.cardNumber].filter((value): value is string => !!value),
     sourceTasteTokens: [
-      choice.name,
+      choice.canonicalName,
       setName,
       choice.language === 'ja' ? 'japanese' : 'english',
       choice.rarity,
@@ -6755,7 +6798,7 @@ function localCatalogChoiceToDiscoveryCandidate(
       provider: choice.source,
       sourceCardId: choice.sourceCardId,
       canonicalCardId: choice.sourceCardId,
-      canonicalName: choice.name,
+      canonicalName: choice.canonicalName,
       setName,
       cardNumber: choice.cardNumber ?? choice.sourceCardId,
       language,
@@ -6777,7 +6820,7 @@ function localCatalogChoiceToDiscoveryCandidate(
     catalogFacts: {
       source: choice.source,
       sourceCardId: choice.sourceCardId,
-      canonicalName: choice.name,
+      canonicalName: choice.canonicalName,
       setId: choice.setId,
       setName: choice.setName,
       translatedSetName: choice.translatedSetName,
@@ -8278,6 +8321,14 @@ function isKnownNonFrontCardImageUrl(url: string | undefined): boolean {
   }
 }
 
+function hasKnownNonFrontCatalogueReferenceImage(url: string | undefined, sourceName: string | undefined): boolean {
+  if (isKnownNonFrontCardImageUrl(url)) return true;
+  const urlText = (url ?? '').toLowerCase();
+  const sourceText = normalize(sourceName ?? '');
+  return /\bimages\.pokemontcg\.io\/mcd(?:14|15|17)\b/.test(urlText)
+    || /\bpokemon tcg\b.*\bmcdonald'?s collection 20(?:14|15|17)\b/.test(sourceText);
+}
+
 function isAllowlistedCatalogueReferenceSource(sourceName: string | undefined): boolean {
   return !!sourceName && (
     /^Pokemon TCG(?:\s*\(|$)/i.test(sourceName)
@@ -8289,7 +8340,7 @@ function trustedCandidateReferenceImage(image: Partial<DiscoveryCardImage> | und
   if (!image?.url || !image.sourceName || !image.sourceCardId || image.sourceKind !== 'CARD_REFERENCE') return undefined;
   if (!isAllowlistedCatalogueReferenceSource(image.sourceName)) return undefined;
   if (isMarketplaceLikeSourceName(image.sourceName) || isMarketplaceLikeImageUrl(image.url)) return undefined;
-  if (isKnownNonFrontCardImageUrl(image.url)) return undefined;
+  if (hasKnownNonFrontCatalogueReferenceImage(image.url, image.sourceName)) return undefined;
   const referenceEntry: DiscoveryReferenceCacheEntry = {
     cacheKey: suggestion.name,
     suggestionName: suggestion.name,
@@ -8388,7 +8439,7 @@ function isTrustedSuggestionReferenceImage(candidate: DiscoveryCandidate): boole
     return true;
   }
   if (!candidate.suggestion.referenceImageUrl || !candidate.suggestion.referenceSourceName || !candidate.suggestion.referenceSourceCardId) return false;
-  if (isKnownNonFrontCardImageUrl(candidate.suggestion.referenceImageUrl)) return false;
+  if (hasKnownNonFrontCatalogueReferenceImage(candidate.suggestion.referenceImageUrl, candidate.suggestion.referenceSourceName)) return false;
   if (/^TCGdex Japanese(?:\s*\(|$)/i.test(candidate.suggestion.referenceSourceName)) {
     try {
       return new URL(candidate.suggestion.referenceImageUrl).hostname === 'assets.tcgdex.net';
@@ -9550,7 +9601,7 @@ function hasTrustedReferenceImage(item: ScheduledDiscoveryDropItem): boolean {
     && isAllowlistedCatalogueReferenceSource(item.imageSourceName)
     && !isMarketplaceLikeSourceName(item.imageSourceName)
     && !isMarketplaceLikeImageUrl(item.imageUrl)
-    && !isKnownNonFrontCardImageUrl(item.imageUrl);
+    && !hasKnownNonFrontCatalogueReferenceImage(item.imageUrl, item.imageSourceName);
 }
 
 function hasProviderBackedScheduledDisplayName(item: ScheduledDiscoveryDropItem): boolean {

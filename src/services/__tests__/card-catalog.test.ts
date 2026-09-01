@@ -407,6 +407,36 @@ describe('local card catalog', () => {
     expect(searchLocalCardCatalog('squirtle mcdonalds 007/018', 10, { dbPath }).map((choice) => choice.sourceCardId)).toEqual(['mcd-007']);
   });
 
+  it('keeps raw canonical names separate from decorated Japanese choice labels', () => {
+    const dbPath = tempCatalogPath('choice-canonical-name');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'SV8a-217',
+        name: 'ブラッキーex',
+        normalizedName: 'ブラッキーex',
+        language: 'ja',
+        cardNumber: '217',
+        normalizedCardNumber: '217',
+        printedTotal: '187',
+        setName: 'Terastal Festival ex',
+        normalizedSetName: 'terastal festival ex',
+        translatedSetName: 'Terastal Festival ex'
+      })
+    ], dbPath);
+
+    const [choice] = searchLocalCardCatalog('ブラッキーex terastal festival 217 japanese', 10, { dbPath });
+
+    expect(choice).toMatchObject({
+      canonicalName: 'ブラッキーex',
+      sourceCardId: 'SV8a-217',
+      value: 'ブラッキーex Terastal Festival ex 217/187 Japanese'
+    });
+    expect(choice?.name).toContain('Terastal Festival ex');
+    expect(choice?.name).toContain('#217/187');
+    expect(choice?.name).toContain('(Japanese)');
+  });
+
   it('imports the verified Vaultr promo Squirtle supplement without replacing core sources', () => {
     const dbPath = tempCatalogPath('vaultr-promo-squirtle');
     replaceCardCatalogSourceRecords('POKEMONTCG', [
@@ -422,6 +452,7 @@ describe('local card catalog', () => {
     expect(results[0]).toMatchObject({
       source: 'VAULTR_PROMO',
       sourceCardId: 'vaultr-promo-dextcg-jpn-mcdemp-7',
+      canonicalName: 'Squirtle',
       value: "Squirtle McDonald's Pokemon-e Minimum Pack 007/18 Japanese",
       imageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png'
     });
