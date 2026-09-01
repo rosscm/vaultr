@@ -405,6 +405,10 @@ function publishableSourceCandidate(name: string, canonicalId: string, sourceNam
   };
 }
 
+function discoveryDisplayNameKeyForTest(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 function publishableShelfCandidates(count: number, overrides?: (candidate: DiscoveryCandidate, index: number) => DiscoveryCandidate): DiscoveryCandidate[] {
   return Array.from({ length: count }, (_, index) => {
     const base = publishableCandidate(`Card ${index + 1}`, `card-${index + 1}`, index);
@@ -6473,6 +6477,213 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         reason: 'insufficient_reliable_samples'
       }
     ]);
+  });
+
+  it('applies exact READY market cache to ERROR candidates without external lookup', async () => {
+    const candidate = {
+      ...publishableSourceCandidate('Pichu Expedition Base Set 22', 'exp1-22', 'Pokemon TCG (Expedition Base Set)', 0),
+      sourceStatus: 'ERROR' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined,
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined
+    };
+    const cacheKey = discoveryMarketCacheKeyForSuggestion(candidate.suggestion, 'CAD', undefined, undefined, undefined);
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: candidate.suggestion.name,
+      displayCurrency: 'CAD',
+      typicalRawSoldTotal: 84,
+      soldSampleSize: 3
+    });
+    const searchSpy = vi.spyOn(ebayService, 'searchEbayListings').mockResolvedValue([]);
+    const diagnostics: unknown[] = [];
+
+    const hydrated = await __discoveryPersistenceTestHooks.hydratePendingDiscoveryMarketCandidates(
+      [candidate],
+      {
+        userId: 'weekly-market-recovery-cache-ready',
+        activeChases: [],
+        targetCurrency: 'CAD'
+      },
+      {
+        forceHydrateMissingMarket: true,
+        diagnostics: diagnostics as never
+      }
+    );
+
+    expect(searchSpy).not.toHaveBeenCalled();
+    expect(__discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(hydrated, 'CAD', 1).marketResolvedCount).toBe(1);
+    expect(diagnostics).toHaveLength(0);
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('does not trust mismatched READY market cache during forced recovery', async () => {
+    const candidate = {
+      ...publishableSourceCandidate('Pichu Expedition Base Set 22', 'exp1-22', 'Pokemon TCG (Expedition Base Set)', 0),
+      sourceStatus: 'ERROR' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined,
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined
+    };
+    const cacheKey = discoveryMarketCacheKeyForSuggestion(candidate.suggestion, 'CAD', undefined, undefined, undefined);
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: candidate.suggestion.name,
+      displayCurrency: 'CAD',
+      listing: listing({ listingId: 'wrong-card-cache', title: 'Charizard Base Set 4 NM Pokemon card', price: 200, currency: 'CAD' }),
+      typicalRawSoldTotal: 84,
+      soldSampleSize: 3
+    });
+    const searchSpy = vi.spyOn(ebayService, 'searchEbayListings').mockResolvedValue([]);
+    vi.spyOn(ebayService, 'searchEbaySoldListings').mockResolvedValue([]);
+
+    const hydrated = await __discoveryPersistenceTestHooks.hydratePendingDiscoveryMarketCandidates(
+      [candidate],
+      {
+        userId: 'weekly-market-recovery-cache-mismatch',
+        activeChases: [],
+        targetCurrency: 'CAD'
+      },
+      {
+        forceHydrateMissingMarket: true,
+        timeoutMs: 100
+      }
+    );
+
+    expect(searchSpy).toHaveBeenCalled();
+    expect(__discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(hydrated, 'CAD', 1).marketResolvedCount).toBe(0);
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('orders market recovery targets by useful cache and partial evidence before zero-signal errors', () => {
+    const readyCache = {
+      ...collectorProfileCandidate('Mew Ready Cache Target', 'market-ready-cache-target', 0, 'CORE_MATCH', { subjects: ['Mew'] }),
+      sourceStatus: 'ERROR' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined
+    };
+    const usefulPartial = {
+      ...collectorProfileCandidate('Gardevoir Useful Partial Target', 'market-useful-partial-target', 1, 'CORE_MATCH', { subjects: ['Gardevoir'] }),
+      sourceStatus: 'PENDING' as const,
+      typicalRawAskingTotal: 72,
+      marketSampleSize: 1,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined
+    };
+    const zeroSignalError = {
+      ...collectorProfileCandidate('Squirtle Zero Signal Error Target', 'market-zero-error-target', 2, 'CORE_MATCH', { subjects: ['Squirtle'] }),
+      sourceStatus: 'ERROR' as const,
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined
+    };
+    const belowFloorPartial = {
+      ...collectorProfileCandidate('Umbreon Below Floor Partial Target', 'market-below-floor-target', 3, 'CORE_MATCH', { subjects: ['Umbreon'] }),
+      sourceStatus: 'PENDING' as const,
+      typicalRawAskingTotal: 12,
+      marketSampleSize: 1,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined
+    };
+    const cacheKey = discoveryMarketCacheKeyForSuggestion(readyCache.suggestion, 'CAD', undefined, undefined, undefined);
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: readyCache.suggestion.name,
+      displayCurrency: 'CAD',
+      typicalRawSoldTotal: 90,
+      soldSampleSize: 3
+    });
+
+    const groups = __discoveryPersistenceTestHooks.selectMarketShortfallHydrationTargetGroups(
+      [zeroSignalError, belowFloorPartial, usefulPartial, readyCache],
+      'CAD',
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+
+    expect(groups.targets.map((candidate) => candidate.suggestion.name)).toEqual([
+      'Mew Ready Cache Target',
+      'Gardevoir Useful Partial Target',
+      'Squirtle Zero Signal Error Target',
+      'Umbreon Below Floor Partial Target'
+    ]);
+    expect(groups.targetMetadata.get(discoveryDisplayNameKeyForTest('Mew Ready Cache Target'))?.priorityReason).toBe('ready_cache');
+    expect(groups.targetMetadata.get(discoveryDisplayNameKeyForTest('Umbreon Below Floor Partial Target'))?.priorityReason).toBe('partial_below_value_floor');
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('rotates market recovery targeting away from previously attempted no-progress candidates', () => {
+    const attempted = {
+      ...collectorProfileCandidate('Mew Attempted Error Target', 'market-attempted-error-target', 0, 'CORE_MATCH', { subjects: ['Mew'] }),
+      sourceStatus: 'ERROR' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined
+    };
+    const unattempted = {
+      ...collectorProfileCandidate('Gardevoir Unattempted Target', 'market-unattempted-target', 1, 'CORE_MATCH', { subjects: ['Gardevoir'] }),
+      sourceStatus: 'PENDING' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined
+    };
+
+    const groups = __discoveryPersistenceTestHooks.selectMarketShortfallHydrationTargetGroups(
+      [attempted, unattempted],
+      'CAD',
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1',
+      { previouslyAttemptedKeys: new Set([discoveryDisplayNameKeyForTest(attempted.suggestion.name)]) }
+    );
+
+    expect(groups.targets[0]?.suggestion.name).toBe('Gardevoir Unattempted Target');
+    expect(groups.targetMetadata.get(discoveryDisplayNameKeyForTest(attempted.suggestion.name))?.previouslyAttempted).toBe(true);
+  });
+
+  it('lets a previously attempted target jump back ahead when exact cache becomes READY', () => {
+    const attempted = {
+      ...collectorProfileCandidate('Mew Attempted Ready Cache Target', 'market-attempted-ready-cache-target', 0, 'CORE_MATCH', { subjects: ['Mew'] }),
+      sourceStatus: 'ERROR' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined
+    };
+    const unattempted = {
+      ...collectorProfileCandidate('Gardevoir Unattempted Later Target', 'market-unattempted-later-target', 1, 'CORE_MATCH', { subjects: ['Gardevoir'] }),
+      sourceStatus: 'PENDING' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined
+    };
+    const cacheKey = discoveryMarketCacheKeyForSuggestion(attempted.suggestion, 'CAD', undefined, undefined, undefined);
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: attempted.suggestion.name,
+      displayCurrency: 'CAD',
+      typicalRawSoldTotal: 95,
+      soldSampleSize: 3
+    });
+
+    const groups = __discoveryPersistenceTestHooks.selectMarketShortfallHydrationTargetGroups(
+      [attempted, unattempted],
+      'CAD',
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1',
+      { previouslyAttemptedKeys: new Set([discoveryDisplayNameKeyForTest(attempted.suggestion.name)]) }
+    );
+
+    expect(groups.targets[0]?.suggestion.name).toBe('Mew Attempted Ready Cache Target');
+    expect(groups.targetMetadata.get(discoveryDisplayNameKeyForTest(attempted.suggestion.name))?.priorityReason).toBe('ready_cache');
+    deleteDiscoveryMarketCache(cacheKey);
   });
 
   it('keeps Weekly Discovery hard publication size and market thresholds unchanged', () => {

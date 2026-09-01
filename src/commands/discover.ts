@@ -550,6 +550,11 @@ type WeeklyMarketHydrationTargetDiagnostic = {
   candidateName: string;
   canonicalId?: string;
   supplySource?: DiscoverySupplySource;
+  recoveryPriorityRank?: number;
+  recoveryTargetGroup?: 'STRICT' | 'CAP_RECOVERY';
+  recoveryPriorityReason?: string;
+  previouslyAttemptedThisPreparation?: boolean;
+  marketSearchIdentity?: string;
   beforeStatus: DiscoveryScheduledMarketStatus;
   cacheStatusBefore: 'MISS' | 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR';
   hydrationAttempted: boolean;
@@ -561,6 +566,13 @@ type WeeklyMarketHydrationTargetDiagnostic = {
   sourceStatusAfter?: NonNullable<DiscoveryCandidate['sourceStatus']>;
   afterStatus: DiscoveryScheduledMarketStatus;
   reason: string;
+};
+
+type WeeklyMarketRecoveryTargetMetadata = {
+  rank: number;
+  group: 'STRICT' | 'CAP_RECOVERY';
+  priorityReason: string;
+  previouslyAttempted: boolean;
 };
 
 export type WeeklyPreparationStructuredResult =
@@ -2837,10 +2849,13 @@ async function hydratePendingDiscoveryMarketCandidates(
     forceHydrateMissingMarket?: boolean;
     stopWhen?: (candidates: DiscoveryCandidate[]) => boolean;
     diagnostics?: WeeklyMarketHydrationTargetDiagnostic[];
+    targetMetadata?: Map<string, WeeklyMarketRecoveryTargetMetadata>;
   } = {}
 ): Promise<DiscoveryCandidate[]> {
   throwIfAborted(options.abortSignal);
-  const cacheRefreshedCandidates = candidates.map((candidate) => candidateWithFreshMarketCache(candidate, context));
+  const cacheRefreshedCandidates = candidates.map((candidate) => candidateWithFreshMarketCache(candidate, context, {
+    forceApplyReliableCache: options.forceHydrateMissingMarket === true
+  }));
   if (options.stopWhen?.(cacheRefreshedCandidates)) return cacheRefreshedCandidates;
   const hydratedByIndex = new Map<number, DiscoveryCandidate>();
   const pendingCandidates = cacheRefreshedCandidates
@@ -2857,11 +2872,17 @@ async function hydratePendingDiscoveryMarketCandidates(
     const marketSuggestion = discoveryMarketSuggestionForCandidate(candidate);
     const cacheKey = discoveryMarketCacheKeyForSuggestion(marketSuggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
     const cacheEntry = getDiscoveryMarketCache(cacheKey);
+    const targetMetadata = options.targetMetadata?.get(discoveryDisplayNameKey(candidate.suggestion.name));
     if (options.diagnostics) {
       const diagnostic: WeeklyMarketHydrationTargetDiagnostic = {
         candidateName: candidate.suggestion.name,
         canonicalId: candidate.suggestion.canonicalReference?.canonicalCardId ?? candidate.weeklyDiscovery?.canonicalReference?.canonicalCardId ?? candidate.suggestion.referenceSourceCardId ?? candidate.image?.sourceCardId,
         supplySource: candidate.supplySource,
+        recoveryPriorityRank: targetMetadata?.rank,
+        recoveryTargetGroup: targetMetadata?.group,
+        recoveryPriorityReason: targetMetadata?.priorityReason,
+        previouslyAttemptedThisPreparation: targetMetadata?.previouslyAttempted,
+        marketSearchIdentity: discoveryMarketSearchTerms(marketSuggestion)[0],
         beforeStatus: candidateMarketStatus(candidate, context.targetCurrency),
         cacheStatusBefore: discoveryMarketCacheDiagnosticStatus(cacheEntry),
         hydrationAttempted: selectedIndexes.has(index),
@@ -2883,6 +2904,10 @@ async function hydratePendingDiscoveryMarketCandidates(
     ? (options.timeoutMs ?? DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS)
     : remainingDeadlineMs(options.deadlineAtMs, options.timeoutMs ?? DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS));
   if (hasDeadlineExpired(options.deadlineAtMs)) return cacheRefreshedCandidates;
+  const hydrationDeadlineAtMs = Math.min(
+    options.deadlineAtMs ?? Number.POSITIVE_INFINITY,
+    Date.now() + timeoutMs
+  );
   let timedOut = false;
   let finished = false;
   let timeoutHandle: NodeJS.Timeout | undefined;
@@ -2899,7 +2924,7 @@ async function hydratePendingDiscoveryMarketCandidates(
     ? DISCOVERY_ENRICHMENT_CONCURRENCY
     : Math.min(2, DISCOVERY_ENRICHMENT_CONCURRENCY);
   const workers = mapWithConcurrency(selectedPendingCandidates, hydrationConcurrency, async ({ candidate, index }) => {
-    if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(options.deadlineAtMs)) return;
+    if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(hydrationDeadlineAtMs)) return;
     try {
       const marketSuggestion = discoveryMarketSuggestionForCandidate(candidate);
       const diagnostic = diagnosticsByIndex.get(index);
@@ -2913,7 +2938,7 @@ async function hydratePendingDiscoveryMarketCandidates(
         context.range,
         context.targetCurrency,
         (askCandidate) => {
-          if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(options.deadlineAtMs)) return;
+          if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(hydrationDeadlineAtMs)) return;
           const cacheKey = discoveryMarketCacheKeyForSuggestion(marketSuggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
           upsertDiscoveryMarketCache({
             cacheKey,
@@ -2928,9 +2953,9 @@ async function hydratePendingDiscoveryMarketCandidates(
             soldSampleSize: askCandidate.soldSampleSize
           });
         },
-        options.deadlineAtMs
+        hydrationDeadlineAtMs
       );
-      if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(options.deadlineAtMs)) return;
+      if (timedOut || finished || options.abortSignal?.aborted || hasDeadlineExpired(hydrationDeadlineAtMs)) return;
       const cacheKey = discoveryMarketCacheKeyForSuggestion(marketSuggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
       upsertDiscoveryMarketCache({
         cacheKey,
@@ -3173,14 +3198,18 @@ function candidateWithFreshMarketCache(
     destination?: { country?: string; postalCode?: string };
     targetCurrency: SupportedCurrency;
     range?: { min: number; max: number };
-  }
+  },
+  options: { forceApplyReliableCache?: boolean } = {}
 ): DiscoveryCandidate {
-  if (candidate.sourceStatus !== 'PENDING' || !needsMoreMarketDepth(candidate)) return candidate;
+  const currentStatus = candidateMarketStatus(candidate, context.targetCurrency);
+  if (!options.forceApplyReliableCache && (candidate.sourceStatus !== 'PENDING' || !needsMoreMarketDepth(candidate))) return candidate;
+  if (options.forceApplyReliableCache && currentStatus === 'READY') return candidate;
   const marketSuggestion = discoveryMarketSuggestionForCandidate(candidate);
   const cacheKey = discoveryMarketCacheKeyForSuggestion(marketSuggestion, context.targetCurrency, context.destination?.country, context.destination?.postalCode, context.range);
   const cacheEntry = getDiscoveryMarketCache(cacheKey);
-  if (!cacheEntry || !discoveryMarketCacheHasReliableEstimate(cacheEntry)) return candidate;
+  if (!discoveryMarketCacheCanBeAppliedToCandidate(cacheEntry, marketSuggestion, context)) return candidate;
   const marketCandidate = candidateFromCachedMarket(marketSuggestion, candidate.selectionIndex ?? 0, cacheEntry, context.targetCurrency, context.activeChases, false);
+  if (hasEnoughRawMarketData(candidate) && !hasEnoughRawMarketData(marketCandidate)) return candidate;
   return {
     ...candidate,
     suggestion: marketSuggestion,
@@ -3191,6 +3220,22 @@ function candidateWithFreshMarketCache(
     displayCurrency: marketCandidate.displayCurrency ?? candidate.displayCurrency,
     sourceStatus: marketCandidate.sourceStatus
   };
+}
+
+function discoveryMarketCacheCanBeAppliedToCandidate(
+  cacheEntry: DiscoveryMarketCacheEntry | null,
+  suggestion: DiscoverySuggestion,
+  context: {
+    activeChases: Chase[];
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  }
+): cacheEntry is DiscoveryMarketCacheEntry {
+  if (!cacheEntry || !discoveryMarketCacheHasReliableEstimate(cacheEntry)) return false;
+  const cachedListing = listingFromDiscoveryMarketCache(cacheEntry);
+  if (cachedListing && !isUsableDiscoveryExample(suggestion, cachedListing, context.range, context.targetCurrency)) return false;
+  if (cachedListing && isActiveChaseEchoListing(cachedListing, context.activeChases)) return false;
+  return true;
 }
 
 function discoveryMarketCacheDiagnosticStatus(entry: DiscoveryMarketCacheEntry | null): WeeklyMarketHydrationTargetDiagnostic['cacheStatusBefore'] {
@@ -9721,8 +9766,18 @@ function selectMarketShortfallHydrationTargetGroups(
   recentDrops: ScheduledDiscoveryDrop[],
   activeVaultChases: Chase[],
   anchorProfileSignals: Chase[] = activeVaultChases,
-  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
-): { strictTargets: DiscoveryCandidate[]; capRecoveryTargets: DiscoveryCandidate[]; targets: DiscoveryCandidate[] } {
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY',
+  options: {
+    destination?: { country?: string; postalCode?: string };
+    range?: { min: number; max: number };
+    previouslyAttemptedKeys?: Set<string>;
+  } = {}
+): {
+  strictTargets: DiscoveryCandidate[];
+  capRecoveryTargets: DiscoveryCandidate[];
+  targets: DiscoveryCandidate[];
+  targetMetadata: Map<string, WeeklyMarketRecoveryTargetMetadata>;
+} {
   const strictTargets: DiscoveryCandidate[] = [];
   const capRecoveryTargets: DiscoveryCandidate[] = [];
   const seenCanonicalIds = new Set<string>();
@@ -9765,11 +9820,130 @@ function selectMarketShortfallHydrationTargetGroups(
     }
   }
 
+  const rankedTargets = rankMarketShortfallHydrationTargets({
+    strictTargets,
+    capRecoveryTargets,
+    currency,
+    activeVaultChases,
+    anchorProfileSignals,
+    selectionMode,
+    destination: options.destination,
+    range: options.range,
+    previouslyAttemptedKeys: options.previouslyAttemptedKeys ?? new Set<string>()
+  });
+
   return {
     strictTargets,
     capRecoveryTargets,
-    targets: [...strictTargets, ...capRecoveryTargets]
+    targets: rankedTargets.targets,
+    targetMetadata: rankedTargets.targetMetadata
   };
+}
+
+function rankMarketShortfallHydrationTargets(input: {
+  strictTargets: DiscoveryCandidate[];
+  capRecoveryTargets: DiscoveryCandidate[];
+  currency: SupportedCurrency;
+  activeVaultChases: Chase[];
+  anchorProfileSignals: Chase[];
+  selectionMode: WeeklyDiscoverySelectionMode;
+  destination?: { country?: string; postalCode?: string };
+  range?: { min: number; max: number };
+  previouslyAttemptedKeys: Set<string>;
+}): { targets: DiscoveryCandidate[]; targetMetadata: Map<string, WeeklyMarketRecoveryTargetMetadata> } {
+  const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(input.anchorProfileSignals);
+  const scored = [
+    ...input.strictTargets.map((candidate, index) => marketShortfallHydrationTargetScore(candidate, 'STRICT', index, input, collectorAnchorProfile)),
+    ...input.capRecoveryTargets.map((candidate, index) => marketShortfallHydrationTargetScore(candidate, 'CAP_RECOVERY', index + input.strictTargets.length, input, collectorAnchorProfile))
+  ].sort((left, right) => right.score - left.score || left.originalIndex - right.originalIndex);
+  const targetMetadata = new Map<string, WeeklyMarketRecoveryTargetMetadata>();
+  const targets = scored.map((entry, index) => {
+    targetMetadata.set(discoveryDisplayNameKey(entry.candidate.suggestion.name), {
+      rank: index + 1,
+      group: entry.group,
+      priorityReason: entry.reason,
+      previouslyAttempted: entry.previouslyAttempted
+    });
+    return entry.candidate;
+  });
+  return { targets, targetMetadata };
+}
+
+function marketShortfallHydrationTargetScore(
+  candidate: DiscoveryCandidate,
+  group: 'STRICT' | 'CAP_RECOVERY',
+  originalIndex: number,
+  input: {
+    currency: SupportedCurrency;
+    activeVaultChases: Chase[];
+    selectionMode: WeeklyDiscoverySelectionMode;
+    destination?: { country?: string; postalCode?: string };
+    range?: { min: number; max: number };
+    previouslyAttemptedKeys: Set<string>;
+  },
+  collectorAnchorProfile: WeeklyCollectorAnchorProfile
+): {
+  candidate: DiscoveryCandidate;
+  group: 'STRICT' | 'CAP_RECOVERY';
+  score: number;
+  reason: string;
+  originalIndex: number;
+  previouslyAttempted: boolean;
+} {
+  const key = discoveryDisplayNameKey(candidate.suggestion.name);
+  const previouslyAttempted = input.previouslyAttemptedKeys.has(key);
+  const marketSuggestion = discoveryMarketSuggestionForCandidate(candidate);
+  const cacheKey = discoveryMarketCacheKeyForSuggestion(marketSuggestion, input.currency, input.destination?.country, input.destination?.postalCode, input.range);
+  const cacheEntry = getDiscoveryMarketCache(cacheKey);
+  const hasReadyCache = discoveryMarketCacheCanBeAppliedToCandidate(cacheEntry, marketSuggestion, {
+    activeChases: input.activeVaultChases,
+    targetCurrency: input.currency,
+    range: input.range
+  });
+  const partialValue = marketRecoveryObservedValue(candidate, cacheEntry, input.currency);
+  const partialSampleCount = Math.max(candidate.soldSampleSize ?? 0, candidate.marketSampleSize ?? 0, cacheEntry?.soldSampleSize ?? 0, cacheEntry?.marketSampleSize ?? 0);
+  const belowFloor = partialValue !== undefined && partialValue < weeklyDiscoveryValueFloor(input.currency);
+  const recommendation = recommendationProfileForSelection(candidate, collectorAnchorProfile, input.selectionMode);
+  let score = 0;
+  if (hasReadyCache) score += 10_000;
+  if (group === 'STRICT') score += 1_000;
+  if (candidateHasTrustedPrintingReference(candidate, input.currency)) score += 250;
+  if (recommendation.strength === 'DIRECT_PROFILE') score += 300;
+  else if (recommendation.strength === 'STRONG_ADJACENT') score += 200;
+  else if (recommendation.strength === 'EXPLORATORY') score += 50;
+  else score -= 100;
+  if (partialValue !== undefined && !belowFloor) score += 450;
+  if (partialSampleCount > 0) score += Math.min(200, partialSampleCount * 40);
+  if (candidate.sourceStatus === 'PENDING' || candidate.sourceStatus === undefined) score += 75;
+  if (candidate.sourceStatus === 'ERROR' || candidate.sourceStatus === 'TIMEOUT' || candidate.sourceStatus === 'RATE_LIMITED') score -= 300;
+  if (belowFloor) score -= 1_250;
+  if (previouslyAttempted && !hasReadyCache) score -= 2_500;
+
+  const reason = hasReadyCache
+    ? 'ready_cache'
+    : belowFloor
+      ? 'partial_below_value_floor'
+      : partialSampleCount > 0
+        ? 'partial_market_signal'
+        : previouslyAttempted
+          ? 'previously_attempted_no_progress'
+          : candidate.sourceStatus === 'ERROR' || candidate.sourceStatus === 'TIMEOUT' || candidate.sourceStatus === 'RATE_LIMITED'
+            ? 'zero_signal_transient_status'
+            : 'unresolved_market_candidate';
+  return { candidate, group, score, reason, originalIndex, previouslyAttempted };
+}
+
+function marketRecoveryObservedValue(
+  candidate: DiscoveryCandidate,
+  cacheEntry: DiscoveryMarketCacheEntry | null,
+  targetCurrency: SupportedCurrency
+): number | undefined {
+  const candidateCurrency = candidate.displayCurrency ?? targetCurrency;
+  if (candidate.typicalRawSoldTotal !== undefined && (candidate.soldSampleSize ?? 0) > 0) return convertCurrencyAmount(candidate.typicalRawSoldTotal, candidateCurrency, targetCurrency);
+  if (candidate.typicalRawAskingTotal !== undefined && (candidate.marketSampleSize ?? 0) > 0) return convertCurrencyAmount(candidate.typicalRawAskingTotal, candidateCurrency, targetCurrency);
+  if (cacheEntry?.typicalRawSoldTotal !== undefined && (cacheEntry.soldSampleSize ?? 0) > 0) return convertCurrencyAmount(cacheEntry.typicalRawSoldTotal, cacheEntry.displayCurrency, targetCurrency);
+  if (cacheEntry?.typicalRawAskingTotal !== undefined && (cacheEntry.marketSampleSize ?? 0) > 0) return convertCurrencyAmount(cacheEntry.typicalRawAskingTotal, cacheEntry.displayCurrency, targetCurrency);
+  return undefined;
 }
 
 function weeklyMarketShortfallHydrationTargetLimit(marketResolvedShortfall: number): number {
@@ -10628,6 +10802,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     accumulatedCanonicalLookupEvidence,
     'initial-supply-readiness'
   );
+  const attemptedMarketRecoveryTargetKeys = new Set<string>();
   if (context.mode === 'LIVE') {
     persistWeeklyDiscoveryPreparedReserve(
       context.userId,
@@ -10664,7 +10839,12 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       recentDrops,
       activeVault,
       discoveryContext.tasteProfileChases,
-      profileContext.rankingMode
+      profileContext.rankingMode,
+      {
+        destination: marketContext.destination,
+        range: marketContext.range,
+        previouslyAttemptedKeys: attemptedMarketRecoveryTargetKeys
+      }
     );
     const targetLimit = weeklyMarketShortfallHydrationTargetLimit(supplyReadinessBeforeTopOff.marketResolvedShortfall);
     const marketShortfallTargets = targetGroups.targets.slice(0, targetLimit);
@@ -10709,6 +10889,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         candidateKeys: marketShortfallTargetKeys,
         forceHydrateMissingMarket: true,
         diagnostics: marketHydrationDiagnostics,
+        targetMetadata: targetGroups.targetMetadata,
         stopWhen: (nextCandidates) =>
           buildWeeklyDiscoverySupplyReadiness(
               prunePublicationImpossibleReserve(
@@ -10728,6 +10909,9 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
       });
+      for (const candidate of marketShortfallTargets) {
+        attemptedMarketRecoveryTargetKeys.add(discoveryDisplayNameKey(candidate.suggestion.name));
+      }
       const hydratedSanitizedReserve = sanitizeWeeklyDiscoveryReserve(candidateReserve, discoveryContext.settings.alertCurrency);
       const hydratedPruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(hydratedSanitizedReserve.length);
       candidateReserve = prunePublicationImpossibleReserve(
@@ -11033,10 +11217,21 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       recentDrops,
       activeVault,
       discoveryContext.tasteProfileChases,
-      profileContext.rankingMode
+      profileContext.rankingMode,
+      {
+        destination: marketContext.destination,
+        range: marketContext.range,
+        previouslyAttemptedKeys: attemptedMarketRecoveryTargetKeys
+      }
     );
     const targetLimit = weeklyMarketShortfallHydrationTargetLimit(supplyReadinessAfterTopOff.marketResolvedShortfall);
-    const marketShortfallTargets = targetGroups.targets.slice(0, targetLimit);
+    const marketShortfallTargets = targetGroups.targets
+      .filter((candidate) => {
+        if (topOffApplied) return true;
+        const metadata = targetGroups.targetMetadata.get(discoveryDisplayNameKey(candidate.suggestion.name));
+        return metadata?.previouslyAttempted !== true || metadata.priorityReason === 'ready_cache';
+      })
+      .slice(0, targetLimit);
     const marketShortfallTargetKeys = new Set(marketShortfallTargets.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
     const hydrationBudgetMs = remainingBlockingMarketRecoveryMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS);
     const canHydrateMarketShortfall = shouldRunWeeklyMarketShortfallHydration({
@@ -11078,6 +11273,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         candidateKeys: marketShortfallTargetKeys,
         forceHydrateMissingMarket: true,
         diagnostics: marketHydrationDiagnostics,
+        targetMetadata: targetGroups.targetMetadata,
         stopWhen: (nextCandidates) =>
           buildWeeklyDiscoverySupplyReadiness(
               prunePublicationImpossibleReserve(
@@ -11097,6 +11293,9 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
       });
+      for (const candidate of marketShortfallTargets) {
+        attemptedMarketRecoveryTargetKeys.add(discoveryDisplayNameKey(candidate.suggestion.name));
+      }
       const postHydrationSanitizedReserve = sanitizeWeeklyDiscoveryReserve(
         filterRegenerationExcludedCandidates(candidateReserve, regenerationExclusions),
         discoveryContext.settings.alertCurrency
