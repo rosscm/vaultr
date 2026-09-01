@@ -112,6 +112,26 @@ export type DiscoveryCandidate = {
   suggestion: DiscoverySuggestion;
   listing?: Listing;
   image?: DiscoveryCardImage;
+  catalogFacts?: {
+    source: LocalCardCatalogChoice['source'];
+    sourceCardId: string;
+    canonicalName: string;
+    setId?: string;
+    setName?: string;
+    translatedSetName?: string;
+    series?: string;
+    cardNumber?: string;
+    printedTotal?: string;
+    language: LocalCardCatalogChoice['language'];
+    rarity?: string;
+    isPromo?: boolean;
+    promoContext?: string;
+    releaseType?: string;
+    releaseEvent?: string;
+    releaseYear?: number;
+    imageUrl?: string;
+    imageSourceKind?: LocalCardCatalogChoice['imageSourceKind'];
+  };
   typicalRawAskingTotal?: number;
   marketSampleSize?: number;
   typicalRawSoldTotal?: number;
@@ -3843,6 +3863,45 @@ function hasHighSignalModernCollectorContextText(value: string): boolean {
   return /\b(?:special delivery|futsal|toys r us|classic collection|celebrations|mcdonald'?s|staff|winner|prerelease|stamped|stamp|exclusive|unique|odd(?:ball)? release|limited release|trainer gallery|galarian gallery|tag team|gold star|shining|crystal|munch|poncho|pokemon center|kanazawa|yokohama|sapporo)\b/.test(value);
 }
 
+function hasPremiumCatalogTreatment(candidate: DiscoveryCandidate): boolean {
+  const facts = candidate.catalogFacts;
+  if (!facts) return false;
+  return /\b(?:sar|sir|ar|ir|illustration|art rare|special illustration|secret|hyper|ultra|rainbow|gold star|shining|crystal|trainer gallery|galarian gallery|radiant collection|lv\.?\s*x|tag team|alt(?:ernate)? art|full art)\b/i.test([
+    facts.rarity,
+    facts.canonicalName,
+    facts.setName,
+    facts.translatedSetName,
+    facts.promoContext,
+    facts.releaseType,
+    facts.releaseEvent
+  ].filter(Boolean).join(' '));
+}
+
+function isOrdinaryModernCatalogPrinting(candidate: DiscoveryCandidate): boolean {
+  const facts = candidate.catalogFacts;
+  if (!facts) return false;
+  if (facts.isPromo || hasPremiumCatalogTreatment(candidate)) return false;
+  const setText = normalize([
+    facts.series,
+    facts.setId,
+    facts.setName,
+    facts.translatedSetName,
+    facts.releaseYear?.toString()
+  ].filter(Boolean).join(' '));
+  const isVintageExEra = /\b(?:ex ruby|ex sandstorm|ex dragon|ex team|ex deoxys|ex emerald|ex unseen|ex delta|ex legend|ex holon|ex crystal|ex power|ex hidden)\b/.test(setText)
+    || (!!facts.releaseYear && facts.releaseYear <= 2007);
+  if (isVintageExEra) return false;
+  const isModern = (!!facts.releaseYear && facts.releaseYear >= 2017)
+    || hasModernSetContextText(setText)
+    || /\b(?:sv|swsh|sm)\d*/.test(setText);
+  if (!isModern) return false;
+  const rarity = normalize(facts.rarity ?? '');
+  const hasOrdinaryRarity = !rarity
+    || /\b(?:common|uncommon|rare|holo rare|rare holo|double rare|rare ex|rare holo ex)\b/.test(rarity);
+  if (!hasOrdinaryRarity) return false;
+  return true;
+}
+
 function isLowValueModernCollectorStyleCandidate(candidate: DiscoveryCandidate): boolean {
   const marketTotal = discoveryMarketTotal(candidate);
   if (marketTotal === undefined || marketTotal >= 20) return false;
@@ -3872,7 +3931,8 @@ function isLowValueOrdinaryCollectorCard(candidate: DiscoveryCandidate): boolean
 }
 
 function isCollectorWorthyWeeklyCandidate(candidate: DiscoveryCandidate): boolean {
-  return !isLowValueModernFormatPromoCandidate(candidate)
+  return !isOrdinaryModernCatalogPrinting(candidate)
+    && !isLowValueModernFormatPromoCandidate(candidate)
     && !isLowValueModernCollectorStyleCandidate(candidate)
     && !isLowValueOrdinaryModernSetCandidate(candidate)
     && !isLowValueOrdinaryCollectorCard(candidate);
@@ -4232,6 +4292,7 @@ export const __discoveryPersistenceTestHooks = {
   reliableWeeklyDiscoveryMarketEstimate,
   repairExistingScheduledWeeklyDropReferences,
   finalizeWeeklyDiscoveryShelf,
+  isCollectorWorthyWeeklyCandidate,
   reconcileWeeklyReserveWithReliableMarketCache,
   collectLocalCatalogTopOffCandidates,
   preparedReserveCompatibilityReason,
@@ -6576,12 +6637,39 @@ function localCatalogReferenceSourceName(choice: LocalCardCatalogChoice): string
 }
 
 function localCatalogChoiceIsPromo(choice: LocalCardCatalogChoice): boolean {
+  if (choice.isPromo) return true;
   return /\bpromo|promos|promotional|black star|mcdonald|corocoro|special delivery|prerelease|winner|staff\b/i.test([
     choice.name,
     choice.value,
     choice.setName,
-    choice.translatedSetName
+    choice.translatedSetName,
+    choice.rarity,
+    choice.promoContext,
+    choice.releaseType,
+    choice.releaseEvent
   ].filter(Boolean).join(' '));
+}
+
+function localCatalogChoiceHasPremiumTreatment(choice: LocalCardCatalogChoice): boolean {
+  return /\b(?:sar|sir|ar|ir|illustration|art rare|special illustration|secret|hyper|ultra|rainbow|gold star|shining|crystal|trainer gallery|galarian gallery|radiant collection|lv\.?\s*x|tag team)\b/i.test([
+    choice.rarity,
+    choice.name,
+    choice.value,
+    choice.setName,
+    choice.translatedSetName,
+    choice.promoContext,
+    choice.releaseType,
+    choice.releaseEvent
+  ].filter(Boolean).join(' '));
+}
+
+function localCatalogChoiceLane(choice: LocalCardCatalogChoice, role: WeeklyDiscoveryRole): string {
+  if (role === 'CORE_MATCH') return 'Collector Compass';
+  if (localCatalogChoiceIsPromo(choice)) return 'Promo Trail';
+  if (choice.language === 'ja') return 'Japanese Collector Trail';
+  if (/\b(?:expedition|aquapolis|skyridge|e[- ]?reader)\b/i.test([choice.setName, choice.translatedSetName, choice.series].filter(Boolean).join(' '))) return 'E-Reader Era Trail';
+  if (localCatalogChoiceHasPremiumTreatment(choice)) return 'Artwork Trail';
+  return 'Adjacent Finds';
 }
 
 function localCatalogTopOffRole(choice: LocalCardCatalogChoice, profileChases: Chase[]): WeeklyDiscoveryRole {
@@ -6604,7 +6692,7 @@ function localCatalogTopOffRole(choice: LocalCardCatalogChoice, profileChases: C
     : undefined;
   if (subject && profileSubjects.has(subject)) return 'CORE_MATCH';
   if (subjectFamily && profileFamilies.has(subjectFamily)) return 'ADJACENT_DISCOVERY';
-  if (localCatalogChoiceIsPromo(choice) || choice.language === 'ja' || hasPremiumCollectorContextText([choice.value, choice.setName, choice.translatedSetName].filter(Boolean).join(' '))) {
+  if (localCatalogChoiceIsPromo(choice) || localCatalogChoiceHasPremiumTreatment(choice)) {
     return 'ADJACENT_DISCOVERY';
   }
   return 'CONTROLLED_EXPLORATION';
@@ -6618,21 +6706,27 @@ function localCatalogChoiceToDiscoveryCandidate(
   if (!choice.imageUrl || choice.imageSourceKind !== 'CARD_REFERENCE' || !choice.sourceCardId) return null;
   const sourceName = localCatalogReferenceSourceName(choice);
   if (!isAllowlistedCatalogueReferenceSource(sourceName) || isMarketplaceLikeImageUrl(choice.imageUrl)) return null;
+  if (isKnownNonFrontCardImageUrl(choice.imageUrl)) return null;
   const setName = choice.translatedSetName ?? choice.setName ?? 'Card';
   const language = choice.language === 'ja' ? 'JAPANESE' : 'ENGLISH';
   const role = localCatalogTopOffRole(choice, profileChases);
   const isPromo = localCatalogChoiceIsPromo(choice);
+  const hasPremiumTreatment = localCatalogChoiceHasPremiumTreatment(choice);
+  const lane = localCatalogChoiceLane(choice, role);
+  const anchorDetail = role === 'CORE_MATCH'
+    ? 'the same Pokemon'
+    : isPromo
+      ? 'promo or special-release traits'
+      : hasPremiumTreatment
+        ? 'premium print treatment'
+        : choice.language === 'ja'
+          ? 'Japanese catalog traits'
+          : 'nearby catalog traits';
   const suggestion: DiscoverySuggestion = {
     name: choice.value,
-    why: `${choice.name.split(' - ')[0]} fits a profile-backed catalog thread without depending on marketplace title guesses.`,
-    lane: role === 'CORE_MATCH'
-      ? 'Collector Compass'
-      : choice.language === 'ja'
-        ? 'Japanese Collector Trail'
-        : isPromo
-          ? 'Promo Trail'
-          : 'Artwork Trail',
-    laneWhy: `local catalog supplied ${choice.name.split(' - ')[0]} from ${setName}`,
+    why: `${choice.name.split(' - ')[0]} connects through ${anchorDetail}, with ${setName} and ${choice.cardNumber ?? choice.sourceCardId} confirming the exact printing.`,
+    lane,
+    laneWhy: `${setName}${choice.rarity ? ` ${choice.rarity}` : ''}${isPromo ? ' promo' : ''}`.replace(/\s+/g, ' ').trim(),
     nearby: [],
     referenceImageUrl: choice.imageUrl,
     referenceSourceName: sourceName,
@@ -6650,6 +6744,11 @@ function localCatalogChoiceToDiscoveryCandidate(
       choice.name,
       setName,
       choice.language === 'ja' ? 'japanese' : 'english',
+      choice.rarity,
+      choice.series,
+      choice.promoContext,
+      choice.releaseType,
+      choice.releaseEvent,
       isPromo ? 'promo' : undefined
     ].filter((value): value is string => !!value),
     canonicalReference: {
@@ -6675,6 +6774,26 @@ function localCatalogChoiceToDiscoveryCandidate(
     suggestion,
     selectionIndex,
     supplySource: 'TOP_OFF_LOCAL_CATALOG',
+    catalogFacts: {
+      source: choice.source,
+      sourceCardId: choice.sourceCardId,
+      canonicalName: choice.name,
+      setId: choice.setId,
+      setName: choice.setName,
+      translatedSetName: choice.translatedSetName,
+      series: choice.series,
+      cardNumber: choice.cardNumber,
+      printedTotal: choice.printedTotal,
+      language: choice.language,
+      rarity: choice.rarity,
+      isPromo: choice.isPromo,
+      promoContext: choice.promoContext,
+      releaseType: choice.releaseType,
+      releaseEvent: choice.releaseEvent,
+      releaseYear: choice.releaseYear,
+      imageUrl: choice.imageUrl,
+      imageSourceKind: choice.imageSourceKind
+    },
     image: {
       name: suggestion.name,
       url: choice.imageUrl,
@@ -7518,6 +7637,20 @@ function sourceCardSubject(candidate: DiscoveryCandidate, setLabel: string | und
 
 function sourceCardText(candidate: DiscoveryCandidate): string {
   return [
+    candidate.catalogFacts?.canonicalName,
+    candidate.catalogFacts?.setId,
+    candidate.catalogFacts?.setName,
+    candidate.catalogFacts?.translatedSetName,
+    candidate.catalogFacts?.series,
+    candidate.catalogFacts?.cardNumber,
+    candidate.catalogFacts?.printedTotal,
+    candidate.catalogFacts?.language,
+    candidate.catalogFacts?.rarity,
+    candidate.catalogFacts?.isPromo ? 'promo' : undefined,
+    candidate.catalogFacts?.promoContext,
+    candidate.catalogFacts?.releaseType,
+    candidate.catalogFacts?.releaseEvent,
+    candidate.catalogFacts?.releaseYear?.toString(),
     candidateCanonicalReference(candidate)?.canonicalName,
     candidateCanonicalReference(candidate)?.setName,
     candidateCanonicalReference(candidate)?.cardNumber,
@@ -8132,6 +8265,19 @@ function isMarketplaceLikeImageUrl(url: string | undefined): boolean {
   return !!url && /ebayimg|ebay\.|marketplace|bigcommerce|shopify|cdn\/shop|seller/i.test(url);
 }
 
+function isKnownNonFrontCardImageUrl(url: string | undefined): boolean {
+  if (!url) return true;
+  try {
+    const parsed = new URL(url);
+    const path = decodeURIComponent(`${parsed.hostname}${parsed.pathname}`).toLowerCase();
+    return /\b(?:card[-_ ]?back|back[-_ ]?card|reverse[-_ ]?side|placeholder|missing[-_ ]?image|no[-_ ]?image|default[-_ ]?card)\b/.test(path)
+      || /\/backs?\//.test(path);
+  } catch {
+    const normalized = url.toLowerCase();
+    return /\b(?:card[-_ ]?back|back[-_ ]?card|reverse[-_ ]?side|placeholder|missing[-_ ]?image|no[-_ ]?image|default[-_ ]?card)\b/.test(normalized);
+  }
+}
+
 function isAllowlistedCatalogueReferenceSource(sourceName: string | undefined): boolean {
   return !!sourceName && (
     /^Pokemon TCG(?:\s*\(|$)/i.test(sourceName)
@@ -8143,6 +8289,7 @@ function trustedCandidateReferenceImage(image: Partial<DiscoveryCardImage> | und
   if (!image?.url || !image.sourceName || !image.sourceCardId || image.sourceKind !== 'CARD_REFERENCE') return undefined;
   if (!isAllowlistedCatalogueReferenceSource(image.sourceName)) return undefined;
   if (isMarketplaceLikeSourceName(image.sourceName) || isMarketplaceLikeImageUrl(image.url)) return undefined;
+  if (isKnownNonFrontCardImageUrl(image.url)) return undefined;
   const referenceEntry: DiscoveryReferenceCacheEntry = {
     cacheKey: suggestion.name,
     suggestionName: suggestion.name,
@@ -8241,6 +8388,7 @@ function isTrustedSuggestionReferenceImage(candidate: DiscoveryCandidate): boole
     return true;
   }
   if (!candidate.suggestion.referenceImageUrl || !candidate.suggestion.referenceSourceName || !candidate.suggestion.referenceSourceCardId) return false;
+  if (isKnownNonFrontCardImageUrl(candidate.suggestion.referenceImageUrl)) return false;
   if (/^TCGdex Japanese(?:\s*\(|$)/i.test(candidate.suggestion.referenceSourceName)) {
     try {
       return new URL(candidate.suggestion.referenceImageUrl).hostname === 'assets.tcgdex.net';
@@ -9396,7 +9544,13 @@ function scheduledItemCanonicalId(item: ScheduledDiscoveryDropItem): string | un
 }
 
 function hasTrustedReferenceImage(item: ScheduledDiscoveryDropItem): boolean {
-  return !!item.imageUrl && !!item.imageSourceName && item.imageSourceKind === 'CARD_REFERENCE';
+  return !!item.imageUrl
+    && !!item.imageSourceName
+    && item.imageSourceKind === 'CARD_REFERENCE'
+    && isAllowlistedCatalogueReferenceSource(item.imageSourceName)
+    && !isMarketplaceLikeSourceName(item.imageSourceName)
+    && !isMarketplaceLikeImageUrl(item.imageUrl)
+    && !isKnownNonFrontCardImageUrl(item.imageUrl);
 }
 
 function hasProviderBackedScheduledDisplayName(item: ScheduledDiscoveryDropItem): boolean {

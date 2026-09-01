@@ -96,6 +96,14 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
     cardNumber: record.cardNumber,
     printedTotal: record.printedTotal,
     isUnnumbered: record.isUnnumbered,
+    rarity: record.rarity,
+    isPromo: record.isPromo,
+    promoContext: record.promoContext,
+    releaseType: record.releaseType,
+    releaseEvent: record.releaseEvent,
+    releaseYear: record.releaseYear,
+    setId: record.setId,
+    series: record.series,
     score
   };
 }

@@ -303,6 +303,9 @@ function aggregateTraits(evidence: CollectorProfileEvidence[]): CollectorInteres
 
   for (const item of evidence) {
     for (const [group, values] of Object.entries(item.extractedTraits) as Array<[CollectorProfileTraitGroup, string[] | undefined]>) {
+      const groupWeight = group === 'subjects' && (values?.length ?? 0) > 1
+        ? Number((item.weight / (values?.length ?? 1)).toFixed(3))
+        : item.weight;
       for (const value of values ?? []) {
         const key = traitKey(group, value);
         const existing = groups[group].get(key) ?? {
@@ -316,7 +319,7 @@ function aggregateTraits(evidence: CollectorProfileEvidence[]): CollectorInteres
           confidence: 'LOW' as const,
           evidenceIds: []
         };
-        existing.score = Number((existing.score + item.weight).toFixed(3));
+        existing.score = Number((existing.score + groupWeight).toFixed(3));
         existing.evidenceCount += 1;
         if (item.source === 'ACTIVE_CHASE') existing.activeEvidenceCount += 1;
         if (item.source === 'COMPLETED_CHASE') existing.completedEvidenceCount += 1;

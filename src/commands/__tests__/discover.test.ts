@@ -9628,6 +9628,46 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(1);
   });
 
+  it('keeps distinct canonical printings separate in Discovery market cache identity', () => {
+    const regular: DiscoveryCandidate['suggestion'] = {
+      name: 'Pichu Expedition Base Set 22',
+      lane: 'Test',
+      laneWhy: 'Test lane',
+      why: 'Test rationale',
+      nearby: [],
+      referenceSourceCardId: 'ex1-22',
+      canonicalReference: {
+        provider: 'POKEMONTCG',
+        sourceCardId: 'ex1-22',
+        canonicalCardId: 'ex1-22',
+        canonicalName: 'Pichu',
+        setName: 'Expedition Base Set',
+        cardNumber: '22',
+        language: 'ENGLISH' as const,
+        imageUrl: trustedReferenceImageUrl('Pokemon TCG (Expedition Base Set)', 'ex1-22'),
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    };
+    const otherPrinting: DiscoveryCandidate['suggestion'] = {
+      ...regular,
+      referenceSourceCardId: 'ex1-58',
+      canonicalReference: {
+        provider: 'POKEMONTCG',
+        sourceCardId: 'ex1-58',
+        canonicalCardId: 'ex1-58',
+        canonicalName: 'Pichu',
+        setName: 'Expedition Base Set',
+        cardNumber: '58',
+        language: 'ENGLISH' as const,
+        imageUrl: trustedReferenceImageUrl('Pokemon TCG (Expedition Base Set)', 'ex1-58'),
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    };
+
+    expect(discoveryMarketCacheKeyForSuggestion(regular, 'CAD', 'CA'))
+      .not.toBe(discoveryMarketCacheKeyForSuggestion(otherPrinting, 'CAD', 'CA'));
+  });
+
   it('does not let a high outlier listing bypass the weekly value floor when the reliable estimate stays low', () => {
     const outlier = {
       ...publishableCandidate('Outlier Card', 'outlier-card', 0),
@@ -9639,6 +9679,80 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([outlier, ...publishableShelfCandidates(20)], 'CAD', 20);
     expect(result.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(1);
+  });
+
+  it('does not let direct subject affinity or high market value rescue ordinary modern catalog printings', () => {
+    const ordinaryModern = {
+      ...publishableCandidate('Mew ex Scarlet & Violet 151 151', 'sv3pt5-151', 0),
+      typicalRawSoldTotal: 90,
+      soldSampleSize: 4,
+      catalogFacts: {
+        source: 'POKEMONTCG' as const,
+        sourceCardId: 'sv3pt5-151',
+        canonicalName: 'Mew ex',
+        setId: 'sv3pt5',
+        setName: 'Scarlet & Violet 151',
+        series: 'Scarlet & Violet',
+        cardNumber: '151',
+        language: 'en' as const,
+        rarity: 'Double Rare',
+        releaseYear: 2023,
+        imageUrl: trustedReferenceImageUrl('Pokemon TCG (Scarlet & Violet 151)', 'sv3pt5-151'),
+        imageSourceKind: 'CARD_REFERENCE' as const
+      }
+    };
+
+    expect(__discoveryPersistenceTestHooks.isCollectorWorthyWeeklyCandidate(ordinaryModern)).toBe(false);
+  });
+
+  it('keeps premium modern and vintage ex-era catalog printings collector-worthy', () => {
+    const premiumModern = {
+      ...publishableCandidate('Gardevoir ex Paldean Fates 233', 'sv4pt5-233', 0),
+      catalogFacts: {
+        source: 'POKEMONTCG' as const,
+        sourceCardId: 'sv4pt5-233',
+        canonicalName: 'Gardevoir ex',
+        setId: 'sv4pt5',
+        setName: 'Paldean Fates',
+        series: 'Scarlet & Violet',
+        cardNumber: '233',
+        language: 'en' as const,
+        rarity: 'Special Illustration Rare',
+        releaseYear: 2024,
+        imageUrl: trustedReferenceImageUrl('Pokemon TCG (Paldean Fates)', 'sv4pt5-233'),
+        imageSourceKind: 'CARD_REFERENCE' as const
+      }
+    };
+    const vintageExEra = {
+      ...publishableCandidate('Mew ex EX Legend Maker 88', 'ex12-88', 1),
+      catalogFacts: {
+        source: 'POKEMONTCG' as const,
+        sourceCardId: 'ex12-88',
+        canonicalName: 'Mew ex',
+        setId: 'ex12',
+        setName: 'EX Legend Maker',
+        series: 'EX',
+        cardNumber: '88',
+        language: 'en' as const,
+        rarity: 'Rare Holo EX',
+        releaseYear: 2006,
+        imageUrl: trustedReferenceImageUrl('Pokemon TCG (EX Legend Maker)', 'ex12-88'),
+        imageSourceKind: 'CARD_REFERENCE' as const
+      }
+    };
+
+    expect(__discoveryPersistenceTestHooks.isCollectorWorthyWeeklyCandidate(premiumModern)).toBe(true);
+    expect(__discoveryPersistenceTestHooks.isCollectorWorthyWeeklyCandidate(vintageExEra)).toBe(true);
+  });
+
+  it('rejects known card-back images even from trusted catalogue-shaped references', () => {
+    const imageUrl = trustedReferenceImageUrl('Pokemon TCG (backs)', 'backs-1');
+    const [item] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      publishableSourceCandidate('Card Back Image', 'backs-1', 'Pokemon TCG (backs)', 0)
+    ], 'CAD');
+
+    const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf([{ ...item!, imageUrl }], 1);
+    expect(failures.some((failure) => failure.code === 'BAD_IMAGE_PROVENANCE')).toBe(true);
   });
 
   it('does not replace the previous valid weekly shelf when validation fails', () => {

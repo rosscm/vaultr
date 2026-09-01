@@ -186,6 +186,7 @@ function normalizedAscii(value: string): string {
 
 function shadowCardNameText(candidate: DiscoveryCandidate): string {
   return [
+    candidate.catalogFacts?.canonicalName,
     candidate.weeklyDiscovery?.canonicalReference?.canonicalName,
     candidate.suggestion.canonicalReference?.canonicalName,
     candidate.suggestion.name
@@ -193,7 +194,8 @@ function shadowCardNameText(candidate: DiscoveryCandidate): string {
 }
 
 function trustedSourceName(candidate: DiscoveryCandidate): string | undefined {
-  return candidate.weeklyDiscovery?.canonicalReference?.provider
+  return candidate.catalogFacts?.source
+    ?? candidate.weeklyDiscovery?.canonicalReference?.provider
     ?? candidate.suggestion.canonicalReference?.provider
     ?? candidate.suggestion.referenceSourceName
     ?? candidate.image?.sourceName;
@@ -210,7 +212,9 @@ function setNameFromSourceName(sourceName: string | undefined): string | undefin
 
 function shadowSetNameFromCandidate(candidate: DiscoveryCandidate, cardName: string): string | undefined {
   const sourceSetName = setNameFromSourceName(candidate.suggestion.referenceSourceName);
-  return candidate.weeklyDiscovery?.canonicalReference?.setName
+  return candidate.catalogFacts?.translatedSetName
+    ?? candidate.catalogFacts?.setName
+    ?? candidate.weeklyDiscovery?.canonicalReference?.setName
     ?? candidate.suggestion.canonicalReference?.setName
     ?? sourceSetName
     ?? (/\bxy\s+black\s+star\s+promos?\b/i.test(cardName) ? 'XY Black Star Promos' : undefined)
@@ -223,6 +227,8 @@ function shadowSetNameFromCandidate(candidate: DiscoveryCandidate, cardName: str
 }
 
 function shadowLanguage(candidate: DiscoveryCandidate, cardName: string, sourceName: string | undefined): 'ENGLISH' | 'JAPANESE' | undefined {
+  if (candidate.catalogFacts?.language === 'ja') return 'JAPANESE';
+  if (candidate.catalogFacts?.language === 'en') return 'ENGLISH';
   const canonicalLanguage = candidate.weeklyDiscovery?.canonicalReference?.language ?? candidate.suggestion.canonicalReference?.language;
   if (canonicalLanguage) return canonicalLanguage;
   if (/[\u3040-\u30ff\u3400-\u9fff]/.test(cardName) || /\bjapanese\b/i.test(cardName)) return 'JAPANESE';
@@ -271,6 +277,17 @@ function shadowRarityTokens(text: string): string[] {
   return tiers;
 }
 
+function shadowCatalogRarityTokens(candidate: DiscoveryCandidate, text: string): string[] {
+  const source = [
+    candidate.catalogFacts?.rarity,
+    candidate.catalogFacts?.promoContext,
+    candidate.catalogFacts?.releaseType,
+    candidate.catalogFacts?.releaseEvent,
+    text
+  ].filter(Boolean).join(' ');
+  return shadowRarityTokens(source);
+}
+
 function shadowPromoTypes(text: string): string[] {
   const promoTypes: string[] = [];
   if (/\b(?:xy|sm)?\s*black\s+star\s+promos?\b|\bblack\s+star\b/i.test(text)) addUnique(promoTypes, 'black-star');
@@ -284,7 +301,7 @@ function shadowReleaseTypes(text: string): string[] {
   const releaseTypes: string[] = [];
   if (/\bjapanese\b|tcgdex japanese|[\u3040-\u30ff\u3400-\u9fff]/i.test(text)) addUnique(releaseTypes, 'japanese-release');
   if (/\bpromo|black star|corocoro|coro\s*coro|mcdonald'?s\b/i.test(text)) addUnique(releaseTypes, 'promo-release');
-  if (/\blimited|exclusive|anniversary|collection|corocoro|coro\s*coro|mcdonald'?s\b/i.test(text)) addUnique(releaseTypes, 'special-release');
+  if (/\bspecial release\b|\blimited|exclusive|anniversary|collection|corocoro|coro\s*coro|mcdonald'?s\b/i.test(text)) addUnique(releaseTypes, 'special-release');
   return releaseTypes;
 }
 
@@ -423,16 +440,27 @@ export function extractCollectorProfileDiscoveryFeatures(candidate: DiscoveryCan
   const cardName = shadowCardNameText(candidate);
   const setName = shadowSetNameFromCandidate(candidate, cardName);
   const sourceName = trustedSourceName(candidate);
-  const identityText = [cardName, setName, sourceName].filter(Boolean).join(' ');
+  const identityText = [
+    cardName,
+    setName,
+    sourceName,
+    candidate.catalogFacts?.series,
+    candidate.catalogFacts?.rarity,
+    candidate.catalogFacts?.language === 'ja' ? 'japanese' : candidate.catalogFacts?.language === 'en' ? 'english' : undefined,
+    candidate.catalogFacts?.promoContext,
+    candidate.catalogFacts?.releaseType,
+    candidate.catalogFacts?.releaseEvent,
+    candidate.catalogFacts?.isPromo ? 'promo' : undefined
+  ].filter(Boolean).join(' ');
   const sets: string[] = [];
   addUnique(sets, setName);
-  const rarityTiers = shadowRarityTokens(cardName);
+  const rarityTiers = shadowCatalogRarityTokens(candidate, cardName);
   const subjects = shadowSubjectsFromText(cardName);
   return {
     subjects,
     evolutionFamilies: collectorFamilyKeysForSubjects(subjects),
     artists: [],
-    eras: shadowEras(cardName, setName),
+    eras: shadowEras([cardName, candidate.catalogFacts?.series].filter(Boolean).join(' '), setName),
     sets,
     setFamilies: sets.map(rankerSetFamily).filter(Boolean),
     languages: [shadowLanguage(candidate, cardName, sourceName)].filter((value): value is 'ENGLISH' | 'JAPANESE' => !!value),

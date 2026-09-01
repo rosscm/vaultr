@@ -134,6 +134,24 @@ describe('collector interest profile', () => {
     expect(profile.traits.subjects[0]).toMatchObject({ label: 'Mew', score: 1.15, activeEvidenceCount: 0, completedEvidenceCount: 1 });
   });
 
+  it('splits one multi-subject card across component subjects instead of multiplying the observation', () => {
+    const profile = buildCollectorInterestProfile({
+      activeChases: [{
+        id: 'birds',
+        userId: 'u1',
+        cardName: 'Moltres & Zapdos & Articuno-GX SM210',
+        priority: 'NORMAL',
+        createdAt: '2026-01-01T00:00:00.000Z'
+      }],
+      completedChases: []
+    });
+
+    const scores = Object.fromEntries(profile.traits.subjects.map((trait) => [trait.label, trait.score]));
+    expect(scores.Moltres).toBeCloseTo(0.333, 3);
+    expect(scores.Zapdos).toBeCloseTo(0.333, 3);
+    expect(scores.Articuno).toBeCloseTo(0.333, 3);
+  });
+
   it('reinforces mixed active and completed traits while preserving distinct card identities', () => {
     const completed: CompletedChase[] = [{
       id: 'c1',
@@ -578,6 +596,36 @@ describe('collector interest profile', () => {
     expect(tagTeamFeatures.promoTypes).toContain('black-star');
     expect(exFeatures.sets).toContain('Legendary Treasures');
     expect(exFeatures.setFamilies).toContain('legendary treasures');
+  });
+
+  it('extracts ranker traits from structured catalog facts when available', () => {
+    const features = extractCollectorProfileDiscoveryFeatures(candidate('Plain Display Name', {
+      catalogFacts: {
+        source: 'TCGDEX',
+        sourceCardId: 'SV8a-212',
+        canonicalName: 'Sylveon ex',
+        setId: 'SV8a',
+        setName: 'Terastal Festival ex',
+        translatedSetName: 'Terastal Festival ex',
+        series: 'Scarlet & Violet',
+        cardNumber: '212',
+        language: 'ja',
+        rarity: 'SAR',
+        isPromo: false,
+        releaseType: 'special release',
+        releaseEvent: 'Terastal Festival',
+        releaseYear: 2024,
+        imageUrl: 'https://assets.tcgdex.net/ja/SV/SV8a/212/high.png',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    }));
+
+    expect(features.subjects).toEqual(['Sylveon']);
+    expect(features.languages).toEqual(['JAPANESE']);
+    expect(features.sets).toContain('Terastal Festival ex');
+    expect(features.eras).toContain('SV');
+    expect(features.rarityTiers).toContain('premium');
+    expect(features.releaseTypes).toEqual(expect.arrayContaining(['japanese-release', 'special-release']));
   });
 
   it('keeps generation rationale and taste tokens out of shadow intrinsic features', () => {

@@ -93,5 +93,13 @@ export type LocalCardCatalogChoice = {
   cardNumber?: string;
   printedTotal?: string;
   isUnnumbered?: boolean;
+  rarity?: string;
+  isPromo?: boolean;
+  promoContext?: string;
+  releaseType?: string;
+  releaseEvent?: string;
+  releaseYear?: number;
+  setId?: string;
+  series?: string;
   score: number;
 };
