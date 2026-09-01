@@ -65,6 +65,7 @@ import {
   type WeeklyDiscoveryCandidateOutcome,
   type WeeklyDiscoveryFinalizationInput,
   type WeeklyDiscoveryFinalizationResult,
+  type WeeklyDiscoveryRole,
   type WeeklyDiscoveryRankingMode
 } from '../services/weekly-discovery-ranking.js';
 import {
@@ -74,6 +75,8 @@ import {
   weeklyDiscoveryRankingModeForCollectorProfile
 } from '../services/collector-profile-ranking-adapter.js';
 import { getCollectorInterestProfile } from '../services/collector-profile.js';
+import { searchLocalCardCatalog } from '../services/card-catalog/search.js';
+import type { LocalCardCatalogChoice } from '../services/card-catalog/types.js';
 import { resolveSourceBackedDiscoveryCards, snapshotDiscoverySourceCatalogRuntimeStats, type DiscoverySourceCatalogRuntimeStats } from '../services/discovery-source-catalog.js';
 import {
   mergeCanonicalLookupEvidenceMaps,
@@ -126,6 +129,7 @@ type DiscoverySupplySource =
   | 'GLOBAL_UNIVERSE'
   | 'MARKET_CACHE'
   | 'TOP_OFF_SOURCE_CATALOG'
+  | 'TOP_OFF_LOCAL_CATALOG'
   | 'TOP_OFF_USER_UNIVERSE'
   | 'TOP_OFF_GLOBAL_UNIVERSE'
   | 'TOP_OFF_MARKET_CACHE'
@@ -3238,6 +3242,53 @@ function discoveryMarketCacheCanBeAppliedToCandidate(
   return true;
 }
 
+function reconcileWeeklyReserveWithReliableMarketCache(input: {
+  reserve: DiscoveryCandidate[];
+  currency: SupportedCurrency;
+  marketContext: {
+    activeChases: Chase[];
+    destination?: { country?: string; postalCode?: string };
+    targetCurrency: SupportedCurrency;
+    range?: { min: number; max: number };
+  };
+  recentDrops: ScheduledDiscoveryDrop[];
+  activeVault: Chase[];
+}): {
+  reserve: DiscoveryCandidate[];
+  adoptedCount: number;
+  prunedCount: number;
+  beforeReadyCount: number;
+  afterReadyCount: number;
+  pruneDiagnostics: WeeklyDiscoveryReservePruneDiagnostics;
+} {
+  const beforeReadyCount = input.reserve.filter((candidate) => candidateMarketStatus(candidate, input.currency) === 'READY').length;
+  const reconciled = input.reserve.map((candidate) => candidateWithFreshMarketCache(candidate, input.marketContext, {
+    forceApplyReliableCache: true
+  }));
+  const adoptedCount = reconciled.filter((candidate, index) =>
+    candidateMarketStatus(input.reserve[index]!, input.currency) !== 'READY'
+    && candidateMarketStatus(candidate, input.currency) === 'READY'
+  ).length;
+  const sanitized = sanitizeWeeklyDiscoveryReserve(reconciled, input.currency);
+  const pruneDiagnostics = emptyWeeklyDiscoveryReservePruneDiagnostics(sanitized.length);
+  const reserve = prunePublicationImpossibleReserve(
+    sanitized,
+    input.currency,
+    input.recentDrops,
+    input.activeVault,
+    pruneDiagnostics
+  );
+  const afterReadyCount = reserve.filter((candidate) => candidateMarketStatus(candidate, input.currency) === 'READY').length;
+  return {
+    reserve,
+    adoptedCount,
+    prunedCount: sanitized.length - reserve.length,
+    beforeReadyCount,
+    afterReadyCount,
+    pruneDiagnostics
+  };
+}
+
 function discoveryMarketCacheDiagnosticStatus(entry: DiscoveryMarketCacheEntry | null): WeeklyMarketHydrationTargetDiagnostic['cacheStatusBefore'] {
   if (!entry) return 'MISS';
   if (entry.sourceStatus === 'RATE_LIMITED' || entry.sourceStatus === 'TIMEOUT' || entry.sourceStatus === 'ERROR') return entry.sourceStatus;
@@ -4181,6 +4232,8 @@ export const __discoveryPersistenceTestHooks = {
   reliableWeeklyDiscoveryMarketEstimate,
   repairExistingScheduledWeeklyDropReferences,
   finalizeWeeklyDiscoveryShelf,
+  reconcileWeeklyReserveWithReliableMarketCache,
+  collectLocalCatalogTopOffCandidates,
   preparedReserveCompatibilityReason,
   selectMarketShortfallHydrationTargets,
   selectMarketShortfallHydrationTargetGroups,
@@ -6130,6 +6183,8 @@ function topOffCandidateSourcePriority(candidate: DiscoveryCandidate): number {
     case 'TOP_OFF_USER_UNIVERSE':
     case 'USER_UNIVERSE':
       return 32;
+    case 'TOP_OFF_LOCAL_CATALOG':
+      return 28;
     case 'TOP_OFF_SOURCE_CATALOG':
     case 'SOURCE_CATALOG':
       return 24;
@@ -6513,11 +6568,257 @@ function selectDeficitAwareTopOffCandidates(
   return selected;
 }
 
+function localCatalogReferenceSourceName(choice: LocalCardCatalogChoice): string {
+  const setName = choice.translatedSetName ?? choice.setName ?? 'Card';
+  return choice.language === 'ja'
+    ? `TCGdex Japanese (${setName})`
+    : `Pokemon TCG (${setName})`;
+}
+
+function localCatalogChoiceIsPromo(choice: LocalCardCatalogChoice): boolean {
+  return /\bpromo|promos|promotional|black star|mcdonald|corocoro|special delivery|prerelease|winner|staff\b/i.test([
+    choice.name,
+    choice.value,
+    choice.setName,
+    choice.translatedSetName
+  ].filter(Boolean).join(' '));
+}
+
+function localCatalogTopOffRole(choice: LocalCardCatalogChoice, profileChases: Chase[]): WeeklyDiscoveryRole {
+  const subject = normalizedSubjectIdentity(choice.name);
+  const profileSubjects = new Set(
+    positiveTasteSubjectChases(profileChases)
+      .flatMap(chaseSpecificSubjectTokens)
+      .map((token) => normalizedSubjectIdentity(token))
+      .filter((token): token is string => !!token)
+  );
+  const profileFamilies = new Set(
+    [...profileSubjects]
+      .flatMap((subjectKey) => {
+        const family = EVOLUTION_FAMILY_GROUPS.find((group) => subjectKey.split(/\s+/).some((token) => group.includes(token)));
+        return family?.[0] ? [family[0]] : [];
+      })
+  );
+  const subjectFamily = subject
+    ? EVOLUTION_FAMILY_GROUPS.find((group) => subject.split(/\s+/).some((token) => group.includes(token)))?.[0]
+    : undefined;
+  if (subject && profileSubjects.has(subject)) return 'CORE_MATCH';
+  if (subjectFamily && profileFamilies.has(subjectFamily)) return 'ADJACENT_DISCOVERY';
+  if (localCatalogChoiceIsPromo(choice) || choice.language === 'ja' || hasPremiumCollectorContextText([choice.value, choice.setName, choice.translatedSetName].filter(Boolean).join(' '))) {
+    return 'ADJACENT_DISCOVERY';
+  }
+  return 'CONTROLLED_EXPLORATION';
+}
+
+function localCatalogChoiceToDiscoveryCandidate(
+  choice: LocalCardCatalogChoice,
+  selectionIndex: number,
+  profileChases: Chase[]
+): DiscoveryCandidate | null {
+  if (!choice.imageUrl || choice.imageSourceKind !== 'CARD_REFERENCE' || !choice.sourceCardId) return null;
+  const sourceName = localCatalogReferenceSourceName(choice);
+  if (!isAllowlistedCatalogueReferenceSource(sourceName) || isMarketplaceLikeImageUrl(choice.imageUrl)) return null;
+  const setName = choice.translatedSetName ?? choice.setName ?? 'Card';
+  const language = choice.language === 'ja' ? 'JAPANESE' : 'ENGLISH';
+  const role = localCatalogTopOffRole(choice, profileChases);
+  const isPromo = localCatalogChoiceIsPromo(choice);
+  const suggestion: DiscoverySuggestion = {
+    name: choice.value,
+    why: `${choice.name.split(' - ')[0]} fits a profile-backed catalog thread without depending on marketplace title guesses.`,
+    lane: role === 'CORE_MATCH'
+      ? 'Collector Compass'
+      : choice.language === 'ja'
+        ? 'Japanese Collector Trail'
+        : isPromo
+          ? 'Promo Trail'
+          : 'Artwork Trail',
+    laneWhy: `local catalog supplied ${choice.name.split(' - ')[0]} from ${setName}`,
+    nearby: [],
+    referenceImageUrl: choice.imageUrl,
+    referenceSourceName: sourceName,
+    referenceSourceCardId: choice.sourceCardId,
+    evidenceSearchTerm: [
+      choice.name,
+      setName,
+      choice.cardNumber,
+      language === 'JAPANESE' ? 'Japanese' : undefined,
+      'Pokemon card'
+    ].filter(Boolean).join(' '),
+    evidenceAliases: [choice.value, choice.name].filter((value, index, values) => values.indexOf(value) === index),
+    requiredEvidenceTokens: [choice.name, setName, choice.cardNumber].filter((value): value is string => !!value),
+    sourceTasteTokens: [
+      choice.name,
+      setName,
+      choice.language === 'ja' ? 'japanese' : 'english',
+      isPromo ? 'promo' : undefined
+    ].filter((value): value is string => !!value),
+    canonicalReference: {
+      provider: choice.source,
+      sourceCardId: choice.sourceCardId,
+      canonicalCardId: choice.sourceCardId,
+      canonicalName: choice.name,
+      setName,
+      cardNumber: choice.cardNumber ?? choice.sourceCardId,
+      language,
+      imageUrl: choice.imageUrl,
+      imageSourceKind: 'CARD_REFERENCE'
+    },
+    generationStrategies: [role === 'CORE_MATCH' ? 'CORE_AFFINITY' : role === 'ADJACENT_DISCOVERY' ? 'ADJACENT_DISCOVERY' : 'CONTROLLED_EXPLORATION'],
+    generationReasons: [{
+      code: role === 'CORE_MATCH' ? 'DIRECT_SUBJECT_MATCH' : choice.language === 'ja' ? 'LANGUAGE_MATCH' : isPromo ? 'PROMO_MATCH' : 'UNDERREPRESENTED_TRAIT',
+      weight: 1,
+      detail: 'trusted local catalog top-off'
+    }],
+    discoveryRole: role
+  };
+  const baseCandidate: DiscoveryCandidate = {
+    suggestion,
+    selectionIndex,
+    supplySource: 'TOP_OFF_LOCAL_CATALOG',
+    image: {
+      name: suggestion.name,
+      url: choice.imageUrl,
+      sourceName,
+      sourceCardId: choice.sourceCardId,
+      sourceKind: 'CARD_REFERENCE'
+    },
+    weeklyDiscovery: {
+      canonicalReference: suggestion.canonicalReference!,
+      features: {
+        subjects: [],
+        evolutionFamilies: [],
+        artists: [],
+        eras: [],
+        sets: [],
+        setFamilies: [],
+        languages: [language],
+        formats: [],
+        rarityTiers: [],
+        artTiers: [],
+        promoTypes: isPromo ? ['promo'] : [],
+        releaseTypes: isPromo ? ['promo'] : [],
+        aestheticTags: [],
+        sceneTags: [],
+        themeTags: []
+      },
+      generationStrategies: suggestion.generationStrategies!,
+      generationReasons: suggestion.generationReasons!,
+      discoveryRole: role,
+      rankExplanation: {
+        strongestSignals: ['trusted local catalog top-off'],
+        noveltyReason: 'adds catalog-backed reserve depth',
+        discoveryRole: role,
+        scoreComponents: {
+          personalRelevance: {
+            subjectAffinity: role === 'CORE_MATCH' ? 1 : 0,
+            familyAffinity: role === 'ADJACENT_DISCOVERY' ? 0.5 : 0,
+            artistAffinity: 0,
+            eraAffinity: 0,
+            setAffinity: 0,
+            promoAffinity: isPromo ? 0.5 : 0,
+            languageAffinity: language === 'JAPANESE' ? 0.3 : 0,
+            formatAffinity: 0,
+            artTierAffinity: 0,
+            aestheticAffinity: 0,
+            patternAffinity: 0,
+            feedbackAffinity: 0
+          },
+          discoveryValue: {
+            novelty: 0.4,
+            adjacency: role === 'CONTROLLED_EXPLORATION' ? 0.2 : 0.6,
+            serendipity: role === 'CONTROLLED_EXPLORATION' ? 0.5 : 0.2,
+            underrepresentedTraitCoverage: 0.5
+          },
+          marketSuitability: {
+            estimateConfidence: 0,
+            availabilityConfidence: 0,
+            valueFloorPass: true,
+            marketResolved: false,
+            shoppable: false
+          },
+          baseScore: 0,
+          slateScore: 0
+        }
+      },
+      stableTieBreaker: choice.sourceCardId
+    }
+  };
+  return {
+    ...baseCandidate,
+    weeklyDiscovery: {
+      ...baseCandidate.weeklyDiscovery!,
+      features: extractCollectorProfileDiscoveryFeatures(baseCandidate)
+    }
+  };
+}
+
+function localCatalogTopOffQueries(profileChases: Chase[], readiness: WeeklyDiscoverySupplyReadiness): string[] {
+  const queries: string[] = [];
+  const push = (value: string | undefined) => {
+    const normalizedValue = value?.replace(/\s+/g, ' ').trim();
+    if (normalizedValue && !queries.some((query) => discoveryDisplayNameKey(query) === discoveryDisplayNameKey(normalizedValue))) queries.push(normalizedValue);
+  };
+  const selectedSubjects = readiness.selectedSubjectCounts ?? {};
+  const selectedFamilies = readiness.selectedFamilyCounts ?? {};
+  for (const chase of positiveTasteSubjectChases(profileChases).slice(0, 16)) {
+    const subjects = chaseSpecificSubjectTokens(chase).slice(0, 3);
+    const setLabel = setHintForPrinting(chase.cardName) ?? chaseSpecialSetLabel(chase);
+    for (const subject of subjects) {
+      const subjectKey = normalizedSubjectIdentity(subject);
+      if (!subjectKey || (selectedSubjects[subjectKey] ?? 0) < WEEKLY_DISCOVERY_SUBJECT_CAP) {
+        push(`${subject} promo`);
+        push(`${subject} illustration rare`);
+        if (setLabel) push(`${subject} ${setLabel}`);
+        if (hasJapaneseWeightedProfile(profileChases)) push(`${subject} Japanese`);
+      }
+      for (const family of EVOLUTION_FAMILY_GROUPS) {
+        if (!subjectKey || !family.includes(subjectKey)) continue;
+        const familyKey = family[0];
+        if ((selectedFamilies[familyKey] ?? 0) >= WEEKLY_DISCOVERY_FAMILY_CAP) continue;
+        for (const sibling of family.filter((member) => member !== subjectKey).slice(0, 4)) {
+          push(`${sibling} ${setLabel ?? 'promo'}`);
+        }
+      }
+    }
+  }
+  return queries.slice(0, 48);
+}
+
+function collectLocalCatalogTopOffCandidates(input: {
+  profileChases: Chase[];
+  readiness: WeeklyDiscoverySupplyReadiness;
+  selectionIndexStart: number;
+  limit?: number;
+}): { candidates: DiscoveryCandidate[]; recordsConsidered: number; queryCount: number } {
+  const choices: LocalCardCatalogChoice[] = [];
+  const seenChoiceKeys = new Set<string>();
+  const queries = localCatalogTopOffQueries(input.profileChases, input.readiness);
+  for (const query of queries) {
+    for (const choice of searchLocalCardCatalog(query, 8)) {
+      const key = `${choice.source}:${choice.sourceCardId}:${choice.language}`;
+      if (seenChoiceKeys.has(key)) continue;
+      seenChoiceKeys.add(key);
+      choices.push(choice);
+      if (choices.length >= (input.limit ?? 160)) break;
+    }
+    if (choices.length >= (input.limit ?? 160)) break;
+  }
+  const candidates = choices
+    .map((choice, index) => localCatalogChoiceToDiscoveryCandidate(choice, input.selectionIndexStart + index, input.profileChases))
+    .filter((candidate): candidate is DiscoveryCandidate => !!candidate);
+  return {
+    candidates,
+    recordsConsidered: choices.length,
+    queryCount: queries.length
+  };
+}
+
 async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   userId: string;
   discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>>;
   currentReserve: DiscoveryCandidate[];
   readiness: WeeklyDiscoverySupplyReadiness;
+  collectorProfile: CollectorTasteProfile;
   recentDrops: ScheduledDiscoveryDrop[];
   weeklyPeriod: string;
   deadlineAtMs?: number;
@@ -6533,6 +6834,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   freshExcludedNames: string[];
   regenerationExclusions: WeeklyDiscoveryRegenerationExclusions;
   skipSourceCatalogFetch: boolean;
+  deferMarketHydration?: boolean;
   selectionMode?: WeeklyDiscoverySelectionMode;
 }): Promise<{
   candidates: DiscoveryCandidate[];
@@ -6549,6 +6851,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     freshExcludedNames,
     regenerationExclusions,
     skipSourceCatalogFetch,
+    deferMarketHydration,
     weeklyPeriod,
     deadlineAtMs,
     abortSignal
@@ -6607,7 +6910,97 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     deadlineAtMs,
     DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS + DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS
   );
-  const sourceBackedParents = skipSourceCatalogFetch || !canRunSourceCatalogTopOff
+  const canRunLocalCatalogTopOff = !skipSourceCatalogFetch && canRunSourceCatalogTopOff;
+  const localCatalogCollected = canRunLocalCatalogTopOff
+    ? collectLocalCatalogTopOffCandidates({
+      profileChases: discovery.tasteProfileChases,
+      readiness,
+      selectionIndexStart: currentReserve.length + rawUserUniverseCandidates.length + rawGlobalUniverseCandidates.length,
+      limit: 160
+    })
+    : { candidates: [], recordsConsidered: 0, queryCount: 0 };
+  const localCatalogMarketBackedCandidates = candidatesFromDiscoveryMarketCache(localCatalogCollected.candidates, {
+    ...marketContext,
+    forceRefreshMissingSignal: false,
+    forceRefreshThinSignal: false,
+    queueRefreshes: false
+  });
+  const localCatalogDiagnostics = emptyTopOffViabilityDiagnostics();
+  const localCatalogSelected = selectDeficitAwareTopOffCandidates(
+    localCatalogMarketBackedCandidates,
+    readiness,
+    discovery.tasteProfileChases,
+    discovery.chases,
+    discovery.settings.alertCurrency,
+    discovery.negativeProfile,
+    recentDrops,
+    Math.max(targetCount * 3, 48),
+    localCatalogDiagnostics,
+    input.selectionMode ?? 'LEGACY'
+  );
+  const localCatalogMergedReserve = prunePublicationImpossibleReserve(
+    sanitizeWeeklyDiscoveryReserve(
+      filterRegenerationExcludedCandidates(uniqueTopOffCandidatesByIdentity([
+        ...currentReserve,
+        ...localCatalogSelected
+      ]), regenerationExclusions),
+      discovery.settings.alertCurrency
+    ),
+    discovery.settings.alertCurrency,
+    recentDrops,
+    discovery.chases
+  );
+  const localCatalogReadiness = buildWeeklyDiscoverySupplyReadiness(
+    localCatalogMergedReserve,
+    input.collectorProfile,
+    discovery.settings.alertCurrency,
+    recentDrops,
+    discovery.chases,
+    {
+      rawGeneratedSuggestions: 0,
+      sourceBackedSuggestions: localCatalogSelected.length,
+      globalUniverseConsidered: rawGlobalUniverseCandidates.length,
+      userUniverseConsidered: rawUserUniverseCandidates.length,
+      deduplicatedCandidates: localCatalogMergedReserve.length
+    },
+    discovery.tasteProfileChases,
+    input.selectionMode ?? 'LEGACY'
+  );
+  const externalSourceCatalogRequired = shouldRunWeeklyDiscoverySourceTopOff(localCatalogReadiness);
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId,
+    weeklyPeriod,
+    stage: 'topoff-local-catalog',
+    status: 'SUCCESS',
+    inputCount: localCatalogCollected.queryCount,
+    outputCount: localCatalogSelected.length,
+    counters: {
+      recordsConsidered: localCatalogCollected.recordsConsidered,
+      canonicalCandidatesProduced: localCatalogCollected.candidates.length,
+      rejectedNotDisplayable: localCatalogDiagnostics.rejectionCounts.NOT_DISPLAYABLE,
+      rejectedNotCollectorWorthy: localCatalogDiagnostics.rejectionCounts.NOT_COLLECTOR_WORTHY,
+      rejectedActiveChaseEcho: localCatalogDiagnostics.rejectionCounts.ACTIVE_CHASE_ECHO,
+      rejectedUntrustedReference: localCatalogDiagnostics.rejectionCounts.UNTRUSTED_REFERENCE,
+      rejectedParallelPrint: localCatalogDiagnostics.rejectionCounts.VAULT_PARALLEL_PRINT,
+      rejectedMissingCanonicalId: localCatalogDiagnostics.rejectionCounts.MISSING_CANONICAL_ID,
+      rejectedExactRepeat: localCatalogDiagnostics.rejectionCounts.EXACT_REPEAT_COOLDOWN,
+      rejectedSaturatedSubject: localCatalogDiagnostics.rejectionCounts.SATURATED_SUBJECT_CAP,
+      rejectedSaturatedFamily: localCatalogDiagnostics.rejectionCounts.SATURATED_FAMILY_CAP,
+      rejectedSaturatedFormat: localCatalogDiagnostics.rejectionCounts.SATURATED_FORMAT_CAP,
+      rejectedSaturatedLane: localCatalogDiagnostics.rejectionCounts.SATURATED_LANE_CAP,
+      rejectedSaturatedEraSetFamily: localCatalogDiagnostics.rejectionCounts.SATURATED_ERA_SET_FAMILY_CAP,
+      rejectedWeakRecommendation: localCatalogDiagnostics.rejectionCounts.WEAK_RECOMMENDATION,
+      rejectedBelowValueFloor: localCatalogDiagnostics.rejectionCounts.BELOW_CHASE_VALUE_FLOOR,
+      postCapSelectable: localCatalogReadiness.postCapSelectableCount,
+      postCapMarketReady: localCatalogReadiness.postCapMarketReadyCount,
+      projectedSelected: localCatalogReadiness.projectedSelectedCount,
+      projectedMarketResolved: localCatalogReadiness.projectedMarketResolvedCount,
+      externalSourceCatalogRequired
+    }
+  });
+
+  const sourceBackedParents = skipSourceCatalogFetch || !canRunSourceCatalogTopOff || !externalSourceCatalogRequired
     ? []
     : selectDiverseTopOffSourceParents(
       prioritizeTopOffSourceParents(
@@ -6682,7 +7075,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   const rawSourceCandidates = uniqueSourceBackedSuggestions
     .map((suggestion, index) => tasteOnlyCandidate(
       suggestion,
-      currentReserve.length + rawUserUniverseCandidates.length + rawGlobalUniverseCandidates.length + index,
+      currentReserve.length + rawUserUniverseCandidates.length + rawGlobalUniverseCandidates.length + localCatalogSelected.length + index,
       'TOP_OFF_SOURCE_CATALOG'
     ));
 
@@ -6705,6 +7098,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   ).slice(0, Math.max(targetCount * 2, 24));
   const rawTopOffCandidates = filterRegenerationExcludedCandidates(sanitizePreCanonicalTopOffCandidates(uniqueTopOffCandidatesByIdentity([
     ...rawSourceCandidates,
+    ...localCatalogSelected,
     ...boundedUniverseBackfill
   ]), discovery.settings.alertCurrency), regenerationExclusions).filter((candidate) => !existingKeys.has(topOffCandidateKey(candidate)));
 
@@ -6737,6 +7131,11 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     counters: {
       rawSourceCatalogSuggestions: sourceBackedSuggestions.length,
       uniqueSourceCatalogSuggestions: uniqueSourceBackedSuggestions.length,
+      localCatalogQueries: localCatalogCollected.queryCount,
+      localCatalogRecordsConsidered: localCatalogCollected.recordsConsidered,
+      localCatalogCandidates: localCatalogCollected.candidates.length,
+      localCatalogSelected: localCatalogSelected.length,
+      externalSourceCatalogRequired,
       sourceCatalogCandidates: rawSourceCandidates.length,
       deduplicatedTopOffCandidates: rawTopOffCandidates.length,
       timedOutSourceCatalog: sourceTopOffTimedOut,
@@ -6773,7 +7172,8 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     })}`);
   }
   const hydrationTarget = prioritizedTopOff.slice(0, Math.min(36, Math.max(12, targetCount * 2)));
-  const shouldHydrateTopOffMarket = hydrationTarget.length >= Math.min(6, Math.max(3, readiness.marketResolvedShortfall));
+  const shouldHydrateTopOffMarket = !deferMarketHydration
+    && hydrationTarget.length >= Math.min(6, Math.max(3, readiness.marketResolvedShortfall));
   const hydratedPriority = shouldHydrateTopOffMarket
     ? await runWeeklyDiscoveryStage({
       userId,
@@ -10786,6 +11186,30 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     initialPruneDiagnostics
   );
   logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'initial-reserve-prune', initialPruneDiagnostics);
+  const localCacheReconciliation = reconcileWeeklyReserveWithReliableMarketCache({
+    reserve: candidateReserve,
+    currency: discoveryContext.settings.alertCurrency,
+    marketContext,
+    recentDrops,
+    activeVault
+  });
+  candidateReserve = localCacheReconciliation.reserve;
+  logWeeklyDiscoveryReservePruneDiagnostics(context.userId, weeklyPeriod, 'local-market-cache-reconcile-prune', localCacheReconciliation.pruneDiagnostics);
+  logWeeklyDiscoveryStage({
+    event: 'WEEKLY_DISCOVERY_STAGE',
+    userId: context.userId,
+    weeklyPeriod,
+    stage: 'local-market-cache-reconcile',
+    status: 'SUCCESS',
+    inputCount: initialPruneDiagnostics.outputCount,
+    outputCount: candidateReserve.length,
+    counters: {
+      adoptedReadyCache: localCacheReconciliation.adoptedCount,
+      prunedAfterAdoption: localCacheReconciliation.prunedCount,
+      readyBefore: localCacheReconciliation.beforeReadyCount,
+      readyAfter: localCacheReconciliation.afterReadyCount
+    }
+  });
   throwIfAborted(context.abortSignal);
   let supplyReadinessBeforeTopOff = buildWeeklyDiscoverySupplyReadiness(
     candidateReserve,
@@ -11024,7 +11448,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   let topOffApplied = false;
   let finalStageCounts = baseStageCounts;
   const shouldRunSourceTopOff = shouldRunWeeklyDiscoverySourceTopOff(supplyReadinessBeforeTopOff);
-  if (discoveryContext.hasFullDiscovery && shouldRunSourceTopOff && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
+  if (discoveryContext.hasFullDiscovery && shouldRunSourceTopOff && !deferExpensiveHydration && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const topOff = await runWeeklyDiscoveryStage({
       userId: context.userId,
       weeklyPeriod,
@@ -11050,6 +11474,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       } as Awaited<ReturnType<typeof discoverCandidatesForUser>>,
       currentReserve: candidateReserve,
       readiness: supplyReadinessBeforeTopOff,
+      collectorProfile: profileContext.collectorProfile,
       recentDrops,
       weeklyPeriod,
       deadlineAtMs,
@@ -11061,6 +11486,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       repeatGuardChases,
       freshExcludedNames,
       regenerationExclusions,
+      deferMarketHydration: deferExpensiveHydration,
       skipSourceCatalogFetch: deferExpensiveHydration
         && supplyReadinessBeforeTopOff.selectedShortfall === 0
         && supplyReadinessBeforeTopOff.marketResolvedShortfall === 0,
@@ -11189,7 +11615,9 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       counters: {
         reason: !shouldRunSourceTopOff
           ? 'local_supply_sufficient_for_market_recovery'
-          : 'insufficient_deadline_budget',
+          : deferExpensiveHydration
+            ? 'deferred_expensive_hydration'
+            : 'insufficient_deadline_budget',
         canonicalTrusted: supplyReadinessBeforeTopOff.canonicalReserveCount,
         hardEligible: supplyReadinessBeforeTopOff.hardEligibleReserveCount,
         postCapSelectable: supplyReadinessBeforeTopOff.postCapSelectableCount,

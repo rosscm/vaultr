@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -73,6 +74,8 @@ import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscov
 import * as discoveryReferenceCacheService from '../../services/discovery-reference-cache.js';
 import type { DiscoveryReferenceCacheEntry } from '../../services/discovery-reference-cache.js';
 import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
+import { replaceCardCatalogSourceRecords } from '../../services/card-catalog-db.js';
+import type { CardCatalogRecord } from '../../services/card-catalog/types.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
 import {
@@ -102,6 +105,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   delete process.env.DISCOVERY_DEBUG_FINALIZATION_INPUT_OUT;
+  delete process.env.CARD_CATALOG_PATH;
 });
 
 function trustedReferenceImageUrl(sourceName: string, sourceCardId: string): string {
@@ -407,6 +411,27 @@ function publishableSourceCandidate(name: string, canonicalId: string, sourceNam
 
 function discoveryDisplayNameKeyForTest(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function testCatalogRecord(overrides: Partial<CardCatalogRecord> & { sourceCardId: string; name: string; setName: string; cardNumber: string }): CardCatalogRecord {
+  const normalizedName = discoveryDisplayNameKeyForTest(overrides.name);
+  const normalizedSetName = discoveryDisplayNameKeyForTest(overrides.setName);
+  return {
+    source: 'POKEMONTCG',
+    language: 'en',
+    isPromo: false,
+    importedAt: '2026-08-31T00:00:00.000Z',
+    normalizedName,
+    normalizedSetName,
+    normalizedCardNumber: overrides.cardNumber.toLowerCase(),
+    printedTotal: overrides.printedTotal,
+    imageUrl: trustedReferenceImageUrl(`Pokemon TCG (${overrides.setName})`, overrides.sourceCardId),
+    ...overrides,
+    aliases: [
+      { alias: overrides.name, normalizedAlias: normalizedName, kind: 'display_name' },
+      ...(overrides.aliases ?? [])
+    ]
+  };
 }
 
 function publishableShelfCandidates(count: number, overrides?: (candidate: DiscoveryCandidate, index: number) => DiscoveryCandidate): DiscoveryCandidate[] {
@@ -6684,6 +6709,128 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(groups.targets[0]?.suggestion.name).toBe('Mew Attempted Ready Cache Target');
     expect(groups.targetMetadata.get(discoveryDisplayNameKeyForTest(attempted.suggestion.name))?.priorityReason).toBe('ready_cache');
     deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('reconciles reliable below-floor READY cache before market target allocation', () => {
+    const candidate = {
+      ...publishableSourceCandidate('Dark Vaporeon Team Rocket 45', 'base5-45', 'Pokemon TCG (Team Rocket)', 0),
+      sourceStatus: 'ERROR' as const,
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined,
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined
+    };
+    const cacheKey = discoveryMarketCacheKeyForSuggestion(candidate.suggestion, 'CAD', undefined, undefined, undefined);
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: candidate.suggestion.name,
+      displayCurrency: 'CAD',
+      typicalRawSoldTotal: 18,
+      soldSampleSize: 3
+    });
+
+    const reconciled = __discoveryPersistenceTestHooks.reconcileWeeklyReserveWithReliableMarketCache({
+      reserve: [candidate],
+      currency: 'CAD',
+      marketContext: {
+        activeChases: [],
+        targetCurrency: 'CAD'
+      },
+      recentDrops: [],
+      activeVault: []
+    });
+    const targets = __discoveryPersistenceTestHooks.selectMarketShortfallHydrationTargetGroups(
+      reconciled.reserve,
+      'CAD',
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+
+    expect(reconciled.adoptedCount).toBe(1);
+    expect(reconciled.pruneDiagnostics.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(1);
+    expect(reconciled.reserve).toHaveLength(0);
+    expect(targets.targets).toHaveLength(0);
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('builds trusted local catalog top-off candidates from bounded profile queries', () => {
+    const dbPath = resolve(mkdtempSync(`${tmpdir()}/vaultr-discover-catalog-`), 'card-catalog.db');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      testCatalogRecord({
+        sourceCardId: 'dp3-7',
+        name: 'Mew',
+        setName: 'Secret Wonders',
+        cardNumber: '7',
+        printedTotal: '132'
+      }),
+      testCatalogRecord({
+        sourceCardId: 'swsh11tg-tg16',
+        name: 'Pikachu V',
+        setName: 'Lost Origin Trainer Gallery',
+        cardNumber: 'TG16',
+        printedTotal: 'TG30',
+        rarity: 'Trainer Gallery'
+      })
+    ]);
+    const readiness = {
+      selectedSubjectCounts: {},
+      selectedFamilyCounts: {}
+    };
+
+    const collected = __discoveryPersistenceTestHooks.collectLocalCatalogTopOffCandidates({
+      profileChases: [chase('Mew Expedition Base Set 55', 0), chase('Pikachu Skyridge 84', 1)],
+      readiness,
+      selectionIndexStart: 10,
+      limit: 20
+    } as never);
+
+    expect(collected.queryCount).toBeGreaterThan(0);
+    expect(collected.recordsConsidered).toBeGreaterThanOrEqual(2);
+    expect(collected.candidates.map((candidate) => candidate.suggestion.name)).toEqual(expect.arrayContaining([
+      'Mew Secret Wonders 7/132',
+      'Pikachu V Lost Origin Trainer Gallery TG16'
+    ]));
+    expect(collected.candidates.every((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE')).toBe(true);
+    expect(collected.candidates.every((candidate) => candidate.weeklyDiscovery?.canonicalReference?.sourceCardId)).toBe(true);
+  });
+
+  it('local catalog top-off avoids already saturated profile subjects when building queries', () => {
+    const dbPath = resolve(mkdtempSync(`${tmpdir()}/vaultr-discover-catalog-`), 'card-catalog.db');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      testCatalogRecord({
+        sourceCardId: 'mew-saturated-1',
+        name: 'Mew',
+        setName: 'Promo Set',
+        cardNumber: '1'
+      }),
+      testCatalogRecord({
+        sourceCardId: 'xy10-75',
+        name: 'Gardevoir-EX',
+        setName: 'Promo Set',
+        cardNumber: '75',
+        printedTotal: '124',
+        isPromo: true,
+        promoContext: 'promo'
+      })
+    ]);
+
+    const collected = __discoveryPersistenceTestHooks.collectLocalCatalogTopOffCandidates({
+      profileChases: [chase('Mew Expedition Base Set 55', 0), chase('Gardevoir ex Paldean Fates 233', 1)],
+      readiness: {
+        selectedSubjectCounts: { mew: 3 },
+        selectedFamilyCounts: {}
+      },
+      selectionIndexStart: 10,
+      limit: 20
+    } as never);
+
+    expect(collected.candidates.some((candidate) => candidate.suggestion.name === 'Mew Promo Set 1')).toBe(false);
+    expect(collected.candidates.some((candidate) => candidate.suggestion.name === 'Gardevoir-EX Promo Set 75/124')).toBe(true);
   });
 
   it('keeps Weekly Discovery hard publication size and market thresholds unchanged', () => {
