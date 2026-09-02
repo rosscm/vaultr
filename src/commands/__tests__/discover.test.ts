@@ -409,6 +409,50 @@ function publishableSourceCandidate(name: string, canonicalId: string, sourceNam
   };
 }
 
+function publishableCanonicalCandidate(
+  displayName: string,
+  canonicalId: string,
+  canonicalName: string,
+  setName: string,
+  cardNumber: string,
+  selectionIndex: number,
+  lane = 'Collector Compass',
+  discoveryRole?: WeeklyDiscoveryCandidateAnalysis['discoveryRole']
+): DiscoveryCandidate {
+  const candidate = publishableSourceCandidate(displayName, canonicalId, `Pokemon TCG (${setName})`, selectionIndex, lane);
+  return {
+    ...candidate,
+    typicalRawSoldTotal: 80 + selectionIndex,
+    soldSampleSize: 3,
+    displayCurrency: 'CAD' as const,
+    catalogFacts: {
+      source: 'POKEMONTCG',
+      sourceCardId: canonicalId,
+      canonicalName,
+      setName,
+      cardNumber,
+      language: 'en',
+      imageUrl: candidate.image!.url,
+      imageSourceKind: 'CARD_REFERENCE'
+    },
+    suggestion: {
+      ...candidate.suggestion,
+      discoveryRole,
+      canonicalReference: {
+        provider: 'POKEMONTCG',
+        sourceCardId: canonicalId,
+        canonicalCardId: canonicalId,
+        canonicalName,
+        setName,
+        cardNumber,
+        language: 'ENGLISH',
+        imageUrl: candidate.image!.url,
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    }
+  };
+}
+
 function discoveryDisplayNameKeyForTest(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
@@ -6464,15 +6508,15 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
   it('skips source top-off when local supply is sufficient and market readiness is the blocker', () => {
     const w36LikeReadiness = {
-      canonicalReserveCount: 51,
-      hardEligibleReserveCount: 51,
-      marketResolvedEligibleCount: 18,
+      canonicalReserveCount: 38,
+      hardEligibleReserveCount: 38,
+      marketResolvedEligibleCount: 23,
       postCapSelectableCount: 20,
-      projectedSelectedCount: 17,
-      projectedMarketResolvedCount: 15,
-      viableAlternativeCount: 34,
-      selectedShortfall: 3,
-      marketResolvedShortfall: 3,
+      projectedSelectedCount: 18,
+      projectedMarketResolvedCount: 16,
+      viableAlternativeCount: 20,
+      selectedShortfall: 2,
+      marketResolvedShortfall: 2,
       shouldTopOff: true
     };
     const deficientReadiness = {
@@ -6929,6 +6973,81 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     }), 0, [chase('Mew Expedition Base Set 55', 0)]);
 
     expect(direct?.suggestion.discoveryRole).toBe('CORE_MATCH');
+  });
+
+  it('groups Mew format printings by canonical Pokemon subject', () => {
+    const candidates = [
+      publishableCanonicalCandidate('Mew Expedition Base Set 55', 'ecard1-55', 'Mew', 'Expedition Base Set', '55', 0),
+      publishableCanonicalCandidate('Mew ex Scarlet & Violet 151 151', 'sv3pt5-151', 'Mew ex', 'Scarlet & Violet 151', '151', 1),
+      publishableCanonicalCandidate('Mew-EX Legendary Treasures RC24', 'bw11-RC24', 'Mew-EX', 'Legendary Treasures', 'RC24', 2),
+      publishableCanonicalCandidate('Mew VMAX Lost Origin TG30', 'swsh11tg-TG30', 'Mew VMAX', 'Lost Origin Trainer Gallery', 'TG30', 3)
+    ];
+
+    expect(candidates.map((candidate) => __discoveryPersistenceTestHooks.candidateShelfSubjectKeys(candidate))).toEqual([
+      ['mew'],
+      ['mew'],
+      ['mew'],
+      ['mew']
+    ]);
+  });
+
+  it('groups Moltres printings without set names or numbers in the subject key', () => {
+    const candidates = [
+      publishableCanonicalCandidate('Moltres Plasma Storm 14', 'bw8-14', 'Moltres', 'Plasma Storm', '14', 0),
+      publishableCanonicalCandidate('Rocket’s Moltres Team Rocket Returns 14', 'ex7-14', "Rocket's Moltres", 'Team Rocket Returns', '14', 1),
+      publishableCanonicalCandidate('Moltres ex FireRed & LeafGreen 115', 'ex6-115', 'Moltres ex', 'FireRed & LeafGreen', '115', 2)
+    ];
+
+    expect(candidates.map((candidate) => __discoveryPersistenceTestHooks.candidateShelfSubjectKeys(candidate))).toEqual([
+      ['moltres'],
+      ['moltres'],
+      ['moltres']
+    ]);
+    expect(__discoveryPersistenceTestHooks.candidateShelfSubjectKeys(candidates[0]!).join(' ')).not.toMatch(/plasma|storm|14/);
+    expect(__discoveryPersistenceTestHooks.candidateShelfSubjectKeys(candidates[2]!).join(' ')).not.toMatch(/firered|leafgreen|115/);
+  });
+
+  it('exposes component subjects for multi-subject canonical cards', () => {
+    const trio = publishableCanonicalCandidate(
+      'Legendary Birds SM210',
+      'smp-SM210',
+      'Moltres & Zapdos & Articuno-GX',
+      'SM Black Star Promos',
+      'SM210',
+      0
+    );
+
+    expect(__discoveryPersistenceTestHooks.candidateShelfSubjectKeys(trio)).toEqual(['moltres', 'zapdos', 'articuno']);
+  });
+
+  it('applies subject shelf caps to repeated canonical subjects while leaving different Pokemon selectable', () => {
+    const mewPrintings = Array.from({ length: 5 }, (_, index) =>
+      publishableCanonicalCandidate(
+        `Mew Printing ${index + 1}`,
+        `mew-${index + 1}`,
+        index % 2 === 0 ? 'Mew ex' : 'Mew VMAX',
+        `Mew Set ${index + 1}`,
+        `${index + 1}`,
+        index
+      )
+    );
+    const others = Array.from({ length: 20 }, (_, index) =>
+      publishableCanonicalCandidate(
+        `Other Pokemon ${index + 1}`,
+        `other-${index + 1}`,
+        `Othermon${index + 1}`,
+        `Other Set ${index + 1}`,
+        `${index + 1}`,
+        index + 10
+      )
+    );
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([...mewPrintings, ...others], 'CAD', 20);
+
+    expect(result.rejectionCounts.SUBJECT_SHELF_CAP).toBeGreaterThan(0);
+    expect(result.items).toHaveLength(20);
+    expect(result.selectedCandidates.filter((candidate) => __discoveryPersistenceTestHooks.candidateShelfSubjectKeys(candidate).includes('mew')).length).toBeLessThanOrEqual(3);
+    expect(result.selectedCandidates.some((candidate) => __discoveryPersistenceTestHooks.candidateShelfSubjectKeys(candidate).includes('othermon1'))).toBe(true);
   });
 
   it('local catalog top-off avoids already saturated profile subjects when building queries', () => {
@@ -7784,6 +7903,77 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(normal.input.orderedCandidateReserve.some((candidate) => candidate.suggestion.referenceSourceCardId === 'existing-1')).toBe(true);
     expect(regenerated.input.orderedCandidateReserve.some((candidate) => candidate.suggestion.referenceSourceCardId?.startsWith('existing-'))).toBe(false);
+
+    replaceDiscoveryUserUniverseCards(userId, []);
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+    removeAllChases(userId);
+  }, 30000);
+
+  it('uses local universe supply before external source assembly during regenerate-current', async () => {
+    const sourceResolver = vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
+    const stageMetrics: Array<{ stage: string; status: 'SUCCESS' | 'ERROR' | 'TIMEOUT'; elapsedMs: number }> = [];
+    const userId = `weekly-regenerate-local-first-${Date.now()}`;
+    const periodKey = '2026-W32';
+    setUserPlan(userId, 'PRO');
+    ['Mew Expedition Base Set 55', 'Pikachu Skyridge 84', 'Zapdos Aquapolis H32', 'Pichu Expedition Base Set 22', 'Gardevoir ex Paldean Fates 233', 'Umbreon VMAX Brilliant Stars TG23']
+      .forEach((cardName, index) => addChase({ userId, cardName, priority: index === 0 ? 'GRAIL' : 'NORMAL' }));
+    const existingItems = Array.from({ length: 20 }, (_, index) =>
+      publishableCanonicalCandidate(`Currentmon${index + 1} Current Shelf`, `current-${index + 1}`, `Currentmon${index + 1}`, `Current Set ${index + 1}`, `${index + 1}`, index)
+    );
+    const localFreshCandidates = Array.from({ length: 28 }, (_, index) =>
+      publishableCanonicalCandidate(
+        `Localmon${index + 1} Fresh Discovery`,
+        `local-fresh-${index + 1}`,
+        `Localmon${index + 1}`,
+        `Local Set ${index + 1}`,
+        `${index + 1}`,
+        index + 30,
+        ['Collector Compass', 'Promo Trail', 'Artwork Trail', 'Modern Spotlight Trail', 'E-Reader Era Trail'][index % 5]!,
+        'CORE_MATCH'
+      )
+    );
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey,
+      status: 'READY',
+      title: 'Weekly Shelf',
+      currency: 'CAD',
+      availableAt: '2026-08-03T12:00:00.000Z',
+      expiresAt: '2026-08-10T12:00:00.000Z',
+      items: __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(existingItems, 'CAD')
+    });
+    replaceDiscoveryUserUniverseCards(userId, [...existingItems, ...localFreshCandidates].map((candidate, index) => ({
+      userId,
+      cardKey: candidate.suggestion.referenceSourceCardId ?? `local-${index}`,
+      canonicalName: candidate.suggestion.name,
+      score: 400 - index,
+      scoreComponents: { seeded: 1 },
+      suggestion: candidate.suggestion,
+      imageUrl: candidate.image?.url,
+      imageSourceName: candidate.image?.sourceName,
+      sourceCardId: candidate.image?.sourceCardId,
+      marketTotal: candidate.typicalRawSoldTotal ?? 100 + index,
+      marketCurrency: candidate.displayCurrency ?? 'CAD'
+    })));
+
+    const built = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date: new Date('2026-08-04T12:00:00.000Z'),
+      mode: 'LIVE',
+      regenerateCurrent: true,
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false,
+      deadlineAtMs: Date.now() + 30_000,
+      stageMetrics
+    });
+
+    expect(stageMetrics.map((metric) => metric.stage).filter((stage) => stage.startsWith('assembly-source-catalog'))).toEqual([]);
+    if (sourceResolver.mock.calls.length > 0) {
+      expect(built.supplyReadinessBeforeTopOff.shouldTopOff).toBe(true);
+    }
+    expect(built.input.orderedCandidateReserve.some((candidate) => candidate.suggestion.referenceSourceCardId?.startsWith('current-'))).toBe(false);
+    expect(built.supplyReadinessBeforeTopOff.hardEligibleReserveCount).toBeGreaterThanOrEqual(20);
 
     replaceDiscoveryUserUniverseCards(userId, []);
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);

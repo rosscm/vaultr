@@ -4300,6 +4300,7 @@ export const __discoveryPersistenceTestHooks = {
   reconcileWeeklyReserveWithReliableMarketCache,
   collectLocalCatalogTopOffCandidates,
   localCatalogChoiceToDiscoveryCandidate,
+  candidateShelfSubjectKeys,
   preparedReserveCompatibilityReason,
   selectMarketShortfallHydrationTargets,
   selectMarketShortfallHydrationTargetGroups,
@@ -7663,7 +7664,7 @@ function sourceSetLabel(candidate: DiscoveryCandidate): string | undefined {
 }
 
 function sourceCardSubject(candidate: DiscoveryCandidate, setLabel: string | undefined): string {
-  const canonicalName = candidateCanonicalReference(candidate)?.canonicalName?.trim();
+  const canonicalName = candidate.catalogFacts?.canonicalName?.trim() ?? candidateCanonicalReference(candidate)?.canonicalName?.trim();
   if (canonicalName) return canonicalName;
   let subject = candidate.suggestion.name;
   if (setLabel) subject = subject.replace(new RegExp(`\\s+${setLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b.*$`, 'i'), '');
@@ -7712,6 +7713,8 @@ function sourceCardText(candidate: DiscoveryCandidate): string {
 function normalizedSubjectIdentity(value: string): string | undefined {
   const explicitSet = setHintForPrinting(value);
   const normalized = discoveryNameKey(value)
+    .replace(/^(?:[a-z]+)\s+s\s+(?=[a-z]{3,}\b)/, ' ')
+    .replace(/^s\s+(?=[a-z]{3,}\b)/, ' ')
     .replace(explicitSet ? new RegExp(`\\b${escapeRegExp(explicitSet)}\\b`, 'ig') : /$^/, ' ')
     .replace(/\b(?:pokemon|japanese|english|promo|promos|card|cards|trading|tcg|holo|illustration|special|limited|collector|raw|rare|art|full|gallery)\b/g, ' ')
     .replace(/\b(?:ex|gx|vmax|vstar|v|sar|sir|ar|ur|sr|rr|hr|chr|csr|tg|gg|rc)\b/g, ' ')
@@ -7721,6 +7724,16 @@ function normalizedSubjectIdentity(value: string): string | undefined {
     .replace(/\s+/g, ' ')
     .trim();
   return normalized || undefined;
+}
+
+function canonicalCandidateSubjectLabels(candidate: DiscoveryCandidate): string[] {
+  const structuredName = candidate.catalogFacts?.canonicalName?.trim()
+    ?? candidateCanonicalReference(candidate)?.canonicalName?.trim();
+  const source = structuredName || sourceCardSubject(candidate, sourceSetLabel(candidate));
+  return source
+    .split(/\s*(?:&|\/|\+|\band\b)\s*/i)
+    .map((part) => normalizedSubjectIdentity(part))
+    .filter((value): value is string => !!value);
 }
 
 function stripParallelSetTokens(value: string): string {
@@ -7736,7 +7749,11 @@ function stripParallelSetTokens(value: string): string {
 }
 
 function candidateShelfSubjectKey(candidate: DiscoveryCandidate): string | undefined {
-  return normalizedSubjectIdentity(sourceCardSubject(candidate, sourceSetLabel(candidate)));
+  return canonicalCandidateSubjectLabels(candidate)[0];
+}
+
+function candidateShelfSubjectKeys(candidate: DiscoveryCandidate): string[] {
+  return canonicalCandidateSubjectLabels(candidate);
 }
 
 function candidateEvolutionFamilyKey(candidate: DiscoveryCandidate): string | undefined {
@@ -8228,12 +8245,17 @@ function collectorTheme(candidate: DiscoveryCandidate): string {
 }
 
 function candidateSubjectKeys(candidate: DiscoveryCandidate): string[] {
-  return profileSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' '));
+  const canonicalKeys = candidateShelfSubjectKeys(candidate);
+  return canonicalKeys.length > 0
+    ? canonicalKeys
+    : profileSubjectTokens([candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm].filter(Boolean).join(' '));
 }
 
 function candidateSubjectBalanceKeys(candidate: DiscoveryCandidate): string[] {
-  const subject = sourceCardSubject(candidate, sourceSetLabel(candidate));
-  return profileSubjectTokens(subject).slice(0, 3);
+  const canonicalKeys = candidateShelfSubjectKeys(candidate);
+  return canonicalKeys.length > 0
+    ? canonicalKeys.slice(0, 3)
+    : profileSubjectTokens(sourceCardSubject(candidate, sourceSetLabel(candidate))).slice(0, 3);
 }
 
 function candidateSubjectDiversityKeys(candidate: DiscoveryCandidate): string[] {
@@ -9869,9 +9891,10 @@ function candidateShelfCapRejection(
   recommendation: DiscoveryRecommendationProfile,
   limits: WeeklyShelfCapLimits = normalWeeklyShelfCapLimits()
 ): DiscoveryShelfSelectionRejection | null {
-  const subjectKey = candidateShelfSubjectKey(candidate);
-  if (subjectKey && (selectionState.subjectCounts.get(subjectKey) ?? 0) >= limits.subjectCap) {
-    return { code: 'SUBJECT_SHELF_CAP', matchedKey: subjectKey };
+  for (const subjectKey of candidateShelfSubjectKeys(candidate)) {
+    if ((selectionState.subjectCounts.get(subjectKey) ?? 0) >= limits.subjectCap) {
+      return { code: 'SUBJECT_SHELF_CAP', matchedKey: subjectKey };
+    }
   }
   const familyKey = candidateEvolutionFamilyKey(candidate);
   if (familyKey && (selectionState.familyCounts.get(familyKey) ?? 0) >= limits.familyCap) {
@@ -9906,8 +9929,9 @@ function recordSelectedCandidate(
   selectionState: WeeklyShelfSelectionState,
   recommendation: DiscoveryRecommendationProfile
 ): void {
-  const subjectKey = candidateShelfSubjectKey(candidate);
-  if (subjectKey) selectionState.subjectCounts.set(subjectKey, (selectionState.subjectCounts.get(subjectKey) ?? 0) + 1);
+  for (const subjectKey of candidateShelfSubjectKeys(candidate)) {
+    selectionState.subjectCounts.set(subjectKey, (selectionState.subjectCounts.get(subjectKey) ?? 0) + 1);
+  }
   const familyKey = candidateEvolutionFamilyKey(candidate);
   if (familyKey) selectionState.familyCounts.set(familyKey, (selectionState.familyCounts.get(familyKey) ?? 0) + 1);
   const formatKey = candidateFormatShelfKey(candidate);
@@ -10571,8 +10595,9 @@ function shouldRunWeeklyMarketShortfallHydration(input: {
 }
 
 function weeklyDiscoveryLocalSupplySufficientForMarketRecovery(readiness: WeeklyDiscoverySupplyReadiness): boolean {
-  return readiness.canonicalReserveCount >= DISCOVERY_WEEKLY_DROP_SIZE * 2
-    && readiness.hardEligibleReserveCount >= DISCOVERY_WEEKLY_DROP_SIZE * 2
+  const headroomTarget = DISCOVERY_WEEKLY_DROP_SIZE + DISCOVERY_SHELF_PAGE_SIZE;
+  return readiness.canonicalReserveCount >= headroomTarget
+    && readiness.hardEligibleReserveCount >= headroomTarget
     && readiness.postCapSelectableCount >= DISCOVERY_WEEKLY_DROP_SIZE
     && readiness.viableAlternativeCount >= DISCOVERY_SHELF_PAGE_SIZE
     && readiness.marketResolvedEligibleCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
@@ -10644,7 +10669,7 @@ function buildWeeklyDiscoverySupplyReadiness(
   for (const candidate of hardEligibleCandidates) {
     incrementCount(countsBySource, candidateSupplySourceLabel(candidate));
     incrementCount(countsByLane, candidate.suggestion.lane);
-    incrementCount(countsBySubject, candidateShelfSubjectKey(candidate));
+    for (const subjectKey of candidateShelfSubjectKeys(candidate)) incrementCount(countsBySubject, subjectKey);
     incrementCount(countsByFamily, candidateEvolutionFamilyKey(candidate));
     incrementCount(countsByLanguage, resolvedReferenceLanguage(candidate) ?? 'UNKNOWN');
     incrementCount(countsByMarketStatus, candidateMarketStatus(candidate, currency));
@@ -10679,7 +10704,7 @@ function buildWeeklyDiscoverySupplyReadiness(
   };
   const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
   for (const candidate of provisionalSelectedCandidates) {
-    incrementCount(selectedSubjectCounts, candidateShelfSubjectKey(candidate));
+    for (const subjectKey of candidateShelfSubjectKeys(candidate)) incrementCount(selectedSubjectCounts, subjectKey);
     incrementCount(selectedFamilyCounts, candidateEvolutionFamilyKey(candidate));
     incrementCount(selectedLaneCounts, candidateLaneShelfKey(candidate));
     incrementCount(selectedFormatCounts, candidateFormatShelfKey(candidate));
@@ -11116,7 +11141,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       ]),
       softAvoidNames: previousDropNames,
       allowSoftAvoidFiller: context.allowRecentRepeatFiller ?? false,
-      skipSourceCatalogFetch: quickRefresh || (cachePreferredRetry && !allowSourceCatalogForMissingLiveCachedDrop),
+      skipSourceCatalogFetch: context.regenerateCurrent === true || quickRefresh || (cachePreferredRetry && !allowSourceCatalogForMissingLiveCachedDrop),
       skipReferenceImageFetch: deferExpensiveHydration,
       ingestCanonicalUniverse: !quickRefresh && !cachePreferredRetry,
       persistDiscoveryArtifacts: context.mode === 'LIVE',
