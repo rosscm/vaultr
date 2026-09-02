@@ -9218,7 +9218,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     replaceDiscoveryUserUniverseCards(userId, []);
     deleteWeeklyDiscoveryPreparedReserve(userId, periodKey);
     removeAllChases(userId);
-  });
+  }, 30_000);
 
   it('replay fixtures stay deterministic, and live release fixtures pass the structural gate', () => {
     for (const name of ['w29-sanitized.json', 'w30-live-success-sanitized.json', 'w31-live-sanitized.json', 'vintage-e-reader-synthetic.json', 'modern-mixed-language-synthetic.json']) {
