@@ -2028,26 +2028,51 @@ function isDiscoveryNameExcluded(value: string, excludedNameKeys: Set<string>): 
 
 function discoveryMarketSearchTerms(suggestion: DiscoverySuggestion): string[] {
   const canonical = suggestion.canonicalReference;
+  const canonicalCardNumber = canonical?.cardNumber
+    ? normalizeZeroPrintedTotalFractions(canonical.cardNumber)
+    : undefined;
   const canonicalTerm = canonical
     ? [
         canonical.canonicalName,
         canonical.setName,
-        canonical.cardNumber,
+        canonicalCardNumber,
         canonical.language === 'JAPANESE' ? 'Japanese' : undefined,
         'Pokemon card'
       ].filter(Boolean).join(' ')
     : undefined;
   const terms = [canonicalTerm, suggestion.evidenceSearchTerm, suggestion.name, ...(suggestion.evidenceAliases ?? [])]
     .filter((term): term is string => !!term && term.trim().length > 0)
-    .map((term) => term.replace(/\s+/g, ' ').trim());
+    .map((term) => normalizeZeroPrintedTotalFractions(term).replace(/\s+/g, ' ').trim());
   return uniqueValuesPreservingOrder(terms).slice(0, isRaichuIntroPackSuggestion(suggestion) ? 8 : 3);
 }
 
 function discoveryMarketSuggestionForCandidate(candidate: DiscoveryCandidate): DiscoverySuggestion {
   const canonicalReference = candidate.suggestion.canonicalReference ?? candidate.weeklyDiscovery?.canonicalReference;
-  return canonicalReference && candidate.suggestion.canonicalReference !== canonicalReference
-    ? { ...candidate.suggestion, canonicalReference }
-    : candidate.suggestion;
+  const normalizedCanonicalReference = canonicalReference
+    ? {
+        ...canonicalReference,
+        cardNumber: normalizeZeroPrintedTotalFractions(canonicalReference.cardNumber)
+      }
+    : undefined;
+  const normalizedEvidenceSearchTerm = candidate.suggestion.evidenceSearchTerm
+    ? normalizeZeroPrintedTotalFractions(candidate.suggestion.evidenceSearchTerm)
+    : undefined;
+  const normalizedName = normalizeZeroPrintedTotalFractions(candidate.suggestion.name);
+  const normalizedAliases = candidate.suggestion.evidenceAliases?.map(normalizeZeroPrintedTotalFractions);
+  return {
+    ...candidate.suggestion,
+    name: normalizedName,
+    evidenceSearchTerm: normalizedEvidenceSearchTerm,
+    evidenceAliases: normalizedAliases,
+    canonicalReference: normalizedCanonicalReference
+  };
+}
+
+function normalizeZeroPrintedTotalFractions(value: string): string {
+  return value
+    .replace(/\b([A-Z]{0,5}0*\d{1,4})\s*\/\s*0+\b/gi, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 type DiscoveryMarketFinish = 'HOLO' | 'REVERSE_HOLO' | 'NON_HOLO';
@@ -4314,8 +4339,12 @@ export const __discoveryPersistenceTestHooks = {
   shouldRunWeeklyMarketShortfallHydration,
   weeklyDiscoveryLocalSupplySufficientForMarketRecovery,
   marketRecoveryStillNeedsTopOff,
+  weeklyDiscoveryCompositionStillDeficient,
+  shouldRunWeeklyDiscoveryLocalCatalogTopOff,
   shouldRunWeeklyDiscoverySourceTopOff,
   firstBlockingMarketRecoveryMs,
+  discoveryMarketSuggestionForCandidate,
+  discoveryMarketSearchTerms,
   remainingBlockingMarketRecoveryMs,
   hasWeeklyBlockingMarketRecoveryBudget,
   selectWeeklyDiscoveryRankingProfile,
@@ -7007,6 +7036,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   skipSourceCatalogFetch: boolean;
   deferMarketHydration?: boolean;
   selectionMode?: WeeklyDiscoverySelectionMode;
+  marketRecoveryOutcome?: WeeklyDiscoveryMarketRecoveryOutcome;
 }): Promise<{
   candidates: DiscoveryCandidate[];
   diagnostics: DiscoveryAssemblyStageDiagnostics;
@@ -7023,6 +7053,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     regenerationExclusions,
     skipSourceCatalogFetch,
     deferMarketHydration,
+    marketRecoveryOutcome,
     weeklyPeriod,
     deadlineAtMs,
     abortSignal
@@ -7068,10 +7099,13 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
       initialCanonicalTrusted: readiness.canonicalReserveCount,
       initialHardEligible: readiness.hardEligibleReserveCount,
       initialMarketResolvedEligible: readiness.marketResolvedEligibleCount,
+      initialPostCapMarketReady: readiness.postCapMarketReadyCount,
       initialProjectedSelected: readiness.projectedSelectedCount,
+      initialProjectedMarketResolved: readiness.projectedMarketResolvedCount,
       initialViableAlternatives: readiness.viableAlternativeCount,
       triggerSelectedShortfall: readiness.selectedShortfall,
       triggerMarketShortfall: readiness.marketResolvedShortfall,
+      stalledMarketRecovery: marketRecoveryStillNeedsTopOff(marketRecoveryOutcome),
       userUniverseCandidates: rawUserUniverseCandidates.length,
       globalUniverseCandidates: rawGlobalUniverseCandidates.length
     }
@@ -7081,7 +7115,15 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
     deadlineAtMs,
     DISCOVERY_WEEKLY_SOURCE_TOP_OFF_STAGE_TIMEOUT_MS + DISCOVERY_WEEKLY_OPTIONAL_STAGE_MIN_BUDGET_MS
   );
-  const canRunLocalCatalogTopOff = !skipSourceCatalogFetch && canRunSourceCatalogTopOff;
+  const localCatalogRequired = readiness.shouldTopOff
+    && (!weeklyDiscoveryLocalSupplySufficientForMarketRecovery(readiness)
+      || (marketRecoveryStillNeedsTopOff(marketRecoveryOutcome) && weeklyDiscoveryCompositionStillDeficient(readiness)));
+  const canRunLocalCatalogTopOff = shouldRunWeeklyDiscoveryLocalCatalogTopOff({
+    readiness,
+    marketRecoveryOutcome,
+    skipSourceCatalogFetch,
+    deadlineAtMs
+  });
   const localCatalogCollected = canRunLocalCatalogTopOff
     ? collectLocalCatalogTopOffCandidates({
       profileChases: discovery.tasteProfileChases,
@@ -7167,6 +7209,8 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
       postCapMarketReady: localCatalogReadiness.postCapMarketReadyCount,
       projectedSelected: localCatalogReadiness.projectedSelectedCount,
       projectedMarketResolved: localCatalogReadiness.projectedMarketResolvedCount,
+      localCatalogRequired,
+      stalledMarketRecovery: marketRecoveryStillNeedsTopOff(marketRecoveryOutcome),
       externalSourceCatalogRequired
     }
   });
@@ -10628,6 +10672,24 @@ function marketRecoveryStillNeedsTopOff(outcome: WeeklyDiscoveryMarketRecoveryOu
     && outcome.projectedMarketResolvedDelta <= 0;
 }
 
+function weeklyDiscoveryCompositionStillDeficient(readiness: WeeklyDiscoverySupplyReadiness): boolean {
+  return readiness.projectedSelectedCount < DISCOVERY_WEEKLY_DROP_SIZE
+    || readiness.projectedMarketResolvedCount < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
+    || readiness.postCapMarketReadyCount < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED;
+}
+
+function shouldRunWeeklyDiscoveryLocalCatalogTopOff(input: {
+  readiness: WeeklyDiscoverySupplyReadiness;
+  marketRecoveryOutcome?: WeeklyDiscoveryMarketRecoveryOutcome;
+  skipSourceCatalogFetch: boolean;
+  deadlineAtMs?: number;
+}): boolean {
+  if (input.skipSourceCatalogFetch || !input.readiness.shouldTopOff || !hasWeeklyOptionalStageBudget(input.deadlineAtMs)) return false;
+  const compositionDeficientAfterStalledMarketRecovery = marketRecoveryStillNeedsTopOff(input.marketRecoveryOutcome)
+    && weeklyDiscoveryCompositionStillDeficient(input.readiness);
+  return !weeklyDiscoveryLocalSupplySufficientForMarketRecovery(input.readiness) || compositionDeficientAfterStalledMarketRecovery;
+}
+
 function shouldRunWeeklyDiscoverySourceTopOff(readiness: WeeklyDiscoverySupplyReadiness, marketRecoveryOutcome?: WeeklyDiscoveryMarketRecoveryOutcome): boolean {
   if (!readiness.shouldTopOff) return false;
   if (marketRecoveryStillNeedsTopOff(marketRecoveryOutcome)) return true;
@@ -11754,7 +11816,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       skipSourceCatalogFetch: deferExpensiveHydration
         && supplyReadinessBeforeTopOff.selectedShortfall === 0
         && supplyReadinessBeforeTopOff.marketResolvedShortfall === 0,
-      selectionMode: profileContext.rankingMode
+      selectionMode: profileContext.rankingMode,
+      marketRecoveryOutcome: firstMarketRecoveryOutcome
     }), {
       outputCount: (value) => value.candidates.length
     });

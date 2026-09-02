@@ -6434,6 +6434,36 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(targets.some((candidate) => candidate.suggestion.name === 'Mewtwo Hydration Profile Pick 21')).toBe(true);
   });
 
+  it('normalizes legacy slash-zero printed totals before market search identity construction', () => {
+    const candidate = publishableCanonicalCandidate(
+      'Squirtle Japanese Promos-A 033/0',
+      'PROMOS-A-033',
+      'Squirtle',
+      'Promos-A',
+      '033/0',
+      1
+    );
+    const legacyCandidate: DiscoveryCandidate = {
+      ...candidate,
+      catalogFacts: {
+        ...candidate.catalogFacts!,
+        printedTotal: '0'
+      },
+      suggestion: {
+        ...candidate.suggestion,
+        evidenceSearchTerm: 'Squirtle Promos-A 033/0 Japanese Pokemon card',
+        evidenceAliases: ['Squirtle Promos-A #033/000']
+      }
+    };
+
+    const marketSuggestion = __discoveryPersistenceTestHooks.discoveryMarketSuggestionForCandidate(legacyCandidate);
+    const searchTerms = __discoveryPersistenceTestHooks.discoveryMarketSearchTerms(marketSuggestion);
+
+    expect(marketSuggestion.canonicalReference?.cardNumber).toBe('033');
+    expect(searchTerms.join(' ')).toContain('033');
+    expect(searchTerms.join(' ')).not.toMatch(/\/0+\b/);
+  });
+
   it('allows early market recovery when selected and market shortfalls both exist', () => {
     expect(__discoveryPersistenceTestHooks.shouldRunWeeklyMarketShortfallHydration({
       hasFullDiscovery: true,
@@ -6544,13 +6574,33 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     };
 
     expect(__discoveryPersistenceTestHooks.weeklyDiscoveryLocalSupplySufficientForMarketRecovery(w36LikeReadiness as never)).toBe(true);
+    expect(__discoveryPersistenceTestHooks.weeklyDiscoveryCompositionStillDeficient(w36LikeReadiness as never)).toBe(true);
     expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff(w36LikeReadiness as never)).toBe(false);
     expect(__discoveryPersistenceTestHooks.marketRecoveryStillNeedsTopOff(zeroProgressRecovery)).toBe(true);
     expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff(w36LikeReadiness as never, zeroProgressRecovery)).toBe(true);
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoveryLocalCatalogTopOff({
+      readiness: w36LikeReadiness as never,
+      marketRecoveryOutcome: zeroProgressRecovery,
+      skipSourceCatalogFetch: false,
+      deadlineAtMs: Date.now() + 60_000
+    })).toBe(true);
     expect(__discoveryPersistenceTestHooks.marketRecoveryStillNeedsTopOff(successfulRecovery)).toBe(false);
-    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff({ ...w36LikeReadiness, selectedShortfall: 0, marketResolvedShortfall: 0, shouldTopOff: false } as never, successfulRecovery)).toBe(false);
+    const healthyReadiness = { ...w36LikeReadiness, projectedSelectedCount: 20, projectedMarketResolvedCount: 18, postCapMarketReadyCount: 18, selectedShortfall: 0, marketResolvedShortfall: 0, shouldTopOff: false };
+    expect(__discoveryPersistenceTestHooks.weeklyDiscoveryCompositionStillDeficient(healthyReadiness as never)).toBe(false);
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff(healthyReadiness as never, successfulRecovery)).toBe(false);
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoveryLocalCatalogTopOff({
+      readiness: healthyReadiness as never,
+      marketRecoveryOutcome: successfulRecovery,
+      skipSourceCatalogFetch: false,
+      deadlineAtMs: Date.now() + 60_000
+    })).toBe(false);
     expect(__discoveryPersistenceTestHooks.weeklyDiscoveryLocalSupplySufficientForMarketRecovery(deficientReadiness as never)).toBe(false);
     expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff(deficientReadiness as never)).toBe(true);
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoveryLocalCatalogTopOff({
+      readiness: deficientReadiness as never,
+      skipSourceCatalogFetch: false,
+      deadlineAtMs: Date.now() + 60_000
+    })).toBe(true);
   });
 
   it('hydrates targeted unresolved market candidates to READY and records diagnostics', async () => {
