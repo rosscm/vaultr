@@ -4338,7 +4338,7 @@ export const __discoveryPersistenceTestHooks = {
   weeklyMarketShortfallHydrationTargetLimit,
   shouldRunWeeklyMarketShortfallHydration,
   weeklyDiscoveryLocalSupplySufficientForMarketRecovery,
-  marketRecoveryStillNeedsTopOff,
+  marketRecoveryLeftBlockingShortfall,
   weeklyDiscoveryCompositionStillDeficient,
   shouldRunWeeklyDiscoveryLocalCatalogTopOff,
   shouldRunWeeklyDiscoverySourceTopOff,
@@ -7105,7 +7105,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
       initialViableAlternatives: readiness.viableAlternativeCount,
       triggerSelectedShortfall: readiness.selectedShortfall,
       triggerMarketShortfall: readiness.marketResolvedShortfall,
-      stalledMarketRecovery: marketRecoveryStillNeedsTopOff(marketRecoveryOutcome),
+      incompleteMarketRecovery: marketRecoveryLeftBlockingShortfall(readiness, marketRecoveryOutcome),
       userUniverseCandidates: rawUserUniverseCandidates.length,
       globalUniverseCandidates: rawGlobalUniverseCandidates.length
     }
@@ -7117,7 +7117,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   );
   const localCatalogRequired = readiness.shouldTopOff
     && (!weeklyDiscoveryLocalSupplySufficientForMarketRecovery(readiness)
-      || (marketRecoveryStillNeedsTopOff(marketRecoveryOutcome) && weeklyDiscoveryCompositionStillDeficient(readiness)));
+      || (marketRecoveryLeftBlockingShortfall(readiness, marketRecoveryOutcome) && weeklyDiscoveryCompositionStillDeficient(readiness)));
   const canRunLocalCatalogTopOff = shouldRunWeeklyDiscoveryLocalCatalogTopOff({
     readiness,
     marketRecoveryOutcome,
@@ -7210,7 +7210,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
       projectedSelected: localCatalogReadiness.projectedSelectedCount,
       projectedMarketResolved: localCatalogReadiness.projectedMarketResolvedCount,
       localCatalogRequired,
-      stalledMarketRecovery: marketRecoveryStillNeedsTopOff(marketRecoveryOutcome),
+      incompleteMarketRecovery: marketRecoveryLeftBlockingShortfall(readiness, marketRecoveryOutcome),
       externalSourceCatalogRequired
     }
   });
@@ -10665,17 +10665,18 @@ type WeeklyDiscoveryMarketRecoveryOutcome = {
   remainingMarketShortfall: number;
 };
 
-function marketRecoveryStillNeedsTopOff(outcome: WeeklyDiscoveryMarketRecoveryOutcome | undefined): boolean {
-  if (!outcome?.ran || outcome.remainingMarketShortfall <= 0) return false;
-  return outcome.readyEligibleDelta <= 0
-    && outcome.projectedSelectedDelta <= 0
-    && outcome.projectedMarketResolvedDelta <= 0;
-}
-
 function weeklyDiscoveryCompositionStillDeficient(readiness: WeeklyDiscoverySupplyReadiness): boolean {
   return readiness.projectedSelectedCount < DISCOVERY_WEEKLY_DROP_SIZE
     || readiness.projectedMarketResolvedCount < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
     || readiness.postCapMarketReadyCount < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED;
+}
+
+function marketRecoveryLeftBlockingShortfall(readiness: WeeklyDiscoverySupplyReadiness, outcome: WeeklyDiscoveryMarketRecoveryOutcome | undefined): boolean {
+  return outcome?.ran === true
+    && (
+      readiness.projectedSelectedCount < DISCOVERY_WEEKLY_DROP_SIZE
+      || readiness.projectedMarketResolvedCount < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
+    );
 }
 
 function shouldRunWeeklyDiscoveryLocalCatalogTopOff(input: {
@@ -10685,14 +10686,14 @@ function shouldRunWeeklyDiscoveryLocalCatalogTopOff(input: {
   deadlineAtMs?: number;
 }): boolean {
   if (input.skipSourceCatalogFetch || !input.readiness.shouldTopOff || !hasWeeklyOptionalStageBudget(input.deadlineAtMs)) return false;
-  const compositionDeficientAfterStalledMarketRecovery = marketRecoveryStillNeedsTopOff(input.marketRecoveryOutcome)
+  const compositionDeficientAfterIncompleteMarketRecovery = marketRecoveryLeftBlockingShortfall(input.readiness, input.marketRecoveryOutcome)
     && weeklyDiscoveryCompositionStillDeficient(input.readiness);
-  return !weeklyDiscoveryLocalSupplySufficientForMarketRecovery(input.readiness) || compositionDeficientAfterStalledMarketRecovery;
+  return !weeklyDiscoveryLocalSupplySufficientForMarketRecovery(input.readiness) || compositionDeficientAfterIncompleteMarketRecovery;
 }
 
 function shouldRunWeeklyDiscoverySourceTopOff(readiness: WeeklyDiscoverySupplyReadiness, marketRecoveryOutcome?: WeeklyDiscoveryMarketRecoveryOutcome): boolean {
   if (!readiness.shouldTopOff) return false;
-  if (marketRecoveryStillNeedsTopOff(marketRecoveryOutcome)) return true;
+  if (marketRecoveryLeftBlockingShortfall(readiness, marketRecoveryOutcome)) return true;
   return !weeklyDiscoveryLocalSupplySufficientForMarketRecovery(readiness);
 }
 
