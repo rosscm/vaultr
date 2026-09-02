@@ -38,6 +38,12 @@ export function normalizeCatalogCardNumber(value: string | undefined | null): st
   return compact;
 }
 
+export function normalizeCatalogPrintedTotal(value: string | number | undefined | null): string | undefined {
+  const compact = value === undefined || value === null ? '' : String(value).trim().replace(/\s+/g, '').toUpperCase();
+  if (!compact || /^0+$/.test(compact)) return undefined;
+  return compact;
+}
+
 export function parseCatalogSearchQuery(query: string): ParsedCatalogSearchQuery {
   const normalizedChase = normalizeChaseCardName(query);
   const normalized = normalizeCatalogText(normalizedChase);
@@ -81,7 +87,7 @@ export function parseCatalogSearchQuery(query: string): ParsedCatalogSearchQuery
     subject: terms[0],
     language,
     localNumber: fraction ? String(Number(fraction[1])) : standalone ? String(Number(standalone[1])) : undefined,
-    printedTotal: fraction ? String(Number(fraction[2])) : undefined,
+    printedTotal: fraction ? normalizeCatalogPrintedTotal(fraction[2]) : undefined,
     alphanumericNumber: alpha ? alpha.replace(/\s+/g, '').toUpperCase() : undefined,
     releaseContext
   };
@@ -107,8 +113,9 @@ export function catalogDisplayValue(record: {
   }
   const parts = [record.name, record.translatedSetName ?? record.setName, record.cardNumber].filter(Boolean);
   const base = parts.join(' ').replace(/\s+/g, ' ').trim();
-  const withFraction = record.printedTotal && record.cardNumber && /^\d+$/.test(record.cardNumber) && !base.includes('/')
-    ? `${record.name} ${record.translatedSetName ?? record.setName ?? ''} ${record.cardNumber}/${record.printedTotal}`
+  const printedTotal = normalizeCatalogPrintedTotal(record.printedTotal);
+  const withFraction = printedTotal && record.cardNumber && /^\d+$/.test(record.cardNumber) && !base.includes('/')
+    ? `${record.name} ${record.translatedSetName ?? record.setName ?? ''} ${record.cardNumber}/${printedTotal}`
     : base;
   return record.language === 'ja' && !/\bjapanese\b/i.test(withFraction)
     ? `${withFraction} Japanese`

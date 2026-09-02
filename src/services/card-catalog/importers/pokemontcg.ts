@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CardCatalogRecord } from '../types.js';
-import { catalogDisplayValue, isPromoRecord, normalizeCatalogCardNumber, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
+import { catalogDisplayValue, isPromoRecord, normalizeCatalogCardNumber, normalizeCatalogPrintedTotal, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
 import { arrayFromJson, asRecord, readJsonFile } from './common.js';
 
 type PokemonTcgSetMetadata = {
@@ -36,9 +36,10 @@ export function pokemonTcgRecordFromCard(card: unknown, importedAt = new Date().
   const setName = setMetadata?.name ?? (typeof set?.name === 'string' ? set.name : undefined);
   const series = setMetadata?.series ?? (typeof set?.series === 'string' ? set.series : undefined);
   const cardNumber = typeof row.number === 'string' || typeof row.number === 'number' ? String(row.number) : undefined;
-  const printedTotal = setMetadata?.printedTotal ?? (typeof set?.printedTotal === 'string' || typeof set?.printedTotal === 'number'
+  const rawPrintedTotal = setMetadata?.printedTotal ?? (typeof set?.printedTotal === 'string' || typeof set?.printedTotal === 'number'
     ? String(set.printedTotal)
     : undefined);
+  const printedTotal = normalizeCatalogPrintedTotal(rawPrintedTotal);
   const normalizedCardNumber = normalizeCatalogCardNumber(cardNumber);
   const rarity = typeof row.rarity === 'string' ? row.rarity : undefined;
   const isPromo = isPromoRecord({ setName, series, rarity });

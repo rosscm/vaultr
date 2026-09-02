@@ -1,15 +1,16 @@
 import { replaceCardCatalogSourceRecords } from '../../card-catalog-db.js';
-import { catalogDisplayValue, normalizeCatalogCardNumber, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
+import { catalogDisplayValue, normalizeCatalogCardNumber, normalizeCatalogPrintedTotal, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
 import type { CardCatalogImportReport, CardCatalogRecord } from '../types.js';
 import { VAULTR_VERIFIED_PROMOS, type VaultrPromoSupplementDefinition } from '../supplements/verified-promos.js';
 
 export function vaultrPromoRecordFromDefinition(definition: VaultrPromoSupplementDefinition, importedAt = new Date().toISOString()): CardCatalogRecord {
   const normalizedCardNumber = definition.cardNumber ? normalizeCatalogCardNumber(definition.cardNumber) : undefined;
+  const printedTotal = normalizeCatalogPrintedTotal(definition.printedTotal);
   const displayValue = catalogDisplayValue({
     name: definition.name,
     setName: definition.setName ?? definition.promoContext,
     cardNumber: definition.cardNumber,
-    printedTotal: definition.printedTotal,
+    printedTotal,
     isUnnumbered: definition.isUnnumbered,
     language: definition.language
   });
@@ -23,7 +24,7 @@ export function vaultrPromoRecordFromDefinition(definition: VaultrPromoSupplemen
     normalizedSetName: normalizeCatalogText(definition.setName ?? definition.promoContext),
     cardNumber: definition.cardNumber,
     normalizedCardNumber,
-    printedTotal: definition.printedTotal ? normalizeCatalogCardNumber(definition.printedTotal) : undefined,
+    printedTotal,
     isUnnumbered: definition.isUnnumbered,
     imageUrl: definition.imageUrl,
     isPromo: true,

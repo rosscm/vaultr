@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CardCatalogLanguage, CardCatalogRecord } from '../types.js';
-import { catalogDisplayValue, isPromoRecord, normalizeCatalogCardNumber, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
+import { catalogDisplayValue, isPromoRecord, normalizeCatalogCardNumber, normalizeCatalogPrintedTotal, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
 import { asRecord } from './common.js';
 
 function tcgDexLanguageFromPath(filePath: string): CardCatalogLanguage | undefined {
@@ -136,11 +136,12 @@ export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string
     : typeof row.number === 'string' || typeof row.number === 'number'
       ? String(row.number)
       : fileNumber;
-  const printedTotal = typeof set?.cardCount?.official === 'string' || typeof set?.cardCount?.official === 'number'
+  const rawPrintedTotal = typeof set?.cardCount?.official === 'string' || typeof set?.cardCount?.official === 'number'
     ? String(set.cardCount.official)
     : typeof set?.printedTotal === 'string' || typeof set?.printedTotal === 'number'
       ? String(set.printedTotal)
       : undefined;
+  const printedTotal = normalizeCatalogPrintedTotal(rawPrintedTotal);
   const rarity = typeof row.rarity === 'string' ? row.rarity : undefined;
   const series = typeof set?.serie === 'string' ? set.serie : typeof set?.series === 'string' ? set.series : undefined;
   const isPromo = isPromoRecord({ setName, series, rarity });

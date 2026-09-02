@@ -1411,6 +1411,12 @@ function remainingBlockingMarketRecoveryMs(deadlineAtMs: number | undefined, fal
   return Math.max(0, Math.min(fallbackMs, deadlineAtMs - Date.now() - DISCOVERY_WEEKLY_FINALIZATION_RESERVE_MS));
 }
 
+function firstBlockingMarketRecoveryMs(deadlineAtMs: number | undefined, fallbackMs = DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS): number {
+  const available = remainingBlockingMarketRecoveryMs(deadlineAtMs, fallbackMs);
+  if (!deadlineAtMs) return available;
+  return Math.max(0, Math.min(available, Math.floor(fallbackMs / 2)));
+}
+
 function hasWeeklyBlockingMarketRecoveryBudget(deadlineAtMs: number | undefined, minimumMs = DISCOVERY_WEEKLY_BLOCKING_MARKET_MIN_BUDGET_MS): boolean {
   if (!deadlineAtMs) return true;
   return remainingBlockingMarketRecoveryMs(deadlineAtMs, minimumMs) >= minimumMs;
@@ -4307,7 +4313,9 @@ export const __discoveryPersistenceTestHooks = {
   weeklyMarketShortfallHydrationTargetLimit,
   shouldRunWeeklyMarketShortfallHydration,
   weeklyDiscoveryLocalSupplySufficientForMarketRecovery,
+  marketRecoveryStillNeedsTopOff,
   shouldRunWeeklyDiscoverySourceTopOff,
+  firstBlockingMarketRecoveryMs,
   remainingBlockingMarketRecoveryMs,
   hasWeeklyBlockingMarketRecoveryBudget,
   selectWeeklyDiscoveryRankingProfile,
@@ -10605,8 +10613,25 @@ function weeklyDiscoveryLocalSupplySufficientForMarketRecovery(readiness: Weekly
     && readiness.marketResolvedShortfall > 0;
 }
 
-function shouldRunWeeklyDiscoverySourceTopOff(readiness: WeeklyDiscoverySupplyReadiness): boolean {
-  return readiness.shouldTopOff && !weeklyDiscoveryLocalSupplySufficientForMarketRecovery(readiness);
+type WeeklyDiscoveryMarketRecoveryOutcome = {
+  ran: boolean;
+  readyEligibleDelta: number;
+  projectedSelectedDelta: number;
+  projectedMarketResolvedDelta: number;
+  remainingMarketShortfall: number;
+};
+
+function marketRecoveryStillNeedsTopOff(outcome: WeeklyDiscoveryMarketRecoveryOutcome | undefined): boolean {
+  if (!outcome?.ran || outcome.remainingMarketShortfall <= 0) return false;
+  return outcome.readyEligibleDelta <= 0
+    && outcome.projectedSelectedDelta <= 0
+    && outcome.projectedMarketResolvedDelta <= 0;
+}
+
+function shouldRunWeeklyDiscoverySourceTopOff(readiness: WeeklyDiscoverySupplyReadiness, marketRecoveryOutcome?: WeeklyDiscoveryMarketRecoveryOutcome): boolean {
+  if (!readiness.shouldTopOff) return false;
+  if (marketRecoveryStillNeedsTopOff(marketRecoveryOutcome)) return true;
+  return !weeklyDiscoveryLocalSupplySufficientForMarketRecovery(readiness);
 }
 
 function buildWeeklyDiscoverySupplyReadiness(
@@ -11484,6 +11509,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       validatedSnapshot
     };
   }
+  let firstMarketRecoveryOutcome: WeeklyDiscoveryMarketRecoveryOutcome | undefined;
   if (
     supplyReadinessBeforeTopOff.marketResolvedShortfall > 0
   ) {
@@ -11503,7 +11529,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     const targetLimit = weeklyMarketShortfallHydrationTargetLimit(supplyReadinessBeforeTopOff.marketResolvedShortfall);
     const marketShortfallTargets = targetGroups.targets.slice(0, targetLimit);
     const marketShortfallTargetKeys = new Set(marketShortfallTargets.map((candidate) => discoveryDisplayNameKey(candidate.suggestion.name)));
-    const hydrationBudgetMs = remainingBlockingMarketRecoveryMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS);
+    const hydrationBudgetMs = firstBlockingMarketRecoveryMs(deadlineAtMs, DISCOVERY_WEEKLY_MARKET_HYDRATION_STAGE_TIMEOUT_MS);
     const canHydrateMarketShortfall = shouldRunWeeklyMarketShortfallHydration({
       hasFullDiscovery: discoveryContext.hasFullDiscovery,
       deferExpensiveHydration,
@@ -11598,6 +11624,13 @@ export async function buildWeeklyDiscoveryFinalizationInput(
           profileContext
         );
       }
+      firstMarketRecoveryOutcome = {
+        ran: true,
+        readyEligibleDelta: supplyReadinessBeforeTopOff.marketResolvedEligibleCount - beforeReadyEligible,
+        projectedSelectedDelta: supplyReadinessBeforeTopOff.projectedSelectedCount - beforeProjectedSelected,
+        projectedMarketResolvedDelta: supplyReadinessBeforeTopOff.projectedMarketResolvedCount - beforeProjectedMarketResolved,
+        remainingMarketShortfall: supplyReadinessBeforeTopOff.marketResolvedShortfall
+      };
       logWeeklyDiscoveryStage({
         event: 'WEEKLY_DISCOVERY_STAGE',
         userId: context.userId,
@@ -11625,6 +11658,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       throwIfAborted(context.abortSignal);
       throwIfDeadlineExpired(deadlineAtMs);
     } else {
+      firstMarketRecoveryOutcome = { ran: false, readyEligibleDelta: 0, projectedSelectedDelta: 0, projectedMarketResolvedDelta: 0, remainingMarketShortfall: supplyReadinessBeforeTopOff.marketResolvedShortfall };
       logWeeklyDiscoveryStage({
         event: 'WEEKLY_DISCOVERY_STAGE',
         userId: context.userId,
@@ -11677,7 +11711,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   });
   let topOffApplied = false;
   let finalStageCounts = baseStageCounts;
-  const shouldRunSourceTopOff = shouldRunWeeklyDiscoverySourceTopOff(supplyReadinessBeforeTopOff);
+  const shouldRunSourceTopOff = shouldRunWeeklyDiscoverySourceTopOff(supplyReadinessBeforeTopOff, firstMarketRecoveryOutcome);
   if (discoveryContext.hasFullDiscovery && shouldRunSourceTopOff && !deferExpensiveHydration && hasWeeklyOptionalStageBudget(deadlineAtMs)) {
     const topOff = await runWeeklyDiscoveryStage({
       userId: context.userId,

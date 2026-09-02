@@ -6504,9 +6504,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(__discoveryPersistenceTestHooks.hasWeeklyBlockingMarketRecoveryBudget(Date.now() + 60_000)).toBe(true);
     expect(__discoveryPersistenceTestHooks.hasWeeklyBlockingMarketRecoveryBudget(Date.now() + 5_000)).toBe(false);
     expect(__discoveryPersistenceTestHooks.remainingBlockingMarketRecoveryMs(Date.now() + 5_000, 90_000)).toBe(0);
+    expect(__discoveryPersistenceTestHooks.firstBlockingMarketRecoveryMs(Date.now() + 90_000, 90_000)).toBeLessThanOrEqual(45_000);
   });
 
-  it('skips source top-off when local supply is sufficient and market readiness is the blocker', () => {
+  it('falls back to source top-off when local-sufficient market recovery makes no progress', () => {
     const w36LikeReadiness = {
       canonicalReserveCount: 38,
       hardEligibleReserveCount: 38,
@@ -6527,9 +6528,27 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       postCapSelectableCount: 17,
       viableAlternativeCount: 3
     };
+    const zeroProgressRecovery = {
+      ran: true,
+      readyEligibleDelta: 0,
+      projectedSelectedDelta: 0,
+      projectedMarketResolvedDelta: 0,
+      remainingMarketShortfall: 2
+    };
+    const successfulRecovery = {
+      ran: true,
+      readyEligibleDelta: 2,
+      projectedSelectedDelta: 2,
+      projectedMarketResolvedDelta: 2,
+      remainingMarketShortfall: 0
+    };
 
     expect(__discoveryPersistenceTestHooks.weeklyDiscoveryLocalSupplySufficientForMarketRecovery(w36LikeReadiness as never)).toBe(true);
     expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff(w36LikeReadiness as never)).toBe(false);
+    expect(__discoveryPersistenceTestHooks.marketRecoveryStillNeedsTopOff(zeroProgressRecovery)).toBe(true);
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff(w36LikeReadiness as never, zeroProgressRecovery)).toBe(true);
+    expect(__discoveryPersistenceTestHooks.marketRecoveryStillNeedsTopOff(successfulRecovery)).toBe(false);
+    expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff({ ...w36LikeReadiness, selectedShortfall: 0, marketResolvedShortfall: 0, shouldTopOff: false } as never, successfulRecovery)).toBe(false);
     expect(__discoveryPersistenceTestHooks.weeklyDiscoveryLocalSupplySufficientForMarketRecovery(deficientReadiness as never)).toBe(false);
     expect(__discoveryPersistenceTestHooks.shouldRunWeeklyDiscoverySourceTopOff(deficientReadiness as never)).toBe(true);
   });

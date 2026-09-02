@@ -1,6 +1,6 @@
 import { queryCardCatalogRecords } from '../card-catalog-db.js';
 import { JAPANESE_SUBJECT_ALIASES } from '../collector-card-aliases.js';
-import { catalogDisplayValue, normalizeCatalogCardNumber, normalizeCatalogText, parseCatalogSearchQuery } from './normalize.js';
+import { catalogDisplayValue, normalizeCatalogCardNumber, normalizeCatalogPrintedTotal, normalizeCatalogText, parseCatalogSearchQuery } from './normalize.js';
 import type { LocalCardCatalogChoice, StoredCardCatalogRecord } from './types.js';
 
 const ACCESSORY_TERMS = /\b(spirit link|tool|energy|stadium|supporter|trainer)\b/i;
@@ -75,10 +75,11 @@ function hardReject(record: StoredCardCatalogRecord, query: ReturnType<typeof pa
 
 function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCatalogChoice {
   const value = catalogDisplayValue(record);
+  const printedTotal = normalizeCatalogPrintedTotal(record.printedTotal);
   const labelNumber = record.isUnnumbered
     ? 'unnumbered'
-    : record.printedTotal && record.cardNumber && /^\d+$/.test(record.cardNumber)
-    ? `${record.cardNumber}/${record.printedTotal}`
+    : printedTotal && record.cardNumber && /^\d+$/.test(record.cardNumber)
+    ? `${record.cardNumber}/${printedTotal}`
     : record.cardNumber;
   return {
     name: `${record.name}${record.translatedSetName ?? record.setName ? ` - ${record.translatedSetName ?? record.setName}` : ''}${labelNumber ? ` #${labelNumber}` : ''}${record.language === 'ja' ? ' (Japanese)' : ''}`,
@@ -95,7 +96,7 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
     setName: record.setName,
     translatedSetName: record.translatedSetName,
     cardNumber: record.cardNumber,
-    printedTotal: record.printedTotal,
+    printedTotal,
     isUnnumbered: record.isUnnumbered,
     rarity: record.rarity,
     isPromo: record.isPromo,

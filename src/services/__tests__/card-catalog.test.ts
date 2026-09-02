@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cardCatalogStats, initializeCardCatalogDb, listCardCatalogMisses, openCardCatalogDb, recordCardCatalogMiss, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
+import { cardCatalogStats, getCardCatalogRecordBySourceCardId, initializeCardCatalogDb, listCardCatalogMisses, openCardCatalogDb, recordCardCatalogMiss, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
 import { searchLocalCardCatalog } from '../card-catalog/search.js';
+import { catalogDisplayValue } from '../card-catalog/normalize.js';
 import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
 import { importVaultrPromoSupplementRecords, loadVaultrPromoSupplementRecords, vaultrPromoRecordFromDefinition } from '../card-catalog/importers/vaultr-promos.js';
@@ -156,6 +157,44 @@ describe('local card catalog', () => {
     });
 
     expect(pokemonTcgRecordFromCard({ id: 'bad' })).toBeUndefined();
+  });
+
+  it('treats provider printedTotal zero as unknown instead of rendering slash-zero identities', () => {
+    const dbPath = tempCatalogPath('zero-total');
+    initializeCardCatalogDb(dbPath);
+    const squirtle = tcgDexRecordFromCard({
+      id: 'PROMOS-A-033',
+      localId: '033',
+      set: {
+        id: 'PROMOS-A',
+        name: { ja: 'プロモカード', id: 'Promos-A' },
+        cardCount: { official: 0 }
+      },
+      name: { ja: 'ゼニガメ', id: 'Squirtle' },
+      image: 'https://assets.tcgdex.net/ja/PROMOS-A/033'
+    }, { language: 'ja', setTranslations: new Map([['PROMOS-A', 'Promos-A']]) })!;
+
+    expect(squirtle.printedTotal).toBeUndefined();
+    expect((squirtle.aliases ?? []).map((alias) => alias.alias).join(' ')).not.toContain('/0');
+
+    replaceCardCatalogSourceRecords('TCGDEX', [squirtle], dbPath);
+    const stored = getCardCatalogRecordBySourceCardId('TCGDEX', 'PROMOS-A-033', dbPath);
+
+    expect(stored).toMatchObject({
+      cardNumber: '033',
+      printedTotal: undefined
+    });
+    const displayValue = catalogDisplayValue({
+      name: stored!.name,
+      setName: stored!.setName,
+      translatedSetName: stored!.translatedSetName,
+      cardNumber: stored!.cardNumber,
+      printedTotal: stored!.printedTotal,
+      language: stored!.language
+    });
+
+    expect(displayValue).toContain('033');
+    expect(displayValue).not.toContain('/0');
   });
 
   it('loads PokemonTCG repository cards by joining cards/en files to sets/en.json', () => {
@@ -453,7 +492,7 @@ describe('local card catalog', () => {
       source: 'VAULTR_PROMO',
       sourceCardId: 'vaultr-promo-dextcg-jpn-mcdemp-7',
       canonicalName: 'Squirtle',
-      value: "Squirtle McDonald's Pokemon-e Minimum Pack 007/18 Japanese",
+      value: "Squirtle McDonald's Pokemon-e Minimum Pack 007/018 Japanese",
       imageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png'
     });
     expect(searchLocalCardCatalog('squirtle corocoro 007/018', 10, { dbPath })).toEqual([]);
