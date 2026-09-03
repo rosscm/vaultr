@@ -8,6 +8,8 @@ import { catalogDisplayValue } from '../card-catalog/normalize.js';
 import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
 import { importVaultrPromoSupplementRecords, loadVaultrPromoSupplementRecords, vaultrPromoRecordFromDefinition } from '../card-catalog/importers/vaultr-promos.js';
+import { auditCuratedJapanesePromos } from '../card-catalog/curated-japanese-promo-audit.js';
+import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily } from '../card-catalog/supplements/curated-japanese-promos.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
 import { runCatalogMissesCli } from '../../catalog-misses.js';
 import { runCatalogImportPokemonTcgCli } from '../../catalog-import-pokemontcg.js';
@@ -529,6 +531,98 @@ describe('local card catalog', () => {
       imageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png'
     });
     expect(searchLocalCardCatalog('squirtle corocoro 007/018', 10, { dbPath })).toEqual([]);
+  });
+
+  it('keeps curated Japanese promo metadata separate, unique, sourced, and Japanese-only', () => {
+    const ids = CURATED_JAPANESE_PROMOS.map((record) => record.curationId);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(CURATED_JAPANESE_PROMOS.every((record) => record.language === 'ja')).toBe(true);
+    expect(CURATED_JAPANESE_PROMOS.every((record) => record.references.length > 0)).toBe(true);
+    expect(CURATED_JAPANESE_PROMOS.every((record) => record.references.some((reference) => reference.sourceName === 'POKUMON'))).toBe(true);
+
+    const mcdonalds = CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === "McDonald's Pokemon-e Minimum Pack");
+    expect(mcdonalds.map((record) => record.cardNumber)).toEqual(Array.from({ length: 18 }, (_, index) => String(index + 1).padStart(3, '0')));
+    expect(mcdonalds.every((record) => record.printedTotal === '018')).toBe(true);
+    expect(mcdonalds.every((record) => record.releaseYear === 2002)).toBe(true);
+
+    const coolPorygon = CURATED_JAPANESE_PROMOS.filter((record) => record.name === 'Cool Porygon');
+    expect(coolPorygon).toHaveLength(1);
+    expect(coolPorygon[0]?.additionalReleaseEvents).toContain('Nintendo 64 W Double Get');
+    expect(curatedJapanesePromoCountsByFamily()["McDonald's Pokemon-e Minimum Pack"]).toBe(18);
+  });
+
+  it('audits exact numbered curated promo coverage conservatively and read-only', () => {
+    const dbPath = tempCatalogPath('curated-audit-numbered');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jpn_mcdemp-10',
+        language: 'ja',
+        name: 'Pikachu',
+        normalizedName: 'pikachu',
+        setName: "McDonald's Pokemon-e Minimum Pack",
+        normalizedSetName: 'mcdonald s pokemon e minimum pack',
+        cardNumber: '010',
+        normalizedCardNumber: '10',
+        printedTotal: '018'
+      })
+    ], dbPath);
+    const before = cardCatalogStats(dbPath);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    const report = auditCuratedJapanesePromos({
+      dbPath,
+      includeCovered: true,
+      records: [
+        CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-mcdemp-2002-010')!,
+        CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-mcdemp-2002-011')!
+      ]
+    });
+
+    expect(report.statusCounts).toMatchObject({ COVERED: 1, MISSING: 1, AMBIGUOUS: 0 });
+    expect(report.records.find((record) => record.cardNumber === '010')?.status).toBe('COVERED');
+    expect(report.records.find((record) => record.cardNumber === '011')?.status).toBe('MISSING');
+    expect(cardCatalogStats(dbPath)).toEqual(before);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('audits ambiguous unnumbered same-name records without false coverage', () => {
+    const dbPath = tempCatalogPath('curated-audit-unnumbered');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-random-mew',
+        language: 'ja',
+        name: 'Mew',
+        normalizedName: 'mew',
+        setName: 'Japanese Promo',
+        normalizedSetName: 'japanese promo',
+        cardNumber: undefined,
+        normalizedCardNumber: undefined,
+        printedTotal: undefined,
+        isUnnumbered: true
+      })
+    ], dbPath);
+
+    const report = auditCuratedJapanesePromos({
+      dbPath,
+      includeCovered: true,
+      records: [CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-jr-train-rally-1997-mew')!]
+    });
+
+    expect(report.records[0]?.status).toBe('AMBIGUOUS');
+  });
+
+  it('leaves existing Vaultr promo import behavior scoped to verified supplements', () => {
+    const records = loadVaultrPromoSupplementRecords('2026-09-03T00:00:00.000Z');
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      source: 'VAULTR_PROMO',
+      sourceCardId: 'vaultr-promo-dextcg-jpn-mcdemp-7',
+      name: 'Squirtle'
+    });
+    expect(CURATED_JAPANESE_PROMOS.length).toBeGreaterThan(records.length);
   });
 
   it('supports verified unnumbered promo fixtures without treating alternate identifiers as printed numbers', () => {
