@@ -2,8 +2,10 @@ import { searchLocalCardCatalog } from './search.js';
 import { normalizeCatalogCardNumber, normalizeCatalogText } from './normalize.js';
 import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily, type CuratedJapanesePromoPrinting } from './supplements/curated-japanese-promos.js';
 import type { LocalCardCatalogChoice } from './types.js';
+import type { CuratedJapanesePromoReference } from './supplements/curated-japanese-promos.js';
 
 export type CuratedJapanesePromoAuditStatus = 'COVERED' | 'MISSING' | 'AMBIGUOUS';
+export type CuratedJapanesePromoProvenanceStatus = 'TRACEABLE' | 'PARTIAL' | 'UNRESOLVED';
 
 export type CuratedJapanesePromoAuditRecord = {
   curationId: string;
@@ -14,6 +16,7 @@ export type CuratedJapanesePromoAuditRecord = {
   printedTotal?: string;
   isUnnumbered?: boolean;
   status: CuratedJapanesePromoAuditStatus;
+  provenanceStatus: CuratedJapanesePromoProvenanceStatus;
   reason: string;
   matches: Array<{
     source: string;
@@ -39,6 +42,19 @@ function identityQuery(record: CuratedJapanesePromoPrinting): string {
     ? `${record.cardNumber}/${record.printedTotal}`
     : record.cardNumber;
   return [record.name, record.promoContext, number, 'Japanese'].filter(Boolean).join(' ');
+}
+
+export function isTraceableCuratedJapanesePromoReference(reference: CuratedJapanesePromoReference): boolean {
+  if (reference.sourceName === 'POKUMON') {
+    return Boolean(reference.url?.startsWith('https://www.pokumon.com/') || reference.url?.startsWith('https://pokumon.com/'));
+  }
+  return Boolean(reference.url || reference.sourceId);
+}
+
+export function curatedJapanesePromoProvenanceStatus(record: CuratedJapanesePromoPrinting): CuratedJapanesePromoProvenanceStatus {
+  if (record.references.some(isTraceableCuratedJapanesePromoReference)) return 'TRACEABLE';
+  if (record.references.length > 0) return 'PARTIAL';
+  return 'UNRESOLVED';
 }
 
 function sameName(record: CuratedJapanesePromoPrinting, match: LocalCardCatalogChoice): boolean {
@@ -136,6 +152,7 @@ export function auditCuratedJapanesePromos(options: {
       printedTotal: record.printedTotal,
       isUnnumbered: record.isUnnumbered,
       status: classification.status,
+      provenanceStatus: curatedJapanesePromoProvenanceStatus(record),
       reason: classification.reason,
       matches: matches.slice(0, 4).map((match) => ({
         source: match.source,

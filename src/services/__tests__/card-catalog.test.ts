@@ -8,7 +8,7 @@ import { catalogDisplayValue } from '../card-catalog/normalize.js';
 import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
 import { importVaultrPromoSupplementRecords, loadVaultrPromoSupplementRecords, vaultrPromoRecordFromDefinition } from '../card-catalog/importers/vaultr-promos.js';
-import { auditCuratedJapanesePromos } from '../card-catalog/curated-japanese-promo-audit.js';
+import { auditCuratedJapanesePromos, curatedJapanesePromoProvenanceStatus, isTraceableCuratedJapanesePromoReference } from '../card-catalog/curated-japanese-promo-audit.js';
 import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily } from '../card-catalog/supplements/curated-japanese-promos.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
 import { runCatalogMissesCli } from '../../catalog-misses.js';
@@ -537,10 +537,11 @@ describe('local card catalog', () => {
     const ids = CURATED_JAPANESE_PROMOS.map((record) => record.curationId);
     expect(new Set(ids).size).toBe(ids.length);
     expect(CURATED_JAPANESE_PROMOS.every((record) => record.language === 'ja')).toBe(true);
-    expect(CURATED_JAPANESE_PROMOS.every((record) => record.references.length > 0)).toBe(true);
-    expect(CURATED_JAPANESE_PROMOS.every((record) => record.references.some((reference) => reference.sourceName === 'POKUMON'))).toBe(true);
-    expect(CURATED_JAPANESE_PROMOS.every((record) => record.references.some((reference) => reference.url || reference.sourceId))).toBe(true);
-    expect(CURATED_JAPANESE_PROMOS.some((record) => record.references.some((reference) => reference.sourceName === 'POKUMON' && !reference.url && !reference.sourceId))).toBe(false);
+    expect(CURATED_JAPANESE_PROMOS.some((record) => record.references.some((reference) => reference.sourceName === 'POKUMON' && reference.sourceId?.startsWith('pokumon:')))).toBe(false);
+    expect(isTraceableCuratedJapanesePromoReference({ sourceName: 'POKUMON', sourceId: 'pokumon:local-slug', kind: 'metadata_reference' })).toBe(false);
+    expect(isTraceableCuratedJapanesePromoReference({ sourceName: 'POKUMON', url: 'https://www.pokumon.com/card/example', kind: 'metadata_reference' })).toBe(true);
+    expect(isTraceableCuratedJapanesePromoReference({ sourceName: 'DEXTCG', sourceId: 'jpn_mcdemp-7', kind: 'source_identity' })).toBe(true);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => curatedJapanesePromoProvenanceStatus(record) === 'TRACEABLE')).toHaveLength(18);
 
     const mcdonalds = CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === "McDonald's Pokemon-e Minimum Pack");
     expect(mcdonalds.map((record) => record.cardNumber)).toEqual(Array.from({ length: 18 }, (_, index) => String(index + 1).padStart(3, '0')));
@@ -550,8 +551,10 @@ describe('local card catalog', () => {
     const coolPorygon = CURATED_JAPANESE_PROMOS.filter((record) => record.name === 'Cool Porygon');
     expect(coolPorygon).toHaveLength(1);
     expect(coolPorygon[0]?.additionalReleaseEvents).toContain('Nintendo 64 W Double Get');
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Pokemon Song Best Collection CD').some((record) => record.identicalPrintingGroup)).toBe(false);
     expect(curatedJapanesePromoCountsByFamily()["McDonald's Pokemon-e Minimum Pack"]).toBe(18);
     expect(CURATED_JAPANESE_PROMOS.some((record) => 'verifiedSupplement' in record)).toBe(false);
+    expect(CURATED_JAPANESE_PROMOS.some((record) => record.estimatedCopies || record.finish || record.surface || record.backType)).toBe(false);
   });
 
   it('expands curated Japanese promo families without guessed years or collapsed variants', () => {
@@ -568,6 +571,10 @@ describe('local card catalog', () => {
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.variantOf === 'lucky-stadium-world-challenge-summer-2000')).toHaveLength(9);
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'How I Became a Pokemon Card').every((record) => record.releaseYear === undefined)).toBe(true);
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Pokemon Card Trainers Magazine').every((record) => record.releaseYear === undefined)).toBe(true);
+    expect(CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-official-card-file-pikachu')?.name).toBe('Pikachu');
+    expect(CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-official-card-file-charmander')?.name).toBe('Charmander');
+    expect(CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-pocket-monsters-fan-book-mewtwo')?.name).toBe('Mewtwo');
+    expect(CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-toyota-campaign-arcanine')?.name).toBe('Arcanine');
   });
 
   it('audits exact numbered curated promo coverage conservatively and read-only', () => {
@@ -678,6 +685,52 @@ describe('local card catalog', () => {
 
     const exact = auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [mew] });
     expect(exact.records[0]).toMatchObject({ status: 'COVERED', reason: 'exact release identity match' });
+  });
+
+  it('audits product insert records by canonical name and release context', () => {
+    const dbPath = tempCatalogPath('curated-audit-product-insert');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-official-card-file-pikachu',
+        language: 'ja',
+        name: 'Pikachu',
+        normalizedName: 'pikachu',
+        setName: 'Official Card File insert',
+        normalizedSetName: 'official card file insert',
+        isUnnumbered: true
+      }),
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-generic-pikachu',
+        language: 'ja',
+        name: 'Pikachu',
+        normalizedName: 'pikachu',
+        setName: 'Pokemon Promo',
+        normalizedSetName: 'pokemon promo',
+        isUnnumbered: true
+      })
+    ], dbPath);
+    const pikachu = CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-official-card-file-pikachu')!;
+
+    expect(auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [pikachu] }).records[0]).toMatchObject({
+      status: 'COVERED',
+      reason: 'exact release identity match'
+    });
+
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-generic-pikachu',
+        language: 'ja',
+        name: 'Pikachu',
+        normalizedName: 'pikachu',
+        setName: 'Pokemon Promo',
+        normalizedSetName: 'pokemon promo',
+        isUnnumbered: true
+      })
+    ], dbPath);
+    expect(auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [pikachu] }).records[0]?.status).toBe('AMBIGUOUS');
   });
 
   it('leaves existing Vaultr promo import behavior scoped to verified supplements', () => {
