@@ -40,6 +40,7 @@ export function initializeCardCatalogDb(dbPath = cardCatalogPath()): void {
         printed_total TEXT,
         is_unnumbered INTEGER NOT NULL DEFAULT 0,
         rarity TEXT,
+        illustrator TEXT,
         image_url TEXT,
         release_date TEXT,
         is_promo INTEGER NOT NULL DEFAULT 0,
@@ -116,7 +117,8 @@ export function initializeCardCatalogDb(dbPath = cardCatalogPath()): void {
       ['release_type', 'TEXT'],
       ['release_event', 'TEXT'],
       ['release_year', 'INTEGER'],
-      ['verification_status', 'TEXT']
+      ['verification_status', 'TEXT'],
+      ['illustrator', 'TEXT']
     ];
     for (const [name, definition] of additiveColumns) {
       if (!existingColumns.has(name)) db.exec(`ALTER TABLE card_catalog_records ADD COLUMN ${name} ${definition};`);
@@ -137,12 +139,12 @@ export function replaceCardCatalogSourceRecords(
     INSERT INTO card_catalog_records (
       source, source_card_id, language, name, normalized_name, set_id, set_name,
       translated_set_name, normalized_set_name, series, card_number, normalized_card_number,
-      printed_total, is_unnumbered, rarity, image_url, release_date, is_promo, promo_context,
+      printed_total, is_unnumbered, rarity, illustrator, image_url, release_date, is_promo, promo_context,
       release_type, release_event, release_year, verification_status, source_updated_at, imported_at
     ) VALUES (
       @source, @sourceCardId, @language, @name, @normalizedName, @setId, @setName,
       @translatedSetName, @normalizedSetName, @series, @cardNumber, @normalizedCardNumber,
-      @printedTotal, @isUnnumbered, @rarity, @imageUrl, @releaseDate, @isPromo, @promoContext,
+      @printedTotal, @isUnnumbered, @rarity, @illustrator, @imageUrl, @releaseDate, @isPromo, @promoContext,
       @releaseType, @releaseEvent, @releaseYear, @verificationStatus, @sourceUpdatedAt, @importedAt
     )
   `);
@@ -201,6 +203,7 @@ export function replaceCardCatalogSourceRecords(
           printedTotal: dbValue(record.printedTotal),
           isUnnumbered: record.isUnnumbered ? 1 : 0,
           rarity: dbValue(record.rarity),
+          illustrator: dbValue(record.illustrator),
           imageUrl: dbValue(record.imageUrl),
           releaseDate: dbValue(record.releaseDate),
           isPromo: record.isPromo ? 1 : 0,
@@ -291,6 +294,7 @@ function rowToRecord(row: any): StoredCardCatalogRecord {
     printedTotal: row.printed_total ?? undefined,
     isUnnumbered: row.is_unnumbered === 1,
     rarity: row.rarity ?? undefined,
+    illustrator: row.illustrator ?? undefined,
     imageUrl: row.image_url ?? undefined,
     releaseDate: row.release_date ?? undefined,
     isPromo: row.is_promo === 1,

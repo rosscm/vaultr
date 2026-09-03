@@ -118,6 +118,7 @@ describe('local card catalog', () => {
     expect(pokemonTcgRecordFromCard({
       id: 'bw11-RC24',
       name: 'Mew-EX',
+      artist: '  Atsuko Nishida  ',
       number: 'RC24',
       rarity: 'Radiant Collection',
       set: { id: 'bw11', name: 'Legendary Treasures', series: 'Black & White', printedTotal: 113, releaseDate: '2013/11/06' }
@@ -126,12 +127,14 @@ describe('local card catalog', () => {
       sourceCardId: 'bw11-RC24',
       language: 'en',
       normalizedCardNumber: 'RC24',
+      illustrator: 'Atsuko Nishida',
       imageUrl: 'https://images.pokemontcg.io/bw11/RC24_hires.png'
     });
 
     expect(tcgDexRecordFromCard({
       set: {},
-      name: { ja: 'ブラッキーex', id: 'Umbreon ex' }
+      name: { ja: 'ブラッキーex', id: 'Umbreon ex' },
+      illustrator: '  Shinji Kanda '
     }, {
       language: 'ja',
       filePath: '/repo/data-asia/SV/SV8a/217.ts',
@@ -151,12 +154,42 @@ describe('local card catalog', () => {
       imageUrl: 'https://assets.tcgdex.net/ja/SV/SV8a/217/high.png',
       releaseDate: '2024-12-06',
       translatedSetName: 'Terastal Festival ex',
+      illustrator: 'Shinji Kanda',
       aliases: expect.arrayContaining([
         expect.objectContaining({ alias: 'Umbreon ex', locale: 'id', kind: 'localized_name' })
       ])
     });
 
+    expect(pokemonTcgRecordFromCard({
+      id: 'sv1-1',
+      name: 'Sprigatito',
+      number: '1',
+      set: { id: 'sv1', name: 'Scarlet & Violet', printedTotal: 198 }
+    })).toMatchObject({ illustrator: undefined });
     expect(pokemonTcgRecordFromCard({ id: 'bad' })).toBeUndefined();
+  });
+
+  it('round-trips illustrator through storage and local search choices', () => {
+    const dbPath = tempCatalogPath('illustrator');
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({
+        sourceCardId: 'swsh12-160',
+        name: 'Pikachu',
+        cardNumber: '160',
+        normalizedCardNumber: '160',
+        setName: 'Silver Tempest',
+        normalizedSetName: 'silver tempest',
+        illustrator: 'Shinji Kanda'
+      })
+    ], dbPath);
+
+    expect(getCardCatalogRecordBySourceCardId('POKEMONTCG', 'swsh12-160', dbPath)).toMatchObject({
+      illustrator: 'Shinji Kanda'
+    });
+    expect(searchLocalCardCatalog('pikachu silver tempest 160', 5, { dbPath })[0]).toMatchObject({
+      canonicalName: 'Pikachu',
+      illustrator: 'Shinji Kanda'
+    });
   });
 
   it('treats provider printedTotal zero as unknown instead of rendering slash-zero identities', () => {

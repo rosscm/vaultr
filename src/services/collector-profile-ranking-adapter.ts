@@ -37,6 +37,7 @@ const RANKER_MAX_WEIGHTS: Partial<Record<CollectorProfileTraitGroup, number>> = 
   sets: 5,
   eras: 4,
   formats: 5,
+  artists: 3,
   rarities: 4,
   promoTypes: 4,
   releaseTypes: 4,
@@ -159,6 +160,7 @@ export function collectorInterestProfileToTasteProfile(
   mergeScaled(rankerProfile.sets, scaleTraitsForRanker(profile.traits.sets, RANKER_MAX_WEIGHTS.sets!));
   mergeScaled(rankerProfile.eras, scaleTraitsForRanker(profile.traits.eras, RANKER_MAX_WEIGHTS.eras!, (trait) => ERA_TRANSLATIONS[trait.label]));
   mergeScaled(rankerProfile.formats, scaleTraitsForRanker(profile.traits.formats, RANKER_MAX_WEIGHTS.formats!));
+  mergeScaled(rankerProfile.artists, scaleTraitsForRanker(profile.traits.artists, RANKER_MAX_WEIGHTS.artists!));
   mergeScaled(rankerProfile.rarityTiers, scaleTraitsForRanker(profile.traits.rarities, RANKER_MAX_WEIGHTS.rarities!, (trait) => RARITY_TIER_TRANSLATIONS[trait.label]));
   mergeScaled(rankerProfile.artTiers, scaleTraitsForRanker(profile.traits.rarities, RANKER_MAX_WEIGHTS.rarities!, (trait) => RARITY_TIER_TRANSLATIONS[trait.label]));
   mergeScaled(rankerProfile.promoTypes, scaleTraitsForRanker([...profile.traits.promoTypes, ...profile.traits.releaseEvents, ...profile.traits.sets], RANKER_MAX_WEIGHTS.promoTypes!, (trait) => PROMO_TRANSLATIONS[trait.label]));
@@ -375,13 +377,14 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
   computeDiscoveryValue: (features, profile, personal) => {
     const anchor = shadowCollectorAnchorStrength(personal);
     const subjectStrength = personal.subjectAffinity;
+    const hasArtist = personal.artistAffinity >= 0.18;
     const familyStrength = personal.familyAffinity;
     const hasKnownEra = features.eras.some((era) => era in profile.eras);
     const hasKnownFormat = features.formats.some((format) => format in profile.formats);
     const hasUnseenTrait = features.eras.some((era) => !(era in profile.eras)) || features.formats.some((format) => !(format in profile.formats));
     return {
       novelty: Number(clamp01(subjectStrength >= 0.45 ? 0.25 : anchor >= 0.25 ? 0.45 : anchor > 0 ? 0.62 : 0.82).toFixed(6)),
-      adjacency: Number(clamp01(anchor >= 0.42 ? 0.72 : anchor >= 0.16 || familyStrength >= COLLECTOR_PROFILE_FAMILY_ADJACENCY_MIN ? 0.56 : (hasKnownEra || hasKnownFormat) && anchor > 0 ? 0.42 : 0.24).toFixed(6)),
+      adjacency: Number(clamp01(anchor >= 0.42 ? 0.72 : anchor >= 0.16 || familyStrength >= COLLECTOR_PROFILE_FAMILY_ADJACENCY_MIN || (hasArtist && (hasKnownEra || hasKnownFormat)) ? 0.56 : (hasKnownEra || hasKnownFormat) && anchor > 0 ? 0.42 : 0.24).toFixed(6)),
       serendipity: Number(clamp01(anchor >= 0.42 ? 0.25 : anchor >= 0.16 ? 0.45 : 0.72).toFixed(6)),
       underrepresentedTraitCoverage: hasUnseenTrait ? 1 : 0.2
     };
@@ -396,6 +399,7 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
       || (anchor >= 0.40 && meaningfulCount >= 2)
     ) return 'CORE_MATCH';
     if (components.familyAffinity >= COLLECTOR_PROFILE_FAMILY_ADJACENCY_MIN && value.adjacency >= 0.5) return 'ADJACENT_DISCOVERY';
+    if (components.artistAffinity >= 0.18 && hasCorroboration && shadowCorroboratingAffinityCount(components) >= 2 && value.adjacency >= 0.5) return 'ADJACENT_DISCOVERY';
     if (anchor >= 0.16 && value.adjacency >= 0.5) return 'ADJACENT_DISCOVERY';
     return 'CONTROLLED_EXPLORATION';
   },
@@ -407,6 +411,7 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
     const signals: Array<{ label: string; value: number }> = [
       { label: 'subject match', value: components.subjectAffinity },
       { label: 'family match', value: components.familyAffinity },
+      { label: 'illustrator match', value: components.artistAffinity },
       { label: 'set match', value: components.setAffinity },
       { label: 'promo match', value: components.promoAffinity },
       { label: 'format match', value: components.formatAffinity },
@@ -446,6 +451,7 @@ export function extractCollectorProfileDiscoveryFeatures(candidate: DiscoveryCan
     sourceName,
     candidate.catalogFacts?.series,
     candidate.catalogFacts?.rarity,
+    candidate.catalogFacts?.illustrator,
     candidate.catalogFacts?.language === 'ja' ? 'japanese' : candidate.catalogFacts?.language === 'en' ? 'english' : undefined,
     candidate.catalogFacts?.promoContext,
     candidate.catalogFacts?.releaseType,
@@ -459,7 +465,7 @@ export function extractCollectorProfileDiscoveryFeatures(candidate: DiscoveryCan
   return {
     subjects,
     evolutionFamilies: collectorFamilyKeysForSubjects(subjects),
-    artists: [],
+    artists: [candidate.catalogFacts?.illustrator?.trim()].filter((value): value is string => !!value),
     eras: shadowEras([cardName, candidate.catalogFacts?.series].filter(Boolean).join(' '), setName),
     sets,
     setFamilies: sets.map(rankerSetFamily).filter(Boolean),

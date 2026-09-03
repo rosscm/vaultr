@@ -15,6 +15,7 @@ export type VaultrPromoSupplementDefinition = {
   aliases?: string[];
   identifiers?: Array<{ value: string; kind: 'collector_alias' | 'pokedex' | 'legacy_catalog' }>;
   verificationStatus: CardCatalogVerificationStatus;
+  illustrator?: string;
   imageUrl?: string;
   references: Array<{ sourceName: string; sourceId?: string; url?: string; kind?: string }>;
 };

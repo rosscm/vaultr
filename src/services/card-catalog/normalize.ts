@@ -28,6 +28,11 @@ export function normalizeCatalogText(value: string | undefined | null): string {
     .toLowerCase();
 }
 
+export function cleanCatalogIllustrator(value: string | undefined | null): string | undefined {
+  const cleaned = (value ?? '').trim().replace(/\s+/g, ' ');
+  return cleaned || undefined;
+}
+
 export function normalizeCatalogCardNumber(value: string | undefined | null): string | undefined {
   const compact = (value ?? '').trim().replace(/\s+/g, '').toUpperCase();
   if (!compact) return undefined;

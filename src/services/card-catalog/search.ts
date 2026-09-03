@@ -99,6 +99,7 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
     printedTotal,
     isUnnumbered: record.isUnnumbered,
     rarity: record.rarity,
+    illustrator: record.illustrator,
     isPromo: record.isPromo,
     promoContext: record.promoContext,
     releaseType: record.releaseType,

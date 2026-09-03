@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CardCatalogLanguage, CardCatalogRecord } from '../types.js';
-import { catalogDisplayValue, isPromoRecord, normalizeCatalogCardNumber, normalizeCatalogPrintedTotal, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
+import { catalogDisplayValue, cleanCatalogIllustrator, isPromoRecord, normalizeCatalogCardNumber, normalizeCatalogPrintedTotal, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
 import { asRecord } from './common.js';
 
 function tcgDexLanguageFromPath(filePath: string): CardCatalogLanguage | undefined {
@@ -143,6 +143,7 @@ export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string
       : undefined;
   const printedTotal = normalizeCatalogPrintedTotal(rawPrintedTotal);
   const rarity = typeof row.rarity === 'string' ? row.rarity : undefined;
+  const illustrator = cleanCatalogIllustrator(typeof row.illustrator === 'string' ? row.illustrator : undefined);
   const series = typeof set?.serie === 'string' ? set.serie : typeof set?.series === 'string' ? set.series : undefined;
   const isPromo = isPromoRecord({ setName, series, rarity });
   const displayValue = catalogDisplayValue({ name, setName, translatedSetName, cardNumber, printedTotal, language });
@@ -161,6 +162,7 @@ export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string
     normalizedCardNumber: normalizeCatalogCardNumber(cardNumber),
     printedTotal,
     rarity,
+    illustrator,
     imageUrl: tcgDexImageUrl(row) ?? tcgDexImageUrlFromPath(options.filePath, language),
     releaseDate: localizedDate(set?.releaseDate, preferredLocale),
     isPromo,

@@ -14,6 +14,7 @@ export type CollectorProfileTraitGroup =
   | 'sets'
   | 'eras'
   | 'formats'
+  | 'artists'
   | 'rarities'
   | 'promoTypes'
   | 'releaseTypes'
@@ -209,6 +210,7 @@ function extractTraits(chase: Chase | CompletedChase, record: StoredCardCatalogR
     addTrait(traits, 'languages', labelLanguage(record.language));
     addTrait(traits, 'sets', record.translatedSetName ?? record.setName);
     addTrait(traits, 'eras', eraFromRecord(record));
+    addTrait(traits, 'artists', record.illustrator);
     addTrait(traits, 'rarities', record.rarity);
     if (record.isPromo) addTrait(traits, 'promoTypes', 'PROMO');
     addTrait(traits, 'promoTypes', record.promoContext);
@@ -298,7 +300,7 @@ function capExactIdentityContribution(evidence: CollectorProfileEvidence[]): Col
 
 function aggregateTraits(evidence: CollectorProfileEvidence[]): CollectorInterestProfile['traits'] {
   const groups = Object.fromEntries(([
-    'subjects', 'languages', 'sets', 'eras', 'formats', 'rarities', 'promoTypes', 'releaseTypes', 'releaseEvents', 'gradingPreferences', 'conditionPreferences'
+    'subjects', 'languages', 'sets', 'eras', 'formats', 'artists', 'rarities', 'promoTypes', 'releaseTypes', 'releaseEvents', 'gradingPreferences', 'conditionPreferences'
   ] as CollectorProfileTraitGroup[]).map((group) => [group, new Map<string, CollectorInterestTrait>()])) as Record<CollectorProfileTraitGroup, Map<string, CollectorInterestTrait>>;
 
   for (const item of evidence) {

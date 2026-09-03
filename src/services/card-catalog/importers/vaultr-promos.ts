@@ -26,6 +26,7 @@ export function vaultrPromoRecordFromDefinition(definition: VaultrPromoSupplemen
     normalizedCardNumber,
     printedTotal,
     isUnnumbered: definition.isUnnumbered,
+    illustrator: definition.illustrator,
     imageUrl: definition.imageUrl,
     isPromo: true,
     promoContext: definition.promoContext,

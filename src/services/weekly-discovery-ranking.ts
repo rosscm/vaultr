@@ -561,6 +561,7 @@ function strongestSignals(components: PersonalRelevanceComponents, value: Discov
   const signals: Array<{ label: string; value: number }> = [
     { label: 'subject match', value: components.subjectAffinity },
     { label: 'family match', value: components.familyAffinity },
+    { label: 'illustrator match', value: components.artistAffinity },
     { label: 'era match', value: components.eraAffinity },
     { label: 'set match', value: components.setAffinity },
     { label: 'language match', value: components.languageAffinity },

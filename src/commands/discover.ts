@@ -75,6 +75,7 @@ import {
   weeklyDiscoveryRankingModeForCollectorProfile
 } from '../services/collector-profile-ranking-adapter.js';
 import { getCollectorInterestProfile } from '../services/collector-profile.js';
+import { getCardCatalogRecordBySourceCardId } from '../services/card-catalog-db.js';
 import { searchLocalCardCatalog } from '../services/card-catalog/search.js';
 import type { LocalCardCatalogChoice } from '../services/card-catalog/types.js';
 import { resolveSourceBackedDiscoveryCards, snapshotDiscoverySourceCatalogRuntimeStats, type DiscoverySourceCatalogRuntimeStats } from '../services/discovery-source-catalog.js';
@@ -124,6 +125,7 @@ export type DiscoveryCandidate = {
     printedTotal?: string;
     language: LocalCardCatalogChoice['language'];
     rarity?: string;
+    illustrator?: string;
     isPromo?: boolean;
     promoContext?: string;
     releaseType?: string;
@@ -4358,7 +4360,9 @@ export const __discoveryPersistenceTestHooks = {
   mapWithConcurrencyAllowPartialTimeout,
   prepareWeeklyDiscoveryDropForUser,
   buildWeeklyCollectorAnchorProfile,
-  recommendationProfileForCandidate
+  recommendationProfileForCandidate,
+  recommendationProfileForSelection,
+  candidateWithCollectorAnchoredRationale
 };
 
 function learnedFeatureRankNudge(features: DiscoveryCollectorFeatures, learnedRankContext?: DiscoveryLearnedRankContext): number {
@@ -6826,6 +6830,7 @@ function localCatalogChoiceToDiscoveryCandidate(
       setName,
       choice.language === 'ja' ? 'japanese' : 'english',
       choice.rarity,
+      choice.illustrator,
       choice.series,
       choice.promoContext,
       choice.releaseType,
@@ -6867,6 +6872,7 @@ function localCatalogChoiceToDiscoveryCandidate(
       printedTotal: choice.printedTotal,
       language: choice.language,
       rarity: choice.rarity,
+      illustrator: choice.illustrator,
       isPromo: choice.isPromo,
       promoContext: choice.promoContext,
       releaseType: choice.releaseType,
@@ -7836,6 +7842,7 @@ type WeeklyCollectorAnchorProfile = {
   familyLabels: Map<string, string>;
   setLabels: Map<string, string>;
   setFamilyLabels: Map<string, string>;
+  artistLabels: Map<string, string>;
   eraLabels: Map<string, string>;
   languages: Set<'JAPANESE' | 'ENGLISH'>;
   languageSignalCounts: Map<'JAPANESE' | 'ENGLISH', number>;
@@ -7879,6 +7886,7 @@ function buildWeeklyCollectorAnchorProfile(chases: Chase[]): WeeklyCollectorAnch
     familyLabels: new Map<string, string>(),
     setLabels: new Map<string, string>(),
     setFamilyLabels: new Map<string, string>(),
+    artistLabels: new Map<string, string>(),
     eraLabels: new Map<string, string>(),
     languages: new Set<'JAPANESE' | 'ENGLISH'>(),
     languageSignalCounts: new Map<'JAPANESE' | 'ENGLISH', number>(),
@@ -7891,6 +7899,13 @@ function buildWeeklyCollectorAnchorProfile(chases: Chase[]): WeeklyCollectorAnch
 
   for (const chase of positiveChases) {
     const text = chaseReferenceText(chase);
+    const source = chase.cardImageSourceName === 'DEXTCG' ? 'VAULTR_PROMO' : chase.cardImageSourceName;
+    const record = chase.cardImageSourceKind === 'CARD_REFERENCE' && source && chase.cardImageSourceCardId
+      ? getCardCatalogRecordBySourceCardId(source, chase.cardImageSourceCardId)
+      : null;
+    if (record?.illustrator && !profile.artistLabels.has(normalize(record.illustrator))) {
+      profile.artistLabels.set(normalize(record.illustrator), record.illustrator);
+    }
     const subjectKey = normalizedSubjectIdentity(chase.cardName);
     if (subjectKey && !profile.subjectLabels.has(subjectKey)) profile.subjectLabels.set(subjectKey, chase.cardName);
     const familyKey = chaseEvolutionFamilyKey(chase);
@@ -7980,6 +7995,7 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
   const setFamilyKey = setFamilyKeyFromText(text);
   const language = cardLanguageFromText(text);
   const formatKey = candidateFormatShelfKey(candidate);
+  const illustrator = candidate.catalogFacts?.illustrator?.trim();
   const isPromoCandidate = /\bpromo|black star|mcdonald'?s|special delivery|league promo|nintendo promo\b/i.test(text);
   const isArtCandidate = /\billustration|art rare|full art|trainer gallery|galarian gallery|\bsar\b|\bsir\b|\bar\b/i.test(text);
   const eraLabels = eraLabelsFromText(text);
@@ -8008,6 +8024,9 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
   }
   if (isPromoCandidate && collectorProfile.promoPreference) {
     anchors.push({ kind: 'PROMO_PREFERENCE', key: 'promo', label: 'promo and special release cards' });
+  }
+  if (illustrator && collectorProfile.artistLabels.has(normalize(illustrator))) {
+    anchors.push({ kind: 'ART_STYLE', key: normalize(illustrator), label: collectorProfile.artistLabels.get(normalize(illustrator))! });
   }
   if (isArtCandidate && collectorProfile.artPreference) {
     anchors.push({ kind: 'ART_STYLE', key: 'art-style', label: 'art-led cards' });
@@ -8049,7 +8068,9 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
             : primaryAnchor.kind === 'REGIONAL_PRINT'
               ? `${primaryAnchor.label} already matter in your Vault, and ${subjectLabel} keeps that regional-print thread active with a different card.`
               : primaryAnchor.kind === 'ART_STYLE'
-                ? `${subjectLabel} fits the art-led side of your collection, so this reads as a binder pick rather than a price-only card.`
+                ? primaryAnchor.key === 'art-style'
+                  ? `${subjectLabel} fits the art-led side of your collection, so this reads as a binder pick rather than a price-only card.`
+                  : `${subjectLabel} shares illustrator ${primaryAnchor.label}, an artist signal that appears elsewhere in your collection.`
                 : primaryAnchor.kind === 'FORMAT'
                   ? `${primaryAnchor.label} are already part of your collection pattern, and ${subjectLabel} extends that format without repeating the same chase.`
                   : `${primaryAnchor.label} is part of your Vault texture, so ${subjectLabel} works as controlled exploration from that era instead of a direct callback.`
@@ -8078,7 +8099,7 @@ function firstCollectorProfileAnchor(features: WeeklyDiscoveryCandidateAnalysis[
   const promo = features?.promoTypes?.[0] ?? features?.releaseTypes?.[0];
   if (promo) return { kind: 'PROMO_PREFERENCE', key: normalize(promo), label: titleCase(promo) };
   const art = features?.artists?.[0] ?? features?.artTiers?.[0] ?? features?.aestheticTags?.[0];
-  if (art) return { kind: 'ART_STYLE', key: normalize(art), label: titleCase(art) };
+  if (art) return { kind: 'ART_STYLE', key: normalize(art), label: art };
   const format = features?.formats?.[0];
   if (format) return { kind: 'FORMAT', key: normalize(format), label: titleCase(format) };
   const japanese = features?.languages?.some((language) => normalize(language) === 'japanese');
@@ -8140,14 +8161,25 @@ function candidateWithCollectorAnchoredRationale(
 ): DiscoveryCandidate {
   if (!collectorProfile.hasSignals) return candidate;
   const recommendation = recommendationProfileForSelection(candidate, collectorProfile, selectionMode);
-  if (candidate.suggestion.why === recommendation.anchoredWhy) return candidate;
+  const lane = currentLaneForRecommendation(candidate, recommendation);
+  if (candidate.suggestion.why === recommendation.anchoredWhy && candidate.suggestion.lane === lane) return candidate;
   return {
     ...candidate,
     suggestion: {
       ...candidate.suggestion,
+      lane,
       why: recommendation.anchoredWhy
     }
   };
+}
+
+function currentLaneForRecommendation(candidate: DiscoveryCandidate, recommendation: DiscoveryRecommendationProfile): string {
+  const anchor = recommendation.primaryAnchor;
+  const features = candidate.weeklyDiscovery?.features;
+  const hasCurrentArtworkSupport = !!(features?.artists?.length || features?.artTiers?.length || features?.aestheticTags?.length);
+  if (anchor?.kind === 'ART_STYLE' && hasCurrentArtworkSupport) return 'Artwork Trail';
+  if (candidate.suggestion.lane === 'Artwork Trail' && !candidate.weeklyDiscovery && !hasCurrentArtworkSupport) return 'Collector Compass';
+  return candidate.suggestion.lane;
 }
 
 function printingContextKeyFromText(value: string): string | undefined {

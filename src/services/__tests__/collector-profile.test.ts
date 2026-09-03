@@ -234,6 +234,7 @@ describe('collector interest profile', () => {
       normalizedCardNumber: '217',
       printedTotal: '187',
       rarity: 'SAR',
+      illustrator: 'Shinji Kanda',
       isPromo: false,
       releaseYear: 2024,
       verificationStatus: 'VERIFIED'
@@ -256,7 +257,33 @@ describe('collector interest profile', () => {
     expect(profile.evidence[0]?.extractionConfidence).toBe('HIGH');
     expect(traitLabels(profile, 'languages')).toEqual(['JAPANESE']);
     expect(traitLabels(profile, 'sets')).toEqual(['Terastal Festival ex']);
+    expect(traitLabels(profile, 'artists')).toEqual(['Shinji Kanda']);
     expect(traitLabels(profile, 'rarities')).toContain('SAR');
+  });
+
+  it('learns repeated source-backed illustrator evidence as a modest ranker signal', () => {
+    const dbPath = tempCatalogPath('artists');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({ sourceCardId: 'artist-1', name: 'Mew', setName: 'Artist Set', cardNumber: '1', normalizedCardNumber: '1', illustrator: 'Shinji Kanda' }),
+      record({ sourceCardId: 'artist-2', name: 'Pikachu', setName: 'Artist Set', cardNumber: '2', normalizedCardNumber: '2', illustrator: 'Shinji Kanda' }),
+      record({ sourceCardId: 'artist-3', name: 'Gardevoir', setName: 'Artist Set', cardNumber: '3', normalizedCardNumber: '3', illustrator: 'Other Artist' })
+    ], dbPath);
+
+    const repeated = buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'Mew Artist Set 1', cardImageSourceKind: 'CARD_REFERENCE', cardImageSourceName: 'POKEMONTCG', cardImageSourceCardId: 'artist-1', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'Pikachu Artist Set 2', cardImageSourceKind: 'CARD_REFERENCE', cardImageSourceName: 'POKEMONTCG', cardImageSourceCardId: 'artist-2', createdAt: '2026-01-02T00:00:00.000Z' }
+      ],
+      completedChases: [{ id: 'c1', userId: 'u1', cardName: 'Gardevoir Artist Set 3', cardImageSourceKind: 'CARD_REFERENCE', cardImageSourceName: 'POKEMONTCG', cardImageSourceCardId: 'artist-3', createdAt: '2026-01-03T00:00:00.000Z', completedAt: '2026-01-04T00:00:00.000Z' }]
+    });
+
+    const artistTraits = repeated.traits.artists;
+    expect(artistTraits[0]).toMatchObject({ label: 'Shinji Kanda', evidenceCount: 2 });
+    expect(artistTraits.find((trait) => trait.label === 'Other Artist')).toMatchObject({ evidenceCount: 1, completedEvidenceCount: 1 });
+    const adapted = collectorInterestProfileToTasteProfile(repeated);
+    expect(adapted.artists['Shinji Kanda']).toBeGreaterThan(adapted.artists['Other Artist'] ?? 0);
+    expect(adapted.artists['Shinji Kanda']).toBeLessThan(adapted.subjects.Mew ?? 99);
   });
 
   it('continues with conservative fallback when the catalog is unavailable or a chase is freeform', () => {
@@ -615,17 +642,67 @@ describe('collector interest profile', () => {
         releaseType: 'special release',
         releaseEvent: 'Terastal Festival',
         releaseYear: 2024,
+        illustrator: 'Shinji Kanda',
         imageUrl: 'https://assets.tcgdex.net/ja/SV/SV8a/212/high.png',
         imageSourceKind: 'CARD_REFERENCE'
       }
     }));
 
     expect(features.subjects).toEqual(['Sylveon']);
+    expect(features.artists).toEqual(['Shinji Kanda']);
     expect(features.languages).toEqual(['JAPANESE']);
     expect(features.sets).toContain('Terastal Festival ex');
     expect(features.eras).toContain('SV');
     expect(features.rarityTiers).toContain('premium');
     expect(features.releaseTypes).toEqual(expect.arrayContaining(['japanese-release', 'special-release']));
+  });
+
+  it('uses illustrator affinity as adjacent support without overtaking a direct subject match', () => {
+    const profile = tasteProfile({ subjects: { Mew: 8 }, artists: { 'Shinji Kanda': 3 }, eras: { WOTC: 4 } });
+    const direct = candidate('Mew Expedition Base Set 55', {
+      catalogFacts: {
+        source: 'POKEMONTCG',
+        sourceCardId: 'exp1-55',
+        canonicalName: 'Mew',
+        setName: 'Expedition Base Set',
+        cardNumber: '55',
+        language: 'en',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    });
+    const artistOnly = candidate('Dragonite Modern Set 1', {
+      catalogFacts: {
+        source: 'POKEMONTCG',
+        sourceCardId: 'modern-1',
+        canonicalName: 'Dragonite',
+        setName: 'Modern Set',
+        cardNumber: '1',
+        language: 'en',
+        illustrator: 'Shinji Kanda',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    });
+    const artistWithEra = candidate('Dragonite Expedition Base Set 43', {
+      catalogFacts: {
+        source: 'POKEMONTCG',
+        sourceCardId: 'exp1-43',
+        canonicalName: 'Dragonite',
+        setName: 'Expedition Base Set',
+        series: 'Expedition',
+        cardNumber: '43',
+        language: 'en',
+        illustrator: 'Shinji Kanda',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    });
+
+    const ranked = analyzeCollectorProfileShadowReserve([direct, artistOnly, artistWithEra], profile, {}, 'artist-seed');
+
+    expect(ranked[0]?.suggestion.name).toBe('Mew Expedition Base Set 55');
+    expect(ranked.find((entry) => entry.suggestion.name === 'Dragonite Modern Set 1')?.weeklyDiscovery?.discoveryRole).toBe('CONTROLLED_EXPLORATION');
+    const artistWithEraAnalysis = ranked.find((entry) => entry.suggestion.name === 'Dragonite Expedition Base Set 43')?.weeklyDiscovery;
+    expect(artistWithEraAnalysis?.rankExplanation.scoreComponents.personalRelevance.artistAffinity).toBeGreaterThan(0);
+    expect(artistWithEraAnalysis?.discoveryRole).toBe('ADJACENT_DISCOVERY');
   });
 
   it('keeps generation rationale and taste tokens out of shadow intrinsic features', () => {

@@ -31,6 +31,7 @@ export type CardCatalogRecord = {
   printedTotal?: string;
   isUnnumbered?: boolean;
   rarity?: string;
+  illustrator?: string;
   imageUrl?: string;
   releaseDate?: string;
   isPromo: boolean;
@@ -95,6 +96,7 @@ export type LocalCardCatalogChoice = {
   printedTotal?: string;
   isUnnumbered?: boolean;
   rarity?: string;
+  illustrator?: string;
   isPromo?: boolean;
   promoContext?: string;
   releaseType?: string;

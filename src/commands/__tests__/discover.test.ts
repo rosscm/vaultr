@@ -132,6 +132,7 @@ function collectorInterestProfileFixture(tier: CollectorInterestProfile['confide
       subjects: [{ key: 'mew', label: 'Mew', score: 5, evidenceCount: 1, activeEvidenceCount: 1, completedEvidenceCount: 0, legacyEvidenceCount: 0, confidence: 'MEDIUM', evidenceIds: ['e1'] }],
       eras: [],
       sets: [],
+      artists: [],
       languages: [],
       formats: [],
       rarities: [],
@@ -499,6 +500,7 @@ function localCatalogChoice(overrides: Partial<LocalCardCatalogChoice> & { canon
     printedTotal: overrides.printedTotal,
     isUnnumbered: overrides.isUnnumbered,
     rarity: overrides.rarity,
+    illustrator: overrides.illustrator,
     isPromo: overrides.isPromo ?? false,
     promoContext: overrides.promoContext,
     releaseType: overrides.releaseType,
@@ -7014,12 +7016,15 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       language: 'ja',
       setName: 'Terastal Festival ex',
       cardNumber: '217',
-      printedTotal: '187'
+      printedTotal: '187',
+      illustrator: 'Shinji Kanda'
     });
 
     const candidate = __discoveryPersistenceTestHooks.localCatalogChoiceToDiscoveryCandidate(choice, 0, [chase('Umbreon Terastal Festival Japanese 092', 0)]);
 
     expect(candidate?.catalogFacts?.canonicalName).toBe('ブラッキーex');
+    expect(candidate?.catalogFacts?.illustrator).toBe('Shinji Kanda');
+    expect(candidate?.weeklyDiscovery?.features.artists).toEqual(['Shinji Kanda']);
     expect(candidate?.suggestion.canonicalReference?.canonicalName).toBe('ブラッキーex');
     expect(candidate?.suggestion.name).toBe('Umbreon ex Terastal Festival ex 217/187 Japanese');
     expect(candidate?.suggestion.evidenceAliases).toContain('ブラッキーex - Terastal Festival ex #217/187 (Japanese)');
@@ -7058,6 +7063,44 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     }), 0, [chase('Mew Expedition Base Set 55', 0)]);
 
     expect(direct?.suggestion.discoveryRole).toBe('CORE_MATCH');
+  });
+
+  it('re-derives stale Artwork Trail labels when current evidence does not support artwork semantics', () => {
+    const profile = __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([chase('Mew Expedition Base Set 55', 0)]);
+    const base = collectorProfileCandidate('Pichu Expedition Base Set 22', 'exp1-22', 0, 'CONTROLLED_EXPLORATION', { eras: ['WOTC'] });
+    const normalized = __discoveryPersistenceTestHooks.candidateWithCollectorAnchoredRationale({
+      ...base,
+      suggestion: { ...base.suggestion, lane: 'Artwork Trail' },
+      weeklyDiscovery: undefined
+    }, profile, 'COLLECTOR_PROFILE_V1');
+
+    expect(normalized.suggestion.lane).not.toBe('Artwork Trail');
+  });
+
+  it('keeps Artwork Trail when a current illustrator anchor supports it', () => {
+    const dbPath = resolve(mkdtempSync(`${tmpdir()}/vaultr-discover-catalog-`), 'card-catalog.db');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      testCatalogRecord({ sourceCardId: 'artist-anchor-1', name: 'Mew', setName: 'Artist Set', cardNumber: '1', illustrator: 'Shinji Kanda' })
+    ], dbPath);
+    const profile = __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([{
+      ...chase('Mew Artist Set 1', 0),
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceName: 'POKEMONTCG',
+      cardImageSourceCardId: 'artist-anchor-1'
+    }]);
+    const candidate = __discoveryPersistenceTestHooks.localCatalogChoiceToDiscoveryCandidate(localCatalogChoice({
+      canonicalName: 'Dragonite',
+      sourceCardId: 'artist-candidate-1',
+      setName: 'Artist Set',
+      cardNumber: '2',
+      illustrator: 'Shinji Kanda'
+    }), 0, [chase('Mew Artist Set 1', 0)])!;
+
+    const normalized = __discoveryPersistenceTestHooks.candidateWithCollectorAnchoredRationale(candidate, profile, 'LEGACY');
+
+    expect(normalized.suggestion.lane).toBe('Artwork Trail');
+    expect(normalized.suggestion.why).toContain('Shinji Kanda');
   });
 
   it('groups Mew format printings by canonical Pokemon subject', () => {
