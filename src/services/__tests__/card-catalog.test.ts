@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cardCatalogStats, getCardCatalogRecordBySourceCardId, initializeCardCatalogDb, listCardCatalogMisses, openCardCatalogDb, recordCardCatalogMiss, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
-import { catalogSubjectsEquivalent, searchLocalCardCatalog } from '../card-catalog/search.js';
+import { catalogSubjectMatchesChoice, catalogSubjectsEquivalent, searchLocalCardCatalog } from '../card-catalog/search.js';
 import { catalogDisplayValue } from '../card-catalog/normalize.js';
 import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
@@ -618,6 +618,11 @@ describe('local card catalog', () => {
     expect(catalogSubjectsEquivalent('Pikachu', 'ピカチュウ')).toBe(true);
     expect(catalogSubjectsEquivalent('Bulbasaur', 'フシギダネ')).toBe(true);
     expect(catalogSubjectsEquivalent('Mew', 'ピカチュウ')).toBe(false);
+    expect(catalogSubjectMatchesChoice('Gengar', { canonicalName: 'ゲンガー', aliases: ['Gengar'] })).toBe(true);
+    expect(catalogSubjectMatchesChoice('Mewtwo', { canonicalName: 'ミュウツー', aliases: ['Mewtwo'] })).toBe(true);
+    expect(catalogSubjectMatchesChoice('Dragonite', { canonicalName: 'カイリュー', aliases: ['Dragonite'] })).toBe(true);
+    expect(catalogSubjectMatchesChoice('Gengar', { canonicalName: 'ゲンガー', aliases: ['Mewtwo'] })).toBe(false);
+    expect(catalogSubjectMatchesChoice('Gengar', { canonicalName: 'ゲンガー' })).toBe(false);
   });
 
   it('audits ambiguous unnumbered same-name records without false coverage', () => {
@@ -687,6 +692,67 @@ describe('local card catalog', () => {
     expect(covered.records[0]).toMatchObject({
       status: 'COVERED',
       reason: 'exact release identity match'
+    });
+  });
+
+  it('audits source-provided aliases without requiring new manual Japanese alias entries', () => {
+    const dbPath = tempCatalogPath('curated-audit-source-alias');
+    const masakiGengar = CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-evolution-communication-masaki-campaign-gengar')!;
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-masaki-gengar-generic',
+        language: 'ja',
+        name: 'ゲンガー',
+        normalizedName: 'ゲンガー',
+        setName: 'Japanese Promo',
+        normalizedSetName: 'japanese promo',
+        isUnnumbered: true,
+        aliases: [{ alias: 'Gengar', normalizedAlias: 'gengar', kind: 'localized_name' }]
+      })
+    ], dbPath);
+
+    expect(auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [masakiGengar] }).records[0]).toMatchObject({
+      status: 'AMBIGUOUS',
+      reason: 'same name but release context insufficient'
+    });
+
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-masaki-gengar',
+        language: 'ja',
+        name: 'ゲンガー',
+        normalizedName: 'ゲンガー',
+        setName: 'Evolution Communication Masaki campaign',
+        normalizedSetName: 'evolution communication masaki campaign',
+        isUnnumbered: true,
+        aliases: [{ alias: 'Gengar', normalizedAlias: 'gengar', kind: 'localized_name' }]
+      })
+    ], dbPath);
+
+    expect(auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [masakiGengar] }).records[0]).toMatchObject({
+      status: 'COVERED',
+      reason: 'exact release identity match'
+    });
+  });
+
+  it('propagates TCGdex localized aliases into local search choices', () => {
+    const dbPath = tempCatalogPath('tcgdex-choice-aliases');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      tcgDexRecordFromCard({
+        name: { ja: 'カイリュー', id: 'Dragonite' },
+        set: {}
+      }, {
+        language: 'ja',
+        filePath: '/repo/data-asia/DP/DP/149.ts',
+        setMetadata: { id: 'PROMO', name: { ja: 'プロモ', id: 'Promo' } }
+      })!
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('dragonite japanese', 5, { dbPath })[0]).toMatchObject({
+      canonicalName: 'カイリュー',
+      aliases: expect.arrayContaining(['Dragonite'])
     });
   });
 

@@ -84,6 +84,7 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
   return {
     name: `${record.name}${record.translatedSetName ?? record.setName ? ` - ${record.translatedSetName ?? record.setName}` : ''}${labelNumber ? ` #${labelNumber}` : ''}${record.language === 'ja' ? ' (Japanese)' : ''}`,
     canonicalName: record.name,
+    aliases: [...new Set((record.aliases ?? []).map((alias) => alias.alias).filter(Boolean))],
     value,
     imageUrl: record.imageUrl,
     imageIdentity: value,
@@ -127,10 +128,17 @@ export function subjectIdentityTerms(subject: string | undefined): string[] {
   ].filter(Boolean))];
 }
 
-export function catalogSubjectsEquivalent(left: string | undefined, right: string | undefined): boolean {
+export function catalogSubjectsEquivalent(left: string | undefined, right: string | undefined, aliases: string[] = []): boolean {
   if (!left || !right) return false;
   const leftTerms = new Set(subjectIdentityTerms(left).map(normalizeCatalogText));
-  return subjectIdentityTerms(right).map(normalizeCatalogText).some((term) => leftTerms.has(term));
+  return [right, ...aliases]
+    .flatMap((value) => subjectIdentityTerms(value))
+    .map(normalizeCatalogText)
+    .some((term) => leftTerms.has(term));
+}
+
+export function catalogSubjectMatchesChoice(subject: string | undefined, choice: Pick<LocalCardCatalogChoice, 'canonicalName' | 'aliases'>): boolean {
+  return catalogSubjectsEquivalent(subject, choice.canonicalName, choice.aliases);
 }
 
 function recordMatchesReleaseContext(record: StoredCardCatalogRecord, releaseContext: string): boolean {

@@ -1,4 +1,4 @@
-import { catalogSubjectsEquivalent, searchLocalCardCatalog } from './search.js';
+import { catalogSubjectMatchesChoice, searchLocalCardCatalog } from './search.js';
 import { normalizeCatalogCardNumber, normalizeCatalogText } from './normalize.js';
 import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily, type CuratedJapanesePromoPrinting } from './supplements/curated-japanese-promos.js';
 import type { LocalCardCatalogChoice } from './types.js';
@@ -58,7 +58,7 @@ export function curatedJapanesePromoProvenanceStatus(record: CuratedJapaneseProm
 }
 
 function sameName(record: CuratedJapanesePromoPrinting, match: LocalCardCatalogChoice): boolean {
-  return catalogSubjectsEquivalent(record.name, match.canonicalName);
+  return catalogSubjectMatchesChoice(record.name, match);
 }
 
 function sameNumber(record: CuratedJapanesePromoPrinting, match: LocalCardCatalogChoice): boolean {

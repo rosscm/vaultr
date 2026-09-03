@@ -81,6 +81,7 @@ export type CardCatalogStats = {
 export type LocalCardCatalogChoice = {
   name: string;
   canonicalName: string;
+  aliases?: string[];
   value: string;
   imageUrl?: string;
   imageIdentity?: string;
