@@ -111,12 +111,26 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
   };
 }
 
-function subjectIdentityTerms(subject: string | undefined): string[] {
+export function subjectIdentityTerms(subject: string | undefined): string[] {
   if (!subject) return [];
+  const normalizedSubject = normalizeCatalogText(subject);
+  const japaneseAliasEntries = Object.entries(JAPANESE_SUBJECT_ALIASES);
+  const directAliases = JAPANESE_SUBJECT_ALIASES[normalizedSubject] ?? [];
+  const reverseAliases = japaneseAliasEntries
+    .filter(([, aliases]) => aliases.map(normalizeCatalogText).includes(normalizedSubject))
+    .map(([english]) => english);
   return [...new Set([
     subject,
-    ...(JAPANESE_SUBJECT_ALIASES[subject] ?? []).map(normalizeCatalogText)
+    normalizedSubject,
+    ...directAliases.map(normalizeCatalogText),
+    ...reverseAliases.map(normalizeCatalogText)
   ].filter(Boolean))];
+}
+
+export function catalogSubjectsEquivalent(left: string | undefined, right: string | undefined): boolean {
+  if (!left || !right) return false;
+  const leftTerms = new Set(subjectIdentityTerms(left).map(normalizeCatalogText));
+  return subjectIdentityTerms(right).map(normalizeCatalogText).some((term) => leftTerms.has(term));
 }
 
 function recordMatchesReleaseContext(record: StoredCardCatalogRecord, releaseContext: string): boolean {

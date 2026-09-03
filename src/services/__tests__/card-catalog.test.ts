@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cardCatalogStats, getCardCatalogRecordBySourceCardId, initializeCardCatalogDb, listCardCatalogMisses, openCardCatalogDb, recordCardCatalogMiss, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
-import { searchLocalCardCatalog } from '../card-catalog/search.js';
+import { catalogSubjectsEquivalent, searchLocalCardCatalog } from '../card-catalog/search.js';
 import { catalogDisplayValue } from '../card-catalog/normalize.js';
 import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
@@ -613,6 +613,13 @@ describe('local card catalog', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('reuses catalog subject aliases for English and Japanese subject identity', () => {
+    expect(catalogSubjectsEquivalent('Mew', 'ミュウ')).toBe(true);
+    expect(catalogSubjectsEquivalent('Pikachu', 'ピカチュウ')).toBe(true);
+    expect(catalogSubjectsEquivalent('Bulbasaur', 'フシギダネ')).toBe(true);
+    expect(catalogSubjectsEquivalent('Mew', 'ピカチュウ')).toBe(false);
+  });
+
   it('audits ambiguous unnumbered same-name records without false coverage', () => {
     const dbPath = tempCatalogPath('curated-audit-unnumbered');
     replaceCardCatalogSourceRecords('TCGDEX', [
@@ -639,6 +646,87 @@ describe('local card catalog', () => {
 
     expect(report.records[0]?.status).toBe('AMBIGUOUS');
     expect(report.records[0]?.reason).toBe('same name but release context insufficient');
+  });
+
+  it('audits Japanese-native subject aliases without confusing subject identity for release identity', () => {
+    const dbPath = tempCatalogPath('curated-audit-native-alias');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-native-mew-generic',
+        language: 'ja',
+        name: 'ミュウ',
+        normalizedName: 'ミュウ',
+        setName: 'Japanese Promo',
+        normalizedSetName: 'japanese promo',
+        isUnnumbered: true
+      })
+    ], dbPath);
+
+    const songBestMew = CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-song-best-mew')!;
+    const ambiguous = auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [songBestMew] });
+    expect(ambiguous.records[0]).toMatchObject({
+      status: 'AMBIGUOUS',
+      reason: 'same name but release context insufficient'
+    });
+
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-native-mew-song-best',
+        language: 'ja',
+        name: 'ミュウ',
+        normalizedName: 'ミュウ',
+        setName: 'Pokemon Song Best Collection CD',
+        normalizedSetName: 'pokemon song best collection cd',
+        isUnnumbered: true
+      })
+    ], dbPath);
+
+    const covered = auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [songBestMew] });
+    expect(covered.records[0]).toMatchObject({
+      status: 'COVERED',
+      reason: 'exact release identity match'
+    });
+  });
+
+  it('audits numbered Japanese-native aliases with exact number total and context only', () => {
+    const dbPath = tempCatalogPath('curated-audit-native-numbered');
+    const pikachu = CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-mcdemp-2002-010')!;
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jpn_mcdemp-10-wrong',
+        language: 'ja',
+        name: 'ピカチュウ',
+        normalizedName: 'ピカチュウ',
+        setName: "McDonald's Pokemon-e Minimum Pack",
+        normalizedSetName: 'mcdonald s pokemon e minimum pack',
+        cardNumber: '003',
+        normalizedCardNumber: '3',
+        printedTotal: '018'
+      })
+    ], dbPath);
+    expect(auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [pikachu] }).records[0]?.status).not.toBe('COVERED');
+
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jpn_mcdemp-10',
+        language: 'ja',
+        name: 'ピカチュウ',
+        normalizedName: 'ピカチュウ',
+        setName: "McDonald's Pokemon-e Minimum Pack",
+        normalizedSetName: 'mcdonald s pokemon e minimum pack',
+        cardNumber: '010',
+        normalizedCardNumber: '10',
+        printedTotal: '018'
+      })
+    ], dbPath);
+    expect(auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [pikachu] }).records[0]).toMatchObject({
+      status: 'COVERED',
+      reason: 'exact numbered release match'
+    });
   });
 
   it('audits exact unnumbered release identity and multiple plausible candidates conservatively', () => {
