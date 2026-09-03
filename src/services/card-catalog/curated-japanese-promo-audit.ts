@@ -9,10 +9,12 @@ export type CuratedJapanesePromoAuditRecord = {
   curationId: string;
   name: string;
   promoContext: string;
+  releaseYear?: number;
   cardNumber?: string;
   printedTotal?: string;
   isUnnumbered?: boolean;
   status: CuratedJapanesePromoAuditStatus;
+  reason: string;
   matches: Array<{
     source: string;
     sourceCardId: string;
@@ -50,12 +52,33 @@ function sameNumber(record: CuratedJapanesePromoPrinting, match: LocalCardCatalo
   return normalizeCatalogCardNumber(record.printedTotal) === normalizeCatalogCardNumber(match.printedTotal);
 }
 
+const GENERIC_CONTEXT_TERMS = new Set([
+  'pokemon',
+  'pocket',
+  'monsters',
+  'japanese',
+  'promo',
+  'card',
+  'cards',
+  'collection',
+  'campaign',
+  'release',
+  'special',
+  'distribution'
+]);
+
+function distinctiveTerms(value: string): string[] {
+  return normalizeCatalogText(value)
+    .split(' ')
+    .filter((term) => term.length >= 4 && !GENERIC_CONTEXT_TERMS.has(term));
+}
+
 function sameReleaseContext(record: CuratedJapanesePromoPrinting, match: LocalCardCatalogChoice): boolean {
-  const release = normalizeCatalogText([
+  const releasePhrases = [
     record.promoContext,
     record.releaseEvent,
     ...(record.additionalReleaseEvents ?? [])
-  ].join(' '));
+  ].map(normalizeCatalogText).filter(Boolean);
   const matched = normalizeCatalogText([
     match.setName,
     match.translatedSetName,
@@ -64,22 +87,35 @@ function sameReleaseContext(record: CuratedJapanesePromoPrinting, match: LocalCa
     match.releaseEvent,
     match.value
   ].join(' '));
-  return release.split(' ').filter((term) => term.length >= 4).some((term) => matched.includes(term));
+  if (releasePhrases.some((phrase) => phrase.length >= 8 && matched.includes(phrase))) return true;
+  const aliasPhrases = (record.aliases ?? []).map(normalizeCatalogText).filter((alias) => alias.length >= 8);
+  if (aliasPhrases.some((alias) => matched.includes(alias))) return true;
+  const terms = Array.from(new Set(releasePhrases.flatMap(distinctiveTerms)));
+  if (terms.length === 0) return false;
+  const overlap = terms.filter((term) => matched.includes(term));
+  if (overlap.length >= 2) return true;
+  return overlap.length === 1 && terms.length === 1 && terms[0].length >= 8;
 }
 
-function classify(record: CuratedJapanesePromoPrinting, matches: LocalCardCatalogChoice[]): CuratedJapanesePromoAuditStatus {
+function classify(record: CuratedJapanesePromoPrinting, matches: LocalCardCatalogChoice[]): {
+  status: CuratedJapanesePromoAuditStatus;
+  reason: string;
+} {
   const japaneseNameMatches = matches.filter((match) => match.language === 'ja' && sameName(record, match));
+  if (japaneseNameMatches.length === 0) return { status: 'MISSING', reason: 'no same-name Japanese candidates' };
   if (record.cardNumber) {
-    return japaneseNameMatches.some((match) => sameNumber(record, match) && sameReleaseContext(record, match))
-      ? 'COVERED'
-      : japaneseNameMatches.length > 0
-        ? 'AMBIGUOUS'
-        : 'MISSING';
+    if (japaneseNameMatches.some((match) => sameNumber(record, match) && sameReleaseContext(record, match))) {
+      return { status: 'COVERED', reason: 'exact numbered release match' };
+    }
+    if (japaneseNameMatches.some((match) => sameNumber(record, match))) {
+      return { status: 'AMBIGUOUS', reason: 'same name and number but release context insufficient' };
+    }
+    return { status: 'AMBIGUOUS', reason: 'same name but number mismatch' };
   }
   const contextual = japaneseNameMatches.filter((match) => sameReleaseContext(record, match));
-  if (contextual.length === 1) return 'COVERED';
-  if (contextual.length > 1 || japaneseNameMatches.length > 0) return 'AMBIGUOUS';
-  return 'MISSING';
+  if (contextual.length === 1) return { status: 'COVERED', reason: 'exact release identity match' };
+  if (contextual.length > 1) return { status: 'AMBIGUOUS', reason: 'multiple contextual candidates' };
+  return { status: 'AMBIGUOUS', reason: 'same name but release context insufficient' };
 }
 
 export function auditCuratedJapanesePromos(options: {
@@ -90,15 +126,17 @@ export function auditCuratedJapanesePromos(options: {
   const records = options.records ?? CURATED_JAPANESE_PROMOS;
   const auditRecords = records.map((record) => {
     const matches = searchLocalCardCatalog(identityQuery(record), 12, { dbPath: options.dbPath });
-    const status = classify(record, matches);
+    const classification = classify(record, matches);
     return {
       curationId: record.curationId,
       name: record.name,
       promoContext: record.promoContext,
+      releaseYear: record.releaseYear,
       cardNumber: record.cardNumber,
       printedTotal: record.printedTotal,
       isUnnumbered: record.isUnnumbered,
-      status,
+      status: classification.status,
+      reason: classification.reason,
       matches: matches.slice(0, 4).map((match) => ({
         source: match.source,
         sourceCardId: match.sourceCardId,

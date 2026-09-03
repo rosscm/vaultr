@@ -15,18 +15,30 @@ export type CuratedJapanesePromoPrinting = {
   printedTotal?: string;
   isUnnumbered?: boolean;
   releaseYear?: number;
+  releaseDate?: string;
   illustrator?: string;
+  finish?: string;
+  surface?: string;
+  backType?: string;
+  isJumbo?: boolean;
+  estimatedCopies?: number;
+  estimatedCopiesQualifier?: string;
+  identicalPrintingGroup?: string;
+  variantOf?: string;
   promoContext: string;
   releaseType?: string;
   releaseEvent: string;
   additionalReleaseEvents?: string[];
   aliases?: string[];
   references: CuratedJapanesePromoReference[];
-  verifiedSupplement?: boolean;
 };
 
-function pokumonReference(): CuratedJapanesePromoReference {
-  return { sourceName: 'POKUMON', kind: 'metadata_reference' };
+function sourceKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function pokumonReference(context: string): CuratedJapanesePromoReference {
+  return { sourceName: 'POKUMON', sourceId: `pokumon:${sourceKey(context)}`, kind: 'metadata_reference' };
 }
 
 function dextcgReference(sourceId: string): CuratedJapanesePromoReference {
@@ -34,24 +46,9 @@ function dextcgReference(sourceId: string): CuratedJapanesePromoReference {
 }
 
 const mcdonaldsPokemon = [
-  ['001', 'Bulbasaur'],
-  ['002', 'Oddish'],
-  ['003', 'Chikorita'],
-  ['004', 'Charmander'],
-  ['005', 'Vulpix'],
-  ['006', 'Cyndaquil'],
-  ['007', 'Squirtle'],
-  ['008', 'Totodile'],
-  ['009', 'Marill'],
-  ['010', 'Pikachu'],
-  ['011', 'Chinchou'],
-  ['012', 'Mareep'],
-  ['013', 'Abra'],
-  ['014', 'Slowpoke'],
-  ['015', 'Natu'],
-  ['016', 'Sandshrew'],
-  ['017', 'Phanpy'],
-  ['018', 'Larvitar']
+  ['001', 'Bulbasaur'], ['002', 'Oddish'], ['003', 'Chikorita'], ['004', 'Charmander'], ['005', 'Vulpix'], ['006', 'Cyndaquil'],
+  ['007', 'Squirtle'], ['008', 'Totodile'], ['009', 'Marill'], ['010', 'Pikachu'], ['011', 'Chinchou'], ['012', 'Mareep'],
+  ['013', 'Abra'], ['014', 'Slowpoke'], ['015', 'Natu'], ['016', 'Sandshrew'], ['017', 'Phanpy'], ['018', 'Larvitar']
 ] as const;
 
 function mcdonaldsRecord([cardNumber, name]: typeof mcdonaldsPokemon[number]): CuratedJapanesePromoPrinting {
@@ -66,8 +63,7 @@ function mcdonaldsRecord([cardNumber, name]: typeof mcdonaldsPokemon[number]): C
     releaseType: 'restaurant_campaign',
     releaseEvent: "McDonald's Pokemon-e Minimum Pack",
     aliases: [`${name} Japanese McDonald's Pokemon-e Minimum Pack ${cardNumber}/018`],
-    references: [pokumonReference(), dextcgReference(`jpn_mcdemp-${Number(cardNumber)}`)],
-    verifiedSupplement: cardNumber === '007'
+    references: [pokumonReference("McDonald's Pokemon-e Minimum Pack"), dextcgReference(`jpn_mcdemp-${Number(cardNumber)}`)]
   };
 }
 
@@ -76,59 +72,121 @@ function unnumbered(
   name: string,
   promoContext: string,
   releaseEvent: string,
-  releaseYear: number,
-  options: Partial<Pick<CuratedJapanesePromoPrinting, 'additionalReleaseEvents' | 'aliases' | 'releaseType'>> = {}
+  options: Partial<Omit<CuratedJapanesePromoPrinting, 'curationId' | 'name' | 'language' | 'promoContext' | 'releaseEvent' | 'references'>> = {}
 ): CuratedJapanesePromoPrinting {
   return {
     curationId,
     name,
     language: 'ja',
     isUnnumbered: true,
-    releaseYear,
     promoContext,
     releaseType: options.releaseType ?? 'special_distribution',
     releaseEvent,
-    additionalReleaseEvents: options.additionalReleaseEvents,
-    aliases: options.aliases,
+    ...options,
     references: [
-      pokumonReference(),
+      pokumonReference(promoContext),
       ...(options.additionalReleaseEvents ?? []).map((event) => ({
         sourceName: 'POKUMON' as const,
         kind: 'distribution_reference' as const,
-        sourceId: event
-      }))
+        sourceId: `pokumon:${sourceKey(event)}`
+      })),
+      ...(options.references ?? [])
     ]
   };
 }
 
+const songBest = [
+  ['Arcanine', ['Toyota campaign']],
+  ['Computer Error', ['CoroCoro']],
+  ['Cool Porygon', ['Nintendo 64 W Double Get']],
+  ['Hungry Snorlax', ['Nintendo 64 W Double Get']],
+  ['Mew', ['World Hobby Fair Special Sheet']],
+  ['Mewtwo', ['World Hobby Fair Special Sheet']],
+  ['Super Energy Retrieval', ['Pocket Monsters Fan Book']]
+] as const;
+
+const simpleGroups: Array<{ context: string; event: string; type?: string; year?: number; names: readonly string[] }> = [
+  { context: 'World Hobby Fair 2000', event: 'World Hobby Fair 2000', type: 'event_distribution', year: 2000, names: ['Chikorita', 'Cyndaquil', 'Totodile'] },
+  { context: 'Spell of the Unown: Entei theatrical release', event: 'Spell of the Unown: Entei Japanese theatrical release', type: 'theatrical_release', year: 2000, names: ['Hitmontop', 'Igglybuff'] },
+  { context: 'Evolution Communication Masaki campaign', event: 'Evolution Communication Masaki campaign', type: 'mail_in_campaign', year: 1999, names: ['Alakazam', 'Gengar', 'Golem', 'Machamp', 'Omastar'] },
+  { context: 'Pokemon Card Fan Club reward promos', event: 'Pokemon Card Fan Club reward program', type: 'fan_club_reward', names: ['Eevee', 'Porygon', 'Shining Magikarp'] },
+  { context: 'Pokemon Snap 64 Mario Stadium photo contest', event: '64 Mario Stadium Pokemon Snap contest', type: 'photo_contest', year: 1999, names: ['Articuno', 'Chansey', 'Charmander', 'Koffing', 'Squirtle'] },
+  { context: 'Early CoroCoro unnumbered promos', event: 'CoroCoro magazine distribution', type: 'magazine_promo', names: ['Pikachu', 'Jigglypuff', 'Mew', 'Mewtwo', 'Surfing Pikachu', 'Flying Pikachu', 'Imakuni?', "Brock's Vulpix", "Misty's Poliwag"] },
+  { context: 'Early product and book insert promos', event: 'Japanese product or book insert distribution', type: 'product_insert', names: ['Official Card File Pikachu', 'Official Card File Charmander', 'Pocket Monsters Fan Book Mewtwo', 'Toyota Campaign Arcanine'] }
+];
+
+const anaPromos = [
+  ['jp-promo-ana-1998-dragonite', 'Dragonite', 'ANA airline campaign 1998', 1998],
+  ['jp-promo-ana-1998-flying-pikachu', 'Flying Pikachu', 'ANA airline campaign 1998', 1998],
+  ['jp-promo-ana-1999-articuno', 'Articuno', 'ANA airline campaign 1999', 1999],
+  ['jp-promo-ana-1999-moltres', 'Moltres', 'ANA airline campaign 1999', 1999],
+  ['jp-promo-ana-1999-zapdos', 'Zapdos', 'ANA airline campaign 1999', 1999],
+  ['jp-promo-ana-1999-flying-pikachu', 'Flying Pikachu', 'ANA airline campaign 1999', 1999]
+] as const;
+
+const luckyStadiumRegions = ['Hokkaido', 'Tohoku', 'Kanto', 'Chubu', 'Kansai', 'Chugoku', 'Shikoku', 'Kyushu', 'Okinawa'] as const;
+
 export const CURATED_JAPANESE_PROMOS: CuratedJapanesePromoPrinting[] = [
   ...mcdonaldsPokemon.map(mcdonaldsRecord),
-  unnumbered('jp-promo-song-best-arcanine', 'Arcanine', 'Pokemon Song Best Collection CD', 'Pokemon Song Best Collection CD', 1997, { additionalReleaseEvents: ['Toyota campaign'] }),
-  unnumbered('jp-promo-song-best-computer-error', 'Computer Error', 'Pokemon Song Best Collection CD', 'Pokemon Song Best Collection CD', 1997, { additionalReleaseEvents: ['CoroCoro'] }),
-  unnumbered('jp-promo-song-best-cool-porygon', 'Cool Porygon', 'Pokemon Song Best Collection CD', 'Pokemon Song Best Collection CD', 1997, { additionalReleaseEvents: ['Nintendo 64 W Double Get'] }),
-  unnumbered('jp-promo-song-best-hungry-snorlax', 'Hungry Snorlax', 'Pokemon Song Best Collection CD', 'Pokemon Song Best Collection CD', 1997, { additionalReleaseEvents: ['Nintendo 64 W Double Get'] }),
-  unnumbered('jp-promo-song-best-mew', 'Mew', 'Pokemon Song Best Collection CD', 'Pokemon Song Best Collection CD', 1997, { additionalReleaseEvents: ['World Hobby Fair Special Sheet'] }),
-  unnumbered('jp-promo-song-best-mewtwo', 'Mewtwo', 'Pokemon Song Best Collection CD', 'Pokemon Song Best Collection CD', 1997, { additionalReleaseEvents: ['World Hobby Fair Special Sheet'] }),
-  unnumbered('jp-promo-song-best-super-energy-retrieval', 'Super Energy Retrieval', 'Pokemon Song Best Collection CD', 'Pokemon Song Best Collection CD', 1997, { additionalReleaseEvents: ['Pocket Monsters Fan Book'] }),
+  ...songBest.map(([name, additionalReleaseEvents]) =>
+    unnumbered(`jp-promo-song-best-${sourceKey(name)}`, name, 'Pokemon Song Best Collection CD', 'Pokemon Song Best Collection CD', {
+      releaseYear: 1997,
+      additionalReleaseEvents: [...additionalReleaseEvents],
+      identicalPrintingGroup: 'pokemon-song-best-shared-printings'
+    })
+  ),
   ...['Mankey', 'Psyduck', 'Jynx', 'Sunkern', 'Hoppip', "_____'s Pikachu"].map((name) =>
-    unnumbered(`jp-promo-natta-wake-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name, 'How I Became a Pokemon Card', 'How I Became a Pokemon Card', 1999, { aliases: [`${name} Natta Wake Japanese promo`] })
+    unnumbered(`jp-promo-natta-wake-${sourceKey(name)}`, name, 'How I Became a Pokemon Card', 'How I Became a Pokemon Card', {
+      aliases: [`${name} Natta Wake Japanese promo`]
+    })
   ),
   ...['Bulbasaur', 'Gyarados', 'Magikarp', 'Pikachu', 'Poliwag'].map((name) =>
-    unnumbered(`jp-promo-corocoro-photo-1999-${name.toLowerCase()}`, name, 'CoroCoro Best Photo Contest', 'CoroCoro Best Photo Contest 1999', 1999)
+    unnumbered(`jp-promo-corocoro-photo-1999-${sourceKey(name)}`, name, 'CoroCoro Best Photo Contest', 'CoroCoro Best Photo Contest 1999', {
+      releaseYear: 1999,
+      releaseType: 'photo_contest',
+      estimatedCopies: 20,
+      estimatedCopiesQualifier: 'winner allocation'
+    })
   ),
-  ...['Chikorita', 'Cyndaquil', 'Totodile'].map((name) =>
-    unnumbered(`jp-promo-whf-2000-${name.toLowerCase()}`, name, 'World Hobby Fair 2000', 'World Hobby Fair 2000', 2000)
-  ),
+  ...simpleGroups.flatMap((group) => group.names.map((name) =>
+    unnumbered(`jp-promo-${sourceKey(group.context)}-${sourceKey(name)}`, name, group.context, group.event, {
+      releaseYear: group.year,
+      releaseType: group.type,
+      variantOf: group.context.includes('Lucky Stadium') ? 'lucky-stadium-world-challenge-summer-2000' : undefined
+    })
+  )),
   ...['Marill', 'Togepi'].map((name) =>
-    unnumbered(`jp-promo-ana-jet-2000-${name.toLowerCase()}`, name, 'ANA Get in a Jet! 2000', 'ANA Get in a Jet! 2000', 2000, { releaseType: 'airline_campaign' })
+    unnumbered(`jp-promo-ana-jet-2000-${sourceKey(name)}`, name, 'ANA Get in a Jet! 2000', 'ANA Get in a Jet! 2000', { releaseYear: 2000, releaseType: 'airline_campaign' })
   ),
-  ...['Hitmontop', 'Igglybuff'].map((name) =>
-    unnumbered(`jp-promo-entei-theatrical-2000-${name.toLowerCase()}`, name, 'Spell of the Unown: Entei theatrical release', 'Spell of the Unown: Entei Japanese theatrical release', 2000, { releaseType: 'theatrical_release' })
+  ...anaPromos.map(([curationId, name, event, year]) =>
+    unnumbered(curationId, name, event, event, { releaseYear: year, releaseType: 'airline_campaign', variantOf: name === 'Flying Pikachu' ? 'ana-flying-pikachu' : undefined })
   ),
-  unnumbered('jp-promo-jr-train-rally-1997-mew', 'Mew', 'JR Train Rally 1997', 'JR Train Rally 1997', 1997, { releaseType: 'train_rally' }),
-  unnumbered('jp-promo-jr-train-rally-1997-surfing-pikachu', 'Surfing Pikachu', 'JR Train Rally 1997', 'JR Train Rally 1997', 1997, { releaseType: 'train_rally' }),
+  unnumbered('jp-promo-tamamushi-university-magikarp', 'Magikarp', 'Tamamushi University campaign', 'Tamamushi University campaign', {
+    releaseYear: 1998,
+    releaseType: 'magazine_campaign',
+    estimatedCopies: 1000,
+    estimatedCopiesQualifier: 'reported distribution quantity'
+  }),
+  unnumbered('jp-promo-jr-train-rally-1997-mew', 'Mew', 'JR Train Rally 1997', 'JR Train Rally 1997', { releaseYear: 1997, releaseType: 'train_rally' }),
+  unnumbered('jp-promo-jr-train-rally-1997-surfing-pikachu', 'Surfing Pikachu', 'JR Train Rally 1997', 'JR Train Rally 1997', { releaseYear: 1997, releaseType: 'train_rally' }),
   ...['Pikachu', 'Exeggutor', 'Murkrow', 'Darkness Energy', 'Steelix', 'Smeargle', 'Unown', 'Misdreavus', 'Dark Ivysaur', 'Dark Venusaur'].map((name) =>
-    unnumbered(`jp-promo-trainers-magazine-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name, 'Pokemon Card Trainers Magazine', 'Pokemon Card Trainers Magazine', 1998, { aliases: [`${name} Pokemon Card Trainers Magazine Japanese promo`] })
+    unnumbered(`jp-promo-trainers-magazine-${sourceKey(name)}`, name, 'Pokemon Card Trainers Magazine', 'Pokemon Card Trainers Magazine', {
+      aliases: [`${name} Pokemon Card Trainers Magazine Japanese promo`]
+    })
+  ),
+  ...['Venusaur', 'Charizard', 'Blastoise', 'Trade Please!'].map((name) =>
+    unnumbered(`jp-promo-trade-please-${sourceKey(name)}`, name, 'Trade Please! campaign', 'Trade Please! campaign', {
+      releaseYear: 1998,
+      releaseType: 'trade_campaign',
+      backType: name === 'Trade Please!' ? 'campaign back treatment' : undefined
+    })
+  ),
+  ...luckyStadiumRegions.map((region) =>
+    unnumbered(`jp-promo-lucky-stadium-2000-${sourceKey(region)}`, 'Lucky Stadium', `World Challenge Summer 2000 Lucky Stadium ${region}`, `World Challenge Summer 2000 ${region}`, {
+      releaseYear: 2000,
+      releaseType: 'regional_event',
+      variantOf: 'lucky-stadium-world-challenge-summer-2000'
+    })
   )
 ];
 

@@ -539,6 +539,8 @@ describe('local card catalog', () => {
     expect(CURATED_JAPANESE_PROMOS.every((record) => record.language === 'ja')).toBe(true);
     expect(CURATED_JAPANESE_PROMOS.every((record) => record.references.length > 0)).toBe(true);
     expect(CURATED_JAPANESE_PROMOS.every((record) => record.references.some((reference) => reference.sourceName === 'POKUMON'))).toBe(true);
+    expect(CURATED_JAPANESE_PROMOS.every((record) => record.references.some((reference) => reference.url || reference.sourceId))).toBe(true);
+    expect(CURATED_JAPANESE_PROMOS.some((record) => record.references.some((reference) => reference.sourceName === 'POKUMON' && !reference.url && !reference.sourceId))).toBe(false);
 
     const mcdonalds = CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === "McDonald's Pokemon-e Minimum Pack");
     expect(mcdonalds.map((record) => record.cardNumber)).toEqual(Array.from({ length: 18 }, (_, index) => String(index + 1).padStart(3, '0')));
@@ -549,6 +551,23 @@ describe('local card catalog', () => {
     expect(coolPorygon).toHaveLength(1);
     expect(coolPorygon[0]?.additionalReleaseEvents).toContain('Nintendo 64 W Double Get');
     expect(curatedJapanesePromoCountsByFamily()["McDonald's Pokemon-e Minimum Pack"]).toBe(18);
+    expect(CURATED_JAPANESE_PROMOS.some((record) => 'verifiedSupplement' in record)).toBe(false);
+  });
+
+  it('expands curated Japanese promo families without guessed years or collapsed variants', () => {
+    const counts = curatedJapanesePromoCountsByFamily();
+
+    expect(CURATED_JAPANESE_PROMOS.length).toBeGreaterThanOrEqual(95);
+    expect(CURATED_JAPANESE_PROMOS.length).toBeLessThanOrEqual(110);
+    expect(counts['Evolution Communication Masaki campaign']).toBe(5);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Evolution Communication Masaki campaign').map((record) => record.name).sort()).toEqual(['Alakazam', 'Gengar', 'Golem', 'Machamp', 'Omastar']);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Trade Please! campaign').map((record) => record.name).sort()).toEqual(['Blastoise', 'Charizard', 'Trade Please!', 'Venusaur']);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.name === 'Flying Pikachu' && record.promoContext.startsWith('ANA airline campaign'))).toHaveLength(2);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'CoroCoro Best Photo Contest')).toHaveLength(5);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Pokemon Snap 64 Mario Stadium photo contest')).toHaveLength(5);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.variantOf === 'lucky-stadium-world-challenge-summer-2000')).toHaveLength(9);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'How I Became a Pokemon Card').every((record) => record.releaseYear === undefined)).toBe(true);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Pokemon Card Trainers Magazine').every((record) => record.releaseYear === undefined)).toBe(true);
   });
 
   it('audits exact numbered curated promo coverage conservatively and read-only', () => {
@@ -581,6 +600,7 @@ describe('local card catalog', () => {
 
     expect(report.statusCounts).toMatchObject({ COVERED: 1, MISSING: 1, AMBIGUOUS: 0 });
     expect(report.records.find((record) => record.cardNumber === '010')?.status).toBe('COVERED');
+    expect(report.records.find((record) => record.cardNumber === '010')?.reason).toBe('exact numbered release match');
     expect(report.records.find((record) => record.cardNumber === '011')?.status).toBe('MISSING');
     expect(cardCatalogStats(dbPath)).toEqual(before);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -611,6 +631,53 @@ describe('local card catalog', () => {
     });
 
     expect(report.records[0]?.status).toBe('AMBIGUOUS');
+    expect(report.records[0]?.reason).toBe('same name but release context insufficient');
+  });
+
+  it('audits exact unnumbered release identity and multiple plausible candidates conservatively', () => {
+    const dbPath = tempCatalogPath('curated-audit-release-context');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-jr-mew',
+        language: 'ja',
+        name: 'Mew',
+        normalizedName: 'mew',
+        setName: 'JR Train Rally 1997',
+        normalizedSetName: 'jr train rally 1997',
+        isUnnumbered: true
+      }),
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-jr-mew-alt',
+        language: 'ja',
+        name: 'Mew',
+        normalizedName: 'mew',
+        setName: 'JR Train Rally 1997 prize',
+        normalizedSetName: 'jr train rally 1997 prize',
+        isUnnumbered: true
+      })
+    ], dbPath);
+
+    const mew = CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-jr-train-rally-1997-mew')!;
+    const multiple = auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [mew] });
+    expect(multiple.records[0]).toMatchObject({ status: 'AMBIGUOUS', reason: 'multiple contextual candidates' });
+
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'jp-jr-mew',
+        language: 'ja',
+        name: 'Mew',
+        normalizedName: 'mew',
+        setName: 'JR Train Rally 1997',
+        normalizedSetName: 'jr train rally 1997',
+        isUnnumbered: true
+      })
+    ], dbPath);
+
+    const exact = auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [mew] });
+    expect(exact.records[0]).toMatchObject({ status: 'COVERED', reason: 'exact release identity match' });
   });
 
   it('leaves existing Vaultr promo import behavior scoped to verified supplements', () => {
@@ -623,6 +690,7 @@ describe('local card catalog', () => {
       name: 'Squirtle'
     });
     expect(CURATED_JAPANESE_PROMOS.length).toBeGreaterThan(records.length);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.references.some((reference) => reference.sourceName === 'DEXTCG')).length).toBeGreaterThan(records.length);
   });
 
   it('supports verified unnumbered promo fixtures without treating alternate identifiers as printed numbers', () => {
