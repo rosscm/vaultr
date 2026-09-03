@@ -72,7 +72,7 @@ function unnumbered(
   name: string,
   promoContext: string,
   releaseEvent: string,
-  options: Partial<Omit<CuratedJapanesePromoPrinting, 'curationId' | 'name' | 'language' | 'promoContext' | 'releaseEvent' | 'references'>> = {}
+  options: Partial<Omit<CuratedJapanesePromoPrinting, 'curationId' | 'name' | 'language' | 'promoContext' | 'releaseEvent'>> = {}
 ): CuratedJapanesePromoPrinting {
   return {
     curationId,
