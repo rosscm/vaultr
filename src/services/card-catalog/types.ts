@@ -1,4 +1,4 @@
-export type CardCatalogSource = 'TCGDEX' | 'POKEMONTCG' | 'VAULTR_PROMO';
+export type CardCatalogSource = 'TCGDEX' | 'POKEMONTCG' | 'CURATED';
 export type CardCatalogLanguage = 'en' | 'ja';
 export type CardCatalogVerificationStatus = 'VERIFIED' | 'REVIEW';
 

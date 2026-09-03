@@ -1,5 +1,5 @@
 import type { Chase, CompletedChase } from '../types.js';
-import { getCardCatalogRecordBySourceCardId } from './card-catalog-db.js';
+import { getCardCatalogRecordByReference, getCardCatalogRecordBySourceCardId } from './card-catalog-db.js';
 import { normalizeCatalogText } from './card-catalog/normalize.js';
 import type { StoredCardCatalogRecord } from './card-catalog/types.js';
 import { listChases, listCompletedChases, listUserTasteMemoryChases } from './chase-store.js';
@@ -144,8 +144,8 @@ function identityKeyFor(chase: Chase | CompletedChase): string {
 function catalogRecordFor(chase: Chase | CompletedChase): StoredCardCatalogRecord | null {
   if (chase.cardImageSourceKind !== 'CARD_REFERENCE') return null;
   if (!chase.cardImageSourceName || !chase.cardImageSourceCardId) return null;
-  const source = chase.cardImageSourceName === 'DEXTCG' ? 'VAULTR_PROMO' : chase.cardImageSourceName;
-  return getCardCatalogRecordBySourceCardId(source, chase.cardImageSourceCardId);
+  return getCardCatalogRecordBySourceCardId(chase.cardImageSourceName, chase.cardImageSourceCardId)
+    ?? getCardCatalogRecordByReference(chase.cardImageSourceName, chase.cardImageSourceCardId);
 }
 
 function addTrait(traits: CollectorProfileTraitExtraction, group: CollectorProfileTraitGroup, value: string | undefined): void {

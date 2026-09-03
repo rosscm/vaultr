@@ -21,7 +21,7 @@
     "catalog:init": "tsx src/catalog-init.ts",
     "catalog:import:tcgdex": "tsx src/catalog-import-tcgdex.ts",
     "catalog:import:pokemontcg": "tsx src/catalog-import-pokemontcg.ts",
-    "catalog:import:promos": "tsx src/catalog-import-promos.ts",
+    "catalog:import:curated": "tsx src/catalog-import-curated.ts",
     "catalog:audit:curated-promos": "tsx src/catalog-audit-curated-promos.ts",
     "catalog:stats": "tsx src/catalog-stats.ts",
     "catalog:misses": "tsx src/catalog-misses.ts",

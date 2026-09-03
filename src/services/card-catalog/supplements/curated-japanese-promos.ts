@@ -1,4 +1,4 @@
-import type { CardCatalogLanguage } from '../types.js';
+import type { CardCatalogIdentifier, CardCatalogLanguage, CardCatalogVerificationStatus } from '../types.js';
 
 export type CuratedJapanesePromoReference = {
   sourceName: 'POKUMON' | 'DEXTCG' | 'TCGDEX' | 'POKEMONTCG' | 'OTHER';
@@ -15,6 +15,8 @@ export type CuratedJapanesePromoPrinting = {
   printedTotal?: string;
   isUnnumbered?: boolean;
   releaseYear?: number;
+  verificationStatus?: CardCatalogVerificationStatus;
+  imageUrl?: string;
   releaseDate?: string;
   illustrator?: string;
   finish?: string;
@@ -31,6 +33,7 @@ export type CuratedJapanesePromoPrinting = {
   additionalReleaseEvents?: string[];
   aliases?: string[];
   references: CuratedJapanesePromoReference[];
+  identifiers?: Array<Pick<CardCatalogIdentifier, 'value' | 'kind'>>;
 };
 
 function sourceKey(value: string): string {
@@ -48,6 +51,7 @@ const mcdonaldsPokemon = [
 ] as const;
 
 function mcdonaldsRecord([cardNumber, name]: typeof mcdonaldsPokemon[number]): CuratedJapanesePromoPrinting {
+  const isVerifiedSquirtle = cardNumber === '007';
   return {
     curationId: `jp-promo-mcdemp-2002-${cardNumber}`,
     name,
@@ -59,6 +63,9 @@ function mcdonaldsRecord([cardNumber, name]: typeof mcdonaldsPokemon[number]): C
     releaseType: 'restaurant_campaign',
     releaseEvent: "McDonald's Pokemon-e Minimum Pack",
     aliases: [`${name} Japanese McDonald's Pokemon-e Minimum Pack ${cardNumber}/018`],
+    verificationStatus: isVerifiedSquirtle ? 'VERIFIED' : 'REVIEW',
+    imageUrl: isVerifiedSquirtle ? 'https://static.dextcg.com/cards/jpn_mcdemp/7.png' : undefined,
+    identifiers: isVerifiedSquirtle ? [{ value: 'vaultr-promo-dextcg-jpn-mcdemp-7', kind: 'legacy_catalog' }] : undefined,
     references: [dextcgReference(`jpn_mcdemp-${Number(cardNumber)}`)]
   };
 }
@@ -75,6 +82,7 @@ function unnumbered(
     name,
     language: 'ja',
     isUnnumbered: true,
+    verificationStatus: options.verificationStatus ?? 'REVIEW',
     promoContext,
     releaseType: options.releaseType ?? 'special_distribution',
     releaseEvent,

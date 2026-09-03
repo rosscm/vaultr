@@ -1,27 +1,27 @@
 import { replaceCardCatalogSourceRecords } from '../../card-catalog-db.js';
 import { catalogDisplayValue, normalizeCatalogCardNumber, normalizeCatalogPrintedTotal, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
+import { CURATED_JAPANESE_PROMOS, type CuratedJapanesePromoPrinting } from '../supplements/curated-japanese-promos.js';
 import type { CardCatalogImportReport, CardCatalogRecord } from '../types.js';
-import { VAULTR_VERIFIED_PROMOS, type VaultrPromoSupplementDefinition } from '../supplements/verified-promos.js';
 
-export function vaultrPromoRecordFromDefinition(definition: VaultrPromoSupplementDefinition, importedAt = new Date().toISOString()): CardCatalogRecord {
+export function curatedRecordFromDefinition(definition: CuratedJapanesePromoPrinting, importedAt = new Date().toISOString()): CardCatalogRecord {
   const normalizedCardNumber = definition.cardNumber ? normalizeCatalogCardNumber(definition.cardNumber) : undefined;
   const printedTotal = normalizeCatalogPrintedTotal(definition.printedTotal);
   const displayValue = catalogDisplayValue({
     name: definition.name,
-    setName: definition.setName ?? definition.promoContext,
+    setName: definition.promoContext,
     cardNumber: definition.cardNumber,
     printedTotal,
     isUnnumbered: definition.isUnnumbered,
     language: definition.language
   });
   return {
-    source: 'VAULTR_PROMO',
-    sourceCardId: definition.sourceCardId,
+    source: 'CURATED',
+    sourceCardId: definition.curationId,
     language: definition.language,
     name: definition.name,
     normalizedName: normalizeCatalogText(definition.name),
-    setName: definition.setName ?? definition.promoContext,
-    normalizedSetName: normalizeCatalogText(definition.setName ?? definition.promoContext),
+    setName: definition.promoContext,
+    normalizedSetName: normalizeCatalogText(definition.promoContext),
     cardNumber: definition.cardNumber,
     normalizedCardNumber,
     printedTotal,
@@ -33,12 +33,14 @@ export function vaultrPromoRecordFromDefinition(definition: VaultrPromoSupplemen
     releaseType: definition.releaseType,
     releaseEvent: definition.releaseEvent,
     releaseYear: definition.releaseYear,
+    releaseDate: definition.releaseDate,
     verificationStatus: definition.verificationStatus,
     importedAt,
     aliases: uniqueCatalogAliases([
       { alias: displayValue, locale: definition.language, kind: 'display_name' },
       { alias: definition.promoContext, locale: 'en', kind: 'source_alias' },
       ...(definition.releaseEvent ? [{ alias: definition.releaseEvent, locale: 'en', kind: 'source_alias' as const }] : []),
+      ...(definition.additionalReleaseEvents ?? []).map((event) => ({ alias: event, locale: 'en', kind: 'source_alias' as const })),
       ...(definition.aliases ?? []).map((alias) => ({ alias, locale: definition.language, kind: 'source_alias' as const }))
     ]),
     identifiers: definition.identifiers?.map((identifier) => ({
@@ -50,14 +52,16 @@ export function vaultrPromoRecordFromDefinition(definition: VaultrPromoSupplemen
   };
 }
 
-export function loadVaultrPromoSupplementRecords(importedAt = new Date().toISOString(), definitions = VAULTR_VERIFIED_PROMOS): CardCatalogRecord[] {
-  return definitions.map((definition) => vaultrPromoRecordFromDefinition(definition, importedAt));
+export function loadVerifiedCuratedRecords(importedAt = new Date().toISOString(), definitions = CURATED_JAPANESE_PROMOS): CardCatalogRecord[] {
+  return definitions
+    .filter((definition) => definition.verificationStatus === 'VERIFIED')
+    .map((definition) => curatedRecordFromDefinition(definition, importedAt));
 }
 
-export function importVaultrPromoSupplementRecords(options: { dbPath?: string; importedAt?: string; definitions?: VaultrPromoSupplementDefinition[] } = {}): CardCatalogImportReport {
+export function importVerifiedCuratedRecords(options: { dbPath?: string; importedAt?: string; definitions?: CuratedJapanesePromoPrinting[] } = {}): CardCatalogImportReport {
   return replaceCardCatalogSourceRecords(
-    'VAULTR_PROMO',
-    loadVaultrPromoSupplementRecords(options.importedAt, options.definitions ?? VAULTR_VERIFIED_PROMOS),
+    'CURATED',
+    loadVerifiedCuratedRecords(options.importedAt, options.definitions ?? CURATED_JAPANESE_PROMOS),
     options.dbPath
   );
 }

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DiscoveryCandidate } from '../../commands/discover.js';
 import type { CompletedChase } from '../../types.js';
 import { getCardCatalogRecordBySourceCardId, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
+import { importVerifiedCuratedRecords } from '../card-catalog/importers/curated.js';
 import type { CardCatalogRecord } from '../card-catalog/types.js';
 import { addChase, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, resolveChaseRemoval } from '../chase-store.js';
 import { buildCollectorInterestProfile, type CollectorInterestProfile } from '../collector-profile.js';
@@ -259,6 +260,28 @@ describe('collector interest profile', () => {
     expect(traitLabels(profile, 'sets')).toEqual(['Terastal Festival ex']);
     expect(traitLabels(profile, 'artists')).toEqual(['Shinji Kanda']);
     expect(traitLabels(profile, 'rarities')).toContain('SAR');
+  });
+
+  it('uses generic external references for curated catalog traits', () => {
+    const dbPath = tempCatalogPath('curated-reference');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    importVerifiedCuratedRecords({ dbPath, importedAt: '2026-09-03T00:00:00.000Z' });
+
+    const profile = buildCollectorInterestProfile({
+      activeChases: [{
+        id: 'a1',
+        userId: 'u1',
+        cardName: 'Squirtle Japanese Promo 007/018',
+        cardImageSourceKind: 'CARD_REFERENCE',
+        cardImageSourceName: 'DEXTCG',
+        cardImageSourceCardId: 'jpn_mcdemp-7',
+        createdAt: '2026-01-01T00:00:00.000Z'
+      }],
+      completedChases: []
+    });
+
+    expect(traitLabels(profile, 'sets')).toEqual(["McDonald's Pokemon-e Minimum Pack"]);
+    expect(traitLabels(profile, 'languages')).toEqual(['JAPANESE']);
   });
 
   it('learns repeated source-backed illustrator evidence as a modest ranker signal', () => {

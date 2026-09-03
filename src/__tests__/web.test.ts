@@ -104,12 +104,12 @@ function seedWeeklyShelf(
           laneWhy: 'Matches your Japanese promo interest',
           why: 'Connects to the Japanese promo cards already in your Vault',
           nearby: [],
-          referenceSourceCardId: `vaultr-promo-${cardNumber}`,
+          referenceSourceCardId: `curated-${cardNumber}`,
           discoveryRole: 'CORE_MATCH',
           canonicalReference: {
-            provider: 'VAULTR_PROMO',
-            sourceCardId: `vaultr-promo-${cardNumber}`,
-            canonicalCardId: `vaultr-promo-${cardNumber}`,
+            provider: 'CURATED',
+            sourceCardId: `curated-${cardNumber}`,
+            canonicalCardId: `curated-${cardNumber}`,
             canonicalName: name,
             setName,
             cardNumber,
@@ -123,7 +123,7 @@ function seedWeeklyShelf(
           } as any
         },
         imageUrl: 'https://example.test/mew-reference.png',
-        imageSourceName: 'VAULTR_PROMO',
+        imageSourceName: 'CURATED',
         imageSourceKind: 'CARD_REFERENCE',
         market: {
           status: 'READY',

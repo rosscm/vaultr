@@ -320,9 +320,31 @@ export function getCardCatalogRecordBySourceCardId(source: string, sourceCardId:
     const row = db.prepare(`
       SELECT * FROM card_catalog_records
       WHERE source = ? AND source_card_id = ?
-        AND (source != 'VAULTR_PROMO' OR verification_status = 'VERIFIED')
+        AND (verification_status IS NULL OR verification_status = 'VERIFIED')
       LIMIT 1
     `).get(source, sourceCardId) as any | undefined;
+    return row ? rowToRecord(row) : null;
+  } catch {
+    return null;
+  } finally {
+    db?.close();
+  }
+}
+
+export function getCardCatalogRecordByReference(sourceName: string, sourceId: string, dbPath = cardCatalogPath()): StoredCardCatalogRecord | null {
+  const resolved = dbPath;
+  if (!fs.existsSync(resolved)) return null;
+  let db: Database.Database | undefined;
+  try {
+    db = openCardCatalogDb(resolved, { readonly: true, fileMustExist: true });
+    const row = db.prepare(`
+      SELECT r.* FROM card_catalog_records r
+      JOIN card_catalog_references ref ON ref.record_id = r.id
+      WHERE ref.source_name = ? AND ref.source_id = ?
+        AND (r.verification_status IS NULL OR r.verification_status = 'VERIFIED')
+      ORDER BY r.id ASC
+      LIMIT 1
+    `).get(sourceName, sourceId) as any | undefined;
     return row ? rowToRecord(row) : null;
   } catch {
     return null;
@@ -362,7 +384,7 @@ export function queryCardCatalogRecords(params: {
     const rows = db.prepare(`
       SELECT * FROM card_catalog_records
       WHERE
-        (source != 'VAULTR_PROMO' OR verification_status = 'VERIFIED')
+        (verification_status IS NULL OR verification_status = 'VERIFIED')
         AND
         (
           (

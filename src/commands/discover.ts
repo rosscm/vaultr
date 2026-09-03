@@ -75,7 +75,7 @@ import {
   weeklyDiscoveryRankingModeForCollectorProfile
 } from '../services/collector-profile-ranking-adapter.js';
 import { getCollectorInterestProfile } from '../services/collector-profile.js';
-import { getCardCatalogRecordBySourceCardId } from '../services/card-catalog-db.js';
+import { getCardCatalogRecordByReference, getCardCatalogRecordBySourceCardId } from '../services/card-catalog-db.js';
 import { searchLocalCardCatalog } from '../services/card-catalog/search.js';
 import type { LocalCardCatalogChoice } from '../services/card-catalog/types.js';
 import { resolveSourceBackedDiscoveryCards, snapshotDiscoverySourceCatalogRuntimeStats, type DiscoverySourceCatalogRuntimeStats } from '../services/discovery-source-catalog.js';
@@ -7899,9 +7899,9 @@ function buildWeeklyCollectorAnchorProfile(chases: Chase[]): WeeklyCollectorAnch
 
   for (const chase of positiveChases) {
     const text = chaseReferenceText(chase);
-    const source = chase.cardImageSourceName === 'DEXTCG' ? 'VAULTR_PROMO' : chase.cardImageSourceName;
-    const record = chase.cardImageSourceKind === 'CARD_REFERENCE' && source && chase.cardImageSourceCardId
-      ? getCardCatalogRecordBySourceCardId(source, chase.cardImageSourceCardId)
+    const record = chase.cardImageSourceKind === 'CARD_REFERENCE' && chase.cardImageSourceName && chase.cardImageSourceCardId
+      ? getCardCatalogRecordBySourceCardId(chase.cardImageSourceName, chase.cardImageSourceCardId)
+        ?? getCardCatalogRecordByReference(chase.cardImageSourceName, chase.cardImageSourceCardId)
       : null;
     if (record?.illustrator && !profile.artistLabels.has(normalize(record.illustrator))) {
       profile.artistLabels.set(normalize(record.illustrator), record.illustrator);

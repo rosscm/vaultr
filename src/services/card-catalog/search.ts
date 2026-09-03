@@ -6,7 +6,7 @@ import type { LocalCardCatalogChoice, StoredCardCatalogRecord } from './types.js
 const ACCESSORY_TERMS = /\b(spirit link|tool|energy|stadium|supporter|trainer)\b/i;
 
 function sourceRank(source: string): number {
-  return source === 'POKEMONTCG' ? 3 : source === 'TCGDEX' ? 2 : source === 'VAULTR_PROMO' ? 1 : 0;
+  return source === 'POKEMONTCG' ? 3 : source === 'TCGDEX' ? 2 : source === 'CURATED' ? 1 : 0;
 }
 
 function recordScore(record: StoredCardCatalogRecord, query: ReturnType<typeof parseCatalogSearchQuery>): number {

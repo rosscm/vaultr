@@ -2,12 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cardCatalogStats, getCardCatalogRecordBySourceCardId, initializeCardCatalogDb, listCardCatalogMisses, openCardCatalogDb, recordCardCatalogMiss, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
+import { cardCatalogStats, getCardCatalogRecordByReference, getCardCatalogRecordBySourceCardId, initializeCardCatalogDb, listCardCatalogMisses, openCardCatalogDb, recordCardCatalogMiss, replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
 import { catalogSubjectMatchesChoice, catalogSubjectsEquivalent, searchLocalCardCatalog } from '../card-catalog/search.js';
 import { catalogDisplayValue } from '../card-catalog/normalize.js';
 import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../card-catalog/importers/pokemontcg.js';
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
-import { importVaultrPromoSupplementRecords, loadVaultrPromoSupplementRecords, vaultrPromoRecordFromDefinition } from '../card-catalog/importers/vaultr-promos.js';
+import { curatedRecordFromDefinition, importVerifiedCuratedRecords, loadVerifiedCuratedRecords } from '../card-catalog/importers/curated.js';
 import { auditCuratedJapanesePromos, curatedJapanesePromoProvenanceStatus, isTraceableCuratedJapanesePromoReference } from '../card-catalog/curated-japanese-promo-audit.js';
 import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily } from '../card-catalog/supplements/curated-japanese-promos.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
@@ -511,21 +511,21 @@ describe('local card catalog', () => {
     expect(choice?.name).toContain('(Japanese)');
   });
 
-  it('imports the verified Vaultr promo Squirtle supplement without replacing core sources', () => {
-    const dbPath = tempCatalogPath('vaultr-promo-squirtle');
+  it('imports verified curated Squirtle without replacing core sources', () => {
+    const dbPath = tempCatalogPath('curated-squirtle');
     replaceCardCatalogSourceRecords('POKEMONTCG', [
       record({ sourceCardId: 'random-007', name: 'Squirtle', cardNumber: '007', normalizedCardNumber: '7', setName: 'Random Japanese Promo', normalizedSetName: 'random japanese promo', printedTotal: '018', isPromo: true })
     ], dbPath);
 
-    const report = importVaultrPromoSupplementRecords({ dbPath, importedAt: '2026-08-27T00:00:00.000Z' });
+    const report = importVerifiedCuratedRecords({ dbPath, importedAt: '2026-08-27T00:00:00.000Z' });
     const results = searchLocalCardCatalog('squirtle mcdonalds 007/018', 10, { dbPath });
 
-    expect(loadVaultrPromoSupplementRecords('2026-08-27T00:00:00.000Z')).toHaveLength(1);
-    expect(report).toMatchObject({ examined: 1, imported: 1, bySource: { VAULTR_PROMO: 1 } });
-    expect(cardCatalogStats(dbPath).sourceCounts).toMatchObject({ POKEMONTCG: 1, VAULTR_PROMO: 1 });
+    expect(loadVerifiedCuratedRecords('2026-08-27T00:00:00.000Z')).toHaveLength(1);
+    expect(report).toMatchObject({ examined: 1, imported: 1, bySource: { CURATED: 1 } });
+    expect(cardCatalogStats(dbPath).sourceCounts).toMatchObject({ POKEMONTCG: 1, CURATED: 1 });
     expect(results[0]).toMatchObject({
-      source: 'VAULTR_PROMO',
-      sourceCardId: 'vaultr-promo-dextcg-jpn-mcdemp-7',
+      source: 'CURATED',
+      sourceCardId: 'jp-promo-mcdemp-2002-007',
       canonicalName: 'Squirtle',
       value: "Squirtle McDonald's Pokemon-e Minimum Pack 007/018 Japanese",
       imageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png'
@@ -887,24 +887,39 @@ describe('local card catalog', () => {
     expect(auditCuratedJapanesePromos({ dbPath, includeCovered: true, records: [pikachu] }).records[0]?.status).toBe('AMBIGUOUS');
   });
 
-  it('leaves existing Vaultr promo import behavior scoped to verified supplements', () => {
-    const records = loadVaultrPromoSupplementRecords('2026-09-03T00:00:00.000Z');
+  it('loads only verified curated records from the single curated manifest', () => {
+    const records = loadVerifiedCuratedRecords('2026-09-03T00:00:00.000Z');
+    const squirtle = CURATED_JAPANESE_PROMOS.filter((record) => record.curationId === 'jp-promo-mcdemp-2002-007');
 
     expect(records).toHaveLength(1);
+    expect(squirtle).toHaveLength(1);
+    expect(squirtle[0]).toMatchObject({
+      verificationStatus: 'VERIFIED',
+      imageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png',
+      references: expect.arrayContaining([expect.objectContaining({ sourceName: 'DEXTCG', sourceId: 'jpn_mcdemp-7' })]),
+      identifiers: expect.arrayContaining([expect.objectContaining({ value: 'vaultr-promo-dextcg-jpn-mcdemp-7', kind: 'legacy_catalog' })])
+    });
     expect(records[0]).toMatchObject({
-      source: 'VAULTR_PROMO',
-      sourceCardId: 'vaultr-promo-dextcg-jpn-mcdemp-7',
+      source: 'CURATED',
+      sourceCardId: 'jp-promo-mcdemp-2002-007',
       name: 'Squirtle'
     });
     expect(CURATED_JAPANESE_PROMOS.length).toBeGreaterThan(records.length);
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.references.some((reference) => reference.sourceName === 'DEXTCG')).length).toBeGreaterThan(records.length);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.verificationStatus === 'VERIFIED')).toHaveLength(1);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.verificationStatus !== 'VERIFIED')).toHaveLength(100);
+    expect(curatedRecordFromDefinition(squirtle[0], '2026-09-03T00:00:00.000Z')).toMatchObject({
+      source: 'CURATED',
+      sourceCardId: 'jp-promo-mcdemp-2002-007',
+      verificationStatus: 'VERIFIED'
+    });
   });
 
   it('supports verified unnumbered promo fixtures without treating alternate identifiers as printed numbers', () => {
     const dbPath = tempCatalogPath('unnumbered-promo');
-    replaceCardCatalogSourceRecords('VAULTR_PROMO', [
-      vaultrPromoRecordFromDefinition({
-        sourceCardId: 'fixture-corocoro-mew',
+    replaceCardCatalogSourceRecords('CURATED', [
+      curatedRecordFromDefinition({
+        curationId: 'fixture-corocoro-mew',
         name: 'Mew',
         language: 'ja',
         isUnnumbered: true,
@@ -914,12 +929,12 @@ describe('local card catalog', () => {
         aliases: ['Shining Mew', 'CoroCoro Mew'],
         identifiers: [{ value: '151', kind: 'pokedex' }],
         verificationStatus: 'VERIFIED',
-        references: [{ sourceName: 'Fixture', sourceId: 'corocoro-mew' }]
+        references: [{ sourceName: 'OTHER', sourceId: 'corocoro-mew', kind: 'metadata_reference' }]
       }, '2026-08-27T00:00:00.000Z')
     ], dbPath);
 
     expect(searchLocalCardCatalog('mew corocoro', 10, { dbPath })[0]).toMatchObject({
-      source: 'VAULTR_PROMO',
+      source: 'CURATED',
       value: 'Mew CoroCoro Promo Japanese unnumbered',
       isUnnumbered: true,
       cardNumber: undefined
@@ -934,29 +949,31 @@ describe('local card catalog', () => {
     expect(searchLocalCardCatalog('mew corocoro 151/999', 10, { dbPath })).toEqual([]);
   });
 
-  it('hides REVIEW Vaultr promo records while returning VERIFIED records', () => {
+  it('hides REVIEW curated records while returning VERIFIED records', () => {
     const dbPath = tempCatalogPath('promo-verification');
-    replaceCardCatalogSourceRecords('VAULTR_PROMO', [
-      vaultrPromoRecordFromDefinition({
-        sourceCardId: 'review-mew',
+    replaceCardCatalogSourceRecords('CURATED', [
+      curatedRecordFromDefinition({
+        curationId: 'review-mew',
         name: 'Mew',
         language: 'ja',
         isUnnumbered: true,
         promoContext: 'CoroCoro Promo',
+        releaseEvent: 'CoroCoro',
         aliases: ['CoroCoro Mew'],
         identifiers: [{ value: '151', kind: 'pokedex' }],
         verificationStatus: 'REVIEW',
-        references: [{ sourceName: 'Fixture' }]
+        references: [{ sourceName: 'OTHER', sourceId: 'review-mew', kind: 'metadata_reference' }]
       }, '2026-08-27T00:00:00.000Z'),
-      vaultrPromoRecordFromDefinition({
-        sourceCardId: 'verified-pikachu',
+      curatedRecordFromDefinition({
+        curationId: 'verified-pikachu',
         name: 'Pikachu',
         language: 'ja',
         isUnnumbered: true,
         promoContext: 'ANA Promo',
+        releaseEvent: 'ANA Promo',
         aliases: ['Pikachu ANA Promo'],
         verificationStatus: 'VERIFIED',
-        references: [{ sourceName: 'Fixture' }]
+        references: [{ sourceName: 'OTHER', sourceId: 'verified-pikachu', kind: 'metadata_reference' }]
       }, '2026-08-27T00:00:00.000Z')
     ], dbPath);
 
@@ -964,27 +981,55 @@ describe('local card catalog', () => {
     expect(searchLocalCardCatalog('pikachu ana', 10, { dbPath })[0]).toMatchObject({ sourceCardId: 'verified-pikachu' });
   });
 
-  it('keeps core upstream records ahead of equivalent Vaultr promo supplements', () => {
+  it('resolves verified curated records by external reference only', () => {
+    const dbPath = tempCatalogPath('curated-reference-lookup');
+    importVerifiedCuratedRecords({ dbPath, importedAt: '2026-09-03T00:00:00.000Z' });
+
+    expect(getCardCatalogRecordBySourceCardId('CURATED', 'jp-promo-mcdemp-2002-007', dbPath)).toMatchObject({
+      source: 'CURATED',
+      sourceCardId: 'jp-promo-mcdemp-2002-007'
+    });
+    expect(getCardCatalogRecordByReference('DEXTCG', 'jpn_mcdemp-7', dbPath)).toMatchObject({
+      source: 'CURATED',
+      sourceCardId: 'jp-promo-mcdemp-2002-007'
+    });
+
+    replaceCardCatalogSourceRecords('CURATED', [
+      curatedRecordFromDefinition({
+        curationId: 'review-reference',
+        name: 'Mew',
+        language: 'ja',
+        isUnnumbered: true,
+        promoContext: 'CoroCoro Promo',
+        releaseEvent: 'CoroCoro',
+        verificationStatus: 'REVIEW',
+        references: [{ sourceName: 'DEXTCG', sourceId: 'review-mew', kind: 'source_identity' }]
+      }, '2026-09-03T00:00:00.000Z')
+    ], dbPath);
+    expect(getCardCatalogRecordByReference('DEXTCG', 'review-mew', dbPath)).toBeNull();
+  });
+
+  it('keeps core upstream records ahead of equivalent curated records', () => {
     const dbPath = tempCatalogPath('promo-precedence');
     replaceCardCatalogSourceRecords('POKEMONTCG', [
       record({ sourceCardId: 'bw11-RC24', name: 'Mew-EX', cardNumber: 'RC24', normalizedCardNumber: 'RC24', setName: 'Legendary Treasures', normalizedSetName: 'legendary treasures' })
     ], dbPath);
-    replaceCardCatalogSourceRecords('VAULTR_PROMO', [
-      vaultrPromoRecordFromDefinition({
-        sourceCardId: 'supplement-rc24',
+    replaceCardCatalogSourceRecords('CURATED', [
+      curatedRecordFromDefinition({
+        curationId: 'supplement-rc24',
         name: 'Mew-EX',
         language: 'en',
-        setName: 'Legendary Treasures',
         cardNumber: 'RC24',
         promoContext: 'Radiant Collection',
+        releaseEvent: 'Radiant Collection',
         verificationStatus: 'VERIFIED',
-        references: [{ sourceName: 'Fixture' }]
+        references: [{ sourceName: 'OTHER', sourceId: 'supplement-rc24', kind: 'metadata_reference' }]
       }, '2026-08-27T00:00:00.000Z')
     ], dbPath);
 
     const results = searchLocalCardCatalog('mew rc24', 10, { dbPath });
-    expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ source: 'POKEMONTCG', sourceCardId: 'bw11-RC24' });
+    expect(results.map((result) => result.source)).toContain('CURATED');
   });
 
   it('tracks anonymous catalog misses by normalized query only', () => {
