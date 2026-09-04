@@ -9,7 +9,7 @@ import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../ca
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
 import { curatedRecordFromDefinition, importVerifiedCuratedRecords, loadVerifiedCuratedRecords } from '../card-catalog/importers/curated.js';
 import { auditCuratedJapanesePromos, curatedJapanesePromoProvenanceStatus, isTraceableCuratedJapanesePromoReference } from '../card-catalog/curated-japanese-promo-audit.js';
-import { auditPokumonJapanesePromoInventory, parsePokumonCardPage, parsePokumonPromoSetIndex } from '../card-catalog/pokumon-japanese-promo-inventory.js';
+import { auditPokumonJapanesePromoInventory, fetchPokumonJapanesePromoSnapshot, parsePokumonCardPage, parsePokumonPromoSetIndex, parsePokumonPromoSetNextIndexUrl } from '../card-catalog/pokumon-japanese-promo-inventory.js';
 import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily } from '../card-catalog/supplements/curated-japanese-promos.js';
 import { POKUMON_JAPANESE_PROMO_SUPPLEMENT } from '../card-catalog/supplements/pokumon-japanese-promos.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
@@ -30,6 +30,11 @@ function tempDir(label: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `vaultr-card-catalog-${label}-`));
   tempDirs.add(dir);
   return dir;
+}
+
+function writePokumonCachePage(cacheDir: string, url: string, html: string): void {
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(path.join(cacheDir, encodeURIComponent(url)), html);
 }
 
 function record(overrides: Partial<ReturnType<typeof pokemonTcgRecordFromCard>> & { sourceCardId: string; name: string }) {
@@ -1174,6 +1179,27 @@ describe('local card catalog', () => {
       'https://pokumon.com/card/slowking-006-t-japanese-promo/'
     ]);
 
+    expect(parsePokumonPromoSetNextIndexUrl(
+      '<link rel="next" href="https://pokumon.com/promo_set/p/page/2/" />',
+      'https://pokumon.com/promo_set/p/',
+      'p'
+    )).toBe('https://pokumon.com/promo_set/p/page/2/');
+    expect(parsePokumonPromoSetNextIndexUrl(
+      '<a class="next page-numbers" href="https://pokumon.com/cards/?sf_paged=2">Next &raquo;</a>',
+      'https://pokumon.com/promo_set/p/',
+      'p'
+    )).toBeUndefined();
+    expect(parsePokumonPromoSetNextIndexUrl(
+      '<link rel="next" href="https://example.com/promo_set/p/page/2/" />',
+      'https://pokumon.com/promo_set/p/',
+      'p'
+    )).toBeUndefined();
+    expect(parsePokumonPromoSetNextIndexUrl(
+      '<link rel="next" href="https://pokumon.com/card/slowking-006-t-japanese-promo/" />',
+      'https://pokumon.com/promo_set/p/',
+      'p'
+    )).toBeUndefined();
+
     const slowking = parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', `
       <html><head>
       <title>Slowking (006/T Japanese Promo) - Pokumon</title>
@@ -1239,6 +1265,47 @@ describe('local card catalog', () => {
     }
     expect(parsePokumonCardPage('https://pokumon.com/card/articuno-014-t-japanese-promo/', '<title>Articuno (014/T Japanese Promo) - Pokumon</title>').name).toBe('Articuno');
     expect(parsePokumonCardPage('https://pokumon.com/card/dragonite-018-t-japanese-promo/', '<title>Dragonite (018/T Japanese Promo) - Pokumon</title>').name).toBe('Dragonite');
+  });
+
+  it('traverses cached Pokumon promo-set pagination safely and dedupes card URLs', async () => {
+    const cacheDir = tempDir('pokumon-pagination-cache');
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/promo_set/p/', `
+      <link rel="next" href="https://pokumon.com/promo_set/p/page/2/" />
+      <a href="/card/rockets-scizor-002-p-japanese-promo/">Rocket's Scizor</a>
+      <a href="/card/rockets-scizor-002-p-japanese-promo/">Duplicate</a>
+    `);
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/promo_set/p/page/2/', `
+      <a href="/card/rockets-sneasel-003-p-japanese-promo/">Rocket's Sneasel</a>
+      <a href="/card/tropical-wind-008-p-japanese-promo/">Tropical Wind</a>
+    `);
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/card/rockets-scizor-002-p-japanese-promo/', '<title>Rocket&apos;s Scizor (002/P Japanese Promo) - Pokumon</title>');
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/', '<title>Rocket&apos;s Sneasel (003/P Japanese Promo) - Pokumon</title>');
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/card/tropical-wind-008-p-japanese-promo/', '<title>Tropical Wind (008/P Japanese Promo) - Pokumon</title>');
+
+    const printings = await fetchPokumonJapanesePromoSnapshot({ cacheDir, sets: ['p'], seedUrls: [], limitPages: 10 });
+
+    expect(printings.map((printing) => printing.cardNumber).sort()).toEqual(['002/P', '003/P', '008/P']);
+  });
+
+  it('terminates cached Pokumon pagination loops without following unsafe next links', async () => {
+    const cacheDir = tempDir('pokumon-pagination-loop-cache');
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/promo_set/p/', `
+      <link rel="next" href="https://pokumon.com/promo_set/p/page/2/" />
+      <a href="/card/rockets-scizor-002-p-japanese-promo/">Rocket's Scizor</a>
+    `);
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/promo_set/p/page/2/', `
+      <link rel="next" href="https://pokumon.com/promo_set/p/" />
+      <a href="/card/rockets-sneasel-003-p-japanese-promo/">Rocket's Sneasel</a>
+    `);
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/card/rockets-scizor-002-p-japanese-promo/', '<title>Rocket&apos;s Scizor (002/P Japanese Promo) - Pokumon</title>');
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/', '<title>Rocket&apos;s Sneasel (003/P Japanese Promo) - Pokumon</title>');
+
+    const printings = await fetchPokumonJapanesePromoSnapshot({ cacheDir, sets: ['p'], seedUrls: [], limitPages: 10 });
+
+    expect(printings.map((printing) => printing.url).sort()).toEqual([
+      'https://pokumon.com/card/rockets-scizor-002-p-japanese-promo/',
+      'https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/'
+    ]);
   });
 
   it('parses Pokumon rich metadata only from card-local taxonomy terms', () => {
