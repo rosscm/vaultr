@@ -305,6 +305,74 @@ describe('local card catalog', () => {
     expect(searchLocalCardCatalog('umbreon 176', 5, { dbPath })[0]).toMatchObject({ value: 'Umbreon Scarlet & Violet Black Star Promos 176' });
   });
 
+  it('ranks same-subject records with matching release metadata ahead of weak source tie-breaks', () => {
+    const dbPath = tempCatalogPath('search-context');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'tcgdex-slowking-054',
+        language: 'ja',
+        name: 'Slowking',
+        normalizedName: 'slowking',
+        setName: 'Bimbingan Rasi',
+        normalizedSetName: 'bimbingan rasi',
+        cardNumber: '054',
+        normalizedCardNumber: '54'
+      })
+    ], dbPath);
+    replaceCardCatalogSourceRecords('CURATED', [
+      record({
+        source: 'CURATED',
+        sourceCardId: 'jp-promo-trainers-t-006',
+        language: 'ja',
+        name: 'Slowking',
+        normalizedName: 'slowking',
+        setName: 'Pokemon Card Trainers Magazine T Promos',
+        normalizedSetName: 'pokemon card trainers magazine t promos',
+        cardNumber: '006/T',
+        normalizedCardNumber: '006/T',
+        aliases: [
+          { alias: 'Slowking Pokémon Card Trainers Vol. 15', normalizedAlias: 'slowking pokemon card trainers vol 15', locale: 'ja', kind: 'source_alias' }
+        ]
+      })
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('slowking pokemon card trainers japanese', 5, { dbPath })[0]).toMatchObject({
+      source: 'CURATED',
+      sourceCardId: 'jp-promo-trainers-t-006'
+    });
+  });
+
+  it('applies contextual metadata ranking independently of source preference', () => {
+    const dbPath = tempCatalogPath('search-context-source-neutral');
+    replaceCardCatalogSourceRecords('POKEMONTCG', [
+      record({
+        source: 'POKEMONTCG',
+        sourceCardId: 'pokemon-tcg-dragonite-fossil',
+        name: 'Dragonite',
+        normalizedName: 'dragonite',
+        setName: 'Fossil',
+        normalizedSetName: 'fossil'
+      })
+    ], dbPath);
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'tcgdex-dragonite-rocket',
+        name: 'Dragonite',
+        normalizedName: 'dragonite',
+        setName: 'Team Rocket Returns',
+        normalizedSetName: 'team rocket returns',
+        releaseEvent: 'Team Rocket Returns'
+      })
+    ], dbPath);
+
+    expect(searchLocalCardCatalog('dragonite team rocket english', 5, { dbPath })[0]).toMatchObject({
+      source: 'TCGDEX',
+      sourceCardId: 'tcgdex-dragonite-rocket'
+    });
+  });
+
   it('uses existing Japanese subject aliases for structured local searches', () => {
     const dbPath = tempCatalogPath('jp-subject-alias');
     replaceCardCatalogSourceRecords('TCGDEX', [

@@ -4,6 +4,17 @@ import { catalogDisplayValue, normalizeCatalogCardNumber, normalizeCatalogPrinte
 import type { LocalCardCatalogChoice, StoredCardCatalogRecord } from './types.js';
 
 const ACCESSORY_TERMS = /\b(spirit link|tool|energy|stadium|supporter|trainer)\b/i;
+const CONTEXT_STOP_TERMS = new Set([
+  'card',
+  'cards',
+  'pokemon',
+  'tcg',
+  'japanese',
+  'english',
+  'promo',
+  'promos',
+  'promotional'
+]);
 
 function sourceRank(source: string): number {
   return source === 'POKEMONTCG' ? 3 : source === 'TCGDEX' ? 2 : source === 'CURATED' ? 1 : 0;
@@ -44,10 +55,36 @@ function recordScore(record: StoredCardCatalogRecord, query: ReturnType<typeof p
     const release = normalizeCatalogText(query.releaseContext);
     if (recordSet.includes(release) || releaseMetadataText(record).includes(release)) score += 30;
   }
+  score += contextualMetadataScore(record, query);
   if (record.isPromo && /\bpromo|promos|promotional|black star|mcdonald|corocoro\b/.test(query.normalized)) score += 20;
   if (record.imageUrl) score += 8;
   score += sourceRank(record.source);
   return score;
+}
+
+function contextualMetadataScore(record: StoredCardCatalogRecord, query: ReturnType<typeof parseCatalogSearchQuery>): number {
+  const metadata = releaseMetadataText(record);
+  if (!metadata) return 0;
+  const subjectTerms = new Set(subjectIdentityTerms(query.subject).map(normalizeCatalogText));
+  const consumedTerms = new Set<string>([
+    ...CONTEXT_STOP_TERMS,
+    ...subjectTerms
+  ]);
+  if (query.localNumber) consumedTerms.add(normalizeCatalogCardNumber(query.localNumber) ?? query.localNumber);
+  if (query.printedTotal) consumedTerms.add(normalizeCatalogCardNumber(query.printedTotal) ?? query.printedTotal);
+  if (query.alphanumericNumber) {
+    const alpha = query.alphanumericNumber.toLowerCase();
+    consumedTerms.add(alpha);
+    const prefix = /^[a-z]+/.exec(alpha)?.[0];
+    if (prefix) consumedTerms.add(prefix);
+  }
+  const metadataTerms = new Set(metadata.split(' ').filter(Boolean));
+  const matches = query.normalized
+    .split(' ')
+    .filter((term) => term.length >= 3)
+    .filter((term) => !consumedTerms.has(term))
+    .filter((term) => metadataTerms.has(term));
+  return Math.min(new Set(matches).size * 6, 18);
 }
 
 function hardReject(record: StoredCardCatalogRecord, query: ReturnType<typeof parseCatalogSearchQuery>): boolean {
