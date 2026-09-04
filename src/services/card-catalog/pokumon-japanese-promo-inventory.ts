@@ -178,10 +178,34 @@ function extractKnownText(text: string, values: string[]): string | undefined {
   return values.find((value) => text.includes(value));
 }
 
+function shortPromoSetMatches(promoSet: string, candidateText: string): boolean {
+  const promoSetTerm = normalizeCatalogText(promoSet);
+  const haystack = normalizeCatalogText(candidateText);
+  if (!promoSetTerm) return false;
+  if (promoSetTerm.length > 2) return haystack.split(' ').includes(promoSetTerm);
+  const tokens = haystack.split(' ').filter(Boolean);
+  return tokens.some((token, index) => {
+    if (token !== promoSetTerm) return false;
+    const previous = tokens[index - 1];
+    const next = tokens[index + 1];
+    const nextTwo = [next, tokens[index + 2]].filter(Boolean).join(' ');
+    return (
+      next === 'promo' ||
+      next === 'promos' ||
+      next === 'series' ||
+      nextTwo === 'promo series' ||
+      previous === 'promo' ||
+      previous === 'promos' ||
+      previous === 'series' ||
+      previous === 'set'
+    );
+  });
+}
+
 function releaseMatches(printing: Pick<PokumonJapanesePromoPrinting, 'promoSet' | 'releaseEvent' | 'url'>, candidateText: string): boolean {
   const haystack = normalizeCatalogText(candidateText);
   const release = normalizeCatalogText([printing.promoSet, printing.releaseEvent, new URL(printing.url).pathname].filter(Boolean).join(' '));
-  if (printing.promoSet && haystack.includes(normalizeCatalogText(printing.promoSet))) return true;
+  if (printing.promoSet && shortPromoSetMatches(printing.promoSet, candidateText)) return true;
   const terms = release.split(' ').filter((term) => term.length >= 4 && !['card', 'japanese', 'promo', 'pokemon', 'unnumbered'].includes(term));
   return terms.some((term) => haystack.includes(term));
 }
@@ -308,7 +332,20 @@ async function readCachedPokumonPage(url: string, options: { cacheDir: string; a
   if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8');
   if (!options.allowNetwork) return undefined;
   await new Promise((resolve) => setTimeout(resolve, options.delayMs ?? 5000));
-  const response = await fetch(url, { headers: { 'User-Agent': 'Vaultr catalog research (https://github.com/rosscm/vaultr)' } });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { 'User-Agent': 'Vaultr catalog research (https://github.com/rosscm/vaultr)' },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw new Error(`Pokumon request timed out after 20000ms: ${url}`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (response.status === 429) throw new Error('Pokumon returned 429; stopping snapshot');
   if (response.status >= 500) throw new Error(`Pokumon returned ${response.status}; stopping snapshot`);
   if (!response.ok) return undefined;

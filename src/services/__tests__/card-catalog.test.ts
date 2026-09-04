@@ -1143,6 +1143,30 @@ describe('local card catalog', () => {
     });
   });
 
+  it('does not match Pokumon promo-set numbers to unrelated sets with incidental short promo-set letters', () => {
+    const dbPath = tempCatalogPath('pokumon-structured-number-negative');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'unrelated-006',
+        language: 'ja',
+        name: 'Slowking',
+        normalizedName: 'slowking',
+        setName: 'Lost Thunder',
+        normalizedSetName: 'lost thunder',
+        cardNumber: '006',
+        normalizedCardNumber: '6'
+      })
+    ], dbPath);
+
+    const report = auditPokumonJapanesePromoInventory([
+      parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', '<title>Slowking (006/T Japanese Promo) - Pokumon</title>')
+    ], { dbPath });
+
+    expect(report.records[0].status).not.toBe('ALREADY_REPRESENTED');
+    expect(report.records[0]).toMatchObject({ status: 'MISSING' });
+  });
+
   it('keeps core upstream records ahead of equivalent curated records', () => {
     const dbPath = tempCatalogPath('promo-precedence');
     replaceCardCatalogSourceRecords('POKEMONTCG', [
