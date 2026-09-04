@@ -11,6 +11,7 @@ import { curatedRecordFromDefinition, importVerifiedCuratedRecords, loadVerified
 import { auditCuratedJapanesePromos, curatedJapanesePromoProvenanceStatus, isTraceableCuratedJapanesePromoReference } from '../card-catalog/curated-japanese-promo-audit.js';
 import { auditPokumonJapanesePromoInventory, parsePokumonCardPage, parsePokumonPromoSetIndex } from '../card-catalog/pokumon-japanese-promo-inventory.js';
 import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily } from '../card-catalog/supplements/curated-japanese-promos.js';
+import { POKUMON_JAPANESE_PROMO_SUPPLEMENT } from '../card-catalog/supplements/pokumon-japanese-promos.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
 import { runCatalogMissesCli } from '../../catalog-misses.js';
 import { runCatalogImportPokemonTcgCli } from '../../catalog-import-pokemontcg.js';
@@ -521,9 +522,9 @@ describe('local card catalog', () => {
     const report = importVerifiedCuratedRecords({ dbPath, importedAt: '2026-08-27T00:00:00.000Z' });
     const results = searchLocalCardCatalog('squirtle mcdonalds 007/018', 10, { dbPath });
 
-    expect(loadVerifiedCuratedRecords('2026-08-27T00:00:00.000Z')).toHaveLength(1);
-    expect(report).toMatchObject({ examined: 1, imported: 1, bySource: { CURATED: 1 } });
-    expect(cardCatalogStats(dbPath).sourceCounts).toMatchObject({ POKEMONTCG: 1, CURATED: 1 });
+    expect(loadVerifiedCuratedRecords('2026-08-27T00:00:00.000Z')).toHaveLength(26);
+    expect(report).toMatchObject({ examined: 26, imported: 26, bySource: { CURATED: 26 } });
+    expect(cardCatalogStats(dbPath).sourceCounts).toMatchObject({ POKEMONTCG: 1, CURATED: 26 });
     expect(results[0]).toMatchObject({
       source: 'CURATED',
       sourceCardId: 'jp-promo-mcdemp-2002-007',
@@ -542,7 +543,7 @@ describe('local card catalog', () => {
     expect(isTraceableCuratedJapanesePromoReference({ sourceName: 'POKUMON', sourceId: 'pokumon:local-slug', kind: 'metadata_reference' })).toBe(false);
     expect(isTraceableCuratedJapanesePromoReference({ sourceName: 'POKUMON', url: 'https://www.pokumon.com/card/example', kind: 'metadata_reference' })).toBe(true);
     expect(isTraceableCuratedJapanesePromoReference({ sourceName: 'DEXTCG', sourceId: 'jpn_mcdemp-7', kind: 'source_identity' })).toBe(true);
-    expect(CURATED_JAPANESE_PROMOS.filter((record) => curatedJapanesePromoProvenanceStatus(record) === 'TRACEABLE')).toHaveLength(18);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => curatedJapanesePromoProvenanceStatus(record) === 'TRACEABLE')).toHaveLength(43);
 
     const mcdonalds = CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === "McDonald's Pokemon-e Minimum Pack");
     expect(mcdonalds.map((record) => record.cardNumber)).toEqual(Array.from({ length: 18 }, (_, index) => String(index + 1).padStart(3, '0')));
@@ -555,14 +556,13 @@ describe('local card catalog', () => {
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Pokemon Song Best Collection CD').some((record) => record.identicalPrintingGroup)).toBe(false);
     expect(curatedJapanesePromoCountsByFamily()["McDonald's Pokemon-e Minimum Pack"]).toBe(18);
     expect(CURATED_JAPANESE_PROMOS.some((record) => 'verifiedSupplement' in record)).toBe(false);
-    expect(CURATED_JAPANESE_PROMOS.some((record) => record.estimatedCopies || record.finish || record.surface || record.backType)).toBe(false);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.verificationStatus !== 'VERIFIED').some((record) => record.estimatedCopies || record.finish || record.surface || record.backType)).toBe(false);
   });
 
   it('expands curated Japanese promo families without guessed years or collapsed variants', () => {
     const counts = curatedJapanesePromoCountsByFamily();
 
-    expect(CURATED_JAPANESE_PROMOS.length).toBeGreaterThanOrEqual(95);
-    expect(CURATED_JAPANESE_PROMOS.length).toBeLessThanOrEqual(110);
+    expect(CURATED_JAPANESE_PROMOS).toHaveLength(126);
     expect(counts['Evolution Communication Masaki campaign']).toBe(5);
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Evolution Communication Masaki campaign').map((record) => record.name).sort()).toEqual(['Alakazam', 'Gengar', 'Golem', 'Machamp', 'Omastar']);
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Trade Please! campaign').map((record) => record.name).sort()).toEqual(['Blastoise', 'Charizard', 'Trade Please!', 'Venusaur']);
@@ -572,6 +572,7 @@ describe('local card catalog', () => {
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.variantOf === 'lucky-stadium-world-challenge-summer-2000')).toHaveLength(9);
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'How I Became a Pokemon Card').every((record) => record.releaseYear === undefined)).toBe(true);
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.promoContext === 'Pokemon Card Trainers Magazine').every((record) => record.releaseYear === undefined)).toBe(true);
+    expect(counts['Pokemon Card Trainers Magazine T Promos']).toBe(24);
     expect(CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-official-card-file-pikachu')?.name).toBe('Pikachu');
     expect(CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-official-card-file-charmander')?.name).toBe('Charmander');
     expect(CURATED_JAPANESE_PROMOS.find((record) => record.curationId === 'jp-promo-pocket-monsters-fan-book-mewtwo')?.name).toBe('Mewtwo');
@@ -891,8 +892,10 @@ describe('local card catalog', () => {
   it('loads only verified curated records from the single curated manifest', () => {
     const records = loadVerifiedCuratedRecords('2026-09-03T00:00:00.000Z');
     const squirtle = CURATED_JAPANESE_PROMOS.filter((record) => record.curationId === 'jp-promo-mcdemp-2002-007');
+    const slowkingT = records.find((record) => record.sourceCardId === 'jp-promo-trainers-t-006');
+    const hama = records.find((record) => record.sourceCardId === 'jp-promo-corocoro-1999-hama-chans-slowking');
 
-    expect(records).toHaveLength(1);
+    expect(records).toHaveLength(26);
     expect(squirtle).toHaveLength(1);
     expect(squirtle[0]).toMatchObject({
       verificationStatus: 'VERIFIED',
@@ -905,14 +908,90 @@ describe('local card catalog', () => {
       sourceCardId: 'jp-promo-mcdemp-2002-007',
       name: 'Squirtle'
     });
+    expect(slowkingT).toMatchObject({
+      source: 'CURATED',
+      name: 'Slowking',
+      cardNumber: '006/T',
+      setName: 'Pokemon Card Trainers Magazine T Promos',
+      imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_006T.jpg'
+    });
+    expect(hama).toMatchObject({
+      source: 'CURATED',
+      name: 'Slowking',
+      isUnnumbered: true,
+      setName: 'CoroCoro magazine promo',
+      illustrator: 'Masatoshi Hamada',
+      imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_U113Unnumbered.jpg'
+    });
     expect(CURATED_JAPANESE_PROMOS.length).toBeGreaterThan(records.length);
-    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.references.some((reference) => reference.sourceName === 'DEXTCG')).length).toBeGreaterThan(records.length);
-    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.verificationStatus === 'VERIFIED')).toHaveLength(1);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.references.some((reference) => reference.sourceName === 'DEXTCG')).length).toBeGreaterThan(0);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.verificationStatus === 'VERIFIED')).toHaveLength(26);
     expect(CURATED_JAPANESE_PROMOS.filter((record) => record.verificationStatus !== 'VERIFIED')).toHaveLength(100);
     expect(curatedRecordFromDefinition(squirtle[0], '2026-09-03T00:00:00.000Z')).toMatchObject({
       source: 'CURATED',
       sourceCardId: 'jp-promo-mcdemp-2002-007',
       verificationStatus: 'VERIFIED'
+    });
+  });
+
+  it('materializes the validated Pokumon T-series and Hama-chan inventory as verified curated records', () => {
+    expect(POKUMON_JAPANESE_PROMO_SUPPLEMENT).toHaveLength(25);
+    expect(CURATED_JAPANESE_PROMOS).toHaveLength(126);
+    expect(CURATED_JAPANESE_PROMOS.filter((record) => record.verificationStatus === 'VERIFIED')).toHaveLength(26);
+
+    const supplementIds = POKUMON_JAPANESE_PROMO_SUPPLEMENT.map((record) => record.curationId);
+    const allIds = CURATED_JAPANESE_PROMOS.map((record) => record.curationId);
+    expect(new Set(supplementIds).size).toBe(supplementIds.length);
+    expect(new Set(allIds).size).toBe(allIds.length);
+    expect(POKUMON_JAPANESE_PROMO_SUPPLEMENT.every((record) => record.language === 'ja')).toBe(true);
+    expect(POKUMON_JAPANESE_PROMO_SUPPLEMENT.every((record) => record.verificationStatus === 'VERIFIED')).toBe(true);
+    expect(POKUMON_JAPANESE_PROMO_SUPPLEMENT.every((record) => record.imageUrl)).toBe(true);
+    expect(POKUMON_JAPANESE_PROMO_SUPPLEMENT.every((record) =>
+      record.references.some((reference) =>
+        reference.sourceName === 'POKUMON' &&
+        reference.kind === 'source_identity' &&
+        reference.url?.startsWith('https://pokumon.com/card/')
+      )
+    )).toBe(true);
+
+    const tSeries = POKUMON_JAPANESE_PROMO_SUPPLEMENT.filter((record) => record.promoContext === 'Pokemon Card Trainers Magazine T Promos');
+    expect(tSeries).toHaveLength(24);
+    expect(tSeries.map((record) => record.cardNumber).sort()).toEqual(Array.from({ length: 24 }, (_, index) => `${String(index + 1).padStart(3, '0')}/T`));
+    expect(tSeries.every((record) => record.printedTotal === undefined)).toBe(true);
+
+    expect(tSeries.find((record) => record.cardNumber === '006/T')).toMatchObject({
+      curationId: 'jp-promo-trainers-t-006',
+      name: 'Slowking',
+      releaseEvent: expect.stringContaining('Trainers Vol. 15'),
+      illustrator: 'Yukiko Baba',
+      finish: 'Non-holo',
+      imageUrl: expect.stringContaining('JP_006T.jpg')
+    });
+
+    expect(POKUMON_JAPANESE_PROMO_SUPPLEMENT.find((record) => record.curationId === 'jp-promo-corocoro-1999-hama-chans-slowking')).toMatchObject({
+      name: 'Slowking',
+      isUnnumbered: true,
+      aliases: expect.arrayContaining(["Hama-chan's Slowking"]),
+      illustrator: 'Masatoshi Hamada',
+      finish: 'Non-holo',
+      surface: 'Glossy',
+      references: [expect.objectContaining({ sourceName: 'POKUMON', kind: 'source_identity', url: 'https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/' })],
+      imageUrl: expect.stringContaining('JP_U113Unnumbered.jpg')
+    });
+  });
+
+  it('imports Pokumon-backed curated records into a temp catalog for local search', () => {
+    const dbPath = tempCatalogPath('pokumon-curated-import');
+    importVerifiedCuratedRecords({ dbPath, importedAt: '2026-09-04T00:00:00.000Z' });
+
+    expect(searchLocalCardCatalog('slowking pokemon card trainers japanese', 5, { dbPath })[0]).toMatchObject({
+      source: 'CURATED',
+      sourceCardId: 'jp-promo-trainers-t-006',
+      value: 'Slowking Pokemon Card Trainers Magazine T Promos 006/T Japanese'
+    });
+    expect(searchLocalCardCatalog("Hama-chan's Slowking", 5, { dbPath })[0]).toMatchObject({
+      source: 'CURATED',
+      sourceCardId: 'jp-promo-corocoro-1999-hama-chans-slowking'
     });
   });
 
@@ -1144,8 +1223,8 @@ describe('local card catalog', () => {
     ], { dbPath });
 
     expect(report.total).toBe(5);
-    expect(report.records.find((record) => record.url.includes('slowking-006-t'))).toMatchObject({ status: 'MISSING', reason: 'no exact local canonical match' });
-    expect(report.records.find((record) => record.url.includes('hama-chans-slowking'))).toMatchObject({ status: 'MISSING' });
+    expect(report.records.find((record) => record.url.includes('slowking-006-t'))).toMatchObject({ status: 'ALREADY_REPRESENTED', reason: 'exact printing already represented' });
+    expect(report.records.find((record) => record.url.includes('hama-chans-slowking'))).toMatchObject({ status: 'ALREADY_REPRESENTED' });
     expect(report.records.find((record) => record.url.includes('squirtle-007-018'))).toMatchObject({ status: 'ALREADY_REPRESENTED', matches: [expect.objectContaining({ source: 'CURATED', sourceCardId: 'jp-promo-mcdemp-2002-007' })] });
     expect(report.records.find((record) => record.url.includes('mega-gardevoir'))).toMatchObject({ status: 'ALREADY_REPRESENTED', matches: [expect.objectContaining({ source: 'TCGDEX', sourceCardId: 'M1S-087' })] });
     expect(report.records.find((record) => record.url.includes('mew-corocoro'))).toMatchObject({ status: 'EXISTING_REVIEW' });
@@ -1171,7 +1250,7 @@ describe('local card catalog', () => {
 
     const report = auditPokumonJapanesePromoInventory([
       parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', '<title>Slowking (006/T Japanese Promo) - Pokumon</title>')
-    ], { dbPath });
+    ], { dbPath, curatedRecords: [] });
 
     expect(report.records[0]).toMatchObject({
       status: 'ALREADY_REPRESENTED',
@@ -1197,7 +1276,7 @@ describe('local card catalog', () => {
 
     const report = auditPokumonJapanesePromoInventory([
       parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', '<title>Slowking (006/T Japanese Promo) - Pokumon</title>')
-    ], { dbPath });
+    ], { dbPath, curatedRecords: [] });
 
     expect(report.records[0].status).not.toBe('ALREADY_REPRESENTED');
     expect(report.records[0]).toMatchObject({ status: 'MISSING' });
