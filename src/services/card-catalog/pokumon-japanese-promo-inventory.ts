@@ -10,6 +10,7 @@ import type { StoredCardCatalogRecord } from './types.js';
 export type PokumonJapanesePromoPrinting = {
   url: string;
   name: string;
+  sourceTitle?: string;
   language: 'ja';
   promoSet?: string;
   cardNumber?: string;
@@ -24,7 +25,7 @@ export type PokumonJapanesePromoPrinting = {
   imageUrl?: string;
 };
 
-export type PokumonCoverageStatus = 'ALREADY_REPRESENTED' | 'MISSING' | 'AMBIGUOUS';
+export type PokumonCoverageStatus = 'ALREADY_REPRESENTED' | 'EXISTING_REVIEW' | 'MISSING' | 'AMBIGUOUS';
 
 export type PokumonCoverageRecord = {
   url: string;
@@ -33,6 +34,13 @@ export type PokumonCoverageRecord = {
   cardNumber?: string;
   printedTotal?: string;
   isUnnumbered?: boolean;
+  sourceTitle?: string;
+  releaseYear?: number;
+  releaseType?: string;
+  releaseEvent?: string;
+  illustrator?: string;
+  finish?: string;
+  surface?: string;
   status: PokumonCoverageStatus;
   reason: string;
   imageStatus: 'PRESENT' | 'MISSING';
@@ -44,6 +52,7 @@ export type PokumonCoverageReport = {
   total: number;
   alreadyRepresented: number;
   missing: number;
+  existingReview: number;
   ambiguous: number;
   withImage: number;
   withoutImage: number;
@@ -57,7 +66,10 @@ export const POKUMON_INDIVIDUAL_SEED_URLS = ['https://pokumon.com/card/hama-chan
 function decodeHtml(value: string): string {
   return value
     .replace(/&amp;/g, '&')
+    .replace(/&#038;/g, '&')
     .replace(/&#039;/g, "'")
+    .replace(/&#8217;/g, "'")
+    .replace(/’/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>');
@@ -70,8 +82,12 @@ function absoluteUrl(value: string): string {
 
 function titleFromHtml(html: string): string | undefined {
   const h1 = /<h1[^>]*>(?<value>[\s\S]*?)<\/h1>/i.exec(html)?.groups?.value;
+  const ogTitle = /<meta property=["']og:title["'][^>]+content=["'](?<value>[^"']+)["']/i.exec(html)?.groups?.value;
   const title = /<title[^>]*>(?<value>[\s\S]*?)<\/title>/i.exec(html)?.groups?.value;
-  return decodeHtml((h1 ?? title ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()).replace(/\s*\|\s*Pokumon.*$/i, '') || undefined;
+  return decodeHtml((h1 ?? ogTitle ?? title ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+    .replace(/\s*-\s*Pokumon\s*$/i, '')
+    .replace(/\s*\|\s*Pokumon.*$/i, '')
+    .trim() || undefined;
 }
 
 function slugParts(url: string): string[] {
@@ -80,18 +96,42 @@ function slugParts(url: string): string[] {
 
 function nameFromTitleOrSlug(url: string, html: string): string {
   const title = titleFromHtml(html);
-  if (title) return title.replace(/\s+(?:Japanese\s+)?Promo.*$/i, '').replace(/\s+\d{3}\/[A-Z0-9]+.*$/i, '').trim();
+  if (title) return cleanPokumonSubject(title);
   const parts = slugParts(url);
   const numberIndex = parts.findIndex((part) => /^\d{1,3}$/.test(part));
   const nameParts = numberIndex > 0 ? parts.slice(0, numberIndex) : parts.slice(0, Math.max(parts.indexOf('corocoro'), parts.indexOf('japanese'), parts.indexOf('unnumbered'))).filter(Boolean);
   return nameParts.map((part) => part === 'chans' ? "chan's" : part).join(' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function cleanPokumonSubject(title: string): string {
+  const withoutPokumon = decodeHtml(title).replace(/\s*-\s*Pokumon\s*$/i, '').trim();
+  const sourceTitle = cleanPokumonSourceTitle(withoutPokumon);
+  const hama = /^Hama-chan'?s\s+(?<subject>.+)$/i.exec(sourceTitle);
+  const subject = hama?.groups?.subject ?? sourceTitle;
+  return subject
+    .replace(/\s*\d{1,3}\s*\/\s*(?:\d{1,3}|[A-Z])\b.*$/i, '')
+    .replace(/\s*\(\s*\d{1,3}\s*\/\s*[A-Z0-9]+\s*\)\s*$/i, '')
+    .replace(/\s+(?:CoroCoro|Japanese|Pokemon Card Trainers|Pokémon Card Trainers)\b.*$/i, '')
+    .replace(/\s+Unnumbered\s*$/i, '')
+    .trim();
+}
+
+function cleanPokumonSourceTitle(title: string): string {
+  let cleaned = decodeHtml(title).replace(/\s*-\s*Pokumon\s*$/i, '').trim();
+  while (/\s*\([^)]*\)\s*$/.test(cleaned)) cleaned = cleaned.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  return cleaned;
+}
+
+function ogDescription(html: string): string | undefined {
+  const value = /<meta property=["']og:description["'][^>]+content=["'](?<value>[^"']+)["']/i.exec(html)?.groups?.value
+    ?? /<meta name=["']description["'][^>]+content=["'](?<value>[^"']+)["']/i.exec(html)?.groups?.value;
+  return value ? decodeHtml(value).replace(/\s+/g, ' ').trim() : undefined;
+}
+
 function imageFromHtml(html: string): string | undefined {
   const og = /<meta[^>]+property=["']og:image["'][^>]+content=["'](?<url>[^"']+)["']/i.exec(html)?.groups?.url;
   if (og) return absoluteUrl(decodeHtml(og));
-  const img = /<img[^>]+src=["'](?<url>[^"']+)["'][^>]*>/i.exec(html)?.groups?.url;
-  return img ? absoluteUrl(decodeHtml(img)) : undefined;
+  return undefined;
 }
 
 export function parsePokumonPromoSetIndex(html: string): string[] {
@@ -109,20 +149,33 @@ export function parsePokumonCardPage(url: string, html: string): PokumonJapanese
   const printedTotal = nextToken && /^\d{1,3}$/.test(nextToken) ? nextToken.padStart(3, '0') : undefined;
   const setToken = numberIndex >= 0 && !printedTotal ? parts[numberIndex + 1]?.toUpperCase() : undefined;
   const isUnnumbered = parts.includes('unnumbered') || numberIndex < 0;
-  const year = parts.map((part) => Number(part)).find((part) => part >= 1996 && part <= 2035);
+  const sourcePageTitle = titleFromHtml(html);
+  const sourceTitle = sourcePageTitle ? cleanPokumonSourceTitle(sourcePageTitle) : undefined;
+  const description = ogDescription(html);
+  const contextText = `${sourcePageTitle ?? ''} ${description ?? ''} ${html}`;
+  const year = (description ?? parts.join(' ')).split(/\D+/).map((part) => Number(part)).find((part) => part >= 1996 && part <= 2035);
+  const releaseEvent = description?.replace(/\s+Find on.*$/i, '').trim() || sourceTitle;
   return {
     url,
     name: nameFromTitleOrSlug(url, html),
+    sourceTitle,
     language: 'ja',
     promoSet: setToken,
     cardNumber: numberIndex >= 0 ? `${parts[numberIndex].padStart(3, '0')}${setToken ? `/${setToken}` : ''}` : undefined,
     printedTotal,
     isUnnumbered,
     releaseYear: year,
-    releaseType: 'pokumon_promo',
-    releaseEvent: titleFromHtml(html),
+    releaseType: /magazine|corocoro|card trainers/i.test(contextText) ? 'Magazine Promo' : 'pokumon_promo',
+    releaseEvent,
+    illustrator: extractKnownText(contextText, ['Yukiko Baba', 'Masatoshi Hamada']),
+    finish: extractKnownText(contextText, ['Non-holo']),
+    surface: extractKnownText(contextText, ['Glossy']),
     imageUrl: imageFromHtml(html)
   };
+}
+
+function extractKnownText(text: string, values: string[]): string | undefined {
+  return values.find((value) => text.includes(value));
 }
 
 function releaseMatches(printing: Pick<PokumonJapanesePromoPrinting, 'promoSet' | 'releaseEvent' | 'url'>, candidateText: string): boolean {
@@ -133,20 +186,34 @@ function releaseMatches(printing: Pick<PokumonJapanesePromoPrinting, 'promoSet' 
   return terms.some((term) => haystack.includes(term));
 }
 
+function baseCardNumber(value: string | undefined): string | undefined {
+  return value?.split('/')[0];
+}
+
+function sameStructuredNumber(printing: PokumonJapanesePromoPrinting, cardNumber: string | undefined, printedTotal: string | undefined): boolean {
+  if (!printing.cardNumber) return false;
+  if (normalizeCatalogCardNumber(printing.cardNumber) === normalizeCatalogCardNumber(cardNumber)) return true;
+  if (normalizeCatalogCardNumber(baseCardNumber(printing.cardNumber)) !== normalizeCatalogCardNumber(cardNumber)) return false;
+  if (printing.printedTotal && normalizeCatalogCardNumber(printing.printedTotal) !== normalizeCatalogCardNumber(printedTotal)) return false;
+  return Boolean(printing.promoSet);
+}
+
 function curatedMatch(printing: PokumonJapanesePromoPrinting, record: CuratedJapanesePromoPrinting): boolean {
   if (!catalogSubjectsEquivalent(printing.name, record.name, record.aliases)) return false;
-  if (printing.cardNumber && normalizeCatalogCardNumber(printing.cardNumber) !== normalizeCatalogCardNumber(record.cardNumber)) return false;
+  if (printing.cardNumber && !sameStructuredNumber(printing, record.cardNumber, record.printedTotal)) return false;
   if (printing.printedTotal && normalizeCatalogCardNumber(printing.printedTotal) !== normalizeCatalogCardNumber(record.printedTotal)) return false;
   if (!printing.cardNumber && !releaseMatches(printing, [record.promoContext, record.releaseEvent, ...(record.additionalReleaseEvents ?? [])].join(' '))) return false;
+  if (printing.promoSet && !releaseMatches(printing, [record.promoContext, record.releaseEvent, ...(record.additionalReleaseEvents ?? [])].join(' '))) return false;
   return true;
 }
 
 function catalogMatch(printing: PokumonJapanesePromoPrinting, record: StoredCardCatalogRecord): boolean {
   if (!catalogSubjectsEquivalent(printing.name, record.name, record.aliases?.map((alias) => alias.alias))) return false;
   if (record.language !== 'ja') return false;
-  if (printing.cardNumber && normalizeCatalogCardNumber(printing.cardNumber) !== normalizeCatalogCardNumber(record.cardNumber)) return false;
+  if (printing.cardNumber && !sameStructuredNumber(printing, record.cardNumber, record.printedTotal)) return false;
   if (printing.printedTotal && normalizeCatalogCardNumber(printing.printedTotal) !== normalizeCatalogCardNumber(record.printedTotal)) return false;
   if (!printing.cardNumber && !releaseMatches(printing, [record.setName, record.translatedSetName, record.promoContext, record.releaseEvent, record.series].join(' '))) return false;
+  if (printing.promoSet && !releaseMatches(printing, [record.setName, record.translatedSetName, record.promoContext, record.releaseEvent, record.series].join(' '))) return false;
   return true;
 }
 
@@ -156,7 +223,7 @@ function candidateCatalogRecords(printing: PokumonJapanesePromoPrinting, dbPath?
     subject: printing.name,
     subjectAliases: subjectIdentityTerms(printing.name),
     normalizedQuery: normalizeCatalogText(printing.name),
-    normalizedCardNumber: normalizeCatalogCardNumber(printing.cardNumber),
+    normalizedCardNumber: normalizeCatalogCardNumber(baseCardNumber(printing.cardNumber)),
     releaseContext: printing.promoSet ?? printing.releaseEvent,
     limit: 50
   });
@@ -167,11 +234,12 @@ export function auditPokumonJapanesePromoInventory(printings: PokumonJapanesePro
   const records = printings.map((printing) => {
     const catalogMatches = candidateCatalogRecords(printing, options.dbPath).filter((record) => catalogMatch(printing, record));
     const curatedMatches = curatedRecords.filter((record) => record.verificationStatus === 'VERIFIED' && curatedMatch(printing, record));
+    const reviewMatches = curatedRecords.filter((record) => record.verificationStatus !== 'VERIFIED' && curatedMatch(printing, record));
     const represented = [...new Map([
       ...catalogMatches.map((record) => ({ source: record.source, sourceCardId: record.sourceCardId, name: record.name, setName: record.translatedSetName ?? record.setName, cardNumber: record.cardNumber, printedTotal: record.printedTotal })),
       ...curatedMatches.map((record) => ({ source: 'CURATED', sourceCardId: record.curationId, name: record.name, setName: record.promoContext, cardNumber: record.cardNumber, printedTotal: record.printedTotal }))
     ].map((match) => [`${match.source}:${match.sourceCardId}`, match])).values()];
-    const status: PokumonCoverageStatus = represented.length === 1 ? 'ALREADY_REPRESENTED' : represented.length > 1 ? 'AMBIGUOUS' : 'MISSING';
+    const status: PokumonCoverageStatus = represented.length === 1 ? 'ALREADY_REPRESENTED' : represented.length > 1 ? 'AMBIGUOUS' : reviewMatches.length > 0 ? 'EXISTING_REVIEW' : 'MISSING';
     return {
       url: printing.url,
       name: printing.name,
@@ -179,8 +247,15 @@ export function auditPokumonJapanesePromoInventory(printings: PokumonJapanesePro
       cardNumber: printing.cardNumber,
       printedTotal: printing.printedTotal,
       isUnnumbered: printing.isUnnumbered,
+      sourceTitle: printing.sourceTitle,
+      releaseYear: printing.releaseYear,
+      releaseType: printing.releaseType,
+      releaseEvent: printing.releaseEvent,
+      illustrator: printing.illustrator,
+      finish: printing.finish,
+      surface: printing.surface,
       status,
-      reason: status === 'ALREADY_REPRESENTED' ? 'exact printing already represented' : status === 'AMBIGUOUS' ? 'multiple plausible exact-printing matches' : 'no exact local canonical match',
+      reason: status === 'ALREADY_REPRESENTED' ? 'exact printing already represented' : status === 'AMBIGUOUS' ? 'multiple plausible exact-printing matches' : status === 'EXISTING_REVIEW' ? 'matching curated review seed exists' : 'no exact local canonical match',
       imageStatus: printing.imageUrl ? 'PRESENT' as const : 'MISSING' as const,
       imageUrl: printing.imageUrl,
       matches: represented
@@ -191,6 +266,7 @@ export function auditPokumonJapanesePromoInventory(printings: PokumonJapanesePro
     total: records.length,
     alreadyRepresented: statusCount('ALREADY_REPRESENTED'),
     missing: statusCount('MISSING'),
+    existingReview: statusCount('EXISTING_REVIEW'),
     ambiguous: statusCount('AMBIGUOUS'),
     withImage: records.filter((record) => record.imageStatus === 'PRESENT').length,
     withoutImage: records.filter((record) => record.imageStatus === 'MISSING').length,

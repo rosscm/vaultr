@@ -1021,27 +1021,62 @@ describe('local card catalog', () => {
       'https://pokumon.com/card/slowking-006-t-japanese-promo/'
     ]);
 
-    expect(parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', `
-      <html><head><meta property="og:image" content="https://pokumon.com/wp-content/uploads/slowking.jpg"></head>
-      <body><h1>Slowking 006/T Japanese Promo</h1></body></html>
-    `)).toMatchObject({
+    const slowking = parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', `
+      <html><head>
+      <title>Slowking (006/T Japanese Promo) - Pokumon</title>
+      <meta property="og:title" content="Slowking (006/T Japanese Promo)" />
+      <meta property="og:description" content="Pokémon Card Trainers Vol. 15 (March 2002) Find on eBay Find on TCGPlayer Bulbapedia…" />
+      <meta property="og:image" content="https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_006T.jpg" />
+      </head><body>Yukiko Baba Non-holo Japanese Pokémon Card Trainers Magazine</body></html>
+    `);
+    expect(slowking).toMatchObject({
       url: 'https://pokumon.com/card/slowking-006-t-japanese-promo/',
       name: 'Slowking',
+      sourceTitle: 'Slowking',
       language: 'ja',
       promoSet: 'T',
       cardNumber: '006/T',
       isUnnumbered: false,
-      imageUrl: 'https://pokumon.com/wp-content/uploads/slowking.jpg'
+      releaseYear: 2002,
+      releaseType: 'Magazine Promo',
+      releaseEvent: 'Pokémon Card Trainers Vol. 15 (March 2002)',
+      illustrator: 'Yukiko Baba',
+      finish: 'Non-holo',
+      imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_006T.jpg'
     });
+    expect(slowking.name).not.toMatch(/\(\d{3}\/T$/);
 
-    expect(parsePokumonCardPage('https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/', `
-      <html><body><h1>Hama-chan's Slowking CoroCoro 1999 Unnumbered</h1></body></html>
-    `)).toMatchObject({
-      name: "Hama-chan's Slowking CoroCoro 1999 Unnumbered",
+    const hama = parsePokumonCardPage('https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/', `
+      <html><head>
+      <title>Hama-chan’s Slowking (CoroCoro 1999) (Unnumbered) - Pokumon</title>
+      <meta property="og:title" content="Hama-chan’s Slowking (CoroCoro 1999) (Unnumbered)" />
+      <meta property="og:description" content="September 1999 CoroCoro Comic (August 1999) Find on eBay Bulbapedia…" />
+      <meta property="og:image" content="https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_U113Unnumbered.jpg" />
+      </head><body>Masatoshi Hamada Non-holo Japanese Glossy CoroCoro</body></html>
+    `);
+    expect(hama).toMatchObject({
+      name: 'Slowking',
+      sourceTitle: "Hama-chan's Slowking",
       isUnnumbered: true,
       releaseYear: 1999,
-      imageUrl: undefined
+      releaseType: 'Magazine Promo',
+      releaseEvent: 'September 1999 CoroCoro Comic (August 1999)',
+      illustrator: 'Masatoshi Hamada',
+      finish: 'Non-holo',
+      surface: 'Glossy',
+      imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_U113Unnumbered.jpg'
     });
+    expect(hama.name).not.toContain('Pokumon');
+    for (const parsed of [
+      parsePokumonCardPage('https://pokumon.com/card/articuno-014-t-japanese-promo/', '<title>Articuno (014/T Japanese Promo) - Pokumon</title>'),
+      parsePokumonCardPage('https://pokumon.com/card/dragonite-018-t-japanese-promo/', '<title>Dragonite (018/T Japanese Promo) - Pokumon</title>'),
+      parsePokumonCardPage('https://pokumon.com/card/imakunis-exploud-ex-024-t-japanese-promo/', '<title>Imakuni?’s Exploud ex (024/T Japanese Promo) - Pokumon</title>')
+    ]) {
+      expect(parsed.name).not.toMatch(/\(\d{3}\/T$/);
+      expect(parsed.name).not.toContain('Pokumon');
+    }
+    expect(parsePokumonCardPage('https://pokumon.com/card/articuno-014-t-japanese-promo/', '<title>Articuno (014/T Japanese Promo) - Pokumon</title>').name).toBe('Articuno');
+    expect(parsePokumonCardPage('https://pokumon.com/card/dragonite-018-t-japanese-promo/', '<title>Dragonite (018/T Japanese Promo) - Pokumon</title>').name).toBe('Dragonite');
   });
 
   it('audits Pokumon inventory against provider and curated canonical records conservatively', () => {
@@ -1077,9 +1112,35 @@ describe('local card catalog', () => {
     expect(report.records.find((record) => record.url.includes('hama-chans-slowking'))).toMatchObject({ status: 'MISSING' });
     expect(report.records.find((record) => record.url.includes('squirtle-007-018'))).toMatchObject({ status: 'ALREADY_REPRESENTED', matches: [expect.objectContaining({ source: 'CURATED', sourceCardId: 'jp-promo-mcdemp-2002-007' })] });
     expect(report.records.find((record) => record.url.includes('mega-gardevoir'))).toMatchObject({ status: 'ALREADY_REPRESENTED', matches: [expect.objectContaining({ source: 'TCGDEX', sourceCardId: 'M1S-087' })] });
-    expect(report.records.find((record) => record.url.includes('mew-corocoro'))).toMatchObject({ status: 'MISSING' });
+    expect(report.records.find((record) => record.url.includes('mew-corocoro'))).toMatchObject({ status: 'EXISTING_REVIEW' });
     expect(cardCatalogStats(dbPath)).toEqual(before);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('matches Pokumon promo-set numbers stored as separate local number and release context', () => {
+    const dbPath = tempCatalogPath('pokumon-structured-number');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'T-006',
+        language: 'ja',
+        name: 'Slowking',
+        normalizedName: 'slowking',
+        setName: 'Pokemon Card Trainers Magazine T Promos',
+        normalizedSetName: 'pokemon card trainers magazine t promos',
+        cardNumber: '006',
+        normalizedCardNumber: '6'
+      })
+    ], dbPath);
+
+    const report = auditPokumonJapanesePromoInventory([
+      parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', '<title>Slowking (006/T Japanese Promo) - Pokumon</title>')
+    ], { dbPath });
+
+    expect(report.records[0]).toMatchObject({
+      status: 'ALREADY_REPRESENTED',
+      matches: [expect.objectContaining({ source: 'TCGDEX', sourceCardId: 'T-006' })]
+    });
   });
 
   it('keeps core upstream records ahead of equivalent curated records', () => {
