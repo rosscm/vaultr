@@ -965,7 +965,13 @@ describe('local card catalog', () => {
       releaseEvent: expect.stringContaining('Trainers Vol. 15'),
       illustrator: 'Yukiko Baba',
       finish: 'Non-holo',
-      imageUrl: expect.stringContaining('JP_006T.jpg')
+      imageUrl: expect.stringContaining('JP_006T.jpg'),
+      references: [expect.objectContaining({ sourceName: 'POKUMON', kind: 'source_identity', url: 'https://pokumon.com/card/slowking-006-t-japanese-promo/' })]
+    });
+    expect(tSeries.find((record) => record.cardNumber === '024/T')).toMatchObject({
+      curationId: 'jp-promo-trainers-t-024',
+      name: "Imakuni?'s Exploud ex",
+      references: [expect.objectContaining({ sourceName: 'POKUMON', kind: 'source_identity', url: 'https://pokumon.com/card/imakunis-exploud-ex-024-t-japanese-promo/' })]
     });
 
     expect(POKUMON_JAPANESE_PROMO_SUPPLEMENT.find((record) => record.curationId === 'jp-promo-corocoro-1999-hama-chans-slowking')).toMatchObject({
