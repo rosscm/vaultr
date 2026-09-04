@@ -142,22 +142,10 @@ export function parsePokumonPromoSetIndex(html: string): string[] {
   return [...urls].sort();
 }
 
-export function parsePokumonPromoSetNextIndexUrl(html: string, currentUrl: string, promoSet: string): string | undefined {
-  const nextHref = /<link\b[^>]*rel=["']next["'][^>]*href=["'](?<href>[^"']+)["'][^>]*>/i.exec(html)?.groups?.href
-    ?? /<a\b[^>]*class=["'][^"']*\bnext\b[^"']*\bpage-numbers\b[^"']*["'][^>]*href=["'](?<href>[^"']+)["'][^>]*>/i.exec(html)?.groups?.href;
-  if (!nextHref) return undefined;
-  let url: URL;
-  try {
-    url = new URL(decodeHtml(nextHref), currentUrl);
-  } catch {
-    return undefined;
-  }
-  if (url.protocol !== 'https:') return undefined;
-  if (url.hostname !== 'pokumon.com' && url.hostname !== 'www.pokumon.com') return undefined;
-  const normalizedSet = promoSet.toLowerCase();
-  const pagePath = new RegExp(`^/promo_set/${normalizedSet}/page/\\d+/?$`, 'i');
-  if (url.pathname !== `/promo_set/${normalizedSet}/` && !pagePath.test(url.pathname)) return undefined;
-  url.hash = '';
+export function pokumonFilteredPromoSetUrl(promoSet: string, page: number): string {
+  const url = new URL('https://pokumon.com/cards/');
+  url.searchParams.set('_sft_promo_set', promoSet.toLowerCase());
+  if (page > 1) url.searchParams.set('sf_paged', String(page));
   return url.toString();
 }
 
@@ -339,14 +327,18 @@ export async function fetchPokumonJapanesePromoSnapshot(options: {
   const seedUrls = options.seedUrls ?? POKUMON_INDIVIDUAL_SEED_URLS;
   const urls = new Set<string>(seedUrls);
   for (const set of sets) {
-    let indexUrl: string | undefined = `https://pokumon.com/promo_set/${set}/`;
-    const visitedIndexUrls = new Set<string>();
-    for (let pageCount = 0; indexUrl && pageCount < 50 && !visitedIndexUrls.has(indexUrl); pageCount += 1) {
-      visitedIndexUrls.add(indexUrl);
+    for (let page = 1; page <= 100; page += 1) {
+      const indexUrl = pokumonFilteredPromoSetUrl(set, page);
       const html = await readCachedPokumonPage(indexUrl, options);
       if (!html) break;
-      parsePokumonPromoSetIndex(html).forEach((url) => urls.add(url));
-      indexUrl = parsePokumonPromoSetNextIndexUrl(html, indexUrl, set);
+      const pageUrls = parsePokumonPromoSetIndex(html);
+      if (pageUrls.length === 0) break;
+      let newUrls = 0;
+      for (const url of pageUrls) {
+        if (!urls.has(url)) newUrls += 1;
+        urls.add(url);
+      }
+      if (newUrls === 0) break;
     }
   }
   const printings: PokumonJapanesePromoPrinting[] = [];
