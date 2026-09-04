@@ -152,7 +152,7 @@ export function parsePokumonCardPage(url: string, html: string): PokumonJapanese
   const sourcePageTitle = titleFromHtml(html);
   const sourceTitle = sourcePageTitle ? cleanPokumonSourceTitle(sourcePageTitle) : undefined;
   const description = ogDescription(html);
-  const contextText = `${sourcePageTitle ?? ''} ${description ?? ''} ${html}`;
+  const releaseText = `${sourcePageTitle ?? ''} ${description ?? ''}`;
   const year = (description ?? parts.join(' ')).split(/\D+/).map((part) => Number(part)).find((part) => part >= 1996 && part <= 2035);
   const releaseEvent = description?.replace(/\s+Find on.*$/i, '').trim() || sourceTitle;
   return {
@@ -165,17 +165,22 @@ export function parsePokumonCardPage(url: string, html: string): PokumonJapanese
     printedTotal,
     isUnnumbered,
     releaseYear: year,
-    releaseType: /magazine|corocoro|card trainers/i.test(contextText) ? 'Magazine Promo' : 'pokumon_promo',
+    releaseType: /magazine|corocoro|card trainers/i.test(releaseText) ? 'Magazine Promo' : 'pokumon_promo',
     releaseEvent,
-    illustrator: extractKnownText(contextText, ['Yukiko Baba', 'Masatoshi Hamada']),
-    finish: extractKnownText(contextText, ['Non-holo']),
-    surface: extractKnownText(contextText, ['Glossy']),
+    illustrator: cardLocalTaxonomyTerm(html, 'artist'),
+    finish: cardLocalTaxonomyTerm(html, 'holofoil'),
+    surface: cardLocalTaxonomyTerm(html, 'additional_attributes'),
     imageUrl: imageFromHtml(html)
   };
 }
 
-function extractKnownText(text: string, values: string[]): string | undefined {
-  return values.find((value) => text.includes(value));
+function cardLocalTaxonomyTerm(html: string, taxonomy: string): string | undefined {
+  const pattern = new RegExp(
+    `href=["']https:\\/\\/pokumon\\.com\\/${taxonomy}\\/[^"']+\\/["'][^>]*class=["'][^"']*elementor-post-info__terms-list-item[^"']*["'][^>]*>(?<value>[^<]+)<\\/a>`,
+    'i'
+  );
+  const value = pattern.exec(html)?.groups?.value;
+  return value ? decodeHtml(value).replace(/\s+/g, ' ').trim() : undefined;
 }
 
 function shortPromoSetMatches(promoSet: string, candidateText: string): boolean {

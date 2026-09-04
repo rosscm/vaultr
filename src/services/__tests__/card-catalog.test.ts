@@ -1027,7 +1027,11 @@ describe('local card catalog', () => {
       <meta property="og:title" content="Slowking (006/T Japanese Promo)" />
       <meta property="og:description" content="Pokémon Card Trainers Vol. 15 (March 2002) Find on eBay Find on TCGPlayer Bulbapedia…" />
       <meta property="og:image" content="https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_006T.jpg" />
-      </head><body>Yukiko Baba Non-holo Japanese Pokémon Card Trainers Magazine</body></html>
+      </head><body>
+      <a href="https://pokumon.com/artist/yukiko-baba/" class="elementor-post-info__terms-list-item">Yukiko Baba</a>
+      <a href="https://pokumon.com/holofoil/non-holo/" class="elementor-post-info__terms-list-item">Non-holo</a>
+      Japanese Pokémon Card Trainers Magazine
+      </body></html>
     `);
     expect(slowking).toMatchObject({
       url: 'https://pokumon.com/card/slowking-006-t-japanese-promo/',
@@ -1052,7 +1056,12 @@ describe('local card catalog', () => {
       <meta property="og:title" content="Hama-chan’s Slowking (CoroCoro 1999) (Unnumbered)" />
       <meta property="og:description" content="September 1999 CoroCoro Comic (August 1999) Find on eBay Bulbapedia…" />
       <meta property="og:image" content="https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_U113Unnumbered.jpg" />
-      </head><body>Masatoshi Hamada Non-holo Japanese Glossy CoroCoro</body></html>
+      </head><body>
+      <a href="https://pokumon.com/artist/masatoshi-hamada/" class="elementor-post-info__terms-list-item">Masatoshi Hamada</a>
+      <a href="https://pokumon.com/holofoil/non-holo/" class="elementor-post-info__terms-list-item">Non-holo</a>
+      <a href="https://pokumon.com/additional_attributes/glossy/" class="elementor-post-info__terms-list-item">Glossy</a>
+      Japanese CoroCoro
+      </body></html>
     `);
     expect(hama).toMatchObject({
       name: 'Slowking',
@@ -1077,6 +1086,33 @@ describe('local card catalog', () => {
     }
     expect(parsePokumonCardPage('https://pokumon.com/card/articuno-014-t-japanese-promo/', '<title>Articuno (014/T Japanese Promo) - Pokumon</title>').name).toBe('Articuno');
     expect(parsePokumonCardPage('https://pokumon.com/card/dragonite-018-t-japanese-promo/', '<title>Dragonite (018/T Japanese Promo) - Pokumon</title>').name).toBe('Dragonite');
+  });
+
+  it('parses Pokumon rich metadata only from card-local taxonomy terms', () => {
+    const hama = parsePokumonCardPage('https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/', `
+      <html><head>
+      <title>Hama-chan’s Slowking (CoroCoro 1999) (Unnumbered) - Pokumon</title>
+      <meta property="og:description" content="September 1999 CoroCoro Comic (August 1999) Find on eBay Bulbapedia…" />
+      <meta property="og:image" content="https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_U113Unnumbered.jpg" />
+      </head><body>
+      <aside>Related cards include Slowking Japanese Pokemon Card Trainers Magazine 2002 Yukiko Baba and Glossy examples.</aside>
+      <a href="https://pokumon.com/artist/masatoshi-hamada/" class="elementor-post-info__terms-list-item">Masatoshi Hamada</a>
+      <a href="https://pokumon.com/holofoil/non-holo/" class="elementor-post-info__terms-list-item">Non-holo</a>
+      <a href="https://pokumon.com/additional_attributes/glossy/" class="elementor-post-info__terms-list-item">Glossy</a>
+      </body></html>
+    `);
+
+    expect(hama.illustrator).toBe('Masatoshi Hamada');
+    expect(hama.finish).toBe('Non-holo');
+    expect(hama.surface).toBe('Glossy');
+
+    const unstructured = parsePokumonCardPage('https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/', `
+      <title>Hama-chan’s Slowking (CoroCoro 1999) (Unnumbered) - Pokumon</title>
+      <body>Related cards include Yukiko Baba Non-holo Glossy</body>
+    `);
+    expect(unstructured.illustrator).toBeUndefined();
+    expect(unstructured.finish).toBeUndefined();
+    expect(unstructured.surface).toBeUndefined();
   });
 
   it('audits Pokumon inventory against provider and curated canonical records conservatively', () => {

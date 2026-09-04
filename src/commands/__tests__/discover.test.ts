@@ -10893,16 +10893,37 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('keeps completed source-catalog top-off results when the stage times out', async () => {
-    const settled = await __discoveryPersistenceTestHooks.mapWithConcurrencyAllowPartialTimeout(
+    const controller = new AbortController();
+    const resolvers = new Map<string, (value: string) => void>();
+    const waitForStarted = async (value: string) => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (resolvers.has(value)) return;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      throw new Error(`Expected ${value} to start`);
+    };
+
+    const settledPromise = __discoveryPersistenceTestHooks.mapWithConcurrencyAllowPartialTimeout(
       ['fast-a', 'slow-b', 'fast-c'],
       2,
-      80,
+      10000,
       async (value) => {
-        await new Promise((resolve) => setTimeout(resolve, value === 'slow-b' ? 200 : 5));
-        return value;
-      }
+        return new Promise<string>((resolve) => {
+          resolvers.set(value, resolve);
+        });
+      },
+      controller.signal
     );
 
+    await waitForStarted('fast-a');
+    await waitForStarted('slow-b');
+    resolvers.get('fast-a')?.('fast-a');
+    await waitForStarted('fast-c');
+    resolvers.get('fast-c')?.('fast-c');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+
+    const settled = await settledPromise;
     expect(settled.timedOut).toBe(true);
     expect(settled.results).toEqual(expect.arrayContaining(['fast-a', 'fast-c']));
     expect(settled.results).not.toContain('slow-b');
