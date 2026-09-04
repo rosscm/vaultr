@@ -23,6 +23,7 @@
     "catalog:import:pokemontcg": "tsx src/catalog-import-pokemontcg.ts",
     "catalog:import:curated": "tsx src/catalog-import-curated.ts",
     "catalog:audit:curated-promos": "tsx src/catalog-audit-curated-promos.ts",
+    "catalog:audit:pokumon": "tsx src/catalog-audit-pokumon.ts",
     "catalog:stats": "tsx src/catalog-stats.ts",
     "catalog:misses": "tsx src/catalog-misses.ts",
     "catalog:search": "tsx src/catalog-search.ts",

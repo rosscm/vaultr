@@ -9,6 +9,7 @@ import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../ca
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
 import { curatedRecordFromDefinition, importVerifiedCuratedRecords, loadVerifiedCuratedRecords } from '../card-catalog/importers/curated.js';
 import { auditCuratedJapanesePromos, curatedJapanesePromoProvenanceStatus, isTraceableCuratedJapanesePromoReference } from '../card-catalog/curated-japanese-promo-audit.js';
+import { auditPokumonJapanesePromoInventory, parsePokumonCardPage, parsePokumonPromoSetIndex } from '../card-catalog/pokumon-japanese-promo-inventory.js';
 import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily } from '../card-catalog/supplements/curated-japanese-promos.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
 import { runCatalogMissesCli } from '../../catalog-misses.js';
@@ -1007,6 +1008,78 @@ describe('local card catalog', () => {
       }, '2026-09-03T00:00:00.000Z')
     ], dbPath);
     expect(getCardCatalogRecordByReference('DEXTCG', 'review-mew', dbPath)).toBeNull();
+  });
+
+  it('parses Pokumon promo indexes and individual card pages from saved HTML', () => {
+    const indexHtml = `
+      <a href="/card/slowking-006-t-japanese-promo/">Slowking</a>
+      <a href="https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/">Hama</a>
+      <a href="/card/slowking-006-t-japanese-promo/">Duplicate</a>
+    `;
+    expect(parsePokumonPromoSetIndex(indexHtml)).toEqual([
+      'https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/',
+      'https://pokumon.com/card/slowking-006-t-japanese-promo/'
+    ]);
+
+    expect(parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', `
+      <html><head><meta property="og:image" content="https://pokumon.com/wp-content/uploads/slowking.jpg"></head>
+      <body><h1>Slowking 006/T Japanese Promo</h1></body></html>
+    `)).toMatchObject({
+      url: 'https://pokumon.com/card/slowking-006-t-japanese-promo/',
+      name: 'Slowking',
+      language: 'ja',
+      promoSet: 'T',
+      cardNumber: '006/T',
+      isUnnumbered: false,
+      imageUrl: 'https://pokumon.com/wp-content/uploads/slowking.jpg'
+    });
+
+    expect(parsePokumonCardPage('https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/', `
+      <html><body><h1>Hama-chan's Slowking CoroCoro 1999 Unnumbered</h1></body></html>
+    `)).toMatchObject({
+      name: "Hama-chan's Slowking CoroCoro 1999 Unnumbered",
+      isUnnumbered: true,
+      releaseYear: 1999,
+      imageUrl: undefined
+    });
+  });
+
+  it('audits Pokumon inventory against provider and curated canonical records conservatively', () => {
+    const dbPath = tempCatalogPath('pokumon-audit');
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      record({
+        source: 'TCGDEX',
+        sourceCardId: 'M1S-087',
+        language: 'ja',
+        name: 'Mega Gardevoir ex',
+        normalizedName: 'mega gardevoir ex',
+        setName: 'Mega Symphonia',
+        normalizedSetName: 'mega symphonia',
+        cardNumber: '087',
+        normalizedCardNumber: '87',
+        printedTotal: '063'
+      })
+    ], dbPath);
+    importVerifiedCuratedRecords({ dbPath, importedAt: '2026-09-03T00:00:00.000Z' });
+    const before = cardCatalogStats(dbPath);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    const report = auditPokumonJapanesePromoInventory([
+      parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', '<h1>Slowking 006/T Japanese Promo</h1>'),
+      parsePokumonCardPage('https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/', "<h1>Hama-chan's Slowking CoroCoro 1999 Unnumbered</h1>"),
+      parsePokumonCardPage('https://pokumon.com/card/squirtle-007-018-mcdonalds-pokemon-e-minimum-pack/', '<h1>Squirtle 007/018 McDonald&apos;s Pokemon-e Minimum Pack</h1>'),
+      parsePokumonCardPage('https://pokumon.com/card/mega-gardevoir-ex-087-063-mega-symphonia/', '<h1>Mega Gardevoir ex 087/063 Mega Symphonia</h1>'),
+      parsePokumonCardPage('https://pokumon.com/card/mew-corocoro-1999-unnumbered/', '<h1>Mew CoroCoro 1999 Unnumbered</h1>')
+    ], { dbPath });
+
+    expect(report.total).toBe(5);
+    expect(report.records.find((record) => record.url.includes('slowking-006-t'))).toMatchObject({ status: 'MISSING', reason: 'no exact local canonical match' });
+    expect(report.records.find((record) => record.url.includes('hama-chans-slowking'))).toMatchObject({ status: 'MISSING' });
+    expect(report.records.find((record) => record.url.includes('squirtle-007-018'))).toMatchObject({ status: 'ALREADY_REPRESENTED', matches: [expect.objectContaining({ source: 'CURATED', sourceCardId: 'jp-promo-mcdemp-2002-007' })] });
+    expect(report.records.find((record) => record.url.includes('mega-gardevoir'))).toMatchObject({ status: 'ALREADY_REPRESENTED', matches: [expect.objectContaining({ source: 'TCGDEX', sourceCardId: 'M1S-087' })] });
+    expect(report.records.find((record) => record.url.includes('mew-corocoro'))).toMatchObject({ status: 'MISSING' });
+    expect(cardCatalogStats(dbPath)).toEqual(before);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('keeps core upstream records ahead of equivalent curated records', () => {
