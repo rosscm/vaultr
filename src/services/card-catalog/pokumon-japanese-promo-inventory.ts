@@ -62,6 +62,18 @@ export type PokumonCoverageReport = {
 
 export const POKUMON_COMPLETE_JAPANESE_PROMO_SETS = ['t', 'p', 'j', 'play', 'ppp', 'adv-p', 'pcg-p', 'dp-p', 'dpt-p', 'l-p'] as const;
 export const POKUMON_INDIVIDUAL_SEED_URLS = ['https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/'] as const;
+const POKUMON_PROMO_SET_SUFFIXES = [
+  ['adv', 'p'],
+  ['pcg', 'p'],
+  ['dpt', 'p'],
+  ['dp', 'p'],
+  ['l', 'p'],
+  ['play'],
+  ['ppp'],
+  ['t'],
+  ['p'],
+  ['j']
+] as const;
 
 function decodeHtml(value: string): string {
   return value
@@ -69,6 +81,7 @@ function decodeHtml(value: string): string {
     .replace(/&#038;/g, '&')
     .replace(/&#039;/g, "'")
     .replace(/&#8217;/g, "'")
+    .replace(/&apos;/g, "'")
     .replace(/’/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&lt;/g, '<')
@@ -94,12 +107,36 @@ function slugParts(url: string): string[] {
   return new URL(url).pathname.split('/').filter(Boolean).at(-1)?.split('-').filter(Boolean) ?? [];
 }
 
+function pokumonSlugPromoIdentity(parts: string[]): { promoSet?: string; cardNumber?: string; cardNumberIndex?: number; isKnownPromoSet: boolean } {
+  const identityParts = [...parts];
+  if (identityParts.at(-1) === 'promo' && identityParts.at(-2) === 'japanese') identityParts.splice(-2, 2);
+  for (const suffix of POKUMON_PROMO_SET_SUFFIXES) {
+    if (identityParts.length < suffix.length) continue;
+    const start = identityParts.length - suffix.length;
+    if (!suffix.every((part, index) => identityParts[start + index]?.toLowerCase() === part)) continue;
+    const promoSet = suffix.join('-').toUpperCase();
+    const numberToken = identityParts[start - 1];
+    if (numberToken && /^\d{1,3}$/.test(numberToken)) {
+      return {
+        promoSet,
+        cardNumber: `${numberToken.padStart(3, '0')}/${promoSet}`,
+        cardNumberIndex: start - 1,
+        isKnownPromoSet: true
+      };
+    }
+    return { promoSet, isKnownPromoSet: true };
+  }
+  return { isKnownPromoSet: false };
+}
+
 function nameFromTitleOrSlug(url: string, html: string): string {
   const title = titleFromHtml(html);
   if (title) return cleanPokumonSubject(title);
   const parts = slugParts(url);
-  const numberIndex = parts.findIndex((part) => /^\d{1,3}$/.test(part));
-  const nameParts = numberIndex > 0 ? parts.slice(0, numberIndex) : parts.slice(0, Math.max(parts.indexOf('corocoro'), parts.indexOf('japanese'), parts.indexOf('unnumbered'))).filter(Boolean);
+  const identity = pokumonSlugPromoIdentity(parts);
+  const nameParts = identity.cardNumberIndex !== undefined
+    ? parts.slice(0, identity.cardNumberIndex)
+    : parts.slice(0, Math.max(parts.indexOf('corocoro'), parts.indexOf('japanese'), parts.indexOf('unnumbered'))).filter(Boolean);
   return nameParts.map((part) => part === 'chans' ? "chan's" : part).join(' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
@@ -109,8 +146,8 @@ function cleanPokumonSubject(title: string): string {
   const hama = /^Hama-chan'?s\s+(?<subject>.+)$/i.exec(sourceTitle);
   const subject = hama?.groups?.subject ?? sourceTitle;
   return subject
-    .replace(/\s*\d{1,3}\s*\/\s*(?:\d{1,3}|[A-Z])\b.*$/i, '')
-    .replace(/\s*\(\s*\d{1,3}\s*\/\s*[A-Z0-9]+\s*\)\s*$/i, '')
+    .replace(/\s*\d{1,3}\s*\/\s*(?:\d{1,3}|[A-Z]+(?:-[A-Z]+)?)\b.*$/i, '')
+    .replace(/\s*\(\s*\d{1,3}\s*\/\s*[A-Z0-9]+(?:-[A-Z0-9]+)?[^)]*\)\s*$/i, '')
     .replace(/\s+(?:CoroCoro|Japanese|Pokemon Card Trainers|Pokémon Card Trainers)\b.*$/i, '')
     .replace(/\s+Unnumbered\s*$/i, '')
     .trim();
@@ -151,11 +188,14 @@ export function pokumonFilteredPromoSetUrl(promoSet: string, page: number): stri
 
 export function parsePokumonCardPage(url: string, html: string): PokumonJapanesePromoPrinting {
   const parts = slugParts(url);
-  const numberIndex = parts.findIndex((part) => /^\d{1,3}$/.test(part));
-  const nextToken = numberIndex >= 0 ? parts[numberIndex + 1] : undefined;
-  const printedTotal = nextToken && /^\d{1,3}$/.test(nextToken) ? nextToken.padStart(3, '0') : undefined;
-  const setToken = numberIndex >= 0 && !printedTotal ? parts[numberIndex + 1]?.toUpperCase() : undefined;
-  const isUnnumbered = parts.includes('unnumbered') || numberIndex < 0;
+  const identity = pokumonSlugPromoIdentity(parts);
+  const fallbackNumberIndex = identity.isKnownPromoSet ? -1 : parts.findIndex((part) => /^\d{1,3}$/.test(part));
+  const fallbackNextToken = fallbackNumberIndex >= 0 ? parts[fallbackNumberIndex + 1] : undefined;
+  const fallbackPrintedTotal = fallbackNextToken && /^\d{1,3}$/.test(fallbackNextToken) ? fallbackNextToken.padStart(3, '0') : undefined;
+  const fallbackSetToken = fallbackNumberIndex >= 0 && !fallbackPrintedTotal ? parts[fallbackNumberIndex + 1]?.toUpperCase() : undefined;
+  const cardNumber = identity.cardNumber ?? (fallbackNumberIndex >= 0 ? `${parts[fallbackNumberIndex].padStart(3, '0')}${fallbackSetToken ? `/${fallbackSetToken}` : ''}` : undefined);
+  const promoSet = identity.promoSet ?? fallbackSetToken;
+  const isUnnumbered = parts.includes('unnumbered') || !cardNumber;
   const sourcePageTitle = titleFromHtml(html);
   const sourceTitle = sourcePageTitle ? cleanPokumonSourceTitle(sourcePageTitle) : undefined;
   const description = ogDescription(html);
@@ -167,9 +207,9 @@ export function parsePokumonCardPage(url: string, html: string): PokumonJapanese
     name: nameFromTitleOrSlug(url, html),
     sourceTitle,
     language: 'ja',
-    promoSet: setToken,
-    cardNumber: numberIndex >= 0 ? `${parts[numberIndex].padStart(3, '0')}${setToken ? `/${setToken}` : ''}` : undefined,
-    printedTotal,
+    promoSet,
+    cardNumber,
+    printedTotal: fallbackPrintedTotal,
     isUnnumbered,
     releaseYear: year,
     releaseType: /magazine|corocoro|card trainers/i.test(releaseText) ? 'Magazine Promo' : 'pokumon_promo',

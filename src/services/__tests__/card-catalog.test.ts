@@ -1249,6 +1249,82 @@ describe('local card catalog', () => {
     expect(parsePokumonCardPage('https://pokumon.com/card/dragonite-018-t-japanese-promo/', '<title>Dragonite (018/T Japanese Promo) - Pokumon</title>').name).toBe('Dragonite');
   });
 
+  it('parses Pokumon promo identifiers from known terminal slug suffixes', () => {
+    expect(parsePokumonCardPage('https://pokumon.com/card/slowking-006-t-japanese-promo/', '<title>Slowking (006/T Japanese Promo) - Pokumon</title>')).toMatchObject({
+      promoSet: 'T',
+      cardNumber: '006/T'
+    });
+    expect(parsePokumonCardPage('https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/', '<title>Rocket&apos;s Sneasel (003/P Japanese Promo) - Pokumon</title>')).toMatchObject({
+      promoSet: 'P',
+      cardNumber: '003/P'
+    });
+    expect(parsePokumonCardPage('https://pokumon.com/card/pikachu-001-adv-p-japanese-promo/', '<title>Pikachu (001/ADV-P Japanese Promo) - Pokumon</title>')).toMatchObject({
+      promoSet: 'ADV-P',
+      cardNumber: '001/ADV-P'
+    });
+    expect(parsePokumonCardPage('https://pokumon.com/card/pikachu-123-pcg-p-japanese-promo/', '<title>Pikachu (123/PCG-P Japanese Promo) - Pokumon</title>')).toMatchObject({
+      promoSet: 'PCG-P',
+      cardNumber: '123/PCG-P'
+    });
+    expect(parsePokumonCardPage('https://pokumon.com/card/pikachu-050-dp-p-japanese-promo/', '<title>Pikachu (050/DP-P Japanese Promo) - Pokumon</title>')).toMatchObject({
+      promoSet: 'DP-P',
+      cardNumber: '050/DP-P'
+    });
+    expect(parsePokumonCardPage('https://pokumon.com/card/pikachu-012-dpt-p-japanese-promo/', '<title>Pikachu (012/DPt-P Japanese Promo) - Pokumon</title>')).toMatchObject({
+      promoSet: 'DPT-P',
+      cardNumber: '012/DPT-P'
+    });
+    expect(parsePokumonCardPage('https://pokumon.com/card/pikachu-050-l-p-japanese-promo/', '<title>Pikachu (050/L-P Japanese Promo) - Pokumon</title>')).toMatchObject({
+      promoSet: 'L-P',
+      cardNumber: '050/L-P'
+    });
+  });
+
+  it('does not confuse numeric Pokumon card names with terminal promo identifiers', () => {
+    const alakazam = parsePokumonCardPage(
+      'https://pokumon.com/card/alakazam-4-elite-fours-012-dpt-p-japanese-promo/',
+      '<title>Alakazam 4 (012/DPt-P Japanese Promo) - Pokumon</title>'
+    );
+    expect(alakazam).toMatchObject({
+      name: 'Alakazam 4',
+      promoSet: 'DPT-P',
+      cardNumber: '012/DPT-P'
+    });
+    expect(alakazam.cardNumber).not.toBe('004/ELITE');
+
+    const radar = parsePokumonCardPage(
+      'https://pokumon.com/card/team-galactics-invention-g-109-sp-radar-013-dpt-p-japanese-promo/',
+      '<title>Team Galactic&apos;s Invention G-109 SP Radar (013/DPt-P Japanese Promo) - Pokumon</title>'
+    );
+    expect(radar).toMatchObject({
+      name: "Team Galactic's Invention G-109 SP Radar",
+      promoSet: 'DPT-P',
+      cardNumber: '013/DPT-P'
+    });
+    expect(radar.cardNumber).not.toBe('109/SP');
+  });
+
+  it('keeps unnumbered Pokumon L-P cards in the L-P promo family without using year tokens as numbers', () => {
+    for (const url of [
+      'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p/',
+      'https://pokumon.com/card/tropical-tidal-wave-world-championships-2010-l-p/'
+    ]) {
+      expect(parsePokumonCardPage(url, '<title>Unnumbered L-P Promo - Pokumon</title>')).toMatchObject({
+        promoSet: 'L-P',
+        cardNumber: undefined,
+        isUnnumbered: true
+      });
+    }
+    expect(parsePokumonCardPage(
+      'https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/',
+      '<title>Hama-chan’s Slowking (CoroCoro 1999) (Unnumbered) - Pokumon</title>'
+    )).toMatchObject({
+      promoSet: undefined,
+      cardNumber: undefined,
+      isUnnumbered: true
+    });
+  });
+
   it('traverses cached Pokumon promo-set pagination safely and dedupes card URLs', async () => {
     const cacheDir = tempDir('pokumon-pagination-cache');
     writePokumonCachePage(cacheDir, 'https://pokumon.com/cards/?_sft_promo_set=p', `
