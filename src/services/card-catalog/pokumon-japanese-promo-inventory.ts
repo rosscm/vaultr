@@ -74,6 +74,7 @@ const POKUMON_PROMO_SET_SUFFIXES = [
   ['p'],
   ['j']
 ] as const;
+const POKUMON_PROMO_SET_CODES = new Set(POKUMON_PROMO_SET_SUFFIXES.map((suffix) => suffix.join('-').toUpperCase()));
 
 function decodeHtml(value: string): string {
   return value
@@ -107,12 +108,19 @@ function slugParts(url: string): string[] {
   return new URL(url).pathname.split('/').filter(Boolean).at(-1)?.split('-').filter(Boolean) ?? [];
 }
 
+function canonicalPokumonPromoSet(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = normalizeCatalogText(value).replace(/\s+/g, '-').toUpperCase();
+  return POKUMON_PROMO_SET_CODES.has(normalized) ? normalized : undefined;
+}
+
 function pokumonSlugPromoIdentity(parts: string[]): { promoSet?: string; cardNumber?: string; cardNumberIndex?: number; isKnownPromoSet: boolean } {
   const identityParts = [...parts];
   if (identityParts.at(-1) === 'promo' && identityParts.at(-2) === 'japanese') identityParts.splice(-2, 2);
+  const terminalIndex = /^\d+$/.test(identityParts.at(-1) ?? '') ? identityParts.length - 2 : identityParts.length - 1;
   for (const suffix of POKUMON_PROMO_SET_SUFFIXES) {
-    if (identityParts.length < suffix.length) continue;
-    const start = identityParts.length - suffix.length;
+    if (terminalIndex + 1 < suffix.length) continue;
+    const start = terminalIndex - suffix.length + 1;
     if (!suffix.every((part, index) => identityParts[start + index]?.toLowerCase() === part)) continue;
     const promoSet = suffix.join('-').toUpperCase();
     const numberToken = identityParts[start - 1];
@@ -189,12 +197,13 @@ export function pokumonFilteredPromoSetUrl(promoSet: string, page: number): stri
 export function parsePokumonCardPage(url: string, html: string): PokumonJapanesePromoPrinting {
   const parts = slugParts(url);
   const identity = pokumonSlugPromoIdentity(parts);
-  const fallbackNumberIndex = identity.isKnownPromoSet ? -1 : parts.findIndex((part) => /^\d{1,3}$/.test(part));
+  const localPromoSet = canonicalPokumonPromoSet(cardLocalTaxonomyTerm(html, 'promo_set'));
+  const fallbackNumberIndex = identity.isKnownPromoSet || localPromoSet ? -1 : parts.findIndex((part) => /^\d{1,3}$/.test(part));
   const fallbackNextToken = fallbackNumberIndex >= 0 ? parts[fallbackNumberIndex + 1] : undefined;
   const fallbackPrintedTotal = fallbackNextToken && /^\d{1,3}$/.test(fallbackNextToken) ? fallbackNextToken.padStart(3, '0') : undefined;
   const fallbackSetToken = fallbackNumberIndex >= 0 && !fallbackPrintedTotal ? parts[fallbackNumberIndex + 1]?.toUpperCase() : undefined;
   const cardNumber = identity.cardNumber ?? (fallbackNumberIndex >= 0 ? `${parts[fallbackNumberIndex].padStart(3, '0')}${fallbackSetToken ? `/${fallbackSetToken}` : ''}` : undefined);
-  const promoSet = identity.promoSet ?? fallbackSetToken;
+  const promoSet = localPromoSet ?? identity.promoSet ?? fallbackSetToken;
   const isUnnumbered = parts.includes('unnumbered') || !cardNumber;
   const sourcePageTitle = titleFromHtml(html);
   const sourceTitle = sourcePageTitle ? cleanPokumonSourceTitle(sourcePageTitle) : undefined;

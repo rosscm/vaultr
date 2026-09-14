@@ -1325,6 +1325,30 @@ describe('local card catalog', () => {
     });
   });
 
+  it('uses card-local promo-set taxonomy for unnumbered Pokumon URLs with trailing slug disambiguators', () => {
+    const html = `
+      <title>Illusion's Zoroark (Pokemon Card Design Contest 2010) - Pokumon</title>
+      <meta property="og:description" content="Pokemon Card Design Contest 2010">
+      <a href="https://pokumon.com/promo_set/l-p/" class="elementor-post-info__terms-list-item">L-P</a>
+    `;
+    for (const url of [
+      'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p-2/',
+      'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p-5/',
+      'https://pokumon.com/card/illusions-zorua-pokemon-card-design-contest-2010-l-p-7/'
+    ]) {
+      const parsed = parsePokumonCardPage(url, html);
+      expect(parsed).toMatchObject({
+        promoSet: 'L-P',
+        cardNumber: undefined,
+        isUnnumbered: true,
+        releaseEvent: 'Pokemon Card Design Contest 2010'
+      });
+      expect(parsed.cardNumber).not.toBe('002/L-P');
+      expect(parsed.cardNumber).not.toBe('005/L-P');
+      expect(parsed.cardNumber).not.toBe('007/L-P');
+    }
+  });
+
   it('traverses cached Pokumon promo-set pagination safely and dedupes card URLs', async () => {
     const cacheDir = tempDir('pokumon-pagination-cache');
     writePokumonCachePage(cacheDir, 'https://pokumon.com/cards/?_sft_promo_set=p', `
