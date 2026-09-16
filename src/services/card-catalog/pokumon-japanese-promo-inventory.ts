@@ -179,6 +179,13 @@ function imageFromHtml(html: string): string | undefined {
   return undefined;
 }
 
+function sanitizePokumonIllustrator(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (['match', 'none'].includes(trimmed.toLowerCase())) return undefined;
+  return trimmed;
+}
+
 export function parsePokumonPromoSetIndex(html: string): string[] {
   const urls = new Set<string>();
   for (const match of html.matchAll(/href=["'](?<href>[^"']*\/card\/[^"']+)["']/gi)) {
@@ -223,7 +230,7 @@ export function parsePokumonCardPage(url: string, html: string): PokumonJapanese
     releaseYear: year,
     releaseType: /magazine|corocoro|card trainers/i.test(releaseText) ? 'Magazine Promo' : 'pokumon_promo',
     releaseEvent,
-    illustrator: cardLocalTaxonomyTerm(html, 'artist'),
+    illustrator: sanitizePokumonIllustrator(cardLocalTaxonomyTerm(html, 'artist')),
     finish: cardLocalTaxonomyTerm(html, 'holofoil'),
     surface: cardLocalTaxonomyTerm(html, 'additional_attributes'),
     imageUrl: imageFromHtml(html)

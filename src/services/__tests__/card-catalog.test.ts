@@ -1428,6 +1428,7 @@ describe('local card catalog', () => {
   });
 
   it('parses Pokumon rich metadata only from card-local taxonomy terms', () => {
+    const artistTaxonomy = (value: string) => `<a href="https://pokumon.com/artist/test/" class="elementor-post-info__terms-list-item">${value}</a>`;
     const hama = parsePokumonCardPage('https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/', `
       <html><head>
       <title>Hama-chan’s Slowking (CoroCoro 1999) (Unnumbered) - Pokumon</title>
@@ -1452,6 +1453,12 @@ describe('local card catalog', () => {
     expect(unstructured.illustrator).toBeUndefined();
     expect(unstructured.finish).toBeUndefined();
     expect(unstructured.surface).toBeUndefined();
+
+    expect(parsePokumonCardPage('https://pokumon.com/card/shuckle-067-l-p-japanese-promo/', artistTaxonomy('None')).illustrator).toBeUndefined();
+    expect(parsePokumonCardPage('https://pokumon.com/card/wobbuffet-040-l-p-japanese-promo/', artistTaxonomy('match')).illustrator).toBeUndefined();
+    expect(parsePokumonCardPage('https://pokumon.com/card/wobbuffet-040-l-p-japanese-promo/', artistTaxonomy('  Match  ')).illustrator).toBeUndefined();
+    expect(parsePokumonCardPage('https://pokumon.com/card/pikachu-001-p-japanese-promo/', artistTaxonomy('Mitsuhiro Arita')).illustrator).toBe('Mitsuhiro Arita');
+    expect(parsePokumonCardPage('https://pokumon.com/card/imakunis-exploud-ex-024-t-japanese-promo/', artistTaxonomy('Imakuni?')).illustrator).toBe('Imakuni?');
   });
 
   it('audits Pokumon inventory against provider and curated canonical records conservatively', () => {
