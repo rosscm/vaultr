@@ -342,7 +342,10 @@ describe('web auth routes', () => {
       avatarUrl: `https://cdn.discordapp.com/avatars/${discordUserId}/avatar-hash.png?size=80`
     });
 
-    const me = await handleWebRequest({ method: 'GET', url: '/api/me', headers: { cookie: sessionCookie(decodeURIComponent(token!)) } }, { config });
+    const me = await handleWebRequest(
+      { method: 'GET', url: '/api/me', headers: { cookie: sessionCookie(decodeURIComponent(token!)) } },
+      { config, now: () => new Date('2026-08-20T12:00:00.000Z') }
+    );
     expect(me.status).toBe(200);
     expect(JSON.parse(me.body ?? '{}')).toMatchObject({
       user: {

@@ -9,12 +9,14 @@ import { loadPokemonTcgRepositoryRecords, pokemonTcgRecordFromCard } from '../ca
 import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexRecordFromCard } from '../card-catalog/importers/tcgdex.js';
 import { curatedRecordFromDefinition, importVerifiedCuratedRecords, loadVerifiedCuratedRecords } from '../card-catalog/importers/curated.js';
 import { auditCuratedJapanesePromos, curatedJapanesePromoProvenanceStatus, isTraceableCuratedJapanesePromoReference } from '../card-catalog/curated-japanese-promo-audit.js';
-import { auditPokumonJapanesePromoInventory, fetchPokumonJapanesePromoSnapshot, parsePokumonCardPage, parsePokumonPromoSetIndex, pokumonFilteredPromoSetUrl } from '../card-catalog/pokumon-japanese-promo-inventory.js';
+import { auditPokumonJapanesePromoInventory, fetchPokumonJapanesePromoSnapshot, parsePokumonCardPage, parsePokumonPromoSetIndex, pokumonFilteredPromoSetUrl, type PokumonCoverageRecord, type PokumonCoverageReport } from '../card-catalog/pokumon-japanese-promo-inventory.js';
+import { materializePokumonCoverageReport, pokumonCoverageRecordToCuratedPromo, serializePokumonMaterializedSupplement } from '../card-catalog/pokumon-japanese-promo-materializer.js';
 import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily } from '../card-catalog/supplements/curated-japanese-promos.js';
 import { POKUMON_JAPANESE_PROMO_SUPPLEMENT } from '../card-catalog/supplements/pokumon-japanese-promos.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
 import { runCatalogMissesCli } from '../../catalog-misses.js';
 import { runCatalogImportPokemonTcgCli } from '../../catalog-import-pokemontcg.js';
+import { runCatalogMaterializePokumonCli } from '../../catalog-materialize-pokumon.js';
 
 const originalFetch = globalThis.fetch;
 const originalCatalogPath = process.env.CARD_CATALOG_PATH;
@@ -35,6 +37,48 @@ function tempDir(label: string): string {
 function writePokumonCachePage(cacheDir: string, url: string, html: string): void {
   fs.mkdirSync(cacheDir, { recursive: true });
   fs.writeFileSync(path.join(cacheDir, encodeURIComponent(url)), html);
+}
+
+function pokumonCoverageRecord(overrides: Partial<PokumonCoverageRecord> & { url: string; name: string; promoSet?: string; cardNumber?: string }): PokumonCoverageRecord {
+  return {
+    url: overrides.url,
+    name: overrides.name,
+    promoSet: overrides.promoSet ?? 'P',
+    cardNumber: overrides.cardNumber,
+    printedTotal: overrides.printedTotal,
+    isUnnumbered: overrides.isUnnumbered,
+    sourceTitle: overrides.sourceTitle,
+    releaseYear: overrides.releaseYear ?? 2001,
+    releaseType: overrides.releaseType ?? 'pokumon_promo',
+    releaseEvent: overrides.releaseEvent ?? `${overrides.promoSet ?? 'P'} promo release`,
+    illustrator: overrides.illustrator,
+    finish: overrides.finish,
+    surface: overrides.surface,
+    status: overrides.status ?? 'MISSING',
+    reason: overrides.reason ?? 'no exact local canonical match',
+    imageStatus: overrides.imageStatus ?? 'PRESENT',
+    imageUrl: overrides.imageUrl ?? `https://example.test/${encodeURIComponent(overrides.name)}.jpg`,
+    matches: overrides.matches ?? []
+  };
+}
+
+function pokumonCoverageReport(records: PokumonCoverageRecord[]): PokumonCoverageReport {
+  const statusCount = (status: PokumonCoverageRecord['status']) => records.filter((record) => record.status === status).length;
+  return {
+    total: records.length,
+    alreadyRepresented: statusCount('ALREADY_REPRESENTED'),
+    missing: statusCount('MISSING'),
+    existingReview: statusCount('EXISTING_REVIEW'),
+    ambiguous: statusCount('AMBIGUOUS'),
+    withImage: records.filter((record) => record.imageStatus === 'PRESENT').length,
+    withoutImage: records.filter((record) => record.imageStatus === 'MISSING').length,
+    byPromoSet: records.reduce<Record<string, number>>((counts, record) => {
+      const key = record.promoSet ?? 'UNNUMBERED';
+      counts[key] = (counts[key] ?? 0) + 1;
+      return counts;
+    }, {}),
+    records
+  };
 }
 
 function record(overrides: Partial<ReturnType<typeof pokemonTcgRecordFromCard>> & { sourceCardId: string; name: string }) {
@@ -1459,6 +1503,102 @@ describe('local card catalog', () => {
     expect(parsePokumonCardPage('https://pokumon.com/card/wobbuffet-040-l-p-japanese-promo/', artistTaxonomy('  Match  ')).illustrator).toBeUndefined();
     expect(parsePokumonCardPage('https://pokumon.com/card/pikachu-001-p-japanese-promo/', artistTaxonomy('Mitsuhiro Arita')).illustrator).toBe('Mitsuhiro Arita');
     expect(parsePokumonCardPage('https://pokumon.com/card/imakunis-exploud-ex-024-t-japanese-promo/', artistTaxonomy('Imakuni?')).illustrator).toBe('Imakuni?');
+  });
+
+  it('materializes validated missing Pokumon records as verified curated promo records', () => {
+    const sneasel = pokumonCoverageRecord({
+      url: 'https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/',
+      name: "Rocket's Sneasel",
+      promoSet: 'P',
+      cardNumber: '003/P',
+      imageUrl: 'https://cdn.example/rockets-sneasel.jpg'
+    });
+    expect(pokumonCoverageRecordToCuratedPromo(sneasel)).toMatchObject({
+      curationId: 'jp-promo-pokumon-rockets-sneasel-003-p-japanese-promo',
+      name: "Rocket's Sneasel",
+      language: 'ja',
+      cardNumber: '003/P',
+      promoContext: 'Japanese P promo series',
+      imageUrl: 'https://cdn.example/rockets-sneasel.jpg',
+      verificationStatus: 'VERIFIED',
+      references: [{ sourceName: 'POKUMON', url: sneasel.url, kind: 'source_identity' }]
+    });
+
+    expect(pokumonCoverageRecordToCuratedPromo(pokumonCoverageRecord({
+      url: 'https://pokumon.com/card/pikachu-001-adv-p-japanese-promo/',
+      name: 'Pikachu',
+      promoSet: 'ADV-P',
+      cardNumber: '001/ADV-P'
+    }))).toMatchObject({ cardNumber: '001/ADV-P', promoContext: 'Japanese ADV-P promo series' });
+
+    expect(pokumonCoverageRecordToCuratedPromo(pokumonCoverageRecord({
+      url: 'https://pokumon.com/card/tropical-tidal-wave-world-championships-2010-l-p/',
+      name: 'Tropical Tidal Wave',
+      promoSet: 'L-P',
+      cardNumber: undefined,
+      isUnnumbered: true
+    }))).toMatchObject({ cardNumber: undefined, isUnnumbered: true, promoContext: 'Japanese L-P promo series' });
+  });
+
+  it('uses Pokumon page slugs for stable distinct materialized curation IDs', () => {
+    const records = [
+      pokumonCoverageRecord({ url: 'https://pokumon.com/card/slowpoke-028-l-p-japanese-promo/', name: 'Slowpoke', promoSet: 'L-P', cardNumber: '028/L-P' }),
+      pokumonCoverageRecord({ url: 'https://pokumon.com/card/updated-slowpoke-028-l-p-japanese-promo/', name: 'Updated Slowpoke', promoSet: 'L-P', cardNumber: '028/L-P' }),
+      pokumonCoverageRecord({ url: 'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p-2/', name: "Illusion's Zoroark", promoSet: 'L-P', cardNumber: undefined, isUnnumbered: true }),
+      pokumonCoverageRecord({ url: 'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p-3/', name: "Illusion's Zoroark", promoSet: 'L-P', cardNumber: undefined, isUnnumbered: true })
+    ].map((record) => pokumonCoverageRecordToCuratedPromo(record)!);
+
+    expect(records.map((record) => record.curationId)).toEqual([
+      'jp-promo-pokumon-slowpoke-028-l-p-japanese-promo',
+      'jp-promo-pokumon-updated-slowpoke-028-l-p-japanese-promo',
+      'jp-promo-pokumon-illusions-zoroark-pokemon-card-design-contest-2010-l-p-2',
+      'jp-promo-pokumon-illusions-zoroark-pokemon-card-design-contest-2010-l-p-3'
+    ]);
+    expect(new Set(records.map((record) => record.curationId)).size).toBe(records.length);
+  });
+
+  it('preflights Pokumon materialization before emitting records', () => {
+    const valid = pokumonCoverageRecord({ url: 'https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/', name: "Rocket's Sneasel", promoSet: 'P', cardNumber: '003/P' });
+    expect(materializePokumonCoverageReport(pokumonCoverageReport([valid]), 1)).toHaveLength(1);
+    expect(materializePokumonCoverageReport(pokumonCoverageReport([{ ...valid, status: 'ALREADY_REPRESENTED' }]), 0)).toHaveLength(0);
+    expect(() => materializePokumonCoverageReport(pokumonCoverageReport([{ ...valid, imageStatus: 'MISSING', imageUrl: undefined }]), 1)).toThrow(/without images/);
+    expect(() => materializePokumonCoverageReport(pokumonCoverageReport([{ ...valid, releaseEvent: undefined }]), 1)).toThrow(/releaseEvent/);
+    expect(() => materializePokumonCoverageReport(pokumonCoverageReport([{ ...valid, status: 'AMBIGUOUS' }]), 0)).toThrow(/ambiguous/);
+    expect(() => materializePokumonCoverageReport(pokumonCoverageReport([valid, { ...valid }]), 2)).toThrow(/Duplicate Pokumon curationId/);
+    expect(() => materializePokumonCoverageReport(pokumonCoverageReport([valid]), 2)).toThrow(/Expected 2 missing/);
+  });
+
+  it('serializes materialized Pokumon records deterministically', () => {
+    const first = [
+      pokumonCoverageRecordToCuratedPromo(pokumonCoverageRecord({ url: 'https://pokumon.com/card/pikachu-001-adv-p-japanese-promo/', name: 'Pikachu', promoSet: 'ADV-P', cardNumber: '001/ADV-P' }))!,
+      pokumonCoverageRecordToCuratedPromo(pokumonCoverageRecord({ url: 'https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/', name: "Rocket's Sneasel", promoSet: 'P', cardNumber: '003/P' }))!
+    ];
+    expect(serializePokumonMaterializedSupplement(first)).toBe(serializePokumonMaterializedSupplement([...first].reverse()));
+  });
+
+  it('runs the Pokumon materializer CLI as dry-run by default and writes only with --write', async () => {
+    const cacheDir = tempDir('pokumon-materialize-cache');
+    const output = path.join(tempDir('pokumon-materialize-output'), 'pokumon.generated.ts');
+    process.env.CARD_CATALOG_PATH = tempCatalogPath('pokumon-materialize-empty');
+    initializeCardCatalogDb(process.env.CARD_CATALOG_PATH);
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/cards/?_sft_promo_set=p', '<a href="https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/">Rocket</a>');
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/', `
+      <title>Rocket&apos;s Sneasel (003/P Japanese Promo) - Pokumon</title>
+      <meta property="og:description" content="Japanese P promo release" />
+      <meta property="og:image" content="https://cdn.example/rockets-sneasel.jpg" />
+    `);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--expected-missing=1', `--output=${output}`]);
+      expect(fs.existsSync(output)).toBe(false);
+      expect(JSON.parse(log.mock.calls.at(-1)?.[0] as string)).toMatchObject({ missing: 1, generated: 1, written: false });
+      await expect(runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--expected-missing=2', '--write', `--output=${output}`])).rejects.toThrow(/Expected 2 missing/);
+      await runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--expected-missing=1', '--write', `--output=${output}`]);
+      expect(fs.existsSync(output)).toBe(true);
+      expect(fs.readFileSync(output, 'utf8')).toContain('POKUMON_JAPANESE_PROMO_MATERIALIZED_SUPPLEMENT');
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('audits Pokumon inventory against provider and curated canonical records conservatively', () => {
