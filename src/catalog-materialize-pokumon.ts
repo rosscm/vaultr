@@ -13,6 +13,10 @@ function argValue(args: string[], name: string): string | undefined {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
+function hasArg(args: string[], name: string): boolean {
+  return args.some((arg) => arg === name || arg.startsWith(`${name}=`));
+}
+
 function expectedMissing(args: string[], requireValue: boolean): number | undefined {
   const value = argValue(args, '--expected-missing');
   if (!value) {
@@ -25,10 +29,10 @@ function expectedMissing(args: string[], requireValue: boolean): number | undefi
 }
 
 function selectedSets(args: string[]): string[] {
+  if (!hasArg(args, '--sets')) return POKUMON_MATERIALIZED_PROMO_SETS.map((set) => set.toLowerCase());
   const value = argValue(args, '--sets');
-  if (!value) return POKUMON_MATERIALIZED_PROMO_SETS.map((set) => set.toLowerCase());
   const allowed = new Set<string>([...POKUMON_VALIDATED_JAPANESE_PROMO_SETS, ...POKUMON_ADDITIONAL_JAPANESE_PROMO_SETS]);
-  const sets = value.split(',').map((set) => set.trim().toLowerCase()).filter(Boolean);
+  const sets = (value ?? '').split(',').map((set) => set.trim().toLowerCase()).filter(Boolean);
   if (sets.length === 0) throw new Error('--sets must include at least one Pokumon promo family');
   for (const set of sets) {
     if (!allowed.has(set)) throw new Error(`Unknown Pokumon promo family: ${set}`);
@@ -56,7 +60,7 @@ export async function runCatalogMaterializePokumonCli(args = process.argv.slice(
   const cacheDir = argValue(args, '--cache-dir') ?? './data/pokumon-cache';
   const explicitOutput = argValue(args, '--output');
   const sets = selectedSets(args);
-  const hasExplicitSets = Boolean(argValue(args, '--sets'));
+  const hasExplicitSets = hasArg(args, '--sets');
   if (write && hasExplicitSets && !explicitOutput) throw new Error('--output is required when using --sets with --write');
   const output = explicitOutput ?? DEFAULT_OUTPUT;
   const expected = expectedMissing(args, write);

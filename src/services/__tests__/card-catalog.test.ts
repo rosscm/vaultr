@@ -1658,6 +1658,9 @@ describe('local card catalog', () => {
       await runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--sets=m-p', '--expected-missing=1']);
       expect(fs.existsSync(output)).toBe(false);
       expect(JSON.parse(log.mock.calls.at(-1)?.[0] as string)).toMatchObject({ sets: ['m-p'], missing: 1, generated: 1, written: false });
+      await expect(runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--sets='])).rejects.toThrow(/--sets must include at least one/);
+      await expect(runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--sets=', '--write'])).rejects.toThrow(/--sets must include at least one/);
+      expect(fs.existsSync(output)).toBe(false);
       await expect(runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--sets=m-p', '--expected-missing=1', '--write'])).rejects.toThrow(/--output is required/);
       await expect(runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--sets=not-a-set'])).rejects.toThrow(/Unknown Pokumon promo family: not-a-set/);
       await expect(runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--expected-missing=2', '--write', `--output=${output}`])).rejects.toThrow(/Expected 2 missing/);
