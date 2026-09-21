@@ -1371,6 +1371,31 @@ describe('local card catalog', () => {
     expect(radar.cardNumber).not.toBe('109/SP');
   });
 
+  it('parses modern Pokumon numbered promo-set suffixes without expanding the default acquisition scope', () => {
+    for (const [slug, promoSet, cardNumber] of [
+      ['test-card-001-bw-p-japanese-promo', 'BW-P', '001/BW-P'],
+      ['test-card-123-xy-p-japanese-promo', 'XY-P', '123/XY-P'],
+      ['test-card-045-sm-p-japanese-promo', 'SM-P', '045/SM-P'],
+      ['test-card-100-s-p-japanese-promo', 'S-P', '100/S-P'],
+      ['test-card-050-sv-p-japanese-promo', 'SV-P', '050/SV-P'],
+      ['test-card-001-m-p-japanese-promo', 'M-P', '001/M-P']
+    ]) {
+      expect(parsePokumonCardPage(`https://pokumon.com/card/${slug}/`, '<title>Test Card - Pokumon</title>')).toMatchObject({
+        promoSet,
+        cardNumber
+      });
+    }
+
+    expect(parsePokumonCardPage('https://pokumon.com/card/test-card-design-contest-2026-sv-p-2/', `
+      <title>Test Card Design Contest - Pokumon</title>
+      <a href="https://pokumon.com/promo_set/sv-p/" class="elementor-post-info__terms-list-item">SV-P</a>
+    `)).toMatchObject({
+      promoSet: 'SV-P',
+      cardNumber: undefined,
+      isUnnumbered: true
+    });
+  });
+
   it('keeps unnumbered Pokumon L-P cards in the L-P promo family without using year tokens as numbers', () => {
     for (const url of [
       'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p/',

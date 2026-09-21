@@ -60,7 +60,8 @@ export type PokumonCoverageReport = {
   records: PokumonCoverageRecord[];
 };
 
-export const POKUMON_COMPLETE_JAPANESE_PROMO_SETS = ['t', 'p', 'j', 'play', 'ppp', 'adv-p', 'pcg-p', 'dp-p', 'dpt-p', 'l-p'] as const;
+export const POKUMON_VALIDATED_JAPANESE_PROMO_SETS = ['t', 'p', 'j', 'play', 'ppp', 'adv-p', 'pcg-p', 'dp-p', 'dpt-p', 'l-p'] as const;
+export const POKUMON_ADDITIONAL_JAPANESE_PROMO_SETS = ['bw-p', 'xy-p', 'sm-p', 's-p', 'sv-p', 'm-p'] as const;
 export const POKUMON_INDIVIDUAL_SEED_URLS = ['https://pokumon.com/card/hama-chans-slowking-corocoro-1999-unnumbered/'] as const;
 const POKUMON_PROMO_SET_SUFFIXES = [
   ['adv', 'p'],
@@ -68,6 +69,12 @@ const POKUMON_PROMO_SET_SUFFIXES = [
   ['dpt', 'p'],
   ['dp', 'p'],
   ['l', 'p'],
+  ['bw', 'p'],
+  ['xy', 'p'],
+  ['sm', 'p'],
+  ['sv', 'p'],
+  ['s', 'p'],
+  ['m', 'p'],
   ['play'],
   ['ppp'],
   ['t'],
@@ -379,7 +386,7 @@ export async function fetchPokumonJapanesePromoSnapshot(options: {
   limitPages?: number;
   delayMs?: number;
 }): Promise<PokumonJapanesePromoPrinting[]> {
-  const sets = options.sets ?? POKUMON_COMPLETE_JAPANESE_PROMO_SETS;
+  const sets = options.sets ?? POKUMON_VALIDATED_JAPANESE_PROMO_SETS;
   const seedUrls = options.seedUrls ?? POKUMON_INDIVIDUAL_SEED_URLS;
   const urls = new Set<string>(seedUrls);
   for (const set of sets) {

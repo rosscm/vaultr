@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { auditPokumonJapanesePromoInventory, fetchPokumonJapanesePromoSnapshot, POKUMON_COMPLETE_JAPANESE_PROMO_SETS, POKUMON_INDIVIDUAL_SEED_URLS } from './services/card-catalog/pokumon-japanese-promo-inventory.js';
+import { auditPokumonJapanesePromoInventory, fetchPokumonJapanesePromoSnapshot, POKUMON_INDIVIDUAL_SEED_URLS, POKUMON_VALIDATED_JAPANESE_PROMO_SETS } from './services/card-catalog/pokumon-japanese-promo-inventory.js';
 
 function argValue(args: string[], name: string): string | undefined {
   const direct = args.find((arg) => arg.startsWith(`${name}=`));
@@ -11,7 +11,7 @@ function argValue(args: string[], name: string): string | undefined {
 
 export async function runCatalogAuditPokumonCli(args = process.argv.slice(2)): Promise<void> {
   const cacheDir = argValue(args, '--cache-dir') ?? './data/pokumon-cache';
-  const sets = (argValue(args, '--sets') ?? POKUMON_COMPLETE_JAPANESE_PROMO_SETS.join(',')).split(',').map((set) => set.trim()).filter(Boolean);
+  const sets = (argValue(args, '--sets') ?? POKUMON_VALIDATED_JAPANESE_PROMO_SETS.join(',')).split(',').map((set) => set.trim()).filter(Boolean);
   const seedUrls = [
     ...POKUMON_INDIVIDUAL_SEED_URLS,
     ...(argValue(args, '--seed') ? [argValue(args, '--seed')!] : [])
