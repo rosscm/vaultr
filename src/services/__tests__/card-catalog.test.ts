@@ -10,7 +10,7 @@ import { loadTcgDexJapaneseSetTranslations, loadTcgDexRepositoryRecords, tcgDexR
 import { curatedRecordFromDefinition, importVerifiedCuratedRecords, loadVerifiedCuratedRecords } from '../card-catalog/importers/curated.js';
 import { auditCuratedJapanesePromos, curatedJapanesePromoProvenanceStatus, isTraceableCuratedJapanesePromoReference } from '../card-catalog/curated-japanese-promo-audit.js';
 import { auditPokumonJapanesePromoInventory, fetchPokumonJapanesePromoSnapshot, parsePokumonCardPage, parsePokumonPromoSetIndex, pokumonFilteredPromoSetUrl, type PokumonCoverageRecord, type PokumonCoverageReport } from '../card-catalog/pokumon-japanese-promo-inventory.js';
-import { materializePokumonCoverageReport, pokumonCoverageRecordToCuratedPromo, serializePokumonMaterializedSupplement } from '../card-catalog/pokumon-japanese-promo-materializer.js';
+import { materializePokumonCoverageReport, pokumonCoverageRecordToCuratedPromo, serializePokumonMaterializedSupplement, validatePokumonMaterializedPromos } from '../card-catalog/pokumon-japanese-promo-materializer.js';
 import { CURATED_JAPANESE_PROMOS, curatedJapanesePromoCountsByFamily } from '../card-catalog/supplements/curated-japanese-promos.js';
 import { POKUMON_JAPANESE_PROMO_SUPPLEMENT } from '../card-catalog/supplements/pokumon-japanese-promos.js';
 import { autocompleteChaseCardsWithStatus, clearChaseCardAutocompleteCache } from '../chase-card-catalog.js';
@@ -1544,8 +1544,8 @@ describe('local card catalog', () => {
     const records = [
       pokumonCoverageRecord({ url: 'https://pokumon.com/card/slowpoke-028-l-p-japanese-promo/', name: 'Slowpoke', promoSet: 'L-P', cardNumber: '028/L-P' }),
       pokumonCoverageRecord({ url: 'https://pokumon.com/card/updated-slowpoke-028-l-p-japanese-promo/', name: 'Updated Slowpoke', promoSet: 'L-P', cardNumber: '028/L-P' }),
-      pokumonCoverageRecord({ url: 'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p-2/', name: "Illusion's Zoroark", promoSet: 'L-P', cardNumber: undefined, isUnnumbered: true }),
-      pokumonCoverageRecord({ url: 'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p-3/', name: "Illusion's Zoroark", promoSet: 'L-P', cardNumber: undefined, isUnnumbered: true })
+      pokumonCoverageRecord({ url: 'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p-2/', name: "Illusion's Zoroark", promoSet: 'L-P', cardNumber: undefined, isUnnumbered: true, releaseEvent: 'Pokemon Card Design Contest 2010 finalist 2' }),
+      pokumonCoverageRecord({ url: 'https://pokumon.com/card/illusions-zoroark-pokemon-card-design-contest-2010-l-p-3/', name: "Illusion's Zoroark", promoSet: 'L-P', cardNumber: undefined, isUnnumbered: true, releaseEvent: 'Pokemon Card Design Contest 2010 finalist 3' })
     ].map((record) => pokumonCoverageRecordToCuratedPromo(record)!);
 
     expect(records.map((record) => record.curationId)).toEqual([
@@ -1555,6 +1555,7 @@ describe('local card catalog', () => {
       'jp-promo-pokumon-illusions-zoroark-pokemon-card-design-contest-2010-l-p-3'
     ]);
     expect(new Set(records.map((record) => record.curationId)).size).toBe(records.length);
+    expect(() => validatePokumonMaterializedPromos(records, records.length)).not.toThrow();
   });
 
   it('preflights Pokumon materialization before emitting records', () => {
@@ -1565,6 +1566,10 @@ describe('local card catalog', () => {
     expect(() => materializePokumonCoverageReport(pokumonCoverageReport([{ ...valid, releaseEvent: undefined }]), 1)).toThrow(/releaseEvent/);
     expect(() => materializePokumonCoverageReport(pokumonCoverageReport([{ ...valid, status: 'AMBIGUOUS' }]), 0)).toThrow(/ambiguous/);
     expect(() => materializePokumonCoverageReport(pokumonCoverageReport([valid, { ...valid }]), 2)).toThrow(/Duplicate Pokumon curationId/);
+    expect(() => materializePokumonCoverageReport(pokumonCoverageReport([
+      valid,
+      { ...valid, url: 'https://pokumon.com/card/alternate-rockets-sneasel-003-p-japanese-promo/' }
+    ]), 2)).toThrow(/Duplicate Pokumon generated identity/);
     expect(() => materializePokumonCoverageReport(pokumonCoverageReport([valid]), 2)).toThrow(/Expected 2 missing/);
   });
 

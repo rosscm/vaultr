@@ -122,7 +122,16 @@ export function validatePokumonMaterializedPromos(records: CuratedJapanesePromoP
     const numbered = Boolean(record.cardNumber) && record.isUnnumbered !== true;
     const unnumbered = !record.cardNumber && record.isUnnumbered === true;
     if (!numbered && !unnumbered) throw new Error(`Invalid materialized Pokumon identity: ${record.curationId}`);
-    const identity = `${record.name}|${record.cardNumber ?? 'UNNUMBERED'}|${record.promoContext}|${record.releaseEvent}|${url}`;
+    const identity = JSON.stringify([
+      record.name,
+      record.cardNumber ?? 'UNNUMBERED',
+      record.promoContext,
+      record.releaseEvent,
+      record.releaseYear ?? null,
+      record.illustrator ?? null,
+      record.finish ?? null,
+      record.surface ?? null
+    ]);
     if (identities.has(identity)) throw new Error(`Duplicate Pokumon generated identity: ${identity}`);
     ids.add(record.curationId);
     urls.add(url);
