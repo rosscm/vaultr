@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path, { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { auditPokumonJapanesePromoInventory, fetchPokumonJapanesePromoSnapshot, type PokumonJapanesePromoPrinting } from './services/card-catalog/pokumon-japanese-promo-inventory.js';
+import { auditPokumonJapanesePromoInventory, fetchPokumonJapanesePromoSnapshot, POKUMON_ADDITIONAL_JAPANESE_PROMO_SETS, POKUMON_VALIDATED_JAPANESE_PROMO_SETS, type PokumonJapanesePromoPrinting } from './services/card-catalog/pokumon-japanese-promo-inventory.js';
 import { materializePokumonCoverageReport, pokumonMaterializerSummary, POKUMON_MATERIALIZED_PROMO_SETS, serializePokumonMaterializedSupplement } from './services/card-catalog/pokumon-japanese-promo-materializer.js';
 
 const DEFAULT_OUTPUT = 'src/services/card-catalog/supplements/pokumon-japanese-promos.generated.ts';
@@ -24,12 +24,24 @@ function expectedMissing(args: string[], requireValue: boolean): number | undefi
   return parsed;
 }
 
-async function cacheOnlyPrintings(cacheDir: string): Promise<PokumonJapanesePromoPrinting[]> {
+function selectedSets(args: string[]): string[] {
+  const value = argValue(args, '--sets');
+  if (!value) return POKUMON_MATERIALIZED_PROMO_SETS.map((set) => set.toLowerCase());
+  const allowed = new Set<string>([...POKUMON_VALIDATED_JAPANESE_PROMO_SETS, ...POKUMON_ADDITIONAL_JAPANESE_PROMO_SETS]);
+  const sets = value.split(',').map((set) => set.trim().toLowerCase()).filter(Boolean);
+  if (sets.length === 0) throw new Error('--sets must include at least one Pokumon promo family');
+  for (const set of sets) {
+    if (!allowed.has(set)) throw new Error(`Unknown Pokumon promo family: ${set}`);
+  }
+  return [...new Set(sets)];
+}
+
+async function cacheOnlyPrintings(cacheDir: string, sets: string[]): Promise<PokumonJapanesePromoPrinting[]> {
   const byUrl = new Map<string, PokumonJapanesePromoPrinting>();
-  for (const set of POKUMON_MATERIALIZED_PROMO_SETS) {
+  for (const set of sets) {
     const printings = await fetchPokumonJapanesePromoSnapshot({
       cacheDir,
-      sets: [set.toLowerCase()],
+      sets: [set],
       seedUrls: [],
       allowNetwork: false,
       limitPages: 500
@@ -42,16 +54,20 @@ async function cacheOnlyPrintings(cacheDir: string): Promise<PokumonJapaneseProm
 export async function runCatalogMaterializePokumonCli(args = process.argv.slice(2)): Promise<void> {
   const write = args.includes('--write');
   const cacheDir = argValue(args, '--cache-dir') ?? './data/pokumon-cache';
-  const output = argValue(args, '--output') ?? DEFAULT_OUTPUT;
+  const explicitOutput = argValue(args, '--output');
+  const sets = selectedSets(args);
+  const hasExplicitSets = Boolean(argValue(args, '--sets'));
+  if (write && hasExplicitSets && !explicitOutput) throw new Error('--output is required when using --sets with --write');
+  const output = explicitOutput ?? DEFAULT_OUTPUT;
   const expected = expectedMissing(args, write);
-  const printings = await cacheOnlyPrintings(cacheDir);
+  const printings = await cacheOnlyPrintings(cacheDir, sets);
   const report = auditPokumonJapanesePromoInventory(printings);
   const generated = materializePokumonCoverageReport(report, expected);
   if (write) {
     fs.mkdirSync(path.dirname(output), { recursive: true });
     fs.writeFileSync(output, serializePokumonMaterializedSupplement(generated));
   }
-  console.log(JSON.stringify(pokumonMaterializerSummary(report, generated, output, write), null, 2));
+  console.log(JSON.stringify(pokumonMaterializerSummary(report, generated, output, write, sets), null, 2));
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

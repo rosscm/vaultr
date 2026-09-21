@@ -1627,6 +1627,10 @@ describe('local card catalog', () => {
       pokumonCoverageRecordToCuratedPromo(pokumonCoverageRecord({ url: 'https://pokumon.com/card/rockets-sneasel-003-p-japanese-promo/', name: "Rocket's Sneasel", promoSet: 'P', cardNumber: '003/P' }))!
     ];
     expect(serializePokumonMaterializedSupplement(first)).toBe(serializePokumonMaterializedSupplement([...first].reverse()));
+    expect(serializePokumonMaterializedSupplement([
+      pokumonCoverageRecordToCuratedPromo(pokumonCoverageRecord({ url: 'https://pokumon.com/card/modern-m-001-m-p-japanese-promo/', name: 'Modern M', promoSet: 'M-P', cardNumber: '001/M-P' }))!,
+      pokumonCoverageRecordToCuratedPromo(pokumonCoverageRecord({ url: 'https://pokumon.com/card/modern-bw-001-bw-p-japanese-promo/', name: 'Modern BW', promoSet: 'BW-P', cardNumber: '001/BW-P' }))!
+    ])).toMatch(/Japanese BW-P promo series[\s\S]+Japanese M-P promo series/);
   });
 
   it('runs the Pokumon materializer CLI as dry-run by default and writes only with --write', async () => {
@@ -1640,15 +1644,30 @@ describe('local card catalog', () => {
       <meta property="og:description" content="Japanese P promo release" />
       <meta property="og:image" content="https://cdn.example/test-materializer-card.jpg" />
     `);
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/cards/?_sft_promo_set=m-p', '<a href="https://pokumon.com/card/test-modern-materializer-card-001-m-p-japanese-promo/">Modern</a>');
+    writePokumonCachePage(cacheDir, 'https://pokumon.com/card/test-modern-materializer-card-001-m-p-japanese-promo/', `
+      <title>Test Modern Materializer Card (001/M-P Japanese Promo) - Pokumon</title>
+      <meta property="og:description" content="Japanese M-P promo release" />
+      <meta property="og:image" content="https://cdn.example/test-modern-materializer-card.jpg" />
+    `);
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       await runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--expected-missing=1', `--output=${output}`]);
       expect(fs.existsSync(output)).toBe(false);
-      expect(JSON.parse(log.mock.calls.at(-1)?.[0] as string)).toMatchObject({ missing: 1, generated: 1, written: false });
+      expect(JSON.parse(log.mock.calls.at(-1)?.[0] as string)).toMatchObject({ sets: ['p', 'j', 'play', 'ppp', 'adv-p', 'pcg-p', 'dp-p', 'dpt-p', 'l-p'], missing: 1, generated: 1, written: false });
+      await runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--sets=m-p', '--expected-missing=1']);
+      expect(fs.existsSync(output)).toBe(false);
+      expect(JSON.parse(log.mock.calls.at(-1)?.[0] as string)).toMatchObject({ sets: ['m-p'], missing: 1, generated: 1, written: false });
+      await expect(runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--sets=m-p', '--expected-missing=1', '--write'])).rejects.toThrow(/--output is required/);
+      await expect(runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--sets=not-a-set'])).rejects.toThrow(/Unknown Pokumon promo family: not-a-set/);
       await expect(runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--expected-missing=2', '--write', `--output=${output}`])).rejects.toThrow(/Expected 2 missing/);
       await runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--expected-missing=1', '--write', `--output=${output}`]);
       expect(fs.existsSync(output)).toBe(true);
       expect(fs.readFileSync(output, 'utf8')).toContain('POKUMON_JAPANESE_PROMO_MATERIALIZED_SUPPLEMENT');
+      const modernOutput = path.join(path.dirname(output), 'pokumon-modern.generated.ts');
+      await runCatalogMaterializePokumonCli([`--cache-dir=${cacheDir}`, '--sets=m-p', '--expected-missing=1', `--output=${modernOutput}`, '--write']);
+      expect(fs.existsSync(modernOutput)).toBe(true);
+      expect(fs.readFileSync(modernOutput, 'utf8')).toContain('001/M-P');
     } finally {
       log.mockRestore();
     }

@@ -1,7 +1,11 @@
 import type { CuratedJapanesePromoPrinting } from './supplements/curated-japanese-promos.js';
-import type { PokumonCoverageRecord, PokumonCoverageReport } from './pokumon-japanese-promo-inventory.js';
+import { POKUMON_ADDITIONAL_JAPANESE_PROMO_SETS, POKUMON_VALIDATED_JAPANESE_PROMO_SETS, type PokumonCoverageRecord, type PokumonCoverageReport } from './pokumon-japanese-promo-inventory.js';
 
 export const POKUMON_MATERIALIZED_PROMO_SETS = ['P', 'J', 'PLAY', 'PPP', 'ADV-P', 'PCG-P', 'DP-P', 'DPT-P', 'L-P'] as const;
+const POKUMON_MATERIALIZER_SORT_PROMO_SETS = [
+  ...POKUMON_VALIDATED_JAPANESE_PROMO_SETS.map((set) => set.toUpperCase()),
+  ...POKUMON_ADDITIONAL_JAPANESE_PROMO_SETS.map((set) => set.toUpperCase())
+] as const;
 
 export type PokumonMaterializerSummary = {
   sets: string[];
@@ -87,10 +91,11 @@ export function pokumonCoverageRecordToCuratedPromo(record: PokumonCoverageRecor
 
 function sortKey(record: CuratedJapanesePromoPrinting): string {
   const promoSet = /^Japanese (?<set>.+) promo series$/.exec(record.promoContext)?.groups?.set ?? '';
-  const setIndex = POKUMON_MATERIALIZED_PROMO_SETS.indexOf(promoSet as typeof POKUMON_MATERIALIZED_PROMO_SETS[number]);
+  const setIndex = POKUMON_MATERIALIZER_SORT_PROMO_SETS.indexOf(promoSet as typeof POKUMON_MATERIALIZER_SORT_PROMO_SETS[number]);
+  const setOrder = setIndex >= 0 ? setIndex : POKUMON_MATERIALIZER_SORT_PROMO_SETS.length;
   const number = record.cardNumber ?? 'UNNUMBERED';
   const url = record.references.find((reference) => reference.sourceName === 'POKUMON')?.url ?? '';
-  return `${setIndex.toString().padStart(2, '0')}|${number}|${url}`;
+  return `${setOrder.toString().padStart(2, '0')}|${promoSet}|${number}|${url}`;
 }
 
 export function sortPokumonMaterializedPromos(records: CuratedJapanesePromoPrinting[]): CuratedJapanesePromoPrinting[] {
@@ -165,9 +170,9 @@ export function serializePokumonMaterializedSupplement(records: CuratedJapaneseP
   ].join('\n');
 }
 
-export function pokumonMaterializerSummary(report: PokumonCoverageReport, generated: CuratedJapanesePromoPrinting[], output: string, written: boolean): PokumonMaterializerSummary {
+export function pokumonMaterializerSummary(report: PokumonCoverageReport, generated: CuratedJapanesePromoPrinting[], output: string, written: boolean, sets = POKUMON_MATERIALIZED_PROMO_SETS.map((set) => set.toLowerCase())): PokumonMaterializerSummary {
   return {
-    sets: POKUMON_MATERIALIZED_PROMO_SETS.map((set) => set.toLowerCase()),
+    sets,
     sourcePrintings: report.total,
     alreadyRepresented: report.alreadyRepresented,
     missing: report.missing,
