@@ -1,6 +1,7 @@
 import type { CardCatalogIdentifier, CardCatalogLanguage, CardCatalogVerificationStatus } from '../types.js';
 import { POKUMON_JAPANESE_PROMO_SUPPLEMENT } from './pokumon-japanese-promos.js';
 import { POKUMON_JAPANESE_PROMO_MATERIALIZED_SUPPLEMENT } from './pokumon-japanese-promos.generated.js';
+import { POKUMON_JAPANESE_PROMO_MATERIALIZED_SUPPLEMENT as POKUMON_JAPANESE_PROMO_MODERN_SUPPLEMENT } from './pokumon-japanese-promos-modern.generated.js';
 
 export type CuratedJapanesePromoReference = {
   sourceName: 'POKUMON' | 'DEXTCG' | 'TCGDEX' | 'POKEMONTCG' | 'OTHER';
@@ -136,6 +137,7 @@ export const CURATED_JAPANESE_PROMOS: CuratedJapanesePromoPrinting[] = [
   ...mcdonaldsPokemon.map(mcdonaldsRecord),
   ...POKUMON_JAPANESE_PROMO_SUPPLEMENT,
   ...POKUMON_JAPANESE_PROMO_MATERIALIZED_SUPPLEMENT,
+  ...POKUMON_JAPANESE_PROMO_MODERN_SUPPLEMENT,
   ...songBest.map(([name, additionalReleaseEvents]) =>
     unnumbered(`jp-promo-song-best-${sourceKey(name)}`, name, 'Pokemon Song Best Collection CD', 'Pokemon Song Best Collection CD', {
       releaseYear: 1997,
