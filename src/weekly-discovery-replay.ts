@@ -9,6 +9,7 @@ import {
   type CanonicalResolutionDiagnostics
 } from './services/discovery-canonical-resolution.js';
 import type { WeeklyDiscoveryFinalizationInput } from './services/weekly-discovery-ranking.js';
+import { WEEKLY_DISCOVERY_MARKET_POLICY } from './services/weekly-discovery-policy.js';
 
 export type CaptureFixture = {
   schemaVersion: number;
@@ -141,14 +142,14 @@ export function summarizeReplay(
   if (result.qualityGate.status === 'FAIL') {
     releaseGateFailures.push(`Quality gate failed: ${result.qualityGate.notes.join('; ')}`);
   }
-  if (result.selection.items.length !== 20) {
-    releaseGateFailures.push(`Expected 20 selected cards, found ${result.selection.items.length}.`);
+  if (result.selection.items.length !== WEEKLY_DISCOVERY_MARKET_POLICY.shelfSize) {
+    releaseGateFailures.push(`Expected ${WEEKLY_DISCOVERY_MARKET_POLICY.shelfSize} selected cards, found ${result.selection.items.length}.`);
   }
-  if (result.selection.marketResolvedCount < 18) {
-    releaseGateFailures.push(`Expected at least 18 market-resolved cards, found ${result.selection.marketResolvedCount}.`);
+  if (result.selection.marketResolvedCount < WEEKLY_DISCOVERY_MARKET_POLICY.minMarketResolved) {
+    releaseGateFailures.push(`Expected at least ${WEEKLY_DISCOVERY_MARKET_POLICY.minMarketResolved} market-resolved cards, found ${result.selection.marketResolvedCount}.`);
   }
-  if (result.selection.marketIncompleteCount > 2) {
-    releaseGateFailures.push(`Expected at most 2 market-incomplete cards, found ${result.selection.marketIncompleteCount}.`);
+  if (result.selection.marketIncompleteCount > WEEKLY_DISCOVERY_MARKET_POLICY.maxMarketIncomplete) {
+    releaseGateFailures.push(`Expected at most ${WEEKLY_DISCOVERY_MARKET_POLICY.maxMarketIncomplete} market-incomplete cards, found ${result.selection.marketIncompleteCount}.`);
   }
   return {
     fingerprint: result.fingerprint,

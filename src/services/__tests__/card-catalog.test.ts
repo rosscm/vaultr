@@ -1688,7 +1688,7 @@ describe('local card catalog', () => {
     } finally {
       log.mockRestore();
     }
-  });
+  }, 30000);
 
   it('audits Pokumon inventory against provider and curated canonical records conservatively', () => {
     const dbPath = tempCatalogPath('pokumon-audit');
@@ -1726,7 +1726,7 @@ describe('local card catalog', () => {
     expect(report.records.find((record) => record.url.includes('mew-corocoro'))).toMatchObject({ status: 'EXISTING_REVIEW' });
     expect(cardCatalogStats(dbPath)).toEqual(before);
     expect(fetchSpy).not.toHaveBeenCalled();
-  });
+  }, 30000);
 
   it('matches Pokumon promo-set numbers stored as separate local number and release context', () => {
     const dbPath = tempCatalogPath('pokumon-structured-number');

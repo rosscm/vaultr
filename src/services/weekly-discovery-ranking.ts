@@ -3,6 +3,7 @@ import type { DiscoveryCandidate } from '../commands/discover.js';
 import type { Chase } from '../types.js';
 import type { SupportedCurrency } from './currency.js';
 import type { ScheduledDiscoveryDrop, ScheduledDiscoveryDropItem } from './scheduled-discovery-drops.js';
+import { WEEKLY_DISCOVERY_MARKET_POLICY } from './weekly-discovery-policy.js';
 
 export type WeeklyDiscoveryRole =
   | 'CORE_MATCH'
@@ -798,13 +799,14 @@ function marketplaceUrlLabelledAsReference(items: ScheduledDiscoveryDropItem[]):
 
 export function weeklyDiscoveryStructuralGate(
   items: ScheduledDiscoveryDropItem[],
-  expectedSize: number,
-  marketResolvedMinimum: number
+  expectedSize: number = WEEKLY_DISCOVERY_MARKET_POLICY.shelfSize,
+  marketResolvedMinimum: number = WEEKLY_DISCOVERY_MARKET_POLICY.minMarketResolved,
+  maxMarketIncomplete: number = WEEKLY_DISCOVERY_MARKET_POLICY.maxMarketIncomplete
 ): WeeklyDiscoveryStructuralGate {
   const failures: string[] = [];
   if (items.length !== expectedSize) failures.push(`expected ${expectedSize} items, found ${items.length}`);
   if (items.filter((item) => item.market.status === 'READY').length < marketResolvedMinimum) failures.push(`market resolved below ${marketResolvedMinimum}`);
-  if (items.filter((item) => item.market.status !== 'READY').length > 2) failures.push('more than 2 market-incomplete items');
+  if (items.filter((item) => item.market.status !== 'READY').length > maxMarketIncomplete) failures.push(`more than ${maxMarketIncomplete} market-incomplete items`);
   if (items.some((item) => !item.suggestion.referenceSourceCardId?.trim())) failures.push('selected card missing canonical id');
   if (new Set(items.map((item) => item.suggestion.referenceSourceCardId)).size !== items.length) failures.push('duplicate canonical ids');
   if (items.some((item) => item.imageSourceKind !== 'CARD_REFERENCE')) failures.push('non-reference image in selected shelf');
@@ -832,7 +834,7 @@ export function finalizeWeeklyDiscoveryAnalytics(
   const averageNovelty = Number(average(selectedAnalyses.map((analysis) => average(Object.values(analysis.rankExplanation.scoreComponents.discoveryValue)))).toFixed(4));
   const subjectConcentration = hhi(selectedAnalyses.flatMap((analysis) => analysis.features.subjects));
   const familyConcentration = hhi(selectedAnalyses.flatMap((analysis) => analysis.features.evolutionFamilies));
-  const structuralGate = weeklyDiscoveryStructuralGate(selectedItems, mergedPolicies.targetRoleCounts.CORE_MATCH + mergedPolicies.targetRoleCounts.ADJACENT_DISCOVERY + mergedPolicies.targetRoleCounts.CONTROLLED_EXPLORATION, 18);
+  const structuralGate = weeklyDiscoveryStructuralGate(selectedItems, mergedPolicies.targetRoleCounts.CORE_MATCH + mergedPolicies.targetRoleCounts.ADJACENT_DISCOVERY + mergedPolicies.targetRoleCounts.CONTROLLED_EXPLORATION);
   const fingerprint = createHash('sha256')
     .update(JSON.stringify({
       targetPeriod: input.targetPeriod,

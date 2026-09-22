@@ -68,6 +68,7 @@ import {
   type WeeklyDiscoveryRole,
   type WeeklyDiscoveryRankingMode
 } from '../services/weekly-discovery-ranking.js';
+import { WEEKLY_DISCOVERY_MARKET_POLICY } from '../services/weekly-discovery-policy.js';
 import {
   COLLECTOR_PROFILE_SCORING_STRATEGY,
   collectorInterestProfileToTasteProfile,
@@ -1693,8 +1694,8 @@ const EBAY_LISTING_IMAGE_SOURCE_NAME = 'eBay listing image';
 const VETTED_EBAY_MARKETPLACE_IMAGE_SOURCE_NAME = 'eBay vetted marketplace image';
 const MIN_READY_SHELF_PAGE_SIZE = 4;
 const WEEKLY_DISCOVERY_VALUE_FLOOR_CAD = Math.max(0, Number(process.env.WEEKLY_DISCOVERY_VALUE_FLOOR_CAD ?? '30'));
-const WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED ?? '18'));
-const WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE = Math.max(0, Number(process.env.WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE ?? '2'));
+const WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED = WEEKLY_DISCOVERY_MARKET_POLICY.minMarketResolved;
+const WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE = WEEKLY_DISCOVERY_MARKET_POLICY.maxMarketIncomplete;
 const WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES ?? '6'));
 const WEEKLY_DISCOVERY_EXACT_REPEAT_PENALTY_SHELVES = Math.max(WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES, Number(process.env.WEEKLY_DISCOVERY_EXACT_REPEAT_PENALTY_SHELVES ?? '12'));
 const WEEKLY_DISCOVERY_SUBJECT_CAP = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_SUBJECT_CAP ?? '2'));

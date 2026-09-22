@@ -80,10 +80,12 @@ import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '.
 import { deleteDiscoveryUniverseCards, listDiscoveryUniverseCards, upsertDiscoveryUniverseCard } from '../../services/discovery-card-universe.js';
 import {
   buildCollectorTasteProfile,
+  weeklyDiscoveryStructuralGate,
   type CollectorTasteProfile,
   type WeeklyDiscoveryCandidateAnalysis,
   type WeeklyDiscoveryFinalizationInput
 } from '../../services/weekly-discovery-ranking.js';
+import { weeklyDiscoveryMarketPolicy } from '../../services/weekly-discovery-policy.js';
 import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import * as discoverySourceCatalogService from '../../services/discovery-source-catalog.js';
 import { replayWeeklyDiscoveryFixture, summarizeReplay, type CaptureFixture } from '../../weekly-discovery-replay.js';
@@ -7213,29 +7215,24 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(collected.candidates.some((candidate) => candidate.suggestion.name === 'Gardevoir-EX Promo Set 75/124')).toBe(true);
   });
 
-  it('keeps Weekly Discovery hard publication size and market thresholds unchanged', () => {
-    const ready = publishableShelfCandidates(18, (candidate, index) => ({
+  it('keeps Weekly Discovery hard publication size and shared market thresholds enforced', () => {
+    const thresholdCandidates = Array.from({ length: 20 }, (_, index) =>
+      collectorProfileCandidate(
+        `${collectorProfileTestSubjects[index]!} Threshold Pick ${index + 1}`,
+        `threshold-pick-${index + 1}`,
+        index,
+        index < 15 ? 'CORE_MATCH' : 'CONTROLLED_EXPLORATION',
+        { subjects: [collectorProfileTestSubjects[index]!] }
+      )
+    );
+    const ready = thresholdCandidates.slice(0, 15);
+    const unresolved = thresholdCandidates.slice(15, 20).map((candidate) => ({
       ...candidate,
-      typicalRawSoldTotal: 80 + index,
-      soldSampleSize: 3,
-      displayCurrency: 'CAD' as const
-    }));
-    const unresolved = publishableShelfCandidates(2, (candidate, index) => ({
-      ...candidate,
-      suggestion: {
-        ...candidate.suggestion,
-        name: `Unresolved Threshold Pick ${index + 1}`,
-        referenceSourceCardId: `unresolved-threshold-${index + 1}`,
-        referenceImageUrl: trustedReferenceImageUrl('Pokemon TCG (Card)', `unresolved-threshold-${index + 1}`)
-      },
-      image: {
-        ...candidate.image!,
-        name: `Unresolved Threshold Pick ${index + 1}`,
-        url: trustedReferenceImageUrl('Pokemon TCG (Card)', `unresolved-threshold-${index + 1}`),
-        sourceName: 'Pokemon TCG (Card)',
-        sourceCardId: `unresolved-threshold-${index + 1}`,
-        sourceKind: 'CARD_REFERENCE' as const
-      }
+      typicalRawSoldTotal: undefined,
+      soldSampleSize: undefined,
+      typicalRawAskingTotal: undefined,
+      marketSampleSize: undefined,
+      sourceStatus: 'TIMEOUT' as const
     }));
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
@@ -7250,11 +7247,21 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const validation = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(result.items, 20);
 
     expect(result.items).toHaveLength(20);
-    expect(result.marketResolvedCount).toBe(18);
+    expect(result.marketResolvedCount).toBe(15);
     expect(validation).toEqual([]);
 
     const shortResult = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
-      [...ready.slice(0, 17), ...unresolved],
+      [
+        ...ready.slice(0, 14),
+        ...thresholdCandidates.slice(14, 20).map((candidate) => ({
+          ...candidate,
+          typicalRawSoldTotal: undefined,
+          soldSampleSize: undefined,
+          typicalRawAskingTotal: undefined,
+          marketSampleSize: undefined,
+          sourceStatus: 'TIMEOUT' as const
+        }))
+      ],
       'CAD',
       20,
       [],
@@ -7267,7 +7274,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       shortResult.marketResolvedCount
     );
 
-    expect(shortResult.marketResolvedCount).toBe(17);
+    expect(shortResult.marketResolvedCount).toBe(14);
     expect(shortValidation.some((failure) => failure.code === 'INSUFFICIENT_MARKET_RESOLVED')).toBe(true);
   });
 
@@ -9345,7 +9352,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       if (name === 'w29-sanitized.json' || name === 'w30-live-success-sanitized.json' || name === 'w31-live-sanitized.json') {
         expect(first.structuralGate.status).toBe('PASS');
         expect(first.selection.items).toHaveLength(20);
-        expect(first.selection.marketResolvedCount).toBeGreaterThanOrEqual(18);
+        expect(first.selection.marketResolvedCount).toBeGreaterThanOrEqual(15);
       }
     }
   });
@@ -9497,6 +9504,64 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     ]));
   });
 
+  it('complete release gate reports shared 15/5 market policy thresholds', () => {
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(
+      publishableShelfCandidates(20, (candidate, index) =>
+        index < 14
+          ? { ...candidate, typicalRawSoldTotal: 90 + index, soldSampleSize: 3, displayCurrency: 'CAD' as const }
+          : { ...candidate, sourceStatus: 'TIMEOUT' }
+      ),
+      'CAD'
+    );
+    const result = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf({
+      targetPeriod: '2026-W31',
+      frozenTime: '2026-07-28T12:00:00.000Z',
+      userCurrency: 'CAD',
+      exchangeRates: {},
+      activeVault: [],
+      collectorProfile: buildCollectorTasteProfile([], { budgetPreferenceCad: 30 }),
+      priorShelfHistory: [],
+      orderedCandidateReserve: publishableShelfCandidates(20, (candidate, index) => ({
+        ...candidate,
+        typicalRawSoldTotal: 90 + index,
+        soldSampleSize: 3,
+        displayCurrency: 'CAD' as const
+      })),
+      feedbackPreferences: {
+        budgetPreferenceCad: 30
+      },
+      stableTieBreakerSeed: 'release-gate-market-policy'
+    });
+
+    const summary = summarizeReplay({
+      ...result,
+      structuralGate: weeklyDiscoveryStructuralGate(items),
+      selection: {
+        ...result.selection,
+        items,
+        marketResolvedCount: 14,
+        marketIncompleteCount: 6
+      }
+    }, {
+      reserveCount: 20,
+      noResolutionNeededCount: 20,
+      trustedCanonicalBindingCount: 20,
+      uniqueLookupKeysRequiringEvidence: 0,
+      replayEvidenceHits: 0,
+      replayEvidenceMisses: 0,
+      acceptedResolutionCount: 0,
+      cachedNegativeOrAmbiguousCount: 0,
+      unresolvedCandidateCount: 0,
+      providerRequestsAttempted: 0,
+      missingEvidence: []
+    });
+
+    expect(summary.releaseGateFailures).toEqual(expect.arrayContaining([
+      'Expected at least 15 market-resolved cards, found 14.',
+      'Expected at most 5 market-incomplete cards, found 6.'
+    ]));
+  });
+
   it('keeps later market-incomplete candidates available when earlier incomplete candidates fail diversity caps', () => {
     const reserve = [
       ...publishableShelfCandidates(18, (candidate, index) => ({
@@ -9551,12 +9616,12 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(reserve, 'CAD', 20);
 
     expect(result.items).toHaveLength(20);
-    expect(result.marketResolvedCount).toBeGreaterThanOrEqual(18);
-    expect(result.marketIncompleteCount).toBe(2);
+    expect(result.marketResolvedCount).toBeGreaterThanOrEqual(15);
+    expect(result.marketIncompleteCount).toBeLessThanOrEqual(5);
     expect(result.capRelaxationSelections.length).toBeGreaterThan(0);
   });
 
-  it('replays the sanitized W31 fixture offline at 20 selected and at least 18 market-resolved', async () => {
+  it('replays the sanitized W31 fixture offline at 20 selected and at least 15 market-resolved', async () => {
     const fixture = JSON.parse(readFileSync(resolve('src/commands/__tests__/fixtures/discovery/w31-live-sanitized.json'), 'utf8')) as CaptureFixture;
     const fetchSpy = vi.fn(async () => {
       throw new Error('fetch should not be called during offline replay');
@@ -9566,7 +9631,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const replay = await replayWeeklyDiscoveryFixture(fixture);
 
     expect(replay.summary.itemCount).toBe(20);
-    expect(replay.summary.marketResolvedCount).toBeGreaterThanOrEqual(18);
+    expect(replay.summary.marketResolvedCount).toBeGreaterThanOrEqual(15);
     expect(replay.summary.canonicalResolution.providerRequestsAttempted).toBe(0);
     expect(replay.summary.structuralGate.status).toBe('PASS');
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -10929,28 +10994,60 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(settled.results).not.toContain('slow-b');
   });
 
-  it('fills a 20-card shelf with at least 18 market-resolved cards and at most 2 incomplete exceptions', () => {
-    const userId = `weekly-market-coverage-${Date.now()}`;
-    const date = new Date('2026-07-14T12:00:00.000Z');
-    const pool = publishableShelfCandidates(24, (candidate, index) =>
-      index < 18
-        ? { ...candidate, typicalRawSoldTotal: 60 + index, soldSampleSize: 3, displayCurrency: 'CAD' as const }
-        : index < 20
-          ? { ...candidate, sourceStatus: 'TIMEOUT' }
-          : { ...candidate, typicalRawSoldTotal: 75 + index, soldSampleSize: 3, displayCurrency: 'CAD' as const }
+  it('uses the shared default weekly discovery market policy and supports env overrides', () => {
+    expect(weeklyDiscoveryMarketPolicy({})).toEqual({
+      shelfSize: 20,
+      minMarketResolved: 15,
+      maxMarketIncomplete: 5
+    });
+    expect(weeklyDiscoveryMarketPolicy({
+      WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED: '18',
+      WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE: '2'
+    })).toEqual({
+      shelfSize: 20,
+      minMarketResolved: 18,
+      maxMarketIncomplete: 2
+    });
+  });
+
+  it('fills a 20-card shelf with at least 15 market-resolved cards and at most 5 incomplete exceptions', () => {
+    const pool = Array.from({ length: 20 }, (_, index) =>
+      collectorProfileCandidate(
+        `${collectorProfileTestSubjects[index]!} Market Policy Pick ${index + 1}`,
+        `market-policy-pick-${index + 1}`,
+        index,
+        index < 15 ? 'CORE_MATCH' : 'CONTROLLED_EXPLORATION',
+        { subjects: [collectorProfileTestSubjects[index]!] }
+      )
+    ).map((candidate, index) =>
+      index < 15
+        ? candidate
+        : {
+          ...candidate,
+          typicalRawSoldTotal: undefined,
+          soldSampleSize: undefined,
+          typicalRawAskingTotal: undefined,
+          marketSampleSize: undefined,
+          sourceStatus: 'TIMEOUT' as const
+        }
     );
 
-    const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, pool, 'CAD', undefined, date);
-    expect(result.saved).toBe(true);
-    expect(result.marketResolvedCount).toBeGreaterThanOrEqual(18);
-    expect(result.marketIncompleteCount).toBeLessThanOrEqual(2);
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      pool,
+      'CAD',
+      20,
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+    expect(result.marketResolvedCount).toBe(15);
+    expect(result.marketIncompleteCount).toBe(5);
 
-    const drop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
-    expect(drop?.items.filter((item) => item.market.status === 'READY').length).toBeGreaterThanOrEqual(18);
-    expect(drop?.items.filter((item) => item.market.status !== 'READY').length).toBeLessThanOrEqual(2);
-    expect(drop?.items.filter((item) => item.market.status !== 'READY').every((item) => item.market.listing === undefined)).toBe(true);
-
-    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+    expect(result.items).toHaveLength(20);
+    expect(result.items.filter((item) => item.market.status === 'READY').length).toBe(15);
+    expect(result.items.filter((item) => item.market.status !== 'READY').length).toBe(5);
+    expect(result.items.filter((item) => item.market.status !== 'READY').every((item) => item.market.listing === undefined)).toBe(true);
   });
 
   it('prefers reserve candidates with reliable market data over weaker incomplete candidates', () => {
@@ -10962,11 +11059,11 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     );
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(incompleteLeaders, 'CAD', 20);
-    expect(result.marketResolvedCount).toBeGreaterThanOrEqual(18);
-    expect(result.items.filter((item) => item.market.status !== 'READY').length).toBeLessThanOrEqual(2);
+    expect(result.marketResolvedCount).toBeGreaterThan(15);
+    expect(result.items.filter((item) => item.market.status !== 'READY').length).toBeLessThanOrEqual(5);
   });
 
-  it('retains the previous shelf when fewer than 18 market-resolved cards can be found', () => {
+  it('retains the previous shelf when fewer than 15 market-resolved cards can be found', () => {
     const userId = `weekly-market-short-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');
     const validCandidates = publishableShelfCandidates(20, (candidate, index) => ({
@@ -10978,17 +11075,45 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, validCandidates, 'CAD', undefined, date);
 
     const weakPool = publishableShelfCandidates(25, (candidate, index) =>
-      index < 17
+      index < 14
         ? { ...candidate, typicalRawSoldTotal: 60 + index, soldSampleSize: 3, displayCurrency: 'CAD' as const }
         : { ...candidate, sourceStatus: 'TIMEOUT' }
     );
 
     const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, weakPool, 'CAD', undefined, date);
     expect(result.saved).toBe(false);
-    expect(result.marketResolvedCount).toBeLessThan(18);
+    expect(result.marketResolvedCount).toBeLessThan(15);
     expect(result.retainedPreviousShelf).toBe(true);
 
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
+  });
+
+  it('applies shared 15/5 market policy in the analytics structural gate', () => {
+    const passItems = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(
+      publishableShelfCandidates(20, (candidate, index) =>
+        index < 15
+          ? { ...candidate, typicalRawSoldTotal: 60 + index, soldSampleSize: 3, displayCurrency: 'CAD' as const }
+          : { ...candidate, sourceStatus: 'TIMEOUT' }
+      ),
+      'CAD'
+    );
+    expect(weeklyDiscoveryStructuralGate(passItems).status).toBe('PASS');
+
+    const failItems = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(
+      publishableShelfCandidates(20, (candidate, index) =>
+        index < 14
+          ? { ...candidate, typicalRawSoldTotal: 60 + index, soldSampleSize: 3, displayCurrency: 'CAD' as const }
+          : { ...candidate, sourceStatus: 'TIMEOUT' }
+      ),
+      'CAD'
+    );
+    expect(weeklyDiscoveryStructuralGate(failItems).failures).toEqual(expect.arrayContaining([
+      'market resolved below 15',
+      'more than 5 market-incomplete items'
+    ]));
+    expect(weeklyDiscoveryStructuralGate(passItems.slice(0, 19)).failures).toEqual(expect.arrayContaining([
+      'expected 20 items, found 19'
+    ]));
   });
 
   it('does not treat weak trait-only market cache cards as scheduled shelf priorities without source backing', () => {
