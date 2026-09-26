@@ -253,6 +253,8 @@ describe('buildDiscoveryShelfPayload weekly eligibility', () => {
     const userId = `thin-discovery-message-${Date.now()}`;
     setUserPlan(userId, 'PRO');
     addChase({ userId, cardName: 'Mew RC24', priority: 'NORMAL' });
+
+
     addChase({ userId, cardName: 'Gardevoir ex Paldean Fates 233', priority: 'NORMAL' });
     addChase({ userId, cardName: 'Squirtle 151 170', priority: 'NORMAL' });
 
@@ -265,6 +267,58 @@ describe('buildDiscoveryShelfPayload weekly eligibility', () => {
       expect(text).toContain('Add 2 more cards to your Chase list');
       expect(payload.candidateNames).toEqual([]);
     } finally {
+      removeAllChases(userId);
+    }
+  });
+
+  it('loads the explicitly requested scheduled Weekly Shelf period instead of the latest shelf', async () => {
+    const userId = `weekly-period-routing-${Date.now()}`;
+    setUserPlan(userId, 'PRO');
+    ['Mew RC24', 'Gardevoir ex Paldean Fates 233', 'Squirtle 151 170', 'Umbreon XY96', 'Pikachu XY95']
+      .forEach((cardName) => addChase({ userId, cardName, priority: 'NORMAL' }));
+    const w39 = '2026-W39';
+    const w40 = '2026-W40';
+    const w39Items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      publishableCandidate('W39 Only Umbreon', 'w39-umbreon', 0)
+    ], 'CAD');
+    const w40Items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      publishableCandidate('W40 Only Zapdos', 'w40-zapdos', 0)
+    ], 'CAD');
+
+    try {
+      upsertScheduledDiscoveryDrop({
+        userId,
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: w39,
+        status: 'READY',
+        title: 'Weekly Shelf',
+        summary: 'w39',
+        currency: 'CAD',
+        availableAt: '2026-09-21T12:00:00.000Z',
+        items: w39Items
+      });
+      upsertScheduledDiscoveryDrop({
+        userId,
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey: w40,
+        status: 'READY',
+        title: 'Weekly Shelf',
+        summary: 'w40',
+        currency: 'CAD',
+        availableAt: '2026-09-28T12:00:00.000Z',
+        items: w40Items
+      });
+
+      const explicitW39 = await buildDiscoveryShelfPayload(userId, 0, w39);
+      expect(explicitW39.candidateNames).toEqual(['W39 Only Umbreon']);
+      expect(explicitW39.candidateNames).not.toContain('W40 Only Zapdos');
+
+      const missingHistorical = await buildDiscoveryShelfPayload(userId, 0, '2026-W38');
+      expect(missingHistorical.candidateNames).toEqual([]);
+      expect(missingHistorical.embeds[0]?.toJSON().title).toContain('Shelf Unavailable');
+    } finally {
+      deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', w39);
+      deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', w40);
       removeAllChases(userId);
     }
   });
@@ -11823,7 +11877,52 @@ describe('Discovery plan scaling', () => {
   });
 });
 
+
+
 describe('Discovery response cards', () => {
+
+  it('bounds Discovery embed field values and recovers subjects from amplified canonical names', () => {
+    const amplifiedName = `Umbreon ${'Call of Legends '.repeat(80)}22`;
+    const candidate: DiscoveryCandidate = {
+      suggestion: {
+        name: 'Umbreon Call of Legends 22',
+        lane: 'E-Reader Era Trail',
+        laneWhy: 'test lane',
+        why: 'test why',
+        nearby: [],
+        sourceTasteTokens: [amplifiedName],
+        referenceSourceName: 'Pokemon TCG (Call of Legends)',
+        referenceSourceCardId: 'col1-22',
+        referenceImageUrl: 'https://images.pokemontcg.io/col1/22_hires.png',
+        canonicalReference: {
+          provider: 'Pokemon TCG',
+          sourceCardId: 'col1-22',
+          canonicalCardId: 'col1-22',
+          canonicalName: amplifiedName,
+          setId: 'col1',
+          setName: 'Call of Legends',
+          cardNumber: '22',
+          language: 'ENGLISH',
+          imageUrl: 'https://images.pokemontcg.io/col1/22_hires.png',
+          imageSourceKind: 'CARD_REFERENCE'
+        }
+      },
+      image: {
+        name: 'Umbreon Call of Legends 22',
+        url: 'https://images.pokemontcg.io/col1/22_hires.png',
+        sourceName: 'Pokemon TCG (Call of Legends)',
+        sourceCardId: 'col1-22',
+        sourceKind: 'CARD_REFERENCE'
+      },
+      sourceStatus: 'TIMEOUT'
+    };
+
+    const fields = discoveryCardEmbeds([candidate], 'CAD', true)[0]!.toJSON().fields ?? [];
+    expect(fields.every((field) => String(field.value).length <= 1024)).toBe(true);
+    expect(fields.find((field) => field.name === 'Why It Fits')?.value).toContain('Umbreon');
+    expect(fields.find((field) => field.name === 'Why It Fits')?.value).not.toContain('Call of Legends Call of Legends Call of Legends');
+  });
+
   it('shows Market Snapshot on Pro response cards and hides it for Free response cards', () => {
     const candidates = [candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2)];
 

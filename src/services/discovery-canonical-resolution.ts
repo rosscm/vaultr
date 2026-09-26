@@ -370,6 +370,29 @@ function compatibilityReasons(
   return reasons;
 }
 
+function stripStructuredIdentityFromCanonicalName(value: string, setName: string | undefined, cardNumber: string | undefined): string {
+  let cleaned = value.replace(/\s+/g, ' ').trim();
+  const escaped = (part: string): string => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  const number = cardNumber?.trim();
+  const removeNumber = (): void => {
+    if (!number) return;
+    const numberPattern = escaped(number).replace(/\\s\+/g, '\\s*');
+    cleaned = cleaned.replace(new RegExp(`(?:\\s+${numberPattern})+$`, 'i'), '').trim();
+  };
+  removeNumber();
+  const set = setName?.trim();
+  if (set) {
+    const setPattern = escaped(set);
+    let previous = '';
+    while (previous !== cleaned) {
+      previous = cleaned;
+      cleaned = cleaned.replace(new RegExp(`(?:\\s+${setPattern})+$`, 'i'), '').trim();
+      removeNumber();
+    }
+  }
+  return cleaned || value.replace(/\s+/g, ' ').trim();
+}
+
 function trustedCanonicalBindingFromCandidate(candidate: DiscoveryCandidate): CanonicalProviderRecord | null {
   const sourceCardId = candidate.suggestion.referenceSourceCardId?.trim() ?? candidate.image?.sourceCardId?.trim();
   const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
@@ -377,9 +400,30 @@ function trustedCanonicalBindingFromCandidate(candidate: DiscoveryCandidate): Ca
   const imageSourceKind = candidate.image?.sourceKind;
   if (!sourceCardId || !sourceName || !imageUrl || imageSourceKind !== 'CARD_REFERENCE') return null;
   if (!isAllowlistedProviderSourceName(sourceName) || !isTrustedProviderImageUrl(imageUrl)) return null;
-  const identity = discoveryPrintingIdentity(candidate.suggestion);
   const setMatch = /\(([^)]+)\)\s*$/.exec(sourceName)?.[1]?.trim();
   const inferredProvider = /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName) ? 'TCGdex Japanese' : 'Pokemon TCG';
+  const existingReference = candidate.suggestion.canonicalReference;
+  if (
+    existingReference?.imageSourceKind === 'CARD_REFERENCE'
+    && existingReference.sourceCardId === sourceCardId
+    && existingReference.imageUrl === imageUrl
+    && existingReference.canonicalName.trim()
+    && existingReference.setName.trim()
+    && existingReference.cardNumber.trim()
+  ) {
+    return {
+      provider: inferredProvider,
+      sourceCardId,
+      canonicalCardId: existingReference.canonicalCardId || sourceCardId,
+      canonicalName: stripStructuredIdentityFromCanonicalName(existingReference.canonicalName, existingReference.setName, existingReference.cardNumber),
+      setId: existingReference.setId,
+      setName: existingReference.setName,
+      cardNumber: existingReference.cardNumber,
+      language: existingReference.language ?? (inferredProvider === 'TCGdex Japanese' ? 'JAPANESE' : 'ENGLISH'),
+      imageUrl
+    };
+  }
+  const identity = discoveryPrintingIdentity(candidate.suggestion);
   const canonicalName = identity.name;
   const cardNumber = identity.number;
   const setName = setMatch ?? identity.set;
@@ -389,7 +433,7 @@ function trustedCanonicalBindingFromCandidate(candidate: DiscoveryCandidate): Ca
     provider: inferredProvider,
     sourceCardId,
     canonicalCardId: sourceCardId,
-    canonicalName,
+    canonicalName: stripStructuredIdentityFromCanonicalName(canonicalName, setName, cardNumber),
     setName,
     cardNumber,
     language,
@@ -601,6 +645,18 @@ function candidateFromAcceptedRecord(candidate: DiscoveryCandidate, record: Cano
     sourceCardId: record.sourceCardId,
     sourceKind: 'CARD_REFERENCE'
   };
+  const canonicalReference = {
+    provider: record.provider,
+    sourceCardId: record.sourceCardId,
+    canonicalCardId: record.canonicalCardId,
+    canonicalName: stripStructuredIdentityFromCanonicalName(record.canonicalName, record.setName, record.cardNumber),
+    setId: record.setId,
+    setName: record.setName,
+    cardNumber: record.cardNumber,
+    language: record.language,
+    imageUrl: record.imageUrl,
+    imageSourceKind: 'CARD_REFERENCE' as const
+  };
   return {
     ...candidate,
     suggestion: {
@@ -608,7 +664,8 @@ function candidateFromAcceptedRecord(candidate: DiscoveryCandidate, record: Cano
       name: displayName,
       referenceSourceName: image.sourceName,
       referenceSourceCardId: record.sourceCardId,
-      referenceImageUrl: record.imageUrl
+      referenceImageUrl: record.imageUrl,
+      canonicalReference
     },
     image
   };

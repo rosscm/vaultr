@@ -7722,8 +7722,37 @@ function sourceSetLabel(candidate: DiscoveryCandidate): string | undefined {
   return compactJapaneseSetMatch?.[1];
 }
 
+function stripStructuredIdentityFromDisplayName(value: string, setName: string | undefined, cardNumber: string | undefined): string {
+  let cleaned = value.replace(/\s+/g, ' ').trim();
+  const escaped = (part: string): string => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  const number = cardNumber?.trim();
+  const removeNumber = (): void => {
+    if (!number) return;
+    const numberPattern = escaped(number).replace(/\\s\+/g, '\\s*');
+    cleaned = cleaned.replace(new RegExp(`(?:\\s+${numberPattern})+$`, 'i'), '').trim();
+  };
+  removeNumber();
+  const set = setName?.trim();
+  if (set) {
+    const setPattern = escaped(set);
+    let previous = '';
+    while (previous !== cleaned) {
+      previous = cleaned;
+      cleaned = cleaned.replace(new RegExp(`(?:\\s+${setPattern})+$`, 'i'), '').trim();
+      removeNumber();
+    }
+  }
+  return cleaned || value.replace(/\s+/g, ' ').trim();
+}
+
+function cleanCanonicalReferenceSubject(candidate: DiscoveryCandidate): string | undefined {
+  const reference = candidateCanonicalReference(candidate);
+  if (!reference?.canonicalName?.trim()) return undefined;
+  return stripStructuredIdentityFromDisplayName(reference.canonicalName, reference.setName, reference.cardNumber);
+}
+
 function sourceCardSubject(candidate: DiscoveryCandidate, setLabel: string | undefined): string {
-  const canonicalName = candidate.catalogFacts?.canonicalName?.trim() ?? candidateCanonicalReference(candidate)?.canonicalName?.trim();
+  const canonicalName = candidate.catalogFacts?.canonicalName?.trim() ?? cleanCanonicalReferenceSubject(candidate);
   if (canonicalName) return canonicalName;
   let subject = candidate.suggestion.name;
   if (setLabel) subject = subject.replace(new RegExp(`\\s+${setLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b.*$`, 'i'), '');
@@ -8317,7 +8346,7 @@ function resonanceText(candidate: DiscoveryCandidate): string {
   else if (hasPromoSignal) reasons.push(`${sourceContext} gives ${subject} a named release to track instead of a generic main-set copy`);
   if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(normalizedCardText)) reasons.push(`${subject} has art-led treatment that can stand on its own visually in a binder page`);
   if (hasFormatSignal && !(hasPromoSignal && reasons.length > 0)) reasons.push(`${subject} fits a recognizable side-collection format with a different collecting shape than your current Vault`);
-  if (reasons.length === 0 && /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push('This gives your Vault an early-2000s print to compare by set texture, artwork, and binder feel');
+  if (reasons.length === 0 && /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push(`${subject} gives your Vault an early-2000s print to compare by set texture, artwork, and binder feel`);
 
   const uniqueReasons = uniqueValuesPreservingOrder(reasons).slice(0, 2);
   if (uniqueReasons.length === 0) return `${subject} gives your Vault a nearby card to compare by artwork, set feel, and release story without being another copy of the same chase`;
@@ -8865,15 +8894,21 @@ function rebalanceWeeklySubjectDiversity(candidates: DiscoveryCandidate[], chase
   return selected;
 }
 
+function truncateDiscordFieldValue(value: string, maxLength = 1024): string {
+  const normalized = value.replace(/\s+/g, ' ').trim() || '—';
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: SupportedCurrency, includeMarketRead: boolean, displayIndex?: number): EmbedBuilder {
   const tone = discoveryVisualTone(candidate.suggestion.lane);
   const title = displayIndex === undefined ? candidate.suggestion.name : `${displayIndex}. ${candidate.suggestion.name}`;
   const threadLabel = `${tone.icon} ${discoveryCandidateTrailLabel(candidate)}`;
   const embed = new EmbedBuilder().setColor(tone.color).setTitle(title);
   const fields = [
-    { name: 'Why It Fits', value: resonanceText(candidate), inline: false },
-    { name: 'Collector Cue', value: tasteSignalText(candidate), inline: false },
-    ...(includeMarketRead ? [{ name: 'Market Snapshot', value: formatMarketRead(candidate, currencyHint), inline: true }] : [])
+    { name: 'Why It Fits', value: truncateDiscordFieldValue(resonanceText(candidate)), inline: false },
+    { name: 'Collector Cue', value: truncateDiscordFieldValue(tasteSignalText(candidate)), inline: false },
+    ...(includeMarketRead ? [{ name: 'Market Snapshot', value: truncateDiscordFieldValue(formatMarketRead(candidate, currencyHint)), inline: true }] : [])
   ];
 
   if (candidate.image) embed.setThumbnail(candidate.image.url);
@@ -8967,17 +9002,17 @@ export function discoveryActionRows(userId: string, candidates: DiscoveryCandida
   return [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)];
 }
 
-function discoveryShelfPageRows(userId: string, page: number, totalPages: number): ActionRowBuilder<ButtonBuilder>[] {
+function discoveryShelfPageRows(userId: string, page: number, totalPages: number, periodKey?: string): ActionRowBuilder<ButtonBuilder>[] {
   if (totalPages <= 1) return [];
   return [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`${DISCOVERY_DROP_PAGE_PREFIX}:${userId}:${Math.max(0, page - 1)}`)
+        .setCustomId(`${DISCOVERY_DROP_PAGE_PREFIX}:${userId}:${Math.max(0, page - 1)}${periodKey ? `:${periodKey}` : ''}`)
         .setLabel('Previous')
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(page <= 0),
       new ButtonBuilder()
-        .setCustomId(`${DISCOVERY_DROP_PAGE_PREFIX}:${userId}:${Math.min(totalPages - 1, page + 1)}`)
+        .setCustomId(`${DISCOVERY_DROP_PAGE_PREFIX}:${userId}:${Math.min(totalPages - 1, page + 1)}${periodKey ? `:${periodKey}` : ''}`)
         .setLabel('Next')
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(page >= totalPages - 1)
@@ -9643,7 +9678,7 @@ function collapseAdjacentRepeatedNamePhrases(value: string): string {
 function canonicalReferenceDisplayName(candidate: DiscoveryCandidate): string | undefined {
   const reference = candidateCanonicalReference(candidate);
   if (!reference?.canonicalName?.trim()) return undefined;
-  const parts = [reference.canonicalName.trim()];
+  const parts = [stripStructuredIdentityFromDisplayName(reference.canonicalName.trim(), reference.setName, reference.cardNumber)];
   if (reference.language === 'JAPANESE') parts.push('Japanese');
   if (reference.setName?.trim()) parts.push(reference.setName.trim());
   if (reference.cardNumber?.trim()) parts.push(reference.cardNumber.trim());
@@ -12455,7 +12490,7 @@ export function orderCandidatesFromPersistedState(
 export async function discoverCandidatesForUser(
   userId: string,
   count: number,
-  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean; persistDiscoveryArtifacts?: boolean; ignoreMarketPriceCeiling?: boolean; runtimeContext?: DiscoveryAssemblyRuntimeContext } = {}
+  options: { preferScheduledDrop?: boolean; requireScheduledDrop?: boolean; saveScheduledDrop?: boolean; scheduledDate?: Date; hydrateScheduledMarketInline?: boolean; usePersistedState?: boolean; softAvoidNames?: string[]; hardAvoidNames?: string[]; allowSoftAvoidFiller?: boolean; skipSourceCatalogFetch?: boolean; skipReferenceImageFetch?: boolean; ingestCanonicalUniverse?: boolean; ignoreSeenExclusions?: boolean; persistDiscoveryArtifacts?: boolean; ignoreMarketPriceCeiling?: boolean; runtimeContext?: DiscoveryAssemblyRuntimeContext; scheduledPeriodKey?: string } = {}
 ): Promise<{
   chases: Chase[];
   tasteProfileChases: Chase[];
@@ -12528,10 +12563,16 @@ export async function discoverCandidatesForUser(
     : seenExcludedNames;
   const profileFingerprint = discoveryProfileFingerprint(tasteProfileChases, rejectedNames, activeTier, targetVisibleCount);
   const stateKey = discoveryStateKey(activeTier, targetVisibleCount);
-  const latestDrop = hasFullDiscovery && preferScheduledDrop ? getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY') : null;
+  const requestedScheduledPeriodKey = options.scheduledPeriodKey?.trim();
+  const latestDrop = hasFullDiscovery && preferScheduledDrop
+    ? requestedScheduledPeriodKey
+      ? getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', requestedScheduledPeriodKey)
+      : getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY')
+    : null;
   const currentWeeklyPeriodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', new Date());
   const currentWeeklyAvailability = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', new Date());
-  const delayedCurrentWeeklyShelf = hasFullDiscovery
+  const delayedCurrentWeeklyShelf = !requestedScheduledPeriodKey
+    && hasFullDiscovery
     && Date.now() >= Date.parse(currentWeeklyAvailability.availableAt)
     && (!latestDrop || latestDrop.periodKey !== currentWeeklyPeriodKey);
   if (latestDrop && latestDrop.items.length > 0) {
@@ -13008,7 +13049,7 @@ function isScheduledShelfFallbackCandidate(candidate: DiscoveryCandidate, chases
   return isScheduledShelfPriorityCandidate(candidate, chases) || isBroadCollectorShelfFillerCandidate(candidate, chases);
 }
 
-function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>>, requestedPage = 0): DiscoveryShelfPayload {
+function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typeof discoverCandidatesForUser>>, requestedPage = 0, requestedPeriodKey?: string): DiscoveryShelfPayload {
   if (discovery.candidates.length === 0) {
     const lines = discovery.hasFullDiscovery
       ? [
@@ -13085,7 +13126,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
   return {
     headerEmbeds: [headerEmbed],
     embeds: discovery.hasFullDiscovery ? cardEmbeds : [headerEmbed, ...cardEmbeds],
-    components: [...actionRows, ...discoveryShelfPageRows(userId, pageState.page, pageState.totalPages)],
+    components: [...actionRows, ...discoveryShelfPageRows(userId, pageState.page, pageState.totalPages, requestedPeriodKey)],
     candidateNames: visibleCandidates.map((candidate) => candidate.suggestion.name),
     hasFullDiscovery: discovery.hasFullDiscovery,
     delayedCurrentWeeklyShelf: discovery.delayedCurrentWeeklyShelf
@@ -13108,7 +13149,17 @@ function thinProfileWeeklyShelfPayload(eligibility: WeeklyDiscoveryEligibility):
   };
 }
 
-export async function buildDiscoveryShelfPayload(userId: string, page = 0): Promise<DiscoveryShelfPayload> {
+function unavailableWeeklyShelfPayload(periodKey?: string): DiscoveryShelfPayload {
+  const suffix = periodKey ? ` for ${periodKey}` : '';
+  return {
+    embeds: [warningEmbed('Shelf Unavailable', `That Weekly Shelf${suffix} is not available anymore.`)],
+    components: [],
+    candidateNames: [],
+    hasFullDiscovery: true
+  };
+}
+
+export async function buildDiscoveryShelfPayload(userId: string, page = 0, periodKey?: string): Promise<DiscoveryShelfPayload> {
   const activeTier = activePlanTier(getUserPlan(userId));
   if (activeTier === 'PRO') {
     const eligibility = weeklyDiscoveryEligibilityForUser(userId);
@@ -13118,8 +13169,10 @@ export async function buildDiscoveryShelfPayload(userId: string, page = 0): Prom
     preferScheduledDrop: activeTier === 'PRO',
     requireScheduledDrop: activeTier === 'PRO',
     saveScheduledDrop: false,
-    hydrateScheduledMarketInline: false
+    hydrateScheduledMarketInline: false,
+    scheduledPeriodKey: periodKey
   });
+  if (periodKey && discovery.candidates.length === 0) return unavailableWeeklyShelfPayload(periodKey);
   if (activeTier === 'PRO' && discovery.candidates.length === 0) {
     discovery = await discoverCandidatesForUser(userId, weeklyDiscoveryShelfSizeForPlan(activeTier), {
       preferScheduledDrop: false,
@@ -13128,7 +13181,7 @@ export async function buildDiscoveryShelfPayload(userId: string, page = 0): Prom
       hydrateScheduledMarketInline: false
     });
   }
-  const payload = discoveryShelfPayload(userId, discovery, page);
+  const payload = discoveryShelfPayload(userId, discovery, page, periodKey);
   markUserDiscoverySuggestionsSeen(userId, payload.candidateNames);
   return payload;
 }
@@ -13487,19 +13540,24 @@ export async function handleDiscoveryDropOpen(interaction: any): Promise<boolean
   if (!interaction.isButton()) return false;
   if (!interaction.customId.startsWith(`${DISCOVERY_DROP_OPEN_PREFIX}:`)) return false;
 
-  const [, dropType] = interaction.customId.split(':') as [string, ScheduledDiscoveryDropType | undefined, string | undefined];
+  const [, dropType, periodKey] = interaction.customId.split(':') as [string, ScheduledDiscoveryDropType | undefined, string | undefined];
   if (dropType !== 'WEEKLY_DISCOVERY') {
     await interaction.reply({ embeds: [warningEmbed('Drop Unavailable', 'That Weekly Shelf is not ready yet')], flags: MessageFlags.Ephemeral });
     return true;
   }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const payload = await buildDiscoveryShelfPayload(interaction.user.id);
-  if (payload.hasFullDiscovery && payload.headerEmbeds && payload.embeds.length > 0) {
-    await interaction.editReply(discoveryHeaderReplyPayload(payload));
-    await interaction.followUp({ ...discoveryReplyPayload(payload), flags: MessageFlags.Ephemeral });
-  } else {
-    await interaction.editReply(discoveryReplyPayload(payload));
+  try {
+    const payload = await buildDiscoveryShelfPayload(interaction.user.id, 0, periodKey);
+    if (payload.hasFullDiscovery && payload.headerEmbeds && payload.embeds.length > 0) {
+      await interaction.editReply(discoveryHeaderReplyPayload(payload));
+      await interaction.followUp({ ...discoveryReplyPayload(payload), flags: MessageFlags.Ephemeral });
+    } else {
+      await interaction.editReply(discoveryReplyPayload(payload));
+    }
+  } catch (error) {
+    console.error('[DiscoveryDropOpen] Failed to render Weekly Shelf', error);
+    await interaction.editReply({ embeds: [warningEmbed('Shelf Unavailable', 'Vaultr could not open that Weekly Shelf. Please try again in a moment.')], components: [] });
   }
   return true;
 }
@@ -13508,7 +13566,7 @@ export async function handleDiscoveryDropPage(interaction: any): Promise<boolean
   if (!interaction.isButton()) return false;
   if (!interaction.customId.startsWith(`${DISCOVERY_DROP_PAGE_PREFIX}:`)) return false;
 
-  const [, ownerUserId, rawPage] = interaction.customId.split(':');
+  const [, ownerUserId, rawPage, periodKey] = interaction.customId.split(':');
   if (!ownerUserId || rawPage === undefined) return false;
   if (interaction.user.id !== ownerUserId) {
     await interaction.reply({ content: 'Only the original requester can page through this Discovery shelf', flags: MessageFlags.Ephemeral });
@@ -13517,8 +13575,13 @@ export async function handleDiscoveryDropPage(interaction: any): Promise<boolean
 
   const page = Number.parseInt(rawPage, 10);
   await interaction.deferUpdate();
-  const payload = await buildDiscoveryShelfPayload(interaction.user.id, Number.isFinite(page) ? page : 0);
-  await interaction.editReply(discoveryReplyPayload(payload));
+  try {
+    const payload = await buildDiscoveryShelfPayload(interaction.user.id, Number.isFinite(page) ? page : 0, periodKey);
+    await interaction.editReply(discoveryReplyPayload(payload));
+  } catch (error) {
+    console.error('[DiscoveryDropPage] Failed to render Weekly Shelf page', error);
+    await interaction.editReply({ embeds: [warningEmbed('Shelf Unavailable', 'Vaultr could not open that Weekly Shelf page. Please try again in a moment.')], components: [] });
+  }
   return true;
 }
 

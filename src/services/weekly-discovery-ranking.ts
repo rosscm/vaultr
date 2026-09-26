@@ -376,23 +376,71 @@ function providerFromCandidate(candidate: DiscoveryCandidate): string | undefine
   return undefined;
 }
 
+function escapedIdentityPattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+}
+
+function stripStructuredIdentityFromCanonicalName(value: string, setName: string | undefined, cardNumber: string | undefined): string {
+  let cleaned = value.replace(/\s+/g, ' ').trim();
+  const number = cardNumber?.trim();
+  const removeNumber = (): void => {
+    if (!number) return;
+    const numberPattern = escapedIdentityPattern(number).replace(/\\s\+/g, '\\s*');
+    cleaned = cleaned.replace(new RegExp(`(?:\\s+${numberPattern})+$`, 'i'), '').trim();
+  };
+  removeNumber();
+  const set = setName?.trim();
+  if (set) {
+    const setPattern = escapedIdentityPattern(set);
+    let previous = '';
+    while (previous !== cleaned) {
+      previous = cleaned;
+      cleaned = cleaned.replace(new RegExp(`(?:\\s+${setPattern})+$`, 'i'), '').trim();
+      removeNumber();
+    }
+  }
+  return cleaned || value.replace(/\s+/g, ' ').trim();
+}
+
+function compatibleExistingCanonicalReference(candidate: DiscoveryCandidate, sourceCardId: string, imageUrl: string): CanonicalCardReference | undefined {
+  const reference = candidate.suggestion.canonicalReference ?? candidate.weeklyDiscovery?.canonicalReference;
+  if (
+    reference?.imageSourceKind === 'CARD_REFERENCE'
+    && reference.sourceCardId === sourceCardId
+    && reference.imageUrl === imageUrl
+    && reference.canonicalName.trim()
+    && reference.setName.trim()
+    && reference.cardNumber.trim()
+  ) {
+    return {
+      ...reference,
+      canonicalName: stripStructuredIdentityFromCanonicalName(reference.canonicalName, reference.setName, reference.cardNumber)
+    };
+  }
+  return undefined;
+}
+
 function buildCanonicalReference(candidate: DiscoveryCandidate): CanonicalCardReference | undefined {
   const image = candidate.image;
   const sourceCardId = candidate.suggestion.referenceSourceCardId?.trim() ?? image?.sourceCardId?.trim();
   const imageUrl = image?.sourceKind === 'CARD_REFERENCE' ? image.url : undefined;
   const provider = providerFromCandidate(candidate);
-  const setName = setNameFromCandidate(candidate);
-  const cardNumber = numberFromCandidate(candidate);
+  const compatible = sourceCardId && imageUrl ? compatibleExistingCanonicalReference(candidate, sourceCardId, imageUrl) : undefined;
+  if (compatible) return compatible;
+  const setName = candidate.catalogFacts?.setName?.trim() || setNameFromCandidate(candidate);
+  const cardNumber = candidate.catalogFacts?.cardNumber?.trim() || numberFromCandidate(candidate);
   if (!provider || !sourceCardId || !imageUrl || !setName || !cardNumber) return undefined;
+  const structuredName = candidate.catalogFacts?.canonicalName?.trim()
+    ?? stripStructuredIdentityFromCanonicalName(candidate.suggestion.name, setName, cardNumber);
   return {
     provider,
     sourceCardId,
     canonicalCardId: sourceCardId,
-    canonicalName: candidate.suggestion.name,
-    setId: sourceCardId.split('-')[0],
+    canonicalName: structuredName,
+    setId: candidate.catalogFacts?.setId?.trim() || sourceCardId.split('-')[0],
     setName,
     cardNumber,
-    language: requestedLanguage(candidate.suggestion.name),
+    language: candidate.catalogFacts?.language === 'ja' ? 'JAPANESE' : requestedLanguage(candidate.suggestion.name),
     imageUrl,
     imageSourceKind: 'CARD_REFERENCE'
   };

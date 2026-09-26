@@ -4,6 +4,7 @@ import { db } from './services/db.js';
 import { runWeeklyDiscoveryPreparationAttempt } from './services/discovery-drop-scheduler.js';
 import { getScheduledDiscoveryDrop, scheduledDiscoveryPeriodKey } from './services/scheduled-discovery-drops.js';
 import { listProUsersEligibleForWeeklyDiscovery, weeklyDiscoveryEligibilityForUser } from './services/weekly-discovery-eligibility.js';
+import { WEEKLY_DISCOVERY_MARKET_POLICY } from './services/weekly-discovery-policy.js';
 
 type Options = {
   all: boolean;
@@ -131,7 +132,7 @@ function describeDiagnostics(result: Awaited<ReturnType<typeof prepareWeeklyDisc
     `exclusions=${diagnostics.currentShelfExclusions}`,
     `reserve=${diagnostics.reserveCount}`,
     `postCap=${diagnostics.postCapSelectableCount}/20`,
-    `postCapMarket=${diagnostics.postCapMarketReadyCount}/18`
+    `postCapMarket=${diagnostics.postCapMarketReadyCount}/${WEEKLY_DISCOVERY_MARKET_POLICY.minMarketResolved}`
   ];
   if (diagnostics.saturatedSubjects.length > 0) parts.push(`subjects=${diagnostics.saturatedSubjects.slice(0, 3).join(',')}`);
   if (diagnostics.saturatedFormats.length > 0) parts.push(`formats=${diagnostics.saturatedFormats.slice(0, 3).join(',')}`);

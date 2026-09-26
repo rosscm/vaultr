@@ -6,6 +6,7 @@ import {
   snapshotDiscoveryCanonicalResolutionRuntimeStats,
   type CanonicalLookupEvidenceMap
 } from '../discovery-canonical-resolution.js';
+import { buildCollectorTasteProfile, analyzeWeeklyDiscoveryCandidateReserve } from '../weekly-discovery-ranking.js';
 import type { DiscoveryCandidate } from '../../commands/discover.js';
 
 function candidate(name: string, evidenceSearchTerm = `${name} Pokemon card`): DiscoveryCandidate {
@@ -36,6 +37,100 @@ afterEach(() => {
 });
 
 describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
+
+  it('builds structured canonical references from catalog facts instead of decorated display names', () => {
+    const cases = [
+      ['Umbreon Call of Legends 22', 'Umbreon', 'Call of Legends', '22', 'col1-22'],
+      ['Umbreon Majestic Dawn 32', 'Umbreon', 'Majestic Dawn', '32', 'dp5-32'],
+      ['Zapdos Base Set 2 20', 'Zapdos', 'Base Set 2', '20', 'base4-20']
+    ] as const;
+    const analyzed = analyzeWeeklyDiscoveryCandidateReserve(cases.map(([displayName, canonicalName, setName, cardNumber, sourceCardId], index): DiscoveryCandidate => ({
+      suggestion: {
+        name: displayName,
+        lane: 'Catalog Trail',
+        laneWhy: 'test lane',
+        why: 'test why',
+        nearby: [],
+        referenceSourceName: `Pokemon TCG (${setName})`,
+        referenceSourceCardId: sourceCardId,
+        referenceImageUrl: `https://images.pokemontcg.io/${sourceCardId}.png`
+      },
+      image: {
+        name: displayName,
+        url: `https://images.pokemontcg.io/${sourceCardId}.png`,
+        sourceName: `Pokemon TCG (${setName})`,
+        sourceCardId,
+        sourceKind: 'CARD_REFERENCE'
+      },
+      catalogFacts: {
+        source: 'POKEMONTCG',
+        sourceCardId,
+        canonicalName,
+        setName,
+        cardNumber,
+        language: 'en',
+        imageUrl: `https://images.pokemontcg.io/${sourceCardId}.png`,
+        imageSourceKind: 'CARD_REFERENCE'
+      },
+      selectionIndex: index
+    })), buildCollectorTasteProfile([], { budgetPreferenceCad: 30 }));
+
+    expect(analyzed.map((entry) => entry.suggestion.canonicalReference)).toEqual(cases.map(([, canonicalName, setName, cardNumber, sourceCardId]) => expect.objectContaining({
+      canonicalName,
+      setName,
+      cardNumber,
+      sourceCardId,
+      canonicalCardId: sourceCardId
+    })));
+  });
+
+  it('keeps trusted canonical rebinding idempotent across repeated resolution passes', async () => {
+    const initial: DiscoveryCandidate = {
+      suggestion: {
+        name: 'Umbreon Call of Legends 22',
+        lane: 'Catalog Trail',
+        laneWhy: 'test lane',
+        why: 'test why',
+        nearby: [],
+        referenceSourceName: 'Pokemon TCG (Call of Legends)',
+        referenceSourceCardId: 'col1-22',
+        referenceImageUrl: 'https://images.pokemontcg.io/col1/22_hires.png',
+        canonicalReference: {
+          provider: 'Pokemon TCG',
+          sourceCardId: 'col1-22',
+          canonicalCardId: 'col1-22',
+          canonicalName: 'Umbreon',
+          setId: 'col1',
+          setName: 'Call of Legends',
+          cardNumber: '22',
+          language: 'ENGLISH',
+          imageUrl: 'https://images.pokemontcg.io/col1/22_hires.png',
+          imageSourceKind: 'CARD_REFERENCE'
+        }
+      },
+      image: {
+        name: 'Umbreon Call of Legends 22',
+        url: 'https://images.pokemontcg.io/col1/22_hires.png',
+        sourceName: 'Pokemon TCG (Call of Legends)',
+        sourceCardId: 'col1-22',
+        sourceKind: 'CARD_REFERENCE'
+      }
+    };
+
+    const first = (await resolveWeeklyDiscoveryCanonicalReferences([initial])).candidates[0]!;
+    const second = (await resolveWeeklyDiscoveryCanonicalReferences([first])).candidates[0]!;
+    const third = (await resolveWeeklyDiscoveryCanonicalReferences([second])).candidates[0]!;
+    const identity = (entry: DiscoveryCandidate) => ({
+      name: entry.suggestion.name,
+      referenceSourceCardId: entry.suggestion.referenceSourceCardId,
+      canonicalReference: entry.suggestion.canonicalReference
+    });
+
+    expect(identity(second)).toEqual(identity(first));
+    expect(identity(third)).toEqual(identity(first));
+    expect(third.suggestion.name).toBe('Umbreon Call of Legends 22');
+    expect(third.suggestion.canonicalReference).toMatchObject({ canonicalName: 'Umbreon', setName: 'Call of Legends', cardNumber: '22' });
+  });
   it('merges evidence from multiple resolution stages without dropping earlier keys', () => {
     const merged = mergeCanonicalLookupEvidenceMaps(
       {
