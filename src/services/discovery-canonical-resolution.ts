@@ -383,9 +383,16 @@ function stripStructuredIdentityFromCanonicalName(value: string, setName: string
   const set = setName?.trim();
   if (set) {
     const setPattern = escaped(set);
+    const setNumericTokens = set.split(/\s+/).filter((token) => /^\d+$/.test(token));
+    const removeRepeatedSetNumbersBeforeSet = (): void => {
+      if (setNumericTokens.length === 0) return;
+      const numericAlternation = setNumericTokens.map(escaped).join('|');
+      cleaned = cleaned.replace(new RegExp(`(?:\\s+(?:${numericAlternation}))+(?=\\s+${setPattern}$)`, 'i'), '').trim();
+    };
     let previous = '';
     while (previous !== cleaned) {
       previous = cleaned;
+      removeRepeatedSetNumbersBeforeSet();
       cleaned = cleaned.replace(new RegExp(`(?:\\s+${setPattern})+$`, 'i'), '').trim();
       removeNumber();
     }

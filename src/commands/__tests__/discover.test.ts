@@ -11921,6 +11921,44 @@ describe('Discovery response cards', () => {
     expect(fields.every((field) => String(field.value).length <= 1024)).toBe(true);
     expect(fields.find((field) => field.name === 'Why It Fits')?.value).toContain('Umbreon');
     expect(fields.find((field) => field.name === 'Why It Fits')?.value).not.toContain('Call of Legends Call of Legends Call of Legends');
+
+    const zapdosAmplifiedName = `Zapdos ${'2 '.repeat(80)}Base Set 2 20`;
+    const zapdosCandidate: DiscoveryCandidate = {
+      suggestion: {
+        name: 'Zapdos 2 Base Set 2 20',
+        lane: 'Vintage Trail',
+        laneWhy: 'test lane',
+        why: 'test why',
+        nearby: [],
+        referenceSourceName: 'Pokemon TCG (Base Set 2)',
+        referenceSourceCardId: 'base4-20',
+        referenceImageUrl: 'https://images.pokemontcg.io/base4/20_hires.png',
+        canonicalReference: {
+          provider: 'Pokemon TCG',
+          sourceCardId: 'base4-20',
+          canonicalCardId: 'base4-20',
+          canonicalName: zapdosAmplifiedName,
+          setId: 'base4',
+          setName: 'Base Set 2',
+          cardNumber: '20',
+          language: 'ENGLISH',
+          imageUrl: 'https://images.pokemontcg.io/base4/20_hires.png',
+          imageSourceKind: 'CARD_REFERENCE'
+        }
+      },
+      image: {
+        name: 'Zapdos 2 Base Set 2 20',
+        url: 'https://images.pokemontcg.io/base4/20_hires.png',
+        sourceName: 'Pokemon TCG (Base Set 2)',
+        sourceCardId: 'base4-20',
+        sourceKind: 'CARD_REFERENCE'
+      },
+      sourceStatus: 'TIMEOUT'
+    };
+    const zapdosCard = discoveryCardEmbeds([zapdosCandidate], 'CAD', true)[0]!.toJSON();
+    expect(zapdosCard.title).toContain('Zapdos');
+    expect(zapdosCard.title).not.toContain('Zapdos 2 2');
+    expect(zapdosCard.fields?.find((field) => field.name === 'Why It Fits')?.value).toContain('Zapdos');
   });
 
   it('shows Market Snapshot on Pro response cards and hides it for Free response cards', () => {
