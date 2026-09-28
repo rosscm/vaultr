@@ -20,7 +20,7 @@ type PokemonTcgCard = {
 };
 
 export type CanonicalProviderRecord = {
-  provider: 'Pokemon TCG' | 'TCGdex Japanese';
+  provider: 'Pokemon TCG' | 'TCGdex Japanese' | 'CURATED';
   sourceCardId: string;
   canonicalCardId: string;
   canonicalName: string;
@@ -52,7 +52,7 @@ export type CanonicalLookupEvidence = {
     language?: ProviderLanguage;
   };
   queryVariants: string[];
-  provider: 'Pokemon TCG' | 'TCGdex Japanese';
+  provider: 'Pokemon TCG' | 'TCGdex Japanese' | 'CURATED';
   providerResults: Array<CanonicalProviderRecord & { rejectionReason?: string }>;
   acceptedSourceCardId?: string;
   outcome: CanonicalResolutionOutcome;
@@ -316,15 +316,34 @@ function isMarketplaceLikeImageUrl(url: string | undefined): boolean {
   return !!url && /ebayimg|ebay\.|marketplace|seller|listing|bigcommerce|shopify/i.test(url);
 }
 
+function isKnownNonFrontCardImageUrl(url: string | undefined): boolean {
+  if (!url) return true;
+  try {
+    const parsed = new URL(url);
+    const path = decodeURIComponent(`${parsed.hostname}${parsed.pathname}`).toLowerCase();
+    return /\b(?:card[-_ ]?back|back[-_ ]?card|reverse[-_ ]?side|placeholder|missing[-_ ]?image|no[-_ ]?image|default[-_ ]?card)\b/.test(path)
+      || /\/backs?\//.test(path);
+  } catch {
+    const normalized = url.toLowerCase();
+    return /\b(?:card[-_ ]?back|back[-_ ]?card|reverse[-_ ]?side|placeholder|missing[-_ ]?image|no[-_ ]?image|default[-_ ]?card)\b/.test(normalized);
+  }
+}
+
 function isAllowlistedProviderSourceName(sourceName: string | undefined): boolean {
   return !!sourceName && (
     /^Pokemon TCG(?:\s*\(|$)/i.test(sourceName)
     || /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName)
+    || /^Vaultr Curated(?:\s*\(|$)/i.test(sourceName)
   );
 }
 
 function providerDisplayName(record: CanonicalProviderRecord): string {
   return compactWhitespace(`${record.canonicalName} ${record.setName} ${record.cardNumber}`);
+}
+
+function providerReferenceSourceName(record: CanonicalProviderRecord): string {
+  const label = record.provider === 'CURATED' ? 'Vaultr Curated' : record.provider;
+  return `${label}${record.setName ? ` (${record.setName})` : ''}`;
 }
 
 function isTrustedProviderImageUrl(url: string | undefined): boolean {
@@ -406,10 +425,35 @@ function trustedCanonicalBindingFromCandidate(candidate: DiscoveryCandidate): Ca
   const imageUrl = candidate.suggestion.referenceImageUrl ?? candidate.image?.url;
   const imageSourceKind = candidate.image?.sourceKind;
   if (!sourceCardId || !sourceName || !imageUrl || imageSourceKind !== 'CARD_REFERENCE') return null;
-  if (!isAllowlistedProviderSourceName(sourceName) || !isTrustedProviderImageUrl(imageUrl)) return null;
+  if (!isAllowlistedProviderSourceName(sourceName) || !isTrustedProviderImageUrl(imageUrl) || isKnownNonFrontCardImageUrl(imageUrl)) return null;
   const setMatch = /\(([^)]+)\)\s*$/.exec(sourceName)?.[1]?.trim();
-  const inferredProvider = /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName) ? 'TCGdex Japanese' : 'Pokemon TCG';
   const existingReference = candidate.suggestion.canonicalReference;
+  if (
+    existingReference?.provider === 'CURATED'
+    && candidate.catalogFacts?.source === 'CURATED'
+    && candidate.catalogFacts.verificationStatus === 'VERIFIED'
+    && /^Vaultr Curated(?:\s*\(|$)/i.test(sourceName)
+    && existingReference.imageSourceKind === 'CARD_REFERENCE'
+    && existingReference.sourceCardId === sourceCardId
+    && existingReference.imageUrl === imageUrl
+    && /^https:\/\//i.test(imageUrl)
+    && existingReference.canonicalName.trim()
+    && existingReference.setName.trim()
+    && existingReference.cardNumber.trim()
+  ) {
+    return {
+      provider: 'CURATED',
+      sourceCardId,
+      canonicalCardId: existingReference.canonicalCardId || sourceCardId,
+      canonicalName: stripStructuredIdentityFromCanonicalName(existingReference.canonicalName, existingReference.setName, existingReference.cardNumber),
+      setId: existingReference.setId,
+      setName: existingReference.setName,
+      cardNumber: existingReference.cardNumber,
+      language: existingReference.language ?? 'JAPANESE',
+      imageUrl
+    };
+  }
+  const inferredProvider = /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName) ? 'TCGdex Japanese' : 'Pokemon TCG';
   if (
     existingReference?.imageSourceKind === 'CARD_REFERENCE'
     && existingReference.sourceCardId === sourceCardId
@@ -629,6 +673,7 @@ function candidateNeedsCanonicalResolution(candidate: DiscoveryCandidate): boole
   const hasUntrustedReferenceShell = hasStableSourceCardId && (
     candidate.image?.sourceKind !== 'CARD_REFERENCE'
     || !isAllowlistedProviderSourceName(candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName)
+    || isKnownNonFrontCardImageUrl(candidate.suggestion.referenceImageUrl ?? candidate.image?.url)
     || isMarketplaceLikeImageUrl(candidate.suggestion.referenceImageUrl)
     || isMarketplaceLikeImageUrl(candidate.image?.url)
   );
@@ -648,7 +693,7 @@ function candidateFromAcceptedRecord(candidate: DiscoveryCandidate, record: Cano
   const image: DiscoveryCardImage = {
     name: displayName,
     url: record.imageUrl,
-    sourceName: `${record.provider}${record.setName ? ` (${record.setName})` : ''}`,
+    sourceName: providerReferenceSourceName(record),
     sourceCardId: record.sourceCardId,
     sourceKind: 'CARD_REFERENCE'
   };

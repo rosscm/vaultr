@@ -125,6 +125,7 @@ export type DiscoveryCandidate = {
     cardNumber?: string;
     printedTotal?: string;
     language: LocalCardCatalogChoice['language'];
+    verificationStatus?: LocalCardCatalogChoice['verificationStatus'];
     rarity?: string;
     illustrator?: string;
     isPromo?: boolean;
@@ -1989,6 +1990,8 @@ function requestedLanguage(value: string): 'JAPANESE' | 'ENGLISH' | undefined {
 }
 
 function resolvedReferenceCardNumber(candidate: DiscoveryCandidate): string | undefined {
+  const canonicalNumber = candidateCanonicalReference(candidate)?.cardNumber?.trim();
+  if (canonicalNumber) return canonicalNumber.replace(/\s+/g, '').toUpperCase();
   const sourceCardId = candidate.image?.sourceCardId ?? candidate.suggestion.referenceSourceCardId;
   if (!sourceCardId) return undefined;
   const lastSegment = sourceCardId.split('-').pop();
@@ -1996,6 +1999,8 @@ function resolvedReferenceCardNumber(candidate: DiscoveryCandidate): string | un
 }
 
 function resolvedReferenceSetIdentity(candidate: DiscoveryCandidate): string | undefined {
+  const canonicalSet = candidateCanonicalReference(candidate)?.setName?.trim();
+  if (canonicalSet) return canonicalSet;
   const sourceName = candidate.image?.sourceName ?? candidate.suggestion.referenceSourceName ?? '';
   const parenthetical = /\(([^)]+)\)/.exec(sourceName)?.[1]?.trim();
   if (parenthetical) return parenthetical;
@@ -6679,9 +6684,9 @@ function selectDeficitAwareTopOffCandidates(
 
 function localCatalogReferenceSourceName(choice: LocalCardCatalogChoice): string {
   const setName = choice.translatedSetName ?? choice.setName ?? 'Card';
-  return choice.language === 'ja'
-    ? `TCGdex Japanese (${setName})`
-    : `Pokemon TCG (${setName})`;
+  if (choice.source === 'CURATED') return `Vaultr Curated (${setName})`;
+  if (choice.source === 'TCGDEX') return `TCGdex Japanese (${setName})`;
+  return `Pokemon TCG (${setName})`;
 }
 
 function localCatalogChoiceIsPromo(choice: LocalCardCatalogChoice): boolean {
@@ -6789,6 +6794,7 @@ function localCatalogChoiceToDiscoveryCandidate(
   profileChases: Chase[]
 ): DiscoveryCandidate | null {
   if (!choice.imageUrl || choice.imageSourceKind !== 'CARD_REFERENCE' || !choice.sourceCardId) return null;
+  if (choice.source === 'CURATED' && choice.verificationStatus !== 'VERIFIED') return null;
   const sourceName = localCatalogReferenceSourceName(choice);
   if (!isAllowlistedCatalogueReferenceSource(sourceName) || isMarketplaceLikeImageUrl(choice.imageUrl)) return null;
   if (hasKnownNonFrontCatalogueReferenceImage(choice.imageUrl, sourceName)) return null;
@@ -6872,6 +6878,7 @@ function localCatalogChoiceToDiscoveryCandidate(
       cardNumber: choice.cardNumber,
       printedTotal: choice.printedTotal,
       language: choice.language,
+      verificationStatus: choice.verificationStatus,
       rarity: choice.rarity,
       illustrator: choice.illustrator,
       isPromo: choice.isPromo,
@@ -8472,10 +8479,45 @@ function hasKnownNonFrontCatalogueReferenceImage(url: string | undefined, source
     || /\bpokemon tcg\b.*\bmcdonald'?s collection 20(?:14|15|17)\b/.test(sourceText);
 }
 
+function isTrustedVerifiedCuratedCandidateReference(candidate: DiscoveryCandidate): boolean {
+  const reference = candidate.suggestion.canonicalReference ?? candidate.weeklyDiscovery?.canonicalReference;
+  const imageUrl = candidate.suggestion.referenceImageUrl ?? candidate.image?.url;
+  const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
+  const sourceCardId = candidate.suggestion.referenceSourceCardId ?? candidate.image?.sourceCardId;
+  return candidate.catalogFacts?.source === 'CURATED'
+    && candidate.catalogFacts.verificationStatus === 'VERIFIED'
+    && reference?.provider === 'CURATED'
+    && reference.imageSourceKind === 'CARD_REFERENCE'
+    && !!sourceCardId?.trim()
+    && sourceCardId === reference.sourceCardId
+    && !!imageUrl
+    && imageUrl === reference.imageUrl
+    && /^https:\/\//i.test(imageUrl)
+    && /^Vaultr Curated(?:\s*\(|$)/i.test(sourceName ?? '')
+    && !isMarketplaceLikeImageUrl(imageUrl)
+    && !hasKnownNonFrontCatalogueReferenceImage(imageUrl, sourceName);
+}
+
+function trustedCuratedCandidateReferenceImage(candidate: DiscoveryCandidate): DiscoveryCardImage | undefined {
+  if (!isTrustedVerifiedCuratedCandidateReference(candidate)) return undefined;
+  const imageUrl = candidate.suggestion.referenceImageUrl ?? candidate.image?.url;
+  const sourceName = candidate.suggestion.referenceSourceName ?? candidate.image?.sourceName;
+  const sourceCardId = candidate.suggestion.referenceSourceCardId ?? candidate.image?.sourceCardId;
+  if (!imageUrl || !sourceName || !sourceCardId) return undefined;
+  return {
+    name: candidate.image?.name ?? candidate.suggestion.name,
+    url: imageUrl,
+    sourceName,
+    sourceCardId,
+    sourceKind: 'CARD_REFERENCE'
+  };
+}
+
 function isAllowlistedCatalogueReferenceSource(sourceName: string | undefined): boolean {
   return !!sourceName && (
     /^Pokemon TCG(?:\s*\(|$)/i.test(sourceName)
     || /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName)
+    || /^Vaultr Curated(?:\s*\(|$)/i.test(sourceName)
   );
 }
 
@@ -8572,6 +8614,7 @@ function exactProviderReferenceImageFromSuggestion(candidate: DiscoveryCandidate
 }
 
 function isTrustedSuggestionReferenceImage(candidate: DiscoveryCandidate): boolean {
+  if (isTrustedVerifiedCuratedCandidateReference(candidate)) return true;
   const imageOverride = discoveryImageOverrideForSuggestion(candidate.suggestion.name);
   if (
     imageOverride
@@ -8595,7 +8638,8 @@ function isTrustedSuggestionReferenceImage(candidate: DiscoveryCandidate): boole
 }
 
 function scheduledShelfImageFromCandidate(candidate: DiscoveryCandidate): DiscoveryCardImage | undefined {
-  return trustedCandidateReferenceImage(candidate.image, candidate.suggestion)
+  return trustedCuratedCandidateReferenceImage(candidate)
+    ?? trustedCandidateReferenceImage(candidate.image, candidate.suggestion)
     ?? trustedReferenceImageFromSuggestion(candidate)
     ?? exactProviderReferenceImageFromSuggestion(candidate);
 }

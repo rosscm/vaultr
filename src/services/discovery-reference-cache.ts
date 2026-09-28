@@ -683,8 +683,36 @@ function isTrustedPokemonTcgReference(entry: DiscoveryReferenceCacheEntry, _sugg
     && isHostUrl(entry.imageUrl, POKEMON_TCG_REFERENCE_HOST);
 }
 
+function isMarketplaceLikeImageUrl(url: string | undefined): boolean {
+  return !!url && /ebayimg|ebay\.|marketplace|bigcommerce|shopify|cdn\/shop|seller/i.test(url);
+}
+
+function isKnownNonFrontCardImageUrl(url: string | undefined): boolean {
+  if (!url) return true;
+  try {
+    const parsed = new URL(url);
+    const path = decodeURIComponent(`${parsed.hostname}${parsed.pathname}`).toLowerCase();
+    return /\b(?:card[-_ ]?back|back[-_ ]?card|reverse[-_ ]?side|placeholder|missing[-_ ]?image|no[-_ ]?image|default[-_ ]?card)\b/.test(path)
+      || /\/backs?\//.test(path);
+  } catch {
+    const normalized = url.toLowerCase();
+    return /\b(?:card[-_ ]?back|back[-_ ]?card|reverse[-_ ]?side|placeholder|missing[-_ ]?image|no[-_ ]?image|default[-_ ]?card)\b/.test(normalized);
+  }
+}
+
+function isTrustedCuratedReference(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
+  const reference = suggestion.canonicalReference;
+  if (reference?.provider !== 'CURATED' || reference.imageSourceKind !== 'CARD_REFERENCE') return false;
+  if (!entry.imageUrl || !entry.sourceCardId?.trim() || !/^Vaultr Curated(?:\s*\(|$)/i.test(entry.sourceName ?? '')) return false;
+  if (entry.sourceCardId !== reference.sourceCardId || entry.imageUrl !== reference.imageUrl) return false;
+  if (!/^https:\/\//i.test(entry.imageUrl) || isMarketplaceLikeImageUrl(entry.imageUrl) || isKnownNonFrontCardImageUrl(entry.imageUrl)) return false;
+  return !!reference.canonicalName.trim() && !!reference.setName.trim() && !!reference.cardNumber.trim();
+}
+
+
 export function hasTrustedDiscoveryReferenceProvenance(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
   if (matchesTrustedOverride(entry, suggestion)) return true;
+  if (isTrustedCuratedReference(entry, suggestion)) return true;
   if (isJapaneseReferenceSuggestion(suggestion)) return isTrustedJapaneseReference(entry);
   return isTrustedPokemonTcgReference(entry, suggestion);
 }

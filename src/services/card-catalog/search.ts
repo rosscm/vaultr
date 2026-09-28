@@ -131,6 +131,7 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
     source: record.source,
     sourceCardId: record.sourceCardId,
     language: record.language,
+    verificationStatus: record.verificationStatus,
     setName: record.setName,
     translatedSetName: record.translatedSetName,
     cardNumber: record.cardNumber,

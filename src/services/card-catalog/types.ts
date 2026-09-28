@@ -91,6 +91,7 @@ export type LocalCardCatalogChoice = {
   source: CardCatalogSource;
   sourceCardId: string;
   language: CardCatalogLanguage;
+  verificationStatus?: CardCatalogVerificationStatus;
   setName?: string;
   translatedSetName?: string;
   cardNumber?: string;

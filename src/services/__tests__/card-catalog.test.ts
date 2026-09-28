@@ -1175,6 +1175,7 @@ describe('local card catalog', () => {
 
     expect(searchLocalCardCatalog('mew corocoro', 10, { dbPath })[0]).toMatchObject({
       source: 'CURATED',
+      verificationStatus: 'VERIFIED',
       value: 'Mew CoroCoro Promo Japanese unnumbered',
       isUnnumbered: true,
       cardNumber: undefined

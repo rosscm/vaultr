@@ -131,6 +131,67 @@ describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
     expect(third.suggestion.name).toBe('Umbreon Call of Legends 22');
     expect(third.suggestion.canonicalReference).toMatchObject({ canonicalName: 'Umbreon', setName: 'Call of Legends', cardNumber: '22' });
   });
+
+
+  it('preserves trusted VERIFIED CURATED canonical references without provider lookup', async () => {
+    const initial: DiscoveryCandidate = {
+      suggestion: {
+        name: 'Mew CoroCoro Promo 151 Japanese',
+        lane: 'Promo Trail',
+        laneWhy: 'test lane',
+        why: 'test why',
+        nearby: [],
+        referenceSourceName: 'Vaultr Curated (CoroCoro Promo)',
+        referenceSourceCardId: 'curated-jp-corocoro-mew-151',
+        referenceImageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_151.jpg',
+        canonicalReference: {
+          provider: 'CURATED',
+          sourceCardId: 'curated-jp-corocoro-mew-151',
+          canonicalCardId: 'curated-jp-corocoro-mew-151',
+          canonicalName: 'Mew',
+          setName: 'CoroCoro Promo',
+          cardNumber: '151',
+          language: 'JAPANESE',
+          imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_151.jpg',
+          imageSourceKind: 'CARD_REFERENCE'
+        }
+      },
+      image: {
+        name: 'Mew CoroCoro Promo 151 Japanese',
+        url: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_151.jpg',
+        sourceName: 'Vaultr Curated (CoroCoro Promo)',
+        sourceCardId: 'curated-jp-corocoro-mew-151',
+        sourceKind: 'CARD_REFERENCE'
+      },
+      catalogFacts: {
+        source: 'CURATED',
+        sourceCardId: 'curated-jp-corocoro-mew-151',
+        canonicalName: 'Mew',
+        setName: 'CoroCoro Promo',
+        cardNumber: '151',
+        language: 'ja',
+        verificationStatus: 'VERIFIED',
+        imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_151.jpg',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    };
+
+    const beforeStats = snapshotDiscoveryCanonicalResolutionRuntimeStats();
+    const first = (await resolveWeeklyDiscoveryCanonicalReferences([initial])).candidates[0]!;
+    const second = (await resolveWeeklyDiscoveryCanonicalReferences([first])).candidates[0]!;
+    const third = (await resolveWeeklyDiscoveryCanonicalReferences([second])).candidates[0]!;
+    const afterStats = snapshotDiscoveryCanonicalResolutionRuntimeStats();
+
+    expect(afterStats.providerRequests).toBe(beforeStats.providerRequests);
+    expect(third.suggestion.name).toBe(first.suggestion.name);
+    expect(third.suggestion.referenceSourceName).toBe('Vaultr Curated (CoroCoro Promo)');
+    expect(third.suggestion.canonicalReference).toEqual(first.suggestion.canonicalReference);
+    expect(third.suggestion.canonicalReference).toMatchObject({
+      provider: 'CURATED',
+      sourceCardId: 'curated-jp-corocoro-mew-151',
+      imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_151.jpg'
+    });
+  });
   it('merges evidence from multiple resolution stages without dropping earlier keys', () => {
     const merged = mergeCanonicalLookupEvidenceMaps(
       {

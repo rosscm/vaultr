@@ -550,6 +550,7 @@ function localCatalogChoice(overrides: Partial<LocalCardCatalogChoice> & { canon
     source: overrides.source ?? 'POKEMONTCG',
     sourceCardId: overrides.sourceCardId,
     language: overrides.language ?? 'en',
+    verificationStatus: overrides.verificationStatus,
     setName,
     translatedSetName: overrides.translatedSetName,
     cardNumber,
@@ -7084,6 +7085,76 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(candidate?.suggestion.canonicalReference?.canonicalName).toBe('ブラッキーex');
     expect(candidate?.suggestion.name).toBe('Umbreon ex Terastal Festival ex 217/187 Japanese');
     expect(candidate?.suggestion.evidenceAliases).toContain('ブラッキーex - Terastal Festival ex #217/187 (Japanese)');
+  });
+
+  it('treats VERIFIED CURATED local catalog records as trusted structured Discovery references', () => {
+    const verifiedChoice = localCatalogChoice({
+      canonicalName: 'Mew',
+      name: 'Mew - CoroCoro Promo #151 (Japanese)',
+      value: 'Mew CoroCoro Promo 151 Japanese',
+      source: 'CURATED',
+      sourceCardId: 'curated-jp-corocoro-mew-151',
+      language: 'ja',
+      verificationStatus: 'VERIFIED',
+      setName: 'CoroCoro Promo',
+      cardNumber: '151',
+      isPromo: true,
+      promoContext: 'CoroCoro',
+      releaseType: 'magazine_promo',
+      imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_151.jpg'
+    });
+    const candidate = __discoveryPersistenceTestHooks.localCatalogChoiceToDiscoveryCandidate(verifiedChoice, 0, [chase('Mew CoroCoro Promo 151', 0)]);
+
+    expect(candidate).toBeTruthy();
+    expect(candidate?.suggestion.referenceSourceName).toBe('Vaultr Curated (CoroCoro Promo)');
+    expect(candidate?.suggestion.referenceSourceName).not.toMatch(/TCGdex Japanese|Pokemon TCG/);
+    expect(candidate?.suggestion.canonicalReference).toMatchObject({
+      provider: 'CURATED',
+      sourceCardId: 'curated-jp-corocoro-mew-151',
+      canonicalName: 'Mew',
+      setName: 'CoroCoro Promo',
+      cardNumber: '151',
+      language: 'JAPANESE',
+      imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_151.jpg',
+      imageSourceKind: 'CARD_REFERENCE'
+    });
+    expect(candidate?.image).toMatchObject({
+      sourceName: 'Vaultr Curated (CoroCoro Promo)',
+      sourceCardId: 'curated-jp-corocoro-mew-151',
+      sourceKind: 'CARD_REFERENCE'
+    });
+    const [item] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([{
+      ...candidate!,
+      typicalRawSoldTotal: 120,
+      soldSampleSize: 4,
+      displayCurrency: 'CAD'
+    }], 'CAD');
+    expect(item).toMatchObject({
+      imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_151.jpg',
+      imageSourceName: 'Vaultr Curated (CoroCoro Promo)',
+      imageSourceKind: 'CARD_REFERENCE'
+    });
+    expect(item?.suggestion.canonicalReference).toMatchObject({ provider: 'CURATED', sourceCardId: 'curated-jp-corocoro-mew-151' });
+
+    expect(__discoveryPersistenceTestHooks.localCatalogChoiceToDiscoveryCandidate({
+      ...verifiedChoice,
+      sourceCardId: 'curated-review-mew-151',
+      verificationStatus: 'REVIEW'
+    }, 1, [chase('Mew CoroCoro Promo 151', 0)])).toBeNull();
+
+    const fakeCuratedCandidate = {
+      ...candidate!,
+      catalogFacts: undefined,
+      image: {
+        ...candidate!.image!,
+        url: 'https://i.ebayimg.com/images/g/fake/s-l1600.jpg'
+      },
+      suggestion: {
+        ...candidate!.suggestion,
+        referenceImageUrl: 'https://i.ebayimg.com/images/g/fake/s-l1600.jpg'
+      }
+    } satisfies DiscoveryCandidate;
+    expect(__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([fakeCuratedCandidate], 'CAD')[0]?.imageUrl).toBeUndefined();
   });
 
   it('keeps family-only local catalog candidates controlled unless printing traits corroborate the profile', () => {
