@@ -69,7 +69,7 @@ import {
   type DiscoveryCandidate
 } from '../discover.js';
 import { selectDiscoverySuggestions } from '../../services/discovery-catalog.js';
-import { addChase, removeAllChases, setUserPlan } from '../../services/chase-store.js';
+import { addChase, recordDiscoveryFeedback, removeAllChases, setUserPlan } from '../../services/chase-store.js';
 import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
 import * as discoveryReferenceCacheService from '../../services/discovery-reference-cache.js';
 import type { DiscoveryReferenceCacheEntry } from '../../services/discovery-reference-cache.js';
@@ -7590,6 +7590,61 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(__discoveryPersistenceTestHooks.verifyExactPrintingConsistency(candidate)).toBe(true);
   });
 
+
+  it('accepts Japanese TCGdex printed-total display numbers against structured local IDs', () => {
+    const japaneseCandidate = (displayNumber: string, structuredNumber: string): DiscoveryCandidate => ({
+      ...publishableCanonicalCandidate(`Moltres Japanese S12a ${displayNumber}`, `S12a-${structuredNumber}`, 'Moltres', 'VSTAR Universe', structuredNumber, 0),
+      suggestion: {
+        ...publishableCanonicalCandidate(`Moltres Japanese S12a ${displayNumber}`, `S12a-${structuredNumber}`, 'Moltres', 'VSTAR Universe', structuredNumber, 0).suggestion,
+        referenceSourceName: 'TCGdex Japanese (VSTAR Universe)',
+        evidenceSearchTerm: `Moltres Japanese S12a ${displayNumber} Pokemon card`,
+        canonicalReference: {
+          provider: 'TCGDEX',
+          sourceCardId: `S12a-${structuredNumber}`,
+          canonicalCardId: `S12a-${structuredNumber}`,
+          canonicalName: 'Moltres',
+          setName: 'VSTAR Universe',
+          cardNumber: structuredNumber,
+          language: 'JAPANESE',
+          imageUrl: `https://assets.tcgdex.net/ja/S/S12a/${structuredNumber}/high.png`,
+          imageSourceKind: 'CARD_REFERENCE'
+        }
+      },
+      image: {
+        name: `Moltres Japanese S12a ${displayNumber}`,
+        url: `https://assets.tcgdex.net/ja/S/S12a/${structuredNumber}/high.png`,
+        sourceName: 'TCGdex Japanese (VSTAR Universe)',
+        sourceCardId: `S12a-${structuredNumber}`,
+        sourceKind: 'CARD_REFERENCE'
+      }
+    });
+
+    expect(__discoveryPersistenceTestHooks.verifyExactPrintingConsistency(japaneseCandidate('018/172', '018'))).toBe(true);
+    expect(__discoveryPersistenceTestHooks.verifyExactPrintingConsistency(japaneseCandidate('054/172', '054'))).toBe(true);
+    expect(__discoveryPersistenceTestHooks.verifyExactPrintingConsistency(japaneseCandidate('018/172', '019'))).toBe(false);
+  });
+
+  it('normalizes amplified structured display identities before scheduling', () => {
+    const candidate = publishableCanonicalCandidate(
+      `Galarian Moltres V ${'Astral Radiance '.repeat(6)}Trainer Gallery TG20`,
+      'swsh10tg-TG20',
+      'Galarian Moltres V',
+      'Astral Radiance Trainer Gallery',
+      'TG20',
+      0,
+      'Artwork Trail'
+    );
+    const [first] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD');
+    const [second] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([{
+      ...candidate,
+      suggestion: first!.suggestion
+    }], 'CAD');
+
+    expect(first?.suggestion.name).toBe('Galarian Moltres V Astral Radiance Trainer Gallery TG20');
+    expect(first?.suggestion.name).not.toContain('Astral Radiance Astral Radiance');
+    expect(second?.suggestion.name).toBe(first?.suggestion.name);
+  });
+
   it('rejects a raw marketplace title as a final publishable display name', () => {
     const items = [{
       position: 1,
@@ -7984,6 +8039,72 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       weeklyReserveCandidates: reserve
     })).toHaveLength(24);
   });
+
+
+  it('adds trusted local catalog candidates to the normal weekly reserve even when seeded supply is healthy', async () => {
+    vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
+    const dbPath = resolve(mkdtempSync(`${tmpdir()}/vaultr-discover-local-seed-`), 'card-catalog.db');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('CURATED', [
+      testCatalogRecord({
+        source: 'CURATED',
+        sourceCardId: 'curated-jp-corocoro-mew-151',
+        name: 'Mew',
+        language: 'ja',
+        setName: 'CoroCoro Promo',
+        cardNumber: '151',
+        isPromo: true,
+        promoContext: 'CoroCoro',
+        releaseType: 'magazine_promo',
+        verificationStatus: 'VERIFIED',
+        imageUrl: 'https://cdn6966.templcdn.com/wp-content/uploads/2021/03/JP_151.jpg'
+      })
+    ], dbPath);
+    const userId = `weekly-local-catalog-${Date.now()}`;
+    setUserPlan(userId, 'PRO');
+    recordDiscoveryFeedback({
+      userId,
+      cardName: 'Mew RC24 Japanese promo',
+      lane: 'Japanese Collector Trail',
+      feedback: 'MORE_LIKE_THIS'
+    });
+    addChase({ userId, cardName: 'Umbreon XY96', priority: 'HIGH' });
+    const seededUniverseCandidates = publishableShelfCandidates(24).map((candidate, index) => ({
+      ...candidate,
+      typicalRawSoldTotal: 80 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    replaceDiscoveryUserUniverseCards(userId, seededUniverseCandidates.map((candidate, index) => ({
+      userId,
+      cardKey: candidate.suggestion.referenceSourceCardId ?? `seed-${index}`,
+      canonicalName: candidate.suggestion.name,
+      score: 200 - index,
+      scoreComponents: { seeded: 1 },
+      suggestion: candidate.suggestion,
+      imageUrl: candidate.image?.url,
+      imageSourceName: candidate.image?.sourceName,
+      sourceCardId: candidate.image?.sourceCardId,
+      marketTotal: candidate.typicalRawSoldTotal ?? 80 + index,
+      marketCurrency: candidate.displayCurrency ?? 'CAD'
+    })));
+
+    const built = await __discoveryPersistenceTestHooks.buildWeeklyDiscoveryFinalizationInput({
+      userId,
+      date: new Date('2026-09-29T12:00:00.000Z'),
+      mode: 'LIVE',
+      hydrateMarketInline: false,
+      allowRecentRepeatFiller: false
+    });
+    const curatedReserveCandidate = built.input.orderedCandidateReserve.find((candidate) => candidate.suggestion.canonicalReference?.provider === 'CURATED' && candidate.suggestion.canonicalReference.sourceCardId === 'curated-jp-corocoro-mew-151');
+
+    expect(built.input.orderedCandidateReserve.length).toBeGreaterThan(seededUniverseCandidates.length);
+    expect(curatedReserveCandidate).toBeTruthy();
+    expect(curatedReserveCandidate?.suggestion.canonicalReference).toMatchObject({ provider: 'CURATED', sourceCardId: 'curated-jp-corocoro-mew-151' });
+    expect(curatedReserveCandidate?.typicalRawSoldTotal).toBeUndefined();
+    removeAllChases(userId);
+    deleteDiscoveryUniverseCards();
+  }, 30000);
 
   it('builds the same finalization input in LIVE and CAPTURE modes from identical seeded state', async () => {
     vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });

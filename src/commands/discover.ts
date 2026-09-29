@@ -9642,13 +9642,21 @@ function weeklyDiscoveryValueFloor(currency: SupportedCurrency): number {
   return convertCurrencyAmount(WEEKLY_DISCOVERY_VALUE_FLOOR_CAD, 'CAD', currency);
 }
 
+function exactPrintingCardNumberIdentity(value: string | undefined): string | undefined {
+  const normalized = value?.trim().replace(/\s+/g, '').toUpperCase();
+  if (!normalized) return undefined;
+  const slashMatch = /^([A-Z]{0,6}\d{1,4}|\d{1,4})\/\d{1,4}$/.exec(normalized);
+  return slashMatch?.[1] ?? normalized;
+}
+
 function exactPrintingComparison(candidate: DiscoveryCandidate): ExactPrintingComparison {
   const canonicalImage = scheduledShelfImageFromCandidate(candidate);
   const sourceText = [candidate.suggestion.name, candidate.suggestion.evidenceSearchTerm, ...(candidate.suggestion.evidenceAliases ?? [])].filter(Boolean).join(' ');
-  const requestedNumber = extractRequestedCardNumber(sourceText);
-  const requestedSet = setHintForPrinting(sourceText);
+  const requestedNumber = exactPrintingCardNumberIdentity(extractRequestedCardNumber(sourceText));
+  const resolvedNumber = exactPrintingCardNumberIdentity(resolvedReferenceCardNumber(candidate));
+  const setHint = setHintForPrinting(sourceText);
+  const requestedSet = setHint && (!/^\d+$/.test(setHint) || exactPrintingCardNumberIdentity(setHint) !== resolvedNumber) ? setHint : undefined;
   const requestedLang = requestedLanguage(sourceText);
-  const resolvedNumber = resolvedReferenceCardNumber(candidate);
   const resolvedSet = resolvedReferenceSetIdentity(candidate);
   const resolvedLang = resolvedReferenceLanguage(candidate);
   const mismatchFields: string[] = [];
@@ -9736,6 +9744,27 @@ function canonicalReferenceDisplayName(candidate: DiscoveryCandidate): string | 
   return collapseAdjacentRepeatedNamePhrases(parts.join(' ')).trim();
 }
 
+function structuredIdentityTokenRepeatCount(displayName: string, structuredValue: string | undefined): number {
+  const normalizedDisplay = normalize(displayName);
+  const normalizedValue = normalize(structuredValue ?? '');
+  if (!normalizedDisplay || !normalizedValue) return 0;
+  const directMatches = normalizedDisplay.match(new RegExp(`\\b${escapeRegExp(normalizedValue)}\\b`, 'g'))?.length ?? 0;
+  if (directMatches > 1) return directMatches;
+  return normalizedValue
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !/^\d+$/.test(token))
+    .reduce((maxCount, token) => Math.max(maxCount, normalizedDisplay.match(new RegExp(`\\b${escapeRegExp(token)}\\b`, 'g'))?.length ?? 0), 0);
+}
+
+function hasAmplifiedStructuredDisplayIdentity(candidate: DiscoveryCandidate): boolean {
+  const reference = candidateCanonicalReference(candidate);
+  if (!reference?.canonicalName?.trim()) return false;
+  const displayName = candidate.suggestion.name;
+  if (!normalize(displayName).startsWith(normalize(reference.canonicalName))) return false;
+  return structuredIdentityTokenRepeatCount(displayName, reference.setName) > 1
+    || structuredIdentityTokenRepeatCount(displayName, reference.cardNumber) > 1;
+}
+
 function canonicalScheduledSuggestion(candidate: DiscoveryCandidate): DiscoverySuggestion {
   const canonicalImage = scheduledShelfImageFromCandidate(candidate);
   const canonicalName = candidate.weeklyDiscovery?.canonicalReference?.canonicalName?.trim();
@@ -9745,7 +9774,7 @@ function canonicalScheduledSuggestion(candidate: DiscoveryCandidate): DiscoveryS
     || isGenericDiscoveryCardTitle(candidate.suggestion.name)
   )
     ? canonicalName
-    : canonicalDisplayName && collapseAdjacentRepeatedNamePhrases(candidate.suggestion.name) !== candidate.suggestion.name
+    : canonicalDisplayName && (hasAmplifiedStructuredDisplayIdentity(candidate) || collapseAdjacentRepeatedNamePhrases(candidate.suggestion.name) !== candidate.suggestion.name)
       ? canonicalDisplayName
     : candidate.suggestion.name;
   const displayName = collapseAdjacentRepeatedNamePhrases(scheduledName);
@@ -10462,16 +10491,19 @@ function scheduledItemFromCandidate(candidate: DiscoveryCandidate, currency: Sup
 }
 
 function candidateHasStableCanonicalId(candidate: DiscoveryCandidate, currency: SupportedCurrency): boolean {
+  if (isTrustedVerifiedCuratedCandidateReference(candidate)) return true;
   const item = scheduledItemFromCandidate(candidate, currency);
   return !!item && !!scheduledItemCanonicalId(item);
 }
 
 function candidateHasTrustedCatalogueImage(candidate: DiscoveryCandidate, currency: SupportedCurrency): boolean {
+  if (isTrustedVerifiedCuratedCandidateReference(candidate)) return true;
   const item = scheduledItemFromCandidate(candidate, currency);
   return !!item && hasTrustedReferenceImage(item);
 }
 
 function candidateHasTrustedPrintingReference(candidate: DiscoveryCandidate, currency: SupportedCurrency): boolean {
+  if (isTrustedVerifiedCuratedCandidateReference(candidate)) return exactPrintingComparison(candidate).ok;
   const item = scheduledItemFromCandidate(candidate, currency);
   return !!item
     && !!scheduledItemCanonicalId(item)
@@ -11422,19 +11454,38 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       )
     : [];
   const discoverySeedCandidates = weeklyPublicationSeedCandidates(discovery);
-    const carriedPreparedCandidates = preparedReserve?.reserveCandidates ?? [];
+  const carriedPreparedCandidates = preparedReserve?.reserveCandidates ?? [];
+  const localCatalogProfileChases = profileContext.tasteProfileChases.length > 0
+    ? profileContext.tasteProfileChases
+    : discovery.tasteProfileChases;
+  const localCatalogQualityCandidates = discovery.hasFullDiscovery
+    ? collectLocalCatalogTopOffCandidates({
+        profileChases: localCatalogProfileChases,
+        readiness: {
+          selectedSubjectCounts: {},
+          selectedFamilyCounts: {}
+        } as WeeklyDiscoverySupplyReadiness,
+        selectionIndexStart: carriedPreparedCandidates.length
+          + supplementalUniverseCandidates.length
+          + supplementalCacheCandidates.length
+          + supplementalTraitCacheCandidates.length
+          + discoverySeedCandidates.length,
+        limit: 48
+      }).candidates
+    : [];
   const weeklyCandidatePool = orderCandidatesForCollectorPresentation(
     filterRegenerationExcludedCandidates(uniqueCandidatesByDisplayName([
       ...carriedPreparedCandidates,
       ...supplementalUniverseCandidates,
       ...supplementalCacheCandidates,
       ...supplementalTraitCacheCandidates,
+      ...localCatalogQualityCandidates,
       ...discoverySeedCandidates
     ]), regenerationExclusions),
     discovery.tasteProfileChases,
     Math.max(
       targetCount,
-      supplementalUniverseCandidates.length + supplementalCacheCandidates.length + supplementalTraitCacheCandidates.length + discoverySeedCandidates.length
+      supplementalUniverseCandidates.length + supplementalCacheCandidates.length + supplementalTraitCacheCandidates.length + localCatalogQualityCandidates.length + discoverySeedCandidates.length
     ),
     discovery.negativeProfile,
     discovery.learnedRankContext
@@ -11451,12 +11502,15 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       deduplicatedCandidates: weeklyCandidatePool.length
     };
     const exactFreshnessOrderedPool = applyExactCardRepeatFreshnessOrdering(weeklyCandidatePool, recentDrops).orderedCandidates;
+    const normalReserveTarget = discovery.hasFullDiscovery
+      ? Math.max(targetCount, Math.min(DISCOVERY_CANDIDATE_POOL_SIZE, exactFreshnessOrderedPool.length))
+      : targetCount;
     const carryoverCap = context.allowRecentRepeatFiller === true ? Math.max(4, Math.floor(targetCount * 0.2)) : Math.max(2, Math.floor(targetCount * 0.1));
     candidateReserve = orderFreshWeeklyPublicationReserve(
       [],
       exactFreshnessOrderedPool,
       recentDrops,
-      targetCount,
+      normalReserveTarget,
       discovery.tasteProfileChases
     );
     if (discovery.hasFullDiscovery && candidateReserve.length < targetCount) {
@@ -11517,6 +11571,23 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         { maxImmediateNameCarryovers: carryoverCap }
       );
     }
+    if (discovery.hasFullDiscovery && localCatalogQualityCandidates.length > 0) {
+      const localCatalogKeys = new Set(localCatalogQualityCandidates.map(topOffCandidateKey));
+      const mergedReserve = uniqueCandidatesByDisplayName([
+        ...candidateReserve,
+        ...localCatalogQualityCandidates
+      ]);
+      if (mergedReserve.length > DISCOVERY_CANDIDATE_POOL_SIZE) {
+        const localCatalogReserve = mergedReserve.filter((candidate) => localCatalogKeys.has(topOffCandidateKey(candidate)));
+        const nonLocalReserve = mergedReserve.filter((candidate) => !localCatalogKeys.has(topOffCandidateKey(candidate)));
+        candidateReserve = [
+          ...nonLocalReserve.slice(0, Math.max(0, DISCOVERY_CANDIDATE_POOL_SIZE - localCatalogReserve.length)),
+          ...localCatalogReserve
+        ];
+      } else {
+        candidateReserve = mergedReserve;
+      }
+    }
     logWeeklyDiscoveryStage({
       event: 'WEEKLY_DISCOVERY_STAGE',
       userId: context.userId,
@@ -11534,6 +11605,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         supplementalGlobalUniverseCandidates: globalSupplementalUniverseCandidates.length,
         supplementalCacheCandidates: supplementalCacheCandidates.length,
         supplementalTraitCacheCandidates: supplementalTraitCacheCandidates.length,
+        localCatalogQualityCandidates: localCatalogQualityCandidates.length,
         weeklyCandidatePool: weeklyCandidatePool.length,
         deduplicatedCandidates: baseStageCounts.deduplicatedCandidates
       }
