@@ -402,6 +402,22 @@ type DiscoveryShelfSelectionResult = {
       | 'GENERIC_FILLER_SHELF_CAP';
     relaxedKey?: string;
     marketStatus: DiscoveryScheduledMarketStatus;
+    recoveryKind?: 'BOUNDED' | 'STRUCTURAL';
+    relaxations?: Array<{
+      reason:
+        | 'SUBJECT_SHELF_CAP'
+        | 'FAMILY_SHELF_CAP'
+        | 'FORMAT_SHELF_CAP'
+        | 'LANE_SHELF_CAP'
+        | 'EXPLORATORY_SHELF_CAP'
+        | 'ERA_ONLY_EXPLORATORY_SHELF_CAP'
+        | 'ERA_SET_FAMILY_SHELF_CAP'
+        | 'GENERIC_FILLER_SHELF_CAP';
+      key?: string;
+      priorCount: number;
+      priorLimit: number;
+      recoveredLimit: number;
+    }>;
   }>;
   rejectionCounts: Record<DiscoveryShelfSelectionRejectionCode, number>;
   rejectionSamples: Record<DiscoveryShelfSelectionRejectionCode, Array<{
@@ -4367,6 +4383,8 @@ export const __discoveryPersistenceTestHooks = {
   prepareWeeklyDiscoveryDropForUser,
   buildWeeklyCollectorAnchorProfile,
   recommendationProfileForCandidate,
+  structuralRecoveryPlan,
+  appendStructuralRecoverySelection,
   recommendationProfileForSelection,
   candidateWithCollectorAnchoredRationale
 };
@@ -10321,9 +10339,135 @@ function appendCapRecoverySelections(
         canonicalCardId: canonicalId,
         relaxedReason,
         relaxedKey: entry.rejection.matchedKey,
-        marketStatus: scheduledMarketStatusFromCandidate(entry.candidate)
+        marketStatus: scheduledMarketStatusFromCandidate(entry.candidate),
+        recoveryKind: 'BOUNDED'
       });
     }
+  }
+}
+
+type StructuralCapRelaxation = NonNullable<DiscoveryShelfSelectionResult['capRelaxationSelections'][number]['relaxations']>[number];
+
+function structuralCapCount(
+  rejection: DiscoveryShelfSelectionRejection,
+  selectionState: WeeklyShelfSelectionState
+): number {
+  switch (rejection.code) {
+    case 'SUBJECT_SHELF_CAP': return selectionState.subjectCounts.get(rejection.matchedKey ?? '') ?? 0;
+    case 'FAMILY_SHELF_CAP': return selectionState.familyCounts.get(rejection.matchedKey ?? '') ?? 0;
+    case 'FORMAT_SHELF_CAP': return selectionState.formatCounts.get(rejection.matchedKey ?? '') ?? 0;
+    case 'LANE_SHELF_CAP': return selectionState.laneCounts.get(rejection.matchedKey ?? '') ?? 0;
+    case 'EXPLORATORY_SHELF_CAP': return selectionState.exploratoryCount;
+    case 'ERA_ONLY_EXPLORATORY_SHELF_CAP': return selectionState.eraOnlyExploratoryCount;
+    case 'ERA_SET_FAMILY_SHELF_CAP': return selectionState.eraSetFamilyCounts.get(rejection.matchedKey ?? '') ?? 0;
+    case 'GENERIC_FILLER_SHELF_CAP': return selectionState.genericFillerCount;
+    default: return 0;
+  }
+}
+
+function relaxStructuralCap(
+  limits: WeeklyShelfCapLimits,
+  rejection: DiscoveryShelfSelectionRejection,
+  recoveredLimit: number
+): WeeklyShelfCapLimits {
+  switch (rejection.code) {
+    case 'SUBJECT_SHELF_CAP': return { ...limits, subjectCap: recoveredLimit };
+    case 'FAMILY_SHELF_CAP': return { ...limits, familyCap: recoveredLimit };
+    case 'FORMAT_SHELF_CAP': return { ...limits, formatCap: recoveredLimit };
+    case 'LANE_SHELF_CAP': return { ...limits, laneCap: recoveredLimit };
+    case 'EXPLORATORY_SHELF_CAP': return { ...limits, exploratoryCap: recoveredLimit };
+    case 'ERA_ONLY_EXPLORATORY_SHELF_CAP': return { ...limits, eraOnlyExploratoryCap: recoveredLimit };
+    case 'ERA_SET_FAMILY_SHELF_CAP': return { ...limits, eraSetFamilyCap: recoveredLimit };
+    case 'GENERIC_FILLER_SHELF_CAP': return { ...limits, genericFillerCap: recoveredLimit };
+    default: return limits;
+  }
+}
+
+function structuralRecoveryPlan(
+  entry: { candidate: DiscoveryCandidate; recommendation: DiscoveryRecommendationProfile },
+  selectionState: WeeklyShelfSelectionState,
+  expectedSize: number
+): { relaxations: StructuralCapRelaxation[]; totalOverflow: number } | null {
+  let limits = emergencyWeeklyShelfCapLimits(expectedSize);
+  const relaxations: StructuralCapRelaxation[] = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const rejection = candidateShelfCapRejection(entry.candidate, selectionState, entry.recommendation, limits);
+    if (!rejection) {
+      const totalOverflow = relaxations.reduce((sum, relaxation) => sum + relaxation.recoveredLimit - relaxation.priorLimit, 0);
+      return relaxations.length > 0 && relaxations.length <= 2 && totalOverflow <= 2
+        ? { relaxations, totalOverflow }
+        : null;
+    }
+    if (!isCapRejection(rejection.code)) return null;
+    const priorCount = structuralCapCount(rejection, selectionState);
+    const priorLimit = (() => {
+      switch (rejection.code) {
+        case 'SUBJECT_SHELF_CAP': return limits.subjectCap;
+        case 'FAMILY_SHELF_CAP': return limits.familyCap;
+        case 'FORMAT_SHELF_CAP': return limits.formatCap;
+        case 'LANE_SHELF_CAP': return limits.laneCap;
+        case 'EXPLORATORY_SHELF_CAP': return limits.exploratoryCap;
+        case 'ERA_ONLY_EXPLORATORY_SHELF_CAP': return limits.eraOnlyExploratoryCap;
+        case 'ERA_SET_FAMILY_SHELF_CAP': return limits.eraSetFamilyCap;
+        case 'GENERIC_FILLER_SHELF_CAP': return limits.genericFillerCap;
+      }
+    })();
+    const recoveredLimit = priorCount + 1;
+    relaxations.push({ reason: rejection.code, key: rejection.matchedKey, priorCount, priorLimit, recoveredLimit });
+    if (relaxations.length > 2 || relaxations.reduce((sum, relaxation) => sum + relaxation.recoveredLimit - relaxation.priorLimit, 0) > 2) return null;
+    limits = relaxStructuralCap(limits, rejection, recoveredLimit);
+  }
+  return null;
+}
+
+function appendStructuralRecoverySelection(
+  selected: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }>,
+  capRejectedCandidates: Array<{
+    candidate: DiscoveryCandidate;
+    item: ScheduledDiscoveryDropItem;
+    rejection: DiscoveryShelfSelectionRejection;
+    recommendation: DiscoveryRecommendationProfile;
+  }>,
+  selectedCanonicalIds: Set<string>,
+  finalSelectionState: WeeklyShelfSelectionState,
+  expectedSize: number,
+  capRelaxationSelections: DiscoveryShelfSelectionResult['capRelaxationSelections']
+): void {
+  while (
+    selected.length < expectedSize
+    && selected.filter((entry) => entry.item.market.status === 'READY').length < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
+  ) {
+    const plans = capRejectedCandidates
+      .filter((entry) => entry.item.market.status === 'READY')
+      .filter((entry) => {
+        const canonicalId = scheduledItemCanonicalId(entry.item);
+        return !!canonicalId && !selectedCanonicalIds.has(canonicalId);
+      })
+      .map((entry) => ({ entry, plan: structuralRecoveryPlan(entry, finalSelectionState, expectedSize) }))
+      .filter((planned): planned is { entry: typeof capRejectedCandidates[number]; plan: NonNullable<ReturnType<typeof structuralRecoveryPlan>> } => planned.plan !== null)
+      .sort((left, right) =>
+        left.plan.relaxations.length - right.plan.relaxations.length
+        || left.plan.totalOverflow - right.plan.totalOverflow
+        || capRecoveryCandidateScore(right.entry) - capRecoveryCandidateScore(left.entry)
+        || (left.entry.candidate.selectionIndex ?? 0) - (right.entry.candidate.selectionIndex ?? 0)
+        || left.entry.candidate.suggestion.name.localeCompare(right.entry.candidate.suggestion.name)
+      );
+    const chosen = plans[0];
+    if (!chosen) break;
+    const canonicalId = scheduledItemCanonicalId(chosen.entry.item)!;
+    selected.push(chosen.entry);
+    selectedCanonicalIds.add(canonicalId);
+    recordSelectedCandidate(chosen.entry.candidate, finalSelectionState, chosen.entry.recommendation);
+    const firstRelaxation = chosen.plan.relaxations[0]!;
+    capRelaxationSelections.push({
+      suggestionName: chosen.entry.candidate.suggestion.name,
+      canonicalCardId: canonicalId,
+      relaxedReason: firstRelaxation.reason,
+      relaxedKey: firstRelaxation.key,
+      marketStatus: scheduledMarketStatusFromCandidate(chosen.entry.candidate),
+      recoveryKind: 'STRUCTURAL',
+      relaxations: chosen.plan.relaxations
+    });
   }
 }
 
@@ -10454,6 +10598,14 @@ function selectPublishableWeeklyDiscoveryShelf(
   appendCapRecoverySelections(
     selected,
     capRejectedCandidates.filter((entry) => entry.item.market.status !== 'READY'),
+    selectedCanonicalIds,
+    finalSelectionState,
+    expectedSize,
+    capRelaxationSelections
+  );
+  appendStructuralRecoverySelection(
+    selected,
+    capRejectedCandidates,
     selectedCanonicalIds,
     finalSelectionState,
     expectedSize,

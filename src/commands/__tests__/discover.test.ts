@@ -8108,6 +8108,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
   it('builds the same finalization input in LIVE and CAPTURE modes from identical seeded state', async () => {
     vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
+    const dbPath = resolve(mkdtempSync(`${tmpdir()}/vaultr-discover-live-capture-`), 'card-catalog.db');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('POKEMONTCG', [], dbPath);
     const userId = `weekly-build-${Date.now()}`;
     setUserPlan(userId, 'PRO');
     addChase({ userId, cardName: 'Mew RC24', priority: 'HIGH' });
@@ -8662,7 +8665,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       displayCurrency: 'CAD' as const
     };
     const anchored = {
-      ...publishableSourceCandidate('Gardevoir ex Scarlet & Violet 217', 'sv1-217', 'Pokemon TCG (Scarlet & Violet)', 91, 'Collector Compass'),
+      ...publishableSourceCandidate('Gardevoir ex Scarlet & Violet 217', 'sv1-217', 'Pokemon TCG (Scarlet & Violet)', 91, 'Promo Trail'),
       typicalRawSoldTotal: 110,
       soldSampleSize: 3,
       displayCurrency: 'CAD' as const
@@ -8688,6 +8691,110 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(selected.map((candidate) => candidate.suggestion.referenceSourceCardId)).toContain('sv1-217');
     expect(selected.map((candidate) => candidate.suggestion.referenceSourceCardId)).not.toContain('generic-filler-1');
+  });
+
+  it('repairs the final 14 READY and five incomplete shelf slot with the least disruptive READY cap overflow', () => {
+    const makeItem = (candidate: DiscoveryCandidate, status: 'READY' | 'PENDING') => ({
+      ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!,
+      market: {
+        ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!.market,
+        status
+      }
+    });
+    const selectedCandidates = publishableShelfCandidates(19);
+    const selected = selectedCandidates.map((candidate, index) => ({
+      candidate,
+      item: makeItem(candidate, index < 14 ? 'READY' : 'PENDING')
+    }));
+    const selectionState = {
+      subjectCounts: new Map([['moltres', 2], ['zapdos', 2]]),
+      familyCounts: new Map<string, number>(),
+      formatCounts: new Map([['e-reader', 4], ['promo', 7]]),
+      laneCounts: new Map([['Collector Compass', 8]]),
+      exploratoryCount: 6,
+      eraOnlyExploratoryCount: 0,
+      genericFillerCount: 0,
+      eraSetFamilyCounts: new Map<string, number>(),
+      laneCapEnabled: true
+    };
+    const moltres = collectorProfileCandidate(
+      'Moltres Skyridge 21/144',
+      'ecard3-21',
+      100,
+      'CONTROLLED_EXPLORATION',
+      { subjects: ['Moltres'], formats: ['e-reader'] }
+    );
+    moltres.suggestion.lane = 'Collector Compass';
+    const zapdos = collectorProfileCandidate(
+      'Zapdos Wizards Black Star Promos 23/53',
+      'basep-23',
+      101,
+      'CONTROLLED_EXPLORATION',
+      { subjects: ['Zapdos'], formats: ['promo'] }
+    );
+    zapdos.suggestion.lane = 'Collector Compass';
+    const recommendation = {
+      profileHasSignals: true,
+      strength: 'EXPLORATORY' as const,
+      anchors: [],
+      anchoredWhy: 'controlled exploration',
+      isEraOnlyExploratory: false
+    };
+    const capRejected = [
+      { candidate: zapdos, item: makeItem(zapdos, 'READY'), rejection: { code: 'FORMAT_SHELF_CAP' as const, matchedKey: 'promo' }, recommendation },
+      { candidate: moltres, item: makeItem(moltres, 'READY'), rejection: { code: 'LANE_SHELF_CAP' as const, matchedKey: 'Collector Compass' }, recommendation }
+    ];
+    const selectedIds = new Set(selected.map(({ item }) => item.suggestion.referenceSourceCardId!));
+    const diagnostics: Parameters<typeof __discoveryPersistenceTestHooks.appendStructuralRecoverySelection>[5] = [];
+
+    __discoveryPersistenceTestHooks.appendStructuralRecoverySelection(
+      selected,
+      capRejected,
+      selectedIds,
+      selectionState,
+      20,
+      diagnostics
+    );
+
+    expect(selected).toHaveLength(20);
+    expect(selected.filter(({ item }) => item.market.status === 'READY')).toHaveLength(15);
+    expect(selected.at(-1)?.candidate.suggestion.referenceSourceCardId).toBe('ecard3-21');
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ recoveryKind: 'STRUCTURAL', canonicalCardId: 'ecard3-21' });
+    expect(diagnostics[0].relaxations).toEqual([
+      { reason: 'LANE_SHELF_CAP', key: 'Collector Compass', priorCount: 8, priorLimit: 8, recoveredLimit: 9 },
+      { reason: 'EXPLORATORY_SHELF_CAP', key: 'exploratory', priorCount: 6, priorLimit: 6, recoveredLimit: 7 }
+    ]);
+  });
+
+  it('does not run structural recovery once the 20/15/5 contract is already satisfied', () => {
+    const candidates = publishableShelfCandidates(20);
+    const selected = candidates.map((candidate, index) => ({
+      candidate,
+      item: {
+        ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!,
+        market: {
+          ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!.market,
+          status: index < 15 ? 'READY' as const : 'PENDING' as const
+        }
+      }
+    }));
+    const diagnostics: Parameters<typeof __discoveryPersistenceTestHooks.appendStructuralRecoverySelection>[5] = [];
+
+    __discoveryPersistenceTestHooks.appendStructuralRecoverySelection(
+      selected,
+      [],
+      new Set(selected.map(({ item }) => item.suggestion.referenceSourceCardId!)),
+      {
+        subjectCounts: new Map(), familyCounts: new Map(), formatCounts: new Map(), laneCounts: new Map(),
+        exploratoryCount: 0, eraOnlyExploratoryCount: 0, genericFillerCount: 0, eraSetFamilyCounts: new Map(), laneCapEnabled: true
+      },
+      20,
+      diagnostics
+    );
+
+    expect(selected).toHaveLength(20);
+    expect(diagnostics).toEqual([]);
   });
 
   it('normalizes repeated canonical display-name tokens and uses canonical metadata for diversity keys', () => {
