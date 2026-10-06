@@ -8693,6 +8693,149 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(selected.map((candidate) => candidate.suggestion.referenceSourceCardId)).not.toContain('generic-filler-1');
   });
 
+  it('rebuilds Collector Profile rationale from the current canonical card instead of stale parent copy', () => {
+    const candidate = collectorProfileCandidate(
+      'Galarian Moltres V Astral Radiance Trainer Gallery TG20',
+      'swsh10tg-tg20',
+      20,
+      'CONTROLLED_EXPLORATION',
+      { subjects: ['Moltres'], eras: ['E-Reader Era'] }
+    );
+    candidate.suggestion.why = 'keeps the Weekly Shelf fresh with different   Squirtle\nsets and\tpromos';
+    const profile = __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([
+      chase('Mew Expedition Base Set 55', 1)
+    ]);
+
+    const prepared = __discoveryPersistenceTestHooks.candidateWithCollectorAnchoredRationale(
+      candidate,
+      profile,
+      'COLLECTOR_PROFILE_V1'
+    );
+
+    expect(prepared.suggestion.why).toContain('Moltres');
+    expect(prepared.suggestion.why).not.toContain('Squirtle');
+    expect(prepared.suggestion.why).not.toContain('active chase cards are excluded from market evidence');
+    expect(prepared.suggestion.why).not.toMatch(/\s{2,}|\n|\t/);
+
+    const amplified = {
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        name: 'Nearby promo discovery',
+        why: 'Squirtle from your active chase cards is excluded from market evidence'
+      }
+    };
+    const resolved = __discoveryPersistenceTestHooks.candidateWithCollectorAnchoredRationale(
+      amplified,
+      profile,
+      'COLLECTOR_PROFILE_V1'
+    );
+    expect(resolved.suggestion.why).toContain('Moltres');
+    expect(resolved.suggestion.why).not.toContain('Squirtle');
+    expect(resolved.suggestion.why).not.toContain('active chase cards');
+  });
+
+  it('uses structured English identity for Japanese shelf subjects and evolution families', () => {
+    const english = collectorProfileCandidate('Squirtle Expedition Base Set 131', 'exp1-131', 1, 'ADJACENT_DISCOVERY', {
+      subjects: ['Squirtle'], evolutionFamilies: ['SQUIRTLE_LINE']
+    });
+    const japanese = collectorProfileCandidate('ゼニガメ S-P 290', 'sp-290', 2, 'ADJACENT_DISCOVERY', {
+      subjects: ['Squirtle'], evolutionFamilies: ['SQUIRTLE_LINE'], languages: ['JAPANESE']
+    });
+    const blastoise = collectorProfileCandidate('Blastoise-EX XY Black Star Promos XY122', 'xyp-xy122', 3, 'ADJACENT_DISCOVERY', {
+      subjects: ['Blastoise'], evolutionFamilies: ['SQUIRTLE_LINE']
+    });
+    const fallback = publishableSourceCandidate('Wartortle Expedition Base Set 82', 'exp1-82', 'Pokemon TCG (Expedition Base Set)', 4);
+    const compound = collectorProfileCandidate('Mewtwo & Mew-GX Unified Minds 222', 'sm11-222', 5, 'CORE_MATCH', {
+      subjects: ['Mewtwo', 'Mew']
+    });
+
+    expect(__discoveryPersistenceTestHooks.candidateShelfSubjectKeys(english)).toEqual(['squirtle']);
+    expect(__discoveryPersistenceTestHooks.candidateShelfSubjectKeys(japanese)).toEqual(['squirtle']);
+    expect(__discoveryPersistenceTestHooks.candidateEvolutionFamilyKey(english)).toBe('squirtle');
+    expect(__discoveryPersistenceTestHooks.candidateEvolutionFamilyKey(japanese)).toBe('squirtle');
+    expect(__discoveryPersistenceTestHooks.candidateEvolutionFamilyKey(blastoise)).toBe('squirtle');
+    expect(__discoveryPersistenceTestHooks.candidateEvolutionFamilyKey(fallback)).toBe('squirtle');
+    expect(__discoveryPersistenceTestHooks.candidateShelfSubjectKeys(compound)).toEqual(['mewtwo', 'mew']);
+  });
+
+  it('uses structured Japanese and English family identity in the same shelf cap accounting', () => {
+    const familyCandidates = ['Squirtle', 'ゼニガメ', 'Wartortle', 'Blastoise', 'カメール', 'カメックス'].map((name, index) =>
+      collectorProfileCandidate(`${name} Family Printing ${index}`, `family-${index}`, index, 'ADJACENT_DISCOVERY', {
+        subjects: [index === 1 ? 'Squirtle' : index === 4 ? 'Wartortle' : index === 5 ? 'Blastoise' : name],
+        evolutionFamilies: ['SQUIRTLE_LINE']
+      })
+    );
+    const unrelated = collectorProfileTestSubjects.slice(0, 20).map((subject, index) =>
+      collectorProfileCandidate(`${subject} Other Printing ${index}`, `other-${index}`, index + 20, 'CORE_MATCH', { subjects: [subject] })
+    );
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [...familyCandidates, ...unrelated], 'CAD', 20, [], [], [], 'COLLECTOR_PROFILE_V1'
+    );
+
+    expect(result.rejectionCounts.FAMILY_SHELF_CAP).toBeGreaterThan(0);
+    expect(result.selectedCandidates.filter((candidate) =>
+      __discoveryPersistenceTestHooks.candidateEvolutionFamilyKey(candidate) === 'squirtle'
+    ).length).toBeLessThanOrEqual(5);
+  });
+
+  it('groups only same-subject same-set print siblings', () => {
+    const printing = (name: string, id: string, subject: string, setName: string, index: number) => {
+      const candidate = collectorProfileCandidate(name, id, index, 'ADJACENT_DISCOVERY', { subjects: [subject] });
+      candidate.weeklyDiscovery!.canonicalReference!.setName = setName;
+      return candidate;
+    };
+    const squirtle131 = printing('Squirtle Expedition Base Set 131', 'exp1-131', 'Squirtle', 'Expedition Base Set', 1);
+    const squirtle132 = printing('Squirtle Expedition Base Set 132', 'exp1-132', 'Squirtle', 'Expedition Base Set', 2);
+    const articuno = printing('Articuno Skyridge 4', 'ecard3-4', 'Articuno', 'Skyridge', 3);
+    const moltres = printing('Moltres Skyridge 21', 'ecard3-21', 'Moltres', 'Skyridge', 4);
+    const squirtlePromo = printing('Squirtle SWSH Black Star Promos SWSH233', 'swshp-swsh233', 'Squirtle', 'SWSH Black Star Promos', 5);
+
+    expect(__discoveryPersistenceTestHooks.candidateVariantFamilyKey(squirtle131)).toBe(
+      __discoveryPersistenceTestHooks.candidateVariantFamilyKey(squirtle132)
+    );
+    expect(__discoveryPersistenceTestHooks.candidateVariantFamilyKey(articuno)).not.toBe(
+      __discoveryPersistenceTestHooks.candidateVariantFamilyKey(moltres)
+    );
+    expect(__discoveryPersistenceTestHooks.candidateVariantFamilyKey(squirtle131)).not.toBe(
+      __discoveryPersistenceTestHooks.candidateVariantFamilyKey(squirtlePromo)
+    );
+  });
+
+  it('prefers the READY same-set sibling during normal selection and keeps constrained sibling fallback', () => {
+    const sibling = (number: string, index: number, ready: boolean) => {
+      const candidate = collectorProfileCandidate(`Squirtle Expedition Base Set ${number}`, `exp1-${number}`, index, 'ADJACENT_DISCOVERY', {
+        subjects: ['Squirtle'], evolutionFamilies: ['SQUIRTLE_LINE']
+      });
+      candidate.weeklyDiscovery!.canonicalReference!.setName = 'Expedition Base Set';
+      if (!ready) {
+        candidate.typicalRawSoldTotal = undefined;
+        candidate.soldSampleSize = undefined;
+        candidate.sourceStatus = 'TIMEOUT';
+      }
+      return candidate;
+    };
+    const unrelated = collectorProfileTestSubjects.slice(0, 19).map((subject, index) =>
+      collectorProfileCandidate(`${subject} Distinct Set ${index}`, `distinct-${index}`, index + 10, 'CORE_MATCH', { subjects: [subject] })
+    );
+    const thin131 = sibling('131', 1, false);
+    const ready132 = sibling('132', 2, true);
+
+    const roomy = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [thin131, ready132, ...unrelated], 'CAD', 20, [], [], [], 'COLLECTOR_PROFILE_V1'
+    );
+    expect(roomy.items.some((item) => item.suggestion.referenceSourceCardId === 'exp1-132')).toBe(true);
+    expect(roomy.items.some((item) => item.suggestion.referenceSourceCardId === 'exp1-131')).toBe(false);
+
+    const constrained = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [ready132, sibling('131', 1, true), ...unrelated.slice(0, 18)], 'CAD', 20, [], [], [], 'COLLECTOR_PROFILE_V1'
+    );
+    expect(constrained.items).toHaveLength(20);
+    expect(constrained.marketResolvedCount).toBeGreaterThanOrEqual(15);
+    expect(constrained.items.filter((item) => /^exp1-13[12]$/.test(item.suggestion.referenceSourceCardId ?? ''))).toHaveLength(2);
+  });
+
   it('repairs the final 14 READY and five incomplete shelf slot with the least disruptive READY cap overflow', () => {
     const makeItem = (candidate: DiscoveryCandidate, status: 'READY' | 'PENDING') => ({
       ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!,
@@ -10020,7 +10163,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     ]));
   });
 
-  it('keeps later market-incomplete candidates available when earlier incomplete candidates fail diversity caps', () => {
+  it('keeps later market-incomplete candidates available while filling the shelf', () => {
     const reserve = [
       ...publishableShelfCandidates(18, (candidate, index) => ({
         ...candidate,
@@ -10076,7 +10219,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.items).toHaveLength(20);
     expect(result.marketResolvedCount).toBeGreaterThanOrEqual(15);
     expect(result.marketIncompleteCount).toBeLessThanOrEqual(5);
-    expect(result.capRelaxationSelections.length).toBeGreaterThan(0);
+    expect(result.items.map((item) => item.suggestion.referenceSourceCardId)).toEqual(expect.arrayContaining([
+      'zapdos-incomplete',
+      'articuno-incomplete'
+    ]));
   });
 
   it('replays the sanitized W31 fixture offline at 20 selected and at least 15 market-resolved', async () => {

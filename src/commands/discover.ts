@@ -4356,6 +4356,8 @@ export const __discoveryPersistenceTestHooks = {
   collectLocalCatalogTopOffCandidates,
   localCatalogChoiceToDiscoveryCandidate,
   candidateShelfSubjectKeys,
+  candidateEvolutionFamilyKey,
+  candidateVariantFamilyKey,
   preparedReserveCompatibilityReason,
   selectMarketShortfallHydrationTargets,
   selectMarketShortfallHydrationTargetGroups,
@@ -7847,6 +7849,11 @@ function normalizedSubjectIdentity(value: string): string | undefined {
 }
 
 function canonicalCandidateSubjectLabels(candidate: DiscoveryCandidate): string[] {
+  const structuredSubjects = candidate.weeklyDiscovery?.features?.subjects
+    ?.flatMap((subject) => subject.split(/\s*(?:&|\/|\+|\band\b)\s*/i))
+    .map((subject) => normalizedSubjectIdentity(subject))
+    .filter((subject): subject is string => !!subject);
+  if (structuredSubjects?.length) return uniqueValuesPreservingOrder(structuredSubjects);
   const structuredName = candidate.catalogFacts?.canonicalName?.trim()
     ?? candidateCanonicalReference(candidate)?.canonicalName?.trim();
   const source = structuredName || sourceCardSubject(candidate, sourceSetLabel(candidate));
@@ -7877,6 +7884,11 @@ function candidateShelfSubjectKeys(candidate: DiscoveryCandidate): string[] {
 }
 
 function candidateEvolutionFamilyKey(candidate: DiscoveryCandidate): string | undefined {
+  const structuredFamily = candidate.weeklyDiscovery?.features?.evolutionFamilies?.[0];
+  if (structuredFamily) {
+    const normalizedFamily = normalize(structuredFamily.replace(/[_-]+/g, ' ')).replace(/\s+(?:line|family)$/, '').trim();
+    if (normalizedFamily) return normalizedFamily;
+  }
   const subjectKey = candidateShelfSubjectKey(candidate);
   if (!subjectKey) return undefined;
   const subjectTokens = subjectKey.split(/\s+/).filter(Boolean);
@@ -8153,7 +8165,7 @@ function firstCollectorProfileAnchor(features: WeeklyDiscoveryCandidateAnalysis[
   const subject = features?.subjects?.[0];
   if (subject) return { kind: 'SUBJECT', key: normalize(subject), label: titleCase(subject) };
   const family = features?.evolutionFamilies?.[0];
-  if (family) return { kind: 'EVOLUTION_FAMILY', key: normalize(family), label: titleCase(family) };
+  if (family) return { kind: 'EVOLUTION_FAMILY', key: normalize(family), label: titleCase(family.replace(/[_-]+/g, ' ')) };
   const setFamily = features?.setFamilies?.[0];
   if (setFamily) return { kind: 'SET_RELATIONSHIP', key: normalize(setFamily), label: titleCase(setFamily) };
   const set = features?.sets?.[0];
@@ -8169,6 +8181,41 @@ function firstCollectorProfileAnchor(features: WeeklyDiscoveryCandidateAnalysis[
   const era = features?.eras?.[0];
   if (era) return { kind: 'ERA', key: normalize(era), label: titleCase(era) };
   return undefined;
+}
+
+function normalizeCollectorFacingCopy(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function collectorProfileAnchoredWhy(
+  candidate: DiscoveryCandidate,
+  role: NonNullable<DiscoverySuggestion['discoveryRole']>,
+  anchor: DiscoveryRecommendationAnchor | undefined
+): string {
+  const structuredSubjects = candidate.weeklyDiscovery?.features?.subjects?.filter((subject) => subject.trim());
+  const subject = structuredSubjects?.length
+    ? structuredSubjects.join(' & ')
+    : sourceCardSubject(candidate, sourceSetLabel(candidate));
+  const setLabel = sourceSetLabel(candidate);
+  const printing = setLabel ? `${subject} from ${setLabel}` : subject;
+  const rationale = !anchor
+    ? `${printing} is a broader exploration pick that adds a distinct printing to your Weekly Shelf.`
+    : anchor.kind === 'SUBJECT'
+      ? `${subject} connects directly to a subject already represented in your collection, while this printing adds a different release angle.`
+      : anchor.kind === 'EVOLUTION_FAMILY'
+        ? `${printing} extends the ${anchor.label} family already represented in your collection with a different print.`
+        : anchor.kind === 'SET_RELATIONSHIP'
+          ? `${printing} extends a set or release family already represented in your collection.`
+          : anchor.kind === 'PROMO_PREFERENCE'
+            ? `${printing} extends the promo and special-release side of your collection.`
+            : anchor.kind === 'REGIONAL_PRINT'
+              ? `${printing} extends your Japanese and regional-print interests with an exact printing.`
+              : anchor.kind === 'ART_STYLE'
+                ? `${printing} connects to the artwork and illustrator traits already represented in your collection.`
+                : anchor.kind === 'FORMAT'
+                  ? `${printing} extends a card format already represented in your collection.`
+                  : `${anchor.label} is represented in your collection, so ${printing} works as a broader era exploration pick.`;
+  return normalizeCollectorFacingCopy(rationale || `${printing} fits your ${role.toLowerCase().replace(/_/g, ' ')} interests.`);
 }
 
 function collectorProfileSelectionRecommendation(candidate: DiscoveryCandidate): DiscoveryRecommendationProfile | null {
@@ -8198,7 +8245,7 @@ function collectorProfileSelectionRecommendation(candidate: DiscoveryCandidate):
     strength,
     anchors,
     primaryAnchor: anchor,
-    anchoredWhy: candidate.suggestion.why?.trim() || `${candidate.suggestion.name} fits the Collector Profile selection model through ${role.toLowerCase().replace(/_/g, ' ')} signals.`,
+    anchoredWhy: collectorProfileAnchoredWhy(candidate, role, anchor),
     isEraOnlyExploratory: strength === 'EXPLORATORY' && hasOnlyEraSignal,
     eraSetFamilyKey: candidateEraSetFamilyKey(candidate)
   };
@@ -8221,7 +8268,7 @@ function candidateWithCollectorAnchoredRationale(
   collectorProfile: WeeklyCollectorAnchorProfile,
   selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): DiscoveryCandidate {
-  if (!collectorProfile.hasSignals) return candidate;
+  if (!collectorProfile.hasSignals && selectionMode !== 'COLLECTOR_PROFILE_V1') return candidate;
   const recommendation = recommendationProfileForSelection(candidate, collectorProfile, selectionMode);
   const lane = currentLaneForRecommendation(candidate, recommendation);
   if (candidate.suggestion.why === recommendation.anchoredWhy && candidate.suggestion.lane === lane) return candidate;
@@ -8411,10 +8458,36 @@ function candidateSubjectDiversityKeys(candidate: DiscoveryCandidate): string[] 
 function candidateVariantFamilyKey(candidate: DiscoveryCandidate): string | undefined {
   const setLabel = sourceSetLabel(candidate);
   if (!setLabel) return undefined;
-  const subjectKey = discoveryNameKey(sourceCardSubject(candidate, setLabel));
+  const subjectKey = candidateShelfSubjectKeys(candidate).join('&');
   const setKey = discoveryNameKey(setLabel);
   if (!subjectKey || !setKey) return undefined;
   return `${subjectKey}|${setKey}`;
+}
+
+function weeklySiblingRepresentativeScore(candidate: DiscoveryCandidate): number {
+  const role = candidate.weeklyDiscovery?.discoveryRole ?? candidate.suggestion.discoveryRole;
+  return (candidateMarketStatus(candidate, candidate.displayCurrency ?? 'CAD') === 'READY' ? 10_000 : 0)
+    + imageQualityRank(candidate) * 1_000
+    + (role === 'CORE_MATCH' ? 300 : role === 'ADJACENT_DISCOVERY' ? 200 : 100)
+    + marketEvidenceRank(candidate) * 10;
+}
+
+function preferredWeeklySiblingCandidates(candidates: DiscoveryCandidate[]): Map<string, DiscoveryCandidate> {
+  const preferred = new Map<string, DiscoveryCandidate>();
+  for (const candidate of candidates) {
+    const key = candidateVariantFamilyKey(candidate);
+    if (!key) continue;
+    const current = preferred.get(key);
+    if (!current
+      || weeklySiblingRepresentativeScore(candidate) > weeklySiblingRepresentativeScore(current)
+      || (weeklySiblingRepresentativeScore(candidate) === weeklySiblingRepresentativeScore(current)
+        && ((candidate.selectionIndex ?? Number.MAX_SAFE_INTEGER) < (current.selectionIndex ?? Number.MAX_SAFE_INTEGER)
+          || ((candidate.selectionIndex ?? Number.MAX_SAFE_INTEGER) === (current.selectionIndex ?? Number.MAX_SAFE_INTEGER)
+            && topOffCandidateKey(candidate).localeCompare(topOffCandidateKey(current)) < 0)))) {
+      preferred.set(key, candidate);
+    }
+  }
+  return preferred;
 }
 
 function variantRepresentativeCandidates(candidates: DiscoveryCandidate[]): DiscoveryCandidate[] {
@@ -10468,6 +10541,58 @@ function appendStructuralRecoverySelection(
   }
 }
 
+function appendSiblingFallbackSelections(
+  selected: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }>,
+  siblingFallbackCandidates: Array<{
+    candidate: DiscoveryCandidate;
+    item: ScheduledDiscoveryDropItem;
+    recommendation: DiscoveryRecommendationProfile;
+  }>,
+  selectedCanonicalIds: Set<string>,
+  finalSelectionState: WeeklyShelfSelectionState,
+  expectedSize: number,
+  capRelaxationSelections: DiscoveryShelfSelectionResult['capRelaxationSelections']
+): void {
+  const orderedFallbacks = [...siblingFallbackCandidates].sort((left, right) =>
+    (right.item.market.status === 'READY' ? 1 : 0) - (left.item.market.status === 'READY' ? 1 : 0)
+    || weeklySiblingRepresentativeScore(right.candidate) - weeklySiblingRepresentativeScore(left.candidate)
+    || (left.candidate.selectionIndex ?? 0) - (right.candidate.selectionIndex ?? 0)
+    || left.candidate.suggestion.name.localeCompare(right.candidate.suggestion.name)
+  );
+  for (const entry of orderedFallbacks) {
+    if (selected.length >= expectedSize) break;
+    const canonicalId = scheduledItemCanonicalId(entry.item);
+    if (!canonicalId || selectedCanonicalIds.has(canonicalId)) continue;
+    if (entry.item.market.status !== 'READY'
+      && selected.filter((selectedEntry) => selectedEntry.item.market.status !== 'READY').length >= WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) continue;
+    const capRejection = candidateShelfCapRejection(
+      entry.candidate,
+      finalSelectionState,
+      entry.recommendation,
+      emergencyWeeklyShelfCapLimits(expectedSize)
+    );
+    if (capRejection) {
+      const plan = entry.item.market.status === 'READY'
+        ? structuralRecoveryPlan(entry, finalSelectionState, expectedSize)
+        : null;
+      if (!plan) continue;
+      const firstRelaxation = plan.relaxations[0]!;
+      capRelaxationSelections.push({
+        suggestionName: entry.candidate.suggestion.name,
+        canonicalCardId: canonicalId,
+        relaxedReason: firstRelaxation.reason,
+        relaxedKey: firstRelaxation.key,
+        marketStatus: scheduledMarketStatusFromCandidate(entry.candidate),
+        recoveryKind: 'STRUCTURAL',
+        relaxations: plan.relaxations
+      });
+    }
+    selected.push(entry);
+    selectedCanonicalIds.add(canonicalId);
+    recordSelectedCandidate(entry.candidate, finalSelectionState, entry.recommendation);
+  }
+}
+
 function selectPublishableWeeklyDiscoveryShelf(
   candidates: DiscoveryCandidate[],
   currency: SupportedCurrency,
@@ -10488,6 +10613,11 @@ function selectPublishableWeeklyDiscoveryShelf(
     rejection: DiscoveryShelfSelectionRejection;
     recommendation: DiscoveryRecommendationProfile;
   }> = [];
+  const siblingFallbackCandidates: Array<{
+    candidate: DiscoveryCandidate;
+    item: ScheduledDiscoveryDropItem;
+    recommendation: DiscoveryRecommendationProfile;
+  }> = [];
   const seenCanonicalIds = new Set<string>();
   const selectionState = emptyWeeklyShelfSelectionState();
   selectionState.laneCapEnabled = new Set(candidates.map(candidateLaneShelfKey)).size > 1;
@@ -10496,6 +10626,7 @@ function selectPublishableWeeklyDiscoveryShelf(
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
   const collectorAnchorProfile = buildWeeklyCollectorAnchorProfile(anchorProfileSignals);
+  const preferredSiblingCandidates = preferredWeeklySiblingCandidates(candidates);
   const reserveHasAnchoredCandidates = candidates.some((candidate) =>
     recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode).anchors.length > 0
   );
@@ -10512,7 +10643,13 @@ function selectPublishableWeeklyDiscoveryShelf(
     if (rejection) {
       rejectionCounts[rejection.code] += 1;
       if (isCapRejection(rejection.code)) {
-        capRejectedCandidates.push({ candidate, item, rejection, recommendation });
+        const variantKey = candidateVariantFamilyKey(candidate);
+        const preferredSibling = variantKey ? preferredSiblingCandidates.get(variantKey) : undefined;
+        if (preferredSibling && topOffCandidateKey(preferredSibling) !== topOffCandidateKey(rawCandidate)) {
+          siblingFallbackCandidates.push({ candidate, item, recommendation });
+        } else {
+          capRejectedCandidates.push({ candidate, item, rejection, recommendation });
+        }
       }
       if (rejectionSamples[rejection.code].length < 3) {
         const repeat = item.suggestion.referenceSourceCardId ? repeatHistory.get(item.suggestion.referenceSourceCardId) : undefined;
@@ -10542,6 +10679,11 @@ function selectPublishableWeeklyDiscoveryShelf(
       continue;
     }
     qualifiedCount += 1;
+    const variantKey = candidateVariantFamilyKey(candidate);
+    if (variantKey && preferredSiblingCandidates.get(variantKey) !== rawCandidate) {
+      siblingFallbackCandidates.push({ candidate, item, recommendation });
+      continue;
+    }
     seenCanonicalIds.add(canonicalId);
     if (item.market.status === 'READY') {
       if (resolvedSelected.length < expectedSize) {
@@ -10603,6 +10745,14 @@ function selectPublishableWeeklyDiscoveryShelf(
   appendStructuralRecoverySelection(
     selected,
     capRejectedCandidates,
+    selectedCanonicalIds,
+    finalSelectionState,
+    expectedSize,
+    capRelaxationSelections
+  );
+  appendSiblingFallbackSelections(
+    selected,
+    siblingFallbackCandidates,
     selectedCanonicalIds,
     finalSelectionState,
     expectedSize,
