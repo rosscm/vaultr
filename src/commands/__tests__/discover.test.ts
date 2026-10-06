@@ -8767,6 +8767,111 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     ]);
   });
 
+  it('continues READY-only structural recovery from 18/14/4 through 20/16/4', () => {
+    const makeItem = (candidate: DiscoveryCandidate, status: 'READY' | 'PENDING') => ({
+      ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!,
+      market: {
+        ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!.market,
+        status
+      }
+    });
+    const selected = publishableShelfCandidates(18).map((candidate, index) => ({
+      candidate,
+      item: makeItem(candidate, index < 14 ? 'READY' : 'PENDING')
+    }));
+    const selectionState = {
+      subjectCounts: new Map([['pikachu', 4], ['moltres', 2]]),
+      familyCounts: new Map<string, number>(),
+      formatCounts: new Map([['e-reader', 4]]),
+      laneCounts: new Map([['Collector Compass', 8]]),
+      exploratoryCount: 6,
+      eraOnlyExploratoryCount: 0,
+      genericFillerCount: 0,
+      eraSetFamilyCounts: new Map<string, number>(),
+      laneCapEnabled: true
+    };
+    const pikachu = collectorProfileCandidate('Pikachu Promo 99', 'promo-99', 100, 'CORE_MATCH', { subjects: ['Pikachu'] });
+    pikachu.suggestion.lane = 'Promo Trail';
+    const moltres = collectorProfileCandidate(
+      'Moltres Skyridge 21/144',
+      'ecard3-21',
+      101,
+      'CONTROLLED_EXPLORATION',
+      { subjects: ['Moltres'], formats: ['e-reader'] }
+    );
+    moltres.suggestion.lane = 'Collector Compass';
+    const capRejected = [
+      {
+        candidate: moltres,
+        item: makeItem(moltres, 'READY'),
+        rejection: { code: 'LANE_SHELF_CAP' as const, matchedKey: 'Collector Compass' },
+        recommendation: { profileHasSignals: true, strength: 'EXPLORATORY' as const, anchors: [], anchoredWhy: 'exploration', isEraOnlyExploratory: false }
+      },
+      {
+        candidate: pikachu,
+        item: makeItem(pikachu, 'READY'),
+        rejection: { code: 'SUBJECT_SHELF_CAP' as const, matchedKey: 'pikachu' },
+        recommendation: { profileHasSignals: true, strength: 'DIRECT_PROFILE' as const, anchors: [], anchoredWhy: 'direct', isEraOnlyExploratory: false }
+      }
+    ];
+    const diagnostics: Parameters<typeof __discoveryPersistenceTestHooks.appendStructuralRecoverySelection>[5] = [];
+
+    __discoveryPersistenceTestHooks.appendStructuralRecoverySelection(
+      selected,
+      capRejected,
+      new Set(selected.map(({ item }) => item.suggestion.referenceSourceCardId!)),
+      selectionState,
+      20,
+      diagnostics
+    );
+
+    expect(selected).toHaveLength(20);
+    expect(selected.filter(({ item }) => item.market.status === 'READY')).toHaveLength(16);
+    expect(selected.filter(({ item }) => item.market.status !== 'READY')).toHaveLength(4);
+    expect(diagnostics.map((entry) => entry.canonicalCardId)).toEqual(['promo-99', 'ecard3-21']);
+    expect(diagnostics.every((entry) => entry.marketStatus === 'READY')).toBe(true);
+  });
+
+  it('completes a 19/15/4 shelf with one additional qualified READY candidate', () => {
+    const candidate = collectorProfileCandidate('Pikachu Promo 99', 'promo-99', 100, 'CORE_MATCH', { subjects: ['Pikachu'] });
+    candidate.suggestion.lane = 'Promo Trail';
+    const item = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!;
+    const selected = publishableShelfCandidates(19).map((selectedCandidate, index) => ({
+      candidate: selectedCandidate,
+      item: {
+        ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([selectedCandidate], 'CAD')[0]!,
+        market: {
+          ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([selectedCandidate], 'CAD')[0]!.market,
+          status: index < 15 ? 'READY' as const : 'PENDING' as const
+        }
+      }
+    }));
+    const diagnostics: Parameters<typeof __discoveryPersistenceTestHooks.appendStructuralRecoverySelection>[5] = [];
+
+    __discoveryPersistenceTestHooks.appendStructuralRecoverySelection(
+      selected,
+      [{
+        candidate,
+        item,
+        rejection: { code: 'SUBJECT_SHELF_CAP', matchedKey: 'pikachu' },
+        recommendation: { profileHasSignals: true, strength: 'DIRECT_PROFILE', anchors: [], anchoredWhy: 'direct', isEraOnlyExploratory: false }
+      }],
+      new Set(selected.map(({ item: selectedItem }) => selectedItem.suggestion.referenceSourceCardId!)),
+      {
+        subjectCounts: new Map([['pikachu', 4]]), familyCounts: new Map(), formatCounts: new Map(), laneCounts: new Map(),
+        exploratoryCount: 0, eraOnlyExploratoryCount: 0, genericFillerCount: 0, eraSetFamilyCounts: new Map(), laneCapEnabled: true
+      },
+      20,
+      diagnostics
+    );
+
+    expect(selected).toHaveLength(20);
+    expect(selected.filter(({ item: selectedItem }) => selectedItem.market.status === 'READY')).toHaveLength(16);
+    expect(selected.filter(({ item: selectedItem }) => selectedItem.market.status !== 'READY')).toHaveLength(4);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ canonicalCardId: 'promo-99', marketStatus: 'READY' });
+  });
+
   it('does not run structural recovery once the 20/15/5 contract is already satisfied', () => {
     const candidates = publishableShelfCandidates(20);
     const selected = candidates.map((candidate, index) => ({

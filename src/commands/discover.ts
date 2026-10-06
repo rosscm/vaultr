@@ -10433,10 +10433,7 @@ function appendStructuralRecoverySelection(
   expectedSize: number,
   capRelaxationSelections: DiscoveryShelfSelectionResult['capRelaxationSelections']
 ): void {
-  while (
-    selected.length < expectedSize
-    && selected.filter((entry) => entry.item.market.status === 'READY').length < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
-  ) {
+  while (selected.length < expectedSize) {
     const plans = capRejectedCandidates
       .filter((entry) => entry.item.market.status === 'READY')
       .filter((entry) => {
