@@ -4387,6 +4387,7 @@ export const __discoveryPersistenceTestHooks = {
   recommendationProfileForCandidate,
   structuralRecoveryPlan,
   appendStructuralRecoverySelection,
+  appendSiblingFallbackSelections,
   recommendationProfileForSelection,
   candidateWithCollectorAnchoredRationale
 };
@@ -10507,8 +10508,12 @@ function appendStructuralRecoverySelection(
   capRelaxationSelections: DiscoveryShelfSelectionResult['capRelaxationSelections']
 ): void {
   while (selected.length < expectedSize) {
+    const readyCount = selected.filter((entry) => entry.item.market.status === 'READY').length;
+    const incompleteCount = selected.length - readyCount;
     const plans = capRejectedCandidates
-      .filter((entry) => entry.item.market.status === 'READY')
+      .filter((entry) => entry.item.market.status === 'READY'
+        || (readyCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
+          && incompleteCount < WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE))
       .filter((entry) => {
         const canonicalId = scheduledItemCanonicalId(entry.item);
         return !!canonicalId && !selectedCanonicalIds.has(canonicalId);
