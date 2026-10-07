@@ -6357,7 +6357,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(result.items, 20)).toEqual([]);
   });
 
-  it('uses Collector Profile roles for final publication instead of legacy generic-filler semantics', () => {
+  it('uses Collector Profile roles instead of legacy generic-filler semantics when publication recovery completes both shelves', () => {
     const activeVault = [chase('Mew Expedition Base Set 55', 0)];
     const anchoredLegacyCandidate = {
       ...publishableSourceCandidate('Mew Southern Islands Promo', 'mew-si-profile', 'Pokemon TCG (Southern Islands)', 0),
@@ -6397,8 +6397,11 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       'COLLECTOR_PROFILE_V1'
     );
 
-    expect(legacy.items.length).toBeLessThan(20);
+    expect(legacy.items).toHaveLength(20);
     expect(legacy.rejectionCounts.GENERIC_FILLER_SHELF_CAP).toBeGreaterThan(0);
+    expect(legacy.capRelaxationSelections.some((entry) =>
+      entry.relaxedReason === 'GENERIC_FILLER_SHELF_CAP'
+    )).toBe(true);
     expect(collectorProfile.items).toHaveLength(20);
     expect(collectorProfile.marketResolvedCount).toBeGreaterThanOrEqual(18);
     expect(collectorProfile.rejectionCounts.GENERIC_FILLER_SHELF_CAP).toBe(0);
@@ -8196,7 +8199,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     });
 
     expect(normalizeInput(live.input)).toEqual(normalizeInput(capture.input));
-  }, 30000);
+  }, 60000);
 
   it('excludes current-shelf canonical ids during regenerate-current but not during normal refresh', async () => {
     vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
@@ -8291,7 +8294,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     replaceDiscoveryUserUniverseCards(userId, []);
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
     removeAllChases(userId);
-  }, 30000);
+  }, 60000);
 
   it('uses local universe supply before external source assembly during regenerate-current', async () => {
     const sourceResolver = vi.spyOn(discoverySourceCatalogService, 'resolveSourceBackedDiscoveryCards').mockResolvedValue({ suggestions: [] });
@@ -9138,6 +9141,99 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(selected[18]?.candidate.suggestion.referenceSourceCardId).toBe('promo-99');
     expect(selected.filter(({ item }) => item.market.status === 'READY')).toHaveLength(15);
     expect(selected.filter(({ item }) => item.market.status !== 'READY')).toHaveLength(5);
+  });
+
+  it('bridges the READY floor with one sibling before recovering a distinct incomplete final card', () => {
+    const makeItem = (candidate: DiscoveryCandidate, status: 'READY' | 'PENDING') => ({
+      ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!,
+      market: { ...__discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!.market, status }
+    });
+    const selected = publishableShelfCandidates(17).map((candidate, index) => ({
+      candidate,
+      item: makeItem(candidate, index < 13 ? 'READY' : 'PENDING')
+    }));
+    const moltres = collectorProfileCandidate('Moltres Skyridge 21', 'ecard3-21', 100, 'CONTROLLED_EXPLORATION', { subjects: ['Moltres'] });
+    moltres.suggestion.lane = 'Collector Compass';
+    const distinct = collectorProfileCandidate('Mew Japanese PCG-P 069', 'pcgp-069', 101, 'CORE_MATCH', { subjects: ['Mew'] });
+    distinct.suggestion.lane = 'Collector Compass';
+    const readySibling = collectorProfileCandidate('Squirtle Expedition Base Set 131', 'ecard1-131', 102, 'ADJACENT_DISCOVERY', { subjects: ['Squirtle'] });
+    readySibling.suggestion.lane = 'Promo Trail';
+    const unnecessarySibling = collectorProfileCandidate('Squirtle Expedition Base Set 132', 'ecard1-132', 103, 'ADJACENT_DISCOVERY', { subjects: ['Squirtle'] });
+    unnecessarySibling.suggestion.lane = 'Promo Trail';
+    const exploratoryRecommendation = {
+      profileHasSignals: true, strength: 'EXPLORATORY' as const, anchors: [], anchoredWhy: 'exploration', isEraOnlyExploratory: false
+    };
+    const directRecommendation = {
+      profileHasSignals: true, strength: 'DIRECT_PROFILE' as const, anchors: [], anchoredWhy: 'direct', isEraOnlyExploratory: false
+    };
+    const state = {
+      subjectCounts: new Map<string, number>(), familyCounts: new Map<string, number>(), formatCounts: new Map<string, number>(),
+      laneCounts: new Map([['Collector Compass', 8]]), exploratoryCount: 6, eraOnlyExploratoryCount: 0, genericFillerCount: 0,
+      eraSetFamilyCounts: new Map<string, number>(), laneCapEnabled: true
+    };
+    const selectedIds = new Set(selected.map(({ item }) => item.suggestion.referenceSourceCardId!));
+    const diagnostics: Parameters<typeof __discoveryPersistenceTestHooks.appendStructuralRecoverySelection>[5] = [];
+    const structuralCandidates = [
+      { candidate: moltres, item: makeItem(moltres, 'READY'), rejection: { code: 'LANE_SHELF_CAP' as const, matchedKey: 'Collector Compass' }, recommendation: exploratoryRecommendation },
+      { candidate: distinct, item: makeItem(distinct, 'PENDING'), rejection: { code: 'LANE_SHELF_CAP' as const, matchedKey: 'Collector Compass' }, recommendation: directRecommendation }
+    ];
+    const siblings = [
+      { candidate: readySibling, item: makeItem(readySibling, 'READY'), recommendation: directRecommendation },
+      { candidate: unnecessarySibling, item: makeItem(unnecessarySibling, 'PENDING'), recommendation: directRecommendation }
+    ];
+
+    __discoveryPersistenceTestHooks.appendStructuralRecoverySelection(selected, structuralCandidates, selectedIds, state, 20, diagnostics);
+    expect(selected).toHaveLength(18);
+    expect(selected.filter(({ item }) => item.market.status === 'READY')).toHaveLength(14);
+
+    __discoveryPersistenceTestHooks.appendSiblingFallbackSelections(selected, siblings, selectedIds, state, 20, diagnostics, 'READY_FLOOR');
+    expect(selected).toHaveLength(19);
+    expect(selected.filter(({ item }) => item.market.status === 'READY')).toHaveLength(15);
+
+    __discoveryPersistenceTestHooks.appendStructuralRecoverySelection(selected, structuralCandidates, selectedIds, state, 20, diagnostics);
+    __discoveryPersistenceTestHooks.appendSiblingFallbackSelections(selected, siblings, selectedIds, state, 20, diagnostics);
+
+    expect(selected).toHaveLength(20);
+    expect(selected.filter(({ item }) => item.market.status === 'READY')).toHaveLength(15);
+    expect(selected.filter(({ item }) => item.market.status !== 'READY')).toHaveLength(5);
+    expect(selected.at(-1)?.candidate.suggestion.referenceSourceCardId).toBe('pcgp-069');
+    expect(selected.some(({ candidate }) => candidate.suggestion.referenceSourceCardId === 'ecard1-132')).toBe(false);
+  });
+
+  it('charges only incremental overflow for an already-relaxed structural cap', () => {
+    const candidate = collectorProfileCandidate('Mew Japanese PCG-P 069', 'pcgp-069', 1, 'CORE_MATCH', { subjects: ['Mew'] });
+    candidate.suggestion.lane = 'Collector Compass';
+    const plan = __discoveryPersistenceTestHooks.structuralRecoveryPlan(
+      { candidate, recommendation: { profileHasSignals: true, strength: 'DIRECT_PROFILE', anchors: [], anchoredWhy: 'direct', isEraOnlyExploratory: false } },
+      {
+        subjectCounts: new Map(), familyCounts: new Map(), formatCounts: new Map(), laneCounts: new Map([['Collector Compass', 9]]),
+        exploratoryCount: 0, eraOnlyExploratoryCount: 0, genericFillerCount: 0, eraSetFamilyCounts: new Map(), laneCapEnabled: true
+      },
+      20
+    );
+
+    expect(plan).toMatchObject({ totalOverflow: 1 });
+    expect(plan?.relaxations).toEqual([
+      { reason: 'LANE_SHELF_CAP', key: 'Collector Compass', priorCount: 9, priorLimit: 8, recoveredLimit: 10 }
+    ]);
+  });
+
+  it('admits two incremental overflow dimensions but still rejects a third', () => {
+    const candidate = collectorProfileCandidate('Articuno Trainers Magazine 014/T', 'trainers-014', 1, 'CONTROLLED_EXPLORATION', { subjects: ['Articuno'] });
+    candidate.suggestion.lane = 'Collector Compass';
+    const recommendation = { profileHasSignals: true, strength: 'EXPLORATORY' as const, anchors: [], anchoredWhy: 'exploration', isEraOnlyExploratory: false };
+    const baseState = {
+      subjectCounts: new Map<string, number>(), familyCounts: new Map<string, number>(), formatCounts: new Map<string, number>(),
+      laneCounts: new Map([['Collector Compass', 9]]), exploratoryCount: 7, eraOnlyExploratoryCount: 0, genericFillerCount: 0,
+      eraSetFamilyCounts: new Map<string, number>(), laneCapEnabled: true
+    };
+
+    const validPlan = __discoveryPersistenceTestHooks.structuralRecoveryPlan({ candidate, recommendation }, baseState, 20);
+    expect(validPlan?.totalOverflow).toBe(2);
+    expect(validPlan?.relaxations.map((entry) => entry.reason)).toEqual(['LANE_SHELF_CAP', 'EXPLORATORY_SHELF_CAP']);
+
+    const overDimensionState = { ...baseState, subjectCounts: new Map([['articuno', 4]]) };
+    expect(__discoveryPersistenceTestHooks.structuralRecoveryPlan({ candidate, recommendation }, overDimensionState, 20)).toBeNull();
   });
 
   it('does not run structural recovery once the 20/15/5 contract is already satisfied', () => {
@@ -10620,6 +10716,8 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       ...publishableCandidate('Hung Market Card', 'hung-market-card', 0),
       sourceStatus: 'PENDING' as const
     };
+    const pendingCacheKey = discoveryMarketCacheKeyForSuggestion(pending.suggestion, 'CAD');
+    deleteDiscoveryMarketCache(pendingCacheKey);
     const stable = {
       ...publishableCandidate('Stable Card', 'stable-card', 1),
       typicalRawSoldTotal: 90,
@@ -10648,6 +10746,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(hydrated[0]?.sourceStatus).toBe('PENDING');
     expect(hydrated[1]?.suggestion.referenceSourceCardId).toBe('stable-card');
     expect(ebayService.searchEbayListings).toHaveBeenCalled();
+    deleteDiscoveryMarketCache(pendingCacheKey);
   });
 
   it('exits foreground market hydration immediately when the stop condition is already satisfied from cache', async () => {

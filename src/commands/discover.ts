@@ -10464,10 +10464,15 @@ function structuralRecoveryPlan(
 ): { relaxations: StructuralCapRelaxation[]; totalOverflow: number } | null {
   let limits = emergencyWeeklyShelfCapLimits(expectedSize);
   const relaxations: StructuralCapRelaxation[] = [];
+  const incrementalOverflow = (relaxation: StructuralCapRelaxation): number => {
+    const existingOverflow = Math.max(0, relaxation.priorCount - relaxation.priorLimit);
+    const resultingOverflow = Math.max(0, relaxation.recoveredLimit - relaxation.priorLimit);
+    return resultingOverflow - existingOverflow;
+  };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const rejection = candidateShelfCapRejection(entry.candidate, selectionState, entry.recommendation, limits);
     if (!rejection) {
-      const totalOverflow = relaxations.reduce((sum, relaxation) => sum + relaxation.recoveredLimit - relaxation.priorLimit, 0);
+      const totalOverflow = relaxations.reduce((sum, relaxation) => sum + incrementalOverflow(relaxation), 0);
       return relaxations.length > 0 && relaxations.length <= 2 && totalOverflow <= 2
         ? { relaxations, totalOverflow }
         : null;
@@ -10488,7 +10493,7 @@ function structuralRecoveryPlan(
     })();
     const recoveredLimit = priorCount + 1;
     relaxations.push({ reason: rejection.code, key: rejection.matchedKey, priorCount, priorLimit, recoveredLimit });
-    if (relaxations.length > 2 || relaxations.reduce((sum, relaxation) => sum + relaxation.recoveredLimit - relaxation.priorLimit, 0) > 2) return null;
+    if (relaxations.length > 2 || relaxations.reduce((sum, relaxation) => sum + incrementalOverflow(relaxation), 0) > 2) return null;
     limits = relaxStructuralCap(limits, rejection, recoveredLimit);
   }
   return null;
@@ -10556,7 +10561,8 @@ function appendSiblingFallbackSelections(
   selectedCanonicalIds: Set<string>,
   finalSelectionState: WeeklyShelfSelectionState,
   expectedSize: number,
-  capRelaxationSelections: DiscoveryShelfSelectionResult['capRelaxationSelections']
+  capRelaxationSelections: DiscoveryShelfSelectionResult['capRelaxationSelections'],
+  mode: 'READY_FLOOR' | 'FINAL' = 'FINAL'
 ): void {
   const orderedFallbacks = [...siblingFallbackCandidates].sort((left, right) =>
     (right.item.market.status === 'READY' ? 1 : 0) - (left.item.market.status === 'READY' ? 1 : 0)
@@ -10566,6 +10572,9 @@ function appendSiblingFallbackSelections(
   );
   for (const entry of orderedFallbacks) {
     if (selected.length >= expectedSize) break;
+    const readyCount = selected.filter((selectedEntry) => selectedEntry.item.market.status === 'READY').length;
+    if (mode === 'READY_FLOOR' && readyCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED) break;
+    if (mode === 'READY_FLOOR' && entry.item.market.status !== 'READY') continue;
     const canonicalId = scheduledItemCanonicalId(entry.item);
     if (!canonicalId || selectedCanonicalIds.has(canonicalId)) continue;
     if (entry.item.market.status !== 'READY'
@@ -10730,7 +10739,11 @@ function selectPublishableWeeklyDiscoveryShelf(
       if (selected.length >= expectedSize) break;
       if (selectedIncompleteCount >= WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) break;
       const recommendation = recommendationProfileForSelection(entry.candidate, collectorAnchorProfile, selectionMode);
-      if (candidateShelfCapRejection(entry.candidate, finalSelectionState, recommendation)) continue;
+      const capRejection = candidateShelfCapRejection(entry.candidate, finalSelectionState, recommendation);
+      if (capRejection) {
+        capRejectedCandidates.push({ ...entry, rejection: capRejection, recommendation });
+        continue;
+      }
       const canonicalId = scheduledItemCanonicalId(entry.item);
       if (!canonicalId || selectedCanonicalIds.has(canonicalId)) continue;
       selected.push(entry);
@@ -10746,6 +10759,23 @@ function selectPublishableWeeklyDiscoveryShelf(
     finalSelectionState,
     expectedSize,
     capRelaxationSelections
+  );
+  appendStructuralRecoverySelection(
+    selected,
+    capRejectedCandidates,
+    selectedCanonicalIds,
+    finalSelectionState,
+    expectedSize,
+    capRelaxationSelections
+  );
+  appendSiblingFallbackSelections(
+    selected,
+    siblingFallbackCandidates,
+    selectedCanonicalIds,
+    finalSelectionState,
+    expectedSize,
+    capRelaxationSelections,
+    'READY_FLOOR'
   );
   appendStructuralRecoverySelection(
     selected,
