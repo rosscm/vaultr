@@ -4998,12 +4998,42 @@ function isExactNicheRetailEReaderCandidate(candidate: DiscoveryCandidate): bool
   return isRetailEReaderDiscoveryCandidate(candidate) && /\b\d{1,3}\s*\/\s*\d{1,3}\b/.test(text);
 }
 
+function hasStructuredNicheJapaneseReleaseIdentity(candidate: DiscoveryCandidate): boolean {
+  const facts = candidate.catalogFacts;
+  if (!facts || facts.language !== 'ja' || facts.verificationStatus !== 'VERIFIED' || !facts.isPromo) return false;
+  const releaseContext = normalize([
+    facts.promoContext,
+    facts.releaseType,
+    facts.releaseEvent
+  ].filter(Boolean).join(' ').replace(/[_-]+/g, ' '));
+  const hasDistinctiveReleaseContext = /\b(?:magazine|campaign|event|distribution|contest|rally|product insert|airline|restaurant|regional|tournament|lottery|corocoro)\b/.test(releaseContext);
+  const promoSeriesIdentity = [
+    facts.setId,
+    facts.setName,
+    facts.translatedSetName,
+    facts.series,
+    facts.cardNumber,
+    facts.promoContext
+  ].filter(Boolean).join(' ').toUpperCase();
+  const hasDistinctivePromoSeries = /(?:^|[\s/])(?:PCG-P|ADV-P|DP-P|DPT-P|L-P|PLAY|PPP|T|P|J)(?=$|[\s/])/.test(promoSeriesIdentity);
+  return hasDistinctiveReleaseContext || hasDistinctivePromoSeries;
+}
+
 function isNicheJapaneseExclusiveDiscoveryCandidate(candidate: DiscoveryCandidate): boolean {
+  if (hasStructuredNicheJapaneseReleaseIdentity(candidate)) return true;
   const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName, candidate.image?.sourceName].filter(Boolean).join(' '));
   return /\bjapanese\b/.test(text) && /\b(?:bulbasaur deck|intro pack|vhs|deck exclusive|exclusive|odd(?:ball)? release)\b/.test(text);
 }
 
 function isExactNicheJapaneseExclusiveCandidate(candidate: DiscoveryCandidate): boolean {
+  if (candidate.catalogFacts) {
+    const reference = candidateCanonicalReference(candidate);
+    const cardNumber = candidate.catalogFacts.cardNumber?.trim() ?? reference?.cardNumber?.trim();
+    return hasStructuredNicheJapaneseReleaseIdentity(candidate)
+      && !!candidate.catalogFacts.sourceCardId.trim()
+      && !!reference?.sourceCardId.trim()
+      && !!cardNumber;
+  }
   const text = normalize([sourceCardText(candidate), candidate.suggestion.lane, candidate.suggestion.referenceSourceName].filter(Boolean).join(' '));
   return isNicheJapaneseExclusiveDiscoveryCandidate(candidate) && /\b(?:no\.?\s*)?0?\d{2,3}\b/.test(text);
 }

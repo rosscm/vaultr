@@ -1229,6 +1229,71 @@ describe('selectVisibleCandidates', () => {
     expect(features.marketEvidence).toBeGreaterThanOrEqual(2);
   });
 
+  it('recognizes verified structured Japanese special releases without source-specific trust', () => {
+    const structuredJapanesePromo = (overrides: {
+      name: string;
+      id: string;
+      cardNumber: string;
+      setName: string;
+      source?: 'CURATED' | 'POKEMONTCG';
+      verificationStatus?: 'VERIFIED' | 'REVIEW';
+      isPromo?: boolean;
+      promoContext?: string;
+      releaseType?: string;
+      releaseEvent?: string;
+    }): DiscoveryCandidate => {
+      const base = publishableCanonicalCandidate(overrides.name, overrides.id, overrides.name, overrides.setName, overrides.cardNumber, 0);
+      const reference = {
+        ...base.suggestion.canonicalReference!,
+        language: 'JAPANESE' as const
+      };
+      return {
+        ...base,
+        catalogFacts: {
+          ...base.catalogFacts!,
+          source: overrides.source ?? 'CURATED',
+          language: 'ja',
+          verificationStatus: overrides.verificationStatus ?? 'VERIFIED',
+          isPromo: overrides.isPromo ?? true,
+          promoContext: overrides.promoContext,
+          releaseType: overrides.releaseType,
+          releaseEvent: overrides.releaseEvent
+        },
+        suggestion: { ...base.suggestion, canonicalReference: reference },
+        weeklyDiscovery: { ...base.weeklyDiscovery!, canonicalReference: reference }
+      };
+    };
+    const pcgPromo = structuredJapanesePromo({
+      name: 'Gardevoir', id: 'pcgp-070', cardNumber: '070/PCG-P', setName: 'PCG-P', promoContext: 'Japanese PCG-P promo series', releaseType: 'pokumon_promo'
+    });
+    const playPromo = structuredJapanesePromo({
+      name: 'Mew', id: 'play-013', cardNumber: '013/PLAY', setName: 'PLAY', source: 'POKEMONTCG', promoContext: 'Japanese PLAY promo series', releaseType: 'pokumon_promo'
+    });
+    const magazinePromo = structuredJapanesePromo({
+      name: 'Articuno', id: 'trainers-014', cardNumber: '014/T', setName: 'T Promos', promoContext: 'Pokemon Card Trainers Magazine T Promos', releaseType: 'Magazine Promo', releaseEvent: 'Pokemon Card Trainers Vol. 18'
+    });
+    const campaignPromo = structuredJapanesePromo({
+      name: 'Pikachu', id: 'campaign-001', cardNumber: '001', setName: 'Japanese Promos', promoContext: 'Regional campaign prize', releaseType: 'special_distribution', releaseEvent: 'Pokemon Center campaign event'
+    });
+    const ordinaryMainSet = structuredJapanesePromo({
+      name: 'Pikachu', id: 'sv8a-033', cardNumber: '033/187', setName: 'Terastal Festival ex', isPromo: false
+    });
+    const ordinaryModernPromo = structuredJapanesePromo({
+      name: 'Pikachu', id: 'svp-101', cardNumber: '101/SV-P', setName: 'SV-P Promos', promoContext: 'Japanese SV-P promo series', releaseType: 'pokumon_promo'
+    });
+    const unverifiedDescriptive = structuredJapanesePromo({
+      name: 'Pikachu Japanese exclusive PCG-P 070', id: 'review-070', cardNumber: '070/PCG-P', setName: 'PCG-P', verificationStatus: 'REVIEW', promoContext: 'Japanese PCG-P promo series'
+    });
+
+    for (const release of [pcgPromo, playPromo, magazinePromo, campaignPromo]) {
+      expect(collectorDiscoveryFeatures(release).nicheExclusiveSignal).toBe(true);
+      expect(collectorDiscoveryFeatures(release).exactNicheIdentity).toBe(true);
+    }
+    expect(collectorDiscoveryFeatures(ordinaryMainSet)).toMatchObject({ nicheExclusiveSignal: false, exactNicheIdentity: false });
+    expect(collectorDiscoveryFeatures(ordinaryModernPromo)).toMatchObject({ nicheExclusiveSignal: false, exactNicheIdentity: false });
+    expect(collectorDiscoveryFeatures(unverifiedDescriptive).exactNicheIdentity).toBe(false);
+  });
+
   it('gives collector-shaped graph signals more rank than ordinary format filler', () => {
     const profile = [
       { id: 'c1', userId: 'u1', cardName: 'Raichu Japanese promo oddball releases', priority: 'GRAIL' as const, createdAt: '2026-06-03T00:00:00.000Z' }
