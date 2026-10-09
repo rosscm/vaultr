@@ -238,7 +238,7 @@ describe('web app static routes', () => {
     expect(appResponse.status).toBe(200);
     expect(appResponse.headers?.['Content-Type']).toBe('text/html; charset=utf-8');
     expect(appResponse.headers?.['Cache-Control']).toBe('no-cache');
-    expect(appResponse.body).toContain('Vaultr App');
+    expect(appResponse.body).toContain('Vaultr | Your Collection, Watched');
     expect(cssResponse.status).toBe(200);
     expect(cssResponse.headers?.['Content-Type']).toBe('text/css; charset=utf-8');
     expect(jsResponse.status).toBe(200);
@@ -246,8 +246,12 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('COMPLETED CHASES');
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
     expect(jsResponse.body).toContain("function pageFromHash(hash = window.location.hash)");
-    expect(jsResponse.body).toContain("if (value === 'vault' || value === 'alerts' || value === 'shelf') return value;");
-    expect(jsResponse.body).toContain("return 'alerts';");
+    expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf') return value;");
+    expect(jsResponse.body).toContain("return 'home';");
+    expect(jsResponse.body).toContain("activePage: 'home'");
+    expect(jsResponse.body).toContain('Welcome back, ${escapeHtml(userDisplayName(state.user))}');
+    expect(jsResponse.body).toContain('Your collection, matches, and discoveries in one place.');
+    expect(jsResponse.body).toContain('Your collection, watched.');
     expect(jsResponse.body).toContain('window.location.hash = nextPage;');
     expect(jsResponse.body).toContain("window.addEventListener('hashchange'");
     expect(jsResponse.body).toContain('await loadActivePageData();');

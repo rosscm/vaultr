@@ -2,10 +2,13 @@ const app = document.querySelector('#app');
 
 const state = {
   user: null,
-  activePage: 'alerts',
+  activePage: 'home',
   priority: 'ALL',
   source: 'ALL',
   alerts: [],
+  alertsLoaded: false,
+  alertsError: null,
+  isAlertsLoading: false,
   nextCursor: null,
   requestId: 0,
   hasCheckedAllAlerts: false,
@@ -96,18 +99,25 @@ function listingTypeLabel(value) {
 
 function pageFromHash(hash = window.location.hash) {
   const value = String(hash || '').replace(/^#/, '').toLowerCase();
-  if (value === 'vault' || value === 'alerts' || value === 'shelf') return value;
-  return 'alerts';
+  if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf') return value;
+  return 'home';
 }
 
 async function loadActivePageData() {
-  if (state.activePage === 'alerts' && !state.alerts.length) await loadAlerts();
+  if (state.activePage === 'home') {
+    await Promise.all([
+      state.vaultLoaded ? Promise.resolve() : loadVault(),
+      state.alertsLoaded ? Promise.resolve() : loadAlerts(),
+      state.shelfLoaded ? Promise.resolve() : loadShelf()
+    ]);
+  }
+  if (state.activePage === 'alerts' && !state.alertsLoaded) await loadAlerts();
   if (state.activePage === 'vault') await loadVault();
   if (state.activePage === 'shelf') await loadShelf();
 }
 
 async function navigateToPage(page, { updateHash = true } = {}) {
-  const nextPage = page === 'vault' || page === 'alerts' || page === 'shelf' ? page : 'alerts';
+  const nextPage = page === 'home' || page === 'vault' || page === 'alerts' || page === 'shelf' ? page : 'home';
   state.activePage = nextPage;
   if (updateHash && window.location.hash !== `#${nextPage}`) {
     window.location.hash = nextPage;
@@ -252,8 +262,8 @@ function signedOutMarkup() {
     <main id="app-main" class="signed-out">
       <section class="signed-out-card" aria-labelledby="signed-out-title">
         <div class="boot-mark" aria-hidden="true"><span>V</span></div>
-        <h1 id="signed-out-title">Your collection is waiting.</h1>
-        <p>Sign in with Discord to open your Vault, see your alerts, and pick up where you left off.</p>
+        <h1 id="signed-out-title">Your collection, watched.</h1>
+        <p>Track the cards you're chasing, review matches, and discover cards picked around your collection.</p>
         <a class="button-primary" href="/auth/discord">Sign in with Discord</a>
       </section>
     </main>
@@ -270,6 +280,7 @@ function shellMarkup(content) {
           <span>Vaultr</span>
         </a>
         <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
+          ${navButton('home', 'Home')}
           ${navButton('vault', 'My Vault')}
           ${navButton('alerts', 'Alerts')}
           ${navButton('shelf', 'Weekly Shelf')}
@@ -294,6 +305,7 @@ function shellMarkup(content) {
         ${content}
       </main>
       <nav class="mobile-nav" aria-label="Vaultr mobile navigation">
+        ${navButton('home', 'Home')}
         ${navButton('vault', 'My Vault')}
         ${navButton('alerts', 'Alerts')}
         ${navButton('shelf', 'Weekly Shelf')}
@@ -311,7 +323,7 @@ function alertsPageMarkup(inner) {
   return `
     <section aria-labelledby="alerts-title">
       <header class="page-header">
-        <p class="eyebrow">Private Alerts</p>
+        <p class="eyebrow">Alerts</p>
         <h1 id="alerts-title">What Vaultr found for your Chases</h1>
         <p>Matches worth a look, based on the cards and filters you saved.</p>
       </header>
@@ -375,7 +387,95 @@ function alertsMarkup() {
   const loadMore = state.nextCursor
     ? `<div class="load-more-row"><button class="button-ghost" type="button" data-action="load-more" ${state.isLoadingMore ? 'disabled' : ''}>${state.isLoadingMore ? 'Loading...' : 'Load more'}</button></div>`
     : '';
-  return alertsPageMarkup(`<div class="alert-list" aria-label="Private alerts">${list}</div>${loadMore}`);
+  return alertsPageMarkup(`<div class="alert-list" aria-label="Alerts">${list}</div>${loadMore}`);
+}
+
+function homeAlertPreviewMarkup(alert) {
+  const price = formatMoney(alert.listingPrice, alert.listingCurrency);
+  return `
+    <li class="home-preview-row">
+      <div>
+        <strong>${escapeHtml(alert.chaseName || 'Saved Chase')}</strong>
+        <span>${escapeHtml(alert.listingTitle || sourceLabel(alert.source))}</span>
+      </div>
+      ${price ? `<span class="home-preview-value">${escapeHtml(price)}</span>` : ''}
+    </li>
+  `;
+}
+
+function homeShelfPreviewMarkup(item) {
+  return `
+    <li class="home-shelf-pick">
+      ${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="" loading="lazy" data-home-shelf-image>` : '<span class="home-shelf-placeholder" aria-hidden="true">V</span>'}
+      <strong>${escapeHtml(item.name || 'Weekly Shelf pick')}</strong>
+    </li>
+  `;
+}
+
+function homePageMarkup() {
+  const activeChases = state.vaultPlan?.activeCount ?? state.vault.length;
+  const alertPreview = state.alerts.slice(0, 3);
+  const shelfItems = state.shelf?.items || [];
+  const shelfCount = state.shelf?.itemCount ?? shelfItems.length;
+  const shelfReady = shelfItems.length > 0;
+
+  return `
+    <section class="home-page" aria-labelledby="home-title">
+      <header class="page-header home-header">
+        <p class="eyebrow">HOME</p>
+        <h1 id="home-title">Welcome back, ${escapeHtml(userDisplayName(state.user))}</h1>
+        <p>Your collection, matches, and discoveries in one place.</p>
+      </header>
+      <div class="home-grid">
+        <section class="home-panel home-vault-panel" aria-labelledby="home-vault-title">
+          <div class="home-panel-heading">
+            <div>
+              <p class="eyebrow">MY VAULT</p>
+              <h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Vault...' : `${escapeHtml(activeChases)} active ${activeChases === 1 ? 'Chase' : 'Chases'}`}</h2>
+            </div>
+            ${state.vaultPlan ? `<span class="home-plan-label">${escapeHtml(planLabel(state.vaultPlan.tier))}</span>` : ''}
+          </div>
+          <p>${state.vaultError ? "Your Vault couldn't be loaded right now." : activeChases ? 'The cards Vaultr is actively watching for you.' : 'Add a card to start building your collection watchlist.'}</p>
+          <div class="home-actions">
+            <button class="button-primary" type="button" data-page="vault">View My Vault</button>
+            <button class="button-ghost" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add Chase</button>
+          </div>
+        </section>
+
+        <section class="home-panel" aria-labelledby="home-alerts-title">
+          <div class="home-panel-heading">
+            <div>
+              <p class="eyebrow">ALERTS</p>
+              <h2 id="home-alerts-title">${state.isAlertsLoading ? 'Checking matches...' : `${state.alerts.length} recent ${state.alerts.length === 1 ? 'match' : 'matches'}`}</h2>
+            </div>
+          </div>
+          ${state.alertsError
+            ? '<p>Alerts could not be loaded right now.</p>'
+            : alertPreview.length
+              ? `<ul class="home-preview-list">${alertPreview.map(homeAlertPreviewMarkup).join('')}</ul>`
+              : `<p>${state.alertsLoaded ? 'New matches will appear here when Vaultr finds them.' : 'Loading your latest matches...'}</p>`}
+          <button class="home-text-link" type="button" data-page="alerts">View Alerts</button>
+        </section>
+
+        <section class="home-panel home-shelf-panel" aria-labelledby="home-shelf-title">
+          <div class="home-panel-heading">
+            <div>
+              <p class="eyebrow">WEEKLY SHELF</p>
+              <h2 id="home-shelf-title">${state.isShelfLoading ? 'Opening your Shelf...' : shelfReady ? `${escapeHtml(shelfCount)} collector picks` : 'Your next Shelf is brewing'}</h2>
+            </div>
+            ${shelfReady && state.shelf.marketReadyCount !== undefined ? `<span class="home-plan-label">${escapeHtml(state.shelf.marketReadyCount)} priced</span>` : ''}
+          </div>
+          ${state.shelfError
+            ? '<p>Your Weekly Shelf could not be loaded right now.</p>'
+            : shelfReady
+              ? `<ul class="home-shelf-preview">${shelfItems.slice(0, 3).map(homeShelfPreviewMarkup).join('')}</ul>`
+              : `<p>${state.shelfLoaded ? 'Personalized picks will appear when your next shelf is prepared.' : 'Loading your latest collector picks...'}</p>`}
+          <button class="home-text-link" type="button" data-page="shelf">View Weekly Shelf</button>
+        </section>
+      </div>
+      ${vaultDialogMarkup()}
+    </section>
+  `;
 }
 
 function alertCardMarkup(alert) {
@@ -798,6 +898,10 @@ function renderCurrentPage() {
     renderSignedOut();
     return;
   }
+  if (state.activePage === 'home') {
+    renderShell(homePageMarkup());
+    return;
+  }
   if (state.activePage === 'vault') {
     renderShell(vaultPageMarkup());
     return;
@@ -846,7 +950,10 @@ async function loadAlerts({ append = false } = {}) {
     state.alerts = [];
     state.nextCursor = null;
     state.hasCheckedAllAlerts = false;
-    renderShell(skeletonMarkup());
+    state.isAlertsLoading = true;
+    state.alertsError = null;
+    if (state.activePage === 'alerts') renderShell(skeletonMarkup());
+    else renderCurrentPage();
   } else {
     state.isLoadingMore = true;
     renderCurrentPage();
@@ -856,6 +963,9 @@ async function loadAlerts({ append = false } = {}) {
     const body = await fetchJson(alertQuery(append ? state.nextCursor : null));
     if (requestId !== state.requestId) return;
     state.alerts = append ? state.alerts.concat(body.items || []) : body.items || [];
+    state.alertsLoaded = true;
+    state.alertsError = null;
+    state.isAlertsLoading = false;
     state.nextCursor = body.nextCursor || null;
     state.isLoadingMore = false;
     if (state.priority !== 'ALL' || state.source !== 'ALL') {
@@ -866,7 +976,13 @@ async function loadAlerts({ append = false } = {}) {
     if (String(error?.message) === 'unauthorized') return;
     if (requestId !== state.requestId) return;
     state.isLoadingMore = false;
-    renderShell(alertsPageMarkup(statePanelMarkup("Couldn't load your alerts.", 'Try again when you are ready.', 'Try again')));
+    state.isAlertsLoading = false;
+    state.alertsError = 'load_failed';
+    if (state.activePage === 'alerts') {
+      renderShell(alertsPageMarkup(statePanelMarkup("Couldn't load your alerts.", 'Try again when you are ready.', 'Try again')));
+    } else {
+      renderCurrentPage();
+    }
   }
 }
 
@@ -1067,7 +1183,7 @@ async function bootstrap() {
     const body = await fetchJson('/api/me');
     state.user = body.user;
     state.activePage = pageFromHash();
-    renderShell(skeletonMarkup());
+    renderCurrentPage();
     await loadActivePageData();
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
@@ -1247,6 +1363,12 @@ app.addEventListener(
       card?.classList.remove('has-image');
       card?.classList.add('no-image');
       target.remove();
+    } else if (target instanceof HTMLImageElement && target.matches('[data-home-shelf-image]')) {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'home-shelf-placeholder';
+      placeholder.setAttribute('aria-hidden', 'true');
+      placeholder.textContent = 'V';
+      target.replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-vault-card-image], [data-shelf-card-image]')) {
       const placeholder = document.createElement('div');
       placeholder.className = `${target.matches('[data-shelf-card-image]') ? 'shelf-card-image' : 'vault-card-image'} placeholder-image`;
