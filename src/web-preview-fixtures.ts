@@ -14,7 +14,15 @@ const images = {
   gardevoir: 'https://images.pokemontcg.io/sv4pt5/233_hires.png',
   pichu: 'https://images.pokemontcg.io/ecard1/22_hires.png',
   pikachu: 'https://images.pokemontcg.io/xyp/XY95_hires.png',
-  articuno: 'https://images.pokemontcg.io/smp/SM144_hires.png'
+  articuno: 'https://images.pokemontcg.io/smp/SM144_hires.png',
+  mewVmax: 'https://images.pokemontcg.io/swsh11tg/TG30_hires.png',
+  umbreonV: 'https://images.pokemontcg.io/swsh9tg/TG22_hires.png',
+  zapdosAquapolis: 'https://images.pokemontcg.io/ecard2/H32_hires.png',
+  dragonair: 'https://images.pokemontcg.io/sv3pt5/181_hires.png',
+  moltresPromo: 'https://images.pokemontcg.io/basep/21_hires.png',
+  pikachuSkyridge: 'https://images.pokemontcg.io/ecard3/84_hires.png',
+  celebi: 'https://images.pokemontcg.io/neo3/3_hires.png',
+  raikou: 'https://images.pokemontcg.io/crz/GG41_hires.png'
 };
 
 export const WEB_PREVIEW_ME = {
@@ -62,26 +70,35 @@ export const WEB_PREVIEW_CHASES = {
 };
 
 export const WEB_PREVIEW_ALERTS = [
-  { alertId: 'preview-alert-1', chaseId: 'preview-mew', chaseName: 'Mew-EX Legendary Treasures RC24', chasePriority: 'GRAIL', listingTitle: 'Mew EX RC24 Legendary Treasures Near Mint', listingPrice: 118, listingCurrency: 'CAD', priceDelta: -27, listingUrl: 'https://www.ebay.ca/', matchScore: 96, source: 'EBAY', imageUrl: images.mew, createdAt: '2026-10-09T14:35:00.000Z' },
-  { alertId: 'preview-alert-2', chaseId: 'preview-umbreon', chaseName: 'Umbreon VMAX Brilliant Stars TG23', chasePriority: 'HIGH', listingTitle: 'Umbreon VMAX TG23 PSA 10', listingPrice: 64, listingCurrency: 'CAD', priceDelta: -6, listingUrl: 'https://example.com/preview-shop', matchScore: 91, source: 'SHOPIFY', imageUrl: images.umbreon, createdAt: '2026-10-09T11:15:00.000Z' },
-  { alertId: 'preview-alert-3', chaseId: 'preview-squirtle', chaseName: 'Squirtle 151 170/165', chasePriority: 'NORMAL', listingTitle: 'Squirtle Illustration Rare 170/165 Raw', listingPrice: 35, listingCurrency: 'CAD', priceDelta: -7, listingUrl: 'https://www.ebay.ca/', matchScore: 88, source: 'EBAY', imageUrl: images.squirtle, createdAt: '2026-10-08T18:20:00.000Z' },
-  { alertId: 'preview-alert-4', chaseId: 'preview-gardevoir', chaseName: 'Gardevoir ex Paldean Fates 233/091', chasePriority: 'NORMAL', listingTitle: 'Gardevoir ex Special Illustration Rare', listingPrice: 79, listingCurrency: 'CAD', priceDelta: -6, listingUrl: 'https://example.com/preview-shop', matchScore: 84, source: 'SHOPIFY', imageUrl: images.gardevoir, createdAt: '2026-10-07T16:05:00.000Z' },
-  { alertId: 'preview-alert-5', chaseId: 'preview-pikachu', chaseName: 'Pikachu XY Black Star Promos XY95', chasePriority: 'GRAIL', listingTitle: 'Pikachu XY95 Promo PSA 9', listingPrice: 105, listingCurrency: 'CAD', priceDelta: -15, listingUrl: 'https://www.ebay.ca/', matchScore: 93, source: 'EBAY', imageUrl: images.pikachu, createdAt: '2026-10-06T13:40:00.000Z' }
+  { alertId: 'preview-alert-1', chaseId: 'preview-mew', chaseName: 'Mew-EX Legendary Treasures RC24', chasePriority: 'GRAIL', listingTitle: 'Mew EX RC24 Legendary Treasures Near Mint', listingPrice: 118, listingCurrency: 'CAD', priceDelta: 27, listingUrl: 'https://www.ebay.ca/', matchScore: 96, source: 'EBAY', imageUrl: images.mew, createdAt: '2026-10-09T14:35:00.000Z' },
+  { alertId: 'preview-alert-2', chaseId: 'preview-umbreon', chaseName: 'Umbreon VMAX Brilliant Stars TG23', chasePriority: 'HIGH', listingTitle: 'Umbreon VMAX TG23 PSA 10', listingPrice: 64, listingCurrency: 'CAD', priceDelta: 6, listingUrl: 'https://example.com/preview-shop', matchScore: 91, source: 'SHOPIFY', imageUrl: images.umbreon, createdAt: '2026-10-09T11:15:00.000Z' },
+  { alertId: 'preview-alert-3', chaseId: 'preview-squirtle', chaseName: 'Squirtle 151 170/165', chasePriority: 'NORMAL', listingTitle: 'Squirtle Illustration Rare 170/165 Raw', listingPrice: 35, listingCurrency: 'CAD', priceDelta: 7, listingUrl: 'https://www.ebay.ca/', matchScore: 88, source: 'EBAY', imageUrl: images.squirtle, createdAt: '2026-10-08T18:20:00.000Z' },
+  { alertId: 'preview-alert-4', chaseId: 'preview-gardevoir', chaseName: 'Gardevoir ex Paldean Fates 233/091', chasePriority: 'NORMAL', listingTitle: 'Gardevoir ex Special Illustration Rare', listingPrice: 79, listingCurrency: 'CAD', priceDelta: 6, listingUrl: 'https://example.com/preview-shop', matchScore: 84, source: 'SHOPIFY', imageUrl: images.gardevoir, createdAt: '2026-10-07T16:05:00.000Z' },
+  { alertId: 'preview-alert-5', chaseId: 'preview-pikachu', chaseName: 'Pikachu XY Black Star Promos XY95', chasePriority: 'GRAIL', listingTitle: 'Pikachu XY95 Promo PSA 9', listingPrice: 105, listingCurrency: 'CAD', priceDelta: 15, listingUrl: 'https://www.ebay.ca/', matchScore: 93, source: 'EBAY', imageUrl: images.pikachu, createdAt: '2026-10-06T13:40:00.000Z' }
+];
+
+export const WEB_PREVIEW_AUTOCOMPLETE = [
+  { name: 'Mew VMAX', value: 'Mew VMAX Lost Origin Trainer Gallery TG30' },
+  { name: 'Umbreon V', value: 'Umbreon V Brilliant Stars Trainer Gallery TG22' },
+  { name: 'Zapdos', value: 'Zapdos Aquapolis H32/H32' },
+  { name: 'Dragonair', value: 'Dragonair 151 181/165' },
+  { name: 'Moltres', value: 'Moltres Wizards Black Star Promos 21' },
+  { name: 'Gardevoir', value: 'Gardevoir Japanese PCG-P 070/PCG-P' }
 ];
 
 const shelfCards = [
-  ['Mew-EX Legendary Treasures RC24', images.mew, 'Legendary Treasures', 'ENGLISH', 'Collector Match', 'A radiant Mew printing connected to the character and artwork signals in your Vault.', 128, 'READY'],
-  ['Umbreon VMAX Brilliant Stars TG23', images.umbreon, 'Brilliant Stars', 'ENGLISH', 'Collector Thread', 'Builds on your Umbreon Chase with a distinct Trainer Gallery treatment.', 66, 'READY'],
-  ['Pichu Expedition Base Set 22/165', images.pichu, 'Expedition Base Set', 'ENGLISH', 'Release Trail', 'An e-reader holo that follows the vintage texture already present in your collection.', 235, 'READY'],
-  ['Squirtle 151 170/165', images.squirtle, '151', 'ENGLISH', 'Collector Match', 'Keeps your Squirtle interest while exploring a modern illustration rare.', 39, 'READY'],
-  ['Gardevoir ex Paldean Fates 233/091', images.gardevoir, 'Paldean Fates', 'ENGLISH', 'Collector Trail', 'A nearby Gardevoir printing with the illustrated treatment your Vault favors.', 82, 'READY'],
-  ['Dragonite VSTAR Pokemon GO 076/078', images.dragonite, 'Pokemon GO', 'ENGLISH', 'Collector Trail', 'A full-art Dragonite adjacent to the modern textured cards you chase.', 42, 'READY'],
-  ['Pikachu XY Black Star Promos XY95', images.pikachu, 'XY Black Star Promos', 'ENGLISH', 'Release Trail', 'A distinctive promo that connects to your preference for standalone releases.', 112, 'READY'],
-  ['Articuno-GX SM Black Star Promos SM144', images.articuno, 'SM Black Star Promos', 'ENGLISH', 'Release Trail', 'A promo-era legendary bird with a different composition from your current cards.', 34, 'READY'],
-  ['Mew Japanese PCG-P 019/PCG-P', images.mew, 'PCG-P Promos', 'JAPANESE', 'Release Trail', 'A Japanese campaign printing grounded in your repeated Mew and promo interests.', 74, 'READY'],
-  ['Pikachu Japanese PLAY 005/PLAY', images.pikachu, 'PLAY Promos', 'JAPANESE', 'Collector Thread', 'Explores a documented Japanese PLAY release beside your existing Pikachu promo.', 0, 'THIN'],
-  ['Articuno Trainers Magazine 014/T', images.articuno, 'T Promos', 'JAPANESE', 'Release Trail', 'A Trainers Magazine release that broadens your Japanese promotional thread.', 0, 'MISSING'],
-  ['Gardevoir Japanese PCG-P 070/PCG-P', images.gardevoir, 'PCG-P Promos', 'JAPANESE', 'Collector Trail', 'Carries your Gardevoir interest into a source-backed Japanese promo printing.', 58, 'READY']
+  ['Mew VMAX Lost Origin TG30', images.mewVmax, 'Lost Origin', 'ENGLISH', 'Collector Match', 'Follows your Mew interest into a different textured Trainer Gallery printing.', 48, 'READY'],
+  ['Umbreon V Brilliant Stars TG22', images.umbreonV, 'Brilliant Stars', 'ENGLISH', 'Collector Thread', 'Keeps the Umbreon thread while moving to a distinct single-prize gallery card.', 44, 'READY'],
+  ['Zapdos Aquapolis H32/H32', images.zapdosAquapolis, 'Aquapolis', 'ENGLISH', 'Release Trail', 'An e-reader holo that connects vintage texture with your interest in standout artwork.', 195, 'READY'],
+  ['Dragonair 151 181/165', images.dragonair, '151', 'ENGLISH', 'Collector Trail', 'Explores Dragonite family artwork through a quieter modern illustration rare.', 31, 'READY'],
+  ['Moltres Wizards Black Star Promos 21', images.moltresPromo, 'Wizards Black Star Promos', 'ENGLISH', 'Release Trail', 'A vintage promotional release that broadens your interest in distinctive standalone cards.', 46, 'READY'],
+  ['Pikachu Skyridge 84/144', images.pikachuSkyridge, 'Skyridge', 'ENGLISH', 'Collector Match', 'Pairs your Pikachu promo interest with a very different e-reader-era illustration.', 96, 'READY'],
+  ['Celebi Neo Revelation 3/64', images.celebi, 'Neo Revelation', 'ENGLISH', 'Collector Trail', 'A vintage holo with the soft illustrated character treatment seen across your saved cards.', 88, 'READY'],
+  ['Raikou V Crown Zenith GG41/GG70', images.raikou, 'Crown Zenith', 'ENGLISH', 'Collector Trail', 'A modern gallery card that explores the legendary theme without repeating a current Chase.', 29, 'READY'],
+  ['Mew Japanese PCG-P 019/PCG-P', undefined, 'PCG-P Promos', 'JAPANESE', 'Release Trail', 'A Japanese campaign printing grounded in your repeated Mew and promo interests.', 74, 'READY'],
+  ['Pikachu Japanese PLAY 005/PLAY', undefined, 'PLAY Promos', 'JAPANESE', 'Collector Thread', 'Explores a documented Japanese PLAY release beside your existing Pikachu promo.', 0, 'THIN'],
+  ['Articuno Trainers Magazine 014/T', undefined, 'T Promos', 'JAPANESE', 'Release Trail', 'A Trainers Magazine release that broadens your Japanese promotional thread.', 0, 'MISSING'],
+  ['Gardevoir Japanese PCG-P 070/PCG-P', undefined, 'PCG-P Promos', 'JAPANESE', 'Collector Trail', 'Carries your Gardevoir interest into a source-backed Japanese promo printing.', 58, 'READY']
 ] as const;
 
 export const WEB_PREVIEW_SHELF = {
@@ -94,7 +111,7 @@ export const WEB_PREVIEW_SHELF = {
   updatedAt: '2026-10-05T12:30:00.000Z',
   itemCount: shelfCards.length,
   marketReadyCount: shelfCards.filter((card) => card[7] === 'READY').length,
-  imageReadyCount: shelfCards.length,
+  imageReadyCount: shelfCards.filter((card) => !!card[1]).length,
   currency: 'CAD',
   items: shelfCards.map(([name, imageUrl, setName, language, signalLabel, reason, price, status], index) => ({
     position: index + 1,

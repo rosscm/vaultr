@@ -49,7 +49,7 @@ import {
   resolveOrCreateDiscordUser
 } from './services/accounts.js';
 import type { AlertHistoryCursor, AlertHistoryItem, ListingSource } from './types.js';
-import { WEB_PREVIEW_ALERTS, WEB_PREVIEW_CHASES, WEB_PREVIEW_ME, WEB_PREVIEW_SHELF } from './web-preview-fixtures.js';
+import { WEB_PREVIEW_ALERTS, WEB_PREVIEW_AUTOCOMPLETE, WEB_PREVIEW_CHASES, WEB_PREVIEW_ME, WEB_PREVIEW_SHELF } from './web-preview-fixtures.js';
 
 const DISCORD_AUTHORIZE_URL = 'https://discord.com/oauth2/authorize';
 const DISCORD_TOKEN_URL = 'https://discord.com/api/oauth2/token';
@@ -480,6 +480,15 @@ function previewResponse(method: string, url: URL): WebResponse | null {
   if (method !== 'GET') return errorResponse(405, 'preview_read_only', { Allow: 'GET' });
   if (url.pathname === '/api/preview/me') return jsonResponse(200, WEB_PREVIEW_ME);
   if (url.pathname === '/api/preview/chases') return jsonResponse(200, WEB_PREVIEW_CHASES);
+  if (url.pathname === '/api/preview/chases/autocomplete') {
+    const query = url.searchParams.get('q') ?? '';
+    if (query.length > 100) return errorResponse(400, 'invalid_query');
+    const normalized = query.trim().toLowerCase();
+    const items = normalized.length < 2
+      ? []
+      : WEB_PREVIEW_AUTOCOMPLETE.filter((item) => `${item.name} ${item.value}`.toLowerCase().includes(normalized)).slice(0, 25);
+    return jsonResponse(200, { items, unavailable: false, stale: false });
+  }
   if (url.pathname === '/api/preview/shelf') return jsonResponse(200, WEB_PREVIEW_SHELF);
   if (url.pathname === '/api/preview/alerts') {
     const priority = url.searchParams.get('priority');

@@ -1,5 +1,6 @@
 const app = document.querySelector('#app');
 const isPreviewMode = window.location.pathname === '/preview' || window.location.pathname === '/preview/';
+const appHomePath = isPreviewMode ? '/preview' : '/app';
 
 function apiUrl(url) {
   if (!isPreviewMode || !url.startsWith('/api/')) return url;
@@ -124,13 +125,24 @@ async function loadActivePageData() {
 
 async function navigateToPage(page, { updateHash = true } = {}) {
   const nextPage = page === 'home' || page === 'vault' || page === 'alerts' || page === 'shelf' ? page : 'home';
-  state.activePage = nextPage;
   if (updateHash && window.location.hash !== `#${nextPage}`) {
     window.location.hash = nextPage;
     return;
   }
+  const pageChanged = state.activePage !== nextPage;
+  state.activePage = nextPage;
   renderCurrentPage();
   await loadActivePageData();
+  if (pageChanged) resetViewportForPage(nextPage);
+}
+
+function resetViewportForPage(page) {
+  const heading = document.querySelector(`#${page}-title`);
+  if (heading instanceof HTMLElement) {
+    heading.setAttribute('tabindex', '-1');
+    heading.focus({ preventScroll: true });
+  }
+  window.scrollTo(0, 0);
 }
 
 function gradeToChoices(grade) {
@@ -281,7 +293,7 @@ function shellMarkup(content) {
   return `
     <div class="app-shell">
       <aside class="app-sidebar">
-        <a class="brand" href="/app" aria-label="Vaultr app">
+        <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span>Vaultr</span>
         </a>
@@ -298,7 +310,7 @@ function shellMarkup(content) {
         </div>
       </aside>
       <header class="mobile-header">
-        <a class="brand" href="/app" aria-label="Vaultr app">
+        <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span>Vaultr</span>
         </a>
@@ -338,7 +350,7 @@ function alertsPageMarkup(inner) {
           ${priorityButton('ALL', 'All')}
           ${priorityButton('GRAIL', 'Grail')}
           ${priorityButton('HIGH', 'High')}
-          ${priorityButton('NORMAL', 'Normal')}
+          ${priorityButton('NORMAL', 'Casual')}
         </div>
         <label>
           <span class="visually-hidden">Alert source</span>
@@ -384,7 +396,8 @@ function alertsMarkup() {
       return alertsPageMarkup(statePanelMarkup('Nothing here yet.', "When Vaultr finds a match for one of your Chases, it'll show up here."));
     }
     if (state.priority !== 'ALL') {
-      return alertsPageMarkup(statePanelMarkup(`No ${state.priority === 'GRAIL' ? 'Grail' : state.priority.toLowerCase()} alerts yet.`, 'Try another priority or check back after Vaultr finds a new match.'));
+      const filteredPriority = state.priority === 'GRAIL' ? 'Grail' : state.priority === 'NORMAL' ? 'Casual' : 'High';
+      return alertsPageMarkup(statePanelMarkup(`No ${filteredPriority} alerts yet.`, 'Try another priority or check back after Vaultr finds a new match.'));
     }
     return alertsPageMarkup(statePanelMarkup('No alerts for this source yet.', 'Try another source or check back after Vaultr finds a new match.'));
   }
@@ -752,7 +765,7 @@ function shelfCardMarkup(item) {
   const priceLabel = item.market?.askingTotal !== undefined ? 'Market' : item.market?.soldTotal !== undefined ? 'Sold' : '';
   return `
     <article class="shelf-card">
-      ${item.imageUrl ? `<img class="shelf-card-image" src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)} card image" loading="lazy" data-shelf-card-image>` : `<div class="shelf-card-image placeholder-image" aria-hidden="true">V</div>`}
+      ${item.imageUrl ? `<img class="shelf-card-image" src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)} card image" loading="lazy" data-shelf-card-image>` : '<div class="shelf-card-image placeholder-image shelf-image-unavailable"><span>Image unavailable</span></div>'}
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
           ${item.signalLabel ? `<span class="source-pill">${escapeHtml(item.signalLabel)}</span>` : ''}
@@ -1398,7 +1411,8 @@ app.addEventListener(
       const placeholder = document.createElement('div');
       placeholder.className = `${target.matches('[data-shelf-card-image]') ? 'shelf-card-image' : 'vault-card-image'} placeholder-image`;
       placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.textContent = 'V';
+      placeholder.textContent = target.matches('[data-shelf-card-image]') ? 'Image unavailable' : 'V';
+      if (target.matches('[data-shelf-card-image]')) placeholder.classList.add('shelf-image-unavailable');
       target.replaceWith(placeholder);
     }
   },

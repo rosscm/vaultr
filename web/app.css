@@ -1048,6 +1048,18 @@ a {
   font-weight: 850;
 }
 
+.shelf-image-unavailable {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.page-header h1[tabindex="-1"]:focus {
+  outline: none;
+}
+
 .vault-card-body {
   min-width: 0;
 }

@@ -255,6 +255,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("const isPreviewMode = window.location.pathname === '/preview'");
     expect(jsResponse.body).toContain("return `/api/preview/${url.slice('/api/'.length)}`;");
     expect(jsResponse.body).toContain('Preview mode is read-only. No changes were saved.');
+    expect(jsResponse.body).toContain("const appHomePath = isPreviewMode ? '/preview' : '/app';");
+    expect(jsResponse.body).toContain("priorityButton('NORMAL', 'Casual')");
+    expect(jsResponse.body).toContain('if (pageChanged) resetViewportForPage(nextPage);');
+    expect(jsResponse.body).toContain('window.scrollTo(0, 0);');
     expect(jsResponse.body).toContain('window.location.hash = nextPage;');
     expect(jsResponse.body).toContain("window.addEventListener('hashchange'");
     expect(jsResponse.body).toContain('await loadActivePageData();');
@@ -306,8 +310,37 @@ describe('web app preview mode', () => {
     expect(JSON.parse(me.body ?? '{}')).toMatchObject({ user: { id: 'preview-user', displayName: 'Catherine Preview' }, preview: true });
     expect(JSON.parse(vault.body ?? '{}').items.length).toBeGreaterThanOrEqual(6);
     expect(JSON.parse(vault.body ?? '{}').completedItems).toHaveLength(1);
-    expect(JSON.parse(alerts.body ?? '{}').items.length).toBeGreaterThanOrEqual(4);
-    expect(JSON.parse(shelf.body ?? '{}')).toMatchObject({ status: 'READY', itemCount: 12, marketReadyCount: 10 });
+    const previewVault = JSON.parse(vault.body ?? '{}');
+    const previewAlerts = JSON.parse(alerts.body ?? '{}');
+    const previewShelf = JSON.parse(shelf.body ?? '{}');
+    expect(previewAlerts.items.length).toBeGreaterThanOrEqual(4);
+    expect(previewAlerts.items.map((item: { priceDelta: number }) => item.priceDelta)).toEqual([27, 6, 7, 6, 15]);
+    expect(previewShelf).toMatchObject({ status: 'READY', itemCount: 12, marketReadyCount: 10, imageReadyCount: 8 });
+    const chaseNames = new Set([
+      ...previewVault.items.map((item: { chase: { cardName: string } }) => item.chase.cardName),
+      ...previewVault.completedItems.map((item: { cardName: string }) => item.cardName)
+    ]);
+    expect(previewShelf.items.filter((item: { name: string }) => chaseNames.has(item.name))).toHaveLength(0);
+    expect(previewShelf.items.filter((item: { language: string }) => item.language === 'JAPANESE').every((item: { imageUrl?: string }) => !item.imageUrl)).toBe(true);
+  });
+
+  it('serves bounded in-memory autocomplete choices for preview forms', async () => {
+    const response = await handleWebRequest(
+      { method: 'GET', url: '/api/preview/chases/autocomplete?q=umbreon' },
+      { config: previewConfig }
+    );
+    const malformed = await handleWebRequest(
+      { method: 'GET', url: `/api/preview/chases/autocomplete?q=${'x'.repeat(101)}` },
+      { config: previewConfig }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body ?? '{}')).toEqual({
+      items: [{ name: 'Umbreon V', value: 'Umbreon V Brilliant Stars Trainer Gallery TG22' }],
+      unavailable: false,
+      stale: false
+    });
+    expect(malformed.status).toBe(400);
   });
 
   it('supports fixture alert filters without accepting a user selector', async () => {
