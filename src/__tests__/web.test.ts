@@ -252,6 +252,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Welcome back, ${escapeHtml(userDisplayName(state.user))}');
     expect(jsResponse.body).toContain('Your collection, matches, and discoveries in one place.');
     expect(jsResponse.body).toContain('Your collection, watched.');
+    expect(jsResponse.body).toContain("const isPreviewMode = window.location.pathname === '/preview'");
+    expect(jsResponse.body).toContain("return `/api/preview/${url.slice('/api/'.length)}`;");
+    expect(jsResponse.body).toContain('Preview mode is read-only. No changes were saved.');
     expect(jsResponse.body).toContain('window.location.hash = nextPage;');
     expect(jsResponse.body).toContain("window.addEventListener('hashchange'");
     expect(jsResponse.body).toContain('await loadActivePageData();');
@@ -277,6 +280,74 @@ describe('web app static routes', () => {
 
     expect(missing.status).toBe(404);
     expect(traversal.status).toBe(404);
+  });
+});
+
+describe('web app preview mode', () => {
+  const previewConfig: WebConfig = { ...config, previewEnabled: true };
+
+  it('hides preview routes unless explicitly enabled', async () => {
+    const page = await handleWebRequest({ method: 'GET', url: '/preview' }, { config });
+    const api = await handleWebRequest({ method: 'GET', url: '/api/preview/me' }, { config });
+
+    expect(page.status).toBe(404);
+    expect(api.status).toBe(404);
+  });
+
+  it('serves the shared app and fixture APIs without a session when enabled', async () => {
+    const page = await handleWebRequest({ method: 'GET', url: '/preview/' }, { config: previewConfig });
+    const me = await handleWebRequest({ method: 'GET', url: '/api/preview/me' }, { config: previewConfig });
+    const vault = await handleWebRequest({ method: 'GET', url: '/api/preview/chases' }, { config: previewConfig });
+    const alerts = await handleWebRequest({ method: 'GET', url: '/api/preview/alerts' }, { config: previewConfig });
+    const shelf = await handleWebRequest({ method: 'GET', url: '/api/preview/shelf' }, { config: previewConfig });
+
+    expect(page.status).toBe(200);
+    expect(page.body).toContain('/app.js');
+    expect(JSON.parse(me.body ?? '{}')).toMatchObject({ user: { id: 'preview-user', displayName: 'Catherine Preview' }, preview: true });
+    expect(JSON.parse(vault.body ?? '{}').items.length).toBeGreaterThanOrEqual(6);
+    expect(JSON.parse(vault.body ?? '{}').completedItems).toHaveLength(1);
+    expect(JSON.parse(alerts.body ?? '{}').items.length).toBeGreaterThanOrEqual(4);
+    expect(JSON.parse(shelf.body ?? '{}')).toMatchObject({ status: 'READY', itemCount: 12, marketReadyCount: 10 });
+  });
+
+  it('supports fixture alert filters without accepting a user selector', async () => {
+    const regular = await handleWebRequest(
+      { method: 'GET', url: '/api/preview/alerts?priority=GRAIL&source=EBAY' },
+      { config: previewConfig }
+    );
+    const selected = await handleWebRequest(
+      { method: 'GET', url: '/api/preview/alerts?priority=GRAIL&source=EBAY&userId=real-user' },
+      { config: previewConfig }
+    );
+
+    expect(selected.body).toBe(regular.body);
+    expect(JSON.parse(selected.body ?? '{}').items.every((item: { chasePriority: string; source: string }) => item.chasePriority === 'GRAIL' && item.source === 'EBAY')).toBe(true);
+  });
+
+  it('rejects every preview API mutation and leaves persistent state untouched', async () => {
+    const before = {
+      users: (db.prepare('SELECT COUNT(*) AS count FROM users').get() as { count: number }).count,
+      chases: listChases('preview-user').length,
+      sessions: (db.prepare('SELECT COUNT(*) AS count FROM web_sessions').get() as { count: number }).count
+    };
+
+    for (const method of ['POST', 'PATCH', 'DELETE']) {
+      const response = await handleWebRequest(
+        { method, url: '/api/preview/chases', headers: { 'content-type': 'application/json' }, body: '{}' },
+        { config: previewConfig }
+      );
+      expect(response.status).toBe(405);
+      expect(JSON.parse(response.body ?? '{}')).toEqual({ error: 'preview_read_only' });
+    }
+
+    expect((db.prepare('SELECT COUNT(*) AS count FROM users').get() as { count: number }).count).toBe(before.users);
+    expect(listChases('preview-user')).toHaveLength(before.chases);
+    expect((db.prepare('SELECT COUNT(*) AS count FROM web_sessions').get() as { count: number }).count).toBe(before.sessions);
+  });
+
+  it('keeps production API authentication unchanged when preview is enabled', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/api/me' }, { config: previewConfig });
+    expect(response.status).toBe(401);
   });
 });
 

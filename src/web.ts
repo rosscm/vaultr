@@ -49,6 +49,7 @@ import {
   resolveOrCreateDiscordUser
 } from './services/accounts.js';
 import type { AlertHistoryCursor, AlertHistoryItem, ListingSource } from './types.js';
+import { WEB_PREVIEW_ALERTS, WEB_PREVIEW_CHASES, WEB_PREVIEW_ME, WEB_PREVIEW_SHELF } from './web-preview-fixtures.js';
 
 const DISCORD_AUTHORIZE_URL = 'https://discord.com/oauth2/authorize';
 const DISCORD_TOKEN_URL = 'https://discord.com/api/oauth2/token';
@@ -73,6 +74,7 @@ export type WebConfig = {
   discordClientSecret: string;
   baseUrl: string;
   postLoginRedirectPath?: string;
+  previewEnabled?: boolean;
 };
 
 export type WebRequest = {
@@ -473,6 +475,25 @@ function staticResponse(pathname: string): WebResponse | null {
   }
 }
 
+function previewResponse(method: string, url: URL): WebResponse | null {
+  if (!url.pathname.startsWith('/api/preview/')) return null;
+  if (method !== 'GET') return errorResponse(405, 'preview_read_only', { Allow: 'GET' });
+  if (url.pathname === '/api/preview/me') return jsonResponse(200, WEB_PREVIEW_ME);
+  if (url.pathname === '/api/preview/chases') return jsonResponse(200, WEB_PREVIEW_CHASES);
+  if (url.pathname === '/api/preview/shelf') return jsonResponse(200, WEB_PREVIEW_SHELF);
+  if (url.pathname === '/api/preview/alerts') {
+    const priority = url.searchParams.get('priority');
+    const source = url.searchParams.get('source');
+    if (priority && !['GRAIL', 'HIGH', 'NORMAL'].includes(priority)) return errorResponse(400, 'invalid_priority');
+    if (source && !['EBAY', 'SHOPIFY'].includes(source)) return errorResponse(400, 'invalid_source');
+    const items = WEB_PREVIEW_ALERTS.filter((item) =>
+      (!priority || item.chasePriority === priority) && (!source || item.source === source)
+    );
+    return jsonResponse(200, { items, nextCursor: null });
+  }
+  return errorResponse(404, 'not_found');
+}
+
 function encodeCursor(cursor: AlertHistoryCursor | undefined): string | null {
   if (!cursor) return null;
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
@@ -572,6 +593,19 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
 
   if (method === 'GET' && url.pathname === '/') {
     return redirectResponse('/app');
+  }
+
+  const isPreviewPath = url.pathname === '/preview' || url.pathname === '/preview/';
+  const isPreviewApi = url.pathname.startsWith('/api/preview/');
+  if ((isPreviewPath || isPreviewApi) && options.config.previewEnabled !== true) {
+    return errorResponse(404, 'not_found');
+  }
+  if (isPreviewPath) {
+    if (method !== 'GET') return errorResponse(405, 'method_not_allowed', { Allow: 'GET' });
+    return staticResponse('/app') ?? errorResponse(404, 'not_found');
+  }
+  if (isPreviewApi) {
+    return previewResponse(method, url) ?? errorResponse(404, 'not_found');
   }
 
   if (method === 'GET') {
@@ -803,7 +837,8 @@ export function webConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WebConfi
     discordClientId,
     discordClientSecret,
     baseUrl,
-    postLoginRedirectPath: env.VAULTR_WEB_POST_LOGIN_REDIRECT_PATH ?? '/app'
+    postLoginRedirectPath: env.VAULTR_WEB_POST_LOGIN_REDIRECT_PATH ?? '/app',
+    previewEnabled: env.VAULTR_WEB_PREVIEW === 'true'
   };
 }
 

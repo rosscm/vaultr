@@ -1,4 +1,10 @@
 const app = document.querySelector('#app');
+const isPreviewMode = window.location.pathname === '/preview' || window.location.pathname === '/preview/';
+
+function apiUrl(url) {
+  if (!isPreviewMode || !url.startsWith('/api/')) return url;
+  return `/api/preview/${url.slice('/api/'.length)}`;
+}
 
 const state = {
   user: null,
@@ -288,7 +294,7 @@ function shellMarkup(content) {
         <div class="user-area">
           ${avatarHtml(state.user)}
           <span class="user-name">${escapeHtml(displayName)}</span>
-          <button class="button-ghost" type="button" data-action="logout">Log out</button>
+          ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : '<button class="button-ghost" type="button" data-action="logout">Log out</button>'}
         </div>
       </aside>
       <header class="mobile-header">
@@ -298,7 +304,7 @@ function shellMarkup(content) {
         </a>
         <div class="user-area">
           ${avatarHtml(state.user)}
-          <button class="button-ghost" type="button" data-action="logout">Log out</button>
+          ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : '<button class="button-ghost" type="button" data-action="logout">Log out</button>'}
         </div>
       </header>
       <main id="app-main" class="app-main">
@@ -780,6 +786,7 @@ function vaultDialogMarkup() {
           <p class="eyebrow">${editing ? 'EDIT CHASE' : 'ADD CHASE'}</p>
           <h2 id="vault-form-title">${editing ? 'Refine this Chase' : 'Add a Chase'}</h2>
         </header>
+        ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect this form, but changes will not be saved.</p>' : ''}
         ${state.vaultFormError ? `<p class="form-error" role="alert">${escapeHtml(state.vaultFormError)}</p>` : ''}
         <label class="field">
           <span>Card</span>
@@ -861,6 +868,7 @@ function removeDialogMarkup() {
           <p class="eyebrow">REMOVE CHASE</p>
           <h2 id="remove-title">Remove ${escapeHtml(item.chase.cardName)}?</h2>
         </header>
+        ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. This Chase will not be removed.</p>' : ''}
         ${state.removeError ? `<p class="form-error" role="alert">${escapeHtml(state.removeError)}</p>` : ''}
         <div class="remove-options">
           <button class="button-primary remove-option" type="button" data-action="remove-chase" data-outcome="COMPLETED">
@@ -914,7 +922,13 @@ function renderCurrentPage() {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, { credentials: 'same-origin', ...options });
+  const method = String(options.method || 'GET').toUpperCase();
+  if (isPreviewMode && method !== 'GET') {
+    const error = new Error('preview_read_only');
+    error.status = 405;
+    throw error;
+  }
+  const response = await fetch(apiUrl(url), { credentials: 'same-origin', ...options });
   let body = null;
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -1071,6 +1085,11 @@ function vaultFormBody(form) {
 }
 
 async function submitVaultForm(form) {
+  if (isPreviewMode) {
+    state.vaultFormError = 'Preview mode is read-only. No changes were saved.';
+    renderCurrentPage();
+    return;
+  }
   state.vaultSubmitting = true;
   state.vaultFormError = '';
   renderCurrentPage();
@@ -1161,6 +1180,11 @@ function moveAutocompleteActive(delta, input) {
 
 async function removeChase(outcome) {
   if (!state.removeTargetId) return;
+  if (isPreviewMode) {
+    state.removeError = 'Preview mode is read-only. No changes were made.';
+    renderCurrentPage();
+    return;
+  }
   state.removeError = '';
   try {
     await fetchJson(`/api/chases/${encodeURIComponent(state.removeTargetId)}`, {
@@ -1296,6 +1320,7 @@ app.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'logout') {
+    if (isPreviewMode) return;
     await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => undefined);
     renderSignedOut();
     return;
