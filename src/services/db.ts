@@ -132,6 +132,8 @@ db.exec(`
     source_last_seen_at TEXT,
     source_rank INTEGER,
     payload_json TEXT,
+    reviewed_at TEXT,
+    dismissed_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE (user_id, chase_id, listing_id, source)
@@ -923,6 +925,26 @@ try {
 } catch {
   // Column already exists on upgraded databases.
 }
+
+export function migrateAlertInboxState(database: Database.Database): void {
+  let addedReviewedAt = false;
+  try {
+    database.exec(`ALTER TABLE alert_events ADD COLUMN reviewed_at TEXT;`);
+    addedReviewedAt = true;
+  } catch {
+    // Column already exists on upgraded databases.
+  }
+  if (addedReviewedAt) {
+    database.exec(`UPDATE alert_events SET reviewed_at = COALESCE(updated_at, created_at) WHERE reviewed_at IS NULL;`);
+  }
+  try {
+    database.exec(`ALTER TABLE alert_events ADD COLUMN dismissed_at TEXT;`);
+  } catch {
+    // Column already exists on upgraded databases.
+  }
+}
+
+migrateAlertInboxState(db);
 
 migrateLegacyDiscordUserIdsToAccounts();
 

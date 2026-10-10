@@ -125,6 +125,8 @@ export type AlertEvent = {
   sourceLastSeenAt?: string;
   sourceRank?: number;
   payload?: Record<string, unknown>;
+  reviewedAt?: string;
+  dismissedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -164,6 +166,8 @@ export type AlertHistoryItem = {
   matchScore?: number;
   listingPostedAt?: string;
   alertLatencySeconds?: number;
+  reviewedAt?: string;
+  dismissedAt?: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -12,6 +12,7 @@ const state = {
   activePage: 'home',
   priority: 'ALL',
   source: 'ALL',
+  alertReviewState: 'NEW',
   alertChaseId: null,
   alertChaseName: '',
   alerts: [],
@@ -22,6 +23,14 @@ const state = {
   requestId: 0,
   hasCheckedAllAlerts: false,
   isLoadingMore: false,
+  alertNotice: '',
+  dismissUndo: null,
+  dismissUndoTimer: null,
+  homeAttentionAlerts: [],
+  homeAttentionLoading: false,
+  homeAttentionLoaded: false,
+  homeAttentionError: null,
+  homeAttentionRequestId: 0,
   vault: [],
   vaultFilter: 'ALL',
   completedChases: [],
@@ -52,7 +61,8 @@ const state = {
   removeTargetId: null,
   removeError: '',
   acquireTargetId: null,
-  lifecycleError: ''
+  lifecycleError: '',
+  pendingVaultFocusId: null
 };
 
 function escapeHtml(value) {
@@ -119,7 +129,7 @@ async function loadActivePageData() {
   if (state.activePage === 'home') {
     await Promise.all([
       state.vaultLoaded ? Promise.resolve() : loadVault(),
-      state.alertsLoaded ? Promise.resolve() : loadAlerts(),
+      state.homeAttentionLoaded ? Promise.resolve() : loadHomeAttention(),
       state.shelfLoaded ? Promise.resolve() : loadShelf()
     ]);
   }
@@ -356,6 +366,12 @@ function alertsPageMarkup(inner) {
           <button class="button-ghost" type="button" data-action="clear-chase-filter">Clear filter</button>
         </div>
       ` : ''}
+      ${alertNoticeMarkup()}
+      <div class="review-state-filters" aria-label="Alert review state">
+        ${reviewStateButton('NEW', 'New')}
+        ${reviewStateButton('REVIEWED', 'Reviewed')}
+        ${reviewStateButton('ALL', 'All')}
+      </div>
       <div class="toolbar">
         <div class="priority-filters" aria-label="Alert priority filters">
           ${priorityButton('ALL', 'All')}
@@ -374,6 +390,20 @@ function alertsPageMarkup(inner) {
       </div>
       ${inner}
     </section>
+  `;
+}
+
+function reviewStateButton(value, label) {
+  return `<button class="pill-button" type="button" data-review-state="${value}" aria-pressed="${state.alertReviewState === value ? 'true' : 'false'}">${label}</button>`;
+}
+
+function alertNoticeMarkup() {
+  if (!state.alertNotice && !state.dismissUndo) return '';
+  return `
+    <div class="alert-notice" role="status">
+      <span>${escapeHtml(state.alertNotice || 'Match dismissed.')}</span>
+      ${state.dismissUndo ? '<button class="vault-action-link" type="button" data-action="undo-dismiss">Undo</button>' : ''}
+    </div>
   `;
 }
 
@@ -403,6 +433,15 @@ function statePanelMarkup(title, copy, actionLabel) {
 
 function alertsMarkup() {
   if (!state.alerts.length) {
+    if (state.alertReviewState === 'NEW') {
+      const broadlyCaughtUp = state.priority === 'ALL' && state.source === 'ALL' && !state.alertChaseId;
+      return alertsPageMarkup(broadlyCaughtUp
+        ? statePanelMarkup("You're caught up", 'No new matches need review right now.')
+        : statePanelMarkup('No new matches in this view.', 'Try another filter or return to the full New inbox.'));
+    }
+    if (state.alertReviewState === 'REVIEWED') {
+      return alertsPageMarkup(statePanelMarkup('No reviewed matches yet.', 'Matches you review will stay available here.'));
+    }
     if (state.priority === 'ALL' && state.source === 'ALL' && !state.hasCheckedAllAlerts) {
       return alertsPageMarkup(statePanelMarkup('Nothing here yet.', "When Vaultr finds a match for one of your Chases, it'll show up here."));
     }
@@ -420,15 +459,32 @@ function alertsMarkup() {
   return alertsPageMarkup(`<div class="alert-list" aria-label="Alerts">${list}</div>${loadMore}`);
 }
 
+function alertActionMarkup(alert, { compact = false } = {}) {
+  const reviewed = Boolean(alert.reviewedAt);
+  return `
+    ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
+    <button class="vault-action-link" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
+    ${compact ? '' : `<button class="vault-action-link" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Chase</button>`}
+    <button class="vault-action-link danger" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button>
+  `;
+}
+
 function homeAlertPreviewMarkup(alert) {
   const price = formatMoney(alert.listingPrice, alert.listingCurrency);
+  const delta = formatPriceDelta(alert.priceDelta, alert.listingCurrency);
   return `
     <li class="home-preview-row">
       <div>
         <strong>${escapeHtml(alert.chaseName || 'Saved Chase')}</strong>
         <span>${escapeHtml(alert.listingTitle || sourceLabel(alert.source))}</span>
+        <span class="home-preview-meta">
+          <span class="review-state-pill new">New</span>
+          <span>${escapeHtml(sourceLabel(alert.source))}</span>
+          <span>${escapeHtml(relativeTime(alert.createdAt))}</span>
+        </span>
       </div>
-      ${price ? `<span class="home-preview-value">${escapeHtml(price)}</span>` : ''}
+      <span class="home-preview-price">${price ? `<strong class="home-preview-value">${escapeHtml(price)}</strong>` : ''}${delta ? `<span>${escapeHtml(delta)}</span>` : ''}</span>
+      <div class="home-preview-actions">${alertActionMarkup(alert, { compact: true })}</div>
     </li>
   `;
 }
@@ -444,7 +500,8 @@ function homeShelfPreviewMarkup(item) {
 
 function homePageMarkup() {
   const activeChases = state.vaultPlan?.activeCount ?? state.vault.length;
-  const alertPreview = state.alerts.slice(0, 3);
+  const pausedChases = state.vaultPlan?.pausedCount ?? state.vault.filter((item) => item.monitoringState !== 'ACTIVE').length;
+  const alertPreview = state.homeAttentionAlerts.slice(0, 4);
   const shelfItems = state.shelf?.items || [];
   const shelfCount = state.shelf?.itemCount ?? shelfItems.length;
   const shelfReady = shelfItems.length > 0;
@@ -456,12 +513,29 @@ function homePageMarkup() {
         <h1 id="home-title">Welcome back, ${escapeHtml(userDisplayName(state.user))}</h1>
         <p>Your collection, matches, and discoveries in one place.</p>
       </header>
+      ${alertNoticeMarkup()}
       <div class="home-grid">
+        <section class="home-panel home-attention-panel" aria-labelledby="home-alerts-title">
+          <div class="home-panel-heading">
+            <div>
+              <p class="eyebrow">NEEDS ATTENTION</p>
+              <h2 id="home-alerts-title">${state.homeAttentionLoading ? 'Checking matches...' : alertPreview.length ? 'New matches to review' : "You're caught up"}</h2>
+            </div>
+            ${alertPreview.length ? `<span class="home-plan-label">${escapeHtml(alertPreview.length)} New</span>` : ''}
+          </div>
+          ${state.homeAttentionError
+            ? '<p>New matches could not be loaded right now.</p>'
+            : alertPreview.length
+              ? `<ul class="home-preview-list">${alertPreview.map(homeAlertPreviewMarkup).join('')}</ul>`
+              : `<p>${state.homeAttentionLoaded ? 'No new matches need review right now.' : 'Loading your latest matches...'}</p>`}
+          <button class="home-text-link" type="button" data-action="view-new-alerts">View all new alerts</button>
+        </section>
+
         <section class="home-panel home-vault-panel" aria-labelledby="home-vault-title">
           <div class="home-panel-heading">
             <div>
               <p class="eyebrow">MY VAULT</p>
-              <h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Vault...' : `${escapeHtml(activeChases)} active ${activeChases === 1 ? 'Chase' : 'Chases'}`}</h2>
+              <h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Vault...' : `${escapeHtml(activeChases)} watching, ${escapeHtml(pausedChases)} paused`}</h2>
             </div>
             ${state.vaultPlan ? `<span class="home-plan-label">${escapeHtml(planLabel(state.vaultPlan.tier))}</span>` : ''}
           </div>
@@ -470,21 +544,6 @@ function homePageMarkup() {
             <button class="button-primary" type="button" data-page="vault">View My Vault</button>
             <button class="button-ghost" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add Chase</button>
           </div>
-        </section>
-
-        <section class="home-panel" aria-labelledby="home-alerts-title">
-          <div class="home-panel-heading">
-            <div>
-              <p class="eyebrow">ALERTS</p>
-              <h2 id="home-alerts-title">${state.isAlertsLoading ? 'Checking matches...' : `${state.alerts.length} recent ${state.alerts.length === 1 ? 'match' : 'matches'}`}</h2>
-            </div>
-          </div>
-          ${state.alertsError
-            ? '<p>Alerts could not be loaded right now.</p>'
-            : alertPreview.length
-              ? `<ul class="home-preview-list">${alertPreview.map(homeAlertPreviewMarkup).join('')}</ul>`
-              : `<p>${state.alertsLoaded ? 'New matches will appear here when Vaultr finds them.' : 'Loading your latest matches...'}</p>`}
-          <button class="home-text-link" type="button" data-page="alerts">View Alerts</button>
         </section>
 
         <section class="home-panel home-shelf-panel" aria-labelledby="home-shelf-title">
@@ -512,16 +571,15 @@ function alertCardMarkup(alert) {
   const priority = alert.chasePriority || 'NORMAL';
   const price = formatMoney(alert.listingPrice, alert.listingCurrency);
   const delta = formatPriceDelta(alert.priceDelta, alert.listingCurrency);
-  const listingLink = alert.listingUrl
-    ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer">View listing</a>`
-    : '';
+  const reviewed = Boolean(alert.reviewedAt);
   return `
-    <article class="alert-card ${alert.imageUrl ? 'has-image' : 'no-image'}">
+    <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${alert.imageUrl ? 'has-image' : 'no-image'}">
       ${alert.imageUrl ? `<img class="alert-image" src="${escapeHtml(alert.imageUrl)}" alt="${escapeHtml(alert.listingTitle || alert.chaseName || 'Alert listing image')}" loading="lazy" data-alert-image>` : ''}
       <div class="alert-content">
         <div class="alert-main">
           <div class="alert-meta">
             <span class="priority-pill ${priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priority)}</span>
+            <span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span>
             <span class="alert-age">${escapeHtml(relativeTime(alert.createdAt))}</span>
           </div>
           <h2 class="chase-name">${escapeHtml(alert.chaseName || 'Saved Chase')}</h2>
@@ -534,7 +592,7 @@ function alertCardMarkup(alert) {
         <div class="alert-footer">
           <span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span>
           <span class="source-pill">${escapeHtml(sourceLabel(alert.source))}</span>
-          ${listingLink}
+          <span class="alert-actions">${alertActionMarkup(alert)}</span>
         </div>
       </div>
     </article>
@@ -656,7 +714,7 @@ function vaultCardMarkup(item) {
     chase.listingType && chase.listingType !== 'ANY' ? listingTypeLabel(chase.listingType) : undefined
   ].filter(Boolean);
   return `
-    <article class="vault-card ${paused ? 'paused' : ''}">
+    <article class="vault-card ${paused ? 'paused' : ''}" data-vault-chase-id="${escapeHtml(chase.id)}" tabindex="-1">
       ${chase.cardImageUrl ? `<img class="vault-card-image" src="${escapeHtml(chase.cardImageUrl)}" alt="${escapeHtml(chase.cardName)} card image" loading="lazy" data-vault-card-image>` : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
       <div class="vault-card-body">
         <div class="vault-card-meta">
@@ -691,7 +749,7 @@ function completedChaseMarkup(chase) {
     chase.priority ? priorityLabel(chase.priority) : undefined
   ].filter(Boolean);
   return `
-    <article class="vault-card completed">
+    <article class="vault-card completed" data-vault-chase-id="${escapeHtml(chase.id)}" tabindex="-1">
       ${chase.cardImageUrl ? `<img class="vault-card-image" src="${escapeHtml(chase.cardImageUrl)}" alt="${escapeHtml(chase.cardName)} card image" loading="lazy" data-vault-card-image>` : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
       <div class="vault-card-body">
         <div class="vault-card-meta">
@@ -982,6 +1040,7 @@ function renderCurrentPage() {
   }
   if (state.activePage === 'vault') {
     renderShell(vaultPageMarkup());
+    focusPendingVaultChase();
     return;
   }
   if (state.activePage === 'shelf') {
@@ -989,6 +1048,19 @@ function renderCurrentPage() {
     return;
   }
   renderShell(alertsMarkup());
+}
+
+function focusPendingVaultChase() {
+  if (!state.pendingVaultFocusId) return;
+  const chaseId = state.pendingVaultFocusId;
+  requestAnimationFrame(() => {
+    const card = [...document.querySelectorAll('[data-vault-chase-id]')]
+      .find((element) => element.getAttribute('data-vault-chase-id') === chaseId);
+    state.pendingVaultFocusId = null;
+    if (!(card instanceof HTMLElement)) return;
+    card.focus({ preventScroll: true });
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
 }
 
 async function fetchJson(url, options = {}) {
@@ -1025,8 +1097,73 @@ function alertQuery(cursor) {
   if (state.priority !== 'ALL') params.set('priority', state.priority);
   if (state.source !== 'ALL') params.set('source', state.source);
   if (state.alertChaseId) params.set('chaseId', state.alertChaseId);
+  if (state.alertReviewState !== 'ALL') params.set('reviewState', state.alertReviewState);
   if (cursor) params.set('cursor', cursor);
   return params.toString() ? `/api/alerts?${params.toString()}` : '/api/alerts';
+}
+
+async function loadHomeAttention() {
+  const requestId = ++state.homeAttentionRequestId;
+  state.homeAttentionLoading = true;
+  state.homeAttentionError = null;
+  renderCurrentPage();
+  try {
+    const body = await fetchJson('/api/alerts?reviewState=NEW&limit=4');
+    if (requestId !== state.homeAttentionRequestId) return;
+    state.homeAttentionAlerts = body.items || [];
+    state.homeAttentionLoaded = true;
+    state.homeAttentionLoading = false;
+    renderCurrentPage();
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized' || requestId !== state.homeAttentionRequestId) return;
+    state.homeAttentionLoading = false;
+    state.homeAttentionError = 'load_failed';
+    renderCurrentPage();
+  }
+}
+
+async function refreshAlertSurfaces() {
+  const work = [];
+  state.homeAttentionLoaded = false;
+  if (state.activePage === 'home') work.push(loadHomeAttention());
+  if (state.activePage === 'alerts') {
+    state.alertsLoaded = false;
+    work.push(loadAlerts());
+  }
+  await Promise.all(work);
+}
+
+function clearDismissUndo() {
+  if (state.dismissUndoTimer) window.clearTimeout(state.dismissUndoTimer);
+  state.dismissUndoTimer = null;
+  state.dismissUndo = null;
+}
+
+async function mutateAlert(alertId, action) {
+  if (!alertId) return;
+  if (isPreviewMode) {
+    state.alertNotice = 'Preview mode is read-only. No changes were made.';
+    renderCurrentPage();
+    return;
+  }
+  try {
+    const body = await fetchJson(`/api/alerts/${encodeURIComponent(alertId)}/${action}`, { method: 'POST' });
+    state.alertNotice = action === 'dismiss' ? 'Match dismissed.' : '';
+    if (action === 'dismiss') {
+      clearDismissUndo();
+      state.dismissUndo = body.item;
+      state.dismissUndoTimer = window.setTimeout(() => {
+        clearDismissUndo();
+        state.alertNotice = '';
+        renderCurrentPage();
+      }, 8000);
+    }
+    await refreshAlertSurfaces();
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.alertNotice = 'That match could not be updated. Please try again.';
+    renderCurrentPage();
+  }
 }
 
 async function loadAlerts({ append = false } = {}) {
@@ -1365,9 +1502,18 @@ app.addEventListener('click', async (event) => {
     if (page === 'alerts') {
       state.alertChaseId = null;
       state.alertChaseName = '';
+      state.alertReviewState = 'NEW';
       state.alertsLoaded = false;
     }
     await navigateToPage(page);
+    return;
+  }
+
+  const reviewState = target.getAttribute('data-review-state');
+  if (reviewState) {
+    state.alertReviewState = reviewState;
+    state.alertsLoaded = false;
+    await loadAlerts();
     return;
   }
 
@@ -1385,11 +1531,44 @@ app.addEventListener('click', async (event) => {
       state.alertChaseName = '';
     }
     state.priority = priority;
+    state.alertsLoaded = false;
     await navigateToPage('alerts');
     return;
   }
 
   const action = target.getAttribute('data-action');
+  if (action === 'review-listing') {
+    if (target.getAttribute('data-reviewed') !== 'true' && !isPreviewMode) {
+      void mutateAlert(target.getAttribute('data-alert-id'), 'review');
+    }
+    return;
+  }
+  if (action === 'mark-alert-reviewed' || action === 'mark-alert-new' || action === 'dismiss-alert') {
+    const operation = action === 'mark-alert-reviewed' ? 'review' : action === 'mark-alert-new' ? 'mark-new' : 'dismiss';
+    await mutateAlert(target.getAttribute('data-alert-id'), operation);
+    return;
+  }
+  if (action === 'undo-dismiss') {
+    const alertId = state.dismissUndo?.id;
+    clearDismissUndo();
+    state.alertNotice = '';
+    await mutateAlert(alertId, 'restore');
+    return;
+  }
+  if (action === 'view-new-alerts') {
+    state.alertChaseId = null;
+    state.alertChaseName = '';
+    state.alertReviewState = 'NEW';
+    state.alertsLoaded = false;
+    await navigateToPage('alerts');
+    return;
+  }
+  if (action === 'view-alert-chase') {
+    state.vaultFilter = 'ALL';
+    state.pendingVaultFocusId = target.getAttribute('data-chase-id');
+    await navigateToPage('vault');
+    return;
+  }
   if (action === 'load-more' && state.nextCursor && !state.isLoadingMore) {
     await loadAlerts({ append: true });
     return;
@@ -1409,6 +1588,7 @@ app.addEventListener('click', async (event) => {
   if (action === 'view-chase-matches') {
     state.alertChaseId = target.getAttribute('data-chase-id');
     state.alertChaseName = target.getAttribute('data-card-name') || '';
+    state.alertReviewState = 'ALL';
     state.alertsLoaded = false;
     await navigateToPage('alerts');
     return;
@@ -1416,6 +1596,7 @@ app.addEventListener('click', async (event) => {
   if (action === 'clear-chase-filter') {
     state.alertChaseId = null;
     state.alertChaseName = '';
+    state.alertReviewState = 'NEW';
     await loadAlerts();
     return;
   }
@@ -1520,6 +1701,7 @@ app.addEventListener('change', async (event) => {
   if (!(target instanceof HTMLSelectElement)) return;
   if (target.getAttribute('data-action') === 'source-filter') {
     state.source = target.value;
+    state.alertsLoaded = false;
     await navigateToPage('alerts');
   }
 });

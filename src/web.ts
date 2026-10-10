@@ -5,9 +5,13 @@ import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import {
+  dismissAlert,
   getUserAlertSettings,
   getAlertEventForUser,
   listAlertEventsForUser,
+  markAlertNew,
+  markAlertReviewed,
+  restoreAlert,
   type ListAlertEventsForUserOptions
 } from './services/chase-store.js';
 import { autocompleteChaseCardsWithStatus } from './services/chase-card-catalog.js';
@@ -497,12 +501,15 @@ function previewResponse(method: string, url: URL): WebResponse | null {
     const priority = url.searchParams.get('priority');
     const source = url.searchParams.get('source');
     const chaseId = url.searchParams.get('chaseId');
+    const reviewState = url.searchParams.get('reviewState');
     if (priority && !['GRAIL', 'HIGH', 'NORMAL'].includes(priority)) return errorResponse(400, 'invalid_priority');
     if (source && !['EBAY', 'SHOPIFY'].includes(source)) return errorResponse(400, 'invalid_source');
+    if (reviewState && !['NEW', 'REVIEWED'].includes(reviewState)) return errorResponse(400, 'invalid_review_state');
     const items = WEB_PREVIEW_ALERTS.filter((item) =>
       (!priority || item.chasePriority === priority) &&
       (!source || item.source === source) &&
-      (!chaseId || item.chaseId === chaseId)
+      (!chaseId || item.chaseId === chaseId) &&
+      (!reviewState || (reviewState === 'NEW' ? !item.reviewedAt : !!item.reviewedAt))
     );
     return jsonResponse(200, { items, nextCursor: null });
   }
@@ -559,6 +566,12 @@ function parseAlertListOptions(url: URL): { options: ListAlertEventsForUserOptio
   if (source !== null) {
     if (!['EBAY', 'SHOPIFY'].includes(source)) return { error: 'invalid_source' };
     options.source = source as ListingSource;
+  }
+
+  const reviewState = url.searchParams.get('reviewState');
+  if (reviewState !== null) {
+    if (!['NEW', 'REVIEWED'].includes(reviewState)) return { error: 'invalid_review_state' };
+    options.reviewState = reviewState as ListAlertEventsForUserOptions['reviewState'];
   }
 
   return { options };
@@ -721,6 +734,28 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       items: page.items.map(publicAlertItem),
       nextCursor: encodeCursor(page.nextCursor)
     });
+  }
+
+  const alertActionMatch = url.pathname.match(/^\/api\/alerts\/([^/]+)\/(review|mark-new|dismiss|restore)$/);
+  if (method === 'POST' && alertActionMatch) {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    let alertId: string;
+    try {
+      alertId = decodeURIComponent(alertActionMatch[1]);
+    } catch {
+      return errorResponse(400, 'invalid_alert_id');
+    }
+    const action = alertActionMatch[2];
+    const now = options.now?.().toISOString();
+    const item = action === 'review'
+      ? markAlertReviewed(session.userId, alertId, now)
+      : action === 'mark-new'
+        ? markAlertNew(session.userId, alertId)
+        : action === 'dismiss'
+          ? dismissAlert(session.userId, alertId, now)
+          : restoreAlert(session.userId, alertId);
+    return item ? jsonResponse(200, { item: publicAlertItem(item) }) : errorResponse(404, 'not_found');
   }
 
   if (method === 'GET' && url.pathname === '/api/shelf') {

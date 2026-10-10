@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
 import {
   addChase,
   __chaseStoreTestHooks,
   enqueueAlertEventDelivery,
+  dismissAlert,
   getAlertDeliveryById,
   getAlertEventById,
   getAlertEventForUser,
@@ -11,14 +13,18 @@ import {
   listCompletedChases,
   listAlertDeliveriesForEvent,
   listAlertEventsForUser,
+  markAlertNew,
+  markAlertReviewed,
   markAlertDeliveryFailed,
   markAlertDeliverySent,
   markChasesPollAttempted,
   markChasesPollChecked,
   removeAllChases,
   resolveChaseRemoval,
+  restoreAlert,
+  upsertAlertEvent,
 } from '../chase-store.js';
-import { db } from '../db.js';
+import { db, migrateAlertInboxState } from '../db.js';
 
 describe('chase poll state', () => {
   it('records a poll attempt separately from the last successful check', () => {
@@ -306,6 +312,78 @@ describe('user alert history read model', () => {
     });
   }
 
+  it('adds inbox columns and backfills only legacy rows as reviewed', () => {
+    const columns = db.prepare('PRAGMA table_info(alert_events)').all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(['reviewed_at', 'dismissed_at']));
+
+    const legacy = new Database(':memory:');
+    legacy.exec(`
+      CREATE TABLE alert_events (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      INSERT INTO alert_events (id, created_at, updated_at) VALUES ('legacy', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z');
+    `);
+    migrateAlertInboxState(legacy);
+    expect(legacy.prepare('SELECT reviewed_at, dismissed_at FROM alert_events WHERE id = ?').get('legacy')).toEqual({
+      reviewed_at: '2026-01-02T00:00:00.000Z',
+      dismissed_at: null
+    });
+    legacy.prepare("INSERT INTO alert_events (id, created_at, updated_at) VALUES ('new', '2026-01-03', '2026-01-03')").run();
+    migrateAlertInboxState(legacy);
+    expect(legacy.prepare('SELECT reviewed_at, dismissed_at FROM alert_events WHERE id = ?').get('new')).toEqual({ reviewed_at: null, dismissed_at: null });
+    legacy.close();
+  });
+
+  it('persists review, mark-new, dismiss, and restore state with ownership and idempotency', () => {
+    const userId = 'alert-inbox-state-user';
+    const otherUserId = 'alert-inbox-state-other';
+    clearAlertRows(userId);
+    clearAlertRows(otherUserId);
+    const alert = seedAlert(userId, 1);
+
+    expect(getAlertEventForUser(userId, alert.alertId)?.reviewedAt).toBeUndefined();
+    expect(listAlertEventsForUser(userId, { reviewState: 'NEW' }).items).toHaveLength(1);
+    expect(markAlertReviewed(otherUserId, alert.alertId, '2026-08-20T10:00:00.000Z')).toBeNull();
+    expect(markAlertReviewed(userId, alert.alertId, '2026-08-20T10:00:00.000Z')?.reviewedAt).toBe('2026-08-20T10:00:00.000Z');
+    expect(markAlertReviewed(userId, alert.alertId, '2026-08-20T11:00:00.000Z')?.reviewedAt).toBe('2026-08-20T10:00:00.000Z');
+    expect(listAlertEventsForUser(userId, { reviewState: 'REVIEWED' }).items).toHaveLength(1);
+
+    expect(dismissAlert(userId, alert.alertId, '2026-08-20T12:00:00.000Z')?.dismissedAt).toBe('2026-08-20T12:00:00.000Z');
+    expect(dismissAlert(userId, alert.alertId, '2026-08-20T13:00:00.000Z')?.dismissedAt).toBe('2026-08-20T12:00:00.000Z');
+    expect(listAlertEventsForUser(userId).items).toEqual([]);
+    expect(restoreAlert(userId, alert.alertId)?.reviewedAt).toBe('2026-08-20T10:00:00.000Z');
+    expect(markAlertNew(userId, alert.alertId)?.reviewedAt).toBeUndefined();
+    dismissAlert(userId, alert.alertId, '2026-08-20T14:00:00.000Z');
+    expect(restoreAlert(userId, alert.alertId)?.reviewedAt).toBeUndefined();
+    expect(restoreAlert(userId, alert.alertId)?.dismissedAt).toBeUndefined();
+
+    clearAlertRows(userId);
+    clearAlertRows(otherUserId);
+  });
+
+  it('preserves inbox state across deterministic upserts and delivery transitions', () => {
+    const userId = 'alert-inbox-upsert-user';
+    clearAlertRows(userId);
+    const alert = seedAlert(userId, 1);
+    markAlertReviewed(userId, alert.alertId, '2026-08-20T10:00:00.000Z');
+    dismissAlert(userId, alert.alertId, '2026-08-20T11:00:00.000Z');
+
+    upsertAlertEvent({
+      userId,
+      chaseId: 'chase-1',
+      listingId: 'listing-1',
+      source: 'EBAY',
+      listingTitle: 'Refreshed listing title',
+      now: '2026-08-20T12:00:00.000Z'
+    });
+    markAlertDeliverySent(alert.deliveryId, { now: '2026-08-20T13:00:00.000Z' });
+
+    expect(getAlertEventForUser(userId, alert.alertId)).toMatchObject({
+      listingTitle: 'Refreshed listing title',
+      reviewedAt: '2026-08-20T10:00:00.000Z',
+      dismissedAt: '2026-08-20T11:00:00.000Z'
+    });
+    clearAlertRows(userId);
+  });
+
   it('returns newest alerts first and supports single-alert ownership lookup', () => {
     const userId = 'alert-history-order-user';
     const otherUserId = 'alert-history-order-other';
@@ -332,15 +410,16 @@ describe('user alert history read model', () => {
     const grail = seedAlert(userId, 1, { chaseId: 'target-chase', chasePriority: 'GRAIL', source: 'EBAY' });
     const high = seedAlert(userId, 2, { chaseId: 'other-chase', chasePriority: 'HIGH', source: 'SHOPIFY' });
     const normal = seedAlert(userId, 3, { chaseId: 'target-chase', chasePriority: 'NORMAL', source: 'SHOPIFY' });
+    markAlertReviewed(userId, high.alertId, '2026-08-20T10:00:00.000Z');
+    dismissAlert(userId, grail.alertId, '2026-08-20T11:00:00.000Z');
 
-    expect(listAlertEventsForUser(userId, { chaseId: 'target-chase' }).items.map((item) => item.id)).toEqual([
-      normal.alertId,
-      grail.alertId
-    ]);
-    expect(listAlertEventsForUser(userId, { chasePriority: 'GRAIL' }).items.map((item) => item.id)).toEqual([grail.alertId]);
+    expect(listAlertEventsForUser(userId, { chaseId: 'target-chase' }).items.map((item) => item.id)).toEqual([normal.alertId]);
+    expect(listAlertEventsForUser(userId, { chasePriority: 'GRAIL' }).items).toEqual([]);
     expect(listAlertEventsForUser(userId, { chasePriority: 'HIGH' }).items.map((item) => item.id)).toEqual([high.alertId]);
     expect(listAlertEventsForUser(userId, { chasePriority: 'NORMAL' }).items.map((item) => item.id)).toEqual([normal.alertId]);
     expect(listAlertEventsForUser(userId, { source: 'SHOPIFY' }).items.map((item) => item.id)).toEqual([normal.alertId, high.alertId]);
+    expect(listAlertEventsForUser(userId, { reviewState: 'NEW', source: 'SHOPIFY', chaseId: 'target-chase' }).items.map((item) => item.id)).toEqual([normal.alertId]);
+    expect(listAlertEventsForUser(userId, { reviewState: 'REVIEWED', source: 'SHOPIFY' }).items.map((item) => item.id)).toEqual([high.alertId]);
 
     clearAlertRows(userId);
   });

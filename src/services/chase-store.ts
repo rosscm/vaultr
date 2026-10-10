@@ -210,6 +210,8 @@ type AlertEventRow = {
   source_last_seen_at: string | null;
   source_rank: number | null;
   payload_json: string | null;
+  reviewed_at: string | null;
+  dismissed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -245,6 +247,8 @@ type AlertHistoryRow = Pick<
   | 'match_score'
   | 'listing_posted_at'
   | 'alert_latency_seconds'
+  | 'reviewed_at'
+  | 'dismissed_at'
   | 'created_at'
   | 'updated_at'
 >;
@@ -255,6 +259,7 @@ export type ListAlertEventsForUserOptions = {
   chaseId?: string;
   chasePriority?: Chase['priority'];
   source?: ListingSource;
+  reviewState?: 'NEW' | 'REVIEWED';
 };
 
 export type UserDiscoveryState = {
@@ -368,6 +373,8 @@ function mapAlertEvent(row: AlertEventRow): AlertEvent {
     sourceLastSeenAt: row.source_last_seen_at ?? undefined,
     sourceRank: row.source_rank ?? undefined,
     payload,
+    reviewedAt: row.reviewed_at ?? undefined,
+    dismissedAt: row.dismissed_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -406,6 +413,8 @@ function mapAlertHistoryItem(row: AlertHistoryRow): AlertHistoryItem {
     matchScore: row.match_score ?? undefined,
     listingPostedAt: row.listing_posted_at ?? undefined,
     alertLatencySeconds: row.alert_latency_seconds ?? undefined,
+    reviewedAt: row.reviewed_at ?? undefined,
+    dismissedAt: row.dismissed_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -627,13 +636,13 @@ const upsertAlertEventStmt = db.prepare(`
     id, user_id, chase_id, guild_id, listing_id, source, status, chase_name, chase_priority,
     listing_title, listing_price, listing_currency, price_delta, listing_url, listing_image_url, match_score,
     listing_posted_at, alert_latency_seconds, source_first_seen_at, source_last_seen_at,
-    source_rank, payload_json, created_at, updated_at
+    source_rank, payload_json, reviewed_at, dismissed_at, created_at, updated_at
   )
   VALUES (
     @id, @user_id, @chase_id, @guild_id, @listing_id, @source, @status, @chase_name, @chase_priority,
     @listing_title, @listing_price, @listing_currency, @price_delta, @listing_url, @listing_image_url, @match_score,
     @listing_posted_at, @alert_latency_seconds, @source_first_seen_at, @source_last_seen_at,
-    @source_rank, @payload_json, @created_at, @updated_at
+    @source_rank, @payload_json, NULL, NULL, @created_at, @updated_at
   )
   ON CONFLICT(user_id, chase_id, listing_id, source) DO UPDATE SET
     guild_id = excluded.guild_id,
@@ -691,7 +700,7 @@ const getAlertEventByIdStmt = db.prepare(`
   SELECT id, user_id, chase_id, guild_id, listing_id, source, status, chase_name, chase_priority,
     listing_title, listing_price, listing_currency, price_delta, listing_url, listing_image_url, match_score,
     listing_posted_at, alert_latency_seconds, source_first_seen_at, source_last_seen_at,
-    source_rank, payload_json, created_at, updated_at
+    source_rank, payload_json, reviewed_at, dismissed_at, created_at, updated_at
   FROM alert_events
   WHERE id = ?
 `);
@@ -2421,6 +2430,10 @@ export function listAlertEventsForUser(userId: string, options: ListAlertEventsF
   };
   const where = ['user_id = @user_id'];
 
+  where.push('dismissed_at IS NULL');
+  if (options.reviewState === 'NEW') where.push('reviewed_at IS NULL');
+  if (options.reviewState === 'REVIEWED') where.push('reviewed_at IS NOT NULL');
+
   if (options.cursor) {
     where.push('(created_at < @cursor_created_at OR (created_at = @cursor_created_at AND id < @cursor_id))');
     params.cursor_created_at = options.cursor.createdAt;
@@ -2444,7 +2457,7 @@ export function listAlertEventsForUser(userId: string, options: ListAlertEventsF
       `
         SELECT id, chase_id, chase_name, chase_priority, listing_id, source, listing_title, listing_price,
           listing_currency, price_delta, listing_url, listing_image_url, match_score, listing_posted_at, alert_latency_seconds,
-          created_at, updated_at
+          reviewed_at, dismissed_at, created_at, updated_at
         FROM alert_events
         WHERE ${where.join(' AND ')}
         ORDER BY created_at DESC, id DESC
@@ -2466,7 +2479,7 @@ export function getAlertEventForUser(userId: string, alertId: string): AlertHist
       `
         SELECT id, chase_id, chase_name, chase_priority, listing_id, source, listing_title, listing_price,
           listing_currency, price_delta, listing_url, listing_image_url, match_score, listing_posted_at, alert_latency_seconds,
-          created_at, updated_at
+          reviewed_at, dismissed_at, created_at, updated_at
         FROM alert_events
         WHERE user_id = ? AND id = ?
         LIMIT 1
@@ -2474,6 +2487,42 @@ export function getAlertEventForUser(userId: string, alertId: string): AlertHist
     )
     .get(userId, alertId) as AlertHistoryRow | undefined;
   return row ? mapAlertHistoryItem(row) : null;
+}
+
+function updateAlertInboxState(
+  userId: string,
+  alertId: string,
+  action: 'REVIEW' | 'MARK_NEW' | 'DISMISS' | 'RESTORE',
+  now = new Date().toISOString()
+): AlertHistoryItem | null {
+  const assignments: Record<typeof action, string> = {
+    REVIEW: 'reviewed_at = COALESCE(reviewed_at, @now)',
+    MARK_NEW: 'reviewed_at = NULL',
+    DISMISS: 'dismissed_at = COALESCE(dismissed_at, @now)',
+    RESTORE: 'dismissed_at = NULL'
+  };
+  db.prepare(`UPDATE alert_events SET ${assignments[action]} WHERE user_id = @user_id AND id = @alert_id`).run({
+    user_id: userId,
+    alert_id: alertId,
+    now
+  });
+  return getAlertEventForUser(userId, alertId);
+}
+
+export function markAlertReviewed(userId: string, alertId: string, now?: string): AlertHistoryItem | null {
+  return updateAlertInboxState(userId, alertId, 'REVIEW', now);
+}
+
+export function markAlertNew(userId: string, alertId: string): AlertHistoryItem | null {
+  return updateAlertInboxState(userId, alertId, 'MARK_NEW');
+}
+
+export function dismissAlert(userId: string, alertId: string, now?: string): AlertHistoryItem | null {
+  return updateAlertInboxState(userId, alertId, 'DISMISS', now);
+}
+
+export function restoreAlert(userId: string, alertId: string): AlertHistoryItem | null {
+  return updateAlertInboxState(userId, alertId, 'RESTORE');
 }
 
 export function claimAlertForSending(chaseId: string, userId: string, listingId: string, source: ListingSource): boolean {

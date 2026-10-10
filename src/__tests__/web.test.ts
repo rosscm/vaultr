@@ -264,6 +264,14 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('window.location.hash = nextPage;');
     expect(jsResponse.body).toContain("window.addEventListener('hashchange'");
     expect(jsResponse.body).toContain('await loadActivePageData();');
+    expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
+    expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=4')");
+    expect(jsResponse.body).toContain("reviewStateButton('REVIEWED', 'Reviewed')");
+    expect(jsResponse.body).toContain('No new matches need review right now.');
+    expect(jsResponse.body).toContain('data-action="dismiss-alert"');
+    expect(jsResponse.body).toContain('data-action="undo-dismiss"');
+    expect(jsResponse.body).toContain('data-action="view-alert-chase"');
+    expect(jsResponse.body).toContain("target.getAttribute('data-reviewed') !== 'true' && !isPreviewMode");
     expect(jsResponse.body).toContain('Personalized picks shaped by your Vault, completed Chases, and the cards you keep coming back to.');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
     expect(jsResponse.body).toContain('Add to Vault');
@@ -360,10 +368,20 @@ describe('web app preview mode', () => {
       { method: 'GET', url: '/api/preview/alerts?chaseId=preview-mew' },
       { config: previewConfig }
     );
+    const newOnly = await handleWebRequest(
+      { method: 'GET', url: '/api/preview/alerts?reviewState=NEW&chaseId=preview-mew' },
+      { config: previewConfig }
+    );
+    const reviewedOnly = await handleWebRequest(
+      { method: 'GET', url: '/api/preview/alerts?reviewState=REVIEWED' },
+      { config: previewConfig }
+    );
 
     expect(selected.body).toBe(regular.body);
     expect(JSON.parse(selected.body ?? '{}').items.every((item: { chasePriority: string; source: string }) => item.chasePriority === 'GRAIL' && item.source === 'EBAY')).toBe(true);
     expect(JSON.parse(chaseSelected.body ?? '{}').items.map((item: { chaseId: string }) => item.chaseId)).toEqual(['preview-mew']);
+    expect(JSON.parse(newOnly.body ?? '{}').items).toHaveLength(1);
+    expect(JSON.parse(reviewedOnly.body ?? '{}').items).toHaveLength(2);
   });
 
   it('rejects every preview API mutation and leaves persistent state untouched', async () => {
@@ -372,6 +390,11 @@ describe('web app preview mode', () => {
       chases: listChases('preview-user').length,
       sessions: (db.prepare('SELECT COUNT(*) AS count FROM web_sessions').get() as { count: number }).count
     };
+    const alertMutation = await handleWebRequest(
+      { method: 'POST', url: '/api/preview/alerts/preview-alert-1/review' },
+      { config: previewConfig }
+    );
+    expect(alertMutation.status).toBe(405);
 
     for (const [method, url] of [
       ['POST', '/api/preview/chases'],
@@ -568,7 +591,7 @@ describe('authenticated alert API', () => {
     const first = await handleWebRequest(
       {
         method: 'GET',
-        url: '/api/alerts?priority=HIGH&source=SHOPIFY&chaseId=target-chase&limit=1',
+        url: '/api/alerts?reviewState=NEW&priority=HIGH&source=SHOPIFY&chaseId=target-chase&limit=1',
         headers: { cookie: sessionCookie(token) }
       },
       { config }
@@ -585,7 +608,7 @@ describe('authenticated alert API', () => {
     const second = await handleWebRequest(
       {
         method: 'GET',
-        url: `/api/alerts?priority=HIGH&source=SHOPIFY&chaseId=target-chase&limit=1&cursor=${encodeURIComponent(firstBody.nextCursor)}`,
+        url: `/api/alerts?reviewState=NEW&priority=HIGH&source=SHOPIFY&chaseId=target-chase&limit=1&cursor=${encodeURIComponent(firstBody.nextCursor)}`,
         headers: { cookie: sessionCookie(token) }
       },
       { config }
@@ -604,13 +627,64 @@ describe('authenticated alert API', () => {
     const invalidCursor = await handleWebRequest({ method: 'GET', url: '/api/alerts?cursor=nope', headers: { cookie: sessionCookie(token) } }, { config });
     const invalidPriority = await handleWebRequest({ method: 'GET', url: '/api/alerts?priority=LOW', headers: { cookie: sessionCookie(token) } }, { config });
     const invalidSource = await handleWebRequest({ method: 'GET', url: '/api/alerts?source=MOCK', headers: { cookie: sessionCookie(token) } }, { config });
+    const invalidReviewState = await handleWebRequest({ method: 'GET', url: '/api/alerts?reviewState=ARCHIVED', headers: { cookie: sessionCookie(token) } }, { config });
 
     expect(JSON.parse(invalidLimit.body ?? '{}')).toEqual({ error: 'invalid_limit' });
     expect(JSON.parse(invalidCursor.body ?? '{}')).toEqual({ error: 'invalid_cursor' });
     expect(JSON.parse(invalidPriority.body ?? '{}')).toEqual({ error: 'invalid_priority' });
     expect(JSON.parse(invalidSource.body ?? '{}')).toEqual({ error: 'invalid_source' });
+    expect(JSON.parse(invalidReviewState.body ?? '{}')).toEqual({ error: 'invalid_review_state' });
 
     clearUser(userId);
+  });
+
+  it('persists account-scoped review and dismissal actions without changing delivery state', async () => {
+    const userId = 'web-alert-inbox-user';
+    const otherUserId = 'web-alert-inbox-other';
+    clearUser(userId);
+    clearUser(otherUserId);
+    const owned = seedAlert(userId, 1);
+    seedAlert(userId, 2);
+    const other = seedAlert(otherUserId, 3);
+    const originalDeliveryStatus = (db.prepare('SELECT status FROM alert_events WHERE id = ?').get(owned.alertId) as { status: string }).status;
+    const { token } = createWebSession({ userId }, { token: 'alert-inbox-token' });
+    const cookie = { cookie: sessionCookie(token) };
+
+    const initial = await handleWebRequest({ method: 'GET', url: '/api/alerts?reviewState=NEW', headers: cookie }, { config });
+    expect(JSON.parse(initial.body ?? '{}').items).toHaveLength(2);
+
+    const reviewed = await handleWebRequest({ method: 'POST', url: `/api/alerts/${owned.alertId}/review`, headers: cookie }, { config });
+    const reviewedAgain = await handleWebRequest({ method: 'POST', url: `/api/alerts/${owned.alertId}/review`, headers: cookie }, { config });
+    expect(reviewed.status).toBe(200);
+    expect(JSON.parse(reviewed.body ?? '{}').item.reviewedAt).toBeTruthy();
+    expect(JSON.parse(reviewedAgain.body ?? '{}').item.reviewedAt).toBe(JSON.parse(reviewed.body ?? '{}').item.reviewedAt);
+
+    const reviewedList = await handleWebRequest({ method: 'GET', url: '/api/alerts?reviewState=REVIEWED', headers: cookie }, { config });
+    expect(JSON.parse(reviewedList.body ?? '{}').items.map((item: { id: string }) => item.id)).toEqual([owned.alertId]);
+
+    const dismissed = await handleWebRequest({ method: 'POST', url: `/api/alerts/${owned.alertId}/dismiss`, headers: cookie }, { config });
+    expect(dismissed.status).toBe(200);
+    expect(JSON.parse(dismissed.body ?? '{}').item.dismissedAt).toBeTruthy();
+    const afterDismiss = await handleWebRequest({ method: 'GET', url: '/api/alerts', headers: cookie }, { config });
+    expect(JSON.parse(afterDismiss.body ?? '{}').items.map((item: { id: string }) => item.id)).not.toContain(owned.alertId);
+
+    const restored = await handleWebRequest({ method: 'POST', url: `/api/alerts/${owned.alertId}/restore`, headers: cookie }, { config });
+    expect(restored.status).toBe(200);
+    expect(JSON.parse(restored.body ?? '{}').item.dismissedAt).toBeUndefined();
+    const markedNew = await handleWebRequest({ method: 'POST', url: `/api/alerts/${owned.alertId}/mark-new`, headers: cookie }, { config });
+    expect(markedNew.status).toBe(200);
+    expect(JSON.parse(markedNew.body ?? '{}').item.reviewedAt).toBeUndefined();
+
+    const forbidden = await handleWebRequest({ method: 'POST', url: `/api/alerts/${other.alertId}/review`, headers: cookie }, { config });
+    const missing = await handleWebRequest({ method: 'POST', url: '/api/alerts/missing-alert/review', headers: cookie }, { config });
+    const unauthenticated = await handleWebRequest({ method: 'POST', url: `/api/alerts/${owned.alertId}/review` }, { config });
+    expect(forbidden.status).toBe(404);
+    expect(missing.status).toBe(404);
+    expect(unauthenticated.status).toBe(401);
+    expect((db.prepare('SELECT status FROM alert_events WHERE id = ?').get(owned.alertId) as { status: string }).status).toBe(originalDeliveryStatus);
+
+    clearUser(userId);
+    clearUser(otherUserId);
   });
 
   it('returns owned alert details and 404 for another user alert ID', async () => {
