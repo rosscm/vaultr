@@ -45,7 +45,8 @@ export function buildChaseListEmbed(userId: string, page: number) {
   const chases = vault.chases.map((view) => view.chase);
   const settings = getUserAlertSettings(userId);
   const activeChaseIds = new Set(vault.chases.filter((view) => view.monitoringState === 'ACTIVE').map((view) => view.chase.id));
-  const pausedCount = vault.plan.pausedCount;
+  const userPausedChaseIds = new Set(vault.chases.filter((view) => view.monitoringState === 'PAUSED_USER').map((view) => view.chase.id));
+  const planLimitedChaseIds = new Set(vault.chases.filter((view) => view.monitoringState === 'PAUSED_PLAN_LIMIT').map((view) => view.chase.id));
   const currency = settings.alertCurrency;
   const total = chases.length;
   if (total === 0) {
@@ -104,7 +105,8 @@ export function buildChaseListEmbed(userId: string, page: number) {
   };
 
   const activePageItems = pageItems.filter((chase) => activeChaseIds.has(chase.id));
-  const pausedPageItems = pageItems.filter((chase) => !activeChaseIds.has(chase.id));
+  const userPausedPageItems = pageItems.filter((chase) => userPausedChaseIds.has(chase.id));
+  const planLimitedPageItems = pageItems.filter((chase) => planLimitedChaseIds.has(chase.id));
   const activeGrail = activePageItems.filter((chase) => (chase.priority ?? 'NORMAL') === 'GRAIL');
   const activeHigh = activePageItems.filter((chase) => (chase.priority ?? 'NORMAL') === 'HIGH');
   const activeNormal = activePageItems.filter((chase) => (chase.priority ?? 'NORMAL') === 'NORMAL');
@@ -113,12 +115,14 @@ export function buildChaseListEmbed(userId: string, page: number) {
     renderGroup('🏆 Grail', activeGrail),
     renderGroup('🔥 High', activeHigh),
     renderGroup('🟢 Casual', activeNormal),
-    renderGroup('⏸️ Paused (Full Vault)', pausedPageItems, { includePriority: true, paused: true })
+    renderGroup('⏸️ Paused', userPausedPageItems, { includePriority: true, paused: true }),
+    renderGroup('📦 Plan limit', planLimitedPageItems, { includePriority: true, paused: true })
   ].filter(Boolean);
 
   const description = [
     `**Active Chases:** ${activeChaseIds.size}/${vault.plan.maxActiveChases}`,
-    ...(pausedCount > 0 ? [`**Paused Chases:** ${pausedCount} saved, not checked while on Free`] : []),
+    ...(userPausedChaseIds.size > 0 ? [`**Paused:** ${userPausedChaseIds.size} manually paused`] : []),
+    ...(planLimitedChaseIds.size > 0 ? [`**Plan limit:** ${planLimitedChaseIds.size} saved, not currently checked`] : []),
     `**Page:** ${currentPage + 1}/${totalPages}`,
     '',
     groupedSections.join('\n\n'),

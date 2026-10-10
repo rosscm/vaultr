@@ -27,6 +27,7 @@ import {
   resolveTrustedChaseCardReference
 } from '../../services/chase-card-catalog.js';
 import { db } from '../../services/db.js';
+import { setUserChasePaused } from '../../services/chase-service.js';
 import { evaluateWeeklyDiscoveryEligibility } from '../../services/weekly-discovery-eligibility.js';
 
 const testUserIds = new Set<string>();
@@ -2593,7 +2594,7 @@ describe('chase command', () => {
 
     const payload = buildChaseListEmbed(userId, 0);
     const data = payload.embeds[0].toJSON();
-    const pausedSection = data.description?.split('**⏸️ Paused (Full Vault)**')[1]?.split('\n\n---')[0] ?? '';
+    const pausedSection = data.description?.split('**📦 Plan limit**')[1]?.split('\n\n---')[0] ?? '';
 
     expect(pausedSection).toContain('Priority: Casual | Max: 104 USD');
     expect(pausedSection).not.toContain('Grade:');
@@ -2601,6 +2602,28 @@ describe('chase command', () => {
     expect(pausedSection).not.toContain('Listing:');
     expect(pausedSection).not.toContain('Status: Paused until Full Vault');
     expect(pausedSection).not.toContain('Custom Exclusions:');
+  });
+
+  it('separates manually paused Chases from plan-limited Chases in Discord', () => {
+    const userId = testUserId('list-pause-states');
+    setUserPlan(userId, 'PRO');
+    const manual = addChase({ userId, cardName: 'Manual Pause Card', priority: 'GRAIL', maxPrice: 200 });
+    addChase({ userId, cardName: 'Watching Grail', priority: 'GRAIL' });
+    addChase({ userId, cardName: 'Watching High One', priority: 'HIGH' });
+    addChase({ userId, cardName: 'Watching High Two', priority: 'HIGH' });
+    addChase({ userId, cardName: 'Plan Limited Card', priority: 'NORMAL', maxPrice: 80 });
+    setUserChasePaused({ userId, chaseId: manual.id, paused: true });
+    setUserPlan(userId, 'FREE');
+
+    const data = buildChaseListEmbed(userId, 0).embeds[0].toJSON();
+    const description = data.description ?? '';
+
+    expect(description).toContain('**Paused:** 1 manually paused');
+    expect(description).toContain('**Plan limit:** 1 saved, not currently checked');
+    expect(description).toContain('**⏸️ Paused**\n**#01  Manual Pause Card**');
+    expect(description).toContain('**📦 Plan limit**\n**#05  Plan Limited Card**');
+    expect(description).not.toContain('Paused (Full Vault)');
+    expect(description).not.toContain('not checked while on Free');
   });
 
   it('undoes Discovery feedback and removes More Like taste profile memory', () => {

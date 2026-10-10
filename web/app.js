@@ -568,13 +568,20 @@ function vaultPageMarkup() {
     return true;
   });
   const completed = state.vaultFilter === 'ALL' || state.vaultFilter === 'COMPLETED' ? state.completedChases || [] : [];
+  const hasVisibleRows = items.length > 0 || completed.length > 0;
+  const emptyState = hasVisibleRows
+    ? ''
+    : state.vaultFilter === 'ALL'
+      ? vaultEmptyMarkup()
+      : '<div class="state-panel"><h2>No Chases in this view</h2><p>Choose another lifecycle filter to see the rest of your Vault.</p></div>';
   return `
     <section aria-labelledby="vault-title">
       ${vaultHeaderMarkup()}
       ${state.vaultNotice ? `<div class="vault-notice" role="status">${escapeHtml(state.vaultNotice)}</div>` : ''}
       ${vaultSummaryMarkup()}
       ${vaultLifecycleFiltersMarkup()}
-      ${items.length ? `<div class="vault-grid" aria-label="Saved Chases">${items.map(vaultCardMarkup).join('')}</div>` : state.vaultFilter === 'ALL' && !completed.length ? vaultEmptyMarkup() : '<div class="state-panel"><h2>No Chases in this view</h2><p>Choose another lifecycle filter to see the rest of your Vault.</p></div>'}
+      ${items.length ? `<div class="vault-grid" aria-label="Saved Chases">${items.map(vaultCardMarkup).join('')}</div>` : ''}
+      ${emptyState}
       ${completedChasesSectionMarkup(completed)}
       ${vaultDialogMarkup()}
       ${removeDialogMarkup()}

@@ -245,6 +245,8 @@ describe('web app static routes', () => {
     expect(jsResponse.headers?.['Content-Type']).toBe('text/javascript; charset=utf-8');
     expect(jsResponse.body).toContain('COMPLETED CHASES');
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
+    expect(jsResponse.body).toContain('const hasVisibleRows = items.length > 0 || completed.length > 0;');
+    expect(jsResponse.body).toContain("hasVisibleRows\n    ? ''\n    : state.vaultFilter === 'ALL'");
     expect(jsResponse.body).toContain("function pageFromHash(hash = window.location.hash)");
     expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf') return value;");
     expect(jsResponse.body).toContain("return 'home';");
