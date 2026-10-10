@@ -4,7 +4,9 @@ import {
   getUserPlan,
   listChases,
   listCompletedChases,
+  reopenCompletedChase,
   resolveChaseRemoval,
+  setChaseUserPaused,
   updateChase
 } from './chase-store.js';
 import {
@@ -14,7 +16,7 @@ import {
 } from './chase-card-catalog.js';
 import { customExclusionTerms } from './chase-exclusions.js';
 import { getEntitlementsForTier } from './entitlements.js';
-import { activePlanChases, activePlanLimits, activePlanTier, PLAN_LIMITS } from './plans.js';
+import { activePlanLimits, activePlanTier, monitoringPlanChases, PLAN_LIMITS } from './plans.js';
 import {
   buildGradePreference,
   CONDITION_CHOICES,
@@ -69,7 +71,7 @@ export type ChaseInputField =
   | 'targetNote'
   | 'customExclusions';
 
-export type ChaseMonitoringState = 'ACTIVE' | 'PAUSED_PLAN_LIMIT';
+export type ChaseMonitoringState = 'ACTIVE' | 'PAUSED_USER' | 'PAUSED_PLAN_LIMIT';
 
 export type VaultChaseView = {
   chase: Chase;
@@ -137,6 +139,8 @@ export type UpdateUserChaseResult =
 export type RemoveUserChaseResult =
   | { ok: true; removed: true; chase: Chase; outcome: ChaseRemovalOutcome }
   | ChaseServiceError;
+
+export type ChaseLifecycleResult = { ok: true; chase: Chase } | ChaseServiceError;
 
 const MAX_CUSTOM_EXCLUSIONS = 15;
 const MAX_CARD_NAME_LENGTH = 100;
@@ -297,11 +301,11 @@ export function getVaultChases(userId: VaultrUserId): VaultChasesResult {
   const chases = listChases(userId);
   const plan = getUserPlan(userId);
   const limits = activePlanLimits(plan);
-  const activeIds = new Set(activePlanChases(chases, plan).map((chase) => chase.id));
+  const activeIds = new Set(monitoringPlanChases(chases, plan).map((chase) => chase.id));
   const activeTier = activePlanTier(plan);
   const views = chases.map((chase) => ({
     chase,
-    monitoringState: activeIds.has(chase.id) ? 'ACTIVE' as const : 'PAUSED_PLAN_LIMIT' as const
+    monitoringState: chase.pausedAt ? 'PAUSED_USER' as const : activeIds.has(chase.id) ? 'ACTIVE' as const : 'PAUSED_PLAN_LIMIT' as const
   }));
   return {
     chases: views,
@@ -310,7 +314,7 @@ export function getVaultChases(userId: VaultrUserId): VaultChasesResult {
       tier: activeTier,
       maxActiveChases: limits.maxActiveChases,
       activeCount: activeIds.size,
-      pausedCount: views.filter((view) => view.monitoringState === 'PAUSED_PLAN_LIMIT').length
+      pausedCount: views.filter((view) => view.monitoringState !== 'ACTIVE').length
     }
   };
 }
@@ -491,4 +495,20 @@ export function resolveUserChaseRemoval(input: { userId: VaultrUserId; chaseId: 
   const result = resolveChaseRemoval(input.userId, input.chaseId, input.outcome);
   if (!result.removed || !result.chase) return { ok: false, code: 'CHASE_NOT_FOUND' };
   return { ok: true, removed: true, chase: result.chase, outcome: input.outcome };
+}
+
+export function setUserChasePaused(input: { userId: VaultrUserId; chaseId: string; paused: boolean }): ChaseLifecycleResult {
+  const chase = setChaseUserPaused(input.userId, input.chaseId, input.paused);
+  return chase ? { ok: true, chase } : { ok: false, code: 'CHASE_NOT_FOUND' };
+}
+
+export function reopenUserCompletedChase(input: { userId: VaultrUserId; chaseId: string }): ChaseLifecycleResult {
+  const plan = getUserPlan(input.userId);
+  const activeTier = activePlanTier(plan);
+  const maxChases = PLAN_LIMITS[activeTier].maxActiveChases;
+  const result = reopenCompletedChase(input.userId, input.chaseId, maxChases);
+  if (result.status === 'REOPENED') return { ok: true, chase: result.chase };
+  if (result.status === 'DUPLICATE') return { ok: false, code: 'DUPLICATE_CHASE', duplicateChase: result.chase };
+  if (result.status === 'LIMIT_REACHED') return { ok: false, code: 'VAULT_LIMIT_REACHED', maxChases, activeTier };
+  return { ok: false, code: 'CHASE_NOT_FOUND' };
 }

@@ -31,7 +31,7 @@ export const WEB_PREVIEW_ME = {
   preview: true
 };
 
-function chase(id: string, cardName: string, cardImageUrl: string, priority: string, extra: Record<string, unknown> = {}) {
+function chase(id: string, cardName: string, cardImageUrl: string, priority: string, extra: Record<string, unknown> = {}, monitoringState = 'ACTIVE') {
   return {
     chase: {
       id,
@@ -41,7 +41,7 @@ function chase(id: string, cardName: string, cardImageUrl: string, priority: str
       createdAt: '2026-09-01T14:00:00.000Z',
       ...extra
     },
-    monitoringState: 'ACTIVE'
+    monitoringState
   };
 }
 
@@ -50,15 +50,15 @@ export const WEB_PREVIEW_CHASES = {
     chase('preview-mew', 'Mew-EX Legendary Treasures RC24', images.mew, 'GRAIL', { maxPrice: 145, grade: 'UNGRADED', condition: 'NM,LP', targetNote: 'Clean binder copy' }),
     chase('preview-umbreon', 'Umbreon VMAX Brilliant Stars TG23', images.umbreon, 'HIGH', { maxPrice: 70, grade: 'PSA 10', listingType: 'BUY_IT_NOW' }),
     chase('preview-squirtle', 'Squirtle 151 170/165', images.squirtle, 'NORMAL', { maxPrice: 42, grade: 'UNGRADED' }),
-    chase('preview-dragonite', 'Dragonite VSTAR Pokemon GO 076/078', images.dragonite, 'HIGH', { maxPrice: 48, condition: 'NM' }),
-    chase('preview-gardevoir', 'Gardevoir ex Paldean Fates 233/091', images.gardevoir, 'NORMAL', { maxPrice: 85, grade: 'UNGRADED' }),
-    chase('preview-pikachu', 'Pikachu XY Black Star Promos XY95', images.pikachu, 'GRAIL', { maxPrice: 120, grade: 'PSA 9' })
+    chase('preview-dragonite', 'Dragonite VSTAR Pokemon GO 076/078', images.dragonite, 'HIGH', { maxPrice: 48, condition: 'NM' }, 'PAUSED_PLAN_LIMIT'),
+    chase('preview-gardevoir', 'Gardevoir ex Paldean Fates 233/091', images.gardevoir, 'NORMAL', { maxPrice: 85, grade: 'UNGRADED', pausedAt: '2026-10-08T14:00:00.000Z' }, 'PAUSED_USER'),
+    chase('preview-pikachu', 'Pikachu XY Black Star Promos XY95', images.pikachu, 'GRAIL', { maxPrice: 120, grade: 'PSA 9' }, 'PAUSED_PLAN_LIMIT')
   ],
   completedItems: [{
     ...chase('preview-pichu', 'Pichu Expedition Base Set 22/165', images.pichu, 'HIGH', { maxPrice: 240 }).chase,
     completedAt: '2026-09-28T12:00:00.000Z'
   }],
-  plan: { tier: 'PRO', activeCount: 6, maxActiveChases: 25, pausedCount: 0 },
+  plan: { tier: 'FREE', activeCount: 3, maxActiveChases: 3, pausedCount: 3 },
   currency: 'CAD',
   options: {
     gradingTypes: GRADING_TYPE_CHOICES,

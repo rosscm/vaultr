@@ -55,6 +55,7 @@ db.exec(`
     region TEXT NOT NULL DEFAULT 'ANY',
     listing_type TEXT NOT NULL DEFAULT 'ANY',
     negative_keywords TEXT,
+    paused_at TEXT,
     created_at TEXT NOT NULL
   );
 
@@ -856,6 +857,11 @@ try {
 }
 try {
   db.exec(`ALTER TABLE chases ADD COLUMN card_image_source_card_id TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE chases ADD COLUMN paused_at TEXT;`);
 } catch {
   // Column already exists on upgraded databases.
 }

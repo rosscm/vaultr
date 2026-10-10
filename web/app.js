@@ -12,6 +12,8 @@ const state = {
   activePage: 'home',
   priority: 'ALL',
   source: 'ALL',
+  alertChaseId: null,
+  alertChaseName: '',
   alerts: [],
   alertsLoaded: false,
   alertsError: null,
@@ -21,6 +23,7 @@ const state = {
   hasCheckedAllAlerts: false,
   isLoadingMore: false,
   vault: [],
+  vaultFilter: 'ALL',
   completedChases: [],
   vaultPlan: null,
   vaultCurrency: 'CAD',
@@ -47,7 +50,9 @@ const state = {
   vaultAutocompleteActiveIndex: -1,
   vaultAutocompleteQuery: '',
   removeTargetId: null,
-  removeError: ''
+  removeError: '',
+  acquireTargetId: null,
+  lifecycleError: ''
 };
 
 function escapeHtml(value) {
@@ -345,6 +350,12 @@ function alertsPageMarkup(inner) {
         <h1 id="alerts-title">What Vaultr found for your Chases</h1>
         <p>Matches worth a look, based on the cards and filters you saved.</p>
       </header>
+      ${state.alertChaseId ? `
+        <div class="active-chase-filter" role="status">
+          <span>Matches for <strong>${escapeHtml(state.alertChaseName || 'this Chase')}</strong></span>
+          <button class="button-ghost" type="button" data-action="clear-chase-filter">Clear filter</button>
+        </div>
+      ` : ''}
       <div class="toolbar">
         <div class="priority-filters" aria-label="Alert priority filters">
           ${priorityButton('ALL', 'All')}
@@ -550,18 +561,31 @@ function vaultPageMarkup() {
       </section>
     `;
   }
-  const items = state.vault || [];
+  const items = (state.vault || []).filter((item) => {
+    if (state.vaultFilter === 'WATCHING') return item.monitoringState === 'ACTIVE';
+    if (state.vaultFilter === 'PAUSED') return item.monitoringState !== 'ACTIVE';
+    if (state.vaultFilter === 'COMPLETED') return false;
+    return true;
+  });
+  const completed = state.vaultFilter === 'ALL' || state.vaultFilter === 'COMPLETED' ? state.completedChases || [] : [];
   return `
     <section aria-labelledby="vault-title">
       ${vaultHeaderMarkup()}
       ${state.vaultNotice ? `<div class="vault-notice" role="status">${escapeHtml(state.vaultNotice)}</div>` : ''}
       ${vaultSummaryMarkup()}
-      ${items.length ? `<div class="vault-grid" aria-label="Saved Chases">${items.map(vaultCardMarkup).join('')}</div>` : vaultEmptyMarkup()}
-      ${completedChasesSectionMarkup()}
+      ${vaultLifecycleFiltersMarkup()}
+      ${items.length ? `<div class="vault-grid" aria-label="Saved Chases">${items.map(vaultCardMarkup).join('')}</div>` : state.vaultFilter === 'ALL' && !completed.length ? vaultEmptyMarkup() : '<div class="state-panel"><h2>No Chases in this view</h2><p>Choose another lifecycle filter to see the rest of your Vault.</p></div>'}
+      ${completedChasesSectionMarkup(completed)}
       ${vaultDialogMarkup()}
       ${removeDialogMarkup()}
+      ${acquireDialogMarkup()}
     </section>
   `;
+}
+
+function vaultLifecycleFiltersMarkup() {
+  const filters = [['ALL', 'All'], ['WATCHING', 'Watching'], ['PAUSED', 'Paused'], ['COMPLETED', 'Completed']];
+  return `<div class="vault-lifecycle-filters" aria-label="Vault lifecycle filters">${filters.map(([value, label]) => `<button class="pill-button" type="button" data-vault-filter="${value}" aria-pressed="${state.vaultFilter === value ? 'true' : 'false'}">${label}</button>`).join('')}</div>`;
 }
 
 function vaultHeaderMarkup() {
@@ -598,7 +622,7 @@ function vaultSummaryMarkup() {
         <span class="summary-label">Completed</span>
         <strong>${escapeHtml(completed)}</strong>
       </div>` : ''}
-      ${paused > 0 ? `<p>${escapeHtml(paused)} saved ${paused === 1 ? 'Chase is' : 'Chases are'} paused while this Vault is on Free.</p>` : ''}
+      ${paused > 0 ? `<p>${escapeHtml(paused)} saved ${paused === 1 ? 'Chase is' : 'Chases are'} currently paused or outside the monitoring limit.</p>` : ''}
     </div>
   `;
 }
@@ -615,7 +639,9 @@ function vaultEmptyMarkup() {
 
 function vaultCardMarkup(item) {
   const chase = item.chase || {};
-  const paused = item.monitoringState === 'PAUSED_PLAN_LIMIT';
+  const paused = item.monitoringState !== 'ACTIVE';
+  const userPaused = item.monitoringState === 'PAUSED_USER';
+  const statusLabel = userPaused ? 'Paused' : item.monitoringState === 'PAUSED_PLAN_LIMIT' ? 'Plan limit' : 'Watching';
   const details = [
     chase.maxPrice !== undefined ? `Max ${formatMoney(chase.maxPrice, state.vaultCurrency)}` : undefined,
     chase.grade ? displayGradeValue(chase.grade) : undefined,
@@ -627,16 +653,19 @@ function vaultCardMarkup(item) {
       ${chase.cardImageUrl ? `<img class="vault-card-image" src="${escapeHtml(chase.cardImageUrl)}" alt="${escapeHtml(chase.cardName)} card image" loading="lazy" data-vault-card-image>` : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
       <div class="vault-card-body">
         <div class="vault-card-meta">
-          <span class="status-pill ${paused ? 'paused' : 'active'}">${paused ? 'Paused' : 'Watching'}</span>
+          <span class="status-pill ${paused ? 'paused' : 'active'}">${statusLabel}</span>
           <span class="priority-pill ${chase.priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priorityLabel(chase.priority))}</span>
         </div>
         <h2>${escapeHtml(chase.cardName || 'Saved Chase')}</h2>
-        ${paused ? '<p class="paused-copy">Saved in your Vault, not currently monitored on Free.</p>' : ''}
+        ${item.monitoringState === 'PAUSED_PLAN_LIMIT' ? '<p class="paused-copy">Saved in your Vault, but not monitored under the current plan limit.</p>' : userPaused ? '<p class="paused-copy">Watching is paused. Your Chase criteria are preserved.</p>' : ''}
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${chase.targetNote ? `<p class="vault-note">${escapeHtml(chase.targetNote)}</p>` : ''}
         ${chase.negativeKeywords?.length ? `<p class="vault-note">Custom exclusions: ${escapeHtml(chase.negativeKeywords.join(', '))}</p>` : ''}
         <div class="vault-actions">
+          <button class="vault-action-link" type="button" data-action="view-chase-matches" data-chase-id="${escapeHtml(chase.id)}" data-card-name="${escapeHtml(chase.cardName)}">View matches</button>
           <button class="button-ghost" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit</button>
+          ${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause</button>` : userPaused ? `<button class="vault-action-link" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume</button>` : ''}
+          <button class="vault-action-link acquired" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>
           <button class="button-ghost danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button>
         </div>
       </div>
@@ -663,13 +692,15 @@ function completedChaseMarkup(chase) {
         </div>
         <h2>${escapeHtml(chase.cardName || 'Completed Chase')}</h2>
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
+        <div class="vault-actions">
+          <button class="vault-action-link" type="button" data-action="reopen-chase" data-chase-id="${escapeHtml(chase.id)}">Reopen Chase</button>
+        </div>
       </div>
     </article>
   `;
 }
 
-function completedChasesSectionMarkup() {
-  const completed = state.completedChases || [];
+function completedChasesSectionMarkup(completed = state.completedChases || []) {
   if (!completed.length) return '';
   return `
     <section class="completed-vault-section" aria-labelledby="completed-vault-title">
@@ -884,10 +915,6 @@ function removeDialogMarkup() {
         ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. This Chase will not be removed.</p>' : ''}
         ${state.removeError ? `<p class="form-error" role="alert">${escapeHtml(state.removeError)}</p>` : ''}
         <div class="remove-options">
-          <button class="button-primary remove-option" type="button" data-action="remove-chase" data-outcome="COMPLETED">
-            <span class="remove-option-title">Completed</span>
-            <span class="remove-option-copy">I found or bought the card</span>
-          </button>
           <button class="button-ghost remove-option" type="button" data-action="remove-chase" data-outcome="NO_LONGER_INTERESTED">
             <span class="remove-option-title">No longer interested</span>
             <span class="remove-option-copy">Remove it without marking it completed</span>
@@ -899,6 +926,29 @@ function removeDialogMarkup() {
         </div>
         <footer class="dialog-actions">
           <button class="button-ghost" type="button" data-action="close-remove-dialog">Cancel</button>
+        </footer>
+      </section>
+    </div>
+  `;
+}
+
+function acquireDialogMarkup() {
+  if (!state.acquireTargetId) return '';
+  const item = state.vault.find((entry) => entry.chase.id === state.acquireTargetId);
+  if (!item) return '';
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="vault-dialog" aria-labelledby="acquire-title">
+        <header>
+          <p class="eyebrow">MARK ACQUIRED</p>
+          <h2 id="acquire-title">Mark ${escapeHtml(item.chase.cardName)} as acquired?</h2>
+        </header>
+        <p>Vaultr will stop watching this Chase and keep it in your completed history.</p>
+        ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. This Chase will not be changed.</p>' : ''}
+        ${state.lifecycleError ? `<p class="form-error" role="alert">${escapeHtml(state.lifecycleError)}</p>` : ''}
+        <footer class="dialog-actions">
+          <button class="button-ghost" type="button" data-action="close-acquire-dialog">Cancel</button>
+          <button class="button-primary" type="button" data-action="confirm-acquire-chase">Mark acquired</button>
         </footer>
       </section>
     </div>
@@ -967,6 +1017,7 @@ function alertQuery(cursor) {
   const params = new URLSearchParams();
   if (state.priority !== 'ALL') params.set('priority', state.priority);
   if (state.source !== 'ALL') params.set('source', state.source);
+  if (state.alertChaseId) params.set('chaseId', state.alertChaseId);
   if (cursor) params.set('cursor', cursor);
   return params.toString() ? `/api/alerts?${params.toString()}` : '/api/alerts';
 }
@@ -1205,12 +1256,73 @@ async function removeChase(outcome) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ outcome })
     });
-    state.vaultNotice = outcome === 'COMPLETED' ? 'Chase completed.' : 'Chase removed.';
+    state.vaultNotice = 'Chase removed.';
     state.removeTargetId = null;
     await loadVault({ force: true });
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
     state.removeError = apiErrorMessage(error);
+    renderCurrentPage();
+  }
+}
+
+async function setChasePaused(chaseId, paused) {
+  if (!chaseId) return;
+  if (isPreviewMode) {
+    state.vaultNotice = 'Preview mode is read-only. No changes were made.';
+    renderCurrentPage();
+    return;
+  }
+  state.lifecycleError = '';
+  try {
+    await fetchJson(`/api/chases/${encodeURIComponent(chaseId)}/${paused ? 'pause' : 'resume'}`, { method: 'POST' });
+    state.vaultNotice = paused ? 'Chase paused.' : 'Chase resumed.';
+    await loadVault({ force: true });
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.vaultNotice = apiErrorMessage(error);
+    renderCurrentPage();
+  }
+}
+
+async function markChaseAcquired() {
+  if (!state.acquireTargetId) return;
+  if (isPreviewMode) {
+    state.lifecycleError = 'Preview mode is read-only. No changes were made.';
+    renderCurrentPage();
+    return;
+  }
+  state.lifecycleError = '';
+  try {
+    await fetchJson(`/api/chases/${encodeURIComponent(state.acquireTargetId)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ outcome: 'COMPLETED' })
+    });
+    state.acquireTargetId = null;
+    state.vaultNotice = 'Chase marked acquired.';
+    await loadVault({ force: true });
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.lifecycleError = apiErrorMessage(error);
+    renderCurrentPage();
+  }
+}
+
+async function reopenChase(chaseId) {
+  if (!chaseId) return;
+  if (isPreviewMode) {
+    state.vaultNotice = 'Preview mode is read-only. No changes were made.';
+    renderCurrentPage();
+    return;
+  }
+  try {
+    await fetchJson(`/api/completed-chases/${encodeURIComponent(chaseId)}/reopen`, { method: 'POST' });
+    state.vaultNotice = 'Chase reopened.';
+    await loadVault({ force: true });
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.vaultNotice = apiErrorMessage(error);
     renderCurrentPage();
   }
 }
@@ -1243,12 +1355,28 @@ app.addEventListener('click', async (event) => {
 
   const page = target.getAttribute('data-page');
   if (page) {
+    if (page === 'alerts') {
+      state.alertChaseId = null;
+      state.alertChaseName = '';
+      state.alertsLoaded = false;
+    }
     await navigateToPage(page);
+    return;
+  }
+
+  const vaultFilter = target.getAttribute('data-vault-filter');
+  if (vaultFilter) {
+    state.vaultFilter = vaultFilter;
+    renderCurrentPage();
     return;
   }
 
   const priority = target.getAttribute('data-priority');
   if (priority) {
+    if (state.activePage !== 'alerts') {
+      state.alertChaseId = null;
+      state.alertChaseName = '';
+    }
     state.priority = priority;
     await navigateToPage('alerts');
     return;
@@ -1269,6 +1397,43 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'retry-shelf') {
     await loadShelf({ force: true });
+    return;
+  }
+  if (action === 'view-chase-matches') {
+    state.alertChaseId = target.getAttribute('data-chase-id');
+    state.alertChaseName = target.getAttribute('data-card-name') || '';
+    state.alertsLoaded = false;
+    await navigateToPage('alerts');
+    return;
+  }
+  if (action === 'clear-chase-filter') {
+    state.alertChaseId = null;
+    state.alertChaseName = '';
+    await loadAlerts();
+    return;
+  }
+  if (action === 'pause-chase' || action === 'resume-chase') {
+    await setChasePaused(target.getAttribute('data-chase-id'), action === 'pause-chase');
+    return;
+  }
+  if (action === 'open-acquire-chase') {
+    state.acquireTargetId = target.getAttribute('data-chase-id');
+    state.lifecycleError = '';
+    renderCurrentPage();
+    return;
+  }
+  if (action === 'close-acquire-dialog') {
+    state.acquireTargetId = null;
+    state.lifecycleError = '';
+    renderCurrentPage();
+    return;
+  }
+  if (action === 'confirm-acquire-chase') {
+    await markChaseAcquired();
+    return;
+  }
+  if (action === 'reopen-chase') {
+    await reopenChase(target.getAttribute('data-chase-id'));
     return;
   }
   if (action === 'open-add-chase') {

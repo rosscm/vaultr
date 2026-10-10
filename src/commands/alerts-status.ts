@@ -5,7 +5,7 @@ import {
   getUserPlan,
   listChases
 } from '../services/chase-store.js';
-import { activePlanChases, activePlanTier, pausedPlanChases, PLAN_LIMITS } from '../services/plans.js';
+import { activePlanTier, monitoringPlanChases, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatTimeWithAge } from '../ui/time.js';
 import type { Chase } from '../types.js';
@@ -51,8 +51,9 @@ export function buildAlertsStatusEmbed(userId: string, now = new Date()) {
   const plan = getUserPlan(userId);
   const activeTier = activePlanTier(plan);
   const chases = listChases(userId);
-  const activeChases = activePlanChases(chases, plan);
-  const pausedChases = pausedPlanChases(chases, plan);
+  const activeChases = monitoringPlanChases(chases, plan);
+  const activeIds = new Set(activeChases.map((chase) => chase.id));
+  const pausedChases = chases.filter((chase) => !activeIds.has(chase.id));
   const intervalSeconds = PLAN_LIMITS[activeTier].pollIntervalSeconds;
   const nowMs = now.getTime();
   const lastSweep = lastSweepAt(activeChases);

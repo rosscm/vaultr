@@ -36,7 +36,7 @@ import { searchTrustedShopifyListings } from './shopify.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
-import { activePlanChases, activePlanTier, getRuntimePollIntervalSeconds, PLAN_LIMITS } from './plans.js';
+import { activePlanTier, getRuntimePollIntervalSeconds, monitoringPlanChases, PLAN_LIMITS } from './plans.js';
 import { CHASE_ALERT_COOLDOWN_MINUTES, SHOW_ALERT_IMAGES, USE_COMPACT_ALERT_LAYOUT } from './alert-policy.js';
 import { getEntitlementsForTier } from './entitlements.js';
 import {
@@ -845,7 +845,7 @@ async function runPoll(client: Client): Promise<void> {
   }
   for (const [userId, userChases] of chasesByUser.entries()) {
     const userPlan = getUserPlan(userId);
-    for (const chase of activePlanChases(userChases, userPlan)) {
+    for (const chase of monitoringPlanChases(userChases, userPlan)) {
       activeChaseIds.add(chase.id);
     }
   }

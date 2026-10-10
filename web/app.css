@@ -609,6 +609,27 @@ a {
   gap: 6px;
 }
 
+.active-chase-filter,
+.vault-lifecycle-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.active-chase-filter {
+  justify-content: space-between;
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--gold);
+  background: rgba(255, 211, 135, 0.08);
+  color: var(--muted-strong);
+}
+
+.vault-lifecycle-filters {
+  margin: 18px 0 12px;
+}
+
 .pill-button {
   min-height: 32px;
   padding: 0 12px;
@@ -1127,6 +1148,23 @@ a {
 
 .vault-actions {
   margin-top: 12px;
+}
+
+.vault-action-link {
+  min-height: 34px;
+  border: 0;
+  padding: 0 6px;
+  background: transparent;
+  color: var(--muted-strong);
+  font-weight: 760;
+}
+
+.vault-action-link:hover {
+  color: var(--text);
+}
+
+.vault-action-link.acquired {
+  color: var(--gold);
 }
 
 .vault-actions .button-ghost {

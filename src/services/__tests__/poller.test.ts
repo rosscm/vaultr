@@ -31,7 +31,7 @@ import { createUser, linkIdentity } from '../accounts.js';
 import { db } from '../db.js';
 import { matchChaseToListing } from '../matcher.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
-import { activePlanChases, activePlanTier, getRuntimePollIntervalSeconds, pausedPlanChases, PLAN_LIMITS } from '../plans.js';
+import { activePlanChases, activePlanTier, getRuntimePollIntervalSeconds, monitoringPlanChases, pausedPlanChases, PLAN_LIMITS } from '../plans.js';
 import type { Chase } from '../../types.js';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -182,6 +182,16 @@ describe('plan access', () => {
     expect(activePlanChases(chases, { tier: 'PRO', status: 'PAST_DUE' }).map((chase) => chase.id)).toEqual(['grail-new', 'high', 'normal-old']);
     expect(pausedPlanChases(chases, { tier: 'PRO', status: 'PAST_DUE' }).map((chase) => chase.id)).toEqual(['normal-new']);
     expect(activePlanChases(chases, { tier: 'PRO', status: 'ACTIVE' }).map((chase) => chase.id)).toEqual(['grail-new', 'high', 'normal-old', 'normal-new']);
+  });
+
+  it('excludes user-paused Chases from monitoring without removing them from collector eligibility', () => {
+    const chases = [
+      { id: 'paused-grail', priority: 'GRAIL' as const, pausedAt: '2026-10-10T12:00:00.000Z', createdAt: '2026-06-01T00:00:00.000Z' },
+      { id: 'watching-high', priority: 'HIGH' as const, createdAt: '2026-06-02T00:00:00.000Z' }
+    ];
+
+    expect(monitoringPlanChases(chases, { tier: 'FREE', status: 'ACTIVE' }).map((chase) => chase.id)).toEqual(['watching-high']);
+    expect(activePlanChases(chases, { tier: 'FREE', status: 'ACTIVE' }).map((chase) => chase.id)).toEqual(['paused-grail', 'watching-high']);
   });
 });
 

@@ -27,6 +27,7 @@ export function activePlanLimits(plan: Pick<UserPlan, 'tier' | 'status'>): { max
 
 type PlanChaseLike = {
   priority?: 'GRAIL' | 'HIGH' | 'NORMAL';
+  pausedAt?: string;
   createdAt: string;
 };
 
@@ -46,6 +47,10 @@ export function orderPlanChases<T extends PlanChaseLike>(chases: T[]): T[] {
 
 export function activePlanChases<T extends PlanChaseLike>(chases: T[], plan: Pick<UserPlan, 'tier' | 'status'>): T[] {
   return orderPlanChases(chases).slice(0, activePlanLimits(plan).maxActiveChases);
+}
+
+export function monitoringPlanChases<T extends PlanChaseLike>(chases: T[], plan: Pick<UserPlan, 'tier' | 'status'>): T[] {
+  return orderPlanChases(chases.filter((chase) => !chase.pausedAt)).slice(0, activePlanLimits(plan).maxActiveChases);
 }
 
 export function pausedPlanChases<T extends PlanChaseLike>(chases: T[], plan: Pick<UserPlan, 'tier' | 'status'>): T[] {

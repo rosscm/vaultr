@@ -15,7 +15,9 @@ import { customExclusionTerms } from './services/chase-exclusions.js';
 import {
   addUserChase,
   getVaultChases,
+  reopenUserCompletedChase,
   resolveUserChaseRemoval,
+  setUserChasePaused,
   updateUserChase,
   type ChaseServiceError
 } from './services/chase-service.js';
@@ -237,6 +239,7 @@ function publicChase(chase: ReturnType<typeof getVaultChases>['chases'][number][
     condition: chase.condition,
     listingType: chase.listingType,
     negativeKeywords: customExclusionTerms(chase.negativeKeywords),
+    pausedAt: chase.pausedAt,
     createdAt: chase.createdAt
   };
 }
@@ -493,10 +496,13 @@ function previewResponse(method: string, url: URL): WebResponse | null {
   if (url.pathname === '/api/preview/alerts') {
     const priority = url.searchParams.get('priority');
     const source = url.searchParams.get('source');
+    const chaseId = url.searchParams.get('chaseId');
     if (priority && !['GRAIL', 'HIGH', 'NORMAL'].includes(priority)) return errorResponse(400, 'invalid_priority');
     if (source && !['EBAY', 'SHOPIFY'].includes(source)) return errorResponse(400, 'invalid_source');
     const items = WEB_PREVIEW_ALERTS.filter((item) =>
-      (!priority || item.chasePriority === priority) && (!source || item.source === source)
+      (!priority || item.chasePriority === priority) &&
+      (!source || item.source === source) &&
+      (!chaseId || item.chaseId === chaseId)
     );
     return jsonResponse(200, { items, nextCursor: null });
   }
@@ -769,6 +775,20 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       });
     }
 
+    const lifecycleMatch = url.pathname.match(/^\/api\/chases\/([^/]+)\/(pause|resume)$/);
+    if (method === 'POST' && lifecycleMatch) {
+      let chaseId: string;
+      try {
+        chaseId = decodeURIComponent(lifecycleMatch[1]);
+      } catch {
+        return errorResponse(400, 'invalid_chase_id');
+      }
+      const result = setUserChasePaused({ userId: session.userId, chaseId, paused: lifecycleMatch[2] === 'pause' });
+      if (!result.ok) return chaseErrorResponse(result);
+      const view = getVaultChases(session.userId).chases.find((item) => item.chase.id === chaseId);
+      return jsonResponse(200, { item: view ? publicVaultItem(view) : undefined });
+    }
+
     const chaseMatch = url.pathname.match(/^\/api\/chases\/([^/]+)$/);
     if (chaseMatch && (method === 'PATCH' || method === 'DELETE')) {
       let chaseId: string;
@@ -802,6 +822,22 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       if (!result.ok) return chaseErrorResponse(result);
       return jsonResponse(200, { ok: true, outcome });
     }
+  }
+
+  const reopenMatch = url.pathname.match(/^\/api\/completed-chases\/([^/]+)\/reopen$/);
+  if (method === 'POST' && reopenMatch) {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    let chaseId: string;
+    try {
+      chaseId = decodeURIComponent(reopenMatch[1]);
+    } catch {
+      return errorResponse(400, 'invalid_chase_id');
+    }
+    const result = reopenUserCompletedChase({ userId: session.userId, chaseId });
+    if (!result.ok) return chaseErrorResponse(result);
+    const view = getVaultChases(session.userId).chases.find((item) => item.chase.id === chaseId);
+    return jsonResponse(200, { item: view ? publicVaultItem(view) : undefined });
   }
 
   return errorResponse(404, 'not_found');

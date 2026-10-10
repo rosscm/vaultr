@@ -9,7 +9,7 @@ import { getDiscoveryMarketRefreshQueueStats } from './services/discovery-market
 import { getWeeklyDiscoveryPreparationHealth, ownerAlertGraceMs } from './services/discovery-drop-scheduler.js';
 import { listWeeklyDiscoveryPreparationStates, markWeeklyDiscoveryOwnerAlertState } from './services/weekly-discovery-preparation-state.js';
 import { failureFingerprint, shouldSuppressDuplicateAlert } from './services/ops-alerts.js';
-import { activePlanChases, activePlanTier, PLAN_LIMITS } from './services/plans.js';
+import { activePlanTier, monitoringPlanChases, PLAN_LIMITS } from './services/plans.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -215,7 +215,7 @@ function checkChaseFreshness(): CheckResult {
     const intervalSeconds = PLAN_LIMITS[tier].pollIntervalSeconds;
     const maxOverdueMs = intervalSeconds * 1000 * maxOverdueMultiple;
 
-    for (const chase of activePlanChases(userChases, plan)) {
+    for (const chase of monitoringPlanChases(userChases, plan)) {
       activeChaseCount += 1;
       const lastAttemptedAt = getChaseLastPollAttemptAt(chase.id);
       if (!lastAttemptedAt) continue;

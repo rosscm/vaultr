@@ -314,6 +314,8 @@ describe('web app preview mode', () => {
     const previewAlerts = JSON.parse(alerts.body ?? '{}');
     const previewShelf = JSON.parse(shelf.body ?? '{}');
     expect(previewAlerts.items.length).toBeGreaterThanOrEqual(4);
+    expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_USER')).toBe(true);
+    expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_PLAN_LIMIT')).toBe(true);
     expect(previewAlerts.items.map((item: { priceDelta: number }) => item.priceDelta)).toEqual([27, 6, 7, 6, 15]);
     expect(previewShelf).toMatchObject({ status: 'READY', itemCount: 12, marketReadyCount: 10, imageReadyCount: 8 });
     const chaseNames = new Set([
@@ -352,9 +354,14 @@ describe('web app preview mode', () => {
       { method: 'GET', url: '/api/preview/alerts?priority=GRAIL&source=EBAY&userId=real-user' },
       { config: previewConfig }
     );
+    const chaseSelected = await handleWebRequest(
+      { method: 'GET', url: '/api/preview/alerts?chaseId=preview-mew' },
+      { config: previewConfig }
+    );
 
     expect(selected.body).toBe(regular.body);
     expect(JSON.parse(selected.body ?? '{}').items.every((item: { chasePriority: string; source: string }) => item.chasePriority === 'GRAIL' && item.source === 'EBAY')).toBe(true);
+    expect(JSON.parse(chaseSelected.body ?? '{}').items.map((item: { chaseId: string }) => item.chaseId)).toEqual(['preview-mew']);
   });
 
   it('rejects every preview API mutation and leaves persistent state untouched', async () => {
@@ -364,9 +371,16 @@ describe('web app preview mode', () => {
       sessions: (db.prepare('SELECT COUNT(*) AS count FROM web_sessions').get() as { count: number }).count
     };
 
-    for (const method of ['POST', 'PATCH', 'DELETE']) {
+    for (const [method, url] of [
+      ['POST', '/api/preview/chases'],
+      ['PATCH', '/api/preview/chases/preview-mew'],
+      ['DELETE', '/api/preview/chases/preview-mew'],
+      ['POST', '/api/preview/chases/preview-mew/pause'],
+      ['POST', '/api/preview/chases/preview-gardevoir/resume'],
+      ['POST', '/api/preview/completed-chases/preview-pichu/reopen']
+    ]) {
       const response = await handleWebRequest(
-        { method, url: '/api/preview/chases', headers: { 'content-type': 'application/json' }, body: '{}' },
+        { method, url, headers: { 'content-type': 'application/json' }, body: '{}' },
         { config: previewConfig }
       );
       expect(response.status).toBe(405);
@@ -908,6 +922,9 @@ describe('authenticated chase API', () => {
       { method: 'POST', url: '/api/chases', ...json({ cardName: 'Mew RC24' }) },
       { method: 'PATCH', url: '/api/chases/chase-1', ...json({ maxPrice: 10 }) },
       { method: 'DELETE', url: '/api/chases/chase-1', ...json({ outcome: 'COMPLETED' }) },
+      { method: 'POST', url: '/api/chases/chase-1/pause' },
+      { method: 'POST', url: '/api/chases/chase-1/resume' },
+      { method: 'POST', url: '/api/completed-chases/chase-1/reopen' },
       { method: 'GET', url: '/api/chases/autocomplete?q=mew' }
     ];
 
@@ -1099,6 +1116,60 @@ describe('authenticated chase API', () => {
     const listBody = JSON.parse(list.body ?? '{}');
     expect(listBody.items).toEqual([]);
     expect(listBody.completedItems.map((chase: any) => chase.cardName)).toEqual(['Mew RC24']);
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
+  it('pauses, resumes, completes, and reopens only the authenticated account Chase', async () => {
+    const userId = 'web-chases-lifecycle-user';
+    const otherUserId = 'web-chases-lifecycle-other';
+    const headers = auth(userId, 'chases-lifecycle-token');
+    clearUser(otherUserId);
+    setUserPlan(userId, 'PRO');
+    const chase = addChase({
+      userId,
+      cardName: 'Mew RC24',
+      maxPrice: 145,
+      grade: 'PSA 9',
+      condition: 'NM',
+      listingType: 'BUY_IT_NOW',
+      priority: 'GRAIL'
+    });
+    const other = addChase({ userId: otherUserId, cardName: 'Other Lifecycle Chase' });
+
+    const pause = await handleWebRequest({ method: 'POST', url: `/api/chases/${chase.id}/pause`, headers }, { config });
+    expect(pause.status).toBe(200);
+    expect(JSON.parse(pause.body ?? '{}').item).toMatchObject({ monitoringState: 'PAUSED_USER', chase: { id: chase.id, maxPrice: 145 } });
+    expect(listChases(userId)[0]?.pausedAt).toBeTruthy();
+
+    const otherPause = await handleWebRequest({ method: 'POST', url: `/api/chases/${other.id}/pause`, headers }, { config });
+    expect(otherPause.status).toBe(404);
+    expect(listChases(otherUserId)[0]?.pausedAt).toBeUndefined();
+
+    const resume = await handleWebRequest({ method: 'POST', url: `/api/chases/${chase.id}/resume`, headers }, { config });
+    expect(resume.status).toBe(200);
+    expect(JSON.parse(resume.body ?? '{}').item.monitoringState).toBe('ACTIVE');
+    expect(listChases(userId)[0]?.pausedAt).toBeUndefined();
+
+    const complete = await handleWebRequest({
+      method: 'DELETE',
+      url: `/api/chases/${chase.id}`,
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ outcome: 'COMPLETED' })
+    }, { config });
+    expect(complete.status).toBe(200);
+
+    const reopen = await handleWebRequest({ method: 'POST', url: `/api/completed-chases/${chase.id}/reopen`, headers }, { config });
+    expect(reopen.status).toBe(200);
+    expect(JSON.parse(reopen.body ?? '{}').item).toMatchObject({
+      monitoringState: 'ACTIVE',
+      chase: { id: chase.id, cardName: 'Mew RC24', maxPrice: 145, grade: 'PSA 9', condition: 'NM', listingType: 'BUY_IT_NOW', priority: 'GRAIL' }
+    });
+    expect(listCompletedChases(userId)).toHaveLength(0);
+
+    const missingReopen = await handleWebRequest({ method: 'POST', url: `/api/completed-chases/${other.id}/reopen`, headers }, { config });
+    expect(missingReopen.status).toBe(404);
 
     clearUser(userId);
     clearUser(otherUserId);

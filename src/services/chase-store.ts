@@ -43,10 +43,11 @@ type ChaseRow = {
   condition: string | null;
   listing_type: 'ANY' | 'AUCTION' | 'BUY_IT_NOW';
   negative_keywords: string | null;
+  paused_at: string | null;
   created_at: string;
 };
 
-type CompletedChaseRow = ChaseRow & {
+type CompletedChaseRow = Omit<ChaseRow, 'paused_at'> & {
   completed_at: string;
 };
 
@@ -296,13 +297,14 @@ function mapRow(row: ChaseRow): Chase {
           .map((k) => k.trim())
           .filter(Boolean)
       : undefined,
+    pausedAt: row.paused_at ?? undefined,
     createdAt: row.created_at
   };
 }
 
 function mapCompletedRow(row: CompletedChaseRow): CompletedChase {
   return {
-    ...mapRow(row),
+    ...mapRow({ ...row, paused_at: null }),
     completedAt: row.completed_at
   };
 }
@@ -437,16 +439,16 @@ function mapSentAlertDetails(row: SentAlertDetailsRow): SentAlertDetails {
 const insertChaseStmt = db.prepare(`
   INSERT INTO chases (
     id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id,
-    query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+    query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, paused_at, created_at
   )
   VALUES (
     @id, @user_id, @guild_id, @card_name, @card_image_url, @card_image_identity, @card_image_source_name, @card_image_source_kind, @card_image_source_card_id,
-    @query_name, @priority, @target_note, @max_price, @grade, @condition, @listing_type, @negative_keywords, @created_at
+    @query_name, @priority, @target_note, @max_price, @grade, @condition, @listing_type, @negative_keywords, @paused_at, @created_at
   )
 `);
 
 const getChaseByUserAndNormalizedNameStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, paused_at, created_at
   FROM chases
   WHERE user_id = ? AND lower(trim(card_name)) = lower(trim(?))
   ORDER BY created_at ASC
@@ -454,7 +456,7 @@ const getChaseByUserAndNormalizedNameStmt = db.prepare(`
 `);
 
 const listChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, paused_at, created_at
   FROM chases
   WHERE user_id = ?
   ORDER BY
@@ -467,7 +469,7 @@ const listChasesStmt = db.prepare(`
 `);
 
 const listAllChasesStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, paused_at, created_at
   FROM chases
   ORDER BY created_at DESC
 `);
@@ -502,6 +504,19 @@ const removeChaseStmt = db.prepare(`
   DELETE FROM chases
   WHERE user_id = ? AND id = ?
 `);
+
+const setChasePausedAtStmt = db.prepare(`
+  UPDATE chases SET paused_at = ? WHERE user_id = ? AND id = ?
+`);
+
+const getCompletedChaseByIdStmt = db.prepare(`
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at, completed_at
+  FROM completed_chases
+  WHERE user_id = ? AND id = ?
+  LIMIT 1
+`);
+
+const removeCompletedChaseStmt = db.prepare(`DELETE FROM completed_chases WHERE user_id = ? AND id = ?`);
 
 const removeAllChasesByUserStmt = db.prepare(`
   DELETE FROM chases
@@ -1181,7 +1196,7 @@ const listRecentChaseTuneOutAlertsSinceStmt = db.prepare(`
 `);
 
 const getChaseByIdStmt = db.prepare(`
-  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, created_at
+  SELECT id, user_id, guild_id, card_name, card_image_url, card_image_identity, card_image_source_name, card_image_source_kind, card_image_source_card_id, query_name, priority, target_note, max_price, grade, condition, listing_type, negative_keywords, paused_at, created_at
   FROM chases
   WHERE user_id = ? AND id = ?
   LIMIT 1
@@ -1404,6 +1419,7 @@ export function createChaseForUser(input: Omit<Chase, 'id' | 'createdAt'>, optio
       condition: chase.condition ?? null,
       listing_type: chase.listingType ?? 'ANY',
       negative_keywords: chase.negativeKeywords?.join(',') ?? null,
+      paused_at: chase.pausedAt ?? null,
       created_at: chase.createdAt
     });
     if (chaseStoreTestState.failNextAddChase) {
@@ -1477,6 +1493,62 @@ export function listCompletedChases(userId: string): CompletedChase[] {
 export function getChase(userId: string, chaseId: string): Chase | null {
   const row = getChaseByIdStmt.get(userId, chaseId) as ChaseRow | undefined;
   return row ? mapRow(row) : null;
+}
+
+export function setChaseUserPaused(userId: string, chaseId: string, paused: boolean): Chase | null {
+  const current = getChase(userId, chaseId);
+  if (!current) return null;
+  const pausedAt = paused ? current.pausedAt ?? new Date().toISOString() : null;
+  setChasePausedAtStmt.run(pausedAt, userId, chaseId);
+  return getChase(userId, chaseId);
+}
+
+export type ReopenCompletedChaseResult =
+  | { status: 'REOPENED'; chase: Chase }
+  | { status: 'NOT_FOUND' }
+  | { status: 'DUPLICATE'; chase: Chase }
+  | { status: 'LIMIT_REACHED'; maxChases: number };
+
+export function reopenCompletedChase(userId: string, chaseId: string, maxChases: number): ReopenCompletedChaseResult {
+  const reopen = db.transaction((): ReopenCompletedChaseResult => {
+    const row = getCompletedChaseByIdStmt.get(userId, chaseId) as CompletedChaseRow | undefined;
+    if (!row) return { status: 'NOT_FOUND' };
+    const completed = mapCompletedRow(row);
+    const duplicate = getChaseByUserAndNormalizedNameStmt.get(userId, completed.cardName) as ChaseRow | undefined;
+    if (duplicate) return { status: 'DUPLICATE', chase: mapRow(duplicate) };
+    const count = (countChasesByUserStmt.get(userId) as { count: number } | undefined)?.count ?? 0;
+    if (count >= maxChases) return { status: 'LIMIT_REACHED', maxChases };
+
+    insertChaseStmt.run({
+      id: completed.id,
+      user_id: completed.userId,
+      guild_id: completed.guildId ?? null,
+      card_name: completed.cardName,
+      card_image_url: completed.cardImageUrl ?? null,
+      card_image_identity: completed.cardImageIdentity ?? null,
+      card_image_source_name: completed.cardImageSourceName ?? null,
+      card_image_source_kind: completed.cardImageSourceKind ?? null,
+      card_image_source_card_id: completed.cardImageSourceCardId ?? null,
+      query_name: completed.queryName ?? buildEbaySearchKeywords(completed),
+      priority: completed.priority ?? 'NORMAL',
+      target_note: completed.targetNote ?? null,
+      max_price: completed.maxPrice ?? null,
+      grade: completed.grade ?? null,
+      condition: completed.condition ?? null,
+      listing_type: completed.listingType ?? 'ANY',
+      negative_keywords: completed.negativeKeywords?.join(',') ?? null,
+      paused_at: null,
+      created_at: completed.createdAt
+    });
+    if (chaseStoreTestState.failNextReopen) {
+      chaseStoreTestState.failNextReopen = false;
+      throw new Error('Simulated reopen failure');
+    }
+    removeCompletedChaseStmt.run(userId, chaseId);
+    deleteUserTasteMemoryStmt.run(userId, chaseId, 'BOUGHT_OR_SEEN');
+    return { status: 'REOPENED', chase: getChase(userId, chaseId)! };
+  });
+  return reopen.immediate();
 }
 
 export function backfillChaseQueryNames(): void {
@@ -1888,7 +1960,8 @@ function chaseRemovalOutcomeTasteSource(outcome: ChaseRemovalOutcome): TasteMemo
 
 const chaseStoreTestState = {
   failNextResolvedRemoval: false,
-  failNextAddChase: false
+  failNextAddChase: false,
+  failNextReopen: false
 };
 
 export function resolveChaseRemoval(
@@ -1989,6 +2062,9 @@ export const __chaseStoreTestHooks = {
   },
   failNextResolvedRemoval(): void {
     chaseStoreTestState.failNextResolvedRemoval = true;
+  },
+  failNextReopen(): void {
+    chaseStoreTestState.failNextReopen = true;
   }
 };
 

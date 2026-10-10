@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, afterEach } from 'vitest';
 import {
+  __chaseStoreTestHooks,
   createChaseForUser,
   listChases,
   listCompletedChases,
@@ -15,10 +16,12 @@ import {
 import {
   addUserChase,
   getVaultChases,
+  reopenUserCompletedChase,
   resolveUserChaseRemoval,
+  setUserChasePaused,
   updateUserChase
 } from '../chase-service.js';
-import { PLAN_LIMITS } from '../plans.js';
+import { activePlanChases, monitoringPlanChases, PLAN_LIMITS } from '../plans.js';
 import { db } from '../db.js';
 import { matchChaseToListing } from '../matcher.js';
 
@@ -513,6 +516,98 @@ describe('chase service', () => {
       pausedCount: 1
     });
     expect(vault.chases.filter((view) => view.monitoringState === 'PAUSED_PLAN_LIMIT')).toHaveLength(1);
+  });
+
+  it('persists user pause separately from plan limits without changing Discovery chase eligibility', () => {
+    const id = userId('user-pause');
+    setUserPlan(id, 'PRO');
+    const added = addUserChase({ userId: id, cardName: 'Mew RC24', maxPrice: 125, priority: 'GRAIL' });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    const firstPause = setUserChasePaused({ userId: id, chaseId: added.chase.id, paused: true });
+    expect(firstPause.ok).toBe(true);
+    const repeatedPause = setUserChasePaused({ userId: id, chaseId: added.chase.id, paused: true });
+    expect(repeatedPause.ok).toBe(true);
+    if (!firstPause.ok || !repeatedPause.ok) return;
+    expect(repeatedPause.chase.pausedAt).toBe(firstPause.chase.pausedAt);
+    expect(updateUserChase({ userId: id, chaseId: added.chase.id, changes: { maxPrice: 130 } }).ok).toBe(true);
+    const paused = listChases(id)[0];
+    expect(paused).toMatchObject({ id: added.chase.id, cardName: 'Mew RC24', maxPrice: 130, priority: 'GRAIL' });
+    expect(paused?.pausedAt).toBeTruthy();
+    expect(getVaultChases(id).chases[0]?.monitoringState).toBe('PAUSED_USER');
+    expect(monitoringPlanChases(listChases(id), { tier: 'FREE', status: 'ACTIVE' })).toHaveLength(0);
+    expect(activePlanChases(listChases(id), { tier: 'FREE', status: 'ACTIVE' })).toHaveLength(1);
+
+    expect(setUserChasePaused({ userId: id, chaseId: added.chase.id, paused: false }).ok).toBe(true);
+    expect(setUserChasePaused({ userId: id, chaseId: added.chase.id, paused: false }).ok).toBe(true);
+    expect(listChases(id)[0]?.pausedAt).toBeUndefined();
+    expect(getVaultChases(id).chases[0]?.monitoringState).toBe('ACTIVE');
+    expect(setUserChasePaused({ userId: userId('pause-owner'), chaseId: added.chase.id, paused: true })).toMatchObject({ ok: false, code: 'CHASE_NOT_FOUND' });
+    expect((db.prepare('PRAGMA table_info(chases)').all() as Array<{ name: string }>).some((column) => column.name === 'paused_at')).toBe(true);
+  });
+
+  it('reopens a completed paused Chase with its identity and criteria while clearing only completion taste', () => {
+    const id = userId('reopen');
+    setUserPlan(id, 'PRO');
+    const added = addUserChase({
+      userId: id,
+      cardName: 'Mew RC24',
+      maxPrice: 140,
+      gradingType: 'PSA',
+      gradeValue: '9',
+      condition: 'NM_OR_BETTER',
+      listingType: 'BUY_IT_NOW',
+      priority: 'GRAIL',
+      targetNote: 'Clean copy',
+      customExclusions: ['damaged']
+    });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    setUserChasePaused({ userId: id, chaseId: added.chase.id, paused: true });
+    expect(resolveUserChaseRemoval({ userId: id, chaseId: added.chase.id, outcome: 'COMPLETED' }).ok).toBe(true);
+    expect(listChases(id)).toHaveLength(0);
+    expect(listCompletedChases(id)).toHaveLength(1);
+    expect(listUserTasteMemoryChases(id).some((chase) => chase.tasteSource === 'BOUGHT_OR_SEEN')).toBe(true);
+
+    const reopened = reopenUserCompletedChase({ userId: id, chaseId: added.chase.id });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    expect(reopened.chase).toMatchObject({
+      id: added.chase.id,
+      cardName: 'Mew RC24',
+      maxPrice: 140,
+      grade: 'PSA 9',
+      condition: 'NM',
+      listingType: 'BUY_IT_NOW',
+      priority: 'GRAIL',
+      targetNote: 'Clean copy',
+      negativeKeywords: ['damaged']
+    });
+    expect(reopened.chase.pausedAt).toBeUndefined();
+    expect(listCompletedChases(id)).toHaveLength(0);
+    expect(listUserTasteMemoryChases(id).some((chase) => chase.tasteSource === 'BOUGHT_OR_SEEN')).toBe(false);
+  });
+
+  it('enforces reopen duplicate and limit rules and rolls back persistence failures', () => {
+    const id = userId('reopen-guards');
+    const added = addUserChase({ userId: id, cardName: 'Mew RC24' });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    resolveUserChaseRemoval({ userId: id, chaseId: added.chase.id, outcome: 'COMPLETED' });
+
+    addUserChase({ userId: id, cardName: 'Mew RC24' });
+    expect(reopenUserCompletedChase({ userId: id, chaseId: added.chase.id })).toMatchObject({ ok: false, code: 'DUPLICATE_CHASE' });
+    removeAllChases(id);
+
+    for (let index = 0; index < PLAN_LIMITS.FREE.maxActiveChases; index += 1) addUserChase({ userId: id, cardName: `Limit Card ${index}` });
+    expect(reopenUserCompletedChase({ userId: id, chaseId: added.chase.id })).toMatchObject({ ok: false, code: 'VAULT_LIMIT_REACHED' });
+    removeAllChases(id);
+
+    __chaseStoreTestHooks.failNextReopen();
+    expect(() => reopenUserCompletedChase({ userId: id, chaseId: added.chase.id })).toThrow('Simulated reopen failure');
+    expect(listChases(id)).toHaveLength(0);
+    expect(listCompletedChases(id).map((chase) => chase.id)).toEqual([added.chase.id]);
   });
 
   it('low-level atomic create distinguishes newly created, duplicate, and limit outcomes', () => {
