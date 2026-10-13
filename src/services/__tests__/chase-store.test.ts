@@ -332,6 +332,24 @@ describe('user alert history read model', () => {
     legacy.close();
   });
 
+  it('rolls back the inbox schema change when the legacy backfill fails', () => {
+    const legacy = new Database(':memory:');
+    legacy.exec(`
+      CREATE TABLE alert_events (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      INSERT INTO alert_events (id, created_at, updated_at) VALUES ('legacy', '2026-01-01', '2026-01-02');
+      CREATE TRIGGER fail_alert_backfill BEFORE UPDATE ON alert_events
+      BEGIN
+        SELECT RAISE(ABORT, 'blocked backfill');
+      END;
+    `);
+
+    expect(() => migrateAlertInboxState(legacy)).toThrow('blocked backfill');
+    const columns = legacy.prepare('PRAGMA table_info(alert_events)').all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).not.toContain('reviewed_at');
+    expect(columns.map((column) => column.name)).not.toContain('dismissed_at');
+    legacy.close();
+  });
+
   it('persists review, mark-new, dismiss, and restore state with ownership and idempotency', () => {
     const userId = 'alert-inbox-state-user';
     const otherUserId = 'alert-inbox-state-other';

@@ -521,7 +521,7 @@ function homePageMarkup() {
               <p class="eyebrow">NEEDS ATTENTION</p>
               <h2 id="home-alerts-title">${state.homeAttentionLoading ? 'Checking matches...' : alertPreview.length ? 'New matches to review' : "You're caught up"}</h2>
             </div>
-            ${alertPreview.length ? `<span class="home-plan-label">${escapeHtml(alertPreview.length)} New</span>` : ''}
+            ${alertPreview.length ? '<span class="home-plan-label">New</span>' : ''}
           </div>
           ${state.homeAttentionError
             ? '<p>New matches could not be loaded right now.</p>'
@@ -1056,10 +1056,13 @@ function focusPendingVaultChase() {
   requestAnimationFrame(() => {
     const card = [...document.querySelectorAll('[data-vault-chase-id]')]
       .find((element) => element.getAttribute('data-vault-chase-id') === chaseId);
-    state.pendingVaultFocusId = null;
-    if (!(card instanceof HTMLElement)) return;
-    card.focus({ preventScroll: true });
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (card instanceof HTMLElement) {
+      state.pendingVaultFocusId = null;
+      card.focus({ preventScroll: true });
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (state.vaultLoaded && !state.isVaultLoading) state.pendingVaultFocusId = null;
   });
 }
 

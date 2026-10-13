@@ -927,21 +927,23 @@ try {
 }
 
 export function migrateAlertInboxState(database: Database.Database): void {
-  let addedReviewedAt = false;
-  try {
-    database.exec(`ALTER TABLE alert_events ADD COLUMN reviewed_at TEXT;`);
-    addedReviewedAt = true;
-  } catch {
-    // Column already exists on upgraded databases.
-  }
-  if (addedReviewedAt) {
-    database.exec(`UPDATE alert_events SET reviewed_at = COALESCE(updated_at, created_at) WHERE reviewed_at IS NULL;`);
-  }
-  try {
-    database.exec(`ALTER TABLE alert_events ADD COLUMN dismissed_at TEXT;`);
-  } catch {
-    // Column already exists on upgraded databases.
-  }
+  database.transaction(() => {
+    let addedReviewedAt = false;
+    try {
+      database.exec(`ALTER TABLE alert_events ADD COLUMN reviewed_at TEXT;`);
+      addedReviewedAt = true;
+    } catch {
+      // Column already exists on upgraded databases.
+    }
+    if (addedReviewedAt) {
+      database.exec(`UPDATE alert_events SET reviewed_at = COALESCE(updated_at, created_at) WHERE reviewed_at IS NULL;`);
+    }
+    try {
+      database.exec(`ALTER TABLE alert_events ADD COLUMN dismissed_at TEXT;`);
+    } catch {
+      // Column already exists on upgraded databases.
+    }
+  })();
 }
 
 migrateAlertInboxState(db);
