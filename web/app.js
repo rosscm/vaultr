@@ -58,6 +58,7 @@ const state = {
   vaultAutocompleteUnavailable: false,
   vaultAutocompleteActiveIndex: -1,
   vaultAutocompleteQuery: '',
+  vaultCardSelection: null,
   removeTargetId: null,
   removeError: '',
   acquireTargetId: null,
@@ -167,6 +168,24 @@ function gradeToChoices(grade) {
   return { gradingType: type || 'ANY', gradeValue: value || 'ANY' };
 }
 
+function gradeValueIsEnabled(gradingType) {
+  return gradingType !== 'ANY' && gradingType !== 'RAW';
+}
+
+function effectiveGradeValue(gradingType, gradeValue) {
+  return gradeValueIsEnabled(gradingType) ? gradeValue || 'ANY' : 'ANY';
+}
+
+function syncGradeValueControl(form) {
+  const gradingType = form.querySelector('[name="gradingType"]');
+  const gradeValue = form.querySelector('[name="gradeValue"]');
+  if (!(gradingType instanceof HTMLSelectElement) || !(gradeValue instanceof HTMLSelectElement)) return;
+  const enabled = gradeValueIsEnabled(gradingType.value);
+  gradeValue.disabled = !enabled;
+  if (!enabled) gradeValue.value = 'ANY';
+  gradeValue.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+}
+
 function conditionToChoice(condition) {
   if (!condition) return 'ANY';
   if (condition === 'NM') return 'NM_OR_BETTER';
@@ -201,6 +220,30 @@ function resetVaultAutocomplete() {
   state.vaultAutocompleteUnavailable = false;
   state.vaultAutocompleteActiveIndex = -1;
   state.vaultAutocompleteQuery = '';
+}
+
+function cardIdentityConfirmationMarkup(cardName = '') {
+  const selection = state.vaultCardSelection;
+  if (selection?.kind === 'suggestion') {
+    return `<span class="identity-confirmed">Selected suggestion</span><strong>${escapeHtml(selection.value)}</strong>`;
+  }
+  if (selection?.kind === 'existing') {
+    return `<span class="identity-current">Current Chase</span><strong>${escapeHtml(selection.value)}</strong>`;
+  }
+  if (String(cardName).trim()) {
+    return `<span>Entered card name</span><strong>${escapeHtml(String(cardName).trim())}</strong><small>Confirm the set, card number, and language before saving.</small>`;
+  }
+  return '';
+}
+
+function updateCardIdentityConfirmation(input) {
+  if (state.vaultCardSelection && input.value.trim() !== state.vaultCardSelection.value) {
+    state.vaultCardSelection = null;
+  }
+  const confirmation = document.querySelector('#card-identity-confirmation');
+  if (!confirmation) return;
+  confirmation.innerHTML = cardIdentityConfirmationMarkup(input.value);
+  confirmation.hidden = confirmation.innerHTML.length === 0;
 }
 
 function autocompleteListMarkup() {
@@ -887,6 +930,7 @@ function vaultDialogMarkup() {
   const item = editing ? state.vault.find((entry) => entry.chase.id === state.vaultEditingId) : null;
   const chase = editing ? item?.chase || {} : { cardName: state.vaultPrefillCardName };
   const grade = gradeToChoices(chase.grade);
+  const gradeValueEnabled = gradeValueIsEnabled(grade.gradingType);
   const isFullVault = state.vaultPlan?.tier === 'PRO';
   return `
     <div class="modal-backdrop" role="presentation">
@@ -894,11 +938,12 @@ function vaultDialogMarkup() {
         <header>
           <p class="eyebrow">${editing ? 'EDIT CHASE' : 'ADD CHASE'}</p>
           <h2 id="vault-form-title">${editing ? 'Refine this Chase' : 'Add a Chase'}</h2>
+          <p class="dialog-intro">Card is required. Every other criterion is optional and can be left blank or set to Any.</p>
         </header>
         ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect this form, but changes will not be saved.</p>' : ''}
         ${state.vaultFormError ? `<p class="form-error" role="alert">${escapeHtml(state.vaultFormError)}</p>` : ''}
         <label class="field">
-          <span>Card</span>
+          <span>Card <span class="required-marker">Required</span></span>
           <div class="card-autocomplete">
             <input
               id="vault-card-input"
@@ -914,49 +959,64 @@ function vaultDialogMarkup() {
               aria-describedby="card-autocomplete-hint"
               value="${escapeHtml(chase.cardName || '')}"
             >
-            <p id="card-autocomplete-hint" class="field-hint">Start typing a card name to see suggestions</p>
+            <p id="card-autocomplete-hint" class="field-hint">Include the set and card number, plus language when relevant. Suggestions help identify the exact printing; free text is still allowed.</p>
             <div id="card-suggestion-list" class="card-suggestion-list" role="listbox" hidden></div>
           </div>
+          <span id="card-identity-confirmation" class="card-identity-confirmation"${cardIdentityConfirmationMarkup(chase.cardName) ? '' : ' hidden'}>${cardIdentityConfirmationMarkup(chase.cardName)}</span>
         </label>
         <div class="form-grid">
           <label class="field">
-            <span>Max price</span>
-            <input name="maxPrice" type="number" min="0.01" step="0.01" value="${chase.maxPrice !== undefined ? escapeHtml(chase.maxPrice) : ''}">
+            <span>Maximum (${escapeHtml(state.vaultCurrency)})</span>
+            <input name="maxPrice" type="number" min="0.01" step="0.01" aria-describedby="max-price-hint" value="${chase.maxPrice !== undefined ? escapeHtml(chase.maxPrice) : ''}">
+            <small id="max-price-hint" class="field-hint">Blank means no maximum. Uses item price plus known shipping; otherwise item price only. Other checkout costs may apply.</small>
           </label>
           <label class="field">
             <span>Grading type</span>
-            <select name="gradingType">${optionMarkup(state.vaultOptions?.gradingTypes, grade.gradingType)}</select>
+            <select name="gradingType" aria-describedby="grading-type-hint">${optionMarkup(state.vaultOptions?.gradingTypes, grade.gradingType)}</select>
+            <small id="grading-type-hint" class="field-hint">Any accepts any grading state. Raw / Ungraded excludes graded copies.</small>
           </label>
           <label class="field">
             <span>Grade value</span>
-            <select name="gradeValue">${optionMarkup(state.vaultOptions?.gradeValues, grade.gradeValue)}</select>
+            <select name="gradeValue" aria-describedby="grade-value-hint" aria-disabled="${gradeValueEnabled ? 'false' : 'true'}"${gradeValueEnabled ? '' : ' disabled'}>${optionMarkup(state.vaultOptions?.gradeValues, effectiveGradeValue(grade.gradingType, grade.gradeValue))}</select>
+            <small id="grade-value-hint" class="field-hint">For a named grader, Any means no numeric preference. A number requests that listed grade exactly, not that grade or better.</small>
           </label>
         </div>
-        <fieldset class="advanced-fields" ${isFullVault ? '' : 'disabled'}>
-          <legend>Full Vault controls${isFullVault ? '' : ' · Full Vault'}</legend>
+        <section class="advanced-section" aria-labelledby="advanced-fields-title">
+          <div class="advanced-section-heading">
+            <h3 id="advanced-fields-title">Precision controls</h3>
+            <p>${isFullVault ? 'Optional controls for narrowing matches and shaping Chase context.' : 'These controls require Full Vault. Existing locked values remain saved.'}</p>
+          </div>
+        <fieldset class="advanced-fields" aria-describedby="advanced-fields-title" ${isFullVault ? '' : 'disabled'}>
+          <legend class="visually-hidden">Precision controls</legend>
           <div class="form-grid">
             <label class="field">
               <span>Condition</span>
-              <select name="condition">${optionMarkup(state.vaultOptions?.conditions, conditionToChoice(chase.condition))}</select>
+              <select name="condition" aria-describedby="condition-hint">${optionMarkup(state.vaultOptions?.conditions, conditionToChoice(chase.condition))}</select>
+              <small id="condition-hint" class="field-hint">Choose Any or an allowed range: Near Mint (NM), Lightly Played (LP), Moderately Played (MP), or Heavily Played (HP). Damaged is exact. Seller condition is not independently verified.</small>
             </label>
             <label class="field">
               <span>Listing type</span>
-              <select name="listingType">${optionMarkup(state.vaultOptions?.listingTypes, chase.listingType || 'ANY')}</select>
+              <select name="listingType" aria-describedby="listing-type-hint">${optionMarkup(state.vaultOptions?.listingTypes, chase.listingType || 'ANY')}</select>
+              <small id="listing-type-hint" class="field-hint">Allow Any listing, or limit matches to Auction or Buy It Now.</small>
             </label>
             <label class="field">
               <span>Priority</span>
-              <select name="priority">${optionMarkup(state.vaultOptions?.priorities, chase.priority || 'NORMAL')}</select>
+              <select name="priority" aria-describedby="priority-hint">${optionMarkup(state.vaultOptions?.priorities, chase.priority || 'NORMAL')}</select>
+              <small id="priority-hint" class="field-hint">Sets alert emphasis and which Chases are monitored first when plan limits apply. It does not change polling speed.</small>
             </label>
           </div>
           <label class="field">
             <span>Target note</span>
-            <input name="targetNote" type="text" maxlength="120" value="${escapeHtml(chase.targetNote || '')}">
+            <input name="targetNote" type="text" maxlength="120" aria-describedby="target-note-hint" value="${escapeHtml(chase.targetNote || '')}">
+            <small id="target-note-hint" class="field-hint">Add focused context such as raw or language intent. Notes can inform matching and Discovery, but are not a general natural-language filter.</small>
           </label>
           <label class="field">
             <span>Custom exclusions</span>
-            <input name="customExclusions" type="text" maxlength="240" value="${escapeHtml(chase.negativeKeywords?.join(', ') || '')}">
+            <input name="customExclusions" type="text" maxlength="240" aria-describedby="custom-exclusions-hint" value="${escapeHtml(chase.negativeKeywords?.join(', ') || '')}">
+            <small id="custom-exclusions-hint" class="field-hint">Add up to 15 comma-separated terms. These supplement Vaultr's automatic exclusions.</small>
           </label>
         </fieldset>
+        </section>
         <footer class="dialog-actions">
           <button class="button-ghost" type="button" data-action="close-vault-dialog">Cancel</button>
           <button class="button-primary" type="submit" ${state.vaultSubmitting ? 'disabled' : ''}>${state.vaultSubmitting ? 'Saving...' : editing ? 'Save Changes' : 'Add Chase'}</button>
@@ -1277,7 +1337,7 @@ function vaultFormBody(form) {
   if (maxPriceRaw) body.maxPrice = Number(maxPriceRaw);
   else if (editing && current?.maxPrice !== undefined) body.maxPrice = null;
   const gradingType = String(data.get('gradingType') || 'ANY');
-  const gradeValue = String(data.get('gradeValue') || 'ANY');
+  const gradeValue = effectiveGradeValue(gradingType, String(data.get('gradeValue') || 'ANY'));
   if (gradingType) body.gradingType = gradingType;
   if (gradeValue) body.gradeValue = gradeValue;
   const advancedDisabled = form.querySelector('.advanced-fields')?.disabled;
@@ -1318,6 +1378,7 @@ async function submitVaultForm(form) {
     state.vaultFormMode = null;
     state.vaultEditingId = null;
     state.vaultPrefillCardName = '';
+    state.vaultCardSelection = null;
     state.vaultSubmitting = false;
     await loadVault({ force: true });
   } catch (error) {
@@ -1329,6 +1390,7 @@ async function submitVaultForm(form) {
 }
 
 function scheduleAutocomplete(input) {
+  updateCardIdentityConfirmation(input);
   window.clearTimeout(state.vaultAutocompleteTimer);
   const requestId = ++state.vaultAutocompleteRequestId;
   const query = input.value.trim();
@@ -1373,8 +1435,10 @@ function selectAutocompleteSuggestion(index) {
   const input = document.querySelector('#vault-card-input');
   if (!item || !(input instanceof HTMLInputElement)) return;
   input.value = item.value;
+  state.vaultCardSelection = { kind: 'suggestion', value: item.value };
   resetVaultAutocomplete();
   updateAutocompleteDom(input);
+  updateCardIdentityConfirmation(input);
   input.focus();
 }
 
@@ -1629,6 +1693,7 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'open-add-chase') {
     resetVaultAutocomplete();
+    state.vaultCardSelection = null;
     state.vaultFormMode = 'add';
     state.vaultEditingId = null;
     state.vaultPrefillCardName = '';
@@ -1640,6 +1705,7 @@ app.addEventListener('click', async (event) => {
   if (action === 'add-shelf-card-to-vault') {
     const cardName = target.getAttribute('data-card-name') || '';
     resetVaultAutocomplete();
+    state.vaultCardSelection = null;
     if (!await ensureVaultLoaded()) return;
     state.vaultFormMode = 'add';
     state.vaultEditingId = null;
@@ -1651,8 +1717,11 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'open-edit-chase') {
     resetVaultAutocomplete();
+    const chaseId = target.getAttribute('data-chase-id');
+    const existingName = state.vault.find((entry) => entry.chase.id === chaseId)?.chase.cardName;
+    state.vaultCardSelection = existingName ? { kind: 'existing', value: existingName } : null;
     state.vaultFormMode = 'edit';
-    state.vaultEditingId = target.getAttribute('data-chase-id');
+    state.vaultEditingId = chaseId;
     state.vaultPrefillCardName = '';
     state.vaultFormError = '';
     renderCurrentPage();
@@ -1661,6 +1730,7 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'close-vault-dialog') {
     resetVaultAutocomplete();
+    state.vaultCardSelection = null;
     state.vaultFormMode = null;
     state.vaultEditingId = null;
     state.vaultPrefillCardName = '';
@@ -1702,6 +1772,10 @@ app.addEventListener('click', async (event) => {
 app.addEventListener('change', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLSelectElement)) return;
+  if (target.name === 'gradingType' && target.closest('[data-vault-form]')) {
+    syncGradeValueControl(target.closest('[data-vault-form]'));
+    return;
+  }
   if (target.getAttribute('data-action') === 'source-filter') {
     state.source = target.value;
     state.alertsLoaded = false;

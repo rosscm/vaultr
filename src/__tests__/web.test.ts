@@ -264,6 +264,13 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('window.location.hash = nextPage;');
     expect(jsResponse.body).toContain("window.addEventListener('hashchange'");
     expect(jsResponse.body).toContain('await loadActivePageData();');
+    expect(jsResponse.body).toContain('Card is required. Every other criterion is optional');
+    expect(jsResponse.body).toContain('Maximum (${escapeHtml(state.vaultCurrency)})');
+    expect(jsResponse.body).toContain('Uses item price plus known shipping; otherwise item price only.');
+    expect(jsResponse.body).toContain('A number requests that listed grade exactly, not that grade or better.');
+    expect(jsResponse.body).toContain('These controls require Full Vault. Existing locked values remain saved.');
+    expect(jsResponse.body).toContain("state.vaultCardSelection = { kind: 'suggestion', value: item.value };");
+    expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
     expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=4')");
     expect(jsResponse.body).toContain("reviewStateButton('REVIEWED', 'Reviewed')");
@@ -289,6 +296,60 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.shelf-card-meta > .status-pill.active');
     expect(cssResponse.body).toContain('display: none;');
     expect(cssResponse.body).not.toContain('-webkit-line-clamp: 4');
+  });
+
+  it('normalizes and updates grading controls without touching unsaved fields', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = (name: string): string => {
+      const match = source.match(new RegExp(`function ${name}\\([^]*?\\n\\}`));
+      expect(match?.[0]).toBeTruthy();
+      return match![0];
+    };
+    const utilities = new Function(
+      'HTMLSelectElement',
+      `${functionSource('gradeValueIsEnabled')}\n${functionSource('effectiveGradeValue')}\n${functionSource('syncGradeValueControl')}\nreturn { effectiveGradeValue, syncGradeValueControl };`
+    );
+    class FakeSelect {
+      disabled = false;
+      attributes: Record<string, string> = {};
+      constructor(public value: string) {}
+      setAttribute(name: string, value: string) { this.attributes[name] = value; }
+    }
+    const gradingType = new FakeSelect('ANY');
+    const gradeValue = new FakeSelect('10');
+    const unsaved = { cardName: 'Mew Expedition 19', maxPrice: '125', targetNote: 'Japanese copy' };
+    const form = {
+      querySelector(selector: string) {
+        if (selector === '[name="gradingType"]') return gradingType;
+        if (selector === '[name="gradeValue"]') return gradeValue;
+        throw new Error(`Unexpected control access: ${selector}`);
+      }
+    };
+    const helpers = utilities(FakeSelect) as {
+      effectiveGradeValue: (type: string, value: string) => string;
+      syncGradeValueControl: (form: { querySelector: (selector: string) => FakeSelect }) => void;
+    };
+
+    helpers.syncGradeValueControl(form);
+    expect(gradeValue).toMatchObject({ disabled: true, value: 'ANY', attributes: { 'aria-disabled': 'true' } });
+    expect(helpers.effectiveGradeValue('ANY', '10')).toBe('ANY');
+    expect(helpers.effectiveGradeValue('RAW', '9')).toBe('ANY');
+
+    gradingType.value = 'PSA';
+    helpers.syncGradeValueControl(form);
+    expect(gradeValue.disabled).toBe(false);
+    expect(gradeValue.attributes['aria-disabled']).toBe('false');
+    gradeValue.value = '9';
+    expect(helpers.effectiveGradeValue('PSA', gradeValue.value)).toBe('9');
+
+    gradingType.value = 'RAW';
+    helpers.syncGradeValueControl(form);
+    expect(gradeValue).toMatchObject({ disabled: true, value: 'ANY' });
+    gradingType.value = 'CGC';
+    helpers.syncGradeValueControl(form);
+    expect(gradeValue).toMatchObject({ disabled: false, value: 'ANY' });
+    expect(unsaved).toEqual({ cardName: 'Mew Expedition 19', maxPrice: '125', targetNote: 'Japanese copy' });
   });
 
   it('returns 404 for unknown or traversal-style static paths', async () => {
