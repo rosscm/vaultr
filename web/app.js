@@ -353,7 +353,7 @@ function shellMarkup(content) {
       <aside class="app-sidebar">
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-          <span>Vaultr</span>
+          <span class="brand-copy"><strong>Vaultr</strong><small>Collector workspace</small></span>
         </a>
         <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
           ${navButton('home', 'Home')}
@@ -370,7 +370,7 @@ function shellMarkup(content) {
       <header class="mobile-header">
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-          <span>Vaultr</span>
+          <span class="brand-copy"><strong>Vaultr</strong><small>Collector workspace</small></span>
         </a>
         <div class="user-area">
           ${avatarHtml(state.user)}
@@ -410,26 +410,34 @@ function alertsPageMarkup(inner) {
         </div>
       ` : ''}
       ${alertNoticeMarkup()}
-      <div class="review-state-filters" aria-label="Alert review state">
-        ${reviewStateButton('NEW', 'New')}
-        ${reviewStateButton('REVIEWED', 'Reviewed')}
-        ${reviewStateButton('ALL', 'All')}
-      </div>
-      <div class="toolbar">
-        <div class="priority-filters" aria-label="Alert priority filters">
-          ${priorityButton('ALL', 'All')}
-          ${priorityButton('GRAIL', 'Grail')}
-          ${priorityButton('HIGH', 'High')}
-          ${priorityButton('NORMAL', 'Casual')}
+      <div class="alert-control-stack">
+        <div class="alert-control-group alert-inbox-control">
+          <span class="alert-control-label">Inbox</span>
+          <div class="review-state-filters" aria-label="Alert review state">
+            ${reviewStateButton('NEW', 'New')}
+            ${reviewStateButton('REVIEWED', 'Reviewed')}
+            ${reviewStateButton('ALL', 'All')}
+          </div>
         </div>
-        <label>
-          <span class="visually-hidden">Alert source</span>
-          <select class="source-select" data-action="source-filter">
-            <option value="ALL"${state.source === 'ALL' ? ' selected' : ''}>All sources</option>
-            <option value="EBAY"${state.source === 'EBAY' ? ' selected' : ''}>eBay</option>
-            <option value="SHOPIFY"${state.source === 'SHOPIFY' ? ' selected' : ''}>Trusted shops</option>
-          </select>
-        </label>
+        <div class="toolbar" aria-label="Alert filters">
+          <div class="alert-control-group">
+            <span class="alert-control-label">Priority</span>
+            <div class="priority-filters" aria-label="Alert priority filters">
+              ${priorityButton('ALL', 'All')}
+              ${priorityButton('GRAIL', 'Grail')}
+              ${priorityButton('HIGH', 'High')}
+              ${priorityButton('NORMAL', 'Casual')}
+            </div>
+          </div>
+          <label class="alert-control-group alert-source-control">
+            <span class="alert-control-label">Source</span>
+            <select class="source-select" data-action="source-filter">
+              <option value="ALL"${state.source === 'ALL' ? ' selected' : ''}>All sources</option>
+              <option value="EBAY"${state.source === 'EBAY' ? ' selected' : ''}>eBay</option>
+              <option value="SHOPIFY"${state.source === 'SHOPIFY' ? ' selected' : ''}>Trusted shops</option>
+            </select>
+          </label>
+        </div>
       </div>
       ${inner}
     </section>
