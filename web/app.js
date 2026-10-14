@@ -582,36 +582,38 @@ function homePageMarkup() {
           <button class="home-text-link" type="button" data-action="view-new-alerts">View all new alerts</button>
         </section>
 
-        <section class="home-panel home-vault-panel" aria-labelledby="home-vault-title">
-          <div class="home-panel-heading">
-            <div>
-              <p class="eyebrow">MY VAULT</p>
-              <h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Vault...' : `${escapeHtml(activeChases)} watching, ${escapeHtml(pausedChases)} paused`}</h2>
+        <div class="home-support-column">
+          <section class="home-panel home-vault-panel" aria-labelledby="home-vault-title">
+            <div class="home-panel-heading">
+              <div>
+                <p class="eyebrow">MY VAULT</p>
+                <h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Vault...' : `${escapeHtml(activeChases)} watching, ${escapeHtml(pausedChases)} paused`}</h2>
+              </div>
+              ${state.vaultPlan ? `<span class="home-plan-label">${escapeHtml(planLabel(state.vaultPlan.tier))}</span>` : ''}
             </div>
-            ${state.vaultPlan ? `<span class="home-plan-label">${escapeHtml(planLabel(state.vaultPlan.tier))}</span>` : ''}
-          </div>
-          <p>${state.vaultError ? "Your Vault couldn't be loaded right now." : activeChases ? 'The cards Vaultr is actively watching for you.' : 'Add a card to start building your collection watchlist.'}</p>
-          <div class="home-actions">
-            <button class="button-primary" type="button" data-page="vault">View My Vault</button>
-            <button class="button-ghost" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add Chase</button>
-          </div>
-        </section>
+            <p>${state.vaultError ? "Your Vault couldn't be loaded right now." : activeChases ? 'The cards Vaultr is actively watching for you.' : 'Add a card to start building your collection watchlist.'}</p>
+            <div class="home-actions">
+              <button class="button-primary" type="button" data-page="vault">View My Vault</button>
+              <button class="button-ghost" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add Chase</button>
+            </div>
+          </section>
 
-        <section class="home-panel home-shelf-panel" aria-labelledby="home-shelf-title">
-          <div class="home-panel-heading">
-            <div>
-              <p class="eyebrow">WEEKLY SHELF</p>
-              <h2 id="home-shelf-title">${state.isShelfLoading ? 'Opening your Shelf...' : shelfReady ? `${escapeHtml(shelfCount)} collector picks` : 'Your next Shelf is brewing'}</h2>
+          <section class="home-panel home-shelf-panel" aria-labelledby="home-shelf-title">
+            <div class="home-panel-heading">
+              <div>
+                <p class="eyebrow">WEEKLY SHELF</p>
+                <h2 id="home-shelf-title">${state.isShelfLoading ? 'Opening your Shelf...' : shelfReady ? `${escapeHtml(shelfCount)} collector picks` : 'Your next Shelf is brewing'}</h2>
+              </div>
+              ${shelfReady && state.shelf.marketReadyCount !== undefined ? `<span class="home-plan-label">${escapeHtml(state.shelf.marketReadyCount)} priced</span>` : ''}
             </div>
-            ${shelfReady && state.shelf.marketReadyCount !== undefined ? `<span class="home-plan-label">${escapeHtml(state.shelf.marketReadyCount)} priced</span>` : ''}
-          </div>
-          ${state.shelfError
-            ? '<p>Your Weekly Shelf could not be loaded right now.</p>'
-            : shelfReady
-              ? `<ul class="home-shelf-preview">${shelfItems.slice(0, 3).map(homeShelfPreviewMarkup).join('')}</ul>`
-              : `<p>${state.shelfLoaded ? 'Personalized picks will appear when your next shelf is prepared.' : 'Loading your latest collector picks...'}</p>`}
-          <button class="home-text-link" type="button" data-page="shelf">View Weekly Shelf</button>
-        </section>
+            ${state.shelfError
+              ? '<p>Your Weekly Shelf could not be loaded right now.</p>'
+              : shelfReady
+                ? `<ul class="home-shelf-preview">${shelfItems.slice(0, 3).map(homeShelfPreviewMarkup).join('')}</ul>`
+                : `<p>${state.shelfLoaded ? 'Personalized picks will appear when your next shelf is prepared.' : 'Loading your latest collector picks...'}</p>`}
+            <button class="home-text-link" type="button" data-page="shelf">View Weekly Shelf</button>
+          </section>
+        </div>
       </div>
       ${vaultDialogMarkup()}
     </section>
@@ -625,26 +627,30 @@ function alertCardMarkup(alert) {
   const reviewed = Boolean(alert.reviewedAt);
   return `
     <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${alert.imageUrl ? 'has-image' : 'no-image'}">
-      ${alert.imageUrl ? `<img class="alert-image" src="${escapeHtml(alert.imageUrl)}" alt="${escapeHtml(alert.listingTitle || alert.chaseName || 'Alert listing image')}" loading="lazy" data-alert-image>` : ''}
+      <div class="alert-artwork">
+        ${alert.imageUrl
+          ? `<img class="alert-image" src="${escapeHtml(alert.imageUrl)}" alt="${escapeHtml(alert.listingTitle || alert.chaseName || 'Alert listing image')}" loading="lazy" data-alert-image>`
+          : '<span class="alert-image-placeholder" aria-hidden="true">V</span>'}
+      </div>
       <div class="alert-content">
         <div class="alert-main">
           <div class="alert-meta">
             <span class="priority-pill ${priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priority)}</span>
             <span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span>
-            <span class="alert-age">${escapeHtml(relativeTime(alert.createdAt))}</span>
           </div>
           <h2 class="chase-name">${escapeHtml(alert.chaseName || 'Saved Chase')}</h2>
           ${alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
-          <div class="price-line">
-            ${price ? `<span class="price">${escapeHtml(price)}</span>` : ''}
-            ${delta ? `<span class="price-delta">${escapeHtml(delta)}</span>` : ''}
+          <div class="alert-context">
+            <span class="source-pill">${escapeHtml(sourceLabel(alert.source))}</span>
+            <span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span>
+            <span class="alert-age">${escapeHtml(relativeTime(alert.createdAt))}</span>
           </div>
         </div>
-        <div class="alert-footer">
-          <span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span>
-          <span class="source-pill">${escapeHtml(sourceLabel(alert.source))}</span>
-          <span class="alert-actions">${alertActionMarkup(alert)}</span>
+        <div class="alert-price-column">
+          ${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}
+          ${delta ? `<span class="price-delta">${escapeHtml(delta)}</span>` : ''}
         </div>
+        <div class="alert-actions">${alertActionMarkup(alert)}</div>
       </div>
     </article>
   `;
@@ -1839,7 +1845,11 @@ app.addEventListener(
       const card = target.closest('.alert-card');
       card?.classList.remove('has-image');
       card?.classList.add('no-image');
-      target.remove();
+      const placeholder = document.createElement('span');
+      placeholder.className = 'alert-image-placeholder';
+      placeholder.setAttribute('aria-hidden', 'true');
+      placeholder.textContent = 'V';
+      target.replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-shelf-image]')) {
       const placeholder = document.createElement('span');
       placeholder.className = 'home-shelf-placeholder';
