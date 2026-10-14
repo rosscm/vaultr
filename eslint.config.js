@@ -3,6 +3,9 @@ import parser from '@typescript-eslint/parser';
 
 export default [
   {
+    ignores: ['.agents/**', '.aws/**', '.codex/**']
+  },
+  {
     files: ['**/*.ts'],
     languageOptions: {
       parser,

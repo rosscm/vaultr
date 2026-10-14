@@ -889,7 +889,11 @@ function toHeaderRecord(headers: IncomingMessage['headers']): Record<string, str
 
 function writeWebResponse(res: ServerResponse, response: WebResponse): void {
   res.writeHead(response.status, response.headers);
-  res.end(response.body, response.bodyEncoding);
+  if (response.bodyEncoding) {
+    res.end(response.body, response.bodyEncoding);
+    return;
+  }
+  res.end(response.body);
 }
 
 export function readRequestBody(req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<string> {
