@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Roboto";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/roboto-latin-variable.woff2") format("woff2");
+}
+
 :root {
   color-scheme: dark;
   --bg: #080713;
@@ -37,7 +45,7 @@ body {
   min-height: 100vh;
   margin: 0;
   color: var(--text);
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-family: "Roboto", "Segoe UI", Arial, sans-serif;
   background:
     radial-gradient(circle at 12% -8%, rgba(255, 131, 201, 0.13), transparent 30%),
     radial-gradient(circle at 88% 0%, rgba(255, 211, 135, 0.07), transparent 26%),
@@ -52,6 +60,11 @@ a {
 
 button,
 select {
+  font: inherit;
+}
+
+input,
+textarea {
   font: inherit;
 }
 
@@ -889,12 +902,10 @@ a {
 
 .alert-actions {
   min-width: 0;
-  display: flex;
-  align-items: center;
+  display: grid;
   align-content: center;
-  flex-wrap: wrap;
-  gap: 9px 11px;
-  justify-content: flex-start;
+  justify-items: start;
+  gap: 8px;
 }
 
 .alert-actions .vault-action-link,
@@ -903,9 +914,15 @@ a {
 }
 
 .alert-actions .listing-link {
-  flex: 1 0 100%;
-  width: 100%;
+  width: fit-content;
   margin-left: 0;
+}
+
+.alert-secondary-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .shelf-summary {
@@ -938,8 +955,8 @@ a {
 .shelf-card {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
-  padding: 16px;
+  gap: 15px;
+  padding: 15px;
   transition: transform var(--ease), border-color var(--ease), box-shadow var(--ease);
 }
 
@@ -952,10 +969,10 @@ a {
 .shelf-card-image {
   width: 100%;
   aspect-ratio: 3 / 4;
-  max-height: 270px;
+  max-height: 280px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.055);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
   object-fit: contain;
 }
 
@@ -976,15 +993,16 @@ a {
 .shelf-card h2 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 1.02rem;
+  font-size: 1.08rem;
+  font-weight: 720;
   line-height: 1.24;
 }
 
 .shelf-reason {
   margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.48;
+  font-size: 0.88rem;
+  line-height: 1.52;
 }
 
 .shelf-card-footer {
@@ -1003,7 +1021,9 @@ a {
   align-items: baseline;
   margin: 0;
   color: var(--muted-strong);
-  font-weight: 850;
+  font-size: 1.02rem;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
 }
 
 .shelf-price span {
@@ -1073,7 +1093,7 @@ a {
 .alert-content {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(112px, 0.22fr) minmax(230px, 0.48fr);
+  grid-template-columns: minmax(240px, 1fr) minmax(155px, 0.27fr) minmax(270px, 0.42fr);
   align-items: center;
   gap: 18px;
 }
@@ -1161,6 +1181,7 @@ a {
 .price-delta {
   color: var(--green);
   font-size: 0.88rem;
+  white-space: nowrap;
 }
 
 .alert-price-column {
@@ -1202,11 +1223,9 @@ a {
 
   .alert-actions {
     grid-column: 1 / -1;
-  }
-
-  .alert-actions .listing-link {
-    flex: 0 0 auto;
-    width: auto;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
   }
 }
 
@@ -1254,7 +1273,7 @@ a {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-sm);
 }
 
 .vault-notice {
@@ -1276,7 +1295,7 @@ a {
   gap: 16px;
   align-items: center;
   margin: 22px 0 14px;
-  padding: 14px;
+  padding: 15px 16px;
 }
 
 .vault-summary div {
@@ -1308,8 +1327,15 @@ a {
 .vault-card {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
-  gap: 14px;
-  padding: 13px;
+  align-items: start;
+  gap: 16px;
+  padding: 15px;
+  transition: border-color var(--ease), background var(--ease);
+}
+
+.vault-card:hover {
+  border-color: rgba(211, 196, 255, 0.22);
+  background: var(--surface-raised);
 }
 
 .vault-card.paused {
@@ -1317,7 +1343,7 @@ a {
 }
 
 .vault-card.completed {
-  opacity: 0.88;
+  background: rgba(15, 13, 29, 0.68);
 }
 
 .completed-vault-section {
@@ -1337,8 +1363,8 @@ a {
   width: 96px;
   height: 122px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.055);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
   object-fit: contain;
 }
 
@@ -1363,6 +1389,8 @@ a {
 
 .vault-card-body {
   min-width: 0;
+  display: grid;
+  align-content: start;
 }
 
 .vault-card-meta,
@@ -1378,7 +1406,8 @@ a {
 .vault-card h2 {
   margin: 8px 0;
   overflow-wrap: anywhere;
-  font-size: 1.1rem;
+  font-size: 1.12rem;
+  font-weight: 720;
 }
 
 .status-pill {
@@ -1427,7 +1456,9 @@ a {
 }
 
 .vault-actions {
-  margin-top: 12px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 
 .vault-action-link {
@@ -1445,6 +1476,10 @@ a {
 
 .vault-action-link.acquired {
   color: var(--gold);
+  border: 1px solid rgba(255, 211, 135, 0.24);
+  border-radius: var(--radius-sm);
+  padding-inline: 10px;
+  background: rgba(255, 211, 135, 0.06);
 }
 
 .vault-actions .button-ghost {
@@ -1455,6 +1490,102 @@ a {
 
 .button-ghost.danger {
   color: #ffb7d7;
+}
+
+.artwork-trigger {
+  display: block;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.artwork-trigger img {
+  display: block;
+  transition: border-color var(--ease), filter var(--ease), transform var(--ease);
+}
+
+.artwork-trigger:hover img {
+  border-color: rgba(255, 211, 135, 0.38);
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+}
+
+.artwork-trigger:active img {
+  transform: translateY(0);
+}
+
+.shelf-card > .artwork-trigger {
+  width: 100%;
+}
+
+.artwork-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(4, 3, 10, 0.88);
+  backdrop-filter: blur(14px);
+}
+
+.artwork-dialog {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  display: grid;
+  gap: 16px;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.artwork-dialog-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.artwork-dialog-header h2 {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 1.18rem;
+  line-height: 1.3;
+}
+
+.artwork-close {
+  grid-column: auto;
+  flex: none;
+  min-height: 36px;
+  padding-inline: 14px;
+}
+
+.artwork-stage {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(7, 5, 16, 0.72);
+}
+
+.artwork-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 180px);
+  object-fit: contain;
+}
+
+.artwork-error {
+  margin: 0;
+  color: var(--muted);
 }
 
 .modal-backdrop {
@@ -1469,10 +1600,10 @@ a {
 }
 
 .vault-dialog {
-  width: min(720px, 100%);
+  width: min(760px, 100%);
   max-height: min(90vh, 780px);
   overflow: auto;
-  padding: 20px;
+  padding: 22px;
 }
 
 .vault-dialog h2 {
@@ -1494,6 +1625,7 @@ a {
 
 .field {
   margin-top: 12px;
+  align-content: start;
 }
 
 .field span,
@@ -1508,7 +1640,7 @@ a {
   width: 100%;
   min-height: 40px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 0 12px;
   background: rgba(11, 9, 23, 0.92);
   color: var(--text);
@@ -1618,18 +1750,24 @@ a {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.form-grid > .field {
+  grid-template-rows: minmax(1.2em, auto) 40px 1fr;
+  margin-top: 0;
 }
 
 .advanced-fields {
   margin: 8px 0 0;
-  padding: 12px;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
 }
 
 .advanced-section {
-  margin-top: 18px;
+  margin-top: 20px;
 }
 
 .advanced-section-heading h3 {
@@ -1838,6 +1976,7 @@ a {
 
   .alert-actions {
     grid-column: auto;
+    display: grid;
   }
 
   .vault-page-header {
@@ -1928,6 +2067,19 @@ a {
     margin-left: 0;
   }
 
+  .artwork-overlay {
+    padding: 10px;
+  }
+
+  .artwork-dialog {
+    max-height: calc(100vh - 20px);
+    padding: 14px;
+  }
+
+  .artwork-dialog-header {
+    align-items: center;
+  }
+
   .listing-link {
     width: 100%;
     margin-left: 0;
@@ -1983,6 +2135,7 @@ a {
   .button-primary:hover,
   .listing-link:hover,
   .retry-button:hover,
+  .artwork-trigger:hover img,
   .alert-card:hover,
   .shelf-card:hover {
     transform: none;

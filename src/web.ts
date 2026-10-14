@@ -70,7 +70,8 @@ const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/app': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
   '/app/': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
   '/app.css': { file: 'app.css', contentType: 'text/css; charset=utf-8' },
-  '/app.js': { file: 'app.js', contentType: 'text/javascript; charset=utf-8' }
+  '/app.js': { file: 'app.js', contentType: 'text/javascript; charset=utf-8' },
+  '/fonts/roboto-latin-variable.woff2': { file: 'fonts/roboto-latin-variable.woff2', contentType: 'font/woff2' }
 };
 
 type FetchLike = typeof fetch;
@@ -94,6 +95,7 @@ export type WebResponse = {
   status: number;
   headers?: Record<string, string | string[]>;
   body?: string;
+  bodyEncoding?: BufferEncoding;
 };
 
 type DiscordTokenResponse = {
@@ -475,7 +477,10 @@ function staticResponse(pathname: string): WebResponse | null {
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'same-origin'
       },
-      body: fs.readFileSync(filePath, 'utf8')
+      body: asset.contentType === 'font/woff2'
+        ? fs.readFileSync(filePath).toString('latin1')
+        : fs.readFileSync(filePath, 'utf8'),
+      bodyEncoding: asset.contentType === 'font/woff2' ? 'latin1' : undefined
     };
   } catch {
     return errorResponse(404, 'not_found');
@@ -884,7 +889,7 @@ function toHeaderRecord(headers: IncomingMessage['headers']): Record<string, str
 
 function writeWebResponse(res: ServerResponse, response: WebResponse): void {
   res.writeHead(response.status, response.headers);
-  res.end(response.body);
+  res.end(response.body, response.bodyEncoding);
 }
 
 export function readRequestBody(req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<string> {

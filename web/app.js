@@ -1,6 +1,9 @@
 const app = document.querySelector('#app');
 const isPreviewMode = window.location.pathname === '/preview' || window.location.pathname === '/preview/';
 const appHomePath = isPreviewMode ? '/preview' : '/app';
+let artworkReturnFocus = null;
+let artworkPreviousBodyOverflow = '';
+let artworkKeydownHandler = null;
 
 function apiUrl(url) {
   if (!isPreviewMode || !url.startsWith('/api/')) return url;
@@ -73,6 +76,90 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function artworkTriggerMarkup({ imageUrl, identity, imageKind, imageClass, imageDataAttribute }) {
+  if (!imageUrl) return '';
+  return `
+    <button
+      class="artwork-trigger"
+      type="button"
+      data-action="open-artwork"
+      data-artwork-url="${escapeHtml(imageUrl)}"
+      data-artwork-identity="${escapeHtml(identity)}"
+      data-artwork-kind="${escapeHtml(imageKind)}"
+      aria-label="View larger ${escapeHtml(imageKind.toLowerCase())} for ${escapeHtml(identity)}"
+    >
+      <img class="${escapeHtml(imageClass)}" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(identity)} ${escapeHtml(imageKind.toLowerCase())}" loading="lazy" ${imageDataAttribute}>
+    </button>
+  `;
+}
+
+function artworkOverlayMarkup({ imageUrl, identity, imageKind }) {
+  return `
+    <div class="artwork-overlay" data-artwork-overlay>
+      <section class="artwork-dialog" role="dialog" aria-modal="true" aria-labelledby="artwork-dialog-title">
+        <header class="artwork-dialog-header">
+          <div>
+            <p class="eyebrow">${escapeHtml(imageKind)}</p>
+            <h2 id="artwork-dialog-title">${escapeHtml(identity)}</h2>
+          </div>
+          <button class="button-ghost artwork-close" type="button" data-action="close-artwork">Close</button>
+        </header>
+        <div class="artwork-stage">
+          <img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(identity)} ${escapeHtml(imageKind.toLowerCase())}" data-artwork-dialog-image>
+          <p class="artwork-error" role="status" hidden>Artwork could not be loaded.</p>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function closeArtworkOverlay() {
+  const overlay = document.querySelector('[data-artwork-overlay]');
+  if (!overlay) return;
+  if (artworkKeydownHandler) document.removeEventListener('keydown', artworkKeydownHandler);
+  artworkKeydownHandler = null;
+  overlay.remove();
+  document.querySelector('.app-shell')?.removeAttribute('inert');
+  document.body.style.overflow = artworkPreviousBodyOverflow;
+  if (artworkReturnFocus instanceof HTMLElement && artworkReturnFocus.isConnected) artworkReturnFocus.focus();
+  artworkReturnFocus = null;
+}
+
+function openArtworkOverlay(trigger) {
+  const imageUrl = trigger.getAttribute('data-artwork-url');
+  const identity = trigger.getAttribute('data-artwork-identity');
+  const imageKind = trigger.getAttribute('data-artwork-kind');
+  if (!imageUrl || !identity || !imageKind) return;
+  closeArtworkOverlay();
+  artworkReturnFocus = trigger;
+  artworkPreviousBodyOverflow = document.body.style.overflow;
+  document.body.insertAdjacentHTML('beforeend', artworkOverlayMarkup({ imageUrl, identity, imageKind }));
+  const overlay = document.querySelector('[data-artwork-overlay]');
+  const closeButton = overlay?.querySelector('[data-action="close-artwork"]');
+  const image = overlay?.querySelector('[data-artwork-dialog-image]');
+  const error = overlay?.querySelector('.artwork-error');
+  document.querySelector('.app-shell')?.setAttribute('inert', '');
+  document.body.style.overflow = 'hidden';
+  closeButton?.addEventListener('click', closeArtworkOverlay);
+  image?.addEventListener('error', () => {
+    image.hidden = true;
+    if (error) error.hidden = false;
+  });
+  artworkKeydownHandler = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeArtworkOverlay();
+      return;
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      closeButton?.focus();
+    }
+  };
+  document.addEventListener('keydown', artworkKeydownHandler);
+  closeButton?.focus();
 }
 
 function userDisplayName(user) {
@@ -514,9 +601,11 @@ function alertActionMarkup(alert, { compact = false } = {}) {
   const reviewed = Boolean(alert.reviewedAt);
   return `
     ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
-    <button class="vault-action-link" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
-    ${compact ? '' : `<button class="vault-action-link" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Chase</button>`}
-    <button class="vault-action-link danger" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button>
+    <span class="alert-secondary-actions">
+      <button class="vault-action-link" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
+      ${compact ? '' : `<button class="vault-action-link" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Chase</button>`}
+      <button class="vault-action-link danger" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button>
+    </span>
   `;
 }
 
@@ -629,7 +718,13 @@ function alertCardMarkup(alert) {
     <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${alert.imageUrl ? 'has-image' : 'no-image'}">
       <div class="alert-artwork">
         ${alert.imageUrl
-          ? `<img class="alert-image" src="${escapeHtml(alert.imageUrl)}" alt="${escapeHtml(alert.listingTitle || alert.chaseName || 'Alert listing image')}" loading="lazy" data-alert-image>`
+          ? artworkTriggerMarkup({
+              imageUrl: alert.imageUrl,
+              identity: alert.listingTitle || alert.chaseName || 'Alert listing',
+              imageKind: 'Listing image',
+              imageClass: 'alert-image',
+              imageDataAttribute: 'data-alert-image'
+            })
           : '<span class="alert-image-placeholder" aria-hidden="true">V</span>'}
       </div>
       <div class="alert-content">
@@ -772,7 +867,13 @@ function vaultCardMarkup(item) {
   ].filter(Boolean);
   return `
     <article class="vault-card ${paused ? 'paused' : ''}" data-vault-chase-id="${escapeHtml(chase.id)}" tabindex="-1">
-      ${chase.cardImageUrl ? `<img class="vault-card-image" src="${escapeHtml(chase.cardImageUrl)}" alt="${escapeHtml(chase.cardName)} card image" loading="lazy" data-vault-card-image>` : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
+      ${chase.cardImageUrl ? artworkTriggerMarkup({
+        imageUrl: chase.cardImageUrl,
+        identity: chase.cardName || 'Saved Chase',
+        imageKind: 'Card artwork',
+        imageClass: 'vault-card-image',
+        imageDataAttribute: 'data-vault-card-image'
+      }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
       <div class="vault-card-body">
         <div class="vault-card-meta">
           <span class="status-pill ${paused ? 'paused' : 'active'}">${statusLabel}</span>
@@ -807,7 +908,13 @@ function completedChaseMarkup(chase) {
   ].filter(Boolean);
   return `
     <article class="vault-card completed" data-vault-chase-id="${escapeHtml(chase.id)}" tabindex="-1">
-      ${chase.cardImageUrl ? `<img class="vault-card-image" src="${escapeHtml(chase.cardImageUrl)}" alt="${escapeHtml(chase.cardName)} card image" loading="lazy" data-vault-card-image>` : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
+      ${chase.cardImageUrl ? artworkTriggerMarkup({
+        imageUrl: chase.cardImageUrl,
+        identity: chase.cardName || 'Completed Chase',
+        imageKind: 'Card artwork',
+        imageClass: 'vault-card-image',
+        imageDataAttribute: 'data-vault-card-image'
+      }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
       <div class="vault-card-body">
         <div class="vault-card-meta">
           <span class="status-pill completed">Completed</span>
@@ -918,7 +1025,13 @@ function shelfCardMarkup(item) {
   const priceLabel = item.market?.askingTotal !== undefined ? 'Market' : item.market?.soldTotal !== undefined ? 'Sold' : '';
   return `
     <article class="shelf-card">
-      ${item.imageUrl ? `<img class="shelf-card-image" src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)} card image" loading="lazy" data-shelf-card-image>` : '<div class="shelf-card-image placeholder-image shelf-image-unavailable"><span>Image unavailable</span></div>'}
+      ${item.imageUrl ? artworkTriggerMarkup({
+        imageUrl: item.imageUrl,
+        identity: item.name || 'Weekly Shelf pick',
+        imageKind: 'Card artwork',
+        imageClass: 'shelf-card-image',
+        imageDataAttribute: 'data-shelf-card-image'
+      }) : '<div class="shelf-card-image placeholder-image shelf-image-unavailable"><span>Image unavailable</span></div>'}
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
           ${item.signalLabel ? `<span class="source-pill">${escapeHtml(item.signalLabel)}</span>` : ''}
@@ -1618,6 +1731,11 @@ app.addEventListener('click', async (event) => {
   }
 
   const action = target.getAttribute('data-action');
+  if (action === 'open-artwork') {
+    event.preventDefault();
+    openArtworkOverlay(target);
+    return;
+  }
   if (action === 'review-listing') {
     if (target.getAttribute('data-reviewed') !== 'true' && !isPreviewMode) {
       void mutateAlert(target.getAttribute('data-alert-id'), 'review');
@@ -1849,7 +1967,7 @@ app.addEventListener(
       placeholder.className = 'alert-image-placeholder';
       placeholder.setAttribute('aria-hidden', 'true');
       placeholder.textContent = 'V';
-      target.replaceWith(placeholder);
+      (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-shelf-image]')) {
       const placeholder = document.createElement('span');
       placeholder.className = 'home-shelf-placeholder';
@@ -1862,7 +1980,7 @@ app.addEventListener(
       placeholder.setAttribute('aria-hidden', 'true');
       placeholder.textContent = target.matches('[data-shelf-card-image]') ? 'Image unavailable' : 'V';
       if (target.matches('[data-shelf-card-image]')) placeholder.classList.add('shelf-image-unavailable');
-      target.replaceWith(placeholder);
+      (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     }
   },
   true

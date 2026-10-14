@@ -234,6 +234,7 @@ describe('web app static routes', () => {
     const appResponse = await handleWebRequest({ method: 'GET', url: '/app' }, { config });
     const cssResponse = await handleWebRequest({ method: 'GET', url: '/app.css' }, { config });
     const jsResponse = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const fontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/roboto-latin-variable.woff2' }, { config });
 
     expect(appResponse.status).toBe(200);
     expect(appResponse.headers?.['Content-Type']).toBe('text/html; charset=utf-8');
@@ -243,6 +244,9 @@ describe('web app static routes', () => {
     expect(cssResponse.headers?.['Content-Type']).toBe('text/css; charset=utf-8');
     expect(jsResponse.status).toBe(200);
     expect(jsResponse.headers?.['Content-Type']).toBe('text/javascript; charset=utf-8');
+    expect(fontResponse.status).toBe(200);
+    expect(fontResponse.headers?.['Content-Type']).toBe('font/woff2');
+    expect(fontResponse.body?.slice(0, 4)).toBe('wOF2');
     expect(jsResponse.body).toContain('COMPLETED CHASES');
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
     expect(jsResponse.body).toContain('const hasVisibleRows = items.length > 0 || completed.length > 0;');
@@ -288,6 +292,13 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
     expect(jsResponse.body).toContain("state.vaultPrefillCardName = cardName;");
     expect(jsResponse.body).toContain('vaultNotice');
+    expect(jsResponse.body).toContain('data-action="open-artwork"');
+    expect(jsResponse.body).toContain('role="dialog" aria-modal="true"');
+    expect(jsResponse.body).toContain("if (event.key === 'Escape')");
+    expect(jsResponse.body).toContain('artworkReturnFocus.focus()');
+    expect(jsResponse.body).toContain('document.body.style.overflow = artworkPreviousBodyOverflow;');
+    expect(jsResponse.body).toContain("imageKind: 'Listing image'");
+    expect(jsResponse.body).toContain("imageKind: 'Card artwork'");
     expect(jsResponse.body).toContain("fetchJson(editing ? `/api/chases/${encodeURIComponent(state.vaultEditingId)}` : '/api/chases'");
     expect(jsResponse.body).not.toContain('${item.roleLabel ? `<span class="status-pill active">');
     expect(jsResponse.body).not.toContain('A read-only shelf');
