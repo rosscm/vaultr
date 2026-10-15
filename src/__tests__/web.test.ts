@@ -290,7 +290,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("alertPreview.length ? '<span class=\"home-plan-label\">New</span>' : ''");
     expect(jsResponse.body).toContain('if (state.vaultLoaded && !state.isVaultLoading) state.pendingVaultFocusId = null;');
     expect(jsResponse.body).not.toContain('${escapeHtml(alertPreview.length)} New');
-    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(item, index, total)');
+    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index)');
+    expect(jsResponse.body).toContain('Same favourites. New discoveries.');
+    expect(jsResponse.body).toContain('Explore your Shelf');
     expect(jsResponse.body).toContain("data-action=\"previous-home-shelf\"");
     expect(jsResponse.body).toContain("data-action=\"next-home-shelf\"");
     expect(jsResponse.body).toContain("total > 1 ?");
@@ -317,6 +319,41 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.shelf-card-meta > .status-pill.active');
     expect(cssResponse.body).toContain('display: none;');
     expect(cssResponse.body).not.toContain('-webkit-line-clamp: 4');
+  });
+
+  it('keeps the Home Shelf preview bounded and uses only real secondary artwork', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = (name: string): string => {
+      const match = source.match(new RegExp(`function ${name}\\([^]*?\\n\\}`));
+      expect(match?.[0]).toBeTruthy();
+      return match![0];
+    };
+    const utilities = new Function(
+      `${functionSource('boundedHomeShelfIndex')}\n${functionSource('homeShelfPresentation')}\nreturn { boundedHomeShelfIndex, homeShelfPresentation };`
+    )() as {
+      boundedHomeShelfIndex: (index: number, itemCount: number) => number;
+      homeShelfPresentation: (items: Array<{ name: string; imageUrl?: string }>, index: number) => {
+        featuredIndex: number;
+        featured?: { name: string; imageUrl?: string };
+        decorative: Array<{ name: string; imageUrl?: string }>;
+      };
+    };
+
+    expect(utilities.boundedHomeShelfIndex(-1, 3)).toBe(0);
+    expect(utilities.boundedHomeShelfIndex(9, 3)).toBe(2);
+    expect(utilities.boundedHomeShelfIndex(1, 0)).toBe(0);
+
+    const presentation = utilities.homeShelfPresentation([
+      { name: 'First', imageUrl: '/first.png' },
+      { name: 'Featured' },
+      { name: 'Second artwork', imageUrl: '/second.png' },
+      { name: 'Third artwork', imageUrl: '/third.png' }
+    ], 1);
+    expect(presentation.featured?.name).toBe('Featured');
+    expect(presentation.decorative.map((item) => item.name)).toEqual(['First', 'Second artwork']);
+    expect(utilities.homeShelfPresentation([{ name: 'Only' }], 0).decorative).toEqual([]);
+    expect(utilities.homeShelfPresentation([], 4).featured).toBeUndefined();
   });
 
   it('normalizes and updates grading controls without touching unsaved fields', async () => {
