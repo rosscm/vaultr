@@ -247,6 +247,8 @@ describe('web app static routes', () => {
     expect(fontResponse.status).toBe(200);
     expect(fontResponse.headers?.['Content-Type']).toBe('font/woff2');
     expect(fontResponse.body?.slice(0, 4)).toBe('wOF2');
+    expect(cssResponse.body).not.toContain('@font-face');
+    expect(cssResponse.body).toContain('font-family: Roboto, "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
     expect(jsResponse.body).toContain('COMPLETED CHASES');
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
     expect(jsResponse.body).toContain('const hasVisibleRows = items.length > 0 || completed.length > 0;');
@@ -277,6 +279,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
     expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=4')");
+    expect(jsResponse.body).toContain("imageKind: 'Listing image'");
+    expect(jsResponse.body).toContain('data-home-alert-image');
     expect(jsResponse.body).toContain("reviewStateButton('REVIEWED', 'Reviewed')");
     expect(jsResponse.body).toContain('No new matches need review right now.');
     expect(jsResponse.body).toContain('data-action="dismiss-alert"');
@@ -286,6 +290,12 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("alertPreview.length ? '<span class=\"home-plan-label\">New</span>' : ''");
     expect(jsResponse.body).toContain('if (state.vaultLoaded && !state.isVaultLoading) state.pendingVaultFocusId = null;');
     expect(jsResponse.body).not.toContain('${escapeHtml(alertPreview.length)} New');
+    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(item, index, total)');
+    expect(jsResponse.body).toContain("data-action=\"previous-home-shelf\"");
+    expect(jsResponse.body).toContain("data-action=\"next-home-shelf\"");
+    expect(jsResponse.body).toContain("total > 1 ?");
+    expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
+    expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
     expect(jsResponse.body).toContain('Personalized picks shaped by your Vault, completed Chases, and the cards you keep coming back to.');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
     expect(jsResponse.body).toContain('Add to Vault');
