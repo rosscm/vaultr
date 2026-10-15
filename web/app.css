@@ -1360,7 +1360,7 @@ a {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 22px 0 14px;
+  margin: 20px 0 10px;
 }
 
 .shelf-summary span {
@@ -1378,32 +1378,39 @@ a {
 
 .shelf-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
-  margin-top: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 28px 22px;
+  margin-top: 24px;
 }
 
 .shelf-card {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 15px;
-  padding: 15px;
-  transition: transform var(--ease), border-color var(--ease), box-shadow var(--ease);
+  gap: 18px;
+  padding: 10px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transition: transform var(--ease), background var(--ease), box-shadow var(--ease);
 }
 
 .shelf-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(191, 165, 255, 0.28);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.24);
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
 }
 
 .shelf-card-image {
-  width: 100%;
+  width: min(100%, 255px);
   aspect-ratio: 3 / 4;
-  max-height: 280px;
-  border: 1px solid var(--line);
+  height: auto;
+  max-height: none;
+  margin-inline: auto;
+  border: 0;
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(255, 255, 255, 0.02);
+  filter: drop-shadow(0 16px 24px rgba(2, 1, 8, 0.3));
   object-fit: contain;
 }
 
@@ -1411,7 +1418,8 @@ a {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 11px;
+  padding: 0 4px 4px;
 }
 
 .shelf-card-meta {
@@ -1424,26 +1432,24 @@ a {
 .shelf-card h2 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 1.08rem;
-  font-weight: 720;
+  font-size: 1.13rem;
+  font-weight: 760;
   line-height: 1.24;
 }
 
 .shelf-reason {
   margin: 0;
   color: var(--muted);
-  font-size: 0.88rem;
-  line-height: 1.52;
+  font-size: 0.9rem;
+  line-height: 1.58;
 }
 
 .shelf-card-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: flex-end;
-  justify-content: space-between;
+  display: grid;
+  gap: 11px;
+  align-content: end;
   margin-top: auto;
-  padding-top: 4px;
+  padding-top: 10px;
 }
 
 .shelf-price {
@@ -1463,19 +1469,32 @@ a {
   font-weight: 740;
 }
 
+.shelf-price.unavailable {
+  min-height: 24px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .shelf-card-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  justify-content: flex-end;
+  width: 100%;
 }
 
 .shelf-card-actions .button-primary,
 .shelf-card-actions .listing-link {
+  width: 100%;
   min-height: 38px;
   margin-top: 0;
   padding: 0 13px;
   font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.shelf-card-actions > :only-child {
+  grid-column: 1 / -1;
 }
 
 .shelf-card-actions .shelf-add-button {
@@ -1484,6 +1503,7 @@ a {
 
 .shelf-card-actions .shelf-ebay-link {
   min-width: 104px;
+  margin-left: 0;
   border-color: rgba(191, 165, 255, 0.28);
   background: rgba(255, 255, 255, 0.045);
   color: var(--muted-strong);
@@ -1964,7 +1984,14 @@ a {
 }
 
 .shelf-card > .artwork-trigger {
+  width: min(100%, 255px);
+  aspect-ratio: 3 / 4;
+  margin-inline: auto;
+}
+
+.shelf-card > .artwork-trigger .shelf-card-image {
   width: 100%;
+  height: 100%;
 }
 
 .artwork-overlay {
@@ -2632,12 +2659,16 @@ a {
 
   .shelf-card-actions {
     width: 100%;
+    grid-template-columns: 1fr;
   }
 
   .shelf-card-actions .button-primary,
   .shelf-card-actions .listing-link {
-    flex: 1 1 126px;
-    width: auto;
+    width: 100%;
+  }
+
+  .shelf-card-actions > :only-child {
+    grid-column: auto;
   }
 
   .vault-card {

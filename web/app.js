@@ -446,9 +446,9 @@ function shellMarkup(content) {
         </a>
         <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
           ${navButton('home', 'Home')}
-          ${navButton('vault', 'My Vault')}
-          ${navButton('alerts', 'Alerts')}
-          ${navButton('shelf', 'Weekly Shelf')}
+          ${navButton('vault', 'Vault')}
+          ${navButton('alerts', 'Inbox')}
+          ${navButton('shelf', 'Discover')}
         </nav>
         <div class="user-area">
           ${avatarHtml(state.user)}
@@ -471,9 +471,9 @@ function shellMarkup(content) {
       </main>
       <nav class="mobile-nav" aria-label="Vaultr mobile navigation">
         ${navButton('home', 'Home')}
-        ${navButton('vault', 'My Vault')}
-        ${navButton('alerts', 'Alerts')}
-        ${navButton('shelf', 'Weekly Shelf')}
+        ${navButton('vault', 'Vault')}
+        ${navButton('alerts', 'Inbox')}
+        ${navButton('shelf', 'Discover')}
       </nav>
     </div>
   `;
@@ -488,7 +488,7 @@ function alertsPageMarkup(inner) {
   return `
     <section aria-labelledby="alerts-title">
       <header class="page-header">
-        <p class="eyebrow">Alerts</p>
+        <p class="eyebrow">Inbox</p>
         <h1 id="alerts-title">What Vaultr found for your Chases</h1>
         <p>Matches worth a look, based on the cards and filters you saved.</p>
       </header>
@@ -508,7 +508,7 @@ function alertsPageMarkup(inner) {
             ${reviewStateButton('ALL', 'All')}
           </div>
         </div>
-        <div class="toolbar" aria-label="Alert filters">
+        <div class="toolbar" aria-label="Inbox filters">
           <div class="alert-control-group">
             <span class="alert-control-label">Priority</span>
             <div class="priority-filters" aria-label="Alert priority filters">
@@ -553,7 +553,7 @@ function priorityButton(value, label) {
 
 function skeletonMarkup() {
   return alertsPageMarkup(`
-    <div class="alert-list" aria-label="Loading alerts">
+    <div class="alert-list" aria-label="Loading Inbox">
       <div class="skeleton-row"></div>
       <div class="skeleton-row"></div>
       <div class="skeleton-row"></div>
@@ -587,16 +587,16 @@ function alertsMarkup() {
     }
     if (state.priority !== 'ALL') {
       const filteredPriority = state.priority === 'GRAIL' ? 'Grail' : state.priority === 'NORMAL' ? 'Casual' : 'High';
-      return alertsPageMarkup(statePanelMarkup(`No ${filteredPriority} alerts yet.`, 'Try another priority or check back after Vaultr finds a new match.'));
+      return alertsPageMarkup(statePanelMarkup(`No ${filteredPriority} matches yet.`, 'Try another priority or check back after Vaultr finds a new match.'));
     }
-    return alertsPageMarkup(statePanelMarkup('No alerts for this source yet.', 'Try another source or check back after Vaultr finds a new match.'));
+    return alertsPageMarkup(statePanelMarkup('No matches for this source yet.', 'Try another source or check back after Vaultr finds a new match.'));
   }
 
   const list = state.alerts.map(alertCardMarkup).join('');
   const loadMore = state.nextCursor
     ? `<div class="load-more-row"><button class="button-ghost" type="button" data-action="load-more" ${state.isLoadingMore ? 'disabled' : ''}>${state.isLoadingMore ? 'Loading...' : 'Load more'}</button></div>`
     : '';
-  return alertsPageMarkup(`<div class="alert-list" aria-label="Alerts">${list}</div>${loadMore}`);
+  return alertsPageMarkup(`<div class="alert-list" aria-label="Inbox matches">${list}</div>${loadMore}`);
 }
 
 function alertActionMarkup(alert, { compact = false } = {}) {
@@ -719,7 +719,7 @@ function homePageMarkup() {
         <div>
           <p class="eyebrow">HOME</p>
           <h1 id="home-title">Welcome back, ${escapeHtml(userDisplayName(state.user))}</h1>
-          <p>Your collection, matches, and discoveries in one place.</p>
+          <p>Build your Vault. Chase your grails. Discover what you love next.</p>
         </div>
         <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add Chase</button>
       </header>
@@ -753,7 +753,7 @@ function homePageMarkup() {
             <p class="eyebrow">NEEDS ATTENTION</p>
             <h2 id="home-alerts-title">${state.homeAttentionLoading ? 'Checking matches...' : alertPreview.length ? 'New matches to review' : "You're caught up"}</h2>
           </div>
-          <button class="home-text-link" type="button" data-action="view-new-alerts">View all new alerts</button>
+          <button class="home-text-link" type="button" data-action="view-new-alerts">Open Inbox</button>
           ${alertPreview.length ? '<span class="home-plan-label">New</span>' : ''}
         </div>
         ${state.homeAttentionError
@@ -765,7 +765,7 @@ function homePageMarkup() {
 
       <section class="home-vault-strip" aria-labelledby="home-vault-title">
         <div class="home-vault-copy">
-          <p class="eyebrow">MY VAULT</p>
+          <p class="eyebrow">VAULT</p>
           <h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Vault...' : 'Your collection watchlist'}</h2>
           <p>${state.vaultError ? "Your Vault couldn't be loaded right now." : activeChases ? 'Chases and lifecycle states at a glance.' : 'Add a card to start building your collection watchlist.'}</p>
         </div>
@@ -775,7 +775,7 @@ function homePageMarkup() {
           <span><strong>${escapeHtml(planLimitedChases)}</strong> Plan limit</span>
           <span><strong>${escapeHtml(completedChases)}</strong> Completed</span>
         </div>
-        <button class="home-text-link" type="button" data-page="vault">View My Vault</button>
+        <button class="home-text-link" type="button" data-page="vault">View Vault</button>
       </section>
       ${vaultDialogMarkup()}
     </section>
@@ -882,7 +882,7 @@ function vaultHeaderMarkup() {
   return `
     <header class="page-header vault-page-header">
       <div>
-        <p class="eyebrow">MY VAULT</p>
+        <p class="eyebrow">VAULT</p>
         <h1 id="vault-title">The cards Vaultr is watching for you</h1>
         <p>Add, refine, or complete a Chase without leaving your Vault.</p>
       </div>
@@ -1020,7 +1020,7 @@ function completedChasesSectionMarkup(completed = state.completedChases || []) {
 function shelfPageMarkup() {
   if (state.isShelfLoading) {
     return `
-      <section aria-labelledby="shelf-title">
+      <section class="shelf-page" aria-labelledby="shelf-title">
         ${shelfHeaderMarkup()}
         <div class="shelf-grid" aria-label="Loading Weekly Shelf">
           <div class="skeleton-row"></div>
@@ -1032,7 +1032,7 @@ function shelfPageMarkup() {
   }
   if (state.shelfError) {
     return `
-      <section aria-labelledby="shelf-title">
+      <section class="shelf-page" aria-labelledby="shelf-title">
         ${shelfHeaderMarkup()}
         ${statePanelMarkup("Couldn't load your Weekly Shelf.", 'Try again when you are ready.', 'Try again').replace('data-action="retry-alerts"', 'data-action="retry-shelf"')}
       </section>
@@ -1040,7 +1040,7 @@ function shelfPageMarkup() {
   }
   const items = state.shelf?.items || [];
   return `
-    <section aria-labelledby="shelf-title">
+    <section class="shelf-page" aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
       ${state.vaultNotice ? `<div class="vault-notice" role="status">${escapeHtml(state.vaultNotice)}</div>` : ''}
       ${items.length ? shelfMetaMarkup(state.shelf) : ''}
@@ -1053,8 +1053,8 @@ function shelfPageMarkup() {
 function shelfHeaderMarkup() {
   return `
     <header class="page-header shelf-page-header">
-      <p class="eyebrow">WEEKLY SHELF</p>
-      <h1 id="shelf-title">Collector discoveries picked for you</h1>
+      <p class="eyebrow">DISCOVER</p>
+      <h1 id="shelf-title">Your Weekly Shelf</h1>
       <p>Personalized picks shaped by your Vault, completed Chases, and the cards you keep coming back to.</p>
     </header>
   `;
@@ -1113,7 +1113,7 @@ function shelfCardMarkup(item) {
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
         <div class="shelf-card-footer">
-          ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : ''}
+          ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : '<p class="shelf-price unavailable">Pricing unavailable</p>'}
           <div class="shelf-card-actions">
             <button class="button-primary shelf-add-button" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name || '')}">Add to Vault</button>
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
@@ -1464,7 +1464,7 @@ async function loadAlerts({ append = false } = {}) {
     state.isAlertsLoading = false;
     state.alertsError = 'load_failed';
     if (state.activePage === 'alerts') {
-      renderShell(alertsPageMarkup(statePanelMarkup("Couldn't load your alerts.", 'Try again when you are ready.', 'Try again')));
+      renderShell(alertsPageMarkup(statePanelMarkup("Couldn't load your Inbox.", 'Try again when you are ready.', 'Try again')));
     } else {
       renderCurrentPage();
     }
