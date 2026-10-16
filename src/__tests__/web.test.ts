@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { addChase, enqueueAlertEventDelivery, getUserAlertSettings, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, setUserAlertSettings, setUserPlan } from '../services/chase-store.js';
-import { createUser, getIdentity, getUserById } from '../services/accounts.js';
+import { createUser, getIdentity, getUserById, linkIdentity } from '../services/accounts.js';
 import { db } from '../services/db.js';
 import {
   createWebSession,
@@ -9,19 +9,29 @@ import {
   resolveWebSession
 } from '../services/web-sessions.js';
 import { clearChaseCardAutocompleteCache } from '../services/chase-card-catalog.js';
+import { getOrCreateOnboardingState } from '../services/onboarding.js';
 import {
   deleteScheduledDiscoveryDrop,
   scheduledDiscoveryAvailability,
   scheduledDiscoveryPeriodKey,
   upsertScheduledDiscoveryDrop
 } from '../services/scheduled-discovery-drops.js';
-import { decodeAlertCursor, handleWebRequest, type WebConfig } from '../web.js';
+import { decodeAlertCursor, handleWebRequest, webConfigFromEnv, type WebConfig } from '../web.js';
 
 const config: WebConfig = {
   discordClientId: 'discord-client-id',
   discordClientSecret: 'discord-client-secret',
   baseUrl: 'http://127.0.0.1:8790',
   postLoginRedirectPath: '/app'
+};
+
+const emailConfig: WebConfig = {
+  ...config,
+  emailAuth: {
+    postmarkServerToken: 'test-postmark-token',
+    fromEmail: 'login@vaultr.example',
+    encryptionKey: Buffer.alloc(32, 9)
+  }
 };
 
 function clearUser(userId: string): void {
@@ -464,10 +474,16 @@ describe('web app preview mode', () => {
     const shelf = await handleWebRequest({ method: 'GET', url: '/api/preview/shelf' }, { config: previewConfig });
     const settings = await handleWebRequest({ method: 'GET', url: '/api/preview/settings' }, { config: previewConfig });
     const onboarding = await handleWebRequest({ method: 'GET', url: '/api/preview/onboarding' }, { config: previewConfig });
+    const authConfig = await handleWebRequest({ method: 'GET', url: '/api/preview/auth/config' }, { config: previewConfig });
 
     expect(page.status).toBe(200);
     expect(page.body).toContain('/app.js');
-    expect(JSON.parse(me.body ?? '{}')).toMatchObject({ user: { id: 'preview-user', displayName: 'Catherine Preview' }, preview: true });
+    expect(JSON.parse(me.body ?? '{}')).toMatchObject({
+      user: { id: 'preview-user', displayName: 'Catherine Preview' },
+      identities: { email: { connected: true, verified: true }, discord: { connected: true } },
+      preview: true
+    });
+    expect(JSON.parse(authConfig.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true }, preview: true });
     expect(JSON.parse(vault.body ?? '{}').items.length).toBeGreaterThanOrEqual(6);
     expect(JSON.parse(vault.body ?? '{}').completedItems).toHaveLength(1);
     const previewVault = JSON.parse(vault.body ?? '{}');
@@ -561,6 +577,7 @@ describe('web app preview mode', () => {
       ['POST', '/api/preview/chases/preview-mew/pause'],
       ['POST', '/api/preview/chases/preview-gardevoir/resume'],
       ['POST', '/api/preview/completed-chases/preview-pichu/reopen'],
+      ['POST', '/api/preview/account/email'],
       ['PATCH', '/api/preview/settings'],
       ['PATCH', '/api/preview/onboarding']
     ]) {
@@ -584,6 +601,106 @@ describe('web app preview mode', () => {
 });
 
 describe('web auth routes', () => {
+  it('reports configured methods and permits email-only web startup', async () => {
+    expect(webConfigFromEnv({
+      VAULTR_WEB_BASE_URL: 'https://vaultr.example',
+      POSTMARK_SERVER_TOKEN: 'server-token',
+      POSTMARK_FROM_EMAIL: 'login@vaultr.example',
+      VAULTR_AUTH_OUTBOX_KEY: Buffer.alloc(32, 4).toString('base64')
+    })).toMatchObject({ baseUrl: 'https://vaultr.example', emailAuth: { fromEmail: 'login@vaultr.example' } });
+
+    const methods = await handleWebRequest({ method: 'GET', url: '/api/auth/config' }, { config: emailConfig });
+    expect(JSON.parse(methods.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true } });
+    const emailOnly = await handleWebRequest(
+      { method: 'GET', url: '/api/auth/config' },
+      { config: { baseUrl: 'https://vaultr.example', emailAuth: emailConfig.emailAuth } }
+    );
+    expect(JSON.parse(emailOnly.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: false } });
+  });
+
+  it('requests, confirms without consuming, and redeems an email sign-in with rotated protected cookies', async () => {
+    db.prepare('DELETE FROM auth_email_outbox').run();
+    db.prepare('DELETE FROM auth_magic_link_confirmations').run();
+    db.prepare('DELETE FROM auth_magic_links').run();
+    let deliveredUrl = '';
+    const emailTransport = {
+      sendMagicLink: vi.fn(async (message: { signInUrl: string }) => {
+        deliveredUrl = message.signInUrl;
+        return { messageId: 'postmark-auth-1' };
+      })
+    };
+    const now = () => new Date('2026-10-16T12:00:00.000Z');
+    const requested = await handleWebRequest({
+      method: 'POST',
+      url: '/auth/email/request',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.30' },
+      body: JSON.stringify({ email: 'EmailOnly@Example.com', returnPath: '/app#vault' })
+    }, { config: emailConfig, emailTransport, now });
+    expect(requested.status).toBe(202);
+    expect(JSON.parse(requested.body ?? '{}')).toEqual({ accepted: true });
+    expect(deliveredUrl).toMatch(/^http:\/\/127\.0\.0\.1:8790\/auth\/email\/confirm\?token=/);
+
+    const confirmed = await handleWebRequest({ method: 'GET', url: new URL(deliveredUrl).pathname + new URL(deliveredUrl).search }, { config: emailConfig, emailTransport, now });
+    expect(confirmed.status).toBe(302);
+    expect(confirmed.headers?.Location).toBe('/app?emailConfirm=ready');
+    expect((db.prepare('SELECT consumed_at FROM auth_magic_links').get() as { consumed_at: string | null }).consumed_at).toBeNull();
+    const confirmationCookie = cookieValue(confirmed.headers, 'vaultr_email_confirm');
+    expect(confirmationCookie).toBeTruthy();
+
+    const redeemed = await handleWebRequest({
+      method: 'POST',
+      url: '/auth/email/redeem',
+      headers: { cookie: `vaultr_email_confirm=${confirmationCookie}` }
+    }, { config: emailConfig, emailTransport, now });
+    expect(redeemed.status).toBe(200);
+    expect(JSON.parse(redeemed.body ?? '{}')).toMatchObject({ ok: true, returnPath: '/app#vault', purpose: 'SIGN_IN' });
+    const sessionToken = cookieValue(redeemed.headers, 'vaultr_session');
+    expect(sessionToken).toBeTruthy();
+    expect(String((redeemed.headers?.['Set-Cookie'] as string[])[1])).toContain('HttpOnly');
+    const session = resolveWebSession(decodeURIComponent(sessionToken!), now());
+    expect(getIdentity('EMAIL', 'emailonly@example.com')?.userId).toBe(session?.userId);
+    expect((await handleWebRequest({ method: 'POST', url: '/auth/email/redeem', headers: { cookie: `vaultr_email_confirm=${confirmationCookie}` } }, { config: emailConfig, emailTransport, now })).status).toBe(400);
+    if (session?.userId) clearUser(session.userId);
+  });
+
+  it('links a verified email only to the authenticated requesting account and rotates its session', async () => {
+    db.prepare('DELETE FROM auth_email_outbox').run();
+    db.prepare('DELETE FROM auth_magic_link_confirmations').run();
+    db.prepare('DELETE FROM auth_magic_links').run();
+    const user = createUser({ displayName: 'Discord Collector' });
+    linkIdentity({ userId: user.id, provider: 'DISCORD', providerUserId: 'discord-link-owner', username: 'collector' });
+    setUserPlan(user.id, 'PRO');
+    setUserAlertSettings(user.id, { minScore: 74 });
+    addChase({ userId: user.id, cardName: 'Mew RC24', priority: 'NORMAL' });
+    expect(getOrCreateOnboardingState(user.id).status).toBe('SKIPPED');
+    const oldSession = createWebSession({ userId: user.id }, { token: 'email-link-old-session', now: new Date('2026-10-16T12:00:00.000Z') });
+    let deliveredUrl = '';
+    const emailTransport = { sendMagicLink: vi.fn(async (message: { signInUrl: string }) => { deliveredUrl = message.signInUrl; return { messageId: 'postmark-link-1' }; }) };
+    const now = () => new Date('2026-10-16T12:00:00.000Z');
+    const requested = await handleWebRequest({
+      method: 'POST', url: '/api/account/email',
+      headers: { cookie: sessionCookie(oldSession.token), 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'linked@example.com' })
+    }, { config: emailConfig, emailTransport, now });
+    expect(requested.status).toBe(202);
+    const linkUrl = new URL(deliveredUrl);
+    const confirmed = await handleWebRequest({ method: 'GET', url: `${linkUrl.pathname}${linkUrl.search}` }, { config: emailConfig, emailTransport, now });
+    const nonce = cookieValue(confirmed.headers, 'vaultr_email_confirm');
+    const redeemed = await handleWebRequest({
+      method: 'POST', url: '/auth/email/redeem',
+      headers: { cookie: `${sessionCookie(oldSession.token)}; vaultr_email_confirm=${nonce}` }
+    }, { config: emailConfig, emailTransport, now });
+    expect(redeemed.status).toBe(200);
+    expect(resolveWebSession(oldSession.token, now())).toBeNull();
+    expect(getIdentity('EMAIL', 'linked@example.com')?.userId).toBe(user.id);
+    expect(getUserAlertSettings(user.id).minScore).toBe(74);
+    expect(listChases(user.id).map((chase) => chase.cardName)).toEqual(['Mew RC24']);
+    expect(getIdentity('DISCORD', 'discord-link-owner')?.userId).toBe(user.id);
+    expect(getUserById(user.id)?.displayName).toBe('Discord Collector');
+    expect(getOrCreateOnboardingState(user.id).status).toBe('SKIPPED');
+    clearUser(user.id);
+  });
+
   it('creates OAuth state and redirects to Discord identify authorization', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/auth/discord' }, { config });
 

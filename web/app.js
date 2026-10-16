@@ -12,6 +12,13 @@ function apiUrl(url) {
 
 const state = {
   user: null,
+  identities: { email: { connected: false }, discord: { connected: false } },
+  authConfig: { email: { available: false }, discord: { available: false } },
+  emailConfirmation: null,
+  authBusy: false,
+  authEmailDraft: '',
+  authNotice: '',
+  authError: '',
   activePage: 'home',
   priority: 'ALL',
   source: 'ALL',
@@ -458,13 +465,34 @@ function relativeTime(value) {
 }
 
 function signedOutMarkup() {
+  const emailAvailable = state.authConfig?.email?.available;
+  const discordAvailable = state.authConfig?.discord?.available;
+  const confirmationReady = state.emailConfirmation?.ready;
   return `
     <main id="app-main" class="signed-out">
       <section class="signed-out-card" aria-labelledby="signed-out-title">
         <div class="boot-mark" aria-hidden="true"><span>V</span></div>
         <h1 id="signed-out-title">Your collection, watched.</h1>
         <p>Track the cards you're chasing, review matches, and discover cards picked around your collection.</p>
-        <a class="button-primary" href="/auth/discord">Sign in with Discord</a>
+        ${confirmationReady ? `
+          <div class="auth-confirmation" role="status">
+            <strong>${state.emailConfirmation.purpose === 'LINK_EMAIL' ? 'Verify this email login' : 'Your secure sign-in link is ready'}</strong>
+            <p>${state.emailConfirmation.purpose === 'LINK_EMAIL' ? 'Sign in to the existing Vaultr account that requested this link, then return here to finish.' : `Continue as ${escapeHtml(state.emailConfirmation.email)}.`}</p>
+            ${state.emailConfirmation.purpose === 'SIGN_IN' ? '<button class="button-primary" type="button" data-action="redeem-email-link">Continue to Vaultr</button>' : ''}
+          </div>
+          ${state.emailConfirmation.purpose === 'LINK_EMAIL' && discordAvailable ? '<a class="button-primary auth-discord-button" href="/auth/discord">Sign in with Discord</a>' : ''}
+        ` : `
+          ${emailAvailable ? `
+            <form class="email-auth-form" data-email-signin-form novalidate>
+              <label class="field"><span>Email</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" required></label>
+              <button class="button-primary" type="submit"${state.authBusy ? ' disabled' : ''}>${state.authBusy ? 'Sending…' : 'Send sign-in link'}</button>
+            </form>
+            <p class="auth-fine-print">If this email is new to Vaultr, your account will be created after verification.</p>
+          ` : '<p class="auth-unavailable">Email sign-in is not configured on this Vaultr deployment.</p>'}
+          ${discordAvailable ? '<div class="auth-divider"><span>or</span></div><a class="button-ghost auth-discord-button" href="/auth/discord">Sign in with Discord</a>' : ''}
+        `}
+        ${state.authNotice ? `<p class="form-success" role="status">${escapeHtml(state.authNotice)}</p>` : ''}
+        ${state.authError ? `<p class="form-error" role="alert">${escapeHtml(state.authError)}</p>` : ''}
       </section>
     </main>
   `;
@@ -604,6 +632,9 @@ function settingsPageMarkup() {
   const currencyOptions = settingsCurrencyOptions(draft, options);
   const sourceMismatch = draft.listingSourceMode !== draft.effectiveListingSourceMode;
   const describedBy = (field, base) => `${base}${state.settingsFieldErrors[field] ? ` settings-${field}-error` : ''}`;
+  const emailIdentity = state.identities?.email || { connected: false };
+  const discordIdentity = state.identities?.discord || { connected: false };
+  const emailLinkAvailable = state.authConfig?.email?.available;
   return `
     <section class="settings-page" aria-labelledby="settings-title">
       <header class="page-header">
@@ -613,6 +644,20 @@ function settingsPageMarkup() {
         ${state.onboarding?.status === 'COMPLETED' ? '' : '<button class="button-ghost settings-onboarding-link" type="button" data-action="resume-onboarding">Getting started</button>'}
       </header>
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
+      <section class="settings-group account-methods" aria-labelledby="settings-login-title">
+        <div class="settings-group-heading"><p class="eyebrow">Account</p><h2 id="settings-login-title">Login methods</h2></div>
+        <div class="account-method-row"><span><strong>Email</strong><small>${emailIdentity.connected ? `${escapeHtml(emailIdentity.email)} · Verified` : 'Not connected'}</small></span></div>
+        <div class="account-method-row"><span><strong>Discord</strong><small>${discordIdentity.connected ? escapeHtml(discordIdentity.displayName || discordIdentity.username || 'Connected') : 'Not connected'}</small></span></div>
+        ${emailIdentity.connected ? '' : emailLinkAvailable ? `
+          <form class="email-link-form" data-email-link-form novalidate>
+            <label class="field"><span>Add an email login</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" required${isPreviewMode ? ' disabled' : ''}><small class="field-hint">Verification adds another way to sign in. It does not subscribe you to email alerts.</small></label>
+            <button class="button-ghost" type="submit"${isPreviewMode || state.authBusy ? ' disabled' : ''}>Send verification link</button>
+          </form>
+        ` : '<p class="field-hint">Email login is not configured on this Vaultr deployment.</p>'}
+        ${state.emailConfirmation?.ready && state.emailConfirmation.purpose === 'LINK_EMAIL' ? '<button class="button-primary" type="button" data-action="redeem-email-link">Finish adding email</button>' : ''}
+        ${state.authNotice ? `<p class="form-success" role="status">${escapeHtml(state.authNotice)}</p>` : ''}
+        ${state.authError ? `<p class="form-error" role="alert">${escapeHtml(state.authError)}</p>` : ''}
+      </section>
       <form class="settings-form" data-settings-form novalidate>
         <section class="settings-group" aria-labelledby="settings-matching-title">
           <div class="settings-group-heading">
@@ -1616,6 +1661,70 @@ async function fetchJson(url, options = {}) {
   return body;
 }
 
+async function loadAuthSurface() {
+  try {
+    const [configBody, confirmationBody] = await Promise.all([
+      fetch(apiUrl('/api/auth/config'), { credentials: 'same-origin' }).then((response) => response.json()),
+      fetch(apiUrl('/api/auth/email/confirmation'), { credentials: 'same-origin' }).then((response) => response.json())
+    ]);
+    state.authConfig = configBody;
+    state.emailConfirmation = confirmationBody?.ready ? confirmationBody : null;
+    if (!state.emailConfirmation && new URLSearchParams(window.location.search).get('emailConfirm') === 'invalid') {
+      state.authError = 'This link is invalid, expired, or already used. Request a new one.';
+    }
+  } catch {
+    state.authConfig = { email: { available: false }, discord: { available: false } };
+    state.emailConfirmation = null;
+  }
+}
+
+async function requestAuthEmail(form, endpoint) {
+  if (isPreviewMode || state.authBusy) return;
+  const input = form.elements.namedItem('email');
+  const email = input instanceof HTMLInputElement ? input.value.trim() : '';
+  state.authEmailDraft = email;
+  state.authBusy = true;
+  state.authNotice = '';
+  state.authError = '';
+  renderCurrentPage();
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, returnPath: '/app' })
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw Object.assign(new Error(body?.error || 'request_failed'), { status: response.status });
+    state.authNotice = 'Check your email for a secure Vaultr link. It expires in 15 minutes.';
+  } catch (error) {
+    state.authError = error?.message === 'invalid_email' ? 'Enter a valid email address.' : 'Vaultr could not send that link. Please try again.';
+  } finally {
+    state.authBusy = false;
+    renderCurrentPage();
+  }
+}
+
+async function redeemEmailLink() {
+  if (isPreviewMode || state.authBusy) return;
+  state.authBusy = true;
+  state.authError = '';
+  renderCurrentPage();
+  try {
+    const response = await fetch('/auth/email/redeem', { method: 'POST', credentials: 'same-origin' });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw Object.assign(new Error(body?.error || 'request_failed'), { status: response.status });
+    window.location.replace(body.returnPath || '/app');
+  } catch (error) {
+    state.authBusy = false;
+    if (error?.message === 'auth_required') state.authError = 'Sign in to the existing account that requested this email link, then try again.';
+    else if (error?.message === 'account_mismatch') state.authError = 'This email link belongs to a different Vaultr account.';
+    else if (error?.message === 'identity_conflict') state.authError = 'That email is already linked to another Vaultr account.';
+    else state.authError = 'This link is invalid, expired, or already used. Request a new one.';
+    renderCurrentPage();
+  }
+}
+
 function alertQuery(cursor) {
   const params = new URLSearchParams();
   if (state.priority !== 'ALL') params.set('priority', state.priority);
@@ -2169,14 +2278,18 @@ async function reopenChase(chaseId) {
 }
 
 async function bootstrap() {
+  await loadAuthSurface();
   try {
     const body = await fetchJson('/api/me');
     state.user = body.user;
+    state.identities = body.identities || state.identities;
     const onboarding = await loadOnboarding();
     const requestedPage = pageFromHash();
     state.activePage = (!isPreviewMode && onboarding?.status === 'IN_PROGRESS') || requestedPage === 'onboarding'
       ? 'onboarding'
-      : requestedPage;
+      : state.emailConfirmation?.purpose === 'LINK_EMAIL'
+        ? 'settings'
+        : requestedPage;
     renderCurrentPage();
     await loadActivePageData();
   } catch (error) {
@@ -2474,6 +2587,10 @@ app.addEventListener('click', async (event) => {
     renderSignedOut();
     return;
   }
+  if (action === 'redeem-email-link') {
+    await redeemEmailLink();
+    return;
+  }
   if (action === 'reload') {
     window.location.reload();
   }
@@ -2521,6 +2638,16 @@ window.addEventListener('hashchange', () => {
 app.addEventListener('submit', async (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
+  if (form.matches('[data-email-signin-form]')) {
+    event.preventDefault();
+    await requestAuthEmail(form, '/auth/email/request');
+    return;
+  }
+  if (form.matches('[data-email-link-form]')) {
+    event.preventDefault();
+    await requestAuthEmail(form, '/api/account/email');
+    return;
+  }
   if (form.matches('[data-onboarding-market-form]')) {
     event.preventDefault();
     state.settingsSaveContext = 'onboarding';
@@ -2541,6 +2668,11 @@ app.addEventListener('submit', async (event) => {
 app.addEventListener('input', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
+  if (target.closest('[data-email-signin-form], [data-email-link-form]')) {
+    state.authEmailDraft = target.value;
+    state.authError = '';
+    return;
+  }
   if (target.closest('[data-settings-form]')) {
     if (target.name === 'minScore') {
       state.settingsDraft.minScore = Number(target.value);

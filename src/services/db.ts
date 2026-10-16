@@ -179,6 +179,47 @@ db.exec(`
     last_seen_at TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS auth_magic_links (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    user_id TEXT,
+    return_path TEXT NOT NULL,
+    email_rate_key TEXT NOT NULL,
+    ip_rate_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    consumed_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS auth_magic_link_confirmations (
+    nonce_hash TEXT PRIMARY KEY,
+    magic_link_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    consumed_at TEXT,
+    FOREIGN KEY (magic_link_id) REFERENCES auth_magic_links(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS auth_email_outbox (
+    id TEXT PRIMARY KEY,
+    magic_link_id TEXT NOT NULL UNIQUE,
+    encrypted_payload TEXT,
+    payload_iv TEXT,
+    payload_tag TEXT,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL,
+    provider_message_id TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (magic_link_id) REFERENCES auth_magic_links(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS source_observations (
     chase_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -1006,6 +1047,10 @@ db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_deliveries_alert_channel ON
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_deliveries_status ON alert_deliveries(status, updated_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_web_sessions_user ON web_sessions(user_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_web_sessions_expires ON web_sessions(expires_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_auth_magic_links_email_rate ON auth_magic_links(email_rate_key, created_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_auth_magic_links_ip_rate ON auth_magic_links(ip_rate_key, created_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_auth_magic_links_expiry ON auth_magic_links(expires_at, consumed_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_auth_email_outbox_pending ON auth_email_outbox(status, next_attempt_at, expires_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_user_seen ON source_observations(user_id, last_seen_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_listing ON source_observations(listing_id, source);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_last_seen ON source_observations(last_seen_at);`);

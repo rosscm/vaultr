@@ -3,7 +3,7 @@ import { db } from './db.js';
 
 export type VaultrUserId = string;
 export type DiscordUserId = string;
-export type IdentityProvider = 'DISCORD';
+export type IdentityProvider = 'DISCORD' | 'EMAIL';
 
 export type VaultrUser = {
   id: VaultrUserId;
@@ -269,6 +269,10 @@ export function resolveOrCreateDiscordUser(input: DiscordIdentityInput): VaultrU
 
 export function resolveDiscordUserId(vaultrUserId: VaultrUserId): DiscordUserId | null {
   return getIdentityForUser(vaultrUserId, 'DISCORD')?.providerUserId ?? null;
+}
+
+export function resolveEmailAddress(vaultrUserId: VaultrUserId): string | null {
+  return getIdentityForUser(vaultrUserId, 'EMAIL')?.providerUserId ?? null;
 }
 
 export function discordAvatarUrl(discordUserId: DiscordUserId, avatarHash: string | undefined): string | undefined {

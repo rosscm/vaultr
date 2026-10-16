@@ -56,6 +56,17 @@ import {
   getUserById,
   resolveOrCreateDiscordUser
 } from './services/accounts.js';
+import {
+  createPostmarkMagicLinkTransport,
+  magicLinkConfirmationState,
+  parseEmailAuthEncryptionKey,
+  prepareMagicLinkConfirmation,
+  processPendingMagicLinkEmails,
+  redeemMagicLink,
+  requestMagicLink,
+  type EmailAuthConfig,
+  type MagicLinkEmailTransport
+} from './services/email-auth.js';
 import type { AlertHistoryCursor, AlertHistoryItem, ListingSource } from './types.js';
 import { WEB_PREVIEW_ALERTS, WEB_PREVIEW_AUTOCOMPLETE, WEB_PREVIEW_CHASES, WEB_PREVIEW_ME, WEB_PREVIEW_ONBOARDING, WEB_PREVIEW_SETTINGS, WEB_PREVIEW_SHELF } from './web-preview-fixtures.js';
 
@@ -64,6 +75,7 @@ const DISCORD_TOKEN_URL = 'https://discord.com/api/oauth2/token';
 const DISCORD_ME_URL = 'https://discord.com/api/users/@me';
 const OAUTH_STATE_COOKIE = 'vaultr_oauth_state';
 const SESSION_COOKIE = 'vaultr_session';
+const EMAIL_CONFIRM_COOKIE = 'vaultr_email_confirm';
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const SESSION_TTL_DAYS = 30;
 const WEB_ASSET_ROOT = path.resolve('web');
@@ -79,11 +91,16 @@ const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
 type FetchLike = typeof fetch;
 
 export type WebConfig = {
-  discordClientId: string;
-  discordClientSecret: string;
+  discordClientId?: string;
+  discordClientSecret?: string;
   baseUrl: string;
   postLoginRedirectPath?: string;
   previewEnabled?: boolean;
+  emailAuth?: {
+    postmarkServerToken: string;
+    fromEmail: string;
+    encryptionKey: Buffer;
+  };
 };
 
 export type WebRequest = {
@@ -124,7 +141,22 @@ type WebHandlerOptions = {
   fetchImpl?: FetchLike;
   now?: () => Date;
   logger?: Pick<Console, 'error'>;
+  emailTransport?: MagicLinkEmailTransport;
 };
+
+function configuredEmailAuth(options: WebHandlerOptions): EmailAuthConfig | null {
+  const email = options.config.emailAuth;
+  if (!email) return null;
+  return {
+    baseUrl: baseOrigin(options.config),
+    encryptionKey: email.encryptionKey,
+    transport: options.emailTransport ?? createPostmarkMagicLinkTransport({
+      serverToken: email.postmarkServerToken,
+      fromEmail: email.fromEmail,
+      fetchImpl: options.fetchImpl
+    })
+  };
+}
 
 function isProductionSecure(config: WebConfig): boolean {
   return config.baseUrl.startsWith('https://') || process.env.NODE_ENV === 'production';
@@ -168,6 +200,12 @@ export function parseCookies(header: string | undefined): Record<string, string>
 function getHeader(headers: WebRequest['headers'], name: string): string | undefined {
   const found = Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
   return Array.isArray(found) ? found.join('; ') : found;
+}
+
+function requestIpAddress(request: WebRequest): string {
+  return getHeader(request.headers, 'cf-connecting-ip')?.trim()
+    || getHeader(request.headers, 'x-vaultr-remote-address')?.trim()
+    || 'unknown';
 }
 
 function jsonResponse(status: number, body: unknown, headers: Record<string, string | string[]> = {}): WebResponse {
@@ -493,6 +531,8 @@ function previewResponse(method: string, url: URL): WebResponse | null {
   if (!url.pathname.startsWith('/api/preview/')) return null;
   if (method !== 'GET') return errorResponse(405, 'preview_read_only', { Allow: 'GET' });
   if (url.pathname === '/api/preview/me') return jsonResponse(200, WEB_PREVIEW_ME);
+  if (url.pathname === '/api/preview/auth/config') return jsonResponse(200, { email: { available: true }, discord: { available: true }, preview: true });
+  if (url.pathname === '/api/preview/auth/email/confirmation') return jsonResponse(200, { ready: false, preview: true });
   if (url.pathname === '/api/preview/onboarding') return jsonResponse(200, WEB_PREVIEW_ONBOARDING);
   if (url.pathname === '/api/preview/settings') return jsonResponse(200, WEB_PREVIEW_SETTINGS);
   if (url.pathname === '/api/preview/chases') return jsonResponse(200, WEB_PREVIEW_CHASES);
@@ -587,12 +627,15 @@ function parseAlertListOptions(url: URL): { options: ListAlertEventsForUserOptio
 }
 
 async function exchangeDiscordCode(code: string, options: WebHandlerOptions): Promise<string | null> {
+  const clientId = options.config.discordClientId;
+  const clientSecret = options.config.discordClientSecret;
+  if (!clientId || !clientSecret) return null;
   const response = await (options.fetchImpl ?? fetch)(DISCORD_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: options.config.discordClientId,
-      client_secret: options.config.discordClientSecret,
+      client_id: clientId,
+      client_secret: clientSecret,
       grant_type: 'authorization_code',
       code,
       redirect_uri: oauthCallbackUrl(options.config)
@@ -650,7 +693,80 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     if (asset) return asset;
   }
 
+  if (method === 'GET' && url.pathname === '/api/auth/config') {
+    return jsonResponse(200, {
+      email: { available: configuredEmailAuth(options) !== null },
+      discord: { available: Boolean(options.config.discordClientId && options.config.discordClientSecret) }
+    });
+  }
+
+  if (method === 'POST' && url.pathname === '/auth/email/request') {
+    const emailAuth = configuredEmailAuth(options);
+    if (!emailAuth) return errorResponse(503, 'email_auth_unavailable');
+    const parsed = requireJsonBody(request);
+    if (!('ok' in parsed)) return parsed;
+    if (typeof parsed.body.email !== 'string') return errorResponse(400, 'invalid_email');
+    try {
+      requestMagicLink({
+        email: parsed.body.email,
+        purpose: 'SIGN_IN',
+        returnPath: parsed.body.returnPath as string | undefined,
+        ipAddress: requestIpAddress(request),
+        config: emailAuth,
+        now: options.now?.()
+      });
+      await processPendingMagicLinkEmails(emailAuth, { now: options.now?.(), limit: 1 });
+      return jsonResponse(202, { accepted: true });
+    } catch (error) {
+      if ((error as Error).message === 'invalid_email') return errorResponse(400, 'invalid_email');
+      options.logger?.error('[web] email sign-in request failed');
+      return jsonResponse(202, { accepted: true });
+    }
+  }
+
+  if (method === 'GET' && url.pathname === '/auth/email/confirm') {
+    const prepared = prepareMagicLinkConfirmation(url.searchParams.get('token') ?? '', options.now?.() ?? new Date());
+    if (!prepared) return redirectResponse('/app?emailConfirm=invalid');
+    return redirectResponse('/app?emailConfirm=ready', {
+      'Set-Cookie': cookieHeaderParts(EMAIL_CONFIRM_COOKIE, prepared.nonce, {
+        maxAgeSeconds: 10 * 60,
+        secure: secureCookies
+      }),
+      'Referrer-Policy': 'no-referrer',
+      'Cache-Control': 'no-store'
+    });
+  }
+
+  if (method === 'GET' && url.pathname === '/api/auth/email/confirmation') {
+    const cookies = parseCookies(getHeader(request.headers, 'cookie'));
+    const state = magicLinkConfirmationState(cookies[EMAIL_CONFIRM_COOKIE], options.now?.() ?? new Date());
+    return state ? jsonResponse(200, { ready: true, purpose: state.purpose, email: state.email }) : jsonResponse(200, { ready: false });
+  }
+
+  if (method === 'POST' && url.pathname === '/auth/email/redeem') {
+    const cookies = parseCookies(getHeader(request.headers, 'cookie'));
+    const session = resolveWebSession(cookies[SESSION_COOKIE], options.now?.() ?? new Date());
+    const result = redeemMagicLink({
+      nonce: cookies[EMAIL_CONFIRM_COOKIE] ?? '',
+      sessionUserId: session?.userId,
+      now: options.now?.()
+    });
+    if (!result.ok) {
+      const status = result.code === 'AUTH_REQUIRED' ? 401 : result.code === 'ACCOUNT_MISMATCH' || result.code === 'EMAIL_ALREADY_LINKED' || result.code === 'IDENTITY_CONFLICT' ? 409 : 400;
+      return jsonResponse(status, { error: result.code.toLowerCase() });
+    }
+    revokeWebSession(cookies[SESSION_COOKIE]);
+    const { token } = createWebSession({ userId: result.userId }, { now: options.now?.() ?? new Date(), ttlDays: SESSION_TTL_DAYS });
+    return jsonResponse(200, { ok: true, returnPath: result.returnPath, purpose: result.purpose }, {
+      'Set-Cookie': [
+        clearCookieHeader(EMAIL_CONFIRM_COOKIE, secureCookies),
+        cookieHeaderParts(SESSION_COOKIE, token, { maxAgeSeconds: SESSION_TTL_DAYS * 24 * 60 * 60, secure: secureCookies })
+      ]
+    });
+  }
+
   if (method === 'GET' && url.pathname === '/auth/discord') {
+    if (!options.config.discordClientId || !options.config.discordClientSecret) return errorResponse(503, 'discord_auth_unavailable');
     const state = randomBytes(32).toString('base64url');
     const authorizeUrl = new URL(DISCORD_AUTHORIZE_URL);
     authorizeUrl.searchParams.set('client_id', options.config.discordClientId);
@@ -667,6 +783,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
   }
 
   if (method === 'GET' && url.pathname === '/auth/discord/callback') {
+    if (!options.config.discordClientId || !options.config.discordClientSecret) return errorResponse(503, 'discord_auth_unavailable');
     const clearStateCookie = clearCookieHeader(OAUTH_STATE_COOKIE, secureCookies);
     if (url.searchParams.has('error')) {
       return errorResponse(400, 'oauth_denied', { 'Set-Cookie': clearStateCookie });
@@ -714,6 +831,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     if (!session) return errorResponse(401, 'unauthorized');
     const user = getUserById(session.userId);
     const discord = getIdentityForUser(session.userId, 'DISCORD');
+    const email = getIdentityForUser(session.userId, 'EMAIL');
     return jsonResponse(200, {
       user: {
         id: session.userId,
@@ -721,6 +839,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
         avatarUrl: user?.avatarUrl ?? discord?.avatarUrl
       },
       identities: {
+        email: email ? { connected: true, email: email.providerUserId, verified: true } : { connected: false },
         discord: discord
           ? {
               connected: true,
@@ -731,6 +850,33 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
           : { connected: false }
       }
     });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/account/email') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    const emailAuth = configuredEmailAuth(options);
+    if (!emailAuth) return errorResponse(503, 'email_auth_unavailable');
+    const parsed = requireJsonBody(request);
+    if (!('ok' in parsed)) return parsed;
+    if (typeof parsed.body.email !== 'string') return errorResponse(400, 'invalid_email');
+    try {
+      requestMagicLink({
+        email: parsed.body.email,
+        purpose: 'LINK_EMAIL',
+        userId: session.userId,
+        returnPath: '/app#settings',
+        ipAddress: requestIpAddress(request),
+        config: emailAuth,
+        now: options.now?.()
+      });
+      await processPendingMagicLinkEmails(emailAuth, { now: options.now?.(), limit: 1 });
+      return jsonResponse(202, { accepted: true });
+    } catch (error) {
+      if ((error as Error).message === 'invalid_email') return errorResponse(400, 'invalid_email');
+      options.logger?.error('[web] email linking request failed');
+      return jsonResponse(202, { accepted: true });
+    }
   }
 
   if (url.pathname === '/api/settings') {
@@ -962,15 +1108,20 @@ export function webConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WebConfi
   const discordClientId = env.DISCORD_CLIENT_ID;
   const discordClientSecret = env.DISCORD_CLIENT_SECRET;
   const baseUrl = env.VAULTR_WEB_BASE_URL;
-  if (!discordClientId || !discordClientSecret || !baseUrl) {
-    throw new Error('Missing DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, or VAULTR_WEB_BASE_URL in environment');
-  }
+  if (!baseUrl) throw new Error('Missing VAULTR_WEB_BASE_URL in environment');
+  const encryptionKey = parseEmailAuthEncryptionKey(env.VAULTR_AUTH_OUTBOX_KEY);
+  const emailConfigured = Boolean(env.POSTMARK_SERVER_TOKEN && env.POSTMARK_FROM_EMAIL && encryptionKey);
   return {
     discordClientId,
     discordClientSecret,
     baseUrl,
     postLoginRedirectPath: env.VAULTR_WEB_POST_LOGIN_REDIRECT_PATH ?? '/app',
-    previewEnabled: env.VAULTR_WEB_PREVIEW === 'true'
+    previewEnabled: env.VAULTR_WEB_PREVIEW === 'true',
+    emailAuth: emailConfigured ? {
+      postmarkServerToken: env.POSTMARK_SERVER_TOKEN!,
+      fromEmail: env.POSTMARK_FROM_EMAIL!,
+      encryptionKey: encryptionKey!
+    } : undefined
   };
 }
 
@@ -984,7 +1135,10 @@ export function createVaultrWebServer(options: WebHandlerOptions) {
       {
         method,
         url: req.url ?? '/',
-        headers: toHeaderRecord(req.headers),
+        headers: {
+          ...toHeaderRecord(req.headers),
+          'x-vaultr-remote-address': req.socket.remoteAddress
+        },
         body
       },
       options
@@ -1008,6 +1162,13 @@ if (isDirectRun) {
   const port = Number(process.env.VAULTR_WEB_PORT ?? '8790');
   const host = process.env.VAULTR_WEB_HOST ?? '127.0.0.1';
   const server = createVaultrWebServer({ config, logger: console });
+  const emailAuth = config.emailAuth ? configuredEmailAuth({ config, logger: console }) : null;
+  if (emailAuth) {
+    const timer = setInterval(() => {
+      void processPendingMagicLinkEmails(emailAuth).catch(() => console.error('[web] email authentication delivery retry failed'));
+    }, 30_000);
+    timer.unref();
+  }
   server.listen(port, host, () => {
     console.log(`Vaultr web API listening on http://${host}:${port}`);
   });

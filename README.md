@@ -400,13 +400,29 @@ Then open:
 http://127.0.0.1:8790/app
 ```
 
-Required OAuth environment:
+Web and OAuth environment:
 
 - `DISCORD_CLIENT_ID`
 - `DISCORD_CLIENT_SECRET`
 - `VAULTR_WEB_BASE_URL` (for example `http://127.0.0.1:8790`)
 - `VAULTR_WEB_PORT` (default `8790`)
 - `VAULTR_WEB_POST_LOGIN_REDIRECT_PATH` (default `/app`)
+
+`VAULTR_WEB_BASE_URL` is always required and must be the public HTTPS origin in production. Discord
+sign-in is available when `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` are configured. The web app
+can run with email sign-in only.
+
+Optional email magic-link authentication uses Postmark's transactional `outbound` stream:
+
+- verify the Vaultr sender or sending domain with Postmark, including the required DNS records;
+- set `POSTMARK_SERVER_TOKEN` and `POSTMARK_FROM_EMAIL`;
+- set `VAULTR_AUTH_OUTBOX_KEY` to exactly 32 random bytes encoded as base64;
+- disable link and open tracking for authentication mail (Vaultr also requests both disabled);
+- ensure `VAULTR_WEB_BASE_URL` is the public HTTPS origin before enabling email auth.
+
+Magic-link tokens expire after 15 minutes. Vaultr stores token hashes for redemption and temporarily
+stores only an AES-256-GCM encrypted token in its retry outbox. The ciphertext is removed after
+delivery, terminal failure, or expiry. Do not reuse the outbox key as a provider credential.
 
 Discord OAuth callback path:
 

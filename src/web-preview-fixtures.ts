@@ -27,7 +27,10 @@ const images = {
 
 export const WEB_PREVIEW_ME = {
   user: { id: 'preview-user', displayName: 'Catherine Preview' },
-  identities: { discord: { connected: true, username: 'preview.collector', displayName: 'Catherine Preview' } },
+  identities: {
+    email: { connected: true, email: 'collector@example.com', verified: true },
+    discord: { connected: true, username: 'preview.collector', displayName: 'Catherine Preview' }
+  },
   preview: true
 };
 
