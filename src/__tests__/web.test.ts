@@ -274,6 +274,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("window.addEventListener('beforeunload'");
     expect(jsResponse.body).toContain('Saved Chase budgets will be converted using available exchange rates and rounded.');
     expect(jsResponse.body).toContain('settingsCurrencyConfirmationMarkup');
+    expect(jsResponse.body).toContain('function settingsCurrencyOptions(settings, options)');
+    expect(jsResponse.body).toContain('? [savedCurrency, ...supported]');
     expect(jsResponse.body).toContain('await loadVault({ force: true })');
     expect(jsResponse.body).toContain('Preview mode is read-only. You can inspect these settings, but changes will not be saved.');
     expect(jsResponse.body).not.toContain("navButton('vault', 'My Vault')");
@@ -476,6 +478,7 @@ describe('web app preview mode', () => {
       settings: { alertCurrency: 'CAD', listingSourceMode: 'EBAY_SHOPIFY', effectiveListingSourceMode: 'EBAY' },
       access: { tier: 'FREE', trustedShops: false }
     });
+    expect(previewSettings.options.currencies).toContain(previewSettings.settings.alertCurrency);
     const chaseNames = new Set([
       ...previewVault.items.map((item: { chase: { cardName: string } }) => item.chase.cardName),
       ...previewVault.completedItems.map((item: { cardName: string }) => item.cardName)
@@ -728,6 +731,7 @@ describe('authenticated settings API', () => {
       settings: { minScore: 71, shippingCountry: 'CA', shippingPostalCode: 'M5V' },
       options: { confidence: { min: 0, max: 100 } }
     });
+    expect(body.options.currencies).toContain(body.settings.alertCurrency);
     expect(response.body).not.toContain(otherUserId);
     expect(body).not.toHaveProperty('userId');
 

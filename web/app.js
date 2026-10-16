@@ -539,6 +539,16 @@ function settingsFieldError(field) {
   return message ? `<small class="field-error" id="settings-${escapeHtml(field)}-error">${escapeHtml(message)}</small>` : '';
 }
 
+function settingsCurrencyOptions(settings, options) {
+  const savedCurrency = typeof settings?.alertCurrency === 'string' ? settings.alertCurrency : '';
+  const supported = Array.isArray(options?.currencies)
+    ? options.currencies.filter((currency) => typeof currency === 'string' && currency)
+    : [];
+  return savedCurrency && !supported.includes(savedCurrency)
+    ? [savedCurrency, ...supported]
+    : supported;
+}
+
 function settingsCurrencyConfirmationMarkup() {
   const confirmation = state.settingsCurrencyConfirmation;
   if (!confirmation) return '';
@@ -573,6 +583,7 @@ function settingsPageMarkup() {
   const controlsDisabled = isPreviewMode || state.settingsSaving;
   const country = draft.shippingCountry || 'OFF';
   const supportsPostal = country === 'CA' || country === 'US';
+  const currencyOptions = settingsCurrencyOptions(draft, options);
   const sourceMismatch = draft.listingSourceMode !== draft.effectiveListingSourceMode;
   const describedBy = (field, base) => `${base}${state.settingsFieldErrors[field] ? ` settings-${field}-error` : ''}`;
   return `
@@ -640,7 +651,7 @@ function settingsPageMarkup() {
             <label class="field">
               <span>Currency</span>
               <select name="alertCurrency" aria-describedby="${describedBy('alertCurrency', 'settings-currency-help')}"${controlsDisabled ? ' disabled' : ''}>
-                ${(options.currencies || []).map((currency) => `<option value="${escapeHtml(currency)}"${draft.alertCurrency === currency ? ' selected' : ''}>${escapeHtml(currency)}</option>`).join('')}
+                ${currencyOptions.map((currency) => `<option value="${escapeHtml(currency)}"${draft.alertCurrency === currency ? ' selected' : ''}>${escapeHtml(currency)}</option>`).join('')}
               </select>
               <small class="field-hint" id="settings-currency-help">Changing currency converts and rounds saved Chase budgets. Shipping destination remains independent.</small>
               ${settingsFieldError('alertCurrency')}
