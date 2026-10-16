@@ -31,6 +31,17 @@ export const WEB_PREVIEW_ME = {
   preview: true
 };
 
+export const WEB_PREVIEW_ONBOARDING = {
+  state: {
+    status: 'SKIPPED',
+    step: 'WELCOME',
+    automatic: false,
+    hasChase: true,
+    updatedAt: '2026-10-09T12:00:00.000Z'
+  },
+  preview: true
+};
+
 export const WEB_PREVIEW_SETTINGS = {
   settings: {
     minScore: 72,

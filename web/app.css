@@ -467,6 +467,86 @@ a {
   gap: 24px;
 }
 
+.settings-onboarding-link {
+  width: fit-content;
+}
+
+.onboarding-page {
+  width: min(760px, 100%);
+  margin-inline: auto;
+  display: grid;
+  gap: 28px;
+}
+
+.onboarding-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-steps li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.onboarding-steps li span {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+
+.onboarding-steps li[aria-current="step"] {
+  color: var(--text);
+}
+
+.onboarding-steps li[aria-current="step"] span {
+  border-color: var(--pink);
+  background: rgba(255, 148, 187, 0.12);
+}
+
+.onboarding-content {
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.onboarding-content h1,
+.onboarding-content p {
+  margin: 0;
+}
+
+.onboarding-content > p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.onboarding-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.onboarding-market-form {
+  display: grid;
+  gap: 18px;
+}
+
 .settings-form {
   display: grid;
   gap: 0;
@@ -2706,6 +2786,27 @@ a {
 
   .settings-save-status {
     min-height: 1.2em;
+  }
+
+  .onboarding-page {
+    gap: 18px;
+  }
+
+  .onboarding-content {
+    padding: 20px 16px;
+  }
+
+  .onboarding-steps small {
+    display: none;
+  }
+
+  .onboarding-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .onboarding-actions button {
+    width: 100%;
   }
 
   .home-header {

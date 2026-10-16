@@ -42,6 +42,7 @@ import {
 } from './services/scheduled-discovery-drops.js';
 import { weeklyPreparationTargetDate } from './services/discovery-drop-scheduler.js';
 import { alertSettingsResponse, updateAlertSettings } from './services/alert-settings.js';
+import { getOrCreateOnboardingState, transitionOnboarding, type OnboardingAction, type OnboardingStep } from './services/onboarding.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
 import {
   createWebSession,
@@ -56,7 +57,7 @@ import {
   resolveOrCreateDiscordUser
 } from './services/accounts.js';
 import type { AlertHistoryCursor, AlertHistoryItem, ListingSource } from './types.js';
-import { WEB_PREVIEW_ALERTS, WEB_PREVIEW_AUTOCOMPLETE, WEB_PREVIEW_CHASES, WEB_PREVIEW_ME, WEB_PREVIEW_SETTINGS, WEB_PREVIEW_SHELF } from './web-preview-fixtures.js';
+import { WEB_PREVIEW_ALERTS, WEB_PREVIEW_AUTOCOMPLETE, WEB_PREVIEW_CHASES, WEB_PREVIEW_ME, WEB_PREVIEW_ONBOARDING, WEB_PREVIEW_SETTINGS, WEB_PREVIEW_SHELF } from './web-preview-fixtures.js';
 
 const DISCORD_AUTHORIZE_URL = 'https://discord.com/oauth2/authorize';
 const DISCORD_TOKEN_URL = 'https://discord.com/api/oauth2/token';
@@ -492,6 +493,7 @@ function previewResponse(method: string, url: URL): WebResponse | null {
   if (!url.pathname.startsWith('/api/preview/')) return null;
   if (method !== 'GET') return errorResponse(405, 'preview_read_only', { Allow: 'GET' });
   if (url.pathname === '/api/preview/me') return jsonResponse(200, WEB_PREVIEW_ME);
+  if (url.pathname === '/api/preview/onboarding') return jsonResponse(200, WEB_PREVIEW_ONBOARDING);
   if (url.pathname === '/api/preview/settings') return jsonResponse(200, WEB_PREVIEW_SETTINGS);
   if (url.pathname === '/api/preview/chases') return jsonResponse(200, WEB_PREVIEW_CHASES);
   if (url.pathname === '/api/preview/chases/autocomplete') {
@@ -744,6 +746,28 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
         return jsonResponse(status, { error: result.code, field: result.field, message: result.message });
       }
       return jsonResponse(200, alertSettingsResponse(session.userId));
+    }
+    return errorResponse(405, 'method_not_allowed', { Allow: 'GET, PATCH' });
+  }
+
+  if (url.pathname === '/api/onboarding') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    if (method === 'GET') return jsonResponse(200, { state: getOrCreateOnboardingState(session.userId) });
+    if (method === 'PATCH') {
+      const parsed = requireJsonBody(request);
+      if ('status' in parsed) return parsed;
+      const allowedFields = new Set(['action', 'expectedStep']);
+      if (Object.keys(parsed.body).some((field) => !allowedFields.has(field))) return errorResponse(400, 'invalid_onboarding_update');
+      const action = parsed.body.action;
+      const expectedStep = parsed.body.expectedStep;
+      const actions: OnboardingAction[] = ['CONTINUE', 'BACK', 'MARKET_SAVED', 'CHASE_CREATED', 'SKIP', 'FINISH', 'RESUME'];
+      const steps: OnboardingStep[] = ['WELCOME', 'MARKET', 'CHASE', 'READY'];
+      if (typeof action !== 'string' || !actions.includes(action as OnboardingAction)) return errorResponse(400, 'invalid_onboarding_action');
+      if (expectedStep !== undefined && (typeof expectedStep !== 'string' || !steps.includes(expectedStep as OnboardingStep))) return errorResponse(400, 'invalid_onboarding_step');
+      const result = transitionOnboarding(session.userId, action as OnboardingAction, expectedStep as OnboardingStep | undefined);
+      if (!result.ok) return jsonResponse(result.code === 'STALE_STATE' ? 409 : 400, { error: result.code, state: result.state });
+      return jsonResponse(200, { state: result.state });
     }
     return errorResponse(405, 'method_not_allowed', { Allow: 'GET, PATCH' });
   }

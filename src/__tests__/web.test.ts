@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { addChase, enqueueAlertEventDelivery, getUserAlertSettings, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, setUserAlertSettings, setUserPlan } from '../services/chase-store.js';
-import { getIdentity, getUserById } from '../services/accounts.js';
+import { createUser, getIdentity, getUserById } from '../services/accounts.js';
 import { db } from '../services/db.js';
 import {
   createWebSession,
@@ -36,6 +36,7 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_scheduled_drop_items WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_scheduled_drops WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_onboarding WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 }
@@ -255,7 +256,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('const hasVisibleRows = items.length > 0 || completed.length > 0;');
     expect(jsResponse.body).toContain("hasVisibleRows\n    ? ''\n    : state.vaultFilter === 'ALL'");
     expect(jsResponse.body).toContain("function pageFromHash(hash = window.location.hash)");
-    expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'settings') return value;");
+    expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'settings' || value === 'onboarding') return value;");
     expect(jsResponse.body).toContain("return 'home';");
     expect(jsResponse.body).toContain("activePage: 'home'");
     expect(jsResponse.body).toContain('Welcome back, ${escapeHtml(userDisplayName(state.user))}');
@@ -270,6 +271,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("navButton('shelf', 'Discover')");
     expect(jsResponse.body).toContain('data-page="settings"');
     expect(jsResponse.body).toContain('data-settings-form');
+    expect(jsResponse.body).toContain('data-onboarding-market-form');
+    expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
+    expect(jsResponse.body).toContain('${vaultDialogMarkup()}');
     expect(jsResponse.body).toContain("fetchJson('/api/settings'");
     expect(jsResponse.body).toContain("window.addEventListener('beforeunload'");
     expect(jsResponse.body).toContain('Saved Chase budgets will be converted using available exchange rates and rounded.');
@@ -459,6 +463,7 @@ describe('web app preview mode', () => {
     const alerts = await handleWebRequest({ method: 'GET', url: '/api/preview/alerts' }, { config: previewConfig });
     const shelf = await handleWebRequest({ method: 'GET', url: '/api/preview/shelf' }, { config: previewConfig });
     const settings = await handleWebRequest({ method: 'GET', url: '/api/preview/settings' }, { config: previewConfig });
+    const onboarding = await handleWebRequest({ method: 'GET', url: '/api/preview/onboarding' }, { config: previewConfig });
 
     expect(page.status).toBe(200);
     expect(page.body).toContain('/app.js');
@@ -469,6 +474,7 @@ describe('web app preview mode', () => {
     const previewAlerts = JSON.parse(alerts.body ?? '{}');
     const previewShelf = JSON.parse(shelf.body ?? '{}');
     const previewSettings = JSON.parse(settings.body ?? '{}');
+    const previewOnboarding = JSON.parse(onboarding.body ?? '{}');
     expect(previewAlerts.items.length).toBeGreaterThanOrEqual(4);
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_USER')).toBe(true);
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_PLAN_LIMIT')).toBe(true);
@@ -478,6 +484,7 @@ describe('web app preview mode', () => {
       settings: { alertCurrency: 'CAD', listingSourceMode: 'EBAY_SHOPIFY', effectiveListingSourceMode: 'EBAY' },
       access: { tier: 'FREE', trustedShops: false }
     });
+    expect(previewOnboarding).toMatchObject({ state: { status: 'SKIPPED', automatic: false }, preview: true });
     expect(previewSettings.options.currencies).toContain(previewSettings.settings.alertCurrency);
     const chaseNames = new Set([
       ...previewVault.items.map((item: { chase: { cardName: string } }) => item.chase.cardName),
@@ -554,7 +561,8 @@ describe('web app preview mode', () => {
       ['POST', '/api/preview/chases/preview-mew/pause'],
       ['POST', '/api/preview/chases/preview-gardevoir/resume'],
       ['POST', '/api/preview/completed-chases/preview-pichu/reopen'],
-      ['PATCH', '/api/preview/settings']
+      ['PATCH', '/api/preview/settings'],
+      ['PATCH', '/api/preview/onboarding']
     ]) {
       const response = await handleWebRequest(
         { method, url, headers: { 'content-type': 'application/json' }, body: '{}' },
@@ -696,6 +704,47 @@ describe('web auth routes', () => {
     const secondLogout = await handleWebRequest({ method: 'POST', url: '/auth/logout' }, { config });
     expect(secondLogout.status).toBe(200);
 
+    clearUser(userId);
+  });
+});
+
+describe('authenticated onboarding API', () => {
+  it('requires authentication and uses only the session account', async () => {
+    const unauthenticated = await handleWebRequest({ method: 'GET', url: '/api/onboarding' }, { config });
+    expect(unauthenticated.status).toBe(401);
+
+    const userId = createUser({ displayName: 'Owned onboarding' }).id;
+    const otherUserId = createUser({ displayName: 'Other onboarding' }).id;
+    createWebSession({ userId }, { token: 'web-onboarding-token' });
+    const headers = { cookie: sessionCookie('web-onboarding-token'), 'content-type': 'application/json' };
+    const initial = await handleWebRequest({ method: 'GET', url: `/api/onboarding?userId=${otherUserId}`, headers }, { config });
+    expect(initial.status).toBe(200);
+    expect(JSON.parse(initial.body ?? '{}')).toMatchObject({ state: { status: 'IN_PROGRESS', step: 'WELCOME' } });
+
+    const continued = await handleWebRequest({ method: 'PATCH', url: '/api/onboarding', headers, body: JSON.stringify({ action: 'CONTINUE', expectedStep: 'WELCOME' }) }, { config });
+    expect(continued.status).toBe(200);
+    expect(JSON.parse(continued.body ?? '{}')).toMatchObject({ state: { step: 'MARKET' } });
+    expect(db.prepare('SELECT step FROM user_onboarding WHERE user_id = ?').get(otherUserId)).toBeUndefined();
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
+  it('rejects malformed and stale transitions while keeping retries canonical', async () => {
+    const userId = createUser({ displayName: 'Guarded onboarding' }).id;
+    createWebSession({ userId }, { token: 'web-onboarding-guards-token' });
+    const headers = { cookie: sessionCookie('web-onboarding-guards-token'), 'content-type': 'application/json' };
+    await handleWebRequest({ method: 'GET', url: '/api/onboarding', headers }, { config });
+
+    const malformed = await handleWebRequest({ method: 'PATCH', url: '/api/onboarding', headers, body: JSON.stringify({ action: 'NOPE' }) }, { config });
+    const unsupported = await handleWebRequest({ method: 'PATCH', url: '/api/onboarding', headers, body: JSON.stringify({ action: 'CONTINUE', userId: 'other' }) }, { config });
+    const first = await handleWebRequest({ method: 'PATCH', url: '/api/onboarding', headers, body: JSON.stringify({ action: 'CONTINUE', expectedStep: 'WELCOME' }) }, { config });
+    const stale = await handleWebRequest({ method: 'PATCH', url: '/api/onboarding', headers, body: JSON.stringify({ action: 'CONTINUE', expectedStep: 'WELCOME' }) }, { config });
+
+    expect(malformed.status).toBe(400);
+    expect(unsupported.status).toBe(400);
+    expect(first.status).toBe(200);
+    expect(stale.status).toBe(409);
+    expect(JSON.parse(stale.body ?? '{}')).toMatchObject({ error: 'STALE_STATE', state: { step: 'MARKET' } });
     clearUser(userId);
   });
 });

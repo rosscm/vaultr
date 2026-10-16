@@ -21,6 +21,20 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS app_migrations (
+    migration_key TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS user_onboarding (
+    user_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    step TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS user_identities (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -946,9 +960,35 @@ export function migrateAlertInboxState(database: Database.Database): void {
   })();
 }
 
+export function migrateWebOnboarding(database: Database.Database): void {
+  database.transaction(() => {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS app_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS user_onboarding (
+        user_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        step TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+    const migrationKey = 'web_onboarding_v1_existing_accounts';
+    const applied = database.prepare('SELECT migration_key FROM app_migrations WHERE migration_key = ?').get(migrationKey);
+    if (applied) return;
+    const now = new Date().toISOString();
+    database.prepare(`
+      INSERT OR IGNORE INTO user_onboarding (user_id, status, step, created_at, updated_at)
+      SELECT id, 'SKIPPED', 'WELCOME', ?, ? FROM users
+    `).run(now, now);
+    database.prepare('INSERT INTO app_migrations (migration_key, applied_at) VALUES (?, ?)').run(migrationKey, now);
+  })();
+}
+
 migrateAlertInboxState(db);
 
 migrateLegacyDiscordUserIdsToAccounts();
+migrateWebOnboarding(db);
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_completed_chases_user_completed ON completed_chases(user_id, completed_at DESC);`);

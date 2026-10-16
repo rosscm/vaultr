@@ -58,6 +58,11 @@ const state = {
   settingsFieldErrors: {},
   settingsDirty: false,
   settingsCurrencyConfirmation: null,
+  settingsSaveContext: null,
+  onboarding: null,
+  onboardingLoaded: false,
+  onboardingError: '',
+  onboardingBusy: false,
   vaultNotice: '',
   vaultFormMode: null,
   vaultEditingId: null,
@@ -220,7 +225,7 @@ function listingTypeLabel(value) {
 
 function pageFromHash(hash = window.location.hash) {
   const value = String(hash || '').replace(/^#/, '').toLowerCase();
-  if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'settings') return value;
+  if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'settings' || value === 'onboarding') return value;
   return 'home';
 }
 
@@ -236,13 +241,26 @@ async function loadActivePageData() {
   if (state.activePage === 'vault') await loadVault();
   if (state.activePage === 'shelf') await loadShelf();
   if (state.activePage === 'settings' && !state.settingsLoaded) await loadSettings();
+  if (state.activePage === 'onboarding') {
+    await Promise.all([
+      state.settingsLoaded ? Promise.resolve() : loadSettings(),
+      state.vaultLoaded ? Promise.resolve() : loadVault()
+    ]);
+  }
 }
 
 async function navigateToPage(page, { updateHash = true } = {}) {
-  const nextPage = page === 'home' || page === 'vault' || page === 'alerts' || page === 'shelf' || page === 'settings' ? page : 'home';
+  const nextPage = page === 'home' || page === 'vault' || page === 'alerts' || page === 'shelf' || page === 'settings' || page === 'onboarding' ? page : 'home';
   if (state.activePage === 'settings' && nextPage !== 'settings' && state.settingsDirty) {
     if (!window.confirm('Discard your unsaved Settings changes?')) {
       if (!updateHash) window.history.replaceState(null, '', '#settings');
+      return;
+    }
+    resetSettingsDraft();
+  }
+  if (state.activePage === 'onboarding' && nextPage !== 'onboarding' && state.settingsDirty) {
+    if (!window.confirm('Discard unsaved setup changes?')) {
+      if (!updateHash) window.history.replaceState(null, '', '#onboarding');
       return;
     }
     resetSettingsDraft();
@@ -592,6 +610,7 @@ function settingsPageMarkup() {
         <p class="eyebrow">Account</p>
         <h1 id="settings-title">Settings</h1>
         <p>Shape which matches Vaultr surfaces and how listing costs are evaluated.</p>
+        ${state.onboarding?.status === 'COMPLETED' ? '' : '<button class="button-ghost settings-onboarding-link" type="button" data-action="resume-onboarding">Getting started</button>'}
       </header>
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
       <form class="settings-form" data-settings-form novalidate>
@@ -680,6 +699,42 @@ function settingsPageMarkup() {
     </section>
     ${settingsCurrencyConfirmationMarkup()}
   `;
+}
+
+function onboardingStepIndicator(step) {
+  const steps = ['WELCOME', 'MARKET', 'CHASE', 'READY'];
+  const active = Math.max(0, steps.indexOf(step));
+  return `<ol class="onboarding-steps" aria-label="Setup progress">${steps.map((item, index) => `<li${index === active ? ' aria-current="step"' : ''}><span>${index + 1}</span><small>${['Welcome', 'Market', 'First Chase', 'Ready'][index]}</small></li>`).join('')}</ol>`;
+}
+
+function onboardingMarketMarkup() {
+  const draft = state.settingsDraft;
+  const options = state.settings?.options || {};
+  if (!draft) return '<p role="status">Loading your market settings…</p>';
+  const country = draft.shippingCountry || 'OFF';
+  const supportsPostal = country === 'CA' || country === 'US';
+  const currencies = settingsCurrencyOptions(draft, options);
+  return `
+    <form class="onboarding-market-form" data-settings-form data-onboarding-market-form novalidate>
+      <div class="settings-field-grid">
+        <label class="field"><span>Currency</span><select name="alertCurrency"${isPreviewMode ? ' disabled' : ''}>${currencies.map((currency) => `<option value="${escapeHtml(currency)}"${draft.alertCurrency === currency ? ' selected' : ''}>${escapeHtml(currency)}</option>`).join('')}</select><small class="field-hint">Saved Chase budgets use this currency. It stays independent from destination.</small>${settingsFieldError('alertCurrency')}</label>
+        <label class="field"><span>Ship-to country</span><select name="shippingCountry"${isPreviewMode ? ' disabled' : ''}>${(options.shippingCountries || []).map((option) => `<option value="${escapeHtml(option.value)}"${country === option.value ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select><small class="field-hint">Used for shipping availability and estimates.</small>${settingsFieldError('shippingCountry')}</label>
+        <label class="field settings-postal-field"${supportsPostal ? '' : ' hidden'}><span>${country === 'CA' ? 'Postal region' : 'ZIP region'}</span><input name="shippingPostalCode" value="${escapeHtml(draft.shippingPostalCode || '')}" placeholder="${country === 'CA' ? 'M5V' : '90210'}" maxlength="16"${isPreviewMode || !supportsPostal ? ' disabled' : ''}><small class="field-hint">Only a coarse region is retained.</small>${settingsFieldError('shippingPostalCode')}</label>
+      </div>
+      <footer class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button><button class="button-primary" type="submit"${state.onboardingBusy ? ' disabled' : ''}>Save and continue</button></footer>
+    </form>`;
+}
+
+function onboardingPageMarkup() {
+  const step = state.onboarding?.step || 'WELCOME';
+  const hasLoadedChase = (state.vault || []).length > 0;
+  const previewNotice = isPreviewMode ? '<p class="preview-read-only" role="status">Preview simulation is read-only. No settings or Chases will be saved.</p>' : '';
+  let content = '';
+  if (step === 'WELCOME') content = `<p class="eyebrow">WELCOME TO VAULTR</p><h1 id="onboarding-title">Build your Vault. Chase your grails. Discover what you love next.</h1><p>Save cards in your Vault, review qualifying matches in Inbox, and explore personalized picks in Discover.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button><button class="button-primary" type="button" data-action="onboarding-continue">Continue</button></div>`;
+  if (step === 'MARKET') content = `<p class="eyebrow">YOUR MARKET</p><h1 id="onboarding-title">Set your market context</h1><p>Choose how prices are shown and where listings need to ship.</p>${onboardingMarketMarkup()}`;
+  if (step === 'CHASE') content = `<p class="eyebrow">YOUR FIRST CHASE</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your Chase is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'Continue without creating another Chase.' : 'Search for an exact printing or enter a clear card name. You can refine every Chase later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button>${hasLoadedChase ? '<button class="button-primary" type="button" data-action="onboarding-chase-saved">Continue</button>' : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first Chase</button>'}${isPreviewMode ? '<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation</button>' : ''}</div>`;
+  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Vault is ready</h1><p>${isPreviewMode ? 'This preview did not save a Chase. ' : state.onboarding?.hasChase ? 'Your Chase is saved. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Weekly Shelf preparation requires Full Vault and sufficient collecting signals, so it may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">Open Home</button></div>`;
+  return `<section class="onboarding-page" aria-labelledby="onboarding-title">${onboardingStepIndicator(step)}${previewNotice}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content">${content}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
 }
 
 function alertsPageMarkup(inner) {
@@ -1509,6 +1564,10 @@ function renderCurrentPage() {
     renderShell(settingsPageMarkup());
     return;
   }
+  if (state.activePage === 'onboarding') {
+    renderShell(onboardingPageMarkup());
+    return;
+  }
   renderShell(alertsMarkup());
 }
 
@@ -1749,6 +1808,60 @@ async function loadSettings({ force = false } = {}) {
   }
 }
 
+async function loadOnboarding() {
+  try {
+    const body = await fetchJson('/api/onboarding');
+    state.onboarding = body.state;
+    state.onboardingLoaded = true;
+    state.onboardingError = '';
+    return body.state;
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return null;
+    state.onboardingError = 'Setup could not be loaded. Please try again.';
+    return null;
+  }
+}
+
+async function updateOnboarding(action) {
+  if (isPreviewMode) {
+    const transitions = { CONTINUE: 'MARKET', BACK: state.onboarding?.step === 'MARKET' ? 'WELCOME' : 'MARKET', MARKET_SAVED: 'CHASE', CHASE_CREATED: 'READY', FINISH: 'READY', RESUME: 'WELCOME' };
+    if (action === 'SKIP' || action === 'FINISH') {
+      if (action === 'SKIP') resetSettingsDraft();
+      state.activePage = 'home';
+      window.location.hash = 'home';
+      return;
+    }
+    state.onboarding = { ...(state.onboarding || {}), status: 'IN_PROGRESS', step: transitions[action] || state.onboarding?.step, automatic: false };
+    renderCurrentPage();
+    return;
+  }
+  state.onboardingBusy = true;
+  state.onboardingError = '';
+  renderCurrentPage();
+  try {
+    const body = await fetchJson('/api/onboarding', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action, expectedStep: state.onboarding?.step })
+    });
+    state.onboarding = body.state;
+    state.onboardingBusy = false;
+    if (action === 'FINISH' || action === 'SKIP') {
+      if (action === 'SKIP') resetSettingsDraft();
+      state.activePage = 'home';
+      window.location.hash = 'home';
+      return;
+    }
+    renderCurrentPage();
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.onboardingBusy = false;
+    if (error?.body?.state) state.onboarding = error.body.state;
+    state.onboardingError = 'Setup could not advance. Your saved changes are still safe; try again.';
+    renderCurrentPage();
+  }
+}
+
 function settingsPatch() {
   const current = settingsComparable(state.settings);
   const draft = settingsComparable(state.settingsDraft);
@@ -1763,7 +1876,10 @@ function settingsPatch() {
 function syncSettingsFormState() {
   state.settingsDirty = settingsAreDirty();
   const save = document.querySelector('[data-settings-form] button[type="submit"]');
-  if (save instanceof HTMLButtonElement) save.disabled = isPreviewMode || state.settingsSaving || !state.settingsDirty;
+  if (save instanceof HTMLButtonElement) {
+    const onboardingContinue = Boolean(save.closest('[data-onboarding-market-form]'));
+    save.disabled = state.settingsSaving || (!onboardingContinue && (isPreviewMode || !state.settingsDirty));
+  }
   const status = document.querySelector('.settings-save-status');
   if (status) status.textContent = state.settingsSaveStatus;
 }
@@ -1808,6 +1924,9 @@ async function persistSettingsPatch(patch) {
       state.vaultLoaded = false;
       await loadVault({ force: true });
     }
+    const saveContext = state.settingsSaveContext;
+    state.settingsSaveContext = null;
+    if (saveContext === 'onboarding') await updateOnboarding('MARKET_SAVED');
     renderCurrentPage();
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
@@ -1889,6 +2008,9 @@ async function submitVaultForm(form) {
     state.vaultCardSelection = null;
     state.vaultSubmitting = false;
     await loadVault({ force: true });
+    if (!editing && state.activePage === 'onboarding' && state.onboarding?.step === 'CHASE') {
+      await updateOnboarding('CHASE_CREATED');
+    }
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
     state.vaultSubmitting = false;
@@ -2050,7 +2172,11 @@ async function bootstrap() {
   try {
     const body = await fetchJson('/api/me');
     state.user = body.user;
-    state.activePage = pageFromHash();
+    const onboarding = await loadOnboarding();
+    const requestedPage = pageFromHash();
+    state.activePage = (!isPreviewMode && onboarding?.status === 'IN_PROGRESS') || requestedPage === 'onboarding'
+      ? 'onboarding'
+      : requestedPage;
     renderCurrentPage();
     await loadActivePageData();
   } catch (error) {
@@ -2112,6 +2238,51 @@ app.addEventListener('click', async (event) => {
   }
 
   const action = target.getAttribute('data-action');
+  if (action === 'resume-onboarding') {
+    if (!state.onboardingLoaded) await loadOnboarding();
+    state.activePage = 'onboarding';
+    window.location.hash = 'onboarding';
+    if (state.onboarding?.status !== 'IN_PROGRESS') await updateOnboarding('RESUME');
+    else renderCurrentPage();
+    await loadActivePageData();
+    return;
+  }
+  if (action === 'onboarding-continue') {
+    await updateOnboarding('CONTINUE');
+    return;
+  }
+  if (action === 'onboarding-back') {
+    await updateOnboarding('BACK');
+    return;
+  }
+  if (action === 'skip-onboarding') {
+    if (!window.confirm('Skip setup? Unsaved changes will be discarded.')) return;
+    await updateOnboarding('SKIP');
+    return;
+  }
+  if (action === 'finish-onboarding') {
+    await updateOnboarding('FINISH');
+    return;
+  }
+  if (action === 'onboarding-preview-ready') {
+    await updateOnboarding('CHASE_CREATED');
+    return;
+  }
+  if (action === 'onboarding-chase-saved') {
+    await updateOnboarding('CHASE_CREATED');
+    return;
+  }
+  if (action === 'onboarding-add-chase') {
+    resetVaultAutocomplete();
+    state.vaultCardSelection = null;
+    state.vaultFormMode = 'add';
+    state.vaultEditingId = null;
+    state.vaultPrefillCardName = '';
+    state.vaultFormError = '';
+    renderCurrentPage();
+    document.querySelector('[name="cardName"]')?.focus();
+    return;
+  }
   if (action === 'open-artwork') {
     event.preventDefault();
     openArtworkOverlay(target);
@@ -2350,6 +2521,13 @@ window.addEventListener('hashchange', () => {
 app.addEventListener('submit', async (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
+  if (form.matches('[data-onboarding-market-form]')) {
+    event.preventDefault();
+    state.settingsSaveContext = 'onboarding';
+    if (state.settingsDirty) await submitSettingsForm();
+    else await updateOnboarding('MARKET_SAVED');
+    return;
+  }
   if (form.matches('[data-settings-form]')) {
     event.preventDefault();
     await submitSettingsForm();
