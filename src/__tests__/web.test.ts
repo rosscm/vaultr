@@ -272,7 +272,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-settings-form');
     expect(jsResponse.body).toContain("fetchJson('/api/settings'");
     expect(jsResponse.body).toContain("window.addEventListener('beforeunload'");
-    expect(jsResponse.body).toContain("Currency changes aren't available here yet.");
+    expect(jsResponse.body).toContain('Saved Chase budgets will be converted using available exchange rates and rounded.');
+    expect(jsResponse.body).toContain('settingsCurrencyConfirmationMarkup');
+    expect(jsResponse.body).toContain('await loadVault({ force: true })');
     expect(jsResponse.body).toContain('Preview mode is read-only. You can inspect these settings, but changes will not be saved.');
     expect(jsResponse.body).not.toContain("navButton('vault', 'My Vault')");
     expect(jsResponse.body).not.toContain("navButton('alerts', 'Alerts')");
@@ -756,24 +758,37 @@ describe('authenticated settings API', () => {
     clearUser(userId);
   });
 
-  it('enforces source access and rejects currency and unsupported fields', async () => {
+  it('enforces source access, updates supported currency, and rejects invalid or unsupported fields', async () => {
     const userId = 'web-settings-validation';
+    const otherUserId = 'web-settings-validation-other';
     const headers = auth(userId, 'settings-validation-token');
+    clearUser(otherUserId);
     setUserPlan(userId, 'FREE');
+    setUserAlertSettings(userId, { alertCurrency: 'CAD' });
+    setUserAlertSettings(otherUserId, { alertCurrency: 'CAD' });
+    addChase({ userId, cardName: 'Owned Currency Chase', maxPrice: 200 });
+    addChase({ userId: otherUserId, cardName: 'Other Currency Chase', maxPrice: 200 });
 
     const source = await handleWebRequest({ method: 'PATCH', url: '/api/settings', headers, body: JSON.stringify({ listingSourceMode: 'SHOPIFY' }) }, { config });
-    const currency = await handleWebRequest({ method: 'PATCH', url: '/api/settings', headers, body: JSON.stringify({ alertCurrency: 'CAD' }) }, { config });
+    const currency = await handleWebRequest({ method: 'PATCH', url: '/api/settings', headers, body: JSON.stringify({ alertCurrency: 'USD', minScore: 77, shippingCountry: 'GB' }) }, { config });
+    const invalidCurrency = await handleWebRequest({ method: 'PATCH', url: '/api/settings', headers, body: JSON.stringify({ alertCurrency: 'AUD' }) }, { config });
     const unsupported = await handleWebRequest({ method: 'PATCH', url: '/api/settings', headers, body: JSON.stringify({ deliveryChannel: 'EMAIL' }) }, { config });
 
     expect(source.status).toBe(403);
     expect(JSON.parse(source.body ?? '{}')).toMatchObject({ error: 'PRO_REQUIRED', field: 'listingSourceMode' });
-    expect(currency.status).toBe(400);
-    expect(JSON.parse(currency.body ?? '{}')).toMatchObject({ error: 'CURRENCY_READ_ONLY', field: 'alertCurrency' });
+    expect(currency.status).toBe(200);
+    expect(JSON.parse(currency.body ?? '{}')).toMatchObject({ settings: { alertCurrency: 'USD', minScore: 77, shippingCountry: 'GB' } });
+    expect(listChases(userId)[0]?.maxPrice).toBe(150);
+    expect(listChases(otherUserId)[0]?.maxPrice).toBe(200);
+    expect(invalidCurrency.status).toBe(400);
+    expect(JSON.parse(invalidCurrency.body ?? '{}')).toMatchObject({ error: 'INVALID_SETTINGS', field: 'alertCurrency' });
     expect(unsupported.status).toBe(400);
     expect(JSON.parse(unsupported.body ?? '{}')).toMatchObject({ error: 'INVALID_SETTINGS', field: 'deliveryChannel' });
-    expect(getUserAlertSettings(userId)).toMatchObject({ alertCurrency: 'USD', listingSourceMode: 'EBAY' });
+    expect(getUserAlertSettings(userId)).toMatchObject({ alertCurrency: 'USD', minScore: 77, shippingCountry: 'GB', listingSourceMode: 'EBAY' });
+    expect(getUserAlertSettings(otherUserId).alertCurrency).toBe('CAD');
 
     clearUser(userId);
+    clearUser(otherUserId);
   });
 
   it('normalizes postal regions and clears them when the destination changes', async () => {

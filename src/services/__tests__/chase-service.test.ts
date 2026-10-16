@@ -3,10 +3,15 @@ import { describe, expect, it, afterEach } from 'vitest';
 import {
   __chaseStoreTestHooks,
   createChaseForUser,
+  getChase,
+  getUserAlertSettings,
   listChases,
   listCompletedChases,
   listUserTasteMemoryChases,
+  recordDiscoveryFeedback,
   removeAllChases,
+  resetUserAlertSettings,
+  setUserAlertSettings,
   setUserPlan
 } from '../chase-store.js';
 import {
@@ -38,6 +43,9 @@ function cleanupUser(id: string): void {
   db.prepare('DELETE FROM completed_chases WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(id);
   db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(id);
+  db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(id);
+  db.prepare('DELETE FROM discovery_scheduled_drops WHERE user_id = ?').run(id);
+  resetUserAlertSettings(id);
 }
 
 afterEach(() => {
@@ -587,6 +595,69 @@ describe('chase service', () => {
     expect(reopened.chase.pausedAt).toBeUndefined();
     expect(listCompletedChases(id)).toHaveLength(0);
     expect(listUserTasteMemoryChases(id).some((chase) => chase.tasteSource === 'BOUGHT_OR_SEEN')).toBe(false);
+  });
+
+  it('converts budgets across every retained Chase lifecycle state and preserves explicit historical currencies', () => {
+    const id = userId('currency-lifecycle');
+    setUserPlan(id, 'PRO');
+    setUserAlertSettings(id, { alertCurrency: 'CAD' });
+    const active = addUserChase({ userId: id, cardName: 'Active Card', maxPrice: 200 });
+    const paused = addUserChase({ userId: id, cardName: 'Paused Card', maxPrice: 160 });
+    const completed = addUserChase({ userId: id, cardName: 'Completed Card', maxPrice: 140 });
+    expect(active.ok && paused.ok && completed.ok).toBe(true);
+    if (!active.ok || !paused.ok || !completed.ok) return;
+    expect(setUserChasePaused({ userId: id, chaseId: paused.chase.id, paused: true }).ok).toBe(true);
+    expect(resolveUserChaseRemoval({ userId: id, chaseId: completed.chase.id, outcome: 'COMPLETED' }).ok).toBe(true);
+    for (let index = 0; index < PLAN_LIMITS.FREE.maxActiveChases; index += 1) {
+      expect(addUserChase({ userId: id, cardName: `Plan Card ${index}`, maxPrice: 120 }).ok).toBe(true);
+    }
+    expect(addUserChase({ userId: id, cardName: 'No Budget Card' }).ok).toBe(true);
+    setUserPlan(id, 'FREE');
+    expect(getVaultChases(id).chases.some((item) => item.monitoringState === 'PAUSED_PLAN_LIMIT')).toBe(true);
+    recordDiscoveryFeedback({ userId: id, cardName: 'Taste Card', lane: 'test', feedback: 'MORE_LIKE_THIS', maxPrice: 137 });
+
+    db.prepare(`INSERT INTO alert_events (id, user_id, chase_id, listing_id, source, listing_price, listing_currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(`alert-${id}`, id, active.chase.id, 'listing-1', 'EBAY', 88, 'EUR', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z');
+    db.prepare(`INSERT INTO discovery_scheduled_drops (user_id, drop_type, period_key, title, currency, available_at, generated_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, 'WEEKLY_DISCOVERY', '2026-W41', 'Shelf', 'JPY', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z');
+
+    setUserAlertSettings(id, { alertCurrency: 'USD' });
+
+    const vault = getVaultChases(id);
+    expect(getUserAlertSettings(id).alertCurrency).toBe('USD');
+    expect(vault.chases.find((item) => item.chase.id === active.chase.id)?.chase.maxPrice).toBe(150);
+    expect(vault.chases.find((item) => item.chase.id === paused.chase.id)?.chase.maxPrice).toBe(120);
+    expect(vault.chases.find((item) => item.monitoringState === 'PAUSED_PLAN_LIMIT' && item.chase.cardName.startsWith('Plan Card'))?.chase.maxPrice).toBe(90);
+    expect(vault.chases.find((item) => item.chase.cardName === 'No Budget Card')?.chase.maxPrice).toBeUndefined();
+    expect(vault.completedChases[0]?.maxPrice).toBe(100);
+    expect(listUserTasteMemoryChases(id).find((item) => item.cardName === 'Taste Card')?.maxPrice).toBeCloseTo(100, 2);
+    expect((db.prepare('SELECT listing_currency FROM alert_events WHERE id = ?').get(`alert-${id}`) as { listing_currency: string }).listing_currency).toBe('EUR');
+    expect((db.prepare('SELECT currency FROM discovery_scheduled_drops WHERE user_id = ?').get(id) as { currency: string }).currency).toBe('JPY');
+
+    setUserPlan(id, 'PRO');
+    const reopened = reopenUserCompletedChase({ userId: id, chaseId: completed.chase.id });
+    expect(reopened.ok).toBe(true);
+    if (reopened.ok) expect(reopened.chase.maxPrice).toBe(100);
+    setUserAlertSettings(id, { alertCurrency: 'USD' });
+    expect(getChase(id, reopened.ok ? reopened.chase.id : '')?.maxPrice).toBe(100);
+  });
+
+  it('rolls back every budget conversion when a currency change fails', () => {
+    const id = userId('currency-rollback');
+    setUserAlertSettings(id, { alertCurrency: 'CAD' });
+    const active = addUserChase({ userId: id, cardName: 'Active Rollback', maxPrice: 200 });
+    const completed = addUserChase({ userId: id, cardName: 'Completed Rollback', maxPrice: 140 });
+    expect(active.ok && completed.ok).toBe(true);
+    if (!active.ok || !completed.ok) return;
+    resolveUserChaseRemoval({ userId: id, chaseId: completed.chase.id, outcome: 'COMPLETED' });
+
+    __chaseStoreTestHooks.failNextCurrencyChange();
+    expect(() => setUserAlertSettings(id, { alertCurrency: 'USD' })).toThrow('Simulated currency change failure');
+
+    expect(getUserAlertSettings(id).alertCurrency).toBe('CAD');
+    expect(listChases(id)[0]?.maxPrice).toBe(200);
+    expect(listCompletedChases(id)[0]?.maxPrice).toBe(140);
+    expect(listUserTasteMemoryChases(id).find((item) => item.cardName === 'Completed Rollback')?.maxPrice).toBe(140);
   });
 
   it('enforces reopen duplicate and limit rules and rolls back persistence failures', () => {

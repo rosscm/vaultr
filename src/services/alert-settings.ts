@@ -43,7 +43,7 @@ const ALLOWED_PATCH_FIELDS = new Set([
 
 export type AlertSettingsError = {
   ok: false;
-  code: 'INVALID_SETTINGS' | 'CURRENCY_READ_ONLY' | 'PRO_REQUIRED' | 'NO_CHANGES_REQUESTED';
+  code: 'INVALID_SETTINGS' | 'PRO_REQUIRED' | 'NO_CHANGES_REQUESTED';
   field?: string;
   message: string;
 };
@@ -122,6 +122,7 @@ export function alertSettingsResponse(userId: string) {
     options: {
       confidence: { min: 0, max: 100 },
       volumes: ALERT_VOLUME_OPTIONS,
+      currencies: ALERT_CURRENCY_OPTIONS,
       shippingCountries: ALERT_SHIPPING_COUNTRY_OPTIONS,
       sources: ALERT_SOURCE_OPTIONS
     }
@@ -130,16 +131,11 @@ export function alertSettingsResponse(userId: string) {
 
 export function updateAlertSettings(
   userId: string,
-  patch: Record<string, unknown>,
-  options: { allowCurrency?: boolean } = {}
+  patch: Record<string, unknown>
 ): AlertSettingsUpdateResult {
   const unknownField = Object.keys(patch).find((field) => !ALLOWED_PATCH_FIELDS.has(field));
   if (unknownField) return { ok: false, code: 'INVALID_SETTINGS', field: unknownField, message: 'Unsupported settings field.' };
   if (Object.keys(patch).length === 0) return { ok: false, code: 'NO_CHANGES_REQUESTED', message: 'No settings changes were submitted.' };
-  if ('alertCurrency' in patch && options.allowCurrency !== true) {
-    return { ok: false, code: 'CURRENCY_READ_ONLY', field: 'alertCurrency', message: "Currency changes aren't available here yet." };
-  }
-
   const current = getUserAlertSettings(userId);
   const next: Parameters<typeof setUserAlertSettings>[1] = {};
 

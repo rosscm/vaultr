@@ -51,6 +51,7 @@ export const WEB_PREVIEW_SETTINGS = {
       { value: 'BALANCED', label: 'Balanced', maxAlertsPerHour: 10 },
       { value: 'MORE', label: 'More', maxAlertsPerHour: 25 }
     ],
+    currencies: ['USD', 'CAD', 'EUR', 'GBP', 'JPY'],
     shippingCountries: [
       { label: 'Off', value: 'OFF' },
       { label: 'United States (USD)', value: 'US' },

@@ -152,7 +152,7 @@ export const alertsSettings = {
     if (shippingCountryInput !== null) patch.shippingCountry = shippingCountryInput;
     if (shippingPostalCodeInput !== null) patch.shippingPostalCode = shippingPostalCodeInput;
     if (source !== null) patch.listingSourceMode = source;
-    const update = noChanges ? null : updateAlertSettings(interaction.user.id, patch, { allowCurrency: true });
+    const update = noChanges ? null : updateAlertSettings(interaction.user.id, patch);
     if (update && !update.ok) {
       const title = update.field === 'shippingCountry' ? 'Invalid Country' : update.field === 'shippingPostalCode' ? 'Invalid Postal Code' : 'Invalid Settings';
       await interaction.reply({ embeds: [warningEmbed(title, update.message)], flags: MessageFlags.Ephemeral });

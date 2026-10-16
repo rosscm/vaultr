@@ -57,6 +57,7 @@ const state = {
   settingsSaveStatus: '',
   settingsFieldErrors: {},
   settingsDirty: false,
+  settingsCurrencyConfirmation: null,
   vaultNotice: '',
   vaultFormMode: null,
   vaultEditingId: null,
@@ -508,6 +509,7 @@ function settingsComparable(value) {
   return {
     minScore: value.minScore,
     alertVolume: value.alertVolume,
+    alertCurrency: value.alertCurrency,
     shippingCountry: value.shippingCountry ?? null,
     shippingPostalCode: value.shippingPostalCode ?? null,
     listingSourceMode: value.listingSourceMode
@@ -535,6 +537,26 @@ function applySettingsResponse(body) {
 function settingsFieldError(field) {
   const message = state.settingsFieldErrors[field];
   return message ? `<small class="field-error" id="settings-${escapeHtml(field)}-error">${escapeHtml(message)}</small>` : '';
+}
+
+function settingsCurrencyConfirmationMarkup() {
+  const confirmation = state.settingsCurrencyConfirmation;
+  if (!confirmation) return '';
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="vault-dialog settings-currency-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-currency-title" aria-describedby="settings-currency-description">
+        <header>
+          <p class="eyebrow">CONFIRM CURRENCY</p>
+          <h2 id="settings-currency-title">Change ${escapeHtml(confirmation.oldCurrency)} to ${escapeHtml(confirmation.newCurrency)}?</h2>
+          <p id="settings-currency-description" class="dialog-intro">Saved Chase budgets will be converted using available exchange rates and rounded. Switching back may not restore the exact original amounts.</p>
+        </header>
+        <footer class="dialog-actions">
+          <button class="button-ghost" type="button" data-action="cancel-settings-currency">Cancel</button>
+          <button class="button-primary" type="button" data-action="confirm-settings-currency">Convert and save</button>
+        </footer>
+      </section>
+    </div>
+  `;
 }
 
 function settingsPageMarkup() {
@@ -617,8 +639,11 @@ function settingsPageMarkup() {
           <div class="settings-field-grid">
             <label class="field">
               <span>Currency</span>
-              <input name="alertCurrency" value="${escapeHtml(draft.alertCurrency)}" readonly aria-describedby="settings-currency-help">
-              <small class="field-hint" id="settings-currency-help">Currency changes aren't available here yet.</small>
+              <select name="alertCurrency" aria-describedby="${describedBy('alertCurrency', 'settings-currency-help')}"${controlsDisabled ? ' disabled' : ''}>
+                ${(options.currencies || []).map((currency) => `<option value="${escapeHtml(currency)}"${draft.alertCurrency === currency ? ' selected' : ''}>${escapeHtml(currency)}</option>`).join('')}
+              </select>
+              <small class="field-hint" id="settings-currency-help">Changing currency converts and rounds saved Chase budgets. Shipping destination remains independent.</small>
+              ${settingsFieldError('alertCurrency')}
             </label>
             <label class="field">
               <span>Ship-to country</span>
@@ -642,6 +667,7 @@ function settingsPageMarkup() {
         </footer>
       </form>
     </section>
+    ${settingsCurrencyConfirmationMarkup()}
   `;
 }
 
@@ -1749,9 +1775,9 @@ function updateSettingsPostalControl(country) {
   if (!supported) input.value = '';
 }
 
-async function submitSettingsForm() {
+async function persistSettingsPatch(patch) {
   if (isPreviewMode || state.settingsSaving || !state.settingsDirty) return;
-  const patch = settingsPatch();
+  const currencyChanged = patch.alertCurrency !== undefined;
   state.settingsSaving = true;
   state.settingsSaveStatus = 'Saving changes…';
   state.settingsFieldErrors = {};
@@ -1765,6 +1791,12 @@ async function submitSettingsForm() {
     applySettingsResponse(body);
     state.settingsSaving = false;
     state.settingsSaveStatus = 'Settings saved.';
+    if (currencyChanged) {
+      state.vault = [];
+      state.completedChases = [];
+      state.vaultLoaded = false;
+      await loadVault({ force: true });
+    }
     renderCurrentPage();
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
@@ -1774,6 +1806,21 @@ async function submitSettingsForm() {
     state.settingsSaveStatus = field ? 'Some settings need attention.' : 'Settings could not be saved. Please try again.';
     renderCurrentPage();
   }
+}
+
+async function submitSettingsForm() {
+  if (isPreviewMode || state.settingsSaving || !state.settingsDirty) return;
+  const patch = settingsPatch();
+  if (patch.alertCurrency !== undefined) {
+    state.settingsCurrencyConfirmation = {
+      oldCurrency: state.settings.alertCurrency,
+      newCurrency: patch.alertCurrency
+    };
+    renderCurrentPage();
+    document.querySelector('[data-action="confirm-settings-currency"]')?.focus();
+    return;
+  }
+  await persistSettingsPatch(patch);
 }
 
 function vaultFormBody(form) {
@@ -2158,6 +2205,17 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'reopen-chase') {
     await reopenChase(target.getAttribute('data-chase-id'));
+    return;
+  }
+  if (action === 'cancel-settings-currency') {
+    state.settingsCurrencyConfirmation = null;
+    renderCurrentPage();
+    return;
+  }
+  if (action === 'confirm-settings-currency') {
+    const patch = settingsPatch();
+    state.settingsCurrencyConfirmation = null;
+    await persistSettingsPatch(patch);
     return;
   }
   if (action === 'open-add-chase') {

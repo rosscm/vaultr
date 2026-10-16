@@ -76,7 +76,7 @@ describe('shared alert settings', () => {
     });
   });
 
-  it('enforces source entitlement and rejects web currency mutation', () => {
+  it('enforces source entitlement and validates supported currency updates', () => {
     const userId = user('restricted');
     setUserPlan(userId, 'FREE');
 
@@ -85,12 +85,13 @@ describe('shared alert settings', () => {
       code: 'PRO_REQUIRED',
       field: 'listingSourceMode'
     });
-    expect(updateAlertSettings(userId, { alertCurrency: 'CAD' })).toMatchObject({
+    expect(updateAlertSettings(userId, { alertCurrency: 'CAD' }).ok).toBe(true);
+    expect(updateAlertSettings(userId, { alertCurrency: 'AUD' })).toMatchObject({
       ok: false,
-      code: 'CURRENCY_READ_ONLY',
+      code: 'INVALID_SETTINGS',
       field: 'alertCurrency'
     });
-    expect(getUserAlertSettings(userId)).toMatchObject({ alertCurrency: 'USD', listingSourceMode: 'EBAY' });
+    expect(getUserAlertSettings(userId)).toMatchObject({ alertCurrency: 'CAD', listingSourceMode: 'EBAY' });
   });
 
   it('clears postal data when the destination no longer supports a postal region', () => {

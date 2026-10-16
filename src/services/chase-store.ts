@@ -557,6 +557,12 @@ const updateChaseMaxPriceStmt = db.prepare(`
   WHERE user_id = @user_id AND id = @id
 `);
 
+const updateCompletedChaseMaxPriceStmt = db.prepare(`
+  UPDATE completed_chases
+  SET max_price = @max_price
+  WHERE user_id = @user_id AND id = @id
+`);
+
 const backfillChaseCardImageStmt = db.prepare(`
   UPDATE chases
   SET card_image_url = @card_image_url,
@@ -1970,7 +1976,8 @@ function chaseRemovalOutcomeTasteSource(outcome: ChaseRemovalOutcome): TasteMemo
 const chaseStoreTestState = {
   failNextResolvedRemoval: false,
   failNextAddChase: false,
-  failNextReopen: false
+  failNextReopen: false,
+  failNextCurrencyChange: false
 };
 
 export function resolveChaseRemoval(
@@ -2074,6 +2081,9 @@ export const __chaseStoreTestHooks = {
   },
   failNextReopen(): void {
     chaseStoreTestState.failNextReopen = true;
+  },
+  failNextCurrencyChange(): void {
+    chaseStoreTestState.failNextCurrencyChange = true;
   }
 };
 
@@ -2953,6 +2963,14 @@ export function setUserAlertSettings(
           max_price: roundConvertedMaxPrice(convertCurrencyAmount(chase.maxPrice, current.alertCurrency, next.alertCurrency))
         });
       }
+      for (const chase of listCompletedChases(userId)) {
+        if (chase.maxPrice === undefined) continue;
+        updateCompletedChaseMaxPriceStmt.run({
+          user_id: userId,
+          id: chase.id,
+          max_price: roundConvertedMaxPrice(convertCurrencyAmount(chase.maxPrice, current.alertCurrency, next.alertCurrency))
+        });
+      }
       const tasteRows = listUserTasteMemoryMaxPricesStmt.all(userId) as { signal_id: string; source: string; max_price: number }[];
       for (const row of tasteRows) {
         updateUserTasteMemoryMaxPriceStmt.run({
@@ -2961,6 +2979,10 @@ export function setUserAlertSettings(
           source: row.source,
           max_price: roundConvertedMaxPrice(convertCurrencyAmount(row.max_price, current.alertCurrency, next.alertCurrency))
         });
+      }
+      if (chaseStoreTestState.failNextCurrencyChange) {
+        chaseStoreTestState.failNextCurrencyChange = false;
+        throw new Error('Simulated currency change failure');
       }
     }
 
