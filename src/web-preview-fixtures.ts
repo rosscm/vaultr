@@ -31,6 +31,47 @@ export const WEB_PREVIEW_ME = {
   preview: true
 };
 
+export const WEB_PREVIEW_SETTINGS = {
+  settings: {
+    minScore: 72,
+    alertVolume: 'BALANCED',
+    maxAlertsPerHour: 10,
+    alertCurrency: 'CAD',
+    shippingCountry: 'CA',
+    shippingPostalCode: 'M5V',
+    listingSourceMode: 'EBAY_SHOPIFY',
+    effectiveListingSourceMode: 'EBAY',
+    updatedAt: '2026-10-09T12:00:00.000Z'
+  },
+  access: { tier: 'FREE', planStatus: 'ACTIVE', trustedShops: false },
+  options: {
+    confidence: { min: 0, max: 100 },
+    volumes: [
+      { value: 'QUIET', label: 'Quiet', maxAlertsPerHour: 3 },
+      { value: 'BALANCED', label: 'Balanced', maxAlertsPerHour: 10 },
+      { value: 'MORE', label: 'More', maxAlertsPerHour: 25 }
+    ],
+    shippingCountries: [
+      { label: 'Off', value: 'OFF' },
+      { label: 'United States (USD)', value: 'US' },
+      { label: 'Canada (CAD)', value: 'CA' },
+      { label: 'United Kingdom (GBP)', value: 'GB' },
+      { label: 'Japan (JPY)', value: 'JP' },
+      { label: 'Germany (EUR)', value: 'DE' },
+      { label: 'France (EUR)', value: 'FR' },
+      { label: 'Italy (EUR)', value: 'IT' },
+      { label: 'Spain (EUR)', value: 'ES' },
+      { label: 'Netherlands (EUR)', value: 'NL' },
+      { label: 'Australia', value: 'AU' }
+    ],
+    sources: [
+      { label: 'eBay', value: 'EBAY', requiresPro: false },
+      { label: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY', requiresPro: true },
+      { label: 'Trusted Shops Only', value: 'SHOPIFY', requiresPro: true }
+    ]
+  }
+};
+
 function chase(id: string, cardName: string, cardImageUrl: string, priority: string, extra: Record<string, unknown> = {}, monitoringState = 'ACTIVE') {
   return {
     chase: {

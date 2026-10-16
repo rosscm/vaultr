@@ -4,20 +4,7 @@ import { alertsSettings } from './alerts-settings.js';
 import { alertsStatus } from './alerts-status.js';
 import { alertsTest } from './alerts-test.js';
 import { previewAlert } from './alerts-preview.js';
-
-const SHIPPING_COUNTRY_CHOICES = [
-  { name: 'Off', value: 'OFF' },
-  { name: 'United States (USD)', value: 'US' },
-  { name: 'Canada (CAD)', value: 'CA' },
-  { name: 'United Kingdom (GBP)', value: 'GB' },
-  { name: 'Japan (JPY)', value: 'JP' },
-  { name: 'Germany (EUR)', value: 'DE' },
-  { name: 'France (EUR)', value: 'FR' },
-  { name: 'Italy (EUR)', value: 'IT' },
-  { name: 'Spain (EUR)', value: 'ES' },
-  { name: 'Netherlands (EUR)', value: 'NL' },
-  { name: 'Australia', value: 'AU' }
-] as const;
+import { ALERT_SHIPPING_COUNTRY_OPTIONS } from '../services/alert-settings.js';
 
 export const alerts = {
   data: new SlashCommandBuilder()
@@ -40,14 +27,14 @@ export const alerts = {
         .addIntegerOption((opt) =>
           opt
             .setName('min_score')
-            .setDescription('Minimum confidence for a DM alert (0-100; default: 60)')
+            .setDescription('Minimum confidence for Inbox and Discord matches (0-100; default: 60)')
             .setMinValue(0)
             .setMaxValue(100)
         )
         .addStringOption((opt) =>
           opt
             .setName('alert_volume')
-            .setDescription('How many alerts Vaultr may DM you (default: Balanced, 10/hr)')
+            .setDescription('How many matches Vaultr may surface (default: Balanced, 10/hr)')
             .addChoices(
               { name: 'Quiet (3/hr)', value: 'QUIET' },
               { name: 'Balanced (10/hr)', value: 'BALANCED' },
@@ -70,7 +57,7 @@ export const alerts = {
           opt
             .setName('shipping_country')
             .setDescription('Ship-to country for better shipping estimates (default: Off)')
-            .addChoices(...SHIPPING_COUNTRY_CHOICES)
+            .addChoices(...ALERT_SHIPPING_COUNTRY_OPTIONS.map((choice) => ({ name: choice.label, value: choice.value })))
             .setMaxLength(3)
         )
         .addStringOption((opt) =>

@@ -48,6 +48,15 @@ const state = {
   shelfLoaded: false,
   shelfError: null,
   homeShelfIndex: 0,
+  settings: null,
+  settingsDraft: null,
+  settingsLoaded: false,
+  isSettingsLoading: false,
+  settingsError: null,
+  settingsSaving: false,
+  settingsSaveStatus: '',
+  settingsFieldErrors: {},
+  settingsDirty: false,
   vaultNotice: '',
   vaultFormMode: null,
   vaultEditingId: null,
@@ -210,7 +219,7 @@ function listingTypeLabel(value) {
 
 function pageFromHash(hash = window.location.hash) {
   const value = String(hash || '').replace(/^#/, '').toLowerCase();
-  if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf') return value;
+  if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'settings') return value;
   return 'home';
 }
 
@@ -225,10 +234,18 @@ async function loadActivePageData() {
   if (state.activePage === 'alerts' && !state.alertsLoaded) await loadAlerts();
   if (state.activePage === 'vault') await loadVault();
   if (state.activePage === 'shelf') await loadShelf();
+  if (state.activePage === 'settings' && !state.settingsLoaded) await loadSettings();
 }
 
 async function navigateToPage(page, { updateHash = true } = {}) {
-  const nextPage = page === 'home' || page === 'vault' || page === 'alerts' || page === 'shelf' ? page : 'home';
+  const nextPage = page === 'home' || page === 'vault' || page === 'alerts' || page === 'shelf' || page === 'settings' ? page : 'home';
+  if (state.activePage === 'settings' && nextPage !== 'settings' && state.settingsDirty) {
+    if (!window.confirm('Discard your unsaved Settings changes?')) {
+      if (!updateHash) window.history.replaceState(null, '', '#settings');
+      return;
+    }
+    resetSettingsDraft();
+  }
   if (updateHash && window.location.hash !== `#${nextPage}`) {
     window.location.hash = nextPage;
     return;
@@ -453,6 +470,7 @@ function shellMarkup(content) {
         <div class="user-area">
           ${avatarHtml(state.user)}
           <span class="user-copy"><strong class="user-name">${escapeHtml(displayName)}</strong>${accountPlan ? `<small>${escapeHtml(accountPlan)}</small>` : ''}</span>
+          <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">Settings</button>
           ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : '<button class="button-ghost" type="button" data-action="logout">Log out</button>'}
         </div>
       </aside>
@@ -463,6 +481,7 @@ function shellMarkup(content) {
         </a>
         <div class="user-area">
           ${avatarHtml(state.user)}
+          <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">Settings</button>
           ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : '<button class="button-ghost" type="button" data-action="logout">Log out</button>'}
         </div>
       </header>
@@ -482,6 +501,148 @@ function shellMarkup(content) {
 function navButton(page, label) {
   const selected = state.activePage === page;
   return `<button class="nav-button" type="button" data-page="${page}" aria-selected="${selected ? 'true' : 'false'}">${label}</button>`;
+}
+
+function settingsComparable(value) {
+  if (!value) return null;
+  return {
+    minScore: value.minScore,
+    alertVolume: value.alertVolume,
+    shippingCountry: value.shippingCountry ?? null,
+    shippingPostalCode: value.shippingPostalCode ?? null,
+    listingSourceMode: value.listingSourceMode
+  };
+}
+
+function settingsAreDirty() {
+  return JSON.stringify(settingsComparable(state.settingsDraft)) !== JSON.stringify(settingsComparable(state.settings));
+}
+
+function resetSettingsDraft() {
+  state.settingsDraft = state.settings ? { ...state.settings } : null;
+  state.settingsDirty = false;
+  state.settingsFieldErrors = {};
+  state.settingsSaveStatus = '';
+}
+
+function applySettingsResponse(body) {
+  state.settings = { ...(body.settings || {}), access: body.access || {}, options: body.options || {} };
+  resetSettingsDraft();
+  state.settingsLoaded = true;
+  state.settingsError = null;
+}
+
+function settingsFieldError(field) {
+  const message = state.settingsFieldErrors[field];
+  return message ? `<small class="field-error" id="settings-${escapeHtml(field)}-error">${escapeHtml(message)}</small>` : '';
+}
+
+function settingsPageMarkup() {
+  if (state.isSettingsLoading && !state.settingsLoaded) {
+    return `<section class="settings-page" aria-labelledby="settings-title"><header class="page-header"><p class="eyebrow">Account</p><h1 id="settings-title">Settings</h1></header><div class="settings-loading" role="status">Loading Settings…</div></section>`;
+  }
+  if (state.settingsError && !state.settingsLoaded) {
+    return `<section class="settings-page" aria-labelledby="settings-title"><header class="page-header"><p class="eyebrow">Account</p><h1 id="settings-title">Settings</h1></header><div class="state-panel"><h2>Couldn't load Settings.</h2><p>Try again when you are ready.</p><button class="retry-button" type="button" data-action="retry-settings">Try again</button></div></section>`;
+  }
+  const draft = state.settingsDraft;
+  const access = state.settings?.access || {};
+  const options = state.settings?.options || {};
+  if (!draft) return statePanelMarkup('Settings are unavailable.', 'Refresh and try again.', 'Try again', 'retry-settings');
+  const controlsDisabled = isPreviewMode || state.settingsSaving;
+  const country = draft.shippingCountry || 'OFF';
+  const supportsPostal = country === 'CA' || country === 'US';
+  const sourceMismatch = draft.listingSourceMode !== draft.effectiveListingSourceMode;
+  const describedBy = (field, base) => `${base}${state.settingsFieldErrors[field] ? ` settings-${field}-error` : ''}`;
+  return `
+    <section class="settings-page" aria-labelledby="settings-title">
+      <header class="page-header">
+        <p class="eyebrow">Account</p>
+        <h1 id="settings-title">Settings</h1>
+        <p>Shape which matches Vaultr surfaces and how listing costs are evaluated.</p>
+      </header>
+      ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
+      <form class="settings-form" data-settings-form novalidate>
+        <section class="settings-group" aria-labelledby="settings-matching-title">
+          <div class="settings-group-heading">
+            <p class="eyebrow">Matching</p>
+            <h2 id="settings-matching-title">Match quality</h2>
+          </div>
+          <label class="field settings-confidence-field">
+            <span>Match confidence <output data-confidence-output>${escapeHtml(draft.minScore)}</output></span>
+            <input name="minScore" type="range" min="${escapeHtml(options.confidence?.min ?? 0)}" max="${escapeHtml(options.confidence?.max ?? 100)}" step="1" value="${escapeHtml(draft.minScore)}" aria-describedby="${describedBy('minScore', 'settings-confidence-help')}"${controlsDisabled ? ' disabled' : ''}>
+            <small class="field-hint" id="settings-confidence-help">Higher confidence means fewer, stricter matches enter your Inbox.</small>
+            ${settingsFieldError('minScore')}
+          </label>
+        </section>
+        <section class="settings-group" aria-labelledby="settings-volume-title">
+          <div class="settings-group-heading">
+            <p class="eyebrow">Match volume</p>
+            <h2 id="settings-volume-title">How many matches to surface</h2>
+            <p>Limits matches surfaced in your Inbox and Discord. It does not change how often Vaultr checks.</p>
+          </div>
+          <fieldset class="settings-segments" aria-describedby="settings-volume-help">
+            <legend class="sr-only">Match volume</legend>
+            ${(options.volumes || []).map((option) => `
+              <label>
+                <input type="radio" name="alertVolume" value="${escapeHtml(option.value)}"${draft.alertVolume === option.value ? ' checked' : ''}${controlsDisabled ? ' disabled' : ''}>
+                <span><strong>${escapeHtml(option.label)}</strong><small>${escapeHtml(option.maxAlertsPerHour)}/hour</small></span>
+              </label>
+            `).join('')}
+          </fieldset>
+          <small class="field-hint" id="settings-volume-help">The limit applies across your active Chases.</small>
+          ${settingsFieldError('alertVolume')}
+        </section>
+        <section class="settings-group" aria-labelledby="settings-sources-title">
+          <div class="settings-group-heading">
+            <p class="eyebrow">Sources</p>
+            <h2 id="settings-sources-title">Where Vaultr watches</h2>
+          </div>
+          <label class="field">
+            <span>Listing sources</span>
+            <select name="listingSourceMode" aria-describedby="${describedBy('listingSourceMode', 'settings-source-help')}"${controlsDisabled ? ' disabled' : ''}>
+              ${(options.sources || []).map((option) => {
+                const locked = option.requiresPro && !access.trustedShops;
+                return `<option value="${escapeHtml(option.value)}"${draft.listingSourceMode === option.value ? ' selected' : ''}${locked ? ' disabled' : ''}>${escapeHtml(option.label)}${locked ? ' — Full Vault' : ''}</option>`;
+              }).join('')}
+            </select>
+            <small class="field-hint" id="settings-source-help">Trusted Shops require Full Vault.${sourceMismatch ? ` Your saved preference is retained, but Vaultr currently watches ${escapeHtml(draft.effectiveListingSourceMode === 'EBAY' ? 'eBay' : draft.effectiveListingSourceMode)}.` : ''}</small>
+            ${settingsFieldError('listingSourceMode')}
+          </label>
+        </section>
+        <section class="settings-group" aria-labelledby="settings-pricing-title">
+          <div class="settings-group-heading">
+            <p class="eyebrow">Pricing & shipping</p>
+            <h2 id="settings-pricing-title">Your market context</h2>
+          </div>
+          <div class="settings-field-grid">
+            <label class="field">
+              <span>Currency</span>
+              <input name="alertCurrency" value="${escapeHtml(draft.alertCurrency)}" readonly aria-describedby="settings-currency-help">
+              <small class="field-hint" id="settings-currency-help">Currency changes aren't available here yet.</small>
+            </label>
+            <label class="field">
+              <span>Ship-to country</span>
+              <select name="shippingCountry" aria-describedby="${describedBy('shippingCountry', 'settings-country-help')}"${controlsDisabled ? ' disabled' : ''}>
+                ${(options.shippingCountries || []).map((option) => `<option value="${escapeHtml(option.value)}"${country === option.value ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}
+              </select>
+              <small class="field-hint" id="settings-country-help">Used for shipping availability and estimates.</small>
+              ${settingsFieldError('shippingCountry')}
+            </label>
+            <label class="field settings-postal-field"${supportsPostal ? '' : ' hidden'}>
+              <span>${country === 'CA' ? 'Postal region' : 'ZIP region'}</span>
+              <input name="shippingPostalCode" maxlength="16" value="${escapeHtml(draft.shippingPostalCode || '')}" placeholder="${country === 'CA' ? 'M5V' : '90210'}" aria-describedby="${describedBy('shippingPostalCode', 'settings-postal-help')}"${controlsDisabled || !supportsPostal ? ' disabled' : ''}>
+              <small class="field-hint" id="settings-postal-help">Only a coarse region is retained: the first three Canadian characters or five-digit US ZIP.</small>
+              ${settingsFieldError('shippingPostalCode')}
+            </label>
+          </div>
+        </section>
+        <footer class="settings-actions">
+          <p class="settings-save-status" role="status" aria-live="polite">${escapeHtml(state.settingsSaveStatus)}</p>
+          <button class="button-primary" type="submit"${controlsDisabled || !state.settingsDirty ? ' disabled' : ''}>${state.settingsSaving ? 'Saving…' : 'Save changes'}</button>
+        </footer>
+      </form>
+    </section>
+  `;
 }
 
 function alertsPageMarkup(inner) {
@@ -1307,6 +1468,10 @@ function renderCurrentPage() {
     renderShell(shelfPageMarkup());
     return;
   }
+  if (state.activePage === 'settings') {
+    renderShell(settingsPageMarkup());
+    return;
+  }
   renderShell(alertsMarkup());
 }
 
@@ -1522,6 +1687,91 @@ async function loadShelf({ force = false } = {}) {
     if (String(error?.message) === 'unauthorized') return;
     state.shelfError = 'load_failed';
     state.isShelfLoading = false;
+    renderCurrentPage();
+  }
+}
+
+async function loadSettings({ force = false } = {}) {
+  if (state.settingsLoaded && !force) {
+    renderCurrentPage();
+    return;
+  }
+  state.isSettingsLoading = true;
+  state.settingsError = null;
+  renderCurrentPage();
+  try {
+    const body = await fetchJson('/api/settings');
+    applySettingsResponse(body);
+    state.isSettingsLoading = false;
+    renderCurrentPage();
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.isSettingsLoading = false;
+    state.settingsError = 'load_failed';
+    renderCurrentPage();
+  }
+}
+
+function settingsPatch() {
+  const current = settingsComparable(state.settings);
+  const draft = settingsComparable(state.settingsDraft);
+  const patch = {};
+  if (!current || !draft) return patch;
+  for (const field of Object.keys(draft)) {
+    if (draft[field] !== current[field]) patch[field] = draft[field];
+  }
+  return patch;
+}
+
+function syncSettingsFormState() {
+  state.settingsDirty = settingsAreDirty();
+  const save = document.querySelector('[data-settings-form] button[type="submit"]');
+  if (save instanceof HTMLButtonElement) save.disabled = isPreviewMode || state.settingsSaving || !state.settingsDirty;
+  const status = document.querySelector('.settings-save-status');
+  if (status) status.textContent = state.settingsSaveStatus;
+}
+
+function clearSettingsFieldError(field) {
+  if (!state.settingsFieldErrors[field]) return;
+  delete state.settingsFieldErrors[field];
+  document.querySelector(`#settings-${field}-error`)?.remove();
+}
+
+function updateSettingsPostalControl(country) {
+  const wrapper = document.querySelector('.settings-postal-field');
+  const input = document.querySelector('[data-settings-form] [name="shippingPostalCode"]');
+  if (!(wrapper instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
+  const supported = country === 'CA' || country === 'US';
+  wrapper.hidden = !supported;
+  input.disabled = isPreviewMode || state.settingsSaving || !supported;
+  wrapper.querySelector('span').textContent = country === 'CA' ? 'Postal region' : 'ZIP region';
+  input.placeholder = country === 'CA' ? 'M5V' : '90210';
+  if (!supported) input.value = '';
+}
+
+async function submitSettingsForm() {
+  if (isPreviewMode || state.settingsSaving || !state.settingsDirty) return;
+  const patch = settingsPatch();
+  state.settingsSaving = true;
+  state.settingsSaveStatus = 'Saving changes…';
+  state.settingsFieldErrors = {};
+  renderCurrentPage();
+  try {
+    const body = await fetchJson('/api/settings', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+    applySettingsResponse(body);
+    state.settingsSaving = false;
+    state.settingsSaveStatus = 'Settings saved.';
+    renderCurrentPage();
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    state.settingsSaving = false;
+    const field = error?.body?.field;
+    if (field) state.settingsFieldErrors[field] = error.body.message || 'Check this value and try again.';
+    state.settingsSaveStatus = field ? 'Some settings need attention.' : 'Settings could not be saved. Please try again.';
     renderCurrentPage();
   }
 }
@@ -1867,6 +2117,10 @@ app.addEventListener('click', async (event) => {
     await loadShelf({ force: true });
     return;
   }
+  if (action === 'retry-settings') {
+    await loadSettings({ force: true });
+    return;
+  }
   if (action === 'view-chase-matches') {
     state.alertChaseId = target.getAttribute('data-chase-id');
     state.alertChaseName = target.getAttribute('data-card-name') || '';
@@ -1975,6 +2229,7 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'logout') {
     if (isPreviewMode) return;
+    if (state.activePage === 'settings' && state.settingsDirty && !window.confirm('Discard your unsaved Settings changes?')) return;
     await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => undefined);
     renderSignedOut();
     return;
@@ -1986,7 +2241,27 @@ app.addEventListener('click', async (event) => {
 
 app.addEventListener('change', async (event) => {
   const target = event.target;
+  if (target instanceof HTMLInputElement && target.closest('[data-settings-form]') && target.name === 'alertVolume') {
+    state.settingsDraft.alertVolume = target.value;
+    state.settingsSaveStatus = '';
+    clearSettingsFieldError('alertVolume');
+    syncSettingsFormState();
+    return;
+  }
   if (!(target instanceof HTMLSelectElement)) return;
+  if (target.closest('[data-settings-form]')) {
+    state.settingsDraft[target.name] = target.value === 'OFF' ? null : target.value;
+    state.settingsSaveStatus = '';
+    clearSettingsFieldError(target.name);
+    if (target.name === 'shippingCountry') {
+      state.settingsDraft.shippingPostalCode = null;
+      updateSettingsPostalControl(target.value);
+      const postalInput = document.querySelector('[data-settings-form] [name="shippingPostalCode"]');
+      if (postalInput instanceof HTMLInputElement) postalInput.value = '';
+    }
+    syncSettingsFormState();
+    return;
+  }
   if (target.name === 'gradingType' && target.closest('[data-vault-form]')) {
     syncGradeValueControl(target.closest('[data-vault-form]'));
     return;
@@ -2006,6 +2281,11 @@ window.addEventListener('hashchange', () => {
 app.addEventListener('submit', async (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
+  if (form.matches('[data-settings-form]')) {
+    event.preventDefault();
+    await submitSettingsForm();
+    return;
+  }
   if (!form.matches('[data-vault-form]')) return;
   event.preventDefault();
   await submitVaultForm(form);
@@ -2014,6 +2294,18 @@ app.addEventListener('submit', async (event) => {
 app.addEventListener('input', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
+  if (target.closest('[data-settings-form]')) {
+    if (target.name === 'minScore') {
+      state.settingsDraft.minScore = Number(target.value);
+      const output = document.querySelector('[data-confidence-output]');
+      if (output) output.textContent = target.value;
+    }
+    if (target.name === 'shippingPostalCode') state.settingsDraft.shippingPostalCode = target.value.trim() || null;
+    state.settingsSaveStatus = '';
+    clearSettingsFieldError(target.name);
+    syncSettingsFormState();
+    return;
+  }
   if (target.name === 'cardName' && target.closest('[data-vault-form]')) {
     scheduleAutocomplete(target);
   }
@@ -2075,5 +2367,11 @@ app.addEventListener(
   },
   true
 );
+
+window.addEventListener('beforeunload', (event) => {
+  if (!state.settingsDirty) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
 
 bootstrap();

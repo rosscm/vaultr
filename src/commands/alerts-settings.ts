@@ -1,5 +1,11 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
-import { getUserAlertSettings, getUserPlan, setUserAlertSettings } from '../services/chase-store.js';
+import { getUserAlertSettings, getUserPlan } from '../services/chase-store.js';
+import {
+  displayAlertVolume,
+  isStorefrontSourceMode,
+  updateAlertSettings,
+  type AlertVolume
+} from '../services/alert-settings.js';
 import { activePlanTier, formatActivePlanAccess, PLAN_LIMITS } from '../services/plans.js';
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { formatLocalDateTime } from '../ui/time.js';
@@ -7,54 +13,13 @@ import { OUTPUT_STYLE } from '../ui/style.js';
 import { FULL_VAULT_SUMMARY, proControlsNextLine } from './pro-copy.js';
 import type { ListingSourceModePreference } from '../types.js';
 
-type AlertVolume = 'QUIET' | 'BALANCED' | 'MORE';
-
 const ALERTS_SOURCE_PREFIX = 'alerts-source';
-
-function maxAlertsForVolume(value: AlertVolume): number {
-  if (value === 'QUIET') return 3;
-  if (value === 'MORE') return 25;
-  return 10;
-}
-
-function displayAlertVolume(maxAlertsPerHour: number): string {
-  if (maxAlertsPerHour <= 5) return `Quiet (${maxAlertsPerHour}/hr)`;
-  if (maxAlertsPerHour >= 20) return `More (${maxAlertsPerHour}/hr)`;
-  return `Balanced (${maxAlertsPerHour}/hr)`;
-}
-
-function normalizeShippingCountry(value: string | null): string | null | undefined {
-  if (value === null) return undefined;
-  const normalized = value.trim().toUpperCase();
-  if (normalized === 'OFF') return null;
-  return /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
-}
-
-function normalizeShippingPostalCode(value: string | null, shippingCountry?: string): string | null | undefined {
-  if (value === null) return undefined;
-  const normalized = value.trim().toUpperCase().replace(/\s+/g, ' ');
-  if (normalized === 'OFF') return null;
-  if (shippingCountry === 'CA') {
-    const compact = normalized.replace(/[\s-]+/g, '');
-    const match = /^([A-Z]\d[A-Z])(?:\d[A-Z]\d)?$/.exec(compact);
-    return match?.[1];
-  }
-  if (shippingCountry === 'US') {
-    const match = /^(\d{5})(?:[- ]?\d{4})?$/.exec(normalized);
-    return match?.[1];
-  }
-  return undefined;
-}
 
 function displaySourceMode(value: ListingSourceModePreference): string {
   if (value === 'EBAY') return 'eBay';
   if (value === 'EBAY_SHOPIFY') return 'eBay + Trusted Shops';
   if (value === 'SHOPIFY') return 'Trusted Shops Only';
   return 'eBay';
-}
-
-function isStorefrontSourceMode(value: ListingSourceModePreference | null): boolean {
-  return value === 'EBAY_SHOPIFY' || value === 'SHOPIFY';
 }
 
 function displayListingSourceSetting(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
@@ -158,9 +123,6 @@ export const alertsSettings = {
     const shippingCountryInput = interaction.options.getString('shipping_country');
     const shippingPostalCodeInput = interaction.options.getString('shipping_postal_code');
     const source = interaction.options.getString('source') as ListingSourceModePreference | null;
-    const shippingCountry = normalizeShippingCountry(shippingCountryInput);
-    const effectiveShippingCountry = shippingCountry === undefined ? currentSettings.shippingCountry : shippingCountry ?? undefined;
-    const shippingPostalCode = normalizeShippingPostalCode(shippingPostalCodeInput, effectiveShippingCountry);
 
     const noChanges =
       minScore === null &&
@@ -169,22 +131,6 @@ export const alertsSettings = {
       shippingCountryInput === null &&
       shippingPostalCodeInput === null &&
       source === null;
-
-    if (shippingCountryInput !== null && shippingCountry === undefined) {
-      await interaction.reply({
-        embeds: [warningEmbed('Invalid Country', 'Use a two-letter country code like `CA` or `US`, or choose `Off` to remove saved value')],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    if (shippingPostalCodeInput !== null && shippingPostalCode === undefined) {
-      await interaction.reply({
-        embeds: [warningEmbed('Invalid Postal Code', "Postal regions are currently supported for `CA` and `US` only. Use a matching value like `M5V`, `M5V 2T6`, or `90210`, or type the word 'off' to remove saved value (default: Off)")],
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
 
     if (isStorefrontSourceMode(source) && activeTier !== 'PRO') {
       await interaction.reply({
@@ -199,16 +145,20 @@ export const alertsSettings = {
       return;
     }
 
-    const settings = noChanges
-      ? currentSettings
-      : setUserAlertSettings(interaction.user.id, {
-          minScore: minScore ?? undefined,
-          maxAlertsPerHour: alertVolume === null ? undefined : maxAlertsForVolume(alertVolume),
-          alertCurrency: (alertCurrency as 'USD' | 'CAD' | 'EUR' | 'GBP' | 'JPY' | null) ?? undefined,
-          shippingCountry,
-          shippingPostalCode,
-          listingSourceMode: source ?? undefined
-        });
+    const patch: Record<string, unknown> = {};
+    if (minScore !== null) patch.minScore = minScore;
+    if (alertVolume !== null) patch.alertVolume = alertVolume;
+    if (alertCurrency !== null) patch.alertCurrency = alertCurrency;
+    if (shippingCountryInput !== null) patch.shippingCountry = shippingCountryInput;
+    if (shippingPostalCodeInput !== null) patch.shippingPostalCode = shippingPostalCodeInput;
+    if (source !== null) patch.listingSourceMode = source;
+    const update = noChanges ? null : updateAlertSettings(interaction.user.id, patch, { allowCurrency: true });
+    if (update && !update.ok) {
+      const title = update.field === 'shippingCountry' ? 'Invalid Country' : update.field === 'shippingPostalCode' ? 'Invalid Postal Code' : 'Invalid Settings';
+      await interaction.reply({ embeds: [warningEmbed(title, update.message)], flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const settings = update?.ok ? update.settings : currentSettings;
 
     const embed = noChanges
       ? infoEmbed('🔔 Vaultr Settings', 'Your alert rules and source settings')
@@ -250,7 +200,9 @@ export async function handleAlertSourceButtons(interaction: any): Promise<boolea
     return true;
   }
 
-  const settings = setUserAlertSettings(interaction.user.id, { listingSourceMode: source });
+  const update = updateAlertSettings(interaction.user.id, { listingSourceMode: source });
+  if (!update.ok) return true;
+  const settings = update.settings;
   const embed = successEmbed('Vaultr Settings Updated', 'Watch mode updated').setTitle('✅ Vaultr Settings Updated');
   embed.addFields(...settingsFields(plan, settings));
   await interaction.update({ embeds: [embed], components: sourceRows(interaction.user.id, activeTier, settings.listingSourceMode) });

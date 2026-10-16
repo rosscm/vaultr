@@ -41,6 +41,7 @@ import {
   type ScheduledDiscoveryDropItem
 } from './services/scheduled-discovery-drops.js';
 import { weeklyPreparationTargetDate } from './services/discovery-drop-scheduler.js';
+import { alertSettingsResponse, updateAlertSettings } from './services/alert-settings.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
 import {
   createWebSession,
@@ -55,7 +56,7 @@ import {
   resolveOrCreateDiscordUser
 } from './services/accounts.js';
 import type { AlertHistoryCursor, AlertHistoryItem, ListingSource } from './types.js';
-import { WEB_PREVIEW_ALERTS, WEB_PREVIEW_AUTOCOMPLETE, WEB_PREVIEW_CHASES, WEB_PREVIEW_ME, WEB_PREVIEW_SHELF } from './web-preview-fixtures.js';
+import { WEB_PREVIEW_ALERTS, WEB_PREVIEW_AUTOCOMPLETE, WEB_PREVIEW_CHASES, WEB_PREVIEW_ME, WEB_PREVIEW_SETTINGS, WEB_PREVIEW_SHELF } from './web-preview-fixtures.js';
 
 const DISCORD_AUTHORIZE_URL = 'https://discord.com/oauth2/authorize';
 const DISCORD_TOKEN_URL = 'https://discord.com/api/oauth2/token';
@@ -491,6 +492,7 @@ function previewResponse(method: string, url: URL): WebResponse | null {
   if (!url.pathname.startsWith('/api/preview/')) return null;
   if (method !== 'GET') return errorResponse(405, 'preview_read_only', { Allow: 'GET' });
   if (url.pathname === '/api/preview/me') return jsonResponse(200, WEB_PREVIEW_ME);
+  if (url.pathname === '/api/preview/settings') return jsonResponse(200, WEB_PREVIEW_SETTINGS);
   if (url.pathname === '/api/preview/chases') return jsonResponse(200, WEB_PREVIEW_CHASES);
   if (url.pathname === '/api/preview/chases/autocomplete') {
     const query = url.searchParams.get('q') ?? '';
@@ -727,6 +729,23 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
           : { connected: false }
       }
     });
+  }
+
+  if (url.pathname === '/api/settings') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    if (method === 'GET') return jsonResponse(200, alertSettingsResponse(session.userId));
+    if (method === 'PATCH') {
+      const parsed = requireJsonBody(request);
+      if ('status' in parsed) return parsed;
+      const result = updateAlertSettings(session.userId, parsed.body);
+      if (!result.ok) {
+        const status = result.code === 'PRO_REQUIRED' ? 403 : 400;
+        return jsonResponse(status, { error: result.code, field: result.field, message: result.message });
+      }
+      return jsonResponse(200, alertSettingsResponse(session.userId));
+    }
+    return errorResponse(405, 'method_not_allowed', { Allow: 'GET, PATCH' });
   }
 
   if (method === 'GET' && url.pathname === '/api/alerts') {

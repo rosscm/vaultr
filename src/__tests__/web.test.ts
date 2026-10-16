@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { addChase, enqueueAlertEventDelivery, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, setUserPlan } from '../services/chase-store.js';
+import { addChase, enqueueAlertEventDelivery, getUserAlertSettings, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, setUserAlertSettings, setUserPlan } from '../services/chase-store.js';
 import { getIdentity, getUserById } from '../services/accounts.js';
 import { db } from '../services/db.js';
 import {
@@ -31,6 +31,7 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_alert_settings WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_scheduled_drop_items WHERE user_id = ?').run(userId);
@@ -254,7 +255,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('const hasVisibleRows = items.length > 0 || completed.length > 0;');
     expect(jsResponse.body).toContain("hasVisibleRows\n    ? ''\n    : state.vaultFilter === 'ALL'");
     expect(jsResponse.body).toContain("function pageFromHash(hash = window.location.hash)");
-    expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf') return value;");
+    expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'settings') return value;");
     expect(jsResponse.body).toContain("return 'home';");
     expect(jsResponse.body).toContain("activePage: 'home'");
     expect(jsResponse.body).toContain('Welcome back, ${escapeHtml(userDisplayName(state.user))}');
@@ -267,6 +268,12 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("navButton('vault', 'Vault')");
     expect(jsResponse.body).toContain("navButton('alerts', 'Inbox')");
     expect(jsResponse.body).toContain("navButton('shelf', 'Discover')");
+    expect(jsResponse.body).toContain('data-page="settings"');
+    expect(jsResponse.body).toContain('data-settings-form');
+    expect(jsResponse.body).toContain("fetchJson('/api/settings'");
+    expect(jsResponse.body).toContain("window.addEventListener('beforeunload'");
+    expect(jsResponse.body).toContain("Currency changes aren't available here yet.");
+    expect(jsResponse.body).toContain('Preview mode is read-only. You can inspect these settings, but changes will not be saved.');
     expect(jsResponse.body).not.toContain("navButton('vault', 'My Vault')");
     expect(jsResponse.body).not.toContain("navButton('alerts', 'Alerts')");
     expect(jsResponse.body).toContain("priorityButton('NORMAL', 'Casual')");
@@ -447,6 +454,7 @@ describe('web app preview mode', () => {
     const vault = await handleWebRequest({ method: 'GET', url: '/api/preview/chases' }, { config: previewConfig });
     const alerts = await handleWebRequest({ method: 'GET', url: '/api/preview/alerts' }, { config: previewConfig });
     const shelf = await handleWebRequest({ method: 'GET', url: '/api/preview/shelf' }, { config: previewConfig });
+    const settings = await handleWebRequest({ method: 'GET', url: '/api/preview/settings' }, { config: previewConfig });
 
     expect(page.status).toBe(200);
     expect(page.body).toContain('/app.js');
@@ -456,11 +464,16 @@ describe('web app preview mode', () => {
     const previewVault = JSON.parse(vault.body ?? '{}');
     const previewAlerts = JSON.parse(alerts.body ?? '{}');
     const previewShelf = JSON.parse(shelf.body ?? '{}');
+    const previewSettings = JSON.parse(settings.body ?? '{}');
     expect(previewAlerts.items.length).toBeGreaterThanOrEqual(4);
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_USER')).toBe(true);
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_PLAN_LIMIT')).toBe(true);
     expect(previewAlerts.items.map((item: { priceDelta: number }) => item.priceDelta)).toEqual([27, 6, 7, 6, 15]);
     expect(previewShelf).toMatchObject({ status: 'READY', itemCount: 12, marketReadyCount: 10, imageReadyCount: 8 });
+    expect(previewSettings).toMatchObject({
+      settings: { alertCurrency: 'CAD', listingSourceMode: 'EBAY_SHOPIFY', effectiveListingSourceMode: 'EBAY' },
+      access: { tier: 'FREE', trustedShops: false }
+    });
     const chaseNames = new Set([
       ...previewVault.items.map((item: { chase: { cardName: string } }) => item.chase.cardName),
       ...previewVault.completedItems.map((item: { cardName: string }) => item.cardName)
@@ -535,7 +548,8 @@ describe('web app preview mode', () => {
       ['DELETE', '/api/preview/chases/preview-mew'],
       ['POST', '/api/preview/chases/preview-mew/pause'],
       ['POST', '/api/preview/chases/preview-gardevoir/resume'],
-      ['POST', '/api/preview/completed-chases/preview-pichu/reopen']
+      ['POST', '/api/preview/completed-chases/preview-pichu/reopen'],
+      ['PATCH', '/api/preview/settings']
     ]) {
       const response = await handleWebRequest(
         { method, url, headers: { 'content-type': 'application/json' }, body: '{}' },
@@ -676,6 +690,112 @@ describe('web auth routes', () => {
 
     const secondLogout = await handleWebRequest({ method: 'POST', url: '/auth/logout' }, { config });
     expect(secondLogout.status).toBe(200);
+
+    clearUser(userId);
+  });
+});
+
+describe('authenticated settings API', () => {
+  function auth(userId: string, token: string) {
+    clearUser(userId);
+    createWebSession({ userId }, { token });
+    return { cookie: sessionCookie(token), 'content-type': 'application/json' };
+  }
+
+  it('requires authentication for reading and updating settings', async () => {
+    const read = await handleWebRequest({ method: 'GET', url: '/api/settings' }, { config });
+    const update = await handleWebRequest({ method: 'PATCH', url: '/api/settings', headers: { 'content-type': 'application/json' }, body: '{}' }, { config });
+
+    expect(read.status).toBe(401);
+    expect(update.status).toBe(401);
+  });
+
+  it('uses only the session account and returns public form metadata', async () => {
+    const userId = 'web-settings-owned';
+    const otherUserId = 'web-settings-other';
+    const headers = auth(userId, 'settings-owned-token');
+    clearUser(otherUserId);
+    setUserAlertSettings(userId, { minScore: 71, shippingCountry: 'CA', shippingPostalCode: 'M5V' });
+    setUserAlertSettings(otherUserId, { minScore: 22 });
+
+    const response = await handleWebRequest({ method: 'GET', url: '/api/settings?userId=web-settings-other', headers }, { config });
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      settings: { minScore: 71, shippingCountry: 'CA', shippingPostalCode: 'M5V' },
+      options: { confidence: { min: 0, max: 100 } }
+    });
+    expect(response.body).not.toContain(otherUserId);
+    expect(body).not.toHaveProperty('userId');
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
+  it('applies partial updates without erasing an inactive Pro source preference', async () => {
+    const userId = 'web-settings-partial';
+    const headers = auth(userId, 'settings-partial-token');
+    setUserPlan(userId, 'PRO');
+    setUserAlertSettings(userId, { minScore: 60, listingSourceMode: 'EBAY_SHOPIFY' });
+    setUserPlan(userId, 'FREE');
+
+    const response = await handleWebRequest({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers,
+      body: JSON.stringify({ minScore: 76 })
+    }, { config });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body ?? '{}')).toMatchObject({
+      settings: { minScore: 76, listingSourceMode: 'EBAY_SHOPIFY', effectiveListingSourceMode: 'EBAY' }
+    });
+    expect(getUserAlertSettings(userId).listingSourceMode).toBe('EBAY_SHOPIFY');
+
+    clearUser(userId);
+  });
+
+  it('enforces source access and rejects currency and unsupported fields', async () => {
+    const userId = 'web-settings-validation';
+    const headers = auth(userId, 'settings-validation-token');
+    setUserPlan(userId, 'FREE');
+
+    const source = await handleWebRequest({ method: 'PATCH', url: '/api/settings', headers, body: JSON.stringify({ listingSourceMode: 'SHOPIFY' }) }, { config });
+    const currency = await handleWebRequest({ method: 'PATCH', url: '/api/settings', headers, body: JSON.stringify({ alertCurrency: 'CAD' }) }, { config });
+    const unsupported = await handleWebRequest({ method: 'PATCH', url: '/api/settings', headers, body: JSON.stringify({ deliveryChannel: 'EMAIL' }) }, { config });
+
+    expect(source.status).toBe(403);
+    expect(JSON.parse(source.body ?? '{}')).toMatchObject({ error: 'PRO_REQUIRED', field: 'listingSourceMode' });
+    expect(currency.status).toBe(400);
+    expect(JSON.parse(currency.body ?? '{}')).toMatchObject({ error: 'CURRENCY_READ_ONLY', field: 'alertCurrency' });
+    expect(unsupported.status).toBe(400);
+    expect(JSON.parse(unsupported.body ?? '{}')).toMatchObject({ error: 'INVALID_SETTINGS', field: 'deliveryChannel' });
+    expect(getUserAlertSettings(userId)).toMatchObject({ alertCurrency: 'USD', listingSourceMode: 'EBAY' });
+
+    clearUser(userId);
+  });
+
+  it('normalizes postal regions and clears them when the destination changes', async () => {
+    const userId = 'web-settings-shipping';
+    const headers = auth(userId, 'settings-shipping-token');
+
+    const canadian = await handleWebRequest({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers,
+      body: JSON.stringify({ shippingCountry: 'CA', shippingPostalCode: 'm5v 2t6' })
+    }, { config });
+    const british = await handleWebRequest({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers,
+      body: JSON.stringify({ shippingCountry: 'GB' })
+    }, { config });
+
+    expect(JSON.parse(canadian.body ?? '{}').settings).toMatchObject({ shippingCountry: 'CA', shippingPostalCode: 'M5V' });
+    expect(JSON.parse(british.body ?? '{}').settings).toMatchObject({ shippingCountry: 'GB', shippingPostalCode: null });
+    expect(getUserAlertSettings(userId).shippingPostalCode).toBeUndefined();
 
     clearUser(userId);
   });

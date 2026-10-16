@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { alertsSettings } from '../alerts-settings.js';
 import { addChase, getUserAlertSettings, listChases, listUserTasteMemoryChases, recordDiscoveryFeedback, removeAllChases, resetUserAlertSettings, setUserAlertSettings, setUserPlan } from '../../services/chase-store.js';
 
-function mockInteraction(userId: string, strings: Record<string, string | null>) {
+function mockInteraction(userId: string, strings: Record<string, string | null>, integers: Record<string, number | null> = {}) {
   const reply = vi.fn(async (_payload: any) => undefined);
   return {
     user: { id: userId },
     options: {
-      getInteger: vi.fn(() => null),
+      getInteger: vi.fn((name: string) => integers[name] ?? null),
       getString: vi.fn((name: string) => strings[name] ?? null)
     },
     reply
@@ -15,6 +15,18 @@ function mockInteraction(userId: string, strings: Record<string, string | null>)
 }
 
 describe('alerts-settings shipping postal validation', () => {
+  it('uses the shared confidence and volume semantics from Discord', async () => {
+    const userId = `settings-shared-${Date.now()}`;
+    resetUserAlertSettings(userId);
+    const interaction = mockInteraction(userId, { alert_volume: 'QUIET' }, { min_score: 74 });
+
+    await alertsSettings.execute(interaction);
+
+    expect(getUserAlertSettings(userId)).toMatchObject({ minScore: 74, maxAlertsPerHour: 3 });
+    expect(interaction.reply).toHaveBeenCalledTimes(1);
+    resetUserAlertSettings(userId);
+  });
+
   it('converts stored chase and taste max prices when alert currency changes', () => {
     const userId = `settings-currency-${Date.now()}`;
     resetUserAlertSettings(userId);
