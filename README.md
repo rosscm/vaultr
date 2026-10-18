@@ -472,6 +472,13 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 - Sighting DMs include seller identity/feedback and shipping cost when available from source data
 - Sighting DMs include lightweight feedback buttons so users can mark whether a card fit their taste
 
+### Trusted shop coverage
+
+- Store feeds are shared across Chases for 4.5 minutes, including concurrent in-flight requests; targeted predictive search remains per Chase.
+- Each feed refresh is bounded to 20 pages of 250 products and 20 seconds. Results report `EXHAUSTED`, `TRUNCATED`, or `INTERRUPTED` coverage; partial snapshots are cached for only 30 seconds and are never reported as complete.
+- Shopify predictive search is capped by Shopify at 10 product suggestions. Feed and search results are combined independently, so either can still contribute listings when the other fails.
+- Combined eBay + Trusted Shops polling processes successful partial results but marks the group attempted, not fully checked, until every required provider has completed. Existing alert claims and listing fingerprints keep these retries idempotent.
+
 ## Reliability
 
 - Poller prevents overlapping runs

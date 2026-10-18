@@ -13,6 +13,8 @@ import {
   processPendingDiscordAlertDeliveries,
   shouldSendChaseTuningNotice,
   orderGroupsForRun,
+  listingSourceDiagnosticSummary,
+  sourceQueryKey,
   shippingDestinationFromSettings,
   shouldSuppressForDestinationShipping,
   shouldPostDailyPulse
@@ -262,12 +264,31 @@ describe('orderAlertCandidatesForSending', () => {
 });
 
 describe('alert eBay search options', () => {
-  it('does not count eBay plus shops as checked when the eBay source was skipped', () => {
-    expect(didFetchRequiredListingSource('EBAY_SHOPIFY', 2, 2)).toBe(false);
-    expect(didFetchRequiredListingSource('EBAY_SHOPIFY', 2, 3)).toBe(true);
-    expect(didFetchRequiredListingSource('EBAY', 2, 2)).toBe(false);
-    expect(didFetchRequiredListingSource('SHOPIFY', 2, 2)).toBe(true);
-    expect(didFetchRequiredListingSource('MOCK', 2, 2)).toBe(true);
+  it('counts cached and empty provider success while retaining partial and deferred coverage', () => {
+    expect(didFetchRequiredListingSource({
+      listings: [],
+      complete: true,
+      providers: [{ provider: 'EBAY', status: 'EMPTY', listingCount: 0 }]
+    })).toBe(true);
+    const partial = {
+      listings: [{ source: 'SHOPIFY', listingId: 'shop-1' } as Listing],
+      complete: false,
+      providers: [
+        { provider: 'EBAY' as const, status: 'DEFERRED' as const, listingCount: 0, reason: 'Backoff' },
+        { provider: 'SHOPIFY' as const, status: 'SUCCESS' as const, listingCount: 1 }
+      ]
+    };
+    expect(didFetchRequiredListingSource(partial)).toBe(false);
+    expect(listingSourceDiagnosticSummary(partial)).toBe('EBAY:DEFERRED:0,SHOPIFY:SUCCESS:1');
+  });
+
+  it('does not share provider results across request-affecting query, budget, or currency inputs', () => {
+    const settings = { ...getUserAlertSettings('poller-query-key'), alertCurrency: 'CAD' as const };
+    const base = sourceQueryKey(baseChase({ maxPrice: 100 }), settings, 'EBAY_SHOPIFY');
+
+    expect(sourceQueryKey(baseChase({ queryName: 'Mew RC24', maxPrice: 100 }), settings, 'EBAY_SHOPIFY')).not.toBe(base);
+    expect(sourceQueryKey(baseChase({ maxPrice: 200 }), settings, 'EBAY_SHOPIFY')).not.toBe(base);
+    expect(sourceQueryKey(baseChase({ maxPrice: 100 }), { ...settings, alertCurrency: 'USD' }, 'EBAY_SHOPIFY')).not.toBe(base);
   });
 
   it('keeps poller eBay searches lightweight so broad chases do not block alert delivery on shipping enrichment', () => {

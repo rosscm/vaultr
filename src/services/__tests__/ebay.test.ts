@@ -408,12 +408,12 @@ describe('searchEbayListings Browse shipping', () => {
         })
       );
 
-    const { searchEbayListings } = await import('../ebay.js');
+    const { getCachedEbayListings, searchEbayListings } = await import('../ebay.js');
     const first = await searchEbayListings(baseChase());
     first[0]!.title = 'Mutated locally';
-    const second = await searchEbayListings(baseChase());
+    const second = getCachedEbayListings(baseChase());
 
-    expect(second[0]?.title).toBe('Umbreon VMAX Alt Art');
+    expect(second?.[0]?.title).toBe('Umbreon VMAX Alt Art');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

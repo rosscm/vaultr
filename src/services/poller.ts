@@ -31,8 +31,8 @@ import {
   pruneSourceObservations,
   recordSourceObservations
 } from './chase-store.js';
-import { enrichEbayListingDetails, searchEbayListings, type ShippingDestination } from './ebay.js';
-import { searchTrustedShopifyListings } from './shopify.js';
+import { enrichEbayListingDetails, getCachedEbayListings, searchEbayListings, type ShippingDestination } from './ebay.js';
+import { searchTrustedShopifyListingsDetailed, type TrustedShopifySearchResult } from './shopify.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
@@ -549,12 +549,17 @@ export function effectiveListingSourceMode(
   return preferredMode;
 }
 
-function sourceQueryKey(chase: Chase, settings: ReturnType<typeof getUserAlertSettings>, sourceMode: string): string {
+export function sourceQueryKey(chase: Chase, settings: ReturnType<typeof getUserAlertSettings>, sourceMode: string): string {
   const destination = shippingDestinationFromSettings(settings);
   return [
     sourceMode,
     chase.cardName.trim().toLowerCase(),
+    chase.queryName?.trim().toLowerCase() ?? '',
     chase.grade?.trim().toLowerCase() ?? '',
+    chase.condition?.trim().toLowerCase() ?? '',
+    chase.listingType ?? 'ANY',
+    Number.isFinite(Number(chase.maxPrice)) ? Number(chase.maxPrice).toFixed(2) : '',
+    normalizeSupportedCurrency(settings.alertCurrency),
     destination?.country?.trim().toUpperCase() ?? '',
     destination?.postalCode?.trim().toUpperCase() ?? ''
   ].join('|');
@@ -564,9 +569,22 @@ function sourceModeIncludesTrustedShops(sourceMode: string): boolean {
   return sourceMode === 'SHOPIFY' || sourceMode === 'EBAY_SHOPIFY';
 }
 
-export function didFetchRequiredListingSource(sourceMode: string, sourceCallsBefore: number, sourceCallsAfter: number): boolean {
-  if (sourceMode === 'MOCK' || sourceMode === 'SHOPIFY') return true;
-  return sourceCallsAfter > sourceCallsBefore;
+export type ListingProviderOutcome = {
+  provider: 'MOCK' | 'EBAY' | 'SHOPIFY';
+  status: 'SUCCESS' | 'EMPTY' | 'PARTIAL' | 'FAILURE' | 'DEFERRED';
+  listingCount: number;
+  reason?: string;
+  diagnostics?: TrustedShopifySearchResult['shops'];
+};
+
+export type ListingSourceSearchResult = {
+  listings: Listing[];
+  providers: ListingProviderOutcome[];
+  complete: boolean;
+};
+
+export function didFetchRequiredListingSource(result: ListingSourceSearchResult): boolean {
+  return result.complete;
 }
 
 export function alertEbaySearchOptions(chase?: Chase, alertCurrency?: string): { enrichMissingShipping: false; maxPrice?: number; maxPriceCurrency?: string } {
@@ -582,41 +600,79 @@ export function listingSourceFailureReason(error: unknown): string {
   return 'Source error';
 }
 
+function shopifyProviderOutcome(result: TrustedShopifySearchResult): ListingProviderOutcome {
+  return {
+    provider: 'SHOPIFY',
+    status: result.status,
+    listingCount: result.listings.length,
+    reason: result.status === 'PARTIAL' ? 'Partial shop coverage' : result.status === 'FAILURE' ? 'Shop retrieval failed' : undefined,
+    diagnostics: result.shops
+  };
+}
+
+function sourceResult(listings: Listing[], providers: ListingProviderOutcome[]): ListingSourceSearchResult {
+  return {
+    listings,
+    providers,
+    complete: providers.every((provider) => provider.status === 'SUCCESS' || provider.status === 'EMPTY')
+  };
+}
+
+function sourceOutcomeReason(result: ListingSourceSearchResult): string {
+  if (result.providers.some((provider) => provider.status === 'DEFERRED' && provider.reason === 'Backoff')) return 'Backoff';
+  if (result.providers.some((provider) => provider.status === 'DEFERRED' && provider.reason === 'Rate limit')) return 'Rate limit';
+  if (result.providers.some((provider) => provider.reason === 'Source timeout')) return 'Source timeout';
+  if (result.providers.some((provider) => provider.status === 'PARTIAL')) return 'Partial source coverage';
+  return 'Source error';
+}
+
+export function listingSourceDiagnosticSummary(result: ListingSourceSearchResult): string {
+  return result.providers.map((provider) => `${provider.provider}:${provider.status}:${provider.listingCount}`).join(',');
+}
+
 async function fetchListingsWithRetry(
   chase: Chase,
   sourceMode: string,
   destination?: ShippingDestination,
   alertCurrency?: string
-): Promise<Listing[]> {
+): Promise<ListingSourceSearchResult> {
   const maxRequestsPerMinute = maxEbayRequestsPerMinute();
   const backoffBaseSeconds = Number(process.env.EBAY_BACKOFF_BASE_SECONDS ?? '900');
   const attempts = 2;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+  if (sourceMode === 'MOCK') {
+    const listings = searchMockListings(chase, destination);
+    return sourceResult(listings, [{ provider: 'MOCK', status: listings.length > 0 ? 'SUCCESS' : 'EMPTY', listingCount: listings.length }]);
+  }
+
+  const includeShopify = sourceModeIncludesTrustedShops(sourceMode);
+  const shopifyPromise = includeShopify ? searchTrustedShopifyListingsDetailed(chase) : undefined;
+  if (sourceMode === 'SHOPIFY') {
+    const shopify = await (shopifyPromise as Promise<TrustedShopifySearchResult>);
+    return sourceResult(shopify.listings, [shopifyProviderOutcome(shopify)]);
+  }
+
+  let ebayOutcome: ListingProviderOutcome | undefined;
+  let ebayListings: Listing[] = [];
+  const ebayOptions = alertEbaySearchOptions(chase, alertCurrency);
+  const cachedEbayListings = getCachedEbayListings(chase, destination, ebayOptions);
+  const nowMs = Date.now();
+  clearExpiredBackoff(nowMs);
+  if (cachedEbayListings !== null) {
+    ebayListings = cachedEbayListings;
+    ebayOutcome = { provider: 'EBAY', status: ebayListings.length > 0 ? 'SUCCESS' : 'EMPTY', listingCount: ebayListings.length, reason: 'Cache hit' };
+  } else if (nowMs < backoffUntilMs) {
+    ebayOutcome = { provider: 'EBAY', status: 'DEFERRED', listingCount: 0, reason: 'Backoff' };
+  } else if (!canCallSource(nowMs, maxRequestsPerMinute)) {
+    markRateLimitSkip();
+    ebayOutcome = { provider: 'EBAY', status: 'DEFERRED', listingCount: 0, reason: 'Rate limit' };
+  }
+
+  for (let attempt = 1; !ebayOutcome && attempt <= attempts; attempt += 1) {
     try {
-      if (sourceMode === 'MOCK') return searchMockListings(chase, destination);
-      if (sourceMode === 'SHOPIFY') return searchTrustedShopifyListings(chase);
-
-      const includeEbay = sourceMode === 'EBAY' || sourceMode === 'EBAY_SHOPIFY';
-      const includeShopify = sourceModeIncludesTrustedShops(sourceMode);
-      if (!includeEbay) return [];
-
-      const shopifyListingsPromise = includeShopify ? searchTrustedShopifyListings(chase) : Promise.resolve([]);
-      const nowMs = Date.now();
-      clearExpiredBackoff(nowMs);
-      if (nowMs < backoffUntilMs) {
-        return shopifyListingsPromise;
-      }
-      if (!canCallSource(nowMs, maxRequestsPerMinute)) {
-        markRateLimitSkip();
-        return shopifyListingsPromise;
-      }
-      markSourceCall(nowMs);
-      const [ebayListings, shopifyListings] = await Promise.all([
-        withTimeout(searchEbayListings(chase, destination, alertEbaySearchOptions(chase, alertCurrency)), 30000, 'Listing source timeout'),
-        shopifyListingsPromise
-      ]);
+      markSourceCall(Date.now());
+      ebayListings = await withTimeout(searchEbayListings(chase, destination, ebayOptions), 30000, 'Listing source timeout');
       markSourceSuccessNow();
-      return [...ebayListings, ...shopifyListings];
+      ebayOutcome = { provider: 'EBAY', status: ebayListings.length > 0 ? 'SUCCESS' : 'EMPTY', listingCount: ebayListings.length };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('429') || /rate limit|quota|ratelimiter|listing source timeout/i.test(message)) {
@@ -624,11 +680,22 @@ async function fetchListingsWithRetry(
         backoffUntilMs = Date.now() + backoffMs;
         setBackoffUntil(new Date(backoffUntilMs));
       }
-      if (attempt === attempts) throw error;
+      if (attempt === attempts) {
+        ebayOutcome = { provider: 'EBAY', status: 'FAILURE', listingCount: 0, reason: listingSourceFailureReason(error) };
+        break;
+      }
       await sleep(300 * attempt);
     }
   }
-  return [];
+
+  const providers = [ebayOutcome as ListingProviderOutcome];
+  let shopifyListings: Listing[] = [];
+  if (shopifyPromise) {
+    const shopify = await shopifyPromise;
+    shopifyListings = shopify.listings;
+    providers.push(shopifyProviderOutcome(shopify));
+  }
+  return sourceResult([...ebayListings, ...shopifyListings], providers);
 }
 
 async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAlertsPerHour: number): Promise<void> {
@@ -916,14 +983,14 @@ async function runPoll(client: Client): Promise<void> {
     const touchedChaseIds = group.members.map(({ chase }) => chase.id);
     let listings: Listing[];
     try {
-      const sourceCallsBefore = sourceCallTimestamps.length;
-      listings = await fetchListingsWithRetry(
+      const sourceResult = await fetchListingsWithRetry(
         representative,
         group.sourceMode,
         shippingDestinationFromSettings(representativeSettings),
         representativeSettings.alertCurrency
       );
-      const didFetchListings = didFetchRequiredListingSource(group.sourceMode, sourceCallsBefore, sourceCallTimestamps.length);
+      listings = sourceResult.listings;
+      const didFetchListings = didFetchRequiredListingSource(sourceResult);
       if (didFetchListings) {
         const checkedAtIso = new Date().toISOString();
         lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
@@ -941,11 +1008,27 @@ async function runPoll(client: Client): Promise<void> {
         markCoverageChecked(coverage, group);
       } else {
         markChasesPollAttempted(touchedChaseIds);
-        const reason = group.sourceMode !== 'MOCK' && Date.now() < backoffUntilMs ? 'Backoff' : 'Rate limit';
+        lastSourceFetchAtMsByQueryKey.set(queryKey, Date.now());
+        const observedAt = new Date().toISOString();
+        if (sourceResult.providers.some((provider) => provider.status === 'SUCCESS' || provider.status === 'EMPTY' || provider.status === 'PARTIAL')) {
+          for (const { chase } of group.members) {
+            recordSourceObservations({
+              chaseId: chase.id,
+              userId: chase.userId,
+              sourceMode: group.sourceMode,
+              queryKey,
+              listings,
+              observedAt
+            });
+          }
+        }
+        const reason = sourceOutcomeReason(sourceResult);
         pruneSourceCallWindow(Date.now());
         const sourceBudgetState = { calls: sourceCallTimestamps.length, budget: maxEbayRequestsPerMinute() };
         markCoverageDeferred(coverage, queryKey, group, nowMs, reason, sourceBudgetState);
         logSourceGroupDeferral(queryKey, group, reason, sourceBudgetState);
+        console.warn(`[Poller] Source outcome ${listingSourceDiagnosticSummary(sourceResult)}`);
+        if (listings.length === 0) continue;
       }
     } catch (error) {
       markChasesPollAttempted(touchedChaseIds);

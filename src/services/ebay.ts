@@ -146,6 +146,14 @@ function setCachedEbaySearch(cacheKey: string, listings: Listing[]): void {
   ebaySearchCache.set(cacheKey, { listings: cloneListings(listings), expiresAtMs: Date.now() + ttlMs });
 }
 
+export function getCachedEbayListings(
+  chase: Chase,
+  destination?: ShippingDestination,
+  options: EbaySearchOptions = {}
+): Listing[] | null {
+  return getCachedEbaySearch(ebaySearchCacheKey(chase, destination, options));
+}
+
 function pruneEbayRequestWindow(nowMs: number): void {
   const oneMinuteAgo = nowMs - 60_000;
   while (ebayRequestTimestamps.length > 0 && ebayRequestTimestamps[0] < oneMinuteAgo) ebayRequestTimestamps.shift();
