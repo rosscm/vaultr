@@ -1,5 +1,18 @@
 import type { Chase, Listing } from '../types.js';
 import { buildEbaySearchKeywords } from './ebay.js';
+import {
+  commitTrustedShopCatalogBatch,
+  countTrustedShopCatalogProducts,
+  ensureTrustedShopCatalogState,
+  failTrustedShopCatalogBatch,
+  findTrustedShopCatalogCandidates,
+  getTrustedShopCatalogState,
+  listTrustedShopCatalogStates,
+  markTrustedShopCatalogProductUnavailable,
+  recordTrustedShopRevalidation,
+  trustedShopCatalogBatchDue,
+  type TrustedShopCatalogState
+} from './trusted-shop-catalog.js';
 
 type TrustedShopifyShop = {
   slug: string;
@@ -78,15 +91,16 @@ export function listTrustedShopifyShopNames(): string[] {
 }
 
 const SHOPIFY_PAGE_LIMIT = 250;
-const SHOPIFY_MAX_PAGES = 20;
-const SHOPIFY_FEED_TIME_BUDGET_MS = 20_000;
+const SHOPIFY_SCAN_BATCH_PAGES = 5;
+const SHOPIFY_SCAN_BATCH_TIME_BUDGET_MS = 12_000;
 const SHOPIFY_FETCH_TIMEOUT_MS = 10_000;
 const SHOPIFY_SUGGEST_LIMIT = 10;
-// Product feed is cached per store — fetched once per poll cycle, shared across all chases
-const SHOPIFY_FEED_CACHE_TTL_MS = 270_000; // 4.5 min, just under the 300s poll interval
-const SHOPIFY_PARTIAL_CACHE_TTL_MS = 30_000;
+const SHOPIFY_CANDIDATE_LIMIT = 12;
+const SHOPIFY_CANDIDATE_HYDRATION_CONCURRENCY = 3;
+const SHOPIFY_PRODUCT_CACHE_TTL_MS = 60_000;
+const SHOPIFY_CATALOG_WORK_INTERVAL_MS = 60_000;
 
-export type ShopifyCoverage = 'EXHAUSTED' | 'TRUNCATED' | 'INTERRUPTED';
+export type ShopifyCoverage = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE_OBSERVED' | 'INTERRUPTED';
 export type ShopifyOperationStatus = 'SUCCESS' | 'PARTIAL' | 'FAILURE';
 
 export type TrustedShopifyShopResult = {
@@ -99,12 +113,28 @@ export type TrustedShopifyShopResult = {
     productCount: number;
     pagesFetched: number;
     fromCache: boolean;
+    nextPage: number;
+    lastSuccessfulBatchAt?: string;
+    lastCompletedSweepAt?: string;
+    nextRunAt: string;
+    retryCount: number;
     error?: string;
   };
   search: {
     status: ShopifyOperationStatus;
     productCount: number;
     error?: string;
+  };
+  revalidation: {
+    candidatesChecked: number;
+    current: number;
+    unavailable: number;
+    failures: number;
+    durationMs: number;
+    lastRevalidationAt?: string;
+    totalCurrent: number;
+    totalUnavailable: number;
+    totalFailures: number;
   };
 };
 
@@ -114,16 +144,10 @@ export type TrustedShopifySearchResult = {
   shops: TrustedShopifyShopResult[];
 };
 
-type ShopifyFeedResult = {
-  products: ShopifyProduct[];
-  coverage: ShopifyCoverage;
-  pagesFetched: number;
-  fromCache: boolean;
-  error?: string;
-};
-
-const shopifyFeedCache = new Map<string, { result: ShopifyFeedResult; expiresAt: number }>();
-const shopifyFeedRequests = new Map<string, Promise<ShopifyFeedResult>>();
+const shopifyScanRequests = new Map<string, Promise<TrustedShopCatalogState>>();
+const shopifyProductCache = new Map<string, { product: ShopifyProduct | null; expiresAt: number }>();
+const shopifyProductRequests = new Map<string, Promise<CurrentProductResult>>();
+let trustedShopCatalogWorkerStarted = false;
 
 function normalize(text: string): string {
   return text
@@ -240,6 +264,13 @@ function normalizeVariantListing(shop: TrustedShopifyShop, product: ShopifyProdu
   };
 }
 
+type CurrentProductResult = {
+  product: ShopifyProduct | null;
+  status: 'SUCCESS' | 'UNAVAILABLE' | 'FAILURE';
+  fromCache: boolean;
+  error?: string;
+};
+
 async function fetchProductByHandle(shop: TrustedShopifyShop, handle: string): Promise<ShopifyProduct> {
   const url = new URL(shop.productsUrl);
   url.pathname = `/products/${encodeURIComponent(handle)}.js`;
@@ -248,7 +279,76 @@ async function fetchProductByHandle(shop: TrustedShopifyShop, handle: string): P
   return fetchShopifyJson<ShopifyProduct>(url);
 }
 
-async function searchShopProducts(shop: TrustedShopifyShop, chase: Chase): Promise<{ products: ShopifyProduct[]; error?: string }> {
+async function fetchCurrentProduct(shop: TrustedShopifyShop, handle: string): Promise<CurrentProductResult> {
+  const key = `${shop.slug}:${handle}`;
+  const cached = shopifyProductCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { product: cached.product, status: cached.product ? 'SUCCESS' : 'UNAVAILABLE', fromCache: true };
+  }
+  const inFlight = shopifyProductRequests.get(key);
+  if (inFlight) return inFlight;
+
+  const request = fetchProductByHandle(shop, handle)
+    .then((product): CurrentProductResult => {
+      shopifyProductCache.set(key, { product, expiresAt: Date.now() + SHOPIFY_PRODUCT_CACHE_TTL_MS });
+      return { product, status: 'SUCCESS', fromCache: false };
+    })
+    .catch((error: unknown): CurrentProductResult => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/\b404\b/.test(message)) {
+        shopifyProductCache.set(key, { product: null, expiresAt: Date.now() + SHOPIFY_PRODUCT_CACHE_TTL_MS });
+        return { product: null, status: 'UNAVAILABLE', fromCache: false };
+      }
+      return { product: null, status: 'FAILURE', fromCache: false, error: message };
+    });
+  shopifyProductRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    shopifyProductRequests.delete(key);
+  }
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await mapper(items[index] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
+type CurrentProductsResult = {
+  products: ShopifyProduct[];
+  successes: number;
+  unavailable: number;
+  failures: number;
+  error?: string;
+};
+
+async function hydrateCurrentProducts(shop: TrustedShopifyShop, products: ShopifyProduct[]): Promise<CurrentProductsResult> {
+  const unique = [...new Map(products.filter((product) => product.handle).map((product) => [product.handle as string, product])).values()]
+    .slice(0, SHOPIFY_CANDIDATE_LIMIT);
+  const results = await mapWithConcurrency(unique, SHOPIFY_CANDIDATE_HYDRATION_CONCURRENCY, (product) => fetchCurrentProduct(shop, product.handle as string));
+  const hydrated = results.flatMap((result) => (result.product ? [result.product] : []));
+  const successes = results.filter((result) => result.status === 'SUCCESS').length;
+  const unavailable = results.filter((result) => result.status === 'UNAVAILABLE').length;
+  const failures = results.filter((result) => result.status === 'FAILURE').length;
+  return {
+    products: hydrated,
+    successes,
+    unavailable,
+    failures,
+    error: failures > 0 ? `${failures} current product request(s) failed` : undefined
+  };
+}
+
+async function searchShopProducts(shop: TrustedShopifyShop, chase: Chase): Promise<CurrentProductsResult> {
   const url = new URL(shop.productsUrl);
   url.pathname = '/search/suggest.json';
   url.search = '';
@@ -259,78 +359,130 @@ async function searchShopProducts(shop: TrustedShopifyShop, chase: Chase): Promi
   try {
     const body = await fetchShopifyJson<ShopifySuggestResponse>(url);
     const suggestions = body.resources?.results?.products ?? [];
-    const hydrated = await Promise.allSettled(
-      suggestions
-        .filter((product) => product.handle && hasChaseTokens(product, chase))
-        .map((product) => fetchProductByHandle(shop, product.handle as string))
-    );
-    const products = hydrated.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
-    const failedHydrations = hydrated.length - products.length;
-    return {
-      products,
-      error: failedHydrations > 0 ? `${failedHydrations} targeted product hydration request(s) failed` : undefined
-    };
+    return hydrateCurrentProducts(shop, suggestions.filter((product) => product.handle && hasChaseTokens(product, chase)));
   } catch (error) {
-    return { products: [], error: error instanceof Error ? error.message : String(error) };
+    return { products: [], successes: 0, unavailable: 0, failures: 1, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
-async function fetchShopProductsUncached(shop: TrustedShopifyShop): Promise<ShopifyFeedResult> {
-  const startedAt = Date.now();
-  const products: ShopifyProduct[] = [];
-  let pagesFetched = 0;
+async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = false): Promise<TrustedShopCatalogState> {
+  const initial = ensureTrustedShopCatalogState(shop.slug);
+  if (!force && !trustedShopCatalogBatchDue(initial)) return initial;
+  const inFlight = shopifyScanRequests.get(shop.slug);
+  if (inFlight) return inFlight;
 
-  try {
-    for (let page = 1; page <= SHOPIFY_MAX_PAGES; page += 1) {
-      if (Date.now() - startedAt >= SHOPIFY_FEED_TIME_BUDGET_MS) {
-        return { products, coverage: 'TRUNCATED', pagesFetched, fromCache: false, error: 'Feed time budget exhausted' };
-      }
+  const request = (async () => {
+    const state = getTrustedShopCatalogState(shop.slug) ?? initial;
+    const startedAt = Date.now();
+    const products: ShopifyProduct[] = [];
+    let pagesFetched = 0;
+    let exhausted = false;
+    let failure: string | undefined;
+
+    for (let offset = 0; offset < SHOPIFY_SCAN_BATCH_PAGES; offset += 1) {
+      if (Date.now() - startedAt >= SHOPIFY_SCAN_BATCH_TIME_BUDGET_MS) break;
       const url = new URL(shop.productsUrl);
       url.searchParams.set('limit', String(SHOPIFY_PAGE_LIMIT));
-      url.searchParams.set('page', String(page));
-
-      const body = await fetchShopifyJson<ShopifyProductsResponse>(url);
-      pagesFetched += 1;
-      const pageProducts = Array.isArray(body.products) ? body.products : [];
-      products.push(...pageProducts);
-      if (pageProducts.length < SHOPIFY_PAGE_LIMIT) {
-        return { products, coverage: 'EXHAUSTED', pagesFetched, fromCache: false };
+      url.searchParams.set('page', String(state.nextPage + offset));
+      try {
+        const body = await fetchShopifyJson<ShopifyProductsResponse>(url);
+        pagesFetched += 1;
+        const pageProducts = Array.isArray(body.products) ? body.products : [];
+        products.push(...pageProducts);
+        if (pageProducts.length < SHOPIFY_PAGE_LIMIT) {
+          exhausted = true;
+          break;
+        }
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+        break;
       }
     }
-    return { products, coverage: 'TRUNCATED', pagesFetched, fromCache: false, error: 'Feed page budget exhausted' };
-  } catch (error) {
-    return {
-      products,
-      coverage: 'INTERRUPTED',
-      pagesFetched,
-      fromCache: false,
-      error: error instanceof Error ? error.message : String(error)
-    };
+
+    let updated = state;
+    if (pagesFetched > 0) {
+      updated = commitTrustedShopCatalogBatch({
+        shopSlug: shop.slug,
+        sweepId: state.sweepId,
+        startPage: state.nextPage,
+        pagesFetched,
+        products,
+        exhausted
+      });
+    }
+    if (failure) return failTrustedShopCatalogBatch({ shopSlug: shop.slug, error: failure });
+    if (pagesFetched === 0) return failTrustedShopCatalogBatch({ shopSlug: shop.slug, error: 'Catalog batch ended before a page completed' });
+    return updated;
+  })();
+  shopifyScanRequests.set(shop.slug, request);
+  try {
+    return await request;
+  } finally {
+    shopifyScanRequests.delete(shop.slug);
   }
 }
 
-async function fetchShopProducts(shop: TrustedShopifyShop): Promise<ShopifyFeedResult> {
-  const cached = shopifyFeedCache.get(shop.productsUrl);
-  if (cached && Date.now() < cached.expiresAt) return { ...cached.result, fromCache: true };
-  const inFlight = shopifyFeedRequests.get(shop.productsUrl);
-  if (inFlight) return { ...(await inFlight), fromCache: true };
+export async function advanceTrustedShopifyCatalogCoverage(options: { force?: boolean } = {}): Promise<TrustedShopCatalogState[]> {
+  return Promise.all(TRUSTED_SHOPIFY_SHOPS.map((shop) => scanTrustedShopCatalogBatch(shop, options.force)));
+}
 
-  const request = fetchShopProductsUncached(shop);
-  shopifyFeedRequests.set(shop.productsUrl, request);
-  try {
-    const result = await request;
-    const ttl = result.coverage === 'EXHAUSTED' ? SHOPIFY_FEED_CACHE_TTL_MS : SHOPIFY_PARTIAL_CACHE_TTL_MS;
-    shopifyFeedCache.set(shop.productsUrl, { result, expiresAt: Date.now() + ttl });
-    return result;
-  } finally {
-    shopifyFeedRequests.delete(shop.productsUrl);
+export function trustedShopifyCatalogHealth(): TrustedShopCatalogState[] {
+  return listTrustedShopCatalogStates();
+}
+
+export function startTrustedShopifyCatalogWorker(): void {
+  if (trustedShopCatalogWorkerStarted) return;
+  trustedShopCatalogWorkerStarted = true;
+  const run = () => {
+    void advanceTrustedShopifyCatalogCoverage()
+      .then((states) => {
+        for (const state of states) {
+          console.info(
+            `[Trusted shops catalog] shop=${state.shopSlug} coverage=${state.coverageStatus} ` +
+            `nextPage=${state.nextPage} pages=${state.pagesScanned} products=${state.productsSeen} ` +
+            `nextRun=${state.nextRunAt} retries=${state.retryCount}`
+          );
+        }
+      })
+      .catch((error) => {
+        console.error('[Trusted shops catalog] background batch failed', error);
+      });
+  };
+  setInterval(run, SHOPIFY_CATALOG_WORK_INTERVAL_MS);
+  run();
+}
+
+async function indexedShopProducts(shop: TrustedShopifyShop, chase: Chase): Promise<CurrentProductsResult> {
+  const searchText = chase.queryName?.trim() || buildEbaySearchKeywords(chase);
+  const indexed = findTrustedShopCatalogCandidates(shop.slug, searchText, SHOPIFY_CANDIDATE_LIMIT * 8)
+    .filter((product) => isSingleCardProduct(product as ShopifyProduct) && hasChaseTokens(product as ShopifyProduct, chase))
+    .slice(0, SHOPIFY_CANDIDATE_LIMIT) as ShopifyProduct[];
+  const result = await hydrateCurrentProducts(shop, indexed);
+  for (const product of indexed) {
+    if (!product.handle) continue;
+    const hydrated = result.products.some((current) => current.id === product.id);
+    if (!hydrated && result.unavailable > 0) {
+      const cached = shopifyProductCache.get(`${shop.slug}:${product.handle}`);
+      if (cached?.product === null) markTrustedShopCatalogProductUnavailable(shop.slug, product.id);
+    }
   }
+  return result;
 }
 
 async function searchTrustedShop(shop: TrustedShopifyShop, chase: Chase): Promise<TrustedShopifyShopResult> {
-  const [searchResult, feedResult] = await Promise.all([searchShopProducts(shop, chase), fetchShopProducts(shop)]);
+  const startedAt = Date.now();
+  const [searchResult, indexedResult] = await Promise.all([searchShopProducts(shop, chase), indexedShopProducts(shop, chase)]);
   const productsById = new Map<number, ShopifyProduct>();
-  for (const product of [...feedResult.products, ...searchResult.products]) productsById.set(product.id, product);
+  for (const product of [...indexedResult.products, ...searchResult.products]) productsById.set(product.id, product);
+  const revalidation = {
+    successes: searchResult.successes + indexedResult.successes,
+    unavailable: searchResult.unavailable + indexedResult.unavailable,
+    failures: searchResult.failures + indexedResult.failures
+  };
+  if (revalidation.successes + revalidation.unavailable + revalidation.failures > 0) {
+    recordTrustedShopRevalidation({ shopSlug: shop.slug, ...revalidation });
+  }
+  const state = ensureTrustedShopCatalogState(shop.slug);
   const listings: Listing[] = [];
   const seenListingIds = new Set<string>();
 
@@ -347,28 +499,45 @@ async function searchTrustedShop(shop: TrustedShopifyShop, chase: Chase): Promis
     }
   }
 
-  const feedStatus: ShopifyOperationStatus =
-    feedResult.coverage === 'EXHAUSTED' ? 'SUCCESS' : feedResult.products.length > 0 ? 'PARTIAL' : 'FAILURE';
+  const indexedStatus: ShopifyOperationStatus = indexedResult.error
+    ? indexedResult.products.length > 0 ? 'PARTIAL' : 'FAILURE'
+    : 'SUCCESS';
   const searchStatus: ShopifyOperationStatus = searchResult.error
     ? searchResult.products.length > 0 ? 'PARTIAL' : 'FAILURE'
     : 'SUCCESS';
-  const failedCompletely = feedStatus === 'FAILURE' && searchStatus === 'FAILURE';
+  const failedCompletely = indexedStatus === 'FAILURE' && searchStatus === 'FAILURE';
   return {
     shop: shop.name,
     listings,
-    status: failedCompletely ? 'FAILURE' : feedStatus !== 'SUCCESS' || searchStatus !== 'SUCCESS' ? 'PARTIAL' : 'SUCCESS',
+    status: failedCompletely ? 'FAILURE' : indexedStatus !== 'SUCCESS' || searchStatus !== 'SUCCESS' ? 'PARTIAL' : 'SUCCESS',
     feed: {
-      status: feedStatus,
-      coverage: feedResult.coverage,
-      productCount: feedResult.products.length,
-      pagesFetched: feedResult.pagesFetched,
-      fromCache: feedResult.fromCache,
-      error: feedResult.error
+      status: state.coverageStatus === 'INTERRUPTED' ? 'PARTIAL' : 'SUCCESS',
+      coverage: state.coverageStatus,
+      productCount: countTrustedShopCatalogProducts(shop.slug),
+      pagesFetched: state.pagesScanned,
+      fromCache: true,
+      nextPage: state.nextPage,
+      lastSuccessfulBatchAt: state.lastSuccessfulBatchAt,
+      lastCompletedSweepAt: state.lastCompletedSweepAt,
+      nextRunAt: state.nextRunAt,
+      retryCount: state.retryCount,
+      error: state.lastError
     },
     search: {
       status: searchStatus,
       productCount: searchResult.products.length,
       error: searchResult.error
+    },
+    revalidation: {
+      candidatesChecked: revalidation.successes + revalidation.unavailable + revalidation.failures,
+      current: revalidation.successes,
+      unavailable: revalidation.unavailable,
+      failures: revalidation.failures,
+      durationMs: Date.now() - startedAt,
+      lastRevalidationAt: state.lastRevalidationAt,
+      totalCurrent: state.revalidationSuccesses,
+      totalUnavailable: state.revalidationUnavailable,
+      totalFailures: state.revalidationFailures
     }
   };
 }

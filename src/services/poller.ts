@@ -32,7 +32,7 @@ import {
   recordSourceObservations
 } from './chase-store.js';
 import { enrichEbayListingDetails, getCachedEbayListings, searchEbayListings, type ShippingDestination } from './ebay.js';
-import { searchTrustedShopifyListingsDetailed, type TrustedShopifySearchResult } from './shopify.js';
+import { searchTrustedShopifyListingsDetailed, startTrustedShopifyCatalogWorker, type TrustedShopifySearchResult } from './shopify.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
@@ -1496,6 +1496,7 @@ export function startPoller(client: Client): void {
   const sourceMode = (process.env.LISTING_SOURCE ?? 'EBAY').toUpperCase();
   initializePollerState(sourceMode, intervalMs / 1000);
   setBackoffUntil(null);
+  startTrustedShopifyCatalogWorker();
 
   const runWithGuard = async () => {
     if (getPollerState().isRunning) {

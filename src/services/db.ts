@@ -237,6 +237,43 @@ db.exec(`
     PRIMARY KEY (chase_id, listing_id, source)
   );
 
+  CREATE TABLE IF NOT EXISTS trusted_shop_catalog_state (
+    shop_slug TEXT PRIMARY KEY,
+    sweep_id TEXT NOT NULL,
+    next_page INTEGER NOT NULL DEFAULT 1,
+    pages_scanned INTEGER NOT NULL DEFAULT 0,
+    products_seen INTEGER NOT NULL DEFAULT 0,
+    coverage_status TEXT NOT NULL DEFAULT 'NOT_STARTED',
+    sweep_started_at TEXT,
+    last_successful_batch_at TEXT,
+    last_completed_sweep_at TEXT,
+    last_completed_pages INTEGER,
+    last_completed_products INTEGER,
+    next_run_at TEXT NOT NULL,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    last_revalidation_at TEXT,
+    revalidation_successes INTEGER NOT NULL DEFAULT 0,
+    revalidation_unavailable INTEGER NOT NULL DEFAULT 0,
+    revalidation_failures INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS trusted_shop_catalog_products (
+    shop_slug TEXT NOT NULL,
+    product_id TEXT NOT NULL,
+    handle TEXT NOT NULL,
+    normalized_title TEXT NOT NULL,
+    product_json TEXT NOT NULL,
+    seen_sweep_id TEXT NOT NULL,
+    last_indexed_at TEXT NOT NULL,
+    removed_at TEXT,
+    PRIMARY KEY (shop_slug, product_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_trusted_shop_catalog_lookup
+    ON trusted_shop_catalog_products(shop_slug, removed_at, normalized_title);
+
   CREATE TABLE IF NOT EXISTS guild_alert_channels (
     guild_id TEXT PRIMARY KEY,
     channel_id TEXT NOT NULL,

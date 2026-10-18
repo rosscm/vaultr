@@ -474,10 +474,11 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 
 ### Trusted shop coverage
 
-- Store feeds are shared across Chases for 4.5 minutes, including concurrent in-flight requests; targeted predictive search remains per Chase.
-- Each feed refresh is bounded to 20 pages of 250 products and 20 seconds. Results report `EXHAUSTED`, `TRUNCATED`, or `INTERRUPTED` coverage; partial snapshots are cached for only 30 seconds and are never reported as complete.
-- Shopify predictive search is capped by Shopify at 10 product suggestions. Feed and search results are combined independently, so either can still contribute listings when the other fails.
-- Combined eBay + Trusted Shops polling processes successful partial results but marks the group attempted, not fully checked, until every required provider has completed. Existing alert claims and listing fingerprints keep these retries idempotent.
+- A process-wide catalog worker advances each store through persistent five-page batches. Sweep cursors survive restarts, retry with bounded backoff, and are independent of individual Chase due times.
+- Catalog coverage means only that Vaultr observed every page in a completed sweep. Indexed product data retains its own fetch time and is not treated as live inventory or a perfect storefront snapshot.
+- Indexed products are search hints. Before a product can produce a listing, Vaultr revalidates a bounded set through the store's current product endpoint; removed, unpublished, unavailable, and changed variants cannot alert from stale catalog data.
+- Shopify predictive search remains a bounded supplementary path. Current product-detail requests and in-flight catalog batches are shared across concurrent Chases.
+- Partial sweeps retain prior indexed coverage. A completed sweep reconciles products not observed in that sweep as removed, and a periodic sweep refreshes coverage later.
 
 ## Reliability
 
