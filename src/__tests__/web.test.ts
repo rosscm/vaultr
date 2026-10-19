@@ -282,7 +282,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("return `/api/preview/${url.slice('/api/'.length)}`;");
     expect(jsResponse.body).toContain('Preview mode is read-only. No changes were saved.');
     expect(jsResponse.body).toContain("const appHomePath = isPreviewMode ? '/preview' : '/app';");
-    expect(jsResponse.body).toContain("navButton('vault', 'Wishlist')");
+    expect(jsResponse.body).toContain("navButton('vault', 'Watchlist')");
     expect(jsResponse.body).toContain("navButton('alerts', 'Inbox')");
     expect(jsResponse.body).toContain("navButton('shelf', 'Discover')");
     expect(jsResponse.body).toContain('data-page="settings"');
@@ -291,13 +291,15 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Finish setting up Vaultr');
     expect(jsResponse.body).toContain('Your progress is saved.');
     expect(jsResponse.body).toContain("state.onboarding?.status !== 'IN_PROGRESS'");
-    expect(jsResponse.body).toContain("state.onboarding?.status === 'SKIPPED' ? '<button class=\"button-ghost settings-onboarding-link\"");
+    expect(jsResponse.body).toContain('data-action="revisit-onboarding">Revisit setup');
+    expect(jsResponse.body).toContain('onboardingRevisitMode');
+    expect(jsResponse.body).toContain("state.onboarding?.status === 'IN_PROGRESS'");
     expect(jsResponse.body).toContain("const hasExplicitRoute = /^#(home|vault|alerts|shelf|settings|onboarding)$/i.test(window.location.hash);");
     expect(jsResponse.body).toContain('Tell Vaultr which Pokémon cards you\'re looking for and what matters to you.');
     expect(jsResponse.body).toContain('Get started');
     expect(jsResponse.body).toContain('const hasLoadedChase = !isPreviewMode');
     expect(jsResponse.body).toContain('Continue simulation without saving');
-    expect(jsResponse.body).toContain('Inspect Wishlist form');
+    expect(jsResponse.body).toContain('Inspect Watchlist form');
     expect(jsResponse.body).not.toContain("${hasLoadedChase ? '<button class=\"button-primary\" type=\"button\" data-action=\"onboarding-chase-saved\">Continue</button>' : '<button class=\"button-primary\" type=\"button\" data-action=\"onboarding-add-chase\">Add your first Chase</button>'}${isPreviewMode ?");
     const navigationSource = jsResponse.body?.slice(jsResponse.body.indexOf('async function navigateToPage'), jsResponse.body.indexOf('function resetViewportForPage')) ?? '';
     expect(navigationSource).not.toContain("updateOnboarding('SKIP')");
@@ -305,7 +307,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('${vaultDialogMarkup()}');
     expect(jsResponse.body).toContain("fetchJson('/api/settings'");
     expect(jsResponse.body).toContain("window.addEventListener('beforeunload'");
-    expect(jsResponse.body).toContain('Saved Wishlist budgets will be converted using available exchange rates and rounded.');
+    expect(jsResponse.body).toContain('Saved Watchlist budgets will be converted using available exchange rates and rounded.');
     expect(jsResponse.body).toContain('settingsCurrencyConfirmationMarkup');
     expect(jsResponse.body).toContain('function settingsCurrencyOptions(settings, options)');
     expect(jsResponse.body).toContain('? [savedCurrency, ...supported]');
@@ -343,17 +345,21 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Same favourites. New discoveries.');
     expect(jsResponse.body).toContain('Explore your Display Case');
     expect(jsResponse.body).toContain('Open Inbox');
-    expect(jsResponse.body).toContain('View Wishlist');
+    expect(jsResponse.body).toContain('View Watchlist');
     expect(jsResponse.body).toContain("data-action=\"previous-home-shelf\"");
     expect(jsResponse.body).toContain("data-action=\"next-home-shelf\"");
     expect(jsResponse.body).toContain("total > 1 ?");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
-    expect(jsResponse.body).toContain('Personalized picks shaped by your Wishlist, pickups, and the cards you keep coming back to.');
+    expect(jsResponse.body).toContain('Personalized picks shaped by your Watchlist, pickups, and the cards you keep coming back to.');
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Your Display Case</h1>');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
-    expect(jsResponse.body).toContain('Add to Wishlist');
+    expect(jsResponse.body).toContain('Add to Watchlist');
+    expect(jsResponse.body).toContain('Your next favourite starts here.');
+    expect(jsResponse.body).toContain('A LITTLE INSPIRATION');
+    expect(jsResponse.body).toContain('They are not personalized recommendations.');
+    expect(jsResponse.body).toContain('See Vaultr Plus controls');
     expect(jsResponse.body).toContain('View on eBay');
     expect(jsResponse.body).toContain('Pricing unavailable');
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
@@ -1244,7 +1250,8 @@ describe('authenticated Weekly Shelf API', () => {
       title: 'Weekly Shelf',
       itemCount: 2,
       marketReadyCount: 1,
-      imageReadyCount: 1
+      imageReadyCount: 1,
+      discovery: { state: 'POPULATED' }
     });
     expect(body.items).toHaveLength(2);
     expect(body.items[0]).toMatchObject({
@@ -1406,6 +1413,39 @@ describe('authenticated Weekly Shelf API', () => {
     clearUser(userId);
   });
 
+  it('describes plan, signal, preparation, and editorial starter states honestly', async () => {
+    const userId = 'web-shelf-discovery-state-user';
+    clearUser(userId);
+    const { token } = createWebSession({ userId }, { token: 'shelf-discovery-state-token' });
+    const request = (webConfig = config) => handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config: webConfig, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+
+    const free = JSON.parse((await request()).body ?? '{}');
+    expect(free.discovery).toMatchObject({ state: 'PLAN_RESTRICTED', tier: 'FREE', minimumSignalCount: 5 });
+    expect(free.starterItems).toEqual([
+      expect.objectContaining({ name: 'Mew CoroCoro Promo 151', imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp' }),
+      expect.objectContaining({ name: 'Pichu Expedition Base Set 22/165' }),
+      expect.objectContaining({ name: 'Sylveon ex 212/187' })
+    ]);
+    expect(JSON.stringify(free.starterItems)).not.toContain('market');
+    expect(JSON.stringify(free.starterItems)).not.toContain('reason');
+
+    setUserPlan(userId, 'PRO');
+    const thin = JSON.parse((await request()).body ?? '{}');
+    expect(thin.discovery).toMatchObject({ state: 'INSUFFICIENT_SIGNALS', tier: 'PRO', uniqueSignalCount: 0, signalsNeeded: 5 });
+
+    for (let index = 1; index <= 5; index += 1) addChase({ userId, cardName: `Distinct Card ${index}` });
+    const waiting = JSON.parse((await request()).body ?? '{}');
+    expect(waiting.discovery).toMatchObject({ state: 'AWAITING_PREPARATION', uniqueSignalCount: 5, signalsNeeded: 0 });
+
+    const staging = JSON.parse((await request({ ...config, environmentLabel: 'Staging' })).body ?? '{}');
+    expect(staging.discovery).toMatchObject({ state: 'PREPARATION_UNAVAILABLE', preparationExpected: false });
+
+    clearUser(userId);
+  });
+
   it('does not expose another account shelf', async () => {
     const userId = 'web-shelf-isolated-user';
     const otherUserId = 'web-shelf-isolated-other';
@@ -1422,7 +1462,8 @@ describe('authenticated Weekly Shelf API', () => {
 
     expect(response.status).toBe(200);
     expect(body.status).toBe('UPCOMING');
-    expect(JSON.stringify(body)).not.toContain('Mew CoroCoro Promo 151');
+    expect(body.items).toEqual([]);
+    expect(body.starterItems).toBeDefined();
 
     clearUser(userId);
     clearUser(otherUserId);

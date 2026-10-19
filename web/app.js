@@ -71,6 +71,8 @@ const state = {
   onboardingError: '',
   onboardingBusy: false,
   onboardingPreviewChaseCreated: false,
+  onboardingRevisitMode: false,
+  onboardingRevisitStep: 'WELCOME',
   vaultNotice: null,
   vaultFormMode: null,
   vaultEditingId: null,
@@ -268,9 +270,9 @@ async function loadActivePageData() {
 
 async function navigateToPage(page, { updateHash = true } = {}) {
   const nextPage = page === 'home' || page === 'vault' || page === 'alerts' || page === 'shelf' || page === 'settings' || page === 'onboarding' ? page : 'home';
-  if (state.activePage === 'settings' && nextPage !== 'settings' && state.settingsDirty) {
+  if ((state.activePage === 'settings' || state.activePage === 'onboarding') && nextPage !== state.activePage && state.settingsDirty) {
     if (!window.confirm('Discard your unsaved Settings changes?')) {
-      if (!updateHash) window.history.replaceState(null, '', '#settings');
+      if (!updateHash) window.history.replaceState(null, '', `#${state.activePage}`);
       return false;
     }
     resetSettingsDraft();
@@ -404,7 +406,7 @@ function planComparisonMarkup() {
           ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li></ul></article>`).join('')}
         </div>
         ${currentTier === 'FREE' ? '<p class="plan-availability">Vaultr Plus is not available for self-service purchase yet.</p>' : ''}
-        <footer class="dialog-actions"><button class="button-ghost" type="button" data-action="close-plan-comparison">Close</button><button class="button-primary" type="button" data-action="view-wishlist">View Wishlist</button></footer>
+        <footer class="dialog-actions"><button class="button-ghost" type="button" data-action="close-plan-comparison">Close</button><button class="button-primary" type="button" data-action="view-wishlist">View Watchlist</button></footer>
       </section>
     </div>`;
 }
@@ -429,7 +431,7 @@ function cardIdentityConfirmationMarkup(cardName = '') {
     return `<span class="identity-confirmed">Selected suggestion</span><strong>${escapeHtml(selection.value)}</strong>`;
   }
   if (selection?.kind === 'existing') {
-    return `<span class="identity-current">Current Wishlist card</span><strong>${escapeHtml(selection.value)}</strong>`;
+    return `<span class="identity-current">Current Watchlist card</span><strong>${escapeHtml(selection.value)}</strong>`;
   }
   if (String(cardName).trim()) {
     return `<span>Entered card name</span><strong>${escapeHtml(String(cardName).trim())}</strong><small>Confirm the set, card number, and language before saving.</small>`;
@@ -488,8 +490,8 @@ function updateAutocompleteDom(input) {
 function apiErrorMessage(error) {
   const body = error?.body || {};
   if (body.message) return body.message;
-  if (body.error === 'VAULT_LIMIT_REACHED') return 'Your Wishlist has reached its active card limit.';
-  if (body.error === 'DUPLICATE_CHASE') return 'That card is already in your Wishlist.';
+  if (body.error === 'VAULT_LIMIT_REACHED') return 'Your Watchlist has reached its active card limit.';
+  if (body.error === 'DUPLICATE_CHASE') return 'That card is already in your Watchlist.';
   if (body.error === 'NO_APPLICABLE_CHANGES') return 'Those changes use Vaultr Plus controls.';
   if (body.error === 'NO_CHANGES_REQUESTED') return 'Choose at least one change.';
   if (body.error === 'INVALID_GRADE_PREFERENCE') return 'Choose a valid grade preference.';
@@ -577,12 +579,12 @@ function shellMarkup(content) {
       <aside class="app-sidebar">
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-          <span class="brand-copy"><strong>Vaultr</strong><small>Collector workspace</small></span>
+          <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
           ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
         </a>
         <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
           ${navButton('home', 'Home')}
-          ${navButton('vault', 'Wishlist')}
+          ${navButton('vault', 'Watchlist')}
           ${navButton('alerts', 'Inbox')}
           ${navButton('shelf', 'Discover')}
         </nav>
@@ -596,7 +598,7 @@ function shellMarkup(content) {
       <header class="mobile-header">
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-          <span class="brand-copy"><strong>Vaultr</strong><small>Collector workspace</small></span>
+          <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
           ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
         </a>
         <div class="user-area">
@@ -611,7 +613,7 @@ function shellMarkup(content) {
       </main>
       <nav class="mobile-nav" aria-label="Vaultr mobile navigation">
         ${navButton('home', 'Home')}
-        ${navButton('vault', 'Wishlist')}
+        ${navButton('vault', 'Watchlist')}
         ${navButton('alerts', 'Inbox')}
         ${navButton('shelf', 'Discover')}
       </nav>
@@ -689,7 +691,7 @@ function settingsCurrencyConfirmationMarkup() {
         <header>
           <p class="eyebrow">CONFIRM CURRENCY</p>
           <h2 id="settings-currency-title">Change ${escapeHtml(confirmation.oldCurrency)} to ${escapeHtml(confirmation.newCurrency)}?</h2>
-          <p id="settings-currency-description" class="dialog-intro">Saved Wishlist budgets will be converted using available exchange rates and rounded. Switching back may not restore the exact original amounts.</p>
+          <p id="settings-currency-description" class="dialog-intro">Saved Watchlist budgets will be converted using available exchange rates and rounded. Switching back may not restore the exact original amounts.</p>
         </header>
         <footer class="dialog-actions">
           <button class="button-ghost" type="button" data-action="cancel-settings-currency">Cancel</button>
@@ -726,7 +728,7 @@ function settingsPageMarkup() {
         <p class="eyebrow">Account</p>
         <h1 id="settings-title">Settings</h1>
         <p>Shape which matches Vaultr surfaces and how listing costs are evaluated.</p>
-        ${state.onboarding?.status === 'SKIPPED' ? '<button class="button-ghost settings-onboarding-link" type="button" data-action="resume-onboarding">Getting started</button>' : ''}
+        <button class="button-ghost settings-onboarding-link" type="button" data-action="revisit-onboarding">Revisit setup</button>
         <button class="button-ghost settings-plan-link" type="button" data-action="open-plan-comparison">Compare plans</button>
       </header>
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
@@ -772,7 +774,7 @@ function settingsPageMarkup() {
               </label>
             `).join('')}
           </fieldset>
-          <small class="field-hint" id="settings-volume-help">The limit applies across active Wishlist searches.</small>
+          <small class="field-hint" id="settings-volume-help">The limit applies across active Watchlist searches.</small>
           ${settingsFieldError('alertVolume')}
         </section>
         <section class="settings-group" aria-labelledby="settings-sources-title">
@@ -803,7 +805,7 @@ function settingsPageMarkup() {
               <select name="alertCurrency" aria-describedby="${describedBy('alertCurrency', 'settings-currency-help')}"${controlsDisabled ? ' disabled' : ''}>
                 ${currencyOptions.map((currency) => `<option value="${escapeHtml(currency)}"${draft.alertCurrency === currency ? ' selected' : ''}>${escapeHtml(currency)}</option>`).join('')}
               </select>
-              <small class="field-hint" id="settings-currency-help">Changing currency converts and rounds saved Wishlist budgets. Shipping destination remains independent.</small>
+              <small class="field-hint" id="settings-currency-help">Changing currency converts and rounds saved Watchlist budgets. Shipping destination remains independent.</small>
               ${settingsFieldError('alertCurrency')}
             </label>
             <label class="field">
@@ -838,7 +840,7 @@ function onboardingStepIndicator(step) {
   return `<ol class="onboarding-steps" aria-label="Setup progress">${steps.map((item, index) => `<li${index === active ? ' aria-current="step"' : ''}><span>${index + 1}</span><small>${['Welcome', 'Market', 'First card', 'Ready'][index]}</small></li>`).join('')}</ol>`;
 }
 
-function onboardingMarketMarkup() {
+function onboardingMarketMarkup(revisit = false) {
   const draft = state.settingsDraft;
   const options = state.settings?.options || {};
   if (!draft) return '<p role="status">Loading your market settings…</p>';
@@ -848,15 +850,15 @@ function onboardingMarketMarkup() {
   return `
     <form class="onboarding-market-form" data-settings-form data-onboarding-market-form novalidate>
       <div class="settings-field-grid">
-        <label class="field"><span>Currency</span><select name="alertCurrency"${isPreviewMode ? ' disabled' : ''}>${currencies.map((currency) => `<option value="${escapeHtml(currency)}"${draft.alertCurrency === currency ? ' selected' : ''}>${escapeHtml(currency)}</option>`).join('')}</select><small class="field-hint">Saved Wishlist budgets use this currency. It stays independent from destination.</small>${settingsFieldError('alertCurrency')}</label>
+        <label class="field"><span>Currency</span><select name="alertCurrency"${isPreviewMode ? ' disabled' : ''}>${currencies.map((currency) => `<option value="${escapeHtml(currency)}"${draft.alertCurrency === currency ? ' selected' : ''}>${escapeHtml(currency)}</option>`).join('')}</select><small class="field-hint">Saved Watchlist budgets use this currency. It stays independent from destination.</small>${settingsFieldError('alertCurrency')}</label>
         <label class="field"><span>Ship-to country</span><select name="shippingCountry"${isPreviewMode ? ' disabled' : ''}>${(options.shippingCountries || []).map((option) => `<option value="${escapeHtml(option.value)}"${country === option.value ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select><small class="field-hint">Used for shipping availability and estimates.</small>${settingsFieldError('shippingCountry')}</label>
         <label class="field settings-postal-field"${supportsPostal ? '' : ' hidden'}><span>${country === 'CA' ? 'Postal region' : 'ZIP region'}</span><input name="shippingPostalCode" value="${escapeHtml(draft.shippingPostalCode || '')}" placeholder="${country === 'CA' ? 'M5V' : '90210'}" maxlength="16"${isPreviewMode || !supportsPostal ? ' disabled' : ''}><small class="field-hint">Only a coarse region is retained.</small>${settingsFieldError('shippingPostalCode')}</label>
       </div>
-      <footer class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button><button class="button-primary" type="submit"${state.onboardingBusy ? ' disabled' : ''}>Save and continue</button></footer>
+      <footer class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="${revisit ? 'exit-onboarding-revisit' : 'skip-onboarding'}">${revisit ? 'Exit setup' : 'Skip setup'}</button><button class="button-primary" type="submit"${state.onboardingBusy ? ' disabled' : ''}>Save and continue</button></footer>
     </form>`;
 }
 
-function onboardingWelcomeMarkup() {
+function onboardingWelcomeMarkup(revisit = false) {
   return `
     <div class="onboarding-welcome-copy">
       <p class="eyebrow">WELCOME TO VAULTR</p>
@@ -867,7 +869,7 @@ function onboardingWelcomeMarkup() {
         <li><span aria-hidden="true">2</span><div><strong>Watch</strong><p>Review qualifying marketplace listings in your Inbox.</p></div></li>
         <li><span aria-hidden="true">3</span><div><strong>Discover</strong><p>Explore personalized recommendations as your collector profile develops.</p></div></li>
       </ol>
-      <div class="onboarding-actions onboarding-welcome-actions"><button class="button-primary" type="button" data-action="onboarding-continue">Get started</button><button class="onboarding-skip" type="button" data-action="skip-onboarding">Skip setup</button></div>
+      <div class="onboarding-actions onboarding-welcome-actions"><button class="button-primary" type="button" data-action="onboarding-continue">Get started</button><button class="onboarding-skip" type="button" data-action="${revisit ? 'exit-onboarding-revisit' : 'skip-onboarding'}">${revisit ? 'Back to Settings' : 'Skip setup'}</button></div>
     </div>
     <div class="onboarding-art-stack" aria-hidden="true">
       <img class="onboarding-art-card art-card-one" src="/onboarding-art/mew-corocoro-promo-151.webp" alt="">
@@ -879,15 +881,19 @@ function onboardingWelcomeMarkup() {
 }
 
 function onboardingPageMarkup() {
-  const step = state.onboarding?.step || 'WELCOME';
+  const revisit = state.onboardingRevisitMode;
+  const step = revisit ? state.onboardingRevisitStep : state.onboarding?.step || 'WELCOME';
   const hasLoadedChase = !isPreviewMode && ((state.vault || []).length > 0 || state.onboardingSavedChasePending);
-  const previewNotice = isPreviewMode ? '<p class="preview-read-only" role="status">Preview simulation is read-only. No settings or Wishlist cards will be saved.</p>' : '';
+  const leaveAction = revisit
+    ? '<button class="button-ghost" type="button" data-action="exit-onboarding-revisit">Exit setup</button>'
+    : '<button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button>';
+  const previewNotice = isPreviewMode ? '<p class="preview-read-only" role="status">Preview simulation is read-only. No settings or Watchlist cards will be saved.</p>' : '';
   let content = '';
-  if (step === 'WELCOME') content = onboardingWelcomeMarkup();
-  if (step === 'MARKET') content = `<p class="eyebrow">YOUR MARKET</p><h1 id="onboarding-title">Set your market context</h1><p>Choose how prices are shown and where listings need to ship.</p>${onboardingMarketMarkup()}`;
-  if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">Inspect the shared Wishlist form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button><button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Wishlist form</button></div>`;
-  if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'Continue without creating another search.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button>${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
-  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Wishlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase ? 'Your first card is saved. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Your Display Case needs enough collecting signals, so recommendations may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">Open Home</button></div>`;
+  if (step === 'WELCOME') content = onboardingWelcomeMarkup(revisit);
+  if (step === 'MARKET') content = `<p class="eyebrow">PRICING & SHIPPING</p><h1 id="onboarding-title">Set your market context</h1><p>Choose how prices are shown and where listings need to ship.</p>${onboardingMarketMarkup(revisit)}`;
+  if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">Inspect the shared Watchlist form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Watchlist form</button></div>`;
+  if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'Your existing Watchlist card counts. Continue without creating another search.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${!revisit && state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${!revisit && state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
+  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Your Display Case needs at least five distinct collecting signals for weekly preparation, so recommendations may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
   return `<section class="onboarding-page${step === 'WELCOME' ? ' welcome' : ''}" aria-labelledby="onboarding-title">${onboardingStepIndicator(step)}${previewNotice}${vaultNoticeMarkup('onboarding')}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content${step === 'WELCOME' ? ' onboarding-welcome' : ''}">${content}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
 }
 
@@ -896,12 +902,12 @@ function alertsPageMarkup(inner) {
     <section aria-labelledby="alerts-title">
       <header class="page-header">
         <p class="eyebrow">Inbox</p>
-        <h1 id="alerts-title">What Vaultr found for your Wishlist</h1>
+        <h1 id="alerts-title">What Vaultr found for your Watchlist</h1>
         <p>Matches worth a look, based on the cards and filters you saved.</p>
       </header>
       ${state.alertChaseId ? `
         <div class="active-chase-filter" role="status">
-          <span>Matches for <strong>${escapeHtml(state.alertChaseName || 'this Wishlist card')}</strong></span>
+          <span>Matches for <strong>${escapeHtml(state.alertChaseName || 'this Watchlist card')}</strong></span>
           <button class="button-ghost" type="button" data-action="clear-chase-filter">Clear filter</button>
         </div>
       ` : ''}
@@ -990,7 +996,7 @@ function alertsMarkup() {
       return alertsPageMarkup(statePanelMarkup('No reviewed matches yet.', 'Matches you review will stay available here.'));
     }
     if (state.priority === 'ALL' && state.source === 'ALL' && !state.hasCheckedAllAlerts) {
-      return alertsPageMarkup(statePanelMarkup('Nothing here yet.', "When Vaultr finds a match for a card on your Wishlist, it'll show up here."));
+      return alertsPageMarkup(statePanelMarkup('Nothing here yet.', "When Vaultr finds a match for a card on your Watchlist, it'll show up here."));
     }
     if (state.priority !== 'ALL') {
       const filteredPriority = state.priority === 'GRAIL' ? 'Grail' : state.priority === 'NORMAL' ? 'Casual' : 'High';
@@ -1012,7 +1018,7 @@ function alertActionMarkup(alert, { compact = false } = {}) {
     ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
     <span class="alert-secondary-actions">
       <button class="vault-action-link" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
-      ${compact ? '' : `<button class="vault-action-link" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Wishlist item</button>`}
+      ${compact ? '' : `<button class="vault-action-link" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button>`}
       <button class="vault-action-link danger" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button>
     </span>
   `;
@@ -1035,7 +1041,7 @@ function homeAlertPreviewMarkup(alert) {
           : '<span class="home-preview-image-placeholder" aria-hidden="true">V</span>'}
       </div>
       <div class="home-preview-copy">
-        <strong>${escapeHtml(alert.chaseName || 'Wishlist card')}</strong>
+        <strong>${escapeHtml(alert.chaseName || 'Watchlist card')}</strong>
         <span>${escapeHtml(alert.listingTitle || sourceLabel(alert.source))}</span>
         <span class="home-preview-meta">
           <span class="review-state-pill new">New</span>
@@ -1109,6 +1115,39 @@ function homeShelfFeatureMarkup(items, index) {
   `;
 }
 
+function starterDiscoveryItems() {
+  return state.shelf?.starterItems || [];
+}
+
+function discoveryStateCopy(discovery, compact = false) {
+  if (discovery?.state === 'PLAN_RESTRICTED') {
+    return compact
+      ? 'Vaultr Plus prepares your full personalized Display Case. These editorial picks are here to explore in the meantime.'
+      : 'Your Free plan includes a smaller starter Discovery experience. Vaultr Plus prepares the full personalized Display Case.';
+  }
+  if (discovery?.state === 'INSUFFICIENT_SIGNALS') {
+    const needed = discovery.signalsNeeded || 1;
+    return `Add or acquire ${needed} more distinct ${needed === 1 ? 'card' : 'cards'} to reach the ${discovery.minimumSignalCount}-signal threshold for weekly preparation.`;
+  }
+  if (discovery?.state === 'AWAITING_PREPARATION') {
+    return 'Your collector profile is eligible. Your next Display Case will appear after the weekly preparation run completes.';
+  }
+  if (discovery?.state === 'PREPARATION_UNAVAILABLE') {
+    return 'Your collector profile is eligible, but weekly preparation is not running in this environment.';
+  }
+  return 'Add cards to your Watchlist and mark your pickups to help Vaultr understand your collecting taste.';
+}
+
+function starterArtworkMarkup(items, compact = false) {
+  const starterItems = items.slice(0, compact ? 3 : 6);
+  if (!starterItems.length) return '<div class="starter-artwork-fallback">Card artwork will appear here when available.</div>';
+  return `<div class="starter-discovery-grid${compact ? ' compact' : ''}">${starterItems.map((item) => `
+    <article class="starter-discovery-card">
+      ${item.imageUrl ? artworkTriggerMarkup({ imageUrl: item.imageUrl, identity: item.name, imageKind: 'Card artwork', imageClass: 'starter-discovery-image', imageDataAttribute: 'data-starter-card-image' }) : '<div class="starter-discovery-image placeholder-image"><span>Image unavailable</span></div>'}
+      <div><strong>${escapeHtml(item.name)}</strong><button class="vault-action-link" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name)}">Add to Watchlist</button></div>
+    </article>`).join('')}</div>`;
+}
+
 function homePageMarkup() {
   const activeChases = state.vaultPlan?.activeCount ?? state.vault.length;
   const userPausedChases = state.vault.filter((item) => item.monitoringState === 'PAUSED_USER').length;
@@ -1119,6 +1158,8 @@ function homePageMarkup() {
   const shelfCount = state.shelf?.itemCount ?? shelfItems.length;
   const shelfReady = shelfItems.length > 0;
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, shelfItems.length);
+  const starters = starterDiscoveryItems();
+  const discovery = state.shelf?.discovery;
 
   return `
     <section class="home-page" aria-labelledby="home-title">
@@ -1128,30 +1169,32 @@ function homePageMarkup() {
           <h1 id="home-title">Welcome back, ${escapeHtml(userDisplayName(state.user))}</h1>
           <p>Build your Vault. Chase your grails. Discover what you love next.</p>
         </div>
-        <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Wishlist</button>
+        <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
       </header>
       ${vaultNoticeMarkup('home')}
       ${alertNoticeMarkup()}
       <section class="home-discovery" aria-labelledby="home-shelf-title">
         <div class="home-discovery-copy">
           <p class="eyebrow">YOUR DISPLAY CASE</p>
-          <h2 id="home-shelf-title">Same favourites. New discoveries.</h2>
+          <h2 id="home-shelf-title">${shelfReady ? 'Same favourites. New discoveries.' : 'Your next favourite starts here.'}</h2>
           <p>${state.isShelfLoading
             ? 'Opening your latest collector picks...'
             : state.shelfError
               ? 'Your Display Case is unavailable right now.'
               : shelfReady
                 ? `${escapeHtml(shelfCount)} picks are ready to explore.`
-                : 'Recommendations are not available for this account yet.'}</p>
+                : 'Your Display Case takes shape around your collecting taste.'}</p>
           ${shelfReady && state.shelf.marketReadyCount !== undefined ? `<span class="home-shelf-count">${escapeHtml(state.shelf.marketReadyCount)} priced</span>` : ''}
-          <button class="button-primary home-explore-shelf" type="button" data-page="shelf">Explore your Display Case</button>
+          <button class="button-primary home-explore-shelf" type="button" data-page="shelf">${shelfReady ? 'Explore your Display Case' : 'How your Display Case works'}</button>
         </div>
         <div class="home-discovery-stage">
           ${state.shelfError
             ? '<div class="home-discovery-state"><p>Your Display Case could not be loaded right now.</p><button class="button-ghost" type="button" data-action="retry-shelf">Try again</button></div>'
             : shelfReady
               ? homeShelfFeatureMarkup(shelfItems, shelfIndex)
-              : `<div class="home-discovery-state"><p>${state.shelfLoaded ? 'Build your Wishlist and collecting profile to help shape future recommendations.' : 'Loading your latest collector picks...'}</p></div>`}
+              : state.shelfLoaded
+                ? `<div class="home-starter-discovery"><div><p class="eyebrow">A LITTLE INSPIRATION</p><p>A few collector favourites while we get to know your taste.</p><small>${escapeHtml(discoveryStateCopy(discovery, true))}</small></div>${starterArtworkMarkup(starters, true)}</div>`
+                : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
         </div>
       </section>
 
@@ -1173,9 +1216,9 @@ function homePageMarkup() {
 
       <section class="home-vault-strip" aria-labelledby="home-vault-title">
         <div class="home-vault-copy">
-          <p class="eyebrow">WISHLIST</p>
-          <h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Wishlist...' : 'Cards you’re watching'}</h2>
-          <p>${state.vaultError ? "Your Wishlist couldn't be loaded right now." : activeChases ? 'Your searches and their current status at a glance.' : 'Add cards you love. We’ll watch for matches that fit.'}</p>
+          <p class="eyebrow">WATCHLIST</p>
+          <h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Watchlist...' : 'Cards you’re watching'}</h2>
+          <p>${state.vaultError ? "Your Watchlist couldn't be loaded right now." : activeChases ? 'Your searches and their current status at a glance.' : 'Add cards you love. We’ll watch for matches that fit.'}</p>
         </div>
         <div class="home-vault-stats" aria-label="Vault summary">
           <span><strong>${escapeHtml(activeChases)}</strong> Watching</span>
@@ -1183,7 +1226,7 @@ function homePageMarkup() {
           <span><strong>${escapeHtml(planLimitedChases)}</strong> Plan limit</span>
           <span><strong>${escapeHtml(completedChases)}</strong> Pickups</span>
         </div>
-        <button class="home-text-link" type="button" data-page="vault">View Wishlist</button>
+        <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
       </section>
       ${vaultDialogMarkup()}
     </section>
@@ -1214,7 +1257,7 @@ function alertCardMarkup(alert) {
             <span class="priority-pill ${priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priority)}</span>
             <span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span>
           </div>
-          <h2 class="chase-name">${escapeHtml(alert.chaseName || 'Wishlist card')}</h2>
+          <h2 class="chase-name">${escapeHtml(alert.chaseName || 'Watchlist card')}</h2>
           ${alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
           <div class="alert-context">
             <span class="source-pill">${escapeHtml(sourceLabel(alert.source))}</span>
@@ -1248,7 +1291,7 @@ function vaultPageMarkup() {
     return `
       <section aria-labelledby="vault-title">
         ${vaultHeaderMarkup()}
-        ${statePanelMarkup("Couldn't load your Wishlist.", 'Try again when you are ready.', 'Try again').replace('data-action="retry-alerts"', 'data-action="retry-vault"')}
+        ${statePanelMarkup("Couldn't load your Watchlist.", 'Try again when you are ready.', 'Try again').replace('data-action="retry-alerts"', 'data-action="retry-vault"')}
       </section>
     `;
   }
@@ -1266,14 +1309,14 @@ function vaultPageMarkup() {
       ? vaultEmptyMarkup()
       : state.vaultFilter === 'COMPLETED'
         ? '<div class="state-panel"><h2>No pickups yet.</h2><p>Cards you mark acquired will stay here as part of your collecting history.</p></div>'
-        : '<div class="state-panel"><h2>No cards in this view</h2><p>Choose another filter to see the rest of your Wishlist.</p></div>';
+        : '<div class="state-panel"><h2>No cards in this view</h2><p>Choose another filter to see the rest of your Watchlist.</p></div>';
   return `
     <section aria-labelledby="vault-title">
       ${vaultHeaderMarkup()}
       ${vaultNoticeMarkup('vault')}
       ${vaultSummaryMarkup()}
       ${vaultLifecycleFiltersMarkup()}
-      ${items.length ? `<div class="vault-grid" aria-label="Wishlist cards">${items.map(vaultCardMarkup).join('')}</div>` : ''}
+      ${items.length ? `<div class="vault-grid" aria-label="Watchlist cards">${items.map(vaultCardMarkup).join('')}</div>` : ''}
       ${emptyState}
       ${completedChasesSectionMarkup(completed)}
       ${vaultDialogMarkup()}
@@ -1285,18 +1328,18 @@ function vaultPageMarkup() {
 
 function vaultLifecycleFiltersMarkup() {
   const filters = [['ALL', 'All'], ['WATCHING', 'Watching'], ['PAUSED', 'Paused'], ['COMPLETED', 'Pickups']];
-  return `<div class="vault-lifecycle-filters" aria-label="Wishlist filters">${filters.map(([value, label]) => `<button class="pill-button" type="button" data-vault-filter="${value}" aria-pressed="${state.vaultFilter === value ? 'true' : 'false'}">${label}</button>`).join('')}</div>`;
+  return `<div class="vault-lifecycle-filters" aria-label="Watchlist filters">${filters.map(([value, label]) => `<button class="pill-button" type="button" data-vault-filter="${value}" aria-pressed="${state.vaultFilter === value ? 'true' : 'false'}">${label}</button>`).join('')}</div>`;
 }
 
 function vaultHeaderMarkup() {
   return `
     <header class="page-header vault-page-header">
       <div>
-        <p class="eyebrow">WISHLIST</p>
+        <p class="eyebrow">WATCHLIST</p>
         <h1 id="vault-title">The cards Vaultr is watching for you</h1>
         <p>Add cards you love. We’ll watch for matches that fit.</p>
       </div>
-      <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Wishlist</button>
+      <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Watchlist</button>
     </header>
     <p class="vault-auto-filter-note">Common proxy, reprint, lot, code-card, and non-card listings are filtered automatically.</p>
   `;
@@ -1309,9 +1352,9 @@ function vaultSummaryMarkup() {
   const paused = plan.pausedCount ?? 0;
   const completed = state.completedChases?.length ?? 0;
   return `
-    <div class="vault-summary" aria-label="Wishlist plan summary">
+    <div class="vault-summary" aria-label="Watchlist plan summary">
       <div>
-        <span class="summary-label">Wishlist capacity</span>
+        <span class="summary-label">Cards you’re watching</span>
         <strong>${escapeHtml(saved)} of ${escapeHtml(max)}</strong>
       </div>
       <div>
@@ -1331,9 +1374,9 @@ function vaultSummaryMarkup() {
 function vaultEmptyMarkup() {
   return `
     <div class="state-panel vault-empty">
-      <h2>Your Wishlist is ready</h2>
+      <h2>Your Watchlist is ready</h2>
       <p>Add a specific card and Vaultr will start watching for listings that match your preferences.</p>
-      <button class="button-primary" type="button" data-action="open-add-chase">Add to Wishlist</button>
+      <button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>
     </div>
   `;
 }
@@ -1353,7 +1396,7 @@ function vaultCardMarkup(item) {
     <article class="vault-card ${paused ? 'paused' : ''}" data-vault-chase-id="${escapeHtml(chase.id)}" tabindex="-1">
       ${chase.cardImageUrl ? artworkTriggerMarkup({
         imageUrl: chase.cardImageUrl,
-        identity: chase.cardName || 'Wishlist card',
+        identity: chase.cardName || 'Watchlist card',
         imageKind: 'Card artwork',
         imageClass: 'vault-card-image',
         imageDataAttribute: 'data-vault-card-image'
@@ -1363,8 +1406,8 @@ function vaultCardMarkup(item) {
           <span class="status-pill ${paused ? 'paused' : 'active'}">${statusLabel}</span>
           <span class="priority-pill ${chase.priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priorityLabel(chase.priority))}</span>
         </div>
-        <h2>${escapeHtml(chase.cardName || 'Wishlist card')}</h2>
-        ${item.monitoringState === 'PAUSED_PLAN_LIMIT' ? '<p class="paused-copy">Saved in your Wishlist, but not monitored under the current plan limit.</p>' : userPaused ? '<p class="paused-copy">Search is paused. Your preferences are preserved.</p>' : ''}
+        <h2>${escapeHtml(chase.cardName || 'Watchlist card')}</h2>
+        ${item.monitoringState === 'PAUSED_PLAN_LIMIT' ? '<p class="paused-copy">Saved in your Watchlist, but not monitored under the current plan limit.</p>' : userPaused ? '<p class="paused-copy">Search is paused. Your preferences are preserved.</p>' : ''}
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${chase.targetNote ? `<p class="vault-note">${escapeHtml(chase.targetNote)}</p>` : ''}
         ${chase.negativeKeywords?.length ? `<p class="vault-note">Custom exclusions: ${escapeHtml(chase.negativeKeywords.join(', '))}</p>` : ''}
@@ -1455,7 +1498,7 @@ function shelfPageMarkup() {
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
       ${items.length ? shelfMetaMarkup(state.shelf) : ''}
-      ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map(shelfCardMarkup).join('')}</div>` : shelfEmptyMarkup()}
+      ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map(shelfCardMarkup).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
     </section>
   `;
@@ -1466,7 +1509,7 @@ function shelfHeaderMarkup() {
     <header class="page-header shelf-page-header">
       <p class="eyebrow">DISCOVER</p>
       <h1 id="shelf-title">Your Display Case</h1>
-      <p>Personalized picks shaped by your Wishlist, pickups, and the cards you keep coming back to.</p>
+      <p>Personalized picks shaped by your Watchlist, pickups, and the cards you keep coming back to.</p>
     </header>
   `;
 }
@@ -1490,12 +1533,24 @@ function shelfMetaMarkup(shelf) {
   `;
 }
 
-function shelfEmptyMarkup() {
+function shelfEmptyMarkup(shelf) {
+  const starters = shelf?.starterItems || [];
   return `
-    <div class="state-panel shelf-empty">
-      <h2>No recommendations to display yet</h2>
-      <p>Build your Wishlist and collecting profile to help shape future recommendations.</p>
-    </div>
+    <section class="shelf-first-use" aria-labelledby="starter-discovery-title">
+      <div class="shelf-first-use-copy">
+        <p class="eyebrow">YOUR DISPLAY CASE</p>
+        <h2>Your next favourite starts here.</h2>
+        <p>Your Display Case takes shape around your collecting taste. Add cards to your Watchlist and mark your pickups to help us get to know what you love.</p>
+        <p class="discovery-state-note">${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p>
+        <button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>
+      </div>
+      <div class="starter-discovery-section">
+        <p class="eyebrow">A LITTLE INSPIRATION</p>
+        <h3 id="starter-discovery-title">A few collector favourites</h3>
+        <p>Editorial picks to browse while we get to know your taste. They are not personalized recommendations.</p>
+        ${starterArtworkMarkup(starters)}
+      </div>
+    </section>
   `;
 }
 
@@ -1526,7 +1581,7 @@ function shelfCardMarkup(item) {
         <div class="shelf-card-footer">
           ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : '<p class="shelf-price unavailable">Pricing unavailable</p>'}
           <div class="shelf-card-actions">
-            <button class="button-primary shelf-add-button" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name || '')}">Add to Wishlist</button>
+            <button class="button-primary shelf-add-button" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name || '')}">Add to Watchlist</button>
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
           </div>
         </div>
@@ -1547,13 +1602,13 @@ function vaultDialogMarkup() {
     <div class="modal-backdrop" role="presentation">
       <form class="vault-dialog" data-vault-form="${editing ? 'edit' : 'add'}" aria-labelledby="vault-form-title">
         <header>
-          <p class="eyebrow">${editing ? 'EDIT PREFERENCES' : 'ADD TO WISHLIST'}</p>
+          <p class="eyebrow">${editing ? 'EDIT PREFERENCES' : 'ADD TO WATCHLIST'}</p>
           <h2 id="vault-form-title">${editing ? 'Refine this search' : 'What card are you looking for?'}</h2>
           <p class="dialog-intro">Choose the exact printing, then add only the preferences that matter to you.</p>
         </header>
         ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect this form, but changes will not be saved.</p>' : ''}
         ${state.vaultFormError ? `<div class="form-error" role="alert"><span>${escapeHtml(state.vaultFormError)}</span>${state.vaultCreateRecovery?.uncertain ? '<button class="vault-action-link" type="button" data-action="reconcile-vault-create">Check saved card</button>' : ''}</div>` : ''}
-        ${!editing && atLimit ? `<aside class="plan-limit-note"><strong>Your Wishlist has ${escapeHtml(savedCount)} cards—the limit on your ${escapeHtml(planLabel(state.vaultPlan.tier))} plan.</strong><span>${hasPlus ? 'Remove a card or mark one acquired before adding another.' : `Vaultr Plus gives you room to watch up to ${escapeHtml(state.vaultOptions?.plans?.find((plan) => plan.tier === 'PRO')?.maxActiveChases || 50)}.`}</span><button class="vault-action-link" type="button" data-action="open-plan-comparison">Compare plans</button></aside>` : ''}
+        ${!editing && atLimit ? `<aside class="plan-limit-note"><strong>Your Watchlist has ${escapeHtml(savedCount)} cards—the limit on your ${escapeHtml(planLabel(state.vaultPlan.tier))} plan.</strong><span>${hasPlus ? 'Remove a card or mark one acquired before adding another.' : `Vaultr Plus gives you room to watch up to ${escapeHtml(state.vaultOptions?.plans?.find((plan) => plan.tier === 'PRO')?.maxActiveChases || 50)}.`}</span><button class="vault-action-link" type="button" data-action="open-plan-comparison">Compare plans</button></aside>` : ''}
         <label class="field">
           <span>Card <span class="required-marker">Required</span></span>
           <div class="card-autocomplete">
@@ -1599,7 +1654,8 @@ function vaultDialogMarkup() {
           </label>
           </div>
         </fieldset>
-        <section class="advanced-section" aria-labelledby="advanced-fields-title">
+        <details class="advanced-section${hasPlus ? ' has-plus' : ' plus-locked'}" ${hasPlus ? 'open' : ''}>
+          <summary>${hasPlus ? 'Vaultr Plus controls' : 'See Vaultr Plus controls'}</summary>
           <div class="advanced-section-heading">
             <div><h3 id="advanced-fields-title">Vaultr Plus controls</h3><p>${hasPlus ? 'Optional controls for a more precise search.' : 'Advanced filters and Trusted Shops monitoring are included with Vaultr Plus. Saved locked values stay intact.'}</p></div>
             <button class="vault-action-link" type="button" data-action="open-plan-comparison">Compare plans</button>
@@ -1633,10 +1689,10 @@ function vaultDialogMarkup() {
             <small id="custom-exclusions-hint" class="field-hint">Up to 15 comma-separated terms.</small>
           </label>
         </fieldset>
-        </section>
+        </details>
         <footer class="dialog-actions">
           <button class="button-ghost" type="button" data-action="close-vault-dialog">Cancel</button>
-          <button class="button-primary" type="submit" ${state.vaultSubmitting || state.vaultCreateRecovery?.uncertain ? 'disabled' : ''}>${state.vaultSubmitting ? 'Saving...' : editing ? 'Save changes' : 'Add to Wishlist'}</button>
+          <button class="button-primary" type="submit" ${state.vaultSubmitting || state.vaultCreateRecovery?.uncertain ? 'disabled' : ''}>${state.vaultSubmitting ? 'Saving...' : editing ? 'Save changes' : 'Add to Watchlist'}</button>
         </footer>
       </form>
     </div>
@@ -2059,6 +2115,21 @@ async function loadOnboarding() {
 }
 
 async function updateOnboarding(action) {
+  if (state.onboardingRevisitMode) {
+    const step = state.onboardingRevisitStep;
+    if (action === 'CONTINUE') state.onboardingRevisitStep = 'MARKET';
+    if (action === 'BACK') state.onboardingRevisitStep = step === 'MARKET' ? 'WELCOME' : step === 'CHASE' ? 'MARKET' : 'CHASE';
+    if (action === 'MARKET_SAVED') state.onboardingRevisitStep = 'CHASE';
+    if (action === 'CHASE_CREATED') state.onboardingRevisitStep = 'READY';
+    if (action === 'FINISH' || action === 'SKIP') {
+      state.onboardingRevisitMode = false;
+      state.onboardingRevisitStep = 'WELCOME';
+      state.activePage = 'settings';
+      window.location.hash = 'settings';
+    }
+    renderCurrentPage();
+    return true;
+  }
   if (isPreviewMode) {
     const transitions = { CONTINUE: 'MARKET', BACK: state.onboarding?.step === 'MARKET' ? 'WELCOME' : 'MARKET', MARKET_SAVED: 'CHASE', CHASE_CREATED: 'READY', FINISH: 'READY', RESUME: 'WELCOME' };
     if (action === 'SKIP' || action === 'FINISH') {
@@ -2258,7 +2329,7 @@ async function submitVaultForm(form) {
         renderCurrentPage();
         return;
       }
-      state.vaultFormError = 'This card was not found in your Wishlist. You can try adding it again.';
+      state.vaultFormError = 'This card was not found in your Watchlist. You can try adding it again.';
       renderCurrentPage();
       return;
     }
@@ -2291,9 +2362,10 @@ async function finishConfirmedVaultSave({ response, editing }) {
     else state.vault.unshift(response.item);
   }
   const notice = response.blockedControls?.length
-    ? `Saved to your Wishlist. Vaultr Plus controls were not applied: ${response.blockedControls.join(', ')}.`
-    : editing ? 'Wishlist preferences updated.' : 'Added to your Wishlist.';
-  const onboardingSave = !editing && state.activePage === 'onboarding' && state.onboarding?.step === 'CHASE';
+    ? `Saved to your Watchlist. Vaultr Plus controls were not applied: ${response.blockedControls.join(', ')}.`
+    : editing ? 'Watchlist preferences updated.' : 'Added to your Watchlist.';
+  const onboardingStep = state.onboardingRevisitMode ? state.onboardingRevisitStep : state.onboarding?.step;
+  const onboardingSave = !editing && state.activePage === 'onboarding' && onboardingStep === 'CHASE';
   const noticeScope = onboardingSave ? 'onboarding' : ['home', 'vault', 'shelf'].includes(state.activePage) ? state.activePage : 'vault';
   setVaultNotice(notice, noticeScope);
   state.vaultFormMode = null;
@@ -2308,7 +2380,7 @@ async function finishConfirmedVaultSave({ response, editing }) {
   try {
     await loadVault({ force: true, throwOnError: true });
   } catch {
-    setVaultNotice(`${notice} The latest Wishlist view could not refresh; reload to see current details.`, noticeScope);
+    setVaultNotice(`${notice} The latest Watchlist view could not refresh; reload to see current details.`, noticeScope);
     renderCurrentPage();
   }
 
@@ -2316,7 +2388,7 @@ async function finishConfirmedVaultSave({ response, editing }) {
     const advanced = await updateOnboarding('CHASE_CREATED');
     state.onboardingSavedChasePending = !advanced;
     if (!advanced) {
-      setVaultNotice('Added to your Wishlist. Setup could not advance, but you can continue without adding the card again.', 'onboarding');
+      setVaultNotice('Added to your Watchlist. Setup could not advance, but you can continue without adding the card again.', 'onboarding');
       renderCurrentPage();
     }
   }
@@ -2336,7 +2408,7 @@ async function retryVaultCreateReconciliation() {
   }
   state.vaultCreateRecovery = reconciliation.checked ? null : pending;
   state.vaultFormError = reconciliation.checked
-    ? 'This card was not found in your Wishlist. You can try adding it again.'
+    ? 'This card was not found in your Watchlist. You can try adding it again.'
     : 'We still could not confirm the save. Your draft is safe; check again before retrying.';
   renderCurrentPage();
 }
@@ -2420,7 +2492,7 @@ async function removeChase(outcome) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ outcome })
     });
-    setVaultNotice('Removed from your Wishlist.');
+    setVaultNotice('Removed from your Watchlist.');
     state.removeTargetId = null;
     await loadVault({ force: true });
   } catch (error) {
@@ -2482,7 +2554,7 @@ async function reopenChase(chaseId) {
   }
   try {
     await fetchJson(`/api/completed-chases/${encodeURIComponent(chaseId)}/reopen`, { method: 'POST' });
-    setVaultNotice('This card is back on your Wishlist.');
+    setVaultNotice('This card is back on your Watchlist.');
     await loadVault({ force: true });
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
@@ -2566,6 +2638,27 @@ app.addEventListener('click', async (event) => {
   }
 
   const action = target.getAttribute('data-action');
+  if (action === 'revisit-onboarding') {
+    if (!state.onboardingLoaded) await loadOnboarding();
+    if (state.onboarding?.status === 'IN_PROGRESS') {
+      await navigateToPage('onboarding');
+      return;
+    }
+    const opened = await navigateToPage('onboarding');
+    if (!opened) return;
+    state.onboardingRevisitMode = true;
+    state.onboardingRevisitStep = 'WELCOME';
+    renderCurrentPage();
+    return;
+  }
+  if (action === 'exit-onboarding-revisit') {
+    if (state.settingsDirty && !window.confirm('Discard your unsaved setup changes?')) return;
+    resetSettingsDraft();
+    state.onboardingRevisitMode = false;
+    state.onboardingRevisitStep = 'WELCOME';
+    await navigateToPage('settings');
+    return;
+  }
   if (action === 'resume-onboarding') {
     if (!state.onboardingLoaded) await loadOnboarding();
     const canResume = await navigateToPage('onboarding');

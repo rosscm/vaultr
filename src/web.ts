@@ -6,6 +6,7 @@ import path from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import {
   dismissAlert,
+  getUserPlan,
   getUserAlertSettings,
   getAlertEventForUser,
   listAlertEventsForUser,
@@ -33,6 +34,8 @@ import {
   PRIORITY_CHOICES
 } from './services/chase-options.js';
 import { getEntitlementsForTier } from './services/entitlements.js';
+import { activePlanTier } from './services/plans.js';
+import { weeklyDiscoveryEligibilityForUser } from './services/weekly-discovery-eligibility.js';
 import {
   getLatestAvailableScheduledDiscoveryDrop,
   getScheduledDiscoveryDrop,
@@ -454,7 +457,37 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem) {
   };
 }
 
-function shelfResponse(userId: string, now = new Date()): WebResponse {
+const WEB_STARTER_DISCOVERY = [
+  { name: 'Mew CoroCoro Promo 151', imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp' },
+  { name: 'Pichu Expedition Base Set 22/165', imageUrl: '/onboarding-art/pichu-expedition-022.webp' },
+  { name: 'Sylveon ex 212/187', imageUrl: '/onboarding-art/sylveon-ex-212.webp' }
+] as const;
+
+function webDiscoveryState(userId: string, config: WebConfig, populated: boolean) {
+  const tier = activePlanTier(getUserPlan(userId));
+  const eligibility = weeklyDiscoveryEligibilityForUser(userId);
+  const preparationExpected = config.environmentLabel?.trim().toLowerCase() !== 'staging'
+    && process.env.DISCOVERY_DROP_SCHEDULER_ENABLED !== 'false';
+  const state = populated
+    ? 'POPULATED'
+    : tier !== 'PRO'
+      ? 'PLAN_RESTRICTED'
+      : !eligibility.eligible
+        ? 'INSUFFICIENT_SIGNALS'
+        : preparationExpected
+          ? 'AWAITING_PREPARATION'
+          : 'PREPARATION_UNAVAILABLE';
+  return {
+    state,
+    tier,
+    preparationExpected,
+    minimumSignalCount: eligibility.minimumSignalCount,
+    uniqueSignalCount: eligibility.uniqueSignalCount,
+    signalsNeeded: eligibility.signalsNeeded
+  };
+}
+
+function shelfResponse(userId: string, config: WebConfig, now = new Date()): WebResponse {
   const targetDate = weeklyPreparationTargetDate(now);
   const targetPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', targetDate);
   const targetDrop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', targetPeriod);
@@ -496,7 +529,9 @@ function shelfResponse(userId: string, now = new Date()): WebResponse {
       shelfKind,
       periodKey: targetPeriod,
       title: 'Weekly Shelf',
-      items: []
+      items: [],
+      discovery: webDiscoveryState(userId, config, false),
+      starterItems: WEB_STARTER_DISCOVERY
     });
   }
 
@@ -512,7 +547,8 @@ function shelfResponse(userId: string, now = new Date()): WebResponse {
     marketReadyCount: drop.marketReadyCount,
     imageReadyCount: drop.imageReadyCount,
     currency: drop.currency,
-    items: drop.items.map(publicShelfItem)
+    items: drop.items.map(publicShelfItem),
+    discovery: webDiscoveryState(userId, config, true)
   });
 }
 
@@ -984,7 +1020,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
   if (method === 'GET' && url.pathname === '/api/shelf') {
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');
-    return shelfResponse(session.userId, options.now?.() ?? new Date());
+    return shelfResponse(session.userId, options.config, options.now?.() ?? new Date());
   }
 
   const alertMatch = url.pathname.match(/^\/api\/alerts\/([^/]+)$/);

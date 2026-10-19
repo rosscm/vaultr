@@ -70,9 +70,10 @@ Set `VAULTR_WEB_BASE_URL` to that public HTTPS origin and register the matching 
 ## Manual check
 
 1. Confirm the page visibly says **Staging**, then sign in through the staging Discord application.
-2. Verify the new staging account enters Welcome onboarding; set shipping and create the first Chase.
-3. In Settings, save matching/shipping changes and confirm a currency change converts saved staging Chase budgets.
-4. In Vault, edit, pause, resume, complete, and reopen the Chase.
-5. Confirm Home, Inbox, and Discover empty states are accurate for a fresh account.
+2. Sign in with a separate Discord test account that has never used the staging Discord application. This creates an isolated empty staging account through the normal OAuth path; no reset or login bypass is needed.
+3. Verify the new staging account enters Welcome onboarding; set shipping and add the first card to the Watchlist.
+4. In Settings, save matching/shipping changes and confirm a currency change converts saved staging Watchlist budgets.
+5. In Watchlist, edit, pause, resume, complete, and watch the card again.
+6. Confirm Home, Inbox, and Discover first-use states are accurate, then use **Revisit setup** in Settings and confirm the account remains completed after exit.
 
 Inbox review/dismiss can be tested only after a later controlled staging worker creates genuine staging matches. Email login, email delivery, Discord DMs, polling, Discovery preparation, and fabricated match seeding are intentionally unavailable in this setup.
