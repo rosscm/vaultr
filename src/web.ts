@@ -15,7 +15,14 @@ import {
   restoreAlert,
   type ListAlertEventsForUserOptions
 } from './services/chase-store.js';
-import { autocompleteChaseCardsWithStatus } from './services/chase-card-catalog.js';
+import {
+  autocompleteChaseCardsWithStatus,
+  cacheTrustedChaseCardPreview,
+  getCachedChaseCardPreview,
+  normalizeChaseCardName,
+  resolveTrustedChaseCardReference,
+  type TrustedChaseCardPreview
+} from './services/chase-card-catalog.js';
 import { customExclusionTerms } from './services/chase-exclusions.js';
 import {
   addUserChase,
@@ -84,6 +91,9 @@ const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const SESSION_TTL_DAYS = 30;
 const WEB_ASSET_ROOT = path.resolve('web');
 const MAX_JSON_BODY_BYTES = 32 * 1024;
+const CARD_SELECTION_TTL_MS = 15 * 60 * 1000;
+const MAX_CARD_SELECTIONS = 500;
+const cardSelections = new Map<string, { expiresAt: number; userId: string; cardName: string; preview: TrustedChaseCardPreview }>();
 const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/app': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
   '/app/': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
@@ -297,6 +307,14 @@ function publicChase(chase: ReturnType<typeof getVaultChases>['chases'][number][
     id: chase.id,
     cardName: chase.cardName,
     cardImageUrl: chase.cardImageUrl,
+    cardIdentity: chase.cardImageSourceKind === 'CARD_REFERENCE' && chase.cardImageIdentity && chase.cardImageSourceName && chase.cardImageSourceCardId
+      ? {
+          value: chase.cardImageIdentity,
+          matchKey: normalizedCardIdentity(normalizeChaseCardName(chase.cardName)),
+          sourceName: chase.cardImageSourceName,
+          sourceCardId: chase.cardImageSourceCardId
+        }
+      : undefined,
     priority: chase.priority,
     targetNote: chase.targetNote,
     maxPrice: chase.maxPrice,
@@ -430,15 +448,35 @@ function usefulShelfImageUrl(item: ScheduledDiscoveryDropItem): string | undefin
   return imageUrl;
 }
 
-function publicShelfItem(item: ScheduledDiscoveryDropItem) {
+function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string) {
   const reference = item.suggestion.canonicalReference;
   const marketReady = item.market.status === 'READY';
+  const imageUrl = usefulShelfImageUrl(item);
+  const selection = imageUrl && reference?.sourceCardId
+    ? issueCardSelection(userId, item.suggestion.name, {
+        imageUrl,
+        imageIdentity: item.suggestion.name,
+        imageSourceName: reference.provider,
+        imageSourceKind: 'CARD_REFERENCE',
+        imageSourceCardId: reference.sourceCardId
+      })
+    : undefined;
   return {
     position: item.position,
     name: item.suggestion.name,
-    imageUrl: usefulShelfImageUrl(item),
+    imageUrl,
     setName: reference?.setName,
     language: reference?.language,
+    cardNumber: reference?.cardNumber,
+    cardIdentity: reference?.sourceCardId
+      ? {
+          value: reference.canonicalName || item.suggestion.name,
+          matchKey: normalizedCardIdentity(normalizeChaseCardName(item.suggestion.name)),
+          sourceName: reference.provider,
+          sourceCardId: reference.sourceCardId
+        }
+      : undefined,
+    selection,
     roleLabel: weeklyShelfRoleLabel(item.suggestion.discoveryRole),
     signalLabel: shelfSignalLabel(item.suggestion.lane),
     reason: safeShelfReason(item),
@@ -455,6 +493,52 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem) {
       : { status: item.market.status, currency: item.market.currency },
     ebayUrl: shelfEbayUrl(item, item.market.currency)
   };
+}
+
+function normalizedCardIdentity(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function trustedPreview(preview: ReturnType<typeof getCachedChaseCardPreview>): TrustedChaseCardPreview | undefined {
+  if (!preview?.imageUrl || !preview.imageIdentity || preview.imageSourceKind !== 'CARD_REFERENCE' || !preview.imageSourceName || !preview.imageSourceCardId) return undefined;
+  return preview as TrustedChaseCardPreview;
+}
+
+function issueCardSelection(userId: string, cardName: string, preview: TrustedChaseCardPreview) {
+  const now = Date.now();
+  for (const [token, selection] of cardSelections) {
+    if (selection.expiresAt <= now) cardSelections.delete(token);
+  }
+  while (cardSelections.size >= MAX_CARD_SELECTIONS) {
+    const oldest = cardSelections.keys().next().value;
+    if (!oldest) break;
+    cardSelections.delete(oldest);
+  }
+  const token = randomBytes(24).toString('base64url');
+  cardSelections.set(token, { expiresAt: now + CARD_SELECTION_TTL_MS, userId, cardName, preview });
+  return {
+    token,
+    value: cardName,
+    imageUrl: preview.imageUrl,
+    imageIdentity: preview.imageIdentity,
+    sourceName: preview.imageSourceName,
+    sourceCardId: preview.imageSourceCardId
+  };
+}
+
+function applyCardSelection(userId: string, body: Record<string, unknown>): WebResponse | null {
+  if (body.cardSelectionToken === undefined) return null;
+  if (typeof body.cardSelectionToken !== 'string' || typeof body.cardName !== 'string') return errorResponse(400, 'invalid_card_selection');
+  const selection = cardSelections.get(body.cardSelectionToken);
+  if (!selection || selection.expiresAt <= Date.now()) {
+    cardSelections.delete(body.cardSelectionToken);
+    return errorResponse(400, 'invalid_card_selection');
+  }
+  if (selection.userId !== userId) return errorResponse(400, 'invalid_card_selection');
+  if (normalizedCardIdentity(selection.cardName) !== normalizedCardIdentity(body.cardName)) return errorResponse(400, 'invalid_card_selection');
+  cacheTrustedChaseCardPreview(selection.cardName, selection.preview);
+  body.cardName = selection.cardName;
+  return null;
 }
 
 const WEB_STARTER_DISCOVERY = [
@@ -531,7 +615,13 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
       title: 'Weekly Shelf',
       items: [],
       discovery: webDiscoveryState(userId, config, false),
-      starterItems: WEB_STARTER_DISCOVERY
+      starterItems: WEB_STARTER_DISCOVERY.map((item) => ({
+        ...item,
+        cardIdentity: {
+          value: item.name,
+          matchKey: normalizedCardIdentity(normalizeChaseCardName(item.name))
+        }
+      }))
     });
   }
 
@@ -547,7 +637,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     marketReadyCount: drop.marketReadyCount,
     imageReadyCount: drop.imageReadyCount,
     currency: drop.currency,
-    items: drop.items.map(publicShelfItem),
+    items: drop.items.map((item) => publicShelfItem(item, userId)),
     discovery: webDiscoveryState(userId, config, true)
   });
 }
@@ -1051,15 +1141,31 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       if (query.length > 100) return errorResponse(400, 'invalid_query');
       const result = await autocompleteChaseCardsWithStatus(query, 25);
       return jsonResponse(200, {
-        items: result.choices.slice(0, 25),
+        items: result.choices.slice(0, 25).map((choice) => {
+          const preview = trustedPreview(getCachedChaseCardPreview(choice.value));
+          return preview ? { ...choice, selection: issueCardSelection(session.userId, choice.value, preview) } : choice;
+        }),
         unavailable: result.unavailable,
         stale: result.stale
       });
     }
 
+    if (method === 'GET' && url.pathname === '/api/chases/selection') {
+      const cardName = (url.searchParams.get('cardName') ?? '').trim();
+      if (cardName.length < 3 || cardName.length > 100) return errorResponse(400, 'invalid_query');
+      const cached = trustedPreview(getCachedChaseCardPreview(cardName));
+      const resolution = cached ? undefined : await resolveTrustedChaseCardReference(cardName);
+      const preview = cached ?? (resolution?.status === 'RESOLVED' ? resolution.preview : undefined);
+      if (!preview) return errorResponse(422, 'card_selection_unavailable');
+      const resolvedName = resolution?.status === 'RESOLVED' ? resolution.resolvedCardName : cardName;
+      return jsonResponse(200, { selection: issueCardSelection(session.userId, resolvedName, preview) });
+    }
+
     if (method === 'POST' && url.pathname === '/api/chases') {
       const parsed = requireJsonBody(request);
       if ('status' in parsed) return parsed;
+      const selectionError = applyCardSelection(session.userId, parsed.body);
+      if (selectionError) return selectionError;
       const result = addUserChase({ userId: session.userId, ...chasePayload(parsed.body) } as Parameters<typeof addUserChase>[0]);
       if (!result.ok) return chaseErrorResponse(result);
       return jsonResponse(201, {
@@ -1095,6 +1201,8 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       if ('status' in parsed) return parsed;
 
       if (method === 'PATCH') {
+        const selectionError = applyCardSelection(session.userId, parsed.body);
+        if (selectionError) return selectionError;
         const result = updateUserChase({
           userId: session.userId,
           chaseId,

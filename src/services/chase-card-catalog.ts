@@ -257,6 +257,10 @@ function cacheAutocompletePreview(cardName: string, preview: CachedChaseCardPrev
   }
 }
 
+export function cacheTrustedChaseCardPreview(cardName: string, preview: TrustedChaseCardPreview): void {
+  cacheAutocompletePreview(cardName, preview);
+}
+
 class ProviderFetchError extends Error {
   constructor(
     message: string,

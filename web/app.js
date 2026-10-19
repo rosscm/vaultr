@@ -55,6 +55,7 @@ const state = {
   shelfLoaded: false,
   shelfError: null,
   homeShelfIndex: 0,
+  homeDiscoveryExplanationOpen: false,
   settings: null,
   settingsDraft: null,
   settingsLoaded: false,
@@ -253,7 +254,12 @@ async function loadActivePageData() {
   }
   if (state.activePage === 'alerts' && !state.alertsLoaded) await loadAlerts();
   if (state.activePage === 'vault') await loadVault();
-  if (state.activePage === 'shelf') await loadShelf();
+  if (state.activePage === 'shelf') {
+    await Promise.all([
+      state.shelfLoaded ? Promise.resolve() : loadShelf(),
+      state.vaultLoaded ? Promise.resolve() : loadVault()
+    ]);
+  }
   if (state.activePage === 'settings') {
     await Promise.all([
       state.settingsLoaded ? Promise.resolve() : loadSettings(),
@@ -428,7 +434,8 @@ function resetVaultAutocomplete() {
 function cardIdentityConfirmationMarkup(cardName = '') {
   const selection = state.vaultCardSelection;
   if (selection?.kind === 'suggestion') {
-    return `<span class="identity-confirmed">Selected suggestion</span><strong>${escapeHtml(selection.value)}</strong>`;
+    const details = [selection.setName, selection.cardNumber, selection.language].filter(Boolean);
+    return `${selection.imageUrl ? `<img class="card-identity-thumbnail" src="${escapeHtml(selection.imageUrl)}" alt="" aria-hidden="true">` : ''}<span class="card-identity-copy"><span class="identity-confirmed">Exact card selected</span>${details.length ? `<small>${details.map(escapeHtml).join(' · ')}</small>` : '<small>Trusted card reference</small>'}</span><button class="vault-action-link card-identity-change" type="button" data-action="change-card-selection">Change</button>`;
   }
   if (selection?.kind === 'existing') {
     return `<span class="identity-current">Current Watchlist card</span><strong>${escapeHtml(selection.value)}</strong>`;
@@ -495,6 +502,7 @@ function apiErrorMessage(error) {
   if (body.error === 'NO_APPLICABLE_CHANGES') return 'Those changes use Vaultr Plus controls.';
   if (body.error === 'NO_CHANGES_REQUESTED') return 'Choose at least one change.';
   if (body.error === 'INVALID_GRADE_PREFERENCE') return 'Choose a valid grade preference.';
+  if (body.error === 'invalid_card_selection') return 'That exact card selection expired or changed. Choose it again before saving.';
   if (body.error === 'TOO_MANY_CUSTOM_EXCLUSIONS') return 'Use at most 15 custom exclusions.';
   return 'Something went wrong. Try again.';
 }
@@ -1119,11 +1127,44 @@ function starterDiscoveryItems() {
   return state.shelf?.starterItems || [];
 }
 
+function normalizedDiscoveryIdentity(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function sameDiscoveryPrinting(item, chase) {
+  const itemIdentity = item?.cardIdentity;
+  const chaseIdentity = chase?.cardIdentity;
+  if (itemIdentity?.sourceName && itemIdentity?.sourceCardId && chaseIdentity?.sourceName && chaseIdentity?.sourceCardId) {
+    if (normalizedDiscoveryIdentity(itemIdentity.sourceName) === normalizedDiscoveryIdentity(chaseIdentity.sourceName)
+      && normalizedDiscoveryIdentity(itemIdentity.sourceCardId) === normalizedDiscoveryIdentity(chaseIdentity.sourceCardId)) return true;
+  }
+  if (itemIdentity?.matchKey && chaseIdentity?.matchKey) return itemIdentity.matchKey === chaseIdentity.matchKey;
+  return Boolean(chaseIdentity?.value)
+    && normalizedDiscoveryIdentity(chaseIdentity.value) === normalizedDiscoveryIdentity(item?.name);
+}
+
+function savedDiscoveryCard(item) {
+  const active = state.vault.find((entry) => sameDiscoveryPrinting(item, entry.chase));
+  if (active) return { kind: 'WATCHLIST', id: active.chase.id, paused: active.monitoringState !== 'ACTIVE' };
+  const completed = state.completedChases.find((chase) => sameDiscoveryPrinting(item, chase));
+  return completed ? { kind: 'PICKUP', id: completed.id } : null;
+}
+
+function discoveryCardActionMarkup(item, className = 'vault-action-link') {
+  const saved = savedDiscoveryCard(item);
+  if (saved) {
+    const label = saved.kind === 'PICKUP' ? 'In your Pickups' : 'On your Watchlist';
+    const detail = saved.paused ? '<small>Search paused</small>' : '';
+    return `<span class="discovery-saved-action"><span>${label}</span>${detail}<button class="vault-action-link" type="button" data-action="view-discovery-card" data-chase-id="${escapeHtml(saved.id)}">View</button></span>`;
+  }
+  return `<button class="${className}" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name || '')}" data-card-set="${escapeHtml(item.setName || '')}" data-card-number="${escapeHtml(item.cardNumber || '')}" data-card-language="${escapeHtml(item.language || '')}" data-card-image="${escapeHtml(item.imageUrl || '')}" data-card-selection-token="${escapeHtml(item.selection?.token || '')}">Add to Watchlist</button>`;
+}
+
 function discoveryStateCopy(discovery, compact = false) {
   if (discovery?.state === 'PLAN_RESTRICTED') {
     return compact
-      ? 'Vaultr Plus prepares your full personalized Display Case. These editorial picks are here to explore in the meantime.'
-      : 'Your Free plan includes a smaller starter Discovery experience. Vaultr Plus prepares the full personalized Display Case.';
+      ? 'Personalized recommendations require Vaultr Plus, enough collecting signals, and a completed weekly preparation run.'
+      : 'These picks are editorial, not personalized. Personalized recommendations require Vaultr Plus, enough collecting signals, and a completed weekly preparation run.';
   }
   if (discovery?.state === 'INSUFFICIENT_SIGNALS') {
     const needed = discovery.signalsNeeded || 1;
@@ -1144,7 +1185,7 @@ function starterArtworkMarkup(items, compact = false) {
   return `<div class="starter-discovery-grid${compact ? ' compact' : ''}">${starterItems.map((item) => `
     <article class="starter-discovery-card">
       ${item.imageUrl ? artworkTriggerMarkup({ imageUrl: item.imageUrl, identity: item.name, imageKind: 'Card artwork', imageClass: 'starter-discovery-image', imageDataAttribute: 'data-starter-card-image' }) : '<div class="starter-discovery-image placeholder-image"><span>Image unavailable</span></div>'}
-      <div><strong>${escapeHtml(item.name)}</strong><button class="vault-action-link" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name)}">Add to Watchlist</button></div>
+      <div><strong>${escapeHtml(item.name)}</strong>${discoveryCardActionMarkup(item)}</div>
     </article>`).join('')}</div>`;
 }
 
@@ -1185,7 +1226,8 @@ function homePageMarkup() {
                 ? `${escapeHtml(shelfCount)} picks are ready to explore.`
                 : 'Your Display Case takes shape around your collecting taste.'}</p>
           ${shelfReady && state.shelf.marketReadyCount !== undefined ? `<span class="home-shelf-count">${escapeHtml(state.shelf.marketReadyCount)} priced</span>` : ''}
-          <button class="button-primary home-explore-shelf" type="button" data-page="shelf">${shelfReady ? 'Explore your Display Case' : 'How your Display Case works'}</button>
+          <div class="home-discovery-actions"><button class="button-primary home-explore-shelf" type="button" data-page="shelf">Explore your Display Case</button>${shelfReady ? '' : '<button class="home-text-link" type="button" data-action="toggle-display-case-explanation">How your Display Case works</button>'}</div>
+          ${!shelfReady && state.homeDiscoveryExplanationOpen ? `<p class="home-discovery-explanation">${escapeHtml(discoveryStateCopy(discovery, true))}</p>` : ''}
         </div>
         <div class="home-discovery-stage">
           ${state.shelfError
@@ -1193,7 +1235,7 @@ function homePageMarkup() {
             : shelfReady
               ? homeShelfFeatureMarkup(shelfItems, shelfIndex)
               : state.shelfLoaded
-                ? `<div class="home-starter-discovery"><div><p class="eyebrow">A LITTLE INSPIRATION</p><p>A few collector favourites while we get to know your taste.</p><small>${escapeHtml(discoveryStateCopy(discovery, true))}</small></div>${starterArtworkMarkup(starters, true)}</div>`
+                ? `<div class="home-starter-discovery"><div><p class="eyebrow">A LITTLE INSPIRATION</p><p>A few collector favourites to explore while your collecting profile takes shape.</p><small>Editorial picks, not personalized recommendations. ${escapeHtml(discoveryStateCopy(discovery, true))}</small></div>${starterArtworkMarkup(starters, true)}</div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
         </div>
       </section>
@@ -1336,7 +1378,7 @@ function vaultHeaderMarkup() {
     <header class="page-header vault-page-header">
       <div>
         <p class="eyebrow">WATCHLIST</p>
-        <h1 id="vault-title">The cards Vaultr is watching for you</h1>
+        <h1 id="vault-title">The cards you’re watching</h1>
         <p>Add cards you love. We’ll watch for matches that fit.</p>
       </div>
       <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Watchlist</button>
@@ -1347,15 +1389,15 @@ function vaultHeaderMarkup() {
 
 function vaultSummaryMarkup() {
   const plan = state.vaultPlan || {};
-  const saved = state.vault.length;
+  const watching = plan.activeCount ?? state.vault.filter((item) => item.monitoringState === 'ACTIVE').length;
   const max = plan.maxActiveChases ?? 0;
   const paused = plan.pausedCount ?? 0;
   const completed = state.completedChases?.length ?? 0;
   return `
     <div class="vault-summary" aria-label="Watchlist plan summary">
       <div>
-        <span class="summary-label">Cards you’re watching</span>
-        <strong>${escapeHtml(saved)} of ${escapeHtml(max)}</strong>
+        <span class="summary-label">Watching</span>
+        <strong>${escapeHtml(watching)} of ${escapeHtml(max)}</strong>
       </div>
       <div>
         <span class="summary-label">Plan</span>
@@ -1509,7 +1551,7 @@ function shelfHeaderMarkup() {
     <header class="page-header shelf-page-header">
       <p class="eyebrow">DISCOVER</p>
       <h1 id="shelf-title">Your Display Case</h1>
-      <p>Personalized picks shaped by your Watchlist, pickups, and the cards you keep coming back to.</p>
+      <p>Discover cards inspired by your Watchlist and pickups.</p>
     </header>
   `;
 }
@@ -1540,14 +1582,14 @@ function shelfEmptyMarkup(shelf) {
       <div class="shelf-first-use-copy">
         <p class="eyebrow">YOUR DISPLAY CASE</p>
         <h2>Your next favourite starts here.</h2>
-        <p>Your Display Case takes shape around your collecting taste. Add cards to your Watchlist and mark your pickups to help us get to know what you love.</p>
+        <p>Add cards to your Watchlist and mark pickups to shape future personalized recommendations.</p>
         <p class="discovery-state-note">${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p>
         <button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>
       </div>
       <div class="starter-discovery-section">
-        <p class="eyebrow">A LITTLE INSPIRATION</p>
-        <h3 id="starter-discovery-title">A few collector favourites</h3>
-        <p>Editorial picks to browse while we get to know your taste. They are not personalized recommendations.</p>
+        <p class="eyebrow">EDITORIAL PICKS</p>
+        <h3 id="starter-discovery-title">A little inspiration</h3>
+        <p>A few collector favourites to explore while your collecting profile takes shape. These are not personalized recommendations.</p>
         ${starterArtworkMarkup(starters)}
       </div>
     </section>
@@ -1581,7 +1623,7 @@ function shelfCardMarkup(item) {
         <div class="shelf-card-footer">
           ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : '<p class="shelf-price unavailable">Pricing unavailable</p>'}
           <div class="shelf-card-actions">
-            <button class="button-primary shelf-add-button" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name || '')}">Add to Watchlist</button>
+            ${discoveryCardActionMarkup(item, 'button-primary shelf-add-button')}
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
           </div>
         </div>
@@ -2272,6 +2314,11 @@ function vaultFormBody(form) {
   const current = editing ? state.vault.find((entry) => entry.chase.id === state.vaultEditingId)?.chase : null;
   const cardName = String(data.get('cardName') || '').trim();
   if (cardName) body.cardName = cardName;
+  if (state.vaultCardSelection?.kind === 'suggestion'
+    && state.vaultCardSelection.token
+    && state.vaultCardSelection.value === cardName) {
+    body.cardSelectionToken = state.vaultCardSelection.token;
+  }
   const maxPriceRaw = String(data.get('maxPrice') || '').trim();
   if (maxPriceRaw) body.maxPrice = Number(maxPriceRaw);
   else if (editing && current?.maxPrice !== undefined) body.maxPrice = null;
@@ -2335,6 +2382,37 @@ async function submitVaultForm(form) {
     }
     state.vaultFormError = apiErrorMessage(error);
     renderCurrentPage();
+  }
+}
+
+async function trustedSelectionForDiscoveryCard(target, cardName) {
+  if (isPreviewMode) return null;
+  const selectionToken = target.getAttribute('data-card-selection-token');
+  if (selectionToken) {
+    return {
+      kind: 'suggestion',
+      token: selectionToken,
+      value: cardName,
+      imageUrl: target.getAttribute('data-card-image') || '',
+      setName: target.getAttribute('data-card-set') || '',
+      cardNumber: target.getAttribute('data-card-number') || '',
+      language: target.getAttribute('data-card-language') || ''
+    };
+  }
+  try {
+    const body = await fetchJson(`/api/chases/selection?cardName=${encodeURIComponent(cardName)}`);
+    if (!body.selection) return null;
+    return {
+      kind: 'suggestion',
+      ...body.selection,
+      imageUrl: target.getAttribute('data-card-image') || body.selection.imageUrl,
+      setName: target.getAttribute('data-card-set') || '',
+      cardNumber: target.getAttribute('data-card-number') || '',
+      language: target.getAttribute('data-card-language') || ''
+    };
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') throw error;
+    return null;
   }
 }
 
@@ -2460,7 +2538,9 @@ function selectAutocompleteSuggestion(index) {
   if (!item || !(input instanceof HTMLInputElement)) return;
   input.value = item.value;
   if (state.vaultFormDraft) state.vaultFormDraft.cardName = item.value;
-  state.vaultCardSelection = { kind: 'suggestion', value: item.value };
+  state.vaultCardSelection = item.selection
+    ? { kind: 'suggestion', ...item.selection }
+    : null;
   resetVaultAutocomplete();
   updateAutocompleteDom(input);
   updateCardIdentityConfirmation(input);
@@ -2750,7 +2830,18 @@ app.addEventListener('click', async (event) => {
     }
     return;
   }
+  if (action === 'toggle-display-case-explanation') {
+    state.homeDiscoveryExplanationOpen = !state.homeDiscoveryExplanationOpen;
+    renderCurrentPage();
+    return;
+  }
   if (action === 'view-alert-chase') {
+    state.vaultFilter = 'ALL';
+    state.pendingVaultFocusId = target.getAttribute('data-chase-id');
+    await navigateToPage('vault');
+    return;
+  }
+  if (action === 'view-discovery-card') {
     state.vaultFilter = 'ALL';
     state.pendingVaultFocusId = target.getAttribute('data-chase-id');
     await navigateToPage('vault');
@@ -2866,15 +2957,26 @@ app.addEventListener('click', async (event) => {
   if (action === 'add-shelf-card-to-vault') {
     const cardName = target.getAttribute('data-card-name') || '';
     resetVaultAutocomplete();
-    state.vaultCardSelection = null;
     if (!await ensureVaultLoaded()) return;
+    state.vaultCardSelection = await trustedSelectionForDiscoveryCard(target, cardName);
+    const selectedCardName = state.vaultCardSelection?.value || cardName;
     state.vaultFormMode = 'add';
     state.vaultEditingId = null;
-    state.vaultPrefillCardName = cardName;
-    state.vaultFormDraft = vaultDraftFromChase({ cardName });
+    state.vaultPrefillCardName = selectedCardName;
+    state.vaultFormDraft = vaultDraftFromChase({ cardName: selectedCardName });
     state.vaultFormError = '';
     renderCurrentPage();
     document.querySelector('[name="cardName"]')?.focus();
+    return;
+  }
+  if (action === 'change-card-selection') {
+    state.vaultCardSelection = null;
+    const input = document.querySelector('#vault-card-input');
+    if (input instanceof HTMLInputElement) {
+      input.focus();
+      input.select();
+      updateCardIdentityConfirmation(input);
+    }
     return;
   }
   if (action === 'open-edit-chase') {

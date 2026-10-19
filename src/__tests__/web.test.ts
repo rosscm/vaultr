@@ -8,7 +8,7 @@ import {
   hashWebSessionToken,
   resolveWebSession
 } from '../services/web-sessions.js';
-import { clearChaseCardAutocompleteCache } from '../services/chase-card-catalog.js';
+import { __chaseCardCatalogTestHooks, clearChaseCardAutocompleteCache } from '../services/chase-card-catalog.js';
 import { getOrCreateOnboardingState } from '../services/onboarding.js';
 import {
   deleteScheduledDiscoveryDrop,
@@ -326,7 +326,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Known shipping is included when available.');
     expect(jsResponse.body).toContain('A number requests that exact listed grade.');
     expect(jsResponse.body).toContain('Advanced filters and Trusted Shops monitoring are included with Vaultr Plus.');
-    expect(jsResponse.body).toContain("state.vaultCardSelection = { kind: 'suggestion', value: item.value };");
+    expect(jsResponse.body).toContain("state.vaultCardSelection = item.selection");
+    expect(jsResponse.body).toContain('body.cardSelectionToken = state.vaultCardSelection.token;');
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
     expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=4')");
@@ -351,19 +352,24 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("total > 1 ?");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
-    expect(jsResponse.body).toContain('Personalized picks shaped by your Watchlist, pickups, and the cards you keep coming back to.');
+    expect(jsResponse.body).toContain('Discover cards inspired by your Watchlist and pickups.');
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Your Display Case</h1>');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
     expect(jsResponse.body).toContain('Add to Watchlist');
     expect(jsResponse.body).toContain('Your next favourite starts here.');
     expect(jsResponse.body).toContain('A LITTLE INSPIRATION');
-    expect(jsResponse.body).toContain('They are not personalized recommendations.');
+    expect(jsResponse.body).toContain('These are not personalized recommendations.');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
     expect(jsResponse.body).toContain('View on eBay');
     expect(jsResponse.body).toContain('Pricing unavailable');
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
-    expect(jsResponse.body).toContain("state.vaultPrefillCardName = cardName;");
+    expect(jsResponse.body).toContain('state.vaultPrefillCardName = selectedCardName;');
+    expect(jsResponse.body).toContain("data-action=\"view-discovery-card\"");
+    expect(jsResponse.body).toContain('On your Watchlist');
+    expect(jsResponse.body).toContain('In your Pickups');
+    expect(jsResponse.body).toContain('Exact card selected');
+    expect(jsResponse.body).toContain('The cards you’re watching');
     expect(jsResponse.body).toContain('vaultNotice');
     expect(jsResponse.body).toContain('data-action="open-artwork"');
     expect(jsResponse.body).toContain('role="dialog" aria-modal="true"');
@@ -1259,7 +1265,9 @@ describe('authenticated Weekly Shelf API', () => {
       name: 'Mew CoroCoro Promo 151',
       imageUrl: 'https://example.test/mew-reference.png',
       setName: 'CoroCoro Promo',
+      cardNumber: '151',
       language: 'JAPANESE',
+      cardIdentity: { value: 'Mew CoroCoro Promo 151', sourceName: 'CURATED', sourceCardId: 'curated-151' },
       roleLabel: 'Right up your alley',
       signalLabel: 'Promo Trail',
       reason: 'Connects to the Japanese promo cards already in your Vault',
@@ -1284,20 +1292,37 @@ describe('authenticated Weekly Shelf API', () => {
   it('keeps Weekly Shelf read-only and uses the Chase API as the write path', async () => {
     const userId = 'web-shelf-read-only-user';
     clearUser(userId);
+    seedWeeklyShelf(userId);
     const { token } = createWebSession({ userId }, { token: 'shelf-read-only-token' });
     const headers = { cookie: sessionCookie(token) };
+
+    const shelfRead = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+    const shelfItem = JSON.parse(shelfRead.body ?? '{}').items[0];
 
     const shelfWrite = await handleWebRequest(
       { method: 'POST', url: '/api/shelf', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Mew RC24' }) },
       { config }
     );
     const chaseWrite = await handleWebRequest(
-      { method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ cardName: 'Mew RC24' }) },
+      {
+        method: 'POST',
+        url: '/api/chases',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ cardName: shelfItem.name, cardSelectionToken: shelfItem.selection.token })
+      },
       { config }
     );
 
     expect(shelfWrite.status).toBe(404);
     expect(chaseWrite.status).toBe(201);
+    expect(JSON.parse(chaseWrite.body ?? '{}').item.chase).toMatchObject({
+      cardName: 'Mew CoroCoro Promo 151',
+      cardImageUrl: 'https://example.test/mew-reference.png',
+      cardIdentity: { sourceName: 'CURATED', sourceCardId: 'curated-151' }
+    });
 
     clearUser(userId);
   });
@@ -1630,6 +1655,81 @@ describe('authenticated chase API', () => {
     clearUser(otherUserId);
   });
 
+  it('persists a server-resolved Discover selection and rejects a mismatched printing name', async () => {
+    const userId = 'web-chases-trusted-selection';
+    const otherUserId = 'web-chases-trusted-selection-other';
+    const headers = auth(userId, 'chases-trusted-selection-token');
+    const otherHeaders = auth(otherUserId, 'chases-trusted-selection-other-token');
+    const cardName = 'Mew CoroCoro Promo 151';
+    __chaseCardCatalogTestHooks.cachePreview(cardName, {
+      imageUrl: 'https://cards.example/mew-corocoro-151.png',
+      imageIdentity: cardName,
+      imageSourceName: 'CURATED',
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceCardId: 'curated-mew-corocoro-151'
+    });
+
+    const selectionResponse = await handleWebRequest({
+      method: 'GET',
+      url: `/api/chases/selection?cardName=${encodeURIComponent(cardName)}`,
+      headers
+    }, { config });
+    const selection = JSON.parse(selectionResponse.body ?? '{}').selection;
+    expect(selectionResponse.status).toBe(200);
+    expect(selection).toMatchObject({ value: cardName, imageUrl: 'https://cards.example/mew-corocoro-151.png' });
+
+    const mismatch = await handleWebRequest({
+      method: 'POST',
+      url: '/api/chases',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ cardName: 'Mew Expedition Base Set 19', cardSelectionToken: selection.token })
+    }, { config });
+    expect(mismatch.status).toBe(400);
+    expect(JSON.parse(mismatch.body ?? '{}').error).toBe('invalid_card_selection');
+
+    const crossAccount = await handleWebRequest({
+      method: 'POST',
+      url: '/api/chases',
+      headers: { ...otherHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ cardName, cardSelectionToken: selection.token })
+    }, { config });
+    expect(crossAccount.status).toBe(400);
+    expect(listChases(otherUserId)).toHaveLength(0);
+
+    const created = await handleWebRequest({
+      method: 'POST',
+      url: '/api/chases',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ cardName, cardSelectionToken: selection.token })
+    }, { config });
+    expect(created.status).toBe(201);
+    expect(JSON.parse(created.body ?? '{}').item.chase).toMatchObject({
+      cardName,
+      cardImageUrl: 'https://cards.example/mew-corocoro-151.png',
+      cardIdentity: {
+        value: cardName,
+        sourceName: 'CURATED',
+        sourceCardId: 'curated-mew-corocoro-151'
+      }
+    });
+
+    const untrusted = await handleWebRequest({
+      method: 'POST',
+      url: '/api/chases',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        cardName: 'Mew Expedition Base Set 19',
+        cardImageUrl: 'https://attacker.example/wrong-printing.png',
+        cardImageSourceKind: 'CARD_REFERENCE'
+      })
+    }, { config });
+    expect(untrusted.status).toBe(201);
+    expect(JSON.parse(untrusted.body ?? '{}').item.chase.cardImageUrl).toBeUndefined();
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
   it('maps create duplicate, limit, invalid input, invalid grade, and Free advanced controls', async () => {
     const userId = 'web-chases-create-errors';
     const headers = auth(userId, 'chases-create-errors-token');
@@ -1850,7 +1950,11 @@ describe('authenticated chase API', () => {
 
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body ?? '{}')).toMatchObject({ unavailable: false });
-    expect(JSON.parse(response.body ?? '{}').items).toContainEqual({ name: 'Mew — Southern Islands #1', value: 'Mew Southern Islands 1' });
+    expect(JSON.parse(response.body ?? '{}').items).toContainEqual(expect.objectContaining({
+      name: 'Mew — Southern Islands #1',
+      value: 'Mew Southern Islands 1',
+      selection: expect.objectContaining({ sourceName: 'POKEMONTCG', sourceCardId: 'si1-1' })
+    }));
 
     globalThis.fetch = originalFetch;
     clearUser(userId);
