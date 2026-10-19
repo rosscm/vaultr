@@ -451,6 +451,22 @@ a {
   font-weight: 800;
 }
 
+.environment-label {
+  width: fit-content;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 143, 168, 0.38);
+  border-radius: 999px;
+  color: var(--pink);
+  background: rgba(255, 143, 168, 0.1);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.signed-out-card > .environment-label {
+  margin: 0 auto 12px;
+}
+
 .preview-read-only {
   margin: 0;
   padding: 9px 11px;

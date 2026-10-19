@@ -1,0 +1,23 @@
+[Unit]
+Description=Vaultr staging web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Documents/GitHub/vaultr
+Environment=VAULTR_STAGING_ENV_FILE=/home/pi/.config/vaultr/staging.env
+EnvironmentFile=/home/pi/.config/vaultr/staging.env
+ExecStartPre=/usr/bin/install -d -m 0750 /home/pi/.local/share/vaultr-staging/data /home/pi/.local/share/vaultr-staging/catalog /home/pi/.local/share/vaultr-staging/logs
+ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr/dist/staging-web.js
+Restart=on-failure
+RestartSec=5
+MemoryAccounting=yes
+MemoryHigh=200M
+MemoryMax=300M
+StandardOutput=append:/home/pi/.local/share/vaultr-staging/logs/web.log
+StandardError=append:/home/pi/.local/share/vaultr-staging/logs/web.log
+
+[Install]
+WantedBy=multi-user.target

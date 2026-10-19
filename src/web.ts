@@ -96,12 +96,24 @@ export type WebConfig = {
   baseUrl: string;
   postLoginRedirectPath?: string;
   previewEnabled?: boolean;
+  environmentLabel?: string;
+  cookieNamespace?: string;
   emailAuth?: {
     postmarkServerToken: string;
     fromEmail: string;
     encryptionKey: Buffer;
   };
 };
+
+function cookieNames(config: WebConfig): { oauthState: string; session: string; emailConfirm: string } {
+  const namespace = config.cookieNamespace?.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  if (!namespace) return { oauthState: OAUTH_STATE_COOKIE, session: SESSION_COOKIE, emailConfirm: EMAIL_CONFIRM_COOKIE };
+  return {
+    oauthState: `vaultr_${namespace}_oauth_state`,
+    session: `vaultr_${namespace}_session`,
+    emailConfirm: `vaultr_${namespace}_email_confirm`
+  };
+}
 
 export type WebRequest = {
   method: string;
@@ -663,7 +675,7 @@ async function fetchDiscordUser(accessToken: string, options: WebHandlerOptions)
 
 function authenticatedSession(request: WebRequest, options: WebHandlerOptions): WebSession | null {
   const cookies = parseCookies(getHeader(request.headers, 'cookie'));
-  return resolveWebSession(cookies[SESSION_COOKIE], options.now?.() ?? new Date());
+  return resolveWebSession(cookies[cookieNames(options.config).session], options.now?.() ?? new Date());
 }
 
 export async function handleWebRequest(request: WebRequest, options: WebHandlerOptions): Promise<WebResponse> {
@@ -696,7 +708,8 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
   if (method === 'GET' && url.pathname === '/api/auth/config') {
     return jsonResponse(200, {
       email: { available: configuredEmailAuth(options) !== null },
-      discord: { available: Boolean(options.config.discordClientId && options.config.discordClientSecret) }
+      discord: { available: Boolean(options.config.discordClientId && options.config.discordClientSecret) },
+      ...(options.config.environmentLabel ? { environment: { label: options.config.environmentLabel } } : {})
     });
   }
 
@@ -728,7 +741,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     const prepared = prepareMagicLinkConfirmation(url.searchParams.get('token') ?? '', options.now?.() ?? new Date());
     if (!prepared) return redirectResponse('/app?emailConfirm=invalid');
     return redirectResponse('/app?emailConfirm=ready', {
-      'Set-Cookie': cookieHeaderParts(EMAIL_CONFIRM_COOKIE, prepared.nonce, {
+      'Set-Cookie': cookieHeaderParts(cookieNames(options.config).emailConfirm, prepared.nonce, {
         maxAgeSeconds: 10 * 60,
         secure: secureCookies
       }),
@@ -739,15 +752,15 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
 
   if (method === 'GET' && url.pathname === '/api/auth/email/confirmation') {
     const cookies = parseCookies(getHeader(request.headers, 'cookie'));
-    const state = magicLinkConfirmationState(cookies[EMAIL_CONFIRM_COOKIE], options.now?.() ?? new Date());
+    const state = magicLinkConfirmationState(cookies[cookieNames(options.config).emailConfirm], options.now?.() ?? new Date());
     return state ? jsonResponse(200, { ready: true, purpose: state.purpose, email: state.email }) : jsonResponse(200, { ready: false });
   }
 
   if (method === 'POST' && url.pathname === '/auth/email/redeem') {
     const cookies = parseCookies(getHeader(request.headers, 'cookie'));
-    const session = resolveWebSession(cookies[SESSION_COOKIE], options.now?.() ?? new Date());
+    const session = resolveWebSession(cookies[cookieNames(options.config).session], options.now?.() ?? new Date());
     const result = redeemMagicLink({
-      nonce: cookies[EMAIL_CONFIRM_COOKIE] ?? '',
+      nonce: cookies[cookieNames(options.config).emailConfirm] ?? '',
       sessionUserId: session?.userId,
       now: options.now?.()
     });
@@ -755,12 +768,12 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       const status = result.code === 'AUTH_REQUIRED' ? 401 : result.code === 'ACCOUNT_MISMATCH' || result.code === 'EMAIL_ALREADY_LINKED' || result.code === 'IDENTITY_CONFLICT' ? 409 : 400;
       return jsonResponse(status, { error: result.code.toLowerCase() });
     }
-    revokeWebSession(cookies[SESSION_COOKIE]);
+    revokeWebSession(cookies[cookieNames(options.config).session]);
     const { token } = createWebSession({ userId: result.userId }, { now: options.now?.() ?? new Date(), ttlDays: SESSION_TTL_DAYS });
     return jsonResponse(200, { ok: true, returnPath: result.returnPath, purpose: result.purpose }, {
       'Set-Cookie': [
-        clearCookieHeader(EMAIL_CONFIRM_COOKIE, secureCookies),
-        cookieHeaderParts(SESSION_COOKIE, token, { maxAgeSeconds: SESSION_TTL_DAYS * 24 * 60 * 60, secure: secureCookies })
+        clearCookieHeader(cookieNames(options.config).emailConfirm, secureCookies),
+        cookieHeaderParts(cookieNames(options.config).session, token, { maxAgeSeconds: SESSION_TTL_DAYS * 24 * 60 * 60, secure: secureCookies })
       ]
     });
   }
@@ -775,7 +788,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     authorizeUrl.searchParams.set('scope', 'identify');
     authorizeUrl.searchParams.set('state', state);
     return redirectResponse(authorizeUrl.toString(), {
-      'Set-Cookie': cookieHeaderParts(OAUTH_STATE_COOKIE, state, {
+      'Set-Cookie': cookieHeaderParts(cookieNames(options.config).oauthState, state, {
         maxAgeSeconds: OAUTH_STATE_MAX_AGE_SECONDS,
         secure: secureCookies
       })
@@ -784,14 +797,14 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
 
   if (method === 'GET' && url.pathname === '/auth/discord/callback') {
     if (!options.config.discordClientId || !options.config.discordClientSecret) return errorResponse(503, 'discord_auth_unavailable');
-    const clearStateCookie = clearCookieHeader(OAUTH_STATE_COOKIE, secureCookies);
+    const clearStateCookie = clearCookieHeader(cookieNames(options.config).oauthState, secureCookies);
     if (url.searchParams.has('error')) {
       return errorResponse(400, 'oauth_denied', { 'Set-Cookie': clearStateCookie });
     }
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
     const cookies = parseCookies(getHeader(request.headers, 'cookie'));
-    const expectedState = cookies[OAUTH_STATE_COOKIE];
+    const expectedState = cookies[cookieNames(options.config).oauthState];
     if (!code) return errorResponse(400, 'missing_code', { 'Set-Cookie': clearStateCookie });
     if (!state || !expectedState) return errorResponse(400, 'invalid_state', { 'Set-Cookie': clearStateCookie });
     if (state !== expectedState) return errorResponse(400, 'invalid_state', { 'Set-Cookie': clearStateCookie });
@@ -803,7 +816,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       if (!profile) return errorResponse(502, 'discord_profile_failed', { 'Set-Cookie': clearStateCookie });
       const user = resolveOrCreateDiscordUser(profile);
       const { token } = createWebSession({ userId: user.id }, { now: options.now?.() ?? new Date(), ttlDays: SESSION_TTL_DAYS });
-      const sessionCookie = cookieHeaderParts(SESSION_COOKIE, token, {
+      const sessionCookie = cookieHeaderParts(cookieNames(options.config).session, token, {
         maxAgeSeconds: SESSION_TTL_DAYS * 24 * 60 * 60,
         secure: secureCookies
       });
@@ -818,11 +831,11 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
 
   if (method === 'POST' && url.pathname === '/auth/logout') {
     const cookies = parseCookies(getHeader(request.headers, 'cookie'));
-    revokeWebSession(cookies[SESSION_COOKIE]);
+    revokeWebSession(cookies[cookieNames(options.config).session]);
     return jsonResponse(
       200,
       { ok: true },
-      { 'Set-Cookie': clearCookieHeader(SESSION_COOKIE, secureCookies) }
+      { 'Set-Cookie': clearCookieHeader(cookieNames(options.config).session, secureCookies) }
     );
   }
 
@@ -1117,6 +1130,8 @@ export function webConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WebConfi
     baseUrl,
     postLoginRedirectPath: env.VAULTR_WEB_POST_LOGIN_REDIRECT_PATH ?? '/app',
     previewEnabled: env.VAULTR_WEB_PREVIEW === 'true',
+    environmentLabel: env.VAULTR_WEB_ENVIRONMENT_LABEL,
+    cookieNamespace: env.VAULTR_WEB_COOKIE_NAMESPACE,
     emailAuth: emailConfigured ? {
       postmarkServerToken: env.POSTMARK_SERVER_TOKEN!,
       fromEmail: env.POSTMARK_FROM_EMAIL!,

@@ -13,7 +13,7 @@ function apiUrl(url) {
 const state = {
   user: null,
   identities: { email: { connected: false }, discord: { connected: false } },
-  authConfig: { email: { available: false }, discord: { available: false } },
+  authConfig: { email: { available: false }, discord: { available: false }, environment: null },
   emailConfirmation: null,
   authBusy: false,
   authEmailDraft: '',
@@ -471,6 +471,7 @@ function signedOutMarkup() {
   return `
     <main id="app-main" class="signed-out">
       <section class="signed-out-card" aria-labelledby="signed-out-title">
+        ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
         <div class="boot-mark" aria-hidden="true"><span>V</span></div>
         <h1 id="signed-out-title">Your collection, watched.</h1>
         <p>Track the cards you're chasing, review matches, and discover cards picked around your collection.</p>
@@ -507,6 +508,7 @@ function shellMarkup(content) {
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span class="brand-copy"><strong>Vaultr</strong><small>Collector workspace</small></span>
+          ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
         </a>
         <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
           ${navButton('home', 'Home')}
@@ -525,6 +527,7 @@ function shellMarkup(content) {
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span class="brand-copy"><strong>Vaultr</strong><small>Collector workspace</small></span>
+          ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
         </a>
         <div class="user-area">
           ${avatarHtml(state.user)}

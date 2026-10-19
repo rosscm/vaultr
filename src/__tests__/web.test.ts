@@ -261,6 +261,8 @@ describe('web app static routes', () => {
     expect(fontResponse.body?.slice(0, 4)).toBe('wOF2');
     expect(cssResponse.body).not.toContain('@font-face');
     expect(cssResponse.body).toContain('font-family: Roboto, "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
+    expect(cssResponse.body).toContain('.environment-label');
+    expect(jsResponse.body).toContain('state.authConfig?.environment?.label');
     expect(jsResponse.body).toContain('COMPLETED CHASES');
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
     expect(jsResponse.body).toContain('const hasVisibleRows = items.length > 0 || completed.length > 0;');
@@ -601,6 +603,35 @@ describe('web app preview mode', () => {
 });
 
 describe('web auth routes', () => {
+  it('labels staging and isolates its OAuth cookie names', async () => {
+    expect(webConfigFromEnv({
+      VAULTR_WEB_BASE_URL: 'https://staging.vaultr.example',
+      VAULTR_WEB_ENVIRONMENT_LABEL: 'Staging',
+      VAULTR_WEB_COOKIE_NAMESPACE: 'staging'
+    })).toMatchObject({
+      environmentLabel: 'Staging',
+      cookieNamespace: 'staging'
+    });
+
+    const stagingConfig: WebConfig = {
+      ...config,
+      baseUrl: 'https://staging.vaultr.example',
+      environmentLabel: 'Staging',
+      cookieNamespace: 'staging'
+    };
+    const methods = await handleWebRequest({ method: 'GET', url: '/api/auth/config' }, { config: stagingConfig });
+    expect(JSON.parse(methods.body ?? '{}')).toEqual({
+      email: { available: false },
+      discord: { available: true },
+      environment: { label: 'Staging' }
+    });
+
+    const authorize = await handleWebRequest({ method: 'GET', url: '/auth/discord' }, { config: stagingConfig });
+    expect(authorize.status).toBe(302);
+    expect(authorize.headers?.['Set-Cookie']).toEqual(expect.stringContaining('vaultr_staging_oauth_state='));
+    expect(authorize.headers?.Location).toEqual(expect.stringContaining(encodeURIComponent('https://staging.vaultr.example/auth/discord/callback')));
+  });
+
   it('reports configured methods and permits email-only web startup', async () => {
     expect(webConfigFromEnv({
       VAULTR_WEB_BASE_URL: 'https://vaultr.example',
