@@ -32,6 +32,7 @@ import {
   LISTING_TYPE_CHOICES,
   PRIORITY_CHOICES
 } from './services/chase-options.js';
+import { getEntitlementsForTier } from './services/entitlements.js';
 import {
   getLatestAvailableScheduledDiscoveryDrop,
   getScheduledDiscoveryDrop,
@@ -320,12 +321,24 @@ function publicVaultItem(view: ReturnType<typeof getVaultChases>['chases'][numbe
 }
 
 function vaultOptions() {
+  const plans = (['FREE', 'PRO'] as const).map((tier) => {
+    const entitlements = getEntitlementsForTier(tier);
+    return {
+      tier,
+      label: tier === 'PRO' ? 'Vaultr Plus' : 'Free',
+      maxActiveChases: entitlements.maxActiveChases,
+      checkIntervalMinutes: Math.round(entitlements.pollIntervalSeconds / 60),
+      advancedFiltering: entitlements.advancedFiltering,
+      storefrontMonitoring: entitlements.storefrontMonitoring
+    };
+  });
   return {
     gradingTypes: GRADING_TYPE_CHOICES,
     gradeValues: GRADE_VALUE_CHOICES,
     conditions: CONDITION_CHOICES,
     listingTypes: LISTING_TYPE_CHOICES,
-    priorities: PRIORITY_CHOICES
+    priorities: PRIORITY_CHOICES,
+    plans
   };
 }
 
