@@ -14,6 +14,12 @@ Use that application's client ID and secret only in the staging environment. Sta
 
 ## Prepare
 
+Run staging build and deployment commands from the dedicated checkout:
+
+```bash
+cd /home/pi/Documents/GitHub/vaultr-staging
+```
+
 ```bash
 mkdir -p ~/.config/vaultr
 install -m 0600 deploy/vaultr-staging.env.example ~/.config/vaultr/staging.env

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createUser } from '../accounts.js';
-import { addChase, removeAllChases } from '../chase-store.js';
+import { addChase, listChases, removeAllChases } from '../chase-store.js';
 import { db, migrateWebOnboarding } from '../db.js';
 import { getOrCreateOnboardingState, transitionOnboarding } from '../onboarding.js';
 
@@ -54,10 +54,30 @@ describe('web onboarding', () => {
 
     addChase({ userId, cardName: 'Pichu Expedition 22/165' });
     expect(getOrCreateOnboardingState(userId)).toMatchObject({ step: 'READY', hasChase: true });
+    expect(listChases(userId)).toHaveLength(1);
     expect(transitionOnboarding(userId, 'CHASE_CREATED', 'CHASE')).toMatchObject({ ok: false, code: 'STALE_STATE', state: { step: 'READY' } });
     expect(transitionOnboarding(userId, 'FINISH', 'READY')).toMatchObject({ ok: true, state: { status: 'COMPLETED' } });
     expect(transitionOnboarding(userId, 'FINISH', 'READY')).toMatchObject({ ok: true, state: { status: 'COMPLETED' } });
     expect(transitionOnboarding(userId, 'RESUME')).toMatchObject({ ok: false, state: { status: 'COMPLETED' } });
+  });
+
+  it('preserves each successfully saved step across later reads', () => {
+    const userId = newUser('Resuming collector');
+    expect(getOrCreateOnboardingState(userId).step).toBe('WELCOME');
+    expect(getOrCreateOnboardingState(userId).step).toBe('WELCOME');
+
+    transitionOnboarding(userId, 'CONTINUE', 'WELCOME');
+    expect(getOrCreateOnboardingState(userId)).toMatchObject({ status: 'IN_PROGRESS', step: 'MARKET' });
+    expect(getOrCreateOnboardingState(userId).step).toBe('MARKET');
+
+    transitionOnboarding(userId, 'MARKET_SAVED', 'MARKET');
+    expect(getOrCreateOnboardingState(userId)).toMatchObject({ status: 'IN_PROGRESS', step: 'CHASE' });
+    expect(getOrCreateOnboardingState(userId).step).toBe('CHASE');
+
+    addChase({ userId, cardName: 'Mew CoroCoro Promo 151' });
+    expect(getOrCreateOnboardingState(userId)).toMatchObject({ status: 'IN_PROGRESS', step: 'READY', hasChase: true });
+    expect(getOrCreateOnboardingState(userId).step).toBe('READY');
+    expect(listChases(userId)).toHaveLength(1);
   });
 
   it('persists Skip and resumes manually without requiring another Chase', () => {

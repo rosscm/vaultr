@@ -247,6 +247,7 @@ describe('web app static routes', () => {
     const cssResponse = await handleWebRequest({ method: 'GET', url: '/app.css' }, { config });
     const jsResponse = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const fontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/roboto-latin-variable.woff2' }, { config });
+    const onboardingArtResponse = await handleWebRequest({ method: 'GET', url: '/onboarding-art/mew-corocoro-promo-151.webp' }, { config });
 
     expect(appResponse.status).toBe(200);
     expect(appResponse.headers?.['Content-Type']).toBe('text/html; charset=utf-8');
@@ -259,6 +260,9 @@ describe('web app static routes', () => {
     expect(fontResponse.status).toBe(200);
     expect(fontResponse.headers?.['Content-Type']).toBe('font/woff2');
     expect(fontResponse.body?.slice(0, 4)).toBe('wOF2');
+    expect(onboardingArtResponse.status).toBe(200);
+    expect(onboardingArtResponse.headers?.['Content-Type']).toBe('image/webp');
+    expect(onboardingArtResponse.body?.slice(0, 4)).toBe('RIFF');
     expect(cssResponse.body).not.toContain('@font-face');
     expect(cssResponse.body).toContain('font-family: Roboto, "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
     expect(cssResponse.body).toContain('.environment-label');
@@ -284,6 +288,19 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-page="settings"');
     expect(jsResponse.body).toContain('data-settings-form');
     expect(jsResponse.body).toContain('data-onboarding-market-form');
+    expect(jsResponse.body).toContain('Finish setting up Vaultr');
+    expect(jsResponse.body).toContain('Your progress is saved.');
+    expect(jsResponse.body).toContain("state.onboarding?.status !== 'IN_PROGRESS'");
+    expect(jsResponse.body).toContain("state.onboarding?.status === 'SKIPPED' ? '<button class=\"button-ghost settings-onboarding-link\"");
+    expect(jsResponse.body).toContain("const hasExplicitRoute = /^#(home|vault|alerts|shelf|settings|onboarding)$/i.test(window.location.hash);");
+    expect(jsResponse.body).toContain('Tell Vaultr which Pokémon cards you\'re looking for and what matters to you.');
+    expect(jsResponse.body).toContain('Get started');
+    expect(jsResponse.body).toContain('const hasLoadedChase = !isPreviewMode');
+    expect(jsResponse.body).toContain('Continue simulation without saving');
+    expect(jsResponse.body).toContain('Inspect Chase form');
+    expect(jsResponse.body).not.toContain("${hasLoadedChase ? '<button class=\"button-primary\" type=\"button\" data-action=\"onboarding-chase-saved\">Continue</button>' : '<button class=\"button-primary\" type=\"button\" data-action=\"onboarding-add-chase\">Add your first Chase</button>'}${isPreviewMode ?");
+    const navigationSource = jsResponse.body?.slice(jsResponse.body.indexOf('async function navigateToPage'), jsResponse.body.indexOf('function resetViewportForPage')) ?? '';
+    expect(navigationSource).not.toContain("updateOnboarding('SKIP')");
     expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
     expect(jsResponse.body).toContain('${vaultDialogMarkup()}');
     expect(jsResponse.body).toContain("fetchJson('/api/settings'");

@@ -6,11 +6,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/Documents/GitHub/vaultr
+WorkingDirectory=/home/pi/Documents/GitHub/vaultr-staging
 Environment=VAULTR_STAGING_ENV_FILE=/home/pi/.config/vaultr/staging.env
 EnvironmentFile=/home/pi/.config/vaultr/staging.env
 ExecStartPre=/usr/bin/install -d -m 0750 /home/pi/.local/share/vaultr-staging/data /home/pi/.local/share/vaultr-staging/catalog /home/pi/.local/share/vaultr-staging/logs
-ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr/dist/staging-web.js
+ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr-staging/dist/staging-web.js
 Restart=on-failure
 RestartSec=5
 MemoryAccounting=yes

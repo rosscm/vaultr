@@ -70,6 +70,7 @@ const state = {
   onboardingLoaded: false,
   onboardingError: '',
   onboardingBusy: false,
+  onboardingPreviewChaseCreated: false,
   vaultNotice: '',
   vaultFormMode: null,
   vaultEditingId: null,
@@ -261,26 +262,27 @@ async function navigateToPage(page, { updateHash = true } = {}) {
   if (state.activePage === 'settings' && nextPage !== 'settings' && state.settingsDirty) {
     if (!window.confirm('Discard your unsaved Settings changes?')) {
       if (!updateHash) window.history.replaceState(null, '', '#settings');
-      return;
+      return false;
     }
     resetSettingsDraft();
   }
   if (state.activePage === 'onboarding' && nextPage !== 'onboarding' && state.settingsDirty) {
     if (!window.confirm('Discard unsaved setup changes?')) {
       if (!updateHash) window.history.replaceState(null, '', '#onboarding');
-      return;
+      return false;
     }
     resetSettingsDraft();
   }
   if (updateHash && window.location.hash !== `#${nextPage}`) {
     window.location.hash = nextPage;
-    return;
+    return true;
   }
   const pageChanged = state.activePage !== nextPage;
   state.activePage = nextPage;
   renderCurrentPage();
   await loadActivePageData();
   if (pageChanged) resetViewportForPage(nextPage);
+  return true;
 }
 
 function resetViewportForPage(page) {
@@ -536,6 +538,7 @@ function shellMarkup(content) {
         </div>
       </header>
       <main id="app-main" class="app-main">
+        ${onboardingResumePromptMarkup()}
         ${content}
       </main>
       <nav class="mobile-nav" aria-label="Vaultr mobile navigation">
@@ -545,6 +548,16 @@ function shellMarkup(content) {
         ${navButton('shelf', 'Discover')}
       </nav>
     </div>
+  `;
+}
+
+function onboardingResumePromptMarkup() {
+  if (state.activePage === 'onboarding' || state.onboarding?.status !== 'IN_PROGRESS') return '';
+  return `
+    <aside class="onboarding-resume-prompt" aria-label="Incomplete Vaultr setup">
+      <span><strong>Finish setting up Vaultr</strong><small>Your progress is saved.</small></span>
+      <button class="button-ghost" type="button" data-action="resume-onboarding">Resume setup</button>
+    </aside>
   `;
 }
 
@@ -644,7 +657,7 @@ function settingsPageMarkup() {
         <p class="eyebrow">Account</p>
         <h1 id="settings-title">Settings</h1>
         <p>Shape which matches Vaultr surfaces and how listing costs are evaluated.</p>
-        ${state.onboarding?.status === 'COMPLETED' ? '' : '<button class="button-ghost settings-onboarding-link" type="button" data-action="resume-onboarding">Getting started</button>'}
+        ${state.onboarding?.status === 'SKIPPED' ? '<button class="button-ghost settings-onboarding-link" type="button" data-action="resume-onboarding">Getting started</button>' : ''}
       </header>
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
       <section class="settings-group account-methods" aria-labelledby="settings-login-title">
@@ -773,16 +786,39 @@ function onboardingMarketMarkup() {
     </form>`;
 }
 
+function onboardingWelcomeMarkup() {
+  return `
+    <div class="onboarding-welcome-copy">
+      <p class="eyebrow">WELCOME TO VAULTR</p>
+      <h1 id="onboarding-title">Build your Vault. Chase your grails. Discover what you love next.</h1>
+      <p class="onboarding-intro">Tell Vaultr which Pokémon cards you're looking for and what matters to you. We watch supported marketplaces for matching listings and help you discover cards around your collecting interests.</p>
+      <ol class="onboarding-primer" aria-label="How Vaultr works">
+        <li><span aria-hidden="true">1</span><div><strong>Chase</strong><p>Choose a card and the criteria that matter to you.</p></div></li>
+        <li><span aria-hidden="true">2</span><div><strong>Watch</strong><p>Review qualifying marketplace listings in your Inbox.</p></div></li>
+        <li><span aria-hidden="true">3</span><div><strong>Discover</strong><p>Explore personalized recommendations as your collector profile develops.</p></div></li>
+      </ol>
+      <div class="onboarding-actions onboarding-welcome-actions"><button class="button-primary" type="button" data-action="onboarding-continue">Get started</button><button class="onboarding-skip" type="button" data-action="skip-onboarding">Skip setup</button></div>
+    </div>
+    <div class="onboarding-art-stack" aria-hidden="true">
+      <img class="onboarding-art-card art-card-one" src="/onboarding-art/mew-corocoro-promo-151.webp" alt="">
+      <img class="onboarding-art-card art-card-two" src="/onboarding-art/pichu-expedition-022.webp" alt="">
+      <img class="onboarding-art-card art-card-three" src="/onboarding-art/sylveon-ex-212.webp" alt="">
+      <small>Illustrative card artwork</small>
+    </div>
+  `;
+}
+
 function onboardingPageMarkup() {
   const step = state.onboarding?.step || 'WELCOME';
-  const hasLoadedChase = (state.vault || []).length > 0;
+  const hasLoadedChase = !isPreviewMode && (state.vault || []).length > 0;
   const previewNotice = isPreviewMode ? '<p class="preview-read-only" role="status">Preview simulation is read-only. No settings or Chases will be saved.</p>' : '';
   let content = '';
-  if (step === 'WELCOME') content = `<p class="eyebrow">WELCOME TO VAULTR</p><h1 id="onboarding-title">Build your Vault. Chase your grails. Discover what you love next.</h1><p>Save cards in your Vault, review qualifying matches in Inbox, and explore personalized picks in Discover.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button><button class="button-primary" type="button" data-action="onboarding-continue">Continue</button></div>`;
+  if (step === 'WELCOME') content = onboardingWelcomeMarkup();
   if (step === 'MARKET') content = `<p class="eyebrow">YOUR MARKET</p><h1 id="onboarding-title">Set your market context</h1><p>Choose how prices are shown and where listings need to ship.</p>${onboardingMarketMarkup()}`;
-  if (step === 'CHASE') content = `<p class="eyebrow">YOUR FIRST CHASE</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your Chase is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'Continue without creating another Chase.' : 'Search for an exact printing or enter a clear card name. You can refine every Chase later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button>${hasLoadedChase ? '<button class="button-primary" type="button" data-action="onboarding-chase-saved">Continue</button>' : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first Chase</button>'}${isPreviewMode ? '<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation</button>' : ''}</div>`;
-  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Vault is ready</h1><p>${isPreviewMode ? 'This preview did not save a Chase. ' : state.onboarding?.hasChase ? 'Your Chase is saved. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Weekly Shelf preparation requires Full Vault and sufficient collecting signals, so it may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">Open Home</button></div>`;
-  return `<section class="onboarding-page" aria-labelledby="onboarding-title">${onboardingStepIndicator(step)}${previewNotice}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content">${content}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
+  if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CHASE</p><h1 id="onboarding-title">Inspect the shared Chase form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button><button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Chase form</button></div>`;
+  if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CHASE</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your Chase is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'Continue without creating another Chase.' : 'Search for an exact printing or enter a clear card name. You can refine every Chase later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button>${hasLoadedChase ? '<button class="button-primary" type="button" data-action="onboarding-chase-saved">Continue</button>' : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first Chase</button>'}</div>`;
+  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Vault is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a Chase. ' : 'This preview did not save a Chase. ' : state.onboarding?.hasChase ? 'Your Chase is saved. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Weekly Shelf preparation requires Full Vault and sufficient collecting signals, so it may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">Open Home</button></div>`;
+  return `<section class="onboarding-page${step === 'WELCOME' ? ' welcome' : ''}" aria-labelledby="onboarding-title">${onboardingStepIndicator(step)}${previewNotice}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content${step === 'WELCOME' ? ' onboarding-welcome' : ''}">${content}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
 }
 
 function alertsPageMarkup(inner) {
@@ -1939,10 +1975,13 @@ async function updateOnboarding(action) {
     const transitions = { CONTINUE: 'MARKET', BACK: state.onboarding?.step === 'MARKET' ? 'WELCOME' : 'MARKET', MARKET_SAVED: 'CHASE', CHASE_CREATED: 'READY', FINISH: 'READY', RESUME: 'WELCOME' };
     if (action === 'SKIP' || action === 'FINISH') {
       if (action === 'SKIP') resetSettingsDraft();
+      state.onboarding = { ...(state.onboarding || {}), status: action === 'SKIP' ? 'SKIPPED' : 'COMPLETED', automatic: false };
       state.activePage = 'home';
       window.location.hash = 'home';
       return;
     }
+    if (action === 'RESUME') state.onboardingPreviewChaseCreated = false;
+    if (action === 'CHASE_CREATED') state.onboardingPreviewChaseCreated = true;
     state.onboarding = { ...(state.onboarding || {}), status: 'IN_PROGRESS', step: transitions[action] || state.onboarding?.step, automatic: false };
     renderCurrentPage();
     return;
@@ -2288,7 +2327,8 @@ async function bootstrap() {
     state.identities = body.identities || state.identities;
     const onboarding = await loadOnboarding();
     const requestedPage = pageFromHash();
-    state.activePage = (!isPreviewMode && onboarding?.status === 'IN_PROGRESS') || requestedPage === 'onboarding'
+    const hasExplicitRoute = /^#(home|vault|alerts|shelf|settings|onboarding)$/i.test(window.location.hash);
+    state.activePage = (!isPreviewMode && onboarding?.status === 'IN_PROGRESS' && !hasExplicitRoute) || requestedPage === 'onboarding'
       ? 'onboarding'
       : state.emailConfirmation?.purpose === 'LINK_EMAIL'
         ? 'settings'
@@ -2356,11 +2396,9 @@ app.addEventListener('click', async (event) => {
   const action = target.getAttribute('data-action');
   if (action === 'resume-onboarding') {
     if (!state.onboardingLoaded) await loadOnboarding();
-    state.activePage = 'onboarding';
-    window.location.hash = 'onboarding';
+    const canResume = await navigateToPage('onboarding');
+    if (!canResume) return;
     if (state.onboarding?.status !== 'IN_PROGRESS') await updateOnboarding('RESUME');
-    else renderCurrentPage();
-    await loadActivePageData();
     return;
   }
   if (action === 'onboarding-continue') {
