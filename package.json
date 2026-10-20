@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "dev:web": "tsx src/web.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/write-build-info.mjs",
     "start": "node dist/index.js",
     "start:web": "node dist/web.js",
     "start:web:staging": "node dist/staging-web.js",

@@ -17,7 +17,8 @@ import {
   sourceQueryKey,
   shippingDestinationFromSettings,
   shouldSuppressForDestinationShipping,
-  shouldPostDailyPulse
+  shouldPostDailyPulse,
+  shouldApplyEbayBackoff
 } from '../poller.js';
 import {
   enqueueAlertEventDelivery,
@@ -307,6 +308,8 @@ describe('alert eBay search options', () => {
     expect(listingSourceFailureReason(new Error('Listing source timeout'))).toBe('Source timeout');
     expect(listingSourceFailureReason(new Error('eBay rate limit exceeded: 429'))).toBe('Rate limit');
     expect(listingSourceFailureReason(new Error('socket hang up'))).toBe('Source error');
+    expect(shouldApplyEbayBackoff(new Error('Listing source timeout'))).toBe(false);
+    expect(shouldApplyEbayBackoff(new Error('eBay rate limit exceeded: 429'))).toBe(true);
   });
 
   it('nudges chase tune-outs only when one chase has more eligible alerts than the per-poll cap', () => {

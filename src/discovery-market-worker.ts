@@ -1,8 +1,11 @@
 import 'dotenv/config';
+import { logBuildInfo } from './services/build-info.js';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { processDiscoveryMarketRefreshWork } from './commands/discover.js';
 import { claimDiscoveryMarketRefreshJobs, completeDiscoveryMarketRefreshJob, requeueStaleDiscoveryMarketRefreshJobs, retryDiscoveryMarketRefreshJob } from './services/discovery-market-jobs.js';
+
+logBuildInfo('discovery-market-worker');
 
 const workerId = process.env.DISCOVERY_MARKET_WORKER_ID ?? `discovery-market-worker:${process.pid}:${randomUUID()}`;
 const batchSize = Math.max(1, Math.floor(Number(process.env.DISCOVERY_MARKET_WORKER_BATCH_SIZE ?? '1')));

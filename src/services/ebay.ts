@@ -61,7 +61,7 @@ const ebayRuntimeStats: EbayRuntimeStats = {
 };
 
 class EbayRateLimitError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly retryAfterMs?: number) {
     super(message);
     this.name = 'EbayRateLimitError';
   }
@@ -204,8 +204,20 @@ export function snapshotEbayRuntimeStats(): EbayRuntimeStats {
   return { ...ebayRuntimeStats };
 }
 
-function rememberEbayRateLimit(): void {
-  setBackoffUntil(new Date(Date.now() + ebayBackoffSeconds() * 1000));
+export function ebayRetryAfterMs(response: Response, nowMs = Date.now()): number | undefined {
+  const value = response.headers?.get?.('retry-after')?.trim();
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? Math.max(0, at - nowMs) : undefined;
+}
+
+function rememberEbayRateLimit(error?: unknown): void {
+  const delayMs = error instanceof EbayRateLimitError && error.retryAfterMs !== undefined
+    ? error.retryAfterMs
+    : ebayBackoffSeconds() * 1000;
+  setBackoffUntil(new Date(Date.now() + delayMs), error instanceof EbayRateLimitError && error.retryAfterMs !== undefined ? 'eBay Retry-After' : 'eBay rate limit');
 }
 
 function isEbayRateLimitMessage(message: string): boolean {
@@ -214,6 +226,10 @@ function isEbayRateLimitMessage(message: string): boolean {
 
 function isEbayRateLimitError(error: unknown): boolean {
   return error instanceof EbayRateLimitError || isEbayRateLimitMessage(error instanceof Error ? error.message : String(error));
+}
+
+export function ebayRateLimitRetryAfterMs(error: unknown): number | undefined {
+  return error instanceof EbayRateLimitError ? error.retryAfterMs : undefined;
 }
 
 function getEbayEnv(): 'PRODUCTION' | 'SANDBOX' {
@@ -638,7 +654,7 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
   });
   const json: any = await parseJsonResponse(response);
   if (isBrowseRateLimitError(response, json)) {
-    throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`);
+    throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`, ebayRetryAfterMs(response));
   }
   if (!response.ok) {
     throw new Error(`eBay Browse request failed: ${response.status}`);
@@ -679,7 +695,7 @@ async function enrichListingFromBrowseItemApi(listing: Listing, token: string, d
       }
     });
     const json: any = await parseJsonResponse(response);
-    if (isBrowseRateLimitError(response, json)) throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`);
+    if (isBrowseRateLimitError(response, json)) throw new EbayRateLimitError(`eBay rate limit exceeded: ${response.status}`, ebayRetryAfterMs(response));
     if (!response.ok) return listing;
     const destinationCountry = getDeliveryCountry(destination);
     const destinationPostalCode = getDeliveryPostalCode(destination);
@@ -711,7 +727,7 @@ async function enrichListingFromBrowseItemApi(listing: Listing, token: string, d
     };
   } catch (error) {
     if (isEbayRateLimitError(error)) {
-      rememberEbayRateLimit();
+      rememberEbayRateLimit(error);
       throw error;
     }
     return listing;
@@ -840,7 +856,7 @@ export async function searchEbayListings(chase: Chase, destination?: ShippingDes
     return cloneListings(listings);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (isEbayRateLimitMessage(message)) rememberEbayRateLimit();
+    if (isEbayRateLimitMessage(message)) rememberEbayRateLimit(error);
     throw error;
   }
 }

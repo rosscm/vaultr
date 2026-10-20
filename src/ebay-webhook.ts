@@ -1,8 +1,11 @@
 import 'dotenv/config';
+import { logBuildInfo } from './services/build-info.js';
 import { createHash } from 'node:crypto';
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { processEbayAccountDeletionNotification } from './services/ebay-account-deletion.js';
+
+logBuildInfo('ebay-webhook');
 
 const port = Number(process.env.EBAY_WEBHOOK_PORT ?? '8787');
 const endpointUrl = process.env.EBAY_NOTIFICATION_ENDPOINT_URL;

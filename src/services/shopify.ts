@@ -7,6 +7,7 @@ import {
   failTrustedShopCatalogBatch,
   findTrustedShopCatalogCandidates,
   getTrustedShopCatalogState,
+  limitTrustedShopCatalogCoverage,
   listTrustedShopCatalogStates,
   markTrustedShopCatalogProductUnavailable,
   recordTrustedShopRevalidation,
@@ -100,7 +101,7 @@ const SHOPIFY_CANDIDATE_HYDRATION_CONCURRENCY = 3;
 const SHOPIFY_PRODUCT_CACHE_TTL_MS = 60_000;
 const SHOPIFY_CATALOG_WORK_INTERVAL_MS = 60_000;
 
-export type ShopifyCoverage = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE_OBSERVED' | 'INTERRUPTED';
+export type ShopifyCoverage = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE_OBSERVED' | 'INTERRUPTED' | 'LIMITED_PROVIDER_BOUNDARY';
 export type ShopifyOperationStatus = 'SUCCESS' | 'PARTIAL' | 'FAILURE';
 
 export type TrustedShopifyShopResult = {
@@ -148,6 +149,14 @@ const shopifyScanRequests = new Map<string, Promise<TrustedShopCatalogState>>();
 const shopifyProductCache = new Map<string, { product: ShopifyProduct | null; expiresAt: number }>();
 const shopifyProductRequests = new Map<string, Promise<CurrentProductResult>>();
 let trustedShopCatalogWorkerStarted = false;
+const loggedCatalogStates = new Map<string, { fingerprint: string; loggedAt: number }>();
+
+class ShopifyHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`Shopify request failed: ${status}`);
+    this.name = 'ShopifyHttpError';
+  }
+}
 
 function normalize(text: string): string {
   return text
@@ -232,7 +241,7 @@ async function fetchShopifyJson<T>(url: URL): Promise<T> {
         'user-agent': 'Vaultr trusted shop monitor'
       }
     });
-    if (!response.ok) throw new Error(`Shopify request failed: ${response.status}`);
+    if (!response.ok) throw new ShopifyHttpError(response.status);
     return (await response.json()) as T;
   } finally {
     clearTimeout(timeout);
@@ -394,6 +403,13 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
           break;
         }
       } catch (error) {
+        const requestedPage = state.nextPage + offset;
+        if (error instanceof ShopifyHttpError && error.status === 400 && requestedPage >= 101 && state.pagesScanned >= 100) {
+          return limitTrustedShopCatalogCoverage({
+            shopSlug: shop.slug,
+            reason: 'Provider rejects products pagination beyond page 100 (HTTP 400); indexed coverage retained'
+          });
+        }
         failure = error instanceof Error ? error.message : String(error);
         break;
       }
@@ -437,10 +453,16 @@ export function startTrustedShopifyCatalogWorker(): void {
     void advanceTrustedShopifyCatalogCoverage()
       .then((states) => {
         for (const state of states) {
+          const fingerprint = [state.coverageStatus, state.nextPage, state.pagesScanned, state.productsSeen, state.retryCount, state.lastError ?? ''].join('|');
+          const prior = loggedCatalogStates.get(state.shopSlug);
+          const now = Date.now();
+          if (prior?.fingerprint === fingerprint && now - prior.loggedAt < 15 * 60_000) continue;
+          loggedCatalogStates.set(state.shopSlug, { fingerprint, loggedAt: now });
           console.info(
             `[Trusted shops catalog] shop=${state.shopSlug} coverage=${state.coverageStatus} ` +
             `nextPage=${state.nextPage} pages=${state.pagesScanned} products=${state.productsSeen} ` +
-            `nextRun=${state.nextRunAt} retries=${state.retryCount}`
+            `lastProgress=${state.lastSuccessfulBatchAt ?? 'never'} nextRun=${state.coverageStatus === 'LIMITED_PROVIDER_BOUNDARY' ? 'none' : state.nextRunAt} ` +
+            `failures=${state.retryCount} reason=${state.lastError ?? 'none'}`
           );
         }
       })
@@ -511,7 +533,7 @@ async function searchTrustedShop(shop: TrustedShopifyShop, chase: Chase): Promis
     listings,
     status: failedCompletely ? 'FAILURE' : indexedStatus !== 'SUCCESS' || searchStatus !== 'SUCCESS' ? 'PARTIAL' : 'SUCCESS',
     feed: {
-      status: state.coverageStatus === 'INTERRUPTED' ? 'PARTIAL' : 'SUCCESS',
+      status: state.coverageStatus === 'INTERRUPTED' || state.coverageStatus === 'LIMITED_PROVIDER_BOUNDARY' ? 'PARTIAL' : 'SUCCESS',
       coverage: state.coverageStatus,
       productCount: countTrustedShopCatalogProducts(shop.slug),
       pagesFetched: state.pagesScanned,

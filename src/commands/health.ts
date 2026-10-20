@@ -479,6 +479,7 @@ export const health = {
       `**Rate Limit Skips:** ${state.rateLimitSkips}`,
       `**Consecutive Failures:** ${state.consecutiveFailures}`,
       `**Backoff Until:** ${state.backoffUntil ? formatTimeWithAge(state.backoffUntil) : 'None'}`,
+      `**Backoff Reason:** ${state.backoffReason ?? 'None'}`,
       `**Last Source Success:** ${state.lastSourceSuccessAt ? formatTimeWithAge(state.lastSourceSuccessAt) : 'None'}`,
       `**Last Error:** ${state.lastError ?? 'None'}`
     ];

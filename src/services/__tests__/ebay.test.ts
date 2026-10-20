@@ -21,6 +21,12 @@ function baseChase(): Chase {
 }
 
 describe('buildEbaySearchKeywords', () => {
+  it('honors numeric and dated Retry-After values', async () => {
+    const { ebayRetryAfterMs } = await import('../ebay.js');
+    expect(ebayRetryAfterMs(new Response(null, { headers: { 'retry-after': '45' } }), 1_000)).toBe(45_000);
+    expect(ebayRetryAfterMs(new Response(null, { headers: { 'retry-after': new Date(61_000).toUTCString() } }), 1_000)).toBe(60_000);
+  });
+
   it('keeps slash-number spacing for EX cards while compacting known promo series numbers', async () => {
     const { buildEbaySearchKeywords } = await import('../ebay.js');
 

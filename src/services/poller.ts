@@ -31,7 +31,7 @@ import {
   pruneSourceObservations,
   recordSourceObservations
 } from './chase-store.js';
-import { enrichEbayListingDetails, getCachedEbayListings, searchEbayListings, type ShippingDestination } from './ebay.js';
+import { ebayRateLimitRetryAfterMs, enrichEbayListingDetails, getCachedEbayListings, searchEbayListings, type ShippingDestination } from './ebay.js';
 import { searchTrustedShopifyListingsDetailed, startTrustedShopifyCatalogWorker, type TrustedShopifySearchResult } from './shopify.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
@@ -600,6 +600,11 @@ export function listingSourceFailureReason(error: unknown): string {
   return 'Source error';
 }
 
+export function shouldApplyEbayBackoff(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /429|rate limit|quota|ratelimiter/i.test(message);
+}
+
 function shopifyProviderOutcome(result: TrustedShopifySearchResult): ListingProviderOutcome {
   return {
     provider: 'SHOPIFY',
@@ -674,11 +679,11 @@ async function fetchListingsWithRetry(
       markSourceSuccessNow();
       ebayOutcome = { provider: 'EBAY', status: ebayListings.length > 0 ? 'SUCCESS' : 'EMPTY', listingCount: ebayListings.length };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('429') || /rate limit|quota|ratelimiter|listing source timeout/i.test(message)) {
-        const backoffMs = backoffBaseSeconds * 1000 * attempt;
+      if (shouldApplyEbayBackoff(error)) {
+        const retryAfterMs = ebayRateLimitRetryAfterMs(error);
+        const backoffMs = retryAfterMs ?? backoffBaseSeconds * 1000 * attempt;
         backoffUntilMs = Date.now() + backoffMs;
-        setBackoffUntil(new Date(backoffUntilMs));
+        setBackoffUntil(new Date(backoffUntilMs), retryAfterMs === undefined ? 'eBay rate limit' : 'eBay Retry-After');
       }
       if (attempt === attempts) {
         ebayOutcome = { provider: 'EBAY', status: 'FAILURE', listingCount: 0, reason: listingSourceFailureReason(error) };

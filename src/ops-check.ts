@@ -10,6 +10,8 @@ import { getWeeklyDiscoveryPreparationHealth, ownerAlertGraceMs } from './servic
 import { listWeeklyDiscoveryPreparationStates, markWeeklyDiscoveryOwnerAlertState } from './services/weekly-discovery-preparation-state.js';
 import { failureFingerprint, shouldSuppressDuplicateAlert } from './services/ops-alerts.js';
 import { activePlanTier, monitoringPlanChases, PLAN_LIMITS } from './services/plans.js';
+import { readBuildInfo } from './services/build-info.js';
+import { classifyTrustedShopCatalogHealth, listTrustedShopCatalogStates } from './services/trusted-shop-catalog.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -165,6 +167,24 @@ function checkDatabaseFile(): CheckResult {
   return { name: 'database-file', ok: sizeBytes > 0, details: `${databasePath} (${sizeBytes} bytes)` };
 }
 
+function checkBuildIdentification(): CheckResult {
+  const info = readBuildInfo();
+  return info
+    ? { name: 'build-id', ok: true, details: `${info.revision.slice(0, 12)} built ${info.builtAt}` }
+    : { name: 'build-id', ok: false, details: 'Missing dist/build-info.json; rebuild through npm run build' };
+}
+
+function checkTrustedShopCatalogs(): CheckResult {
+  const states = listTrustedShopCatalogStates();
+  if (states.length === 0) return { name: 'trusted-shop-catalogs', ok: true, details: 'No catalog state rows' };
+  const classified = states.map((state) => ({ state, health: classifyTrustedShopCatalogHealth(state) }));
+  const stalled = classified.filter(({ health }) => health.status === 'STALLED');
+  const details = classified.map(({ state, health }) =>
+    `${state.shopSlug}=${health.status}@p${state.nextPage},last=${state.lastSuccessfulBatchAt ?? 'never'},failures=${state.retryCount}`
+  ).join('; ');
+  return { name: 'trusted-shop-catalogs', ok: stalled.length === 0, details };
+}
+
 function checkRecentBackup(): CheckResult {
   const backupDir = path.resolve(envValue('VAULTR_BACKUP_DIR') ?? './data/backups');
   const maxAgeHours = Number(envValue('VAULTR_BACKUP_MAX_AGE_HOURS') ?? '24');
@@ -298,8 +318,10 @@ const services = (envValue('VAULTR_OPS_SERVICES') ?? 'vaultr.service,vaultr-disc
 const checks = [
   ...(await Promise.all(services.map((serviceName) => checkSystemdService(serviceName)))),
   checkDatabaseFile(),
+  checkBuildIdentification(),
   checkRecentBackup(),
   checkChaseFreshness(),
+  checkTrustedShopCatalogs(),
   checkDiscoveryHealth()
 ];
 

@@ -15,6 +15,9 @@ import { startDiscoveryDropScheduler } from './services/discovery-drop-scheduler
 import { startPoller } from './services/poller.js';
 import { productScopedInteraction } from './services/discord-account-adapter.js';
 import { errorEmbed, warningEmbed } from './ui/embeds.js';
+import { logBuildInfo } from './services/build-info.js';
+
+logBuildInfo('bot');
 
 const token = process.env.DISCORD_TOKEN;
 

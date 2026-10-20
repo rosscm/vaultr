@@ -4,9 +4,11 @@ import { db } from '../db.js';
 import {
   commitTrustedShopCatalogBatch,
   countTrustedShopCatalogProducts,
+  classifyTrustedShopCatalogHealth,
   ensureTrustedShopCatalogState,
   findTrustedShopCatalogCandidates,
-  getTrustedShopCatalogState
+  getTrustedShopCatalogState,
+  trustedShopCatalogBatchDue
 } from '../trusted-shop-catalog.js';
 import {
   advanceTrustedShopifyCatalogCoverage,
@@ -119,6 +121,47 @@ describe('progressive trusted Shopify catalog coverage', () => {
     expect(requested.filter((page) => page === 1)).toHaveLength(1);
     expect(requested.filter((page) => page === 2)).toHaveLength(2);
     expect(getTrustedShopCatalogState('hobbiesville')?.coverageStatus).toBe('COMPLETE_OBSERVED');
+  });
+
+  it('records the permanent Shopify page boundary without retrying or reconciling indexed coverage', async () => {
+    const state = ensureTrustedShopCatalogState('hobbiesville');
+    commitTrustedShopCatalogBatch({
+      shopSlug: 'hobbiesville', sweepId: state.sweepId, startPage: 1, pagesFetched: 100,
+      products: [product(1, 'retained-at-boundary')], exhausted: false
+    });
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (!url.hostname.includes('hobbiesville')) return jsonResponse({ products: [] });
+      calls += 1;
+      expect(url.searchParams.get('page')).toBe('101');
+      return jsonResponse({ error: 'page limit' }, false, 400);
+    }));
+
+    await advanceTrustedShopifyCatalogCoverage({ force: true });
+    const limited = getTrustedShopCatalogState('hobbiesville')!;
+    expect(limited).toMatchObject({ coverageStatus: 'LIMITED_PROVIDER_BOUNDARY', nextPage: 101, pagesScanned: 100, retryCount: 0 });
+    expect(trustedShopCatalogBatchDue(limited, Date.now() + 365 * 24 * 60 * 60 * 1000)).toBe(false);
+    expect(classifyTrustedShopCatalogHealth(limited).status).toBe('LIMITED');
+    expect(countTrustedShopCatalogProducts('hobbiesville')).toBe(1);
+
+    await advanceTrustedShopifyCatalogCoverage();
+    expect(calls).toBe(1);
+  });
+
+  it('distinguishes scheduled transient retry from a sustained catalog stall', () => {
+    const state = ensureTrustedShopCatalogState('hobbiesville', '2026-10-20T17:00:00.000Z');
+    const interrupted = db.prepare(`
+      UPDATE trusted_shop_catalog_state
+      SET coverage_status = 'INTERRUPTED', retry_count = 2, last_error = 'temporary timeout',
+          last_successful_batch_at = '2026-10-20T17:00:00.000Z', next_run_at = '2026-10-20T17:10:00.000Z'
+      WHERE shop_slug = ?
+      RETURNING *
+    `).get(state.shopSlug);
+    expect(interrupted).toBeTruthy();
+    const current = getTrustedShopCatalogState('hobbiesville')!;
+    expect(classifyTrustedShopCatalogHealth(current, Date.parse('2026-10-20T17:15:00.000Z')).status).toBe('WAITING');
+    expect(classifyTrustedShopCatalogHealth(current, Date.parse('2026-10-20T18:00:01.000Z')).status).toBe('STALLED');
   });
 
   it('reconciles products only after a completed later sweep', () => {

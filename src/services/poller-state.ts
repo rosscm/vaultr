@@ -39,6 +39,7 @@ type PollerState = {
   suppressedByChaseCooldown: number;
   suppressedByFingerprint: number;
   backoffUntil?: string;
+  backoffReason?: string;
   lastSourceSuccessAt?: string;
   lastRunCoverage: PollerCoverageSnapshot;
   isRunning: boolean;
@@ -129,8 +130,9 @@ export function markFingerprintSuppression(): void {
   state.suppressedByFingerprint += 1;
 }
 
-export function setBackoffUntil(date: Date | null): void {
+export function setBackoffUntil(date: Date | null, reason?: string): void {
   state.backoffUntil = date ? date.toISOString() : undefined;
+  state.backoffReason = date ? reason : undefined;
 }
 
 export function markSourceSuccessNow(): void {

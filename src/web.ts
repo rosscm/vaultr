@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { logBuildInfo } from './services/build-info.js';
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
@@ -80,6 +81,8 @@ import {
 } from './services/email-auth.js';
 import type { AlertHistoryCursor, AlertHistoryItem, ListingSource } from './types.js';
 import { WEB_PREVIEW_ALERTS, WEB_PREVIEW_AUTOCOMPLETE, WEB_PREVIEW_CHASES, WEB_PREVIEW_ME, WEB_PREVIEW_ONBOARDING, WEB_PREVIEW_SETTINGS, WEB_PREVIEW_SHELF } from './web-preview-fixtures.js';
+
+logBuildInfo('web');
 
 const DISCORD_AUTHORIZE_URL = 'https://discord.com/oauth2/authorize';
 const DISCORD_TOKEN_URL = 'https://discord.com/api/oauth2/token';
