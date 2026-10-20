@@ -874,7 +874,6 @@ export function finalizeWeeklyDiscoveryAnalytics(
   rerankedReserve: DiscoveryCandidate[],
   selectedItems: ScheduledDiscoveryDropItem[]
 ): WeeklyDiscoveryFinalizationResult {
-  const mergedPolicies = { ...DEFAULT_POLICIES, ...input.policies };
   const selectedAnalyses = rerankedReserve
     .filter((candidate) => selectedItems.some((item) => item.suggestion.referenceSourceCardId === candidate.suggestion.referenceSourceCardId))
     .map((candidate) => candidate.weeklyDiscovery)
@@ -889,7 +888,12 @@ export function finalizeWeeklyDiscoveryAnalytics(
   const averageNovelty = Number(average(selectedAnalyses.map((analysis) => average(Object.values(analysis.rankExplanation.scoreComponents.discoveryValue)))).toFixed(4));
   const subjectConcentration = hhi(selectedAnalyses.flatMap((analysis) => analysis.features.subjects));
   const familyConcentration = hhi(selectedAnalyses.flatMap((analysis) => analysis.features.evolutionFamilies));
-  const structuralGate = weeklyDiscoveryStructuralGate(selectedItems, mergedPolicies.targetRoleCounts.CORE_MATCH + mergedPolicies.targetRoleCounts.ADJACENT_DISCOVERY + mergedPolicies.targetRoleCounts.CONTROLLED_EXPLORATION);
+  const structuralGate = weeklyDiscoveryStructuralGate(
+    selectedItems,
+    selectedItems.length,
+    Math.max(0, selectedItems.length - WEEKLY_DISCOVERY_MARKET_POLICY.maxMarketIncomplete),
+    WEEKLY_DISCOVERY_MARKET_POLICY.maxMarketIncomplete
+  );
   const fingerprint = createHash('sha256')
     .update(JSON.stringify({
       targetPeriod: input.targetPeriod,

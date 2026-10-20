@@ -1188,7 +1188,10 @@ function homeShelfFeatureMarkup(items, index) {
     : item.market?.soldTotal !== undefined
       ? formatMoney(item.market.soldTotal, item.market.currency)
       : '';
-  const priceLabel = item.market?.askingTotal !== undefined ? 'Market' : item.market?.soldTotal !== undefined ? 'Sold' : '';
+  const priceLabel = item.market?.askingTotal !== undefined ? 'Asking price' : item.market?.soldTotal !== undefined ? 'Recent sold' : '';
+  const marketUnavailable = item.market?.status === 'EMPTY' || item.market?.status === 'NO_ACCEPTED_SAMPLES'
+    ? 'No reliable market estimate yet'
+    : 'Pricing unavailable';
   return `
     <div class="home-shelf-feature">
       <div class="home-shelf-artwork${decorative.length ? ' layered' : ''}${item.imageUrl ? '' : ' empty'}">
@@ -1205,9 +1208,10 @@ function homeShelfFeatureMarkup(items, index) {
       </div>
       <div class="home-shelf-copy">
         <strong>${escapeHtml(item.name || 'Display Case pick')}</strong>
+        ${item.nativeName ? `<span class="home-shelf-details">Original name: ${escapeHtml(item.nativeName)}</span>` : ''}
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : '<p>Open your Display Case to explore this recommendation.</p>'}
-        ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : '<span class="home-shelf-price unavailable">Pricing unavailable</span>'}
+        ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : `<span class="home-shelf-price unavailable">${escapeHtml(marketUnavailable)}</span>`}
       </div>
       ${total > 1 ? `
         <div class="home-shelf-controls" aria-label="Display Case preview controls">
@@ -1713,7 +1717,10 @@ function shelfCardMarkup(item) {
     : item.market?.soldTotal !== undefined
       ? formatMoney(item.market.soldTotal, item.market.currency)
       : '';
-  const priceLabel = item.market?.askingTotal !== undefined ? 'Market' : item.market?.soldTotal !== undefined ? 'Sold' : '';
+  const priceLabel = item.market?.askingTotal !== undefined ? 'Asking price' : item.market?.soldTotal !== undefined ? 'Recent sold' : '';
+  const marketUnavailable = item.market?.status === 'EMPTY' || item.market?.status === 'NO_ACCEPTED_SAMPLES'
+    ? 'No reliable market estimate yet'
+    : 'Pricing unavailable';
   return `
     <article class="shelf-card">
       ${item.imageUrl ? artworkTriggerMarkup({
@@ -1728,10 +1735,11 @@ function shelfCardMarkup(item) {
           ${item.signalLabel ? `<span class="source-pill">${escapeHtml(item.signalLabel)}</span>` : ''}
         </div>
         <h2>${escapeHtml(item.name || 'Display Case pick')}</h2>
+        ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
         <div class="shelf-card-footer">
-          ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : '<p class="shelf-price unavailable">Pricing unavailable</p>'}
+          ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
           <div class="shelf-card-actions">
             ${discoveryCardActionMarkup(item, 'button-primary shelf-add-button')}
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}

@@ -166,6 +166,16 @@ export function subjectIdentityTerms(subject: string | undefined): string[] {
   ].filter(Boolean))];
 }
 
+export function readableCatalogSubject(subject: string | undefined): string | undefined {
+  if (!subject) return undefined;
+  const normalizedSubject = normalizeCatalogText(subject);
+  const englishAlias = Object.entries(JAPANESE_SUBJECT_ALIASES)
+    .find(([, aliases]) => aliases.some((alias) => normalizeCatalogText(alias) === normalizedSubject))?.[0];
+  return englishAlias
+    ? englishAlias.replace(/\b\w/g, (character) => character.toUpperCase())
+    : undefined;
+}
+
 export function catalogSubjectsEquivalent(left: string | undefined, right: string | undefined, aliases: string[] = []): boolean {
   if (!left || !right) return false;
   const leftTerms = new Set(subjectIdentityTerms(left).map(normalizeCatalogText));

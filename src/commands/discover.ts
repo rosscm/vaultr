@@ -77,7 +77,7 @@ import {
 } from '../services/collector-profile-ranking-adapter.js';
 import { getCollectorInterestProfile } from '../services/collector-profile.js';
 import { getCardCatalogRecordByReference, getCardCatalogRecordBySourceCardId } from '../services/card-catalog-db.js';
-import { searchLocalCardCatalog } from '../services/card-catalog/search.js';
+import { readableCatalogSubject, searchLocalCardCatalog } from '../services/card-catalog/search.js';
 import type { LocalCardCatalogChoice } from '../services/card-catalog/types.js';
 import { resolveSourceBackedDiscoveryCards, snapshotDiscoverySourceCatalogRuntimeStats, type DiscoverySourceCatalogRuntimeStats } from '../services/discovery-source-catalog.js';
 import {
@@ -142,7 +142,7 @@ export type DiscoveryCandidate = {
   soldSampleSize?: number;
   displayCurrency?: SupportedCurrency;
   selectionIndex?: number;
-  sourceStatus?: 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR';
+  sourceStatus?: 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'EMPTY' | 'NO_ACCEPTED_SAMPLES';
   supplySource?: DiscoverySupplySource;
   weeklyDiscovery?: WeeklyDiscoveryCandidateAnalysis;
 };
@@ -316,7 +316,7 @@ type MarketReadyShelfOptions = {
   allowSourceBackedRetailEReaderFallback?: boolean;
   languageSignalTargetCount?: number;
 };
-type DiscoveryScheduledMarketStatus = 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'MISSING';
+type DiscoveryScheduledMarketStatus = 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'EMPTY' | 'NO_ACCEPTED_SAMPLES' | 'MISSING';
 type DiscoveryShelfValidationFailure = {
   code:
     | 'WRONG_SIZE'
@@ -600,7 +600,7 @@ type WeeklyMarketHydrationTargetDiagnostic = {
   previouslyAttemptedThisPreparation?: boolean;
   marketSearchIdentity?: string;
   beforeStatus: DiscoveryScheduledMarketStatus;
-  cacheStatusBefore: 'MISS' | 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR';
+  cacheStatusBefore: 'MISS' | 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'EMPTY' | 'NO_ACCEPTED_SAMPLES';
   hydrationAttempted: boolean;
   externalLookupAttempted: boolean;
   askingSampleCount?: number;
@@ -765,14 +765,32 @@ function weeklyDiscoveryPublicationFailures(
   items: ScheduledDiscoveryDropItem[],
   marketResolvedCount: number
 ): DiscoveryShelfValidationFailure[] {
-  const failures = validatePublishableDiscoveryShelf(items, DISCOVERY_WEEKLY_DROP_SIZE);
-  if (marketResolvedCount < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED) {
+  const sizeIsPublishable = items.length >= WEEKLY_DISCOVERY_MIN_PUBLISHABLE_SIZE
+    && items.length <= DISCOVERY_WEEKLY_DROP_SIZE;
+  const failures = sizeIsPublishable
+    ? validatePublishableDiscoveryShelf(items, items.length)
+    : [{
+        code: 'WRONG_SIZE' as const,
+        message: `Expected ${WEEKLY_DISCOVERY_MIN_PUBLISHABLE_SIZE}-${DISCOVERY_WEEKLY_DROP_SIZE} items, received ${items.length}.`
+      }];
+  const requiredMarketResolved = Math.max(0, items.length - WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE);
+  if (marketResolvedCount < requiredMarketResolved) {
     failures.push({
       code: 'INSUFFICIENT_MARKET_RESOLVED',
-      message: `Weekly shelf requires at least ${WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED} market-resolved cards, found ${marketResolvedCount}.`
+      message: `Weekly shelf requires at least ${requiredMarketResolved} market-resolved cards, found ${marketResolvedCount}.`
+    });
+  }
+  if (items.length - marketResolvedCount > WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) {
+    failures.push({
+      code: 'INSUFFICIENT_MARKET_RESOLVED',
+      message: `Weekly shelf allows at most ${WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE} market-incomplete cards.`
     });
   }
   return failures;
+}
+
+function isStoredWeeklyDiscoveryDropPublishable(drop: ScheduledDiscoveryDrop): boolean {
+  return weeklyDiscoveryPublicationFailures(drop.items, drop.items.filter((item) => item.market.status === 'READY').length).length === 0;
 }
 
 type PreparedWeeklyDiscoverySnapshot = {
@@ -1130,7 +1148,8 @@ async function hydrateWeeklyDiscoveryReferencesIncrementally(input: {
       stageMetrics: input.stageMetrics
       }, () => attachReferenceImages(batch, emptyReferenceHydrationDiagnostics(batch.length), {
         abortSignal: input.abortSignal,
-        deadlineAtMs: input.deadlineAtMs
+        deadlineAtMs: input.deadlineAtMs,
+        validateRemoteReferences: true
       }), {
       outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length
       });
@@ -1713,8 +1732,12 @@ const MIN_READY_SHELF_PAGE_SIZE = 4;
 const WEEKLY_DISCOVERY_VALUE_FLOOR_CAD = Math.max(0, Number(process.env.WEEKLY_DISCOVERY_VALUE_FLOOR_CAD ?? '30'));
 const WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED = WEEKLY_DISCOVERY_MARKET_POLICY.minMarketResolved;
 const WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE = WEEKLY_DISCOVERY_MARKET_POLICY.maxMarketIncomplete;
-const WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES ?? '6'));
+const WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES ?? '12'));
 const WEEKLY_DISCOVERY_EXACT_REPEAT_PENALTY_SHELVES = Math.max(WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES, Number(process.env.WEEKLY_DISCOVERY_EXACT_REPEAT_PENALTY_SHELVES ?? '12'));
+const WEEKLY_DISCOVERY_MIN_PUBLISHABLE_SIZE = Math.max(
+  DISCOVERY_SHELF_PAGE_SIZE,
+  Math.min(DISCOVERY_WEEKLY_DROP_SIZE, Math.floor(Number(process.env.WEEKLY_DISCOVERY_MIN_PUBLISHABLE_SIZE ?? '15')))
+);
 const WEEKLY_DISCOVERY_SUBJECT_CAP = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_SUBJECT_CAP ?? '2'));
 const WEEKLY_DISCOVERY_FAMILY_CAP = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_FAMILY_CAP ?? '3'));
 const WEEKLY_DISCOVERY_FORMAT_CAP = Math.max(1, Number(process.env.WEEKLY_DISCOVERY_FORMAT_CAP ?? '4'));
@@ -2052,6 +2075,9 @@ function isDiscoveryNameExcluded(value: string, excludedNameKeys: Set<string>): 
 
 function discoveryMarketSearchTerms(suggestion: DiscoverySuggestion): string[] {
   const canonical = suggestion.canonicalReference;
+  const readableSubject = canonical?.language === 'JAPANESE'
+    ? readableCatalogSubject(canonical.canonicalName)
+    : undefined;
   const canonicalCardNumber = canonical?.cardNumber
     ? normalizeZeroPrintedTotalFractions(canonical.cardNumber)
     : undefined;
@@ -2064,7 +2090,10 @@ function discoveryMarketSearchTerms(suggestion: DiscoverySuggestion): string[] {
         'Pokemon card'
       ].filter(Boolean).join(' ')
     : undefined;
-  const terms = [canonicalTerm, suggestion.evidenceSearchTerm, suggestion.name, ...(suggestion.evidenceAliases ?? [])]
+  const readableCanonicalTerm = canonical && readableSubject
+    ? [readableSubject, canonical.setName, canonicalCardNumber, 'Japanese', 'Pokemon card'].filter(Boolean).join(' ')
+    : undefined;
+  const terms = [readableCanonicalTerm, canonicalTerm, suggestion.evidenceSearchTerm, suggestion.name, ...(suggestion.evidenceAliases ?? [])]
     .filter((term): term is string => !!term && term.trim().length > 0)
     .map((term) => normalizeZeroPrintedTotalFractions(term).replace(/\s+/g, ' ').trim());
   return uniqueValuesPreservingOrder(terms).slice(0, isRaichuIntroPackSuggestion(suggestion) ? 8 : 3);
@@ -2128,7 +2157,10 @@ function canonicalDiscoveryMarketCardNumber(suggestion: DiscoverySuggestion): st
 }
 
 function canonicalDiscoveryMarketSubjectToken(suggestion: DiscoverySuggestion): string | undefined {
-  const text = suggestion.canonicalReference?.canonicalName ?? suggestion.name;
+  const canonicalName = suggestion.canonicalReference?.canonicalName;
+  const text = suggestion.canonicalReference?.language === 'JAPANESE'
+    ? readableCatalogSubject(canonicalName) ?? canonicalName ?? suggestion.name
+    : canonicalName ?? suggestion.name;
   return normalizedTokens(text).find((token) =>
     token.length >= 3
     && !/^\d/.test(token)
@@ -2643,7 +2675,12 @@ function cacheAgeMs(entry: DiscoveryMarketCacheEntry, nowMs = Date.now()): numbe
 function shouldRefreshDiscoveryMarketCache(entry: DiscoveryMarketCacheEntry | null, nowMs = Date.now()): boolean {
   if (!entry) return true;
   const ageMs = cacheAgeMs(entry, nowMs);
-  if (entry.sourceStatus) return ageMs >= DISCOVERY_SOURCE_STATUS_RETRY_MS;
+  if (entry.sourceStatus === 'RATE_LIMITED' || entry.sourceStatus === 'TIMEOUT' || entry.sourceStatus === 'ERROR') {
+    return ageMs >= DISCOVERY_SOURCE_STATUS_RETRY_MS;
+  }
+  if (entry.sourceStatus === 'EMPTY' || entry.sourceStatus === 'NO_ACCEPTED_SAMPLES') {
+    return ageMs >= DISCOVERY_MARKET_CACHE_TTL_MS;
+  }
   if (!discoveryMarketCacheHasSignal(entry)) return ageMs >= DISCOVERY_SOURCE_STATUS_RETRY_MS;
   return ageMs >= DISCOVERY_MARKET_CACHE_TTL_MS;
 }
@@ -2766,7 +2803,9 @@ function candidateFromCachedMarket(
   const listing = listingFromDiscoveryMarketCache(cacheEntry);
   if (listing && isActiveChaseEchoListing(listing, activeChases)) return { suggestion, selectionIndex, sourceStatus: 'PENDING', supplySource };
   const hasMarketSignal = discoveryMarketCacheHasSignal(cacheEntry);
-  const sourceStatus = !hasMarketSignal || (refreshQueued && !discoveryMarketCacheHasReliableEstimate(cacheEntry)) || (refreshQueued && cacheEntry.sourceStatus) ? 'PENDING' : cacheEntry.sourceStatus;
+  const sourceStatus = refreshQueued && !discoveryMarketCacheHasReliableEstimate(cacheEntry)
+    ? 'PENDING'
+    : cacheEntry.sourceStatus ?? (!hasMarketSignal ? 'PENDING' : undefined);
   const imageUrl = normalizedMarketplaceImageUrl(cacheEntry.imageUrl) ?? imageUrlFromListing(listing);
   const candidate = {
     suggestion,
@@ -3370,7 +3409,7 @@ function reconcileWeeklyReserveWithReliableMarketCache(input: {
 
 function discoveryMarketCacheDiagnosticStatus(entry: DiscoveryMarketCacheEntry | null): WeeklyMarketHydrationTargetDiagnostic['cacheStatusBefore'] {
   if (!entry) return 'MISS';
-  if (entry.sourceStatus === 'RATE_LIMITED' || entry.sourceStatus === 'TIMEOUT' || entry.sourceStatus === 'ERROR') return entry.sourceStatus;
+  if (entry.sourceStatus) return entry.sourceStatus;
   if (discoveryMarketCacheHasReliableEstimate(entry)) return 'READY';
   if (discoveryMarketCacheHasSignal(entry)) return 'THIN';
   return 'PENDING';
@@ -3466,7 +3505,13 @@ async function enrichSuggestion(
       baselineRawListings[0];
     const visualListing = nonActiveListings.find((candidate) => looksLikeVisualDiscoveryListing(suggestion, candidate));
     const listing = marketListing ?? visualListing;
-    if (!listing) return { suggestion, selectionIndex };
+    if (!listing) {
+      return {
+        suggestion,
+        selectionIndex,
+        sourceStatus: listings.length === 0 ? 'EMPTY' : 'NO_ACCEPTED_SAMPLES'
+      };
+    }
 
     const totals = baselineRawListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
     const typicalRawAskingTotal = typicalMarketTotal(totals);
@@ -3589,7 +3634,8 @@ export async function processDiscoveryMarketRefreshWork(job: DiscoveryMarketRefr
       saveDiscoveryMarketRefreshResult(job, askCandidate);
     });
     saveDiscoveryMarketRefreshResult(job, candidate);
-    if (candidate.sourceStatus && !hasMarketSignal(candidate)) {
+    if ((candidate.sourceStatus === 'RATE_LIMITED' || candidate.sourceStatus === 'TIMEOUT' || candidate.sourceStatus === 'ERROR')
+      && !hasMarketSignal(candidate)) {
       throw new Error(`Discovery market refresh returned ${candidate.sourceStatus}`);
     }
   } catch (error) {
@@ -3711,8 +3757,10 @@ function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: Supported
       ? 'Market data is updating. Pricing will appear once the source responds'
       : 'Market data is updating. Image and pricing will appear once the source responds';
   }
-    if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay. Vaultr will retry automatically';
-    if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time. Vaultr will retry automatically';
+  if (candidate.sourceStatus === 'EMPTY') return 'No reliable market estimate yet. No current listings were found for this exact printing';
+  if (candidate.sourceStatus === 'NO_ACCEPTED_SAMPLES') return 'No reliable market estimate yet. Current results did not provide enough exact-printing evidence';
+  if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay. Vaultr will retry automatically';
+  if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time. Vaultr will retry automatically';
   if (!hasSoldComps && !hasAskComps) {
     return 'Market data is still being gathered. Vaultr will keep checking';
   }
@@ -3734,6 +3782,51 @@ type ReferenceHydrationDiagnostics = {
   imageClearedCount: number;
 };
 
+const referenceImageReachabilityCache = new Map<string, { reachable: boolean; checkedAt: number }>();
+const REFERENCE_IMAGE_REACHABILITY_TTL_MS = 24 * 60 * 60 * 1000;
+const REFERENCE_IMAGE_REACHABILITY_TIMEOUT_MS = 5_000;
+
+async function isReachableTrustedReferenceImage(url: string, abortSignal?: AbortSignal): Promise<boolean> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.hostname !== 'assets.tcgdex.net') return true;
+  const cached = referenceImageReachabilityCache.get(url);
+  if (cached && Date.now() - cached.checkedAt < REFERENCE_IMAGE_REACHABILITY_TTL_MS) return cached.reachable;
+  const controller = new AbortController();
+  const abortFromParent = (): void => controller.abort(abortSignal?.reason);
+  abortSignal?.addEventListener('abort', abortFromParent, { once: true });
+  const timeout = setTimeout(() => controller.abort(), REFERENCE_IMAGE_REACHABILITY_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { Range: 'bytes=0-511' },
+      signal: controller.signal
+    });
+    const contentType = response.headers.get('content-type') ?? '';
+    const reachable = response.ok && contentType.toLowerCase().startsWith('image/') && (await response.arrayBuffer()).byteLength > 0;
+    referenceImageReachabilityCache.set(url, { reachable, checkedAt: Date.now() });
+    return reachable;
+  } catch {
+    throwIfAborted(abortSignal);
+    referenceImageReachabilityCache.set(url, { reachable: false, checkedAt: Date.now() });
+    return false;
+  } finally {
+    clearTimeout(timeout);
+    abortSignal?.removeEventListener('abort', abortFromParent);
+  }
+}
+
+function withoutBrokenReferenceImage(candidate: DiscoveryCandidate): DiscoveryCandidate {
+  return {
+    ...candidate,
+    suggestion: { ...candidate.suggestion, referenceImageUrl: undefined },
+    image: candidate.image?.sourceKind === 'CARD_REFERENCE' ? undefined : candidate.image
+  };
+}
+
 function emptyReferenceHydrationDiagnostics(candidateCount: number): ReferenceHydrationDiagnostics {
   return {
     candidateCount,
@@ -3749,13 +3842,17 @@ function emptyReferenceHydrationDiagnostics(candidateCount: number): ReferenceHy
 export async function attachReferenceImages(
   candidates: DiscoveryCandidate[],
   diagnostics: ReferenceHydrationDiagnostics = emptyReferenceHydrationDiagnostics(candidates.length),
-  options: { abortSignal?: AbortSignal; deadlineAtMs?: number } = {}
+  options: { abortSignal?: AbortSignal; deadlineAtMs?: number; validateRemoteReferences?: boolean } = {}
 ): Promise<DiscoveryCandidate[]> {
   return mapWithConcurrency(candidates, VISIBLE_DISCOVERY_COUNT, async (candidate) => {
     throwIfAborted(options.abortSignal);
     throwIfDeadlineExpired(options.deadlineAtMs);
     const trustedExisting = trustedCandidateReferenceImage(candidate.image, candidate.suggestion);
     if (trustedExisting) {
+      if (options.validateRemoteReferences && !await isReachableTrustedReferenceImage(trustedExisting.url, options.abortSignal)) {
+        diagnostics.imageClearedCount += 1;
+        return withoutBrokenReferenceImage(candidate);
+      }
       diagnostics.trustedImageFastPathCount += 1;
       return {
         ...candidate,
@@ -3770,6 +3867,10 @@ export async function attachReferenceImages(
     }
     const trustedSuggestionReference = trustedReferenceImageFromSuggestion(candidate);
     if (trustedSuggestionReference) {
+      if (options.validateRemoteReferences && !await isReachableTrustedReferenceImage(trustedSuggestionReference.url, options.abortSignal)) {
+        diagnostics.imageClearedCount += 1;
+        return withoutBrokenReferenceImage(candidate);
+      }
       diagnostics.trustedSuggestionFastPathCount += 1;
       return {
         ...candidate,
@@ -3799,6 +3900,10 @@ export async function attachReferenceImages(
         ? { ...candidate, image: undefined }
         : { ...candidate, image: undefined };
     }
+    if (options.validateRemoteReferences && !await isReachableTrustedReferenceImage(reference.imageUrl, options.abortSignal)) {
+      diagnostics.imageClearedCount += 1;
+      return withoutBrokenReferenceImage(candidate);
+    }
     diagnostics.trustedReferenceResultCount += 1;
     return {
       ...candidate,
@@ -3820,7 +3925,7 @@ export async function attachReferenceImages(
 }
 
 async function hydrateShelfCandidateImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
-  return attachReferenceImages(candidates);
+  return attachReferenceImages(candidates, emptyReferenceHydrationDiagnostics(candidates.length), { validateRemoteReferences: true });
 }
 
 function hasEnoughRawMarketData(candidate: DiscoveryCandidate): boolean {
@@ -6845,6 +6950,7 @@ function localCatalogChoiceToDiscoveryCandidate(
   profileChases: Chase[]
 ): DiscoveryCandidate | null {
   if (!choice.imageUrl || choice.imageSourceKind !== 'CARD_REFERENCE' || !choice.sourceCardId) return null;
+  const sourceCardId = choice.sourceCardId;
   if (choice.source === 'CURATED' && choice.verificationStatus !== 'VERIFIED') return null;
   const sourceName = localCatalogReferenceSourceName(choice);
   if (!isAllowlistedCatalogueReferenceSource(sourceName) || isMarketplaceLikeImageUrl(choice.imageUrl)) return null;
@@ -6855,6 +6961,10 @@ function localCatalogChoiceToDiscoveryCandidate(
   const isPromo = localCatalogChoiceIsPromo(choice);
   const hasPremiumTreatment = localCatalogChoiceHasPremiumTreatment(choice);
   const lane = localCatalogChoiceLane(choice, role);
+  const readableSubject = language === 'JAPANESE' ? readableCatalogSubject(choice.canonicalName) : undefined;
+  const readableName = readableSubject
+    ? japaneseReadableDiscoveryName(readableSubject, sourceCardId, choice.cardNumber)
+    : choice.value;
   const anchorDetail = role === 'CORE_MATCH'
     ? 'the same Pokemon'
     : isPromo
@@ -6865,8 +6975,9 @@ function localCatalogChoiceToDiscoveryCandidate(
           ? 'Japanese catalog traits'
           : 'nearby catalog traits';
   const suggestion: DiscoverySuggestion = {
-    name: choice.value,
-    why: `${choice.canonicalName} connects through ${anchorDetail}, with ${setName} and ${choice.cardNumber ?? choice.sourceCardId} confirming the exact printing.`,
+    name: readableName,
+    nativeName: readableSubject ? choice.canonicalName : undefined,
+    why: `${readableSubject ?? choice.canonicalName} connects through ${anchorDetail}, with ${setName} and ${choice.cardNumber ?? choice.sourceCardId} confirming the exact printing.`,
     lane,
     laneWhy: `${setName}${choice.rarity ? ` ${choice.rarity}` : ''}${isPromo ? ' promo' : ''}`.replace(/\s+/g, ' ').trim(),
     nearby: [],
@@ -6881,7 +6992,7 @@ function localCatalogChoiceToDiscoveryCandidate(
       language === 'JAPANESE' ? 'Japanese' : undefined,
       'Pokemon card'
     ].filter(Boolean).join(' '),
-    evidenceAliases: [choice.value, choice.name, choice.canonicalName].filter((value, index, values) => values.indexOf(value) === index),
+    evidenceAliases: [readableSubject, choice.value, choice.name, choice.canonicalName].filter((value, index, values): value is string => !!value && values.indexOf(value) === index),
     requiredEvidenceTokens: [choice.canonicalName, setName, choice.cardNumber].filter((value): value is string => !!value),
     sourceTasteTokens: [
       choice.canonicalName,
@@ -8366,31 +8477,6 @@ function hasJapaneseCardEvidence(normalizedCardText: string): boolean {
   return /\bjapanese\b|tcgdex japanese/.test(normalizedCardText);
 }
 
-const TASTE_SIGNAL_TRAIT_TOKENS = new Set([
-  'art',
-  'collector',
-  'delta',
-  'e-reader',
-  'ex',
-  'full',
-  'gallery',
-  'gx',
-  'illustration',
-  'japanese',
-  'pokemon',
-  'promo',
-  'rare',
-  'retail',
-  'set',
-  'small',
-  'special',
-  'tag',
-  'team',
-  'v',
-  'vmax',
-  'vintage'
-]);
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -8402,65 +8488,6 @@ function cardTextHasToken(normalizedCardText: string, token: string): boolean {
   if (parts.length === 0) return false;
   const pattern = parts.join('[^a-z0-9]+');
   return new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`, 'i').test(normalizedCardText);
-}
-
-function tasteSignalTokenLabels(tokens: string[], normalizedCardText: string): string[] {
-  const normalizedTokens = tokens.map((token) => normalize(token).trim()).filter(Boolean);
-  const identityLabels = normalizedTokens
-    .filter((token) => token.length >= 3 && !TASTE_SIGNAL_TRAIT_TOKENS.has(token) && cardTextHasToken(normalizedCardText, token))
-    .slice(0, 2)
-    .map((token) => `${titleCase(token)} Family`);
-  return identityLabels;
-}
-
-function tasteSignalText(candidate: DiscoveryCandidate): string {
-  const cardText = sourceCardText(candidate);
-  const normalizedCardText = normalize(cardText);
-  const normalizedSourceSetText = normalize([candidate.suggestion.referenceSourceName, candidate.image?.sourceName, sourceSetLabel(candidate)].filter(Boolean).join(' '));
-  const sourceTasteTokens = candidate.suggestion.sourceTasteTokens ?? [];
-  const cardAndSourceText = normalizedCardText;
-  const sourceTasteText = normalize(sourceTasteTokens.join(' '));
-  const isExactNicheCue = isExactNicheDiscoveryCandidate(candidate);
-  const signals: string[] = [];
-
-  if (!isExactNicheCue) signals.push(...tasteSignalTokenLabels(sourceTasteTokens, normalizedCardText));
-  if (hasJapaneseCardEvidence(normalizedCardText)) signals.push('Japanese Prints');
-  if (isExactNicheCue || /\b(?:exclusive|unique|unusual|odd(?:ball)? release|intro pack|bulbasaur deck|vhs)\b/.test(sourceTasteText)) signals.push('Unique Releases');
-  if (/\bpromo|black star|special release|limited release\b/.test(cardAndSourceText)) signals.push('Promo Releases');
-  if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(cardAndSourceText)) signals.push('E-Reader Era');
-  else if (/\bbase set\b|\bteam rocket\b|\bgym heroes\b|\bgym challenge\b|\bneo\b|\bwizards black star\b/.test(normalizedSourceSetText)) signals.push('Vintage Era');
-  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(cardAndSourceText)) signals.push('Binder Art');
-  if (/\btag team\b|\bgx\b/.test(cardAndSourceText)) signals.push('GX/Tag Team Format');
-  else if (/\bex\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(cardAndSourceText)) signals.push('Card Format');
-
-  const uniqueSignals = uniqueValuesPreservingOrder(signals).slice(0, 3);
-  if (uniqueSignals.length === 0) return 'Profile Path';
-  return uniqueSignals.join(' • ');
-}
-
-function resonanceText(candidate: DiscoveryCandidate): string {
-  const cardText = sourceCardText(candidate);
-  const normalizedCardText = normalize(cardText);
-  const normalized = normalize([cardText, candidate.suggestion.lane, ...(candidate.suggestion.sourceTasteTokens ?? [])].filter(Boolean).join(' '));
-  const setLabel = sourceSetLabel(candidate);
-  const subject = sourceCardSubject(candidate, setLabel);
-  const sourceContext = setLabel ?? 'This print';
-  const hasPromoSignal = /\bpromo|black star|special release\b/.test(normalizedCardText);
-  const hasFormatSignal = /\btag team\b|\bgx\b|\bvmax\b|\bvstar\b|\bradiant\b/.test(normalizedCardText);
-  const reasons: string[] = [];
-  if (/\bspecial delivery\b/.test(normalizedCardText)) reasons.push(`A promo with a real release story: ${candidate.suggestion.name.split(/\s+SWSH Black Star/i)[0]} feels more like a collector milestone than a standard set filler`);
-  else if (/\bfelt hat\b/.test(normalizedCardText)) reasons.push(`A memorable promo story: the Felt Hat release gives ${subject} crossover appeal beyond the base promo set`);
-  else if (hasJapaneseCardEvidence(normalizedCardText)) reasons.push(`${sourceContext} gives ${subject} a regional print to compare against English runs instead of another generic copy`);
-  else if (/\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalizedCardText)) reasons.push(`${sourceContext} gives ${subject} a concrete early-2000s set identity, so the card has a clearer collecting shape than a broad vintage search`);
-  else if (hasPromoSignal && hasFormatSignal) reasons.push(`${sourceContext} gives ${subject} a named promo release with side-collection appeal`);
-  else if (hasPromoSignal) reasons.push(`${sourceContext} gives ${subject} a named release to track instead of a generic main-set copy`);
-  if (/\billustration|\bart rare|\bsar\b|\bar\b|\bgallery\b|\bfull art\b/.test(normalizedCardText)) reasons.push(`${subject} has art-led treatment that can stand on its own visually in a binder page`);
-  if (hasFormatSignal && !(hasPromoSignal && reasons.length > 0)) reasons.push(`${subject} fits a recognizable side-collection format with a different collecting shape than your current Vault`);
-  if (reasons.length === 0 && /\be[- ]?reader\b|\bexpedition\b|\baquapolis\b|\bskyridge\b/.test(normalized)) reasons.push(`${subject} gives your Vault an early-2000s print to compare by set texture, artwork, and binder feel`);
-
-  const uniqueReasons = uniqueValuesPreservingOrder(reasons).slice(0, 2);
-  if (uniqueReasons.length === 0) return `${subject} gives your Vault a nearby card to compare by artwork, set feel, and release story without being another copy of the same chase`;
-  return uniqueReasons.join(' ');
 }
 
 function collectorTheme(candidate: DiscoveryCandidate): string {
@@ -9046,8 +9073,6 @@ function rebalanceWeeklySubjectDiversity(candidates: DiscoveryCandidate[], chase
     const subjectKeys = candidateSubjectDiversityKeys(candidate);
     return subjectKeys.length === 0 || subjectKeys.every((subjectKey) => (subjectCounts.get(subjectKey) ?? 0) < subjectLimit);
   };
-  const hasAlternative = (): boolean =>
-    candidates.some((candidate) => !selectedNameKeys.has(discoveryDisplayNameKey(candidate.suggestion.name)) && candidateFits(candidate));
   const pushCandidate = (candidate: DiscoveryCandidate): void => {
     const nameKey = discoveryDisplayNameKey(candidate.suggestion.name);
     if (selectedNameKeys.has(nameKey)) return;
@@ -9057,11 +9082,7 @@ function rebalanceWeeklySubjectDiversity(candidates: DiscoveryCandidate[], chase
   };
   for (const candidate of candidates) {
     if (selected.length >= count) break;
-    if (!candidateFits(candidate) && hasAlternative()) continue;
-    pushCandidate(candidate);
-  }
-  for (const candidate of candidates) {
-    if (selected.length >= count) break;
+    if (!candidateFits(candidate)) continue;
     pushCandidate(candidate);
   }
   return selected;
@@ -9079,8 +9100,8 @@ export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: Supp
   const threadLabel = `${tone.icon} ${discoveryCandidateTrailLabel(candidate)}`;
   const embed = new EmbedBuilder().setColor(tone.color).setTitle(title);
   const fields = [
-    { name: 'Why It Fits', value: truncateDiscordFieldValue(resonanceText(candidate)), inline: false },
-    { name: 'Collector Cue', value: truncateDiscordFieldValue(tasteSignalText(candidate)), inline: false },
+    { name: 'Why It Fits', value: truncateDiscordFieldValue(candidate.suggestion.why), inline: false },
+    ...(candidate.suggestion.nativeName ? [{ name: 'Original Name', value: truncateDiscordFieldValue(candidate.suggestion.nativeName), inline: true }] : []),
     ...(includeMarketRead ? [{ name: 'Market Snapshot', value: truncateDiscordFieldValue(formatMarketRead(candidate, currencyHint)), inline: true }] : [])
   ];
 
@@ -9212,7 +9233,7 @@ function discoveryStateKey(tier: PlanTier, visibleCount: number): string {
 }
 
 function sourceStatusFromScheduledMarketStatus(status: string): DiscoveryCandidate['sourceStatus'] | undefined {
-  if (status === 'RATE_LIMITED' || status === 'TIMEOUT' || status === 'ERROR') return status;
+  if (status === 'RATE_LIMITED' || status === 'TIMEOUT' || status === 'ERROR' || status === 'EMPTY' || status === 'NO_ACCEPTED_SAMPLES') return status;
   if (status === 'THIN' || status === 'PENDING' || status === 'MISSING') return 'PENDING';
   return undefined;
 }
@@ -9811,7 +9832,11 @@ function verifyExactPrintingConsistency(candidate: DiscoveryCandidate): boolean 
 
 function scheduledMarketStatusFromCandidate(candidate: DiscoveryCandidate): DiscoveryScheduledMarketStatus {
   if (hasEnoughRawMarketData(candidate)) return 'READY';
-  if (candidate.sourceStatus === 'RATE_LIMITED' || candidate.sourceStatus === 'TIMEOUT' || candidate.sourceStatus === 'ERROR') return candidate.sourceStatus;
+  if (candidate.sourceStatus === 'RATE_LIMITED'
+    || candidate.sourceStatus === 'TIMEOUT'
+    || candidate.sourceStatus === 'ERROR'
+    || candidate.sourceStatus === 'EMPTY'
+    || candidate.sourceStatus === 'NO_ACCEPTED_SAMPLES') return candidate.sourceStatus;
   if (candidate.typicalRawAskingTotal !== undefined || candidate.typicalRawSoldTotal !== undefined || candidate.listing?.url) return 'THIN';
   return candidate.sourceStatus ?? 'MISSING';
 }
@@ -9856,9 +9881,25 @@ function collapseAdjacentRepeatedNamePhrases(value: string): string {
   return output.join(' ');
 }
 
+function japaneseReadableDiscoveryName(readableSubject: string, sourceCardId: string, cardNumber?: string): string {
+  const sourceSeries = sourceCardId
+    .split('-')
+    .slice(0, -1)
+    .join('-')
+    .trim();
+  const printing = [sourceSeries, cardNumber].filter(Boolean).join(' ');
+  return `${readableSubject}${printing ? ` - ${printing}` : ''} (Japanese)`;
+}
+
 function canonicalReferenceDisplayName(candidate: DiscoveryCandidate): string | undefined {
   const reference = candidateCanonicalReference(candidate);
   if (!reference?.canonicalName?.trim()) return undefined;
+  const readableSubject = reference.language === 'JAPANESE'
+    ? readableCatalogSubject(reference.canonicalName)
+    : undefined;
+  if (readableSubject) {
+    return japaneseReadableDiscoveryName(readableSubject, reference.sourceCardId, reference.cardNumber);
+  }
   const parts = [stripStructuredIdentityFromDisplayName(reference.canonicalName.trim(), reference.setName, reference.cardNumber)];
   if (reference.language === 'JAPANESE') parts.push('Japanese');
   if (reference.setName?.trim()) parts.push(reference.setName.trim());
@@ -9900,9 +9941,16 @@ function canonicalScheduledSuggestion(candidate: DiscoveryCandidate): DiscoveryS
       ? canonicalDisplayName
     : candidate.suggestion.name;
   const displayName = collapseAdjacentRepeatedNamePhrases(scheduledName);
+  const reference = candidateCanonicalReference(candidate);
+  const nativeName = reference?.language === 'JAPANESE'
+    && readableCatalogSubject(reference.canonicalName)
+    && normalize(displayName) !== normalize(reference.canonicalName)
+    ? reference.canonicalName
+    : candidate.suggestion.nativeName;
   return {
     ...candidate.suggestion,
     name: displayName,
+    nativeName,
     referenceImageUrl: canonicalImage?.url ?? candidate.suggestion.referenceImageUrl,
     referenceSourceName: canonicalImage?.sourceName ?? candidate.suggestion.referenceSourceName,
     referenceSourceCardId: canonicalImage?.sourceCardId ?? candidate.suggestion.referenceSourceCardId
@@ -10156,7 +10204,7 @@ function normalWeeklyShelfCapLimits(): WeeklyShelfCapLimits {
 
 function emergencyWeeklyShelfCapLimits(_expectedSize: number): WeeklyShelfCapLimits {
   return {
-    subjectCap: Math.max(WEEKLY_DISCOVERY_SUBJECT_CAP, 4),
+    subjectCap: WEEKLY_DISCOVERY_SUBJECT_CAP,
     familyCap: Math.max(WEEKLY_DISCOVERY_FAMILY_CAP, 5),
     formatCap: Math.max(WEEKLY_DISCOVERY_FORMAT_CAP, 5),
     laneCap: Math.max(WEEKLY_DISCOVERY_LANE_CAP, 8),
@@ -10358,7 +10406,7 @@ function recoveryCapLimitsForStep(step: number, expectedSize: number): WeeklyShe
   const normal = normalWeeklyShelfCapLimits();
   const emergency = emergencyWeeklyShelfCapLimits(expectedSize);
   return {
-    subjectCap: Math.min(emergency.subjectCap, normal.subjectCap + step),
+    subjectCap: normal.subjectCap,
     familyCap: Math.min(emergency.familyCap, normal.familyCap + step),
     formatCap: Math.min(emergency.formatCap, normal.formatCap + step),
     laneCap: Math.min(emergency.laneCap, normal.laneCap + step),
@@ -10508,10 +10556,10 @@ function structuralRecoveryPlan(
         : null;
     }
     if (!isCapRejection(rejection.code)) return null;
+    if (rejection.code === 'SUBJECT_SHELF_CAP') return null;
     const priorCount = structuralCapCount(rejection, selectionState);
     const priorLimit = (() => {
       switch (rejection.code) {
-        case 'SUBJECT_SHELF_CAP': return limits.subjectCap;
         case 'FAMILY_SHELF_CAP': return limits.familyCap;
         case 'FORMAT_SHELF_CAP': return limits.formatCap;
         case 'LANE_SHELF_CAP': return limits.laneCap;
@@ -10890,6 +10938,8 @@ function candidateMarketStatus(candidate: DiscoveryCandidate, currency: Supporte
     case 'RATE_LIMITED':
     case 'TIMEOUT':
     case 'ERROR':
+    case 'EMPTY':
+    case 'NO_ACCEPTED_SAMPLES':
       return item.market.status;
     default:
       return 'MISSING';
@@ -11569,7 +11619,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   const regenerationExclusions = weeklyDiscoveryRegenerationExclusions(existingDrop, context.regenerateCurrent === true);
   const hasExistingPublishableDrop = !!existingDrop
     && existingDrop.items.length > 0
-    && validatePublishableDiscoveryShelf(existingDrop.items, DISCOVERY_WEEKLY_DROP_SIZE).length === 0;
+    && isStoredWeeklyDiscoveryDropPublishable(existingDrop);
   const allowSourceCatalogForMissingLiveCachedDrop = context.mode === 'LIVE'
     && cachePreferredRetry
     && !hasExistingPublishableDrop;
@@ -13390,7 +13440,7 @@ export async function discoverCandidatesForUser(
     const referencedCandidates = skipReferenceImageFetch
       ? visibleCandidates
       : await runDiscoveryAssemblySubstage(runtimeContext, 'assembly-reference-cache-load', visibleCandidates.length, async () =>
-        attachReferenceImages(visibleCandidates), {
+        attachReferenceImages(visibleCandidates, emptyReferenceHydrationDiagnostics(visibleCandidates.length), { validateRemoteReferences: true }), {
         outputCount: (value) => value.filter((candidate) => candidate.image?.sourceKind === 'CARD_REFERENCE').length,
         counters: {
           trustedExistingImages: visibleCandidates.filter((candidate) => !!trustedCandidateReferenceImage(candidate.image, candidate.suggestion)).length
@@ -13422,7 +13472,7 @@ export async function discoverCandidatesForUser(
           negativeProfile,
           repeatGuardChases,
           scheduledSeenExcludedNames
-        ))))
+        ), emptyReferenceHydrationDiagnostics(targetVisibleCount), { validateRemoteReferences: true })))
           .filter((candidate) => !isActiveChaseEchoSuggestion(candidate.suggestion, repeatGuardChases))
           .filter(isCollectorWorthyWeeklyCandidate)
           .filter((candidate) => isScheduledShelfFallbackCandidate(candidate, tasteProfileChases))
@@ -13728,7 +13778,7 @@ export async function prepareWeeklyDiscoveryDropForUser(
     && options.regenerateCurrent !== true
     && (existing.status === 'READY' || existing.status === 'PARTIAL')
     && existing.itemCount > 0
-    && validatePublishableDiscoveryShelf(existing.items, DISCOVERY_WEEKLY_DROP_SIZE).length === 0
+    && isStoredWeeklyDiscoveryDropPublishable(existing)
   ) {
     if (options.force !== true) {
       return {

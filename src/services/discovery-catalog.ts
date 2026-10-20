@@ -9,6 +9,7 @@ import type { Chase } from '../types.js';
 
 export type DiscoverySuggestion = {
   name: string;
+  nativeName?: string;
   why: string;
   lane: string;
   laneWhy: string;

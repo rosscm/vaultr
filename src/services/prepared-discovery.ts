@@ -6,7 +6,7 @@ import { getEntitlementsForTier } from './entitlements.js';
 import { activePlanChases, activePlanTier } from './plans.js';
 import type { Chase, PlanTier } from '../types.js';
 
-export type PreparedDiscoveryMarketStatus = 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'MISSING';
+export type PreparedDiscoveryMarketStatus = 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'EMPTY' | 'NO_ACCEPTED_SAMPLES' | 'MISSING';
 
 export type PreparedDiscoveryShelfItem = {
   position: number;
@@ -71,6 +71,8 @@ function marketStatusFromCache(entry: DiscoveryMarketCacheEntry | null): Prepare
   if (entry.sourceStatus === 'RATE_LIMITED') return 'RATE_LIMITED';
   if (entry.sourceStatus === 'TIMEOUT') return 'TIMEOUT';
   if (entry.sourceStatus === 'ERROR') return 'ERROR';
+  if (entry.sourceStatus === 'EMPTY') return 'EMPTY';
+  if (entry.sourceStatus === 'NO_ACCEPTED_SAMPLES') return 'NO_ACCEPTED_SAMPLES';
   if (entry.typicalRawSoldTotal !== undefined && (entry.soldSampleSize ?? 0) >= PREPARED_DISCOVERY_MIN_RAW_MARKET_SAMPLE_SIZE) return 'READY';
   if (entry.typicalRawAskingTotal !== undefined && (entry.marketSampleSize ?? 0) >= PREPARED_DISCOVERY_MIN_ASK_ONLY_MARKET_SAMPLE_SIZE) return 'READY';
   if (entry.typicalRawAskingTotal !== undefined || entry.typicalRawSoldTotal !== undefined || entry.listingUrl) return 'THIN';

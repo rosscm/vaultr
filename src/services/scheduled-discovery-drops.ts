@@ -468,7 +468,7 @@ export function getLatestAvailableScheduledDiscoveryDrop(userId: string, dropTyp
 }
 
 export function listRecentAvailableScheduledDiscoveryDrops(userId: string, dropType: ScheduledDiscoveryDropType, now = new Date().toISOString(), limit = 3): ScheduledDiscoveryDrop[] {
-  const rows = listRecentScheduledDiscoveryDropsStmt.all(userId, dropType, now, Math.max(1, Math.min(8, Math.floor(limit)))) as ScheduledDiscoveryDropRow[];
+  const rows = listRecentScheduledDiscoveryDropsStmt.all(userId, dropType, now, Math.max(1, Math.min(52, Math.floor(limit)))) as ScheduledDiscoveryDropRow[];
   return rows.map(mapScheduledDiscoveryDropRow);
 }
 

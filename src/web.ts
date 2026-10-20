@@ -467,6 +467,7 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string) {
   return {
     position: item.position,
     name: item.suggestion.name,
+    nativeName: item.suggestion.nativeName,
     imageUrl,
     setName: reference?.setName,
     language: reference?.language,

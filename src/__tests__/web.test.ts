@@ -112,6 +112,7 @@ function seedWeeklyShelf(
         position: 1,
         suggestion: {
           name,
+          nativeName: language === 'JAPANESE' ? 'ミュウ' : undefined,
           lane: 'Promo Trail',
           laneWhy: 'Matches your Japanese promo interest',
           why: 'Connects to the Japanese promo cards already in your Vault',
@@ -159,7 +160,7 @@ function seedWeeklyShelf(
         imageSourceName: 'eBay',
         imageSourceKind: 'MARKET_LISTING',
         market: {
-          status: 'TIMEOUT',
+          status: 'EMPTY',
           currency: 'CAD',
           listing: {
             id: 'unsafe-listing',
@@ -1289,6 +1290,7 @@ describe('authenticated Weekly Shelf API', () => {
     expect(body.items[0]).toMatchObject({
       position: 1,
       name: 'Mew CoroCoro Promo 151',
+      nativeName: 'ミュウ',
       imageUrl: 'https://example.test/mew-reference.png',
       setName: 'CoroCoro Promo',
       cardNumber: '151',
@@ -1302,6 +1304,7 @@ describe('authenticated Weekly Shelf API', () => {
     expect(body.items[0].ebayUrl).toMatch(/^https:\/\/www\.ebay\.ca\/sch\/i\.html\?_nkw=/);
     expect(decodeURIComponent(new URL(body.items[0].ebayUrl).searchParams.get('_nkw') ?? '')).toContain('CoroCoro Shining Mew');
     expect(body.items[1].imageUrl).toBeUndefined();
+    expect(body.items[1].market.status).toBe('EMPTY');
     expect(body.items[1].reason).toBeUndefined();
     expect(body.items[1].signalLabel).toBe('Collector Thread');
     expect(body.items[1].ebayUrl).toMatch(/^https:\/\/www\.ebay\.ca\/sch\/i\.html\?_nkw=/);

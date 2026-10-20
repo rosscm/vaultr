@@ -46,6 +46,7 @@ import {
   orderConcreteDiscoveryFallbackSuggestionsForMarket,
   orderCandidatesForMarketConfidence,
   orderCandidatesFromPersistedState,
+  processDiscoveryMarketRefreshWork,
   preferFreshWeeklyCandidatesAgainstRecentShelves,
   selectNovelWeeklyCandidates,
   profileSubjectMatchedReliableDiscoveryCandidates,
@@ -73,7 +74,7 @@ import { addChase, recordDiscoveryFeedback, removeAllChases, setUserPlan } from 
 import { deleteDiscoveryReferenceCache, discoveryReferenceCacheKey, upsertDiscoveryReferenceCache } from '../../services/discovery-reference-cache.js';
 import * as discoveryReferenceCacheService from '../../services/discovery-reference-cache.js';
 import type { DiscoveryReferenceCacheEntry } from '../../services/discovery-reference-cache.js';
-import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
+import { deleteDiscoveryMarketCache, discoveryMarketCacheKey, getDiscoveryMarketCache, upsertDiscoveryMarketCache } from '../../services/discovery-market-cache.js';
 import { replaceCardCatalogSourceRecords } from '../../services/card-catalog-db.js';
 import type { CardCatalogRecord, LocalCardCatalogChoice } from '../../services/card-catalog/types.js';
 import { deleteDiscoveryMarketRefreshJob, getDiscoveryMarketRefreshJob } from '../../services/discovery-market-jobs.js';
@@ -86,7 +87,7 @@ import {
   type WeeklyDiscoveryFinalizationInput
 } from '../../services/weekly-discovery-ranking.js';
 import { weeklyDiscoveryMarketPolicy } from '../../services/weekly-discovery-policy.js';
-import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, upsertScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
+import { deleteScheduledDiscoveryDrop, getScheduledDiscoveryDrop, listRecentAvailableScheduledDiscoveryDrops, upsertScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import * as discoverySourceCatalogService from '../../services/discovery-source-catalog.js';
 import { replayWeeklyDiscoveryFixture, summarizeReplay, type CaptureFixture } from '../../weekly-discovery-replay.js';
 import { replaceDiscoveryUserUniverseCards, type DiscoveryUserUniverseCard } from '../../services/discovery-user-universe.js';
@@ -4705,7 +4706,7 @@ describe('discoveryEmbed', () => {
   it('hides market read for limited Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false).toJSON();
 
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Fits']);
   });
 
   it('links every shelf card title to an eBay search when no listing is attached', () => {
@@ -4752,7 +4753,7 @@ describe('discoveryEmbed', () => {
   it('shows market read for full Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', true).toJSON();
 
-    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue', 'Market Snapshot']);
+    expect(embed.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Market Snapshot']);
   });
 
   it('prefers sold comps in full Discovery market read', () => {
@@ -4893,16 +4894,13 @@ describe('discoveryEmbed', () => {
     expect(marketRead).toBe('Market data is still being gathered. Vaultr will keep checking');
   });
 
-  it('explains concrete profile signals instead of internal source details', () => {
+  it('uses the persisted evidence-backed reason shared with other renderers', () => {
     const embed = discoveryEmbed(
       {
         ...sourceCandidate('Zapdos Aquapolis H32', 'Pokemon TCG (Aquapolis)', 0),
         suggestion: {
           ...sourceCandidate('Zapdos Aquapolis H32', 'Pokemon TCG (Aquapolis)', 0).suggestion,
-          lane: 'E-Reader Era Trail',
-          evidenceSearchTerm: 'Zapdos Aquapolis H32 Pokemon card',
-          sourceTasteTokens: ['e-reader', 'vintage'],
-          requiredEvidenceTokens: ['zapdos', 'h32']
+          why: 'Your Vault includes Zapdos and early e-Reader releases; this is the exact Aquapolis H32 printing.'
         }
       },
       'CAD',
@@ -4910,210 +4908,41 @@ describe('discoveryEmbed', () => {
     ).toJSON();
 
     const why = embed.fields?.find((field) => field.name === 'Why It Fits')?.value;
-    expect(why).toContain('concrete early-2000s set identity');
-    expect(why).toContain('clearer collecting shape');
-    expect(why).not.toContain('appears in your taste profile');
-    expect(embed.fields?.some((field) => field.name === 'Image Source')).toBe(false);
+    expect(why).toBe('Your Vault includes Zapdos and early e-Reader releases; this is the exact Aquapolis H32 printing.');
+    expect(embed.fields?.some((field) => field.name === 'Collector Cue')).toBe(false);
   });
 
-  it('explains surfaced taste cues without pretending the recommended card is already a chase', () => {
+  it('shows native wording as secondary identity for aliased Japanese cards', () => {
     const embed = discoveryEmbed(
       {
-        ...sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 0),
+        ...sourceCandidate('Pikachu - SV-P 197 (Japanese)', 'TCGdex Japanese (SV-P)', 0),
         suggestion: {
-          ...sourceCandidate('Special Delivery Pikachu SWSH Black Star Promos SWSH074', 'Pokemon TCG (SWSH Black Star Promos)', 0).suggestion,
-          evidenceSearchTerm: 'Special Delivery Pikachu SWSH Black Star Promos SWSH074 Pokemon card',
-          sourceTasteTokens: ['japanese', 'promo', 'special']
+          ...sourceCandidate('Pikachu - SV-P 197 (Japanese)', 'TCGdex Japanese (SV-P)', 0).suggestion,
+          nativeName: 'ピカチュウ'
         }
       },
       'CAD',
       false
     ).toJSON();
 
-    const why = embed.fields?.find((field) => field.name === 'Why It Fits')?.value;
-    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
-    expect(why).toContain('collector milestone');
-    expect(signal).toContain('Promo Releases');
-    expect(signal).not.toContain('Special Delivery Pikachu interest');
-    expect(signal).not.toContain('appears in your taste profile');
-    expect(signal).not.toContain('Japanese Prints');
+    expect(embed.title).toBe('Pikachu - SV-P 197 (Japanese)');
+    expect(embed.fields?.find((field) => field.name === 'Original Name')?.value).toBe('ピカチュウ');
   });
 
-  it('keeps promo format fit copy compact', () => {
+  it.each([
+    ['EMPTY', 'No reliable market estimate yet. No current listings were found for this exact printing'],
+    ['NO_ACCEPTED_SAMPLES', 'No reliable market estimate yet. Current results did not provide enough exact-printing evidence']
+  ] as const)('renders completed %s market outcomes truthfully', (sourceStatus, expected) => {
     const embed = discoveryEmbed(
       {
-        ...sourceCandidate('Pikachu VMAX SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 0),
-        suggestion: {
-          ...sourceCandidate('Pikachu VMAX SWSH Black Star Promos SWSH286', 'Pokemon TCG (SWSH Black Star Promos)', 0).suggestion,
-          evidenceSearchTerm: 'Pikachu VMAX SWSH Black Star Promos SWSH286 Pokemon card',
-          sourceTasteTokens: ['promo', 'vmax']
-        }
+        ...candidate('Pikachu - SV-P 197 (Japanese)', 'Japanese Collector Trail', 0),
+        sourceStatus
       },
       'CAD',
       true
     ).toJSON();
 
-    const why = embed.fields?.find((field) => field.name === 'Why It Fits')?.value ?? '';
-    expect(why).toContain('named promo release');
-    expect(why).toContain('side-collection appeal');
-    expect(why).not.toContain('\n');
-    expect(why.length).toBeLessThan(120);
-  });
-
-  it('uses collector-facing fallback copy instead of internal resolver language', () => {
-    const embed = discoveryEmbed(
-      {
-        selectionIndex: 0,
-        suggestion: {
-          name: 'Mew POP Series 4 4',
-          lane: 'Collector Compass',
-          laneWhy: 'profile source match',
-          why: 'try Mew POP Series 4 4',
-          nearby: [],
-          referenceSourceName: 'Pokemon TCG',
-          evidenceSearchTerm: 'Mew POP Series 4 4 Pokemon card',
-          sourceTasteTokens: ['collector'],
-          requiredEvidenceTokens: []
-        },
-        image: {
-          name: 'Mew POP Series 4 4',
-          url: 'https://images.example/card.png',
-          sourceName: 'Pokemon TCG',
-          sourceKind: 'CARD_REFERENCE'
-        }
-      },
-      'CAD',
-      false
-    ).toJSON();
-
-    const why = embed.fields?.find((field) => field.name === 'Why It Fits')?.value;
-    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
-    expect(why).toContain('nearby card to compare');
-    expect(why).toContain('artwork, set feel, and release story');
-    expect(why).not.toContain('source-backed');
-    expect(why).not.toContain('follows your profile');
-    expect(why).not.toContain('out of the result');
-    expect(signal).toBe('Profile Path');
-    expect(signal).not.toBe('Collector Fit');
-  });
-
-  it('uses actual taste tokens instead of overstating surfaced card adjacency', () => {
-    const embed = discoveryEmbed(
-      {
-        ...sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 0),
-        suggestion: {
-          ...sourceCandidate('Mewtwo & Mew-GX SM Black Star Promos SM191', 'Pokemon TCG (SM Black Star Promos)', 0).suggestion,
-          evidenceSearchTerm: 'Mewtwo & Mew-GX SM Black Star Promos SM191 Pokemon card',
-          sourceTasteTokens: ['mew', 'promo', 'gx', 'tag', 'team']
-        }
-      },
-      'CAD',
-      false
-    ).toJSON();
-
-    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
-    expect(signal).toContain('Mew Family');
-    expect(signal).toContain('Promo Releases');
-    expect(signal).toContain('GX/Tag Team Format');
-    expect(signal).not.toContain('Mewtwo & Mew-GX adjacency');
-  });
-
-  it('uses broad Japanese unique-release cues for exact niche marketplace identities', () => {
-    const embed = discoveryEmbed(
-      {
-        ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 0, 1),
-        suggestion: {
-          ...candidate('Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese', 'Japanese Collector Trail', 0, 1).suggestion,
-          evidenceSearchTerm: 'Raichu No.026 Intro Pack Bulbasaur Deck 1999 Japanese Pokemon card',
-          requiredEvidenceTokens: ['raichu', '026', 'bulbasaur'],
-          sourceTasteTokens: ['raichu', '026', 'intro pack', 'bulbasaur deck', 'vhs', 'japanese', 'exclusive', 'vintage']
-        }
-      },
-      'CAD',
-      true
-    ).toJSON();
-
-    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
-    expect(signal).toContain('Japanese Prints');
-    expect(signal).toContain('Unique Releases');
-    expect(signal).not.toContain('Raichu Family');
-    expect(signal).not.toContain('Intro Pack Family');
-  });
-
-  it('does not label modern Team Rocket named cards as Vintage Era', () => {
-    const embed = discoveryEmbed(
-      {
-        ...sourceCandidate("Team Rocket's Mewtwo ex Ascended Heroes 281", 'Pokemon TCG (Ascended Heroes)', 0),
-        suggestion: {
-          ...sourceCandidate("Team Rocket's Mewtwo ex Ascended Heroes 281", 'Pokemon TCG (Ascended Heroes)', 0).suggestion,
-          lane: 'visual-format discovery',
-          evidenceSearchTerm: "Team Rocket's Mewtwo ex Ascended Heroes 281 Pokemon card",
-          requiredEvidenceTokens: ['team', 'rocket', '281']
-        }
-      },
-      'CAD',
-      false
-    ).toJSON();
-
-    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
-    expect(signal).toContain('Card Format');
-    expect(signal).not.toContain('Vintage Era');
-  });
-
-  it('does not repeat broad profile chips on unrelated source-backed cards', () => {
-    const embed = discoveryEmbed(
-      {
-        ...sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0),
-        suggestion: {
-          ...sourceCandidate('Zapdos Aquapolis 44', 'Pokemon TCG (Aquapolis)', 0).suggestion,
-          lane: 'Vintage Era Trail',
-          evidenceSearchTerm: 'Zapdos Aquapolis 44 Pokemon card',
-          sourceTasteTokens: ['mew', 'promo', 'e-reader'],
-          requiredEvidenceTokens: ['zapdos', '44']
-        }
-      },
-      'CAD',
-      false
-    ).toJSON();
-
-    const signal = embed.fields?.find((field) => field.name === 'Collector Cue')?.value;
-    expect(signal).toBe('E-Reader Era');
-    expect(signal).not.toContain('Mew Thread');
-    expect(signal).not.toContain('Promo Releases');
-  });
-
-  it('only mentions Japanese curiosity when the returned card is Japanese', () => {
-    const englishEmbed = discoveryEmbed(
-      {
-        ...sourceCandidate('Moltres Wizards Black Star Promos 21', 'Pokemon TCG (Wizards Black Star Promos)', 0),
-        suggestion: {
-          ...sourceCandidate('Moltres Wizards Black Star Promos 21', 'Pokemon TCG (Wizards Black Star Promos)', 0).suggestion,
-          evidenceSearchTerm: 'Moltres Wizards Black Star Promos 21 Pokemon card',
-          sourceTasteTokens: ['japanese', 'promo']
-        }
-      },
-      'CAD',
-      false
-    ).toJSON();
-    const japaneseEmbed = discoveryEmbed(
-      {
-        ...sourceCandidate('Pikachu Japanese SV2a 025', 'TCGdex Japanese (SV2a)', 1),
-        suggestion: {
-          ...sourceCandidate('Pikachu Japanese SV2a 025', 'TCGdex Japanese (SV2a)', 1).suggestion,
-          evidenceSearchTerm: 'Pikachu Japanese Pokemon card SV2a 025',
-          sourceTasteTokens: ['japanese', 'promo']
-        }
-      },
-      'CAD',
-      false
-    ).toJSON();
-
-    const englishSignal = englishEmbed.fields?.find((field) => field.name === 'Collector Cue')?.value;
-    const englishWhy = englishEmbed.fields?.find((field) => field.name === 'Why It Fits')?.value;
-    const japaneseSignal = japaneseEmbed.fields?.find((field) => field.name === 'Collector Cue')?.value;
-    expect(englishSignal).not.toContain('Japanese Prints');
-    expect(englishWhy).not.toContain('Japanese print path');
-    expect(japaneseSignal).toContain('Japanese Prints');
+    expect(embed.fields?.find((field) => field.name === 'Market Snapshot')?.value).toBe(expected);
   });
 
   it('uses product-facing retry language for active eBay throttle states', () => {
@@ -6172,7 +6001,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'card-18')).toBe(true);
   });
 
-  it('recovers a W32-shaped shelf by progressively relaxing cap-only rejects', () => {
+  it('keeps a W32-shaped shelf smaller rather than relaxing the subject cap', () => {
     const repeatedSubject = Array.from({ length: 10 }, (_, index) => ({
       ...publishableSourceCandidate(
         `Mew Recovery Candidate ${index + 1}`,
@@ -6242,12 +6071,12 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         ['SUBJECT_SHELF_CAP', 'FAMILY_SHELF_CAP', 'FORMAT_SHELF_CAP', 'LANE_SHELF_CAP'].includes(item.relaxedReason)
       )
     ).toBe(true);
-    expect(result.capRelaxationSelections.some((item) => item.relaxedReason === 'SUBJECT_SHELF_CAP')).toBe(true);
+    expect(result.capRelaxationSelections.some((item) => item.relaxedReason === 'SUBJECT_SHELF_CAP')).toBe(false);
     expect(result.items).toHaveLength(20);
-    expect(result.marketResolvedCount).toBe(20);
-    expect(result.items.filter((item) => /^Mew Recovery Candidate\b/.test(item.suggestion.name)).length).toBeLessThanOrEqual(4);
+    expect(result.marketResolvedCount).toBe(19);
+    expect(result.items.filter((item) => /^Mew Recovery Candidate\b/.test(item.suggestion.name)).length).toBeLessThanOrEqual(2);
     expect(new Set(result.items.map((item) => item.suggestion.referenceSourceCardId)).size).toBe(20);
-    expect(__discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(result.items, 20)).toEqual([]);
+    expect(__discoveryPersistenceTestHooks.weeklyDiscoveryPublicationFailures(result.items, result.marketResolvedCount)).toEqual([]);
   });
 
   it('treats unrelated English era-only cards as exploratory and does not use English language alone as an anchor', () => {
@@ -7155,6 +6984,32 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(candidate?.suggestion.evidenceAliases).toContain('ブラッキーex - Terastal Festival ex #217/187 (Japanese)');
   });
 
+  it('uses an authoritative subject alias for readable Japanese labels without changing canonical identity', () => {
+    const choice = localCatalogChoice({
+      canonicalName: 'ピカチュウ',
+      name: 'ピカチュウ - SV-P #197 (Japanese)',
+      value: 'ピカチュウ SV-P 197 Japanese',
+      source: 'TCGDEX',
+      sourceCardId: 'SV-P-197',
+      language: 'ja',
+      setName: 'SV-P',
+      cardNumber: '197'
+    });
+
+    const result = __discoveryPersistenceTestHooks.localCatalogChoiceToDiscoveryCandidate(choice, 0, [chase('Pikachu Promo', 0)]);
+
+    expect(result?.suggestion.name).toBe('Pikachu - SV-P 197 (Japanese)');
+    expect(result?.suggestion.nativeName).toBe('ピカチュウ');
+    expect(result?.suggestion.why).toContain('Pikachu connects through');
+    expect(result?.suggestion.why).not.toContain('ピカチュウ connects through');
+    expect(result?.suggestion.canonicalReference).toMatchObject({
+      canonicalName: 'ピカチュウ',
+      sourceCardId: 'SV-P-197',
+      cardNumber: '197',
+      language: 'JAPANESE'
+    });
+  });
+
   it('treats VERIFIED CURATED local catalog records as trusted structured Discovery references', () => {
     const verifiedChoice = localCatalogChoice({
       canonicalName: 'Mew',
@@ -7369,7 +7224,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     expect(result.rejectionCounts.SUBJECT_SHELF_CAP).toBeGreaterThan(0);
     expect(result.items).toHaveLength(20);
-    expect(result.selectedCandidates.filter((candidate) => __discoveryPersistenceTestHooks.candidateShelfSubjectKeys(candidate).includes('mew')).length).toBeLessThanOrEqual(3);
+    expect(result.selectedCandidates.filter((candidate) => __discoveryPersistenceTestHooks.candidateShelfSubjectKeys(candidate).includes('mew')).length).toBeLessThanOrEqual(2);
     expect(result.selectedCandidates.some((candidate) => __discoveryPersistenceTestHooks.candidateShelfSubjectKeys(candidate).includes('othermon1'))).toBe(true);
   });
 
@@ -7468,7 +7323,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     );
 
     expect(shortResult.marketResolvedCount).toBe(14);
-    expect(shortValidation.some((failure) => failure.code === 'INSUFFICIENT_MARKET_RESOLVED')).toBe(true);
+    expect(shortResult.items).toHaveLength(19);
+    expect(shortResult.marketIncompleteCount).toBe(5);
+    expect(shortValidation).toEqual([]);
   });
 
   it('enforces evolution-family, format, and lane caps during final selection', () => {
@@ -8871,7 +8728,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     );
   });
 
-  it('prefers the READY same-set sibling during normal selection and keeps constrained sibling fallback', () => {
+  it('prefers one READY same-set sibling without using a second same-subject card as filler', () => {
     const sibling = (number: string, index: number, ready: boolean) => {
       const candidate = collectorProfileCandidate(`Squirtle Expedition Base Set ${number}`, `exp1-${number}`, index, 'ADJACENT_DISCOVERY', {
         subjects: ['Squirtle'], evolutionFamilies: ['SQUIRTLE_LINE']
@@ -8899,9 +8756,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const constrained = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
       [ready132, sibling('131', 1, true), ...unrelated.slice(0, 18)], 'CAD', 20, [], [], [], 'COLLECTOR_PROFILE_V1'
     );
-    expect(constrained.items).toHaveLength(20);
+    expect(constrained.items).toHaveLength(19);
     expect(constrained.marketResolvedCount).toBeGreaterThanOrEqual(15);
-    expect(constrained.items.filter((item) => /^exp1-13[12]$/.test(item.suggestion.referenceSourceCardId ?? ''))).toHaveLength(2);
+    expect(constrained.items.filter((item) => /^exp1-13[12]$/.test(item.suggestion.referenceSourceCardId ?? ''))).toHaveLength(1);
   });
 
   it('repairs the final 14 READY and five incomplete shelf slot with the least disruptive READY cap overflow', () => {
@@ -8918,7 +8775,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       item: makeItem(candidate, index < 14 ? 'READY' : 'PENDING')
     }));
     const selectionState = {
-      subjectCounts: new Map([['moltres', 2], ['zapdos', 2]]),
+      subjectCounts: new Map<string, number>(),
       familyCounts: new Map<string, number>(),
       formatCounts: new Map([['e-reader', 4], ['promo', 7]]),
       laneCounts: new Map([['Collector Compass', 8]]),
@@ -8991,7 +8848,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       item: makeItem(candidate, index < 14 ? 'READY' : 'PENDING')
     }));
     const selectionState = {
-      subjectCounts: new Map([['pikachu', 4], ['moltres', 2]]),
+      subjectCounts: new Map<string, number>(),
       familyCounts: new Map<string, number>(),
       formatCounts: new Map([['e-reader', 4]]),
       laneCounts: new Map([['Collector Compass', 8]]),
@@ -9002,7 +8859,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       laneCapEnabled: true
     };
     const pikachu = collectorProfileCandidate('Pikachu Promo 99', 'promo-99', 100, 'CORE_MATCH', { subjects: ['Pikachu'] });
-    pikachu.suggestion.lane = 'Promo Trail';
+    pikachu.suggestion.lane = 'Collector Compass';
     const moltres = collectorProfileCandidate(
       'Moltres Skyridge 21/144',
       'ecard3-21',
@@ -9021,7 +8878,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       {
         candidate: pikachu,
         item: makeItem(pikachu, 'READY'),
-        rejection: { code: 'SUBJECT_SHELF_CAP' as const, matchedKey: 'pikachu' },
+        rejection: { code: 'LANE_SHELF_CAP' as const, matchedKey: 'Collector Compass' },
         recommendation: { profileHasSignals: true, strength: 'DIRECT_PROFILE' as const, anchors: [], anchoredWhy: 'direct', isEraOnlyExploratory: false }
       }
     ];
@@ -9045,7 +8902,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
   it('completes a 19/15/4 shelf with one additional qualified READY candidate', () => {
     const candidate = collectorProfileCandidate('Pikachu Promo 99', 'promo-99', 100, 'CORE_MATCH', { subjects: ['Pikachu'] });
-    candidate.suggestion.lane = 'Promo Trail';
+    candidate.suggestion.lane = 'Collector Compass';
     const item = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD')[0]!;
     const selected = publishableShelfCandidates(19).map((selectedCandidate, index) => ({
       candidate: selectedCandidate,
@@ -9064,12 +8921,12 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       [{
         candidate,
         item,
-        rejection: { code: 'SUBJECT_SHELF_CAP', matchedKey: 'pikachu' },
+        rejection: { code: 'LANE_SHELF_CAP', matchedKey: 'Collector Compass' },
         recommendation: { profileHasSignals: true, strength: 'DIRECT_PROFILE', anchors: [], anchoredWhy: 'direct', isEraOnlyExploratory: false }
       }],
       new Set(selected.map(({ item: selectedItem }) => selectedItem.suggestion.referenceSourceCardId!)),
       {
-        subjectCounts: new Map([['pikachu', 4]]), familyCounts: new Map(), formatCounts: new Map(), laneCounts: new Map(),
+        subjectCounts: new Map(), familyCounts: new Map(), formatCounts: new Map(), laneCounts: new Map([['Collector Compass', 8]]),
         exploratoryCount: 0, eraOnlyExploratoryCount: 0, genericFillerCount: 0, eraSetFamilyCounts: new Map(), laneCapEnabled: true
       },
       20,
@@ -9106,9 +8963,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       anchoredWhy: 'direct',
       isEraOnlyExploratory: false
     };
+    distinct.suggestion.lane = 'Collector Compass';
     const state = {
-      subjectCounts: new Map([['pikachu', 4]]), familyCounts: new Map<string, number>(), formatCounts: new Map<string, number>(),
-      laneCounts: new Map<string, number>(), exploratoryCount: 0, eraOnlyExploratoryCount: 0, genericFillerCount: 0,
+      subjectCounts: new Map<string, number>(), familyCounts: new Map<string, number>(), formatCounts: new Map<string, number>(),
+      laneCounts: new Map([['Collector Compass', 8]]), exploratoryCount: 0, eraOnlyExploratoryCount: 0, genericFillerCount: 0,
       eraSetFamilyCounts: new Map<string, number>(), laneCapEnabled: true
     };
     const selectedIds = new Set(selected.map(({ item }) => item.suggestion.referenceSourceCardId!));
@@ -9116,7 +8974,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     __discoveryPersistenceTestHooks.appendStructuralRecoverySelection(
       selected,
-      [{ candidate: distinct, item: makeItem(distinct, 'PENDING'), rejection: { code: 'SUBJECT_SHELF_CAP', matchedKey: 'pikachu' }, recommendation }],
+      [{ candidate: distinct, item: makeItem(distinct, 'PENDING'), rejection: { code: 'LANE_SHELF_CAP', matchedKey: 'Collector Compass' }, recommendation }],
       selectedIds,
       state,
       20,
@@ -9184,18 +9042,20 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     }));
     const ready = collectorProfileCandidate('Pikachu Promo 99', 'promo-99', 101, 'CORE_MATCH', { subjects: ['Pikachu'] });
     const incomplete = collectorProfileCandidate('Moltres Skyridge 21', 'ecard3-21', 100, 'CONTROLLED_EXPLORATION', { subjects: ['Moltres'] });
+    ready.suggestion.lane = 'Collector Compass';
+    incomplete.suggestion.lane = 'Collector Compass';
     const recommendation = { profileHasSignals: true, strength: 'DIRECT_PROFILE' as const, anchors: [], anchoredWhy: 'direct', isEraOnlyExploratory: false };
     const diagnostics: Parameters<typeof __discoveryPersistenceTestHooks.appendStructuralRecoverySelection>[5] = [];
 
     __discoveryPersistenceTestHooks.appendStructuralRecoverySelection(
       selected,
       [
-        { candidate: incomplete, item: makeItem(incomplete, 'PENDING'), rejection: { code: 'SUBJECT_SHELF_CAP', matchedKey: 'moltres' }, recommendation },
-        { candidate: ready, item: makeItem(ready, 'READY'), rejection: { code: 'SUBJECT_SHELF_CAP', matchedKey: 'pikachu' }, recommendation }
+        { candidate: incomplete, item: makeItem(incomplete, 'PENDING'), rejection: { code: 'LANE_SHELF_CAP', matchedKey: 'Collector Compass' }, recommendation },
+        { candidate: ready, item: makeItem(ready, 'READY'), rejection: { code: 'LANE_SHELF_CAP', matchedKey: 'Collector Compass' }, recommendation }
       ],
       new Set(selected.map(({ item }) => item.suggestion.referenceSourceCardId!)),
       {
-        subjectCounts: new Map([['pikachu', 4], ['moltres', 4]]), familyCounts: new Map(), formatCounts: new Map(), laneCounts: new Map(),
+        subjectCounts: new Map(), familyCounts: new Map(), formatCounts: new Map(), laneCounts: new Map([['Collector Compass', 8]]),
         exploratoryCount: 0, eraOnlyExploratoryCount: 0, genericFillerCount: 0, eraSetFamilyCounts: new Map(), laneCapEnabled: true
       },
       20,
@@ -10238,8 +10098,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       expect(first.candidateOutcomes).toEqual(second.candidateOutcomes);
       if (name === 'w29-sanitized.json' || name === 'w30-live-success-sanitized.json' || name === 'w31-live-sanitized.json') {
         expect(first.structuralGate.status).toBe('PASS');
-        expect(first.selection.items).toHaveLength(20);
-        expect(first.selection.marketResolvedCount).toBeGreaterThanOrEqual(15);
+        expect(first.selection.items.length).toBeGreaterThanOrEqual(15);
+        expect(first.selection.items.length).toBeLessThanOrEqual(20);
+        expect(first.selection.marketIncompleteCount).toBeLessThanOrEqual(5);
       }
     }
   });
@@ -10511,7 +10372,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     ]));
   });
 
-  it('replays the sanitized W31 fixture offline at 20 selected and at least 15 market-resolved', async () => {
+  it('replays the sanitized W31 fixture offline as a qualified smaller shelf', async () => {
     const fixture = JSON.parse(readFileSync(resolve('src/commands/__tests__/fixtures/discovery/w31-live-sanitized.json'), 'utf8')) as CaptureFixture;
     const fetchSpy = vi.fn(async () => {
       throw new Error('fetch should not be called during offline replay');
@@ -10520,8 +10381,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const replay = await replayWeeklyDiscoveryFixture(fixture);
 
-    expect(replay.summary.itemCount).toBe(20);
-    expect(replay.summary.marketResolvedCount).toBeGreaterThanOrEqual(15);
+    expect(replay.summary.itemCount).toBeGreaterThanOrEqual(15);
+    expect(replay.summary.itemCount).toBeLessThanOrEqual(20);
+    expect(replay.summary.marketIncompleteCount).toBeLessThanOrEqual(5);
     expect(replay.summary.canonicalResolution.providerRequestsAttempted).toBe(0);
     expect(replay.summary.structuralGate.status).toBe('PASS');
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -10574,7 +10436,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     ).toBe(result.selection.items.length);
   });
 
-  it('excludes an exact canonical card shown in one of the previous 6 weekly shelves', () => {
+  it('excludes an exact canonical card shown in one of the previous 12 weekly shelves', () => {
     const repeated = publishableCandidate('Repeat Card', 'repeat-1', 0);
     const previousDrop = {
       periodKey: '2026-W28',
@@ -10586,6 +10448,56 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([repeated, ...publishableShelfCandidates(20)], 'CAD', 20, [previousDrop]);
     expect(result.rejectionCounts.EXACT_REPEAT_COOLDOWN).toBe(1);
+  });
+
+  it('uses twelve delivered shelves for exact-printing exclusion and leaves older printings eligible', () => {
+    const repeated = publishableCandidate('Repeat Card', 'repeat-boundary', 0);
+    const other = (index: number) => publishableCandidate(`History Card ${index}`, `history-${index}`, index);
+    const recentDrops = Array.from({ length: 13 }, (_, index) => ({
+      periodKey: `2026-W${40 - index}`,
+      items: __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([index === 11 || index === 12 ? repeated : other(index)], 'CAD')
+    })) as unknown as ScheduledDiscoveryDrop[];
+
+    const inside = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [repeated, ...publishableShelfCandidates(20)],
+      'CAD',
+      20,
+      recentDrops.slice(0, 12)
+    );
+    const outside = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [repeated, ...publishableShelfCandidates(20)],
+      'CAD',
+      20,
+      recentDrops.map((drop, index) => index === 11 ? ({ ...drop, items: __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([other(11)], 'CAD') }) : drop)
+    );
+
+    expect(inside.rejectionCounts.EXACT_REPEAT_COOLDOWN).toBe(1);
+    expect(outside.items.some((item) => item.suggestion.referenceSourceCardId === 'repeat-boundary')).toBe(true);
+  });
+
+  it('retrieves twelve available history batches after filtering future and unavailable rows', () => {
+    const userId = `weekly-history-window-${Date.now()}`;
+    const now = new Date('2026-10-20T12:00:00.000Z');
+    const periods = Array.from({ length: 14 }, (_, index) => `2026-W${String(index + 1).padStart(2, '0')}`);
+    for (const [index, periodKey] of periods.entries()) {
+      upsertScheduledDiscoveryDrop({
+        userId,
+        dropType: 'WEEKLY_DISCOVERY',
+        periodKey,
+        status: index === 13 ? 'PREPARING' : 'READY',
+        title: 'Weekly Shelf',
+        summary: periodKey,
+        currency: 'CAD',
+        availableAt: index === 12 ? '2026-10-21T12:00:00.000Z' : `2026-01-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+        expiresAt: '2027-01-01T00:00:00.000Z',
+        items: __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([publishableCandidate(`History ${index}`, `history-row-${index}`, index)], 'CAD')
+      });
+    }
+
+    const history = listRecentAvailableScheduledDiscoveryDrops(userId, 'WEEKLY_DISCOVERY', now.toISOString(), 12);
+    expect(history).toHaveLength(12);
+    expect(history.every((drop) => drop.status === 'READY' && drop.availableAt <= now.toISOString())).toBe(true);
+    for (const periodKey of periods) deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
   });
 
   it('excludes the target period itself from prior weekly cooldown history', () => {
@@ -10696,7 +10608,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'exp1-55')).toBe(true);
   });
 
-  it('applies a freshness penalty to cards shown 7 to 12 shelves ago', () => {
+  it('hard-excludes cards shown within the twelve-shelf freshness window', () => {
     const penalized = publishableCandidate('Older Repeat', 'older-repeat', 0);
     const fresh = publishableCandidate('Fresh Card', 'fresh-card', 1);
     const recentDrops = Array.from({ length: 7 }, (_, index) => ({
@@ -10706,7 +10618,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const ordered = __discoveryPersistenceTestHooks.applyExactCardRepeatFreshnessOrdering([penalized, fresh], recentDrops);
     expect(ordered.orderedCandidates[0]?.suggestion.referenceSourceCardId).toBe('fresh-card');
-    expect(ordered.penaltySamples.some((sample) => sample.canonicalCardId === 'older-repeat' && sample.repeatPolicy === 'PENALTY')).toBe(true);
+    expect(ordered.penaltySamples.some((sample) => sample.canonicalCardId === 'older-repeat' && sample.repeatPolicy === 'HARD_EXCLUDE')).toBe(true);
   });
 
   it('replaces invalid candidates in the first 20 from later reserve candidates during publication', () => {
@@ -11172,7 +11084,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       typicalRawAskingTotal: 75,
       marketSampleSize: 4
     }));
-    const invalidCandidates = validCandidates.slice(0, 19);
+    const invalidCandidates = validCandidates.slice(0, 14);
 
     const saved = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, validCandidates, 'CAD', undefined, date);
     expect(saved.saved).toBe(true);
@@ -11259,7 +11171,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey)!
     );
 
-    const invalidCandidates = publishableShelfCandidates(19, (candidate, index) => ({
+    const invalidCandidates = publishableShelfCandidates(14, (candidate, index) => ({
       ...candidate,
       typicalRawAskingTotal: 75 + index,
       marketSampleSize: 4
@@ -11275,7 +11187,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
   });
 
-  it('reports weekly shelf persistence success only for a validated 20-card shelf', () => {
+  it('persists a qualified smaller shelf without repeat filler', () => {
     const userId = `weekly-result-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');
     const invalidCandidates = publishableShelfCandidates(19, (candidate) => ({
@@ -11285,7 +11197,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     }));
 
     const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, invalidCandidates, 'CAD', undefined, date);
-    expect(result.saved).toBe(false);
+    expect(result.saved).toBe(true);
     expect(result.itemCount).toBe(19);
 
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
@@ -11294,7 +11206,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   it('still persists qualified canonical candidates into the discovery universe when weekly shelf publication fails', () => {
     const userId = `weekly-universe-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');
-    const invalidCandidates = publishableShelfCandidates(19, (candidate, index) => ({
+    const invalidCandidates = publishableShelfCandidates(14, (candidate, index) => ({
       ...candidate,
       typicalRawAskingTotal: 75 + index,
       marketSampleSize: 4
@@ -11302,7 +11214,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, invalidCandidates, 'CAD', undefined, date);
     expect(result.saved).toBe(false);
-    expect(listDiscoveryUniverseCards(25)).toHaveLength(19);
+    expect(listDiscoveryUniverseCards(25)).toHaveLength(14);
   });
 
   it('reports grouped rejection metrics for selection failures', () => {
@@ -11956,7 +11868,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.items.filter((item) => item.market.status !== 'READY').length).toBeLessThanOrEqual(5);
   });
 
-  it('retains the previous shelf when fewer than 15 market-resolved cards can be found', () => {
+  it('publishes a smaller shelf when fourteen READY cards and five qualified incomplete cards remain', () => {
     const userId = `weekly-market-short-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');
     const validCandidates = publishableShelfCandidates(20, (candidate, index) => ({
@@ -11974,9 +11886,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     );
 
     const result = __discoveryPersistenceTestHooks.persistValidatedWeeklyDiscoveryDrop(userId, weakPool, 'CAD', undefined, date);
-    expect(result.saved).toBe(false);
-    expect(result.marketResolvedCount).toBeLessThan(15);
-    expect(result.retainedPreviousShelf).toBe(true);
+    expect(result.saved).toBe(true);
+    expect(result.itemCount).toBe(19);
+    expect(result.marketResolvedCount).toBe(14);
+    expect(result.retainedPreviousShelf).toBe(false);
 
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
   });
@@ -12348,6 +12261,53 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(attached?.sourceStatus).toBe('PENDING');
     deleteDiscoveryMarketCache(cacheKey);
   });
+
+  it('keeps a fresh completed-empty cache outcome out of pending state', () => {
+    const name = `Pikachu SV-P 197 Completed Empty ${Date.now()}`;
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: name,
+      displayCurrency: 'CAD',
+      destinationCountry: 'CA',
+      marketSampleSize: 0,
+      soldSampleSize: 0,
+      sourceStatus: 'EMPTY',
+      fetchedAt: new Date().toISOString()
+    });
+
+    const [attached] = candidatesFromDiscoveryMarketCache([candidate(name, 'Japanese Collector Trail', 0)], {
+      userId: 'completed-empty-user',
+      activeChases: [],
+      destination: { country: 'CA' },
+      targetCurrency: 'CAD'
+    });
+
+    expect(attached?.sourceStatus).toBe('EMPTY');
+    expect(getDiscoveryMarketRefreshJob(cacheKey)).toBeNull();
+    deleteDiscoveryMarketCache(cacheKey);
+  });
+
+  it('persists a completed empty background market job without rewriting it as an error', async () => {
+    const name = `Pikachu Empty Background ${Date.now()}`;
+    const suggestion = candidate(name, 'Japanese Collector Trail', 0).suggestion;
+    const cacheKey = discoveryMarketCacheKey(name, 'CAD', 'CA');
+    deleteDiscoveryMarketCache(cacheKey);
+    vi.spyOn(ebayService, 'searchEbayListings').mockResolvedValue([]);
+
+    await processDiscoveryMarketRefreshWork({
+      cacheKey,
+      suggestion,
+      userId: 'completed-empty-worker-user',
+      activeChases: [],
+      destination: { country: 'CA' },
+      targetCurrency: 'CAD'
+    });
+
+    expect(getDiscoveryMarketCache(cacheKey)?.sourceStatus).toBe('EMPTY');
+    deleteDiscoveryMarketCache(cacheKey);
+  });
 });
 
 describe('attachReferenceImages', () => {
@@ -12505,6 +12465,35 @@ describe('attachReferenceImages', () => {
     expect(attached?.image?.sourceName).toBe('eBay vetted marketplace image');
     expect(attached?.image?.sourceKind).toBe('MARKET_LISTING');
     deleteDiscoveryReferenceCache(referenceCacheKey);
+  });
+
+  it('rejects an unreachable trusted TCGdex artwork URL before publication', async () => {
+    const imageUrl = `https://assets.tcgdex.net/ja/SV/SV-P/${Date.now()}/high.png`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>not found</html>', {
+      status: 404,
+      headers: { 'content-type': 'text/html' }
+    })));
+
+    const [attached] = await attachReferenceImages([{
+      ...candidate('Pikachu - SV-P 197 (Japanese)', 'Japanese Collector Trail', 0),
+      suggestion: {
+        ...candidate('Pikachu - SV-P 197 (Japanese)', 'Japanese Collector Trail', 0).suggestion,
+        referenceImageUrl: imageUrl,
+        referenceSourceName: 'TCGdex Japanese (SV-P)',
+        referenceSourceCardId: 'SV-P-197'
+      },
+      image: {
+        name: 'Pikachu - SV-P 197 (Japanese)',
+        url: imageUrl,
+        sourceName: 'TCGdex Japanese (SV-P)',
+        sourceCardId: 'SV-P-197',
+        sourceKind: 'CARD_REFERENCE'
+      }
+    }], undefined, { validateRemoteReferences: true });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(attached?.image).toBeUndefined();
+    expect(attached?.suggestion.referenceImageUrl).toBeUndefined();
   });
 
   it('uses a complete trusted suggestion binding without re-fetching reference data', async () => {
@@ -12758,8 +12747,7 @@ describe('Discovery response cards', () => {
 
     const fields = discoveryCardEmbeds([candidate], 'CAD', true)[0]!.toJSON().fields ?? [];
     expect(fields.every((field) => String(field.value).length <= 1024)).toBe(true);
-    expect(fields.find((field) => field.name === 'Why It Fits')?.value).toContain('Umbreon');
-    expect(fields.find((field) => field.name === 'Why It Fits')?.value).not.toContain('Call of Legends Call of Legends Call of Legends');
+    expect(fields.find((field) => field.name === 'Why It Fits')?.value).toBe('test why');
 
     const zapdosAmplifiedName = `Zapdos ${'2 '.repeat(80)}Base Set 2 20`;
     const zapdosCandidate: DiscoveryCandidate = {
@@ -12797,7 +12785,7 @@ describe('Discovery response cards', () => {
     const zapdosCard = discoveryCardEmbeds([zapdosCandidate], 'CAD', true)[0]!.toJSON();
     expect(zapdosCard.title).toContain('Zapdos');
     expect(zapdosCard.title).not.toContain('Zapdos 2 2');
-    expect(zapdosCard.fields?.find((field) => field.name === 'Why It Fits')?.value).toContain('Zapdos');
+    expect(zapdosCard.fields?.find((field) => field.name === 'Why It Fits')?.value).toBe('test why');
   });
 
   it('shows Market Snapshot on Pro response cards and hides it for Free response cards', () => {
@@ -12806,8 +12794,8 @@ describe('Discovery response cards', () => {
     const freeCard = discoveryCardEmbeds(candidates, 'CAD', false)[0]?.toJSON();
     const proCard = discoveryCardEmbeds(candidates, 'CAD', true)[0]?.toJSON();
 
-    expect(freeCard?.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue']);
-    expect(proCard?.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Collector Cue', 'Market Snapshot']);
+    expect(freeCard?.fields?.map((field) => field.name)).toEqual(['Why It Fits']);
+    expect(proCard?.fields?.map((field) => field.name)).toEqual(['Why It Fits', 'Market Snapshot']);
   });
 
   it('keeps card numbering aligned with the full shelf offset', () => {

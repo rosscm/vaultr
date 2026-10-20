@@ -2,7 +2,7 @@ import { db } from './db.js';
 import type { Listing } from '../types.js';
 import type { SupportedCurrency } from './currency.js';
 
-export type DiscoveryMarketSourceStatus = 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR';
+export type DiscoveryMarketSourceStatus = 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'EMPTY' | 'NO_ACCEPTED_SAMPLES';
 
 export type DiscoveryMarketCacheEntry = {
   cacheKey: string;
