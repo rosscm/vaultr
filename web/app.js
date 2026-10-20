@@ -50,6 +50,7 @@ const state = {
   isVaultLoading: false,
   vaultLoaded: false,
   vaultError: null,
+  vaultRequestId: 0,
   shelf: null,
   isShelfLoading: false,
   shelfLoaded: false,
@@ -502,7 +503,7 @@ function apiErrorMessage(error) {
   if (body.error === 'NO_APPLICABLE_CHANGES') return 'Those changes use Vaultr Plus controls.';
   if (body.error === 'NO_CHANGES_REQUESTED') return 'Choose at least one change.';
   if (body.error === 'INVALID_GRADE_PREFERENCE') return 'Choose a valid grade preference.';
-  if (body.error === 'invalid_card_selection') return 'That exact card selection expired or changed. Choose it again before saving.';
+  if (body.error === 'invalid_card_selection') return 'That exact card selection expired or changed. Your preferences are still here; choose the card again to refresh it before saving.';
   if (body.error === 'TOO_MANY_CUSTOM_EXCLUSIONS') return 'Use at most 15 custom exclusions.';
   return 'Something went wrong. Try again.';
 }
@@ -569,7 +570,7 @@ function signedOutMarkup() {
               <button class="button-primary" type="submit"${state.authBusy ? ' disabled' : ''}>${state.authBusy ? 'Sending…' : 'Send sign-in link'}</button>
             </form>
             <p class="auth-fine-print">If this email is new to Vaultr, your account will be created after verification.</p>
-          ` : '<p class="auth-unavailable">Email sign-in is not configured on this Vaultr deployment.</p>'}
+          ` : '<p class="auth-unavailable">Email sign-in isn’t available here yet.</p>'}
           ${discordAvailable ? '<div class="auth-divider"><span>or</span></div><a class="button-ghost auth-discord-button" href="/auth/discord">Sign in with Discord</a>' : ''}
         `}
         ${state.authNotice ? `<p class="form-success" role="status">${escapeHtml(state.authNotice)}</p>` : ''}
@@ -599,8 +600,8 @@ function shellMarkup(content) {
         <div class="user-area">
           ${avatarHtml(state.user)}
           <span class="user-copy"><strong class="user-name">${escapeHtml(displayName)}</strong>${accountPlan ? `<small>${escapeHtml(accountPlan)}</small>` : ''}</span>
-          <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">Settings</button>
-          ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : '<button class="button-ghost" type="button" data-action="logout">Log out</button>'}
+          <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">${iconMarkup('settings')}<span>Settings</span></button>
+          ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
         </div>
       </aside>
       <header class="mobile-header">
@@ -611,8 +612,8 @@ function shellMarkup(content) {
         </a>
         <div class="user-area">
           ${avatarHtml(state.user)}
-          <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">Settings</button>
-          ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : '<button class="button-ghost" type="button" data-action="logout">Log out</button>'}
+          <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">${iconMarkup('settings')}<span>Settings</span></button>
+          ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
         </div>
       </header>
       <main id="app-main" class="app-main">
@@ -642,7 +643,19 @@ function onboardingResumePromptMarkup() {
 
 function navButton(page, label) {
   const selected = state.activePage === page;
-  return `<button class="nav-button" type="button" data-page="${page}" aria-selected="${selected ? 'true' : 'false'}">${label}</button>`;
+  return `<button class="nav-button" type="button" data-page="${page}" aria-selected="${selected ? 'true' : 'false'}">${iconMarkup(page)}<span>${label}</span></button>`;
+}
+
+function iconMarkup(name) {
+  const paths = {
+    home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-7h6v7"/>',
+    vault: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
+    alerts: '<path d="M4 5h16v14H4z"/><path d="m4 14 4-4h8l4 4"/><path d="M8 14h8"/>',
+    shelf: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.1 4.9-4.9 2.1 2.1-4.9 4.9-2.1Z"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.4v-.1A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-1.5-1H2V10h.1A1.7 1.7 0 0 0 3.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.06 4.2l.06.06A1.7 1.7 0 0 0 8 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 18.4 9a1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
+    logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h7v18h-7"/>'
+  };
+  return `<svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24">${paths[name] || ''}</svg>`;
 }
 
 function settingsComparable(value) {
@@ -730,29 +743,37 @@ function settingsPageMarkup() {
   const emailIdentity = state.identities?.email || { connected: false };
   const discordIdentity = state.identities?.discord || { connected: false };
   const emailLinkAvailable = state.authConfig?.email?.available;
+  const discordAvailable = state.authConfig?.discord?.available;
+  const currentPlan = planLabel(state.vaultPlan?.tier || 'FREE');
   return `
     <section class="settings-page" aria-labelledby="settings-title">
       <header class="page-header">
         <p class="eyebrow">Account</p>
         <h1 id="settings-title">Settings</h1>
-        <p>Shape which matches Vaultr surfaces and how listing costs are evaluated.</p>
-        <button class="button-ghost settings-onboarding-link" type="button" data-action="revisit-onboarding">Revisit setup</button>
-        <button class="button-ghost settings-plan-link" type="button" data-action="open-plan-comparison">Compare plans</button>
+        <p>Choose which matches you see and set your pricing and shipping preferences.</p>
       </header>
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
+      <section class="settings-overview" aria-label="Account overview">
+        <div class="settings-overview-row"><span><small>Current plan</small><strong>${escapeHtml(currentPlan)}</strong></span><button class="button-ghost settings-plan-link" type="button" data-action="open-plan-comparison">Compare plans</button></div>
+        <div class="settings-overview-row"><span><strong>Getting started</strong><small>Review your market preferences or the first-card walkthrough.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="revisit-onboarding">Revisit setup</button></div>
+      </section>
       <section class="settings-group account-methods" aria-labelledby="settings-login-title">
         <div class="settings-group-heading"><p class="eyebrow">Account</p><h2 id="settings-login-title">Login methods</h2></div>
-        <div class="account-method-row"><span><strong>Email</strong><small>${emailIdentity.connected ? `${escapeHtml(emailIdentity.email)} · Verified` : 'Not connected'}</small></span></div>
-        <div class="account-method-row"><span><strong>Discord</strong><small>${discordIdentity.connected ? escapeHtml(discordIdentity.displayName || discordIdentity.username || 'Connected') : 'Not connected'}</small></span></div>
-        ${emailIdentity.connected ? '' : emailLinkAvailable ? `
-          <form class="email-link-form" data-email-link-form novalidate>
-            <label class="field"><span>Add an email login</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" required${isPreviewMode ? ' disabled' : ''}><small class="field-hint">Verification adds another way to sign in. It does not subscribe you to email alerts.</small></label>
-            <button class="button-ghost" type="submit"${isPreviewMode || state.authBusy ? ' disabled' : ''}>Send verification link</button>
-          </form>
-        ` : '<p class="field-hint">Email login is not configured on this Vaultr deployment.</p>'}
-        ${state.emailConfirmation?.ready && state.emailConfirmation.purpose === 'LINK_EMAIL' ? '<button class="button-primary" type="button" data-action="redeem-email-link">Finish adding email</button>' : ''}
-        ${state.authNotice ? `<p class="form-success" role="status">${escapeHtml(state.authNotice)}</p>` : ''}
-        ${state.authError ? `<p class="form-error" role="alert">${escapeHtml(state.authError)}</p>` : ''}
+        <div class="account-method-content">
+          <div class="account-method-list">
+            <div class="account-method-row">
+              <span><strong>Email</strong><small>${emailIdentity.connected ? `${escapeHtml(emailIdentity.email)} · Verified` : 'Not connected'}</small><small>${emailIdentity.connected ? 'Use this address to sign in with a secure email link.' : emailLinkAvailable ? 'Add an email address as another way to sign in.' : 'Email sign-in isn’t available here yet.'}</small></span>
+              ${emailIdentity.connected || !emailLinkAvailable ? '' : `<form class="email-link-form" data-email-link-form novalidate><label class="field"><span class="visually-hidden">Email address</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" placeholder="you@example.com" required${isPreviewMode ? ' disabled' : ''}></label><button class="button-ghost" type="submit"${isPreviewMode || state.authBusy ? ' disabled' : ''}>Send verification link</button></form>`}
+            </div>
+            <div class="account-method-row">
+              <span><strong>Discord</strong><small>${discordIdentity.connected ? escapeHtml(discordIdentity.displayName || discordIdentity.username || 'Connected') : 'Not connected'}</small><small>${discordIdentity.connected ? 'Connected for sign-in and supported Discord features.' : 'Optional. Connect Discord as another way to access Vaultr.'}</small></span>
+              ${discordIdentity.connected || !discordAvailable || isPreviewMode ? '' : '<a class="button-ghost account-method-action" href="/auth/discord">Connect Discord</a>'}
+            </div>
+          </div>
+          ${state.emailConfirmation?.ready && state.emailConfirmation.purpose === 'LINK_EMAIL' ? '<button class="button-primary" type="button" data-action="redeem-email-link">Finish adding email</button>' : ''}
+          ${state.authNotice ? `<p class="form-success" role="status">${escapeHtml(state.authNotice)}</p>` : ''}
+          ${state.authError ? `<p class="form-error" role="alert">${escapeHtml(state.authError)}</p>` : ''}
+        </div>
       </section>
       <form class="settings-form" data-settings-form novalidate>
         <section class="settings-group" aria-labelledby="settings-matching-title">
@@ -900,8 +921,8 @@ function onboardingPageMarkup() {
   if (step === 'WELCOME') content = onboardingWelcomeMarkup(revisit);
   if (step === 'MARKET') content = `<p class="eyebrow">PRICING & SHIPPING</p><h1 id="onboarding-title">Set your market context</h1><p>Choose how prices are shown and where listings need to ship.</p>${onboardingMarketMarkup(revisit)}`;
   if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">Inspect the shared Watchlist form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Watchlist form</button></div>`;
-  if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'Your existing Watchlist card counts. Continue without creating another search.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${!revisit && state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${!revisit && state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
-  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Your Display Case needs at least five distinct collecting signals for weekly preparation, so recommendations may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
+  if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'You already have a card on your Watchlist. You’re ready to continue.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${!revisit && state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${!revisit && state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
+  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Your Watchlist and pickups shape your collecting profile; personalized recommendations require Vaultr Plus and enough distinct card history, and may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
   return `<section class="onboarding-page${step === 'WELCOME' ? ' welcome' : ''}" aria-labelledby="onboarding-title">${onboardingStepIndicator(step)}${previewNotice}${vaultNoticeMarkup('onboarding')}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content${step === 'WELCOME' ? ' onboarding-welcome' : ''}">${content}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
 }
 
@@ -1163,20 +1184,20 @@ function discoveryCardActionMarkup(item, className = 'vault-action-link') {
 function discoveryStateCopy(discovery, compact = false) {
   if (discovery?.state === 'PLAN_RESTRICTED') {
     return compact
-      ? 'Personalized recommendations require Vaultr Plus, enough collecting signals, and a completed weekly preparation run.'
-      : 'These picks are editorial, not personalized. Personalized recommendations require Vaultr Plus, enough collecting signals, and a completed weekly preparation run.';
+      ? 'Your Watchlist and pickups shape your collecting profile. Personalized Display Cases require Vaultr Plus and may take time to appear.'
+      : 'These picks are editorial, not personalized. Your Watchlist and pickups shape your collecting profile; personalized Display Cases require Vaultr Plus and may take time to appear.';
   }
   if (discovery?.state === 'INSUFFICIENT_SIGNALS') {
     const needed = discovery.signalsNeeded || 1;
-    return `Add or acquire ${needed} more distinct ${needed === 1 ? 'card' : 'cards'} to reach the ${discovery.minimumSignalCount}-signal threshold for weekly preparation.`;
+    return `Add or acquire ${needed} more distinct ${needed === 1 ? 'card' : 'cards'} to build enough card history for personalized recommendations.`;
   }
   if (discovery?.state === 'AWAITING_PREPARATION') {
-    return 'Your collector profile is eligible. Your next Display Case will appear after the weekly preparation run completes.';
+    return 'Your collecting profile is ready. Your next personalized Display Case is pending.';
   }
   if (discovery?.state === 'PREPARATION_UNAVAILABLE') {
-    return 'Your collector profile is eligible, but weekly preparation is not running in this environment.';
+    return 'Your collecting profile is ready, but personalized Display Cases are not being updated here right now.';
   }
-  return 'Add cards to your Watchlist and mark your pickups to help Vaultr understand your collecting taste.';
+  return 'Your Watchlist and pickups help shape your collecting profile. With Vaultr Plus, that profile guides your personalized Display Case.';
 }
 
 function starterArtworkMarkup(items, compact = false) {
@@ -1235,7 +1256,7 @@ function homePageMarkup() {
             : shelfReady
               ? homeShelfFeatureMarkup(shelfItems, shelfIndex)
               : state.shelfLoaded
-                ? `<div class="home-starter-discovery"><div><p class="eyebrow">A LITTLE INSPIRATION</p><p>A few collector favourites to explore while your collecting profile takes shape.</p><small>Editorial picks, not personalized recommendations. ${escapeHtml(discoveryStateCopy(discovery, true))}</small></div>${starterArtworkMarkup(starters, true)}</div>`
+                ? `<div class="home-starter-discovery"><div><p class="eyebrow">A LITTLE INSPIRATION</p><p>A few collector favourites to explore while your collecting profile takes shape.</p><small>Editorial picks, not personalized recommendations.</small></div>${starterArtworkMarkup(starters, true)}</div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
         </div>
       </section>
@@ -2073,17 +2094,20 @@ async function loadVault({ force = false, throwOnError = false } = {}) {
     renderCurrentPage();
     return;
   }
+  const requestId = ++state.vaultRequestId;
   state.isVaultLoading = true;
   state.vaultError = null;
   renderCurrentPage();
   try {
     const body = await fetchJson('/api/chases');
+    if (requestId !== state.vaultRequestId) return null;
     applyVaultResponse(body);
     state.isVaultLoading = false;
     renderCurrentPage();
     return body;
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
+    if (requestId !== state.vaultRequestId) return null;
     state.vaultError = 'load_failed';
     state.isVaultLoading = false;
     renderCurrentPage();
@@ -2364,6 +2388,7 @@ async function submitVaultForm(form) {
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
     state.vaultSubmitting = false;
+    if (error?.body?.error === 'invalid_card_selection') state.shelfLoaded = false;
     if (!editing && error?.status === undefined) {
       const reconciliation = await reconcileUncertainVaultCreate(body.cardName);
       if (reconciliation.found) {

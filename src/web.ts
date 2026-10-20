@@ -542,10 +542,51 @@ function applyCardSelection(userId: string, body: Record<string, unknown>): WebR
 }
 
 const WEB_STARTER_DISCOVERY = [
-  { name: 'Mew CoroCoro Promo 151', imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp' },
-  { name: 'Pichu Expedition Base Set 22/165', imageUrl: '/onboarding-art/pichu-expedition-022.webp' },
-  { name: 'Sylveon ex 212/187', imageUrl: '/onboarding-art/sylveon-ex-212.webp' }
+  {
+    name: 'Mew CoroCoro Promo 151',
+    imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp',
+    setName: 'CoroCoro Promo',
+    cardNumber: '151',
+    language: 'Japanese',
+    sourceCardId: 'editorial-mew-corocoro-promo-151'
+  },
+  {
+    name: 'Pichu Expedition Base Set 22/165',
+    imageUrl: '/onboarding-art/pichu-expedition-022.webp',
+    setName: 'Expedition Base Set',
+    cardNumber: '22/165',
+    language: 'English',
+    sourceCardId: 'editorial-pichu-expedition-22'
+  },
+  {
+    name: 'Sylveon ex 212/187',
+    imageUrl: '/onboarding-art/sylveon-ex-212.webp',
+    sourceCardId: 'editorial-sylveon-ex-212'
+  }
 ] as const;
+
+function publicStarterDiscoveryItems(userId: string, config: WebConfig) {
+  return WEB_STARTER_DISCOVERY.map((item) => ({
+    name: item.name,
+    imageUrl: item.imageUrl,
+    ...('setName' in item ? { setName: item.setName } : {}),
+    ...('cardNumber' in item ? { cardNumber: item.cardNumber } : {}),
+    ...('language' in item ? { language: item.language } : {}),
+    cardIdentity: {
+      value: item.name,
+      matchKey: normalizedCardIdentity(normalizeChaseCardName(item.name)),
+      sourceName: 'VAULTR_EDITORIAL',
+      sourceCardId: item.sourceCardId
+    },
+    selection: issueCardSelection(userId, item.name, {
+      imageUrl: `${baseOrigin(config)}${item.imageUrl}`,
+      imageIdentity: item.name,
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceName: 'VAULTR_EDITORIAL',
+      imageSourceCardId: item.sourceCardId
+    })
+  }));
+}
 
 function webDiscoveryState(userId: string, config: WebConfig, populated: boolean) {
   const tier = activePlanTier(getUserPlan(userId));
@@ -615,13 +656,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
       title: 'Weekly Shelf',
       items: [],
       discovery: webDiscoveryState(userId, config, false),
-      starterItems: WEB_STARTER_DISCOVERY.map((item) => ({
-        ...item,
-        cardIdentity: {
-          value: item.name,
-          matchKey: normalizedCardIdentity(normalizeChaseCardName(item.name))
-        }
-      }))
+      starterItems: publicStarterDiscoveryItems(userId, config)
     });
   }
 

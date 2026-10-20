@@ -285,6 +285,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("navButton('vault', 'Watchlist')");
     expect(jsResponse.body).toContain("navButton('alerts', 'Inbox')");
     expect(jsResponse.body).toContain("navButton('shelf', 'Discover')");
+    expect(jsResponse.body).toContain('function iconMarkup(name)');
+    expect(jsResponse.body).toContain('class="nav-icon" aria-hidden="true" focusable="false"');
     expect(jsResponse.body).toContain('data-page="settings"');
     expect(jsResponse.body).toContain('data-settings-form');
     expect(jsResponse.body).toContain('data-onboarding-market-form');
@@ -329,6 +331,13 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("state.vaultCardSelection = item.selection");
     expect(jsResponse.body).toContain('body.cardSelectionToken = state.vaultCardSelection.token;');
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
+    expect(jsResponse.body).toContain("if (error?.body?.error === 'invalid_card_selection') state.shelfLoaded = false;");
+    expect(jsResponse.body).toContain('Your preferences are still here; choose the card again to refresh it before saving.');
+    expect(jsResponse.body).toContain('const requestId = ++state.vaultRequestId;');
+    expect(jsResponse.body).toContain('if (requestId !== state.vaultRequestId) return null;');
+    expect(jsResponse.body).toContain('Choose which matches you see and set your pricing and shipping preferences.');
+    expect(jsResponse.body).toContain('Email sign-in isn’t available here yet.');
+    expect(jsResponse.body).toContain('You already have a card on your Watchlist. You’re ready to continue.');
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
     expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=4')");
     expect(jsResponse.body).toContain("imageKind: 'Listing image'");
@@ -1327,6 +1336,50 @@ describe('authenticated Weekly Shelf API', () => {
     clearUser(userId);
   });
 
+  it('preserves an editorial starter printing and approved artwork through save and acquisition', async () => {
+    const userId = 'web-starter-selection-lifecycle-user';
+    clearUser(userId);
+    const { token } = createWebSession({ userId }, { token: 'starter-selection-lifecycle-token' });
+    const headers = { cookie: sessionCookie(token) };
+    const shelf = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+    const pichu = JSON.parse(shelf.body ?? '{}').starterItems.find((item: any) => item.name === 'Pichu Expedition Base Set 22/165');
+
+    const created = await handleWebRequest({
+      method: 'POST',
+      url: '/api/chases',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ cardName: pichu.name, cardSelectionToken: pichu.selection.token })
+    }, { config });
+    const createdChase = JSON.parse(created.body ?? '{}').item.chase;
+    expect(created.status).toBe(201);
+    expect(createdChase).toMatchObject({
+      cardName: pichu.name,
+      cardImageUrl: 'http://127.0.0.1:8790/onboarding-art/pichu-expedition-022.webp',
+      cardIdentity: { sourceName: 'VAULTR_EDITORIAL', sourceCardId: 'editorial-pichu-expedition-22' }
+    });
+
+    const completed = await handleWebRequest({
+      method: 'DELETE',
+      url: `/api/chases/${encodeURIComponent(createdChase.id)}`,
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ outcome: 'COMPLETED' })
+    }, { config });
+    const readback = await handleWebRequest({ method: 'GET', url: '/api/chases', headers }, { config });
+    const body = JSON.parse(readback.body ?? '{}');
+    expect(completed.status).toBe(200);
+    expect(body.items).toHaveLength(0);
+    expect(body.completedItems[0]).toMatchObject({
+      cardName: pichu.name,
+      cardImageUrl: 'http://127.0.0.1:8790/onboarding-art/pichu-expedition-022.webp',
+      cardIdentity: { sourceName: 'VAULTR_EDITORIAL', sourceCardId: 'editorial-pichu-expedition-22' }
+    });
+
+    clearUser(userId);
+  });
+
   it('prefers a prepared target-period shelf over the still-current previous week', async () => {
     const userId = 'web-shelf-target-period-user';
     clearUser(userId);
@@ -1456,6 +1509,15 @@ describe('authenticated Weekly Shelf API', () => {
     ]);
     expect(JSON.stringify(free.starterItems)).not.toContain('market');
     expect(JSON.stringify(free.starterItems)).not.toContain('reason');
+    expect(free.starterItems[1]).toMatchObject({
+      name: 'Pichu Expedition Base Set 22/165',
+      imageUrl: '/onboarding-art/pichu-expedition-022.webp',
+      setName: 'Expedition Base Set',
+      cardNumber: '22/165',
+      language: 'English',
+      cardIdentity: { sourceName: 'VAULTR_EDITORIAL', sourceCardId: 'editorial-pichu-expedition-22' },
+      selection: { value: 'Pichu Expedition Base Set 22/165', imageUrl: 'http://127.0.0.1:8790/onboarding-art/pichu-expedition-022.webp' }
+    });
 
     setUserPlan(userId, 'PRO');
     const thin = JSON.parse((await request()).body ?? '{}');
@@ -1728,6 +1790,34 @@ describe('authenticated chase API', () => {
 
     clearUser(userId);
     clearUser(otherUserId);
+  });
+
+  it('rejects an expired editorial selection without creating an unverified Chase', async () => {
+    const userId = 'web-chases-expired-editorial-selection';
+    const headers = auth(userId, 'chases-expired-editorial-selection-token');
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    try {
+      const shelf = await handleWebRequest(
+        { method: 'GET', url: '/api/shelf', headers },
+        { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+      );
+      const pichu = JSON.parse(shelf.body ?? '{}').starterItems.find((item: any) => item.name === 'Pichu Expedition Base Set 22/165');
+      nowSpy.mockReturnValue(1_800_000_000_000 + (16 * 60 * 1000));
+
+      const response = await handleWebRequest({
+        method: 'POST',
+        url: '/api/chases',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ cardName: pichu.name, cardSelectionToken: pichu.selection.token })
+      }, { config });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body ?? '{}').error).toBe('invalid_card_selection');
+      expect(listChases(userId)).toHaveLength(0);
+    } finally {
+      nowSpy.mockRestore();
+      clearUser(userId);
+    }
   });
 
   it('maps create duplicate, limit, invalid input, invalid grade, and Free advanced controls', async () => {
