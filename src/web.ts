@@ -350,7 +350,9 @@ function vaultOptions() {
       maxActiveChases: entitlements.maxActiveChases,
       checkIntervalMinutes: Math.round(entitlements.pollIntervalSeconds / 60),
       advancedFiltering: entitlements.advancedFiltering,
-      storefrontMonitoring: entitlements.storefrontMonitoring
+      storefrontMonitoring: entitlements.storefrontMonitoring,
+      discoveryDepth: entitlements.discoveryDepth,
+      discoveryVisibleCards: entitlements.discoveryVisibleCards
     };
   });
   return {
@@ -359,7 +361,8 @@ function vaultOptions() {
     conditions: CONDITION_CHOICES,
     listingTypes: LISTING_TYPE_CHOICES,
     priorities: PRIORITY_CHOICES,
-    plans
+    plans,
+    billing: { selfServiceAvailable: false }
   };
 }
 

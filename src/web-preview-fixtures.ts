@@ -5,6 +5,8 @@ import {
   LISTING_TYPE_CHOICES,
   PRIORITY_CHOICES
 } from './services/chase-options.js';
+import { getEntitlementsForTier } from './services/entitlements.js';
+import type { PlanTier } from './types.js';
 
 const images = {
   mew: 'https://images.pokemontcg.io/bw11/RC24_hires.png',
@@ -101,6 +103,20 @@ function chase(id: string, cardName: string, cardImageUrl: string, priority: str
   };
 }
 
+function previewPlanOption(tier: PlanTier) {
+  const entitlements = getEntitlementsForTier(tier);
+  return {
+    tier,
+    label: tier === 'PRO' ? 'Vaultr Plus' : 'Free',
+    maxActiveChases: entitlements.maxActiveChases,
+    checkIntervalMinutes: Math.round(entitlements.pollIntervalSeconds / 60),
+    advancedFiltering: entitlements.advancedFiltering,
+    storefrontMonitoring: entitlements.storefrontMonitoring,
+    discoveryDepth: entitlements.discoveryDepth,
+    discoveryVisibleCards: entitlements.discoveryVisibleCards
+  };
+}
+
 export const WEB_PREVIEW_CHASES = {
   items: [
     chase('preview-mew', 'Mew-EX Legendary Treasures RC24', images.mew, 'GRAIL', { maxPrice: 145, grade: 'UNGRADED', condition: 'NM,LP', targetNote: 'Clean binder copy' }),
@@ -121,7 +137,9 @@ export const WEB_PREVIEW_CHASES = {
     gradeValues: GRADE_VALUE_CHOICES,
     conditions: CONDITION_CHOICES,
     listingTypes: LISTING_TYPE_CHOICES,
-    priorities: PRIORITY_CHOICES
+    priorities: PRIORITY_CHOICES,
+    plans: [previewPlanOption('FREE'), previewPlanOption('PRO')],
+    billing: { selfServiceAvailable: false }
   }
 };
 

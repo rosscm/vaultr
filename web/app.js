@@ -241,7 +241,7 @@ function listingTypeLabel(value) {
 
 function pageFromHash(hash = window.location.hash) {
   const value = String(hash || '').replace(/^#/, '').toLowerCase();
-  if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'settings' || value === 'onboarding') return value;
+  if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'plus' || value === 'settings' || value === 'onboarding') return value;
   return 'home';
 }
 
@@ -267,6 +267,12 @@ async function loadActivePageData() {
       state.vaultLoaded ? Promise.resolve() : loadVault()
     ]);
   }
+  if (state.activePage === 'plus') {
+    await Promise.all([
+      state.vaultLoaded ? Promise.resolve() : loadVault(),
+      state.shelfLoaded ? Promise.resolve() : loadShelf()
+    ]);
+  }
   if (state.activePage === 'onboarding') {
     await Promise.all([
       state.settingsLoaded ? Promise.resolve() : loadSettings(),
@@ -276,7 +282,7 @@ async function loadActivePageData() {
 }
 
 async function navigateToPage(page, { updateHash = true } = {}) {
-  const nextPage = page === 'home' || page === 'vault' || page === 'alerts' || page === 'shelf' || page === 'settings' || page === 'onboarding' ? page : 'home';
+  const nextPage = page === 'home' || page === 'vault' || page === 'alerts' || page === 'shelf' || page === 'plus' || page === 'settings' || page === 'onboarding' ? page : 'home';
   if ((state.activePage === 'settings' || state.activePage === 'onboarding') && nextPage !== state.activePage && state.settingsDirty) {
     if (!window.confirm('Discard your unsaved Settings changes?')) {
       if (!updateHash) window.history.replaceState(null, '', `#${state.activePage}`);
@@ -413,7 +419,7 @@ function planComparisonMarkup() {
           ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li></ul></article>`).join('')}
         </div>
         ${currentTier === 'FREE' ? '<p class="plan-availability">Vaultr Plus is not available for self-service purchase yet.</p>' : ''}
-        <footer class="dialog-actions"><button class="button-ghost" type="button" data-action="close-plan-comparison">Close</button><button class="button-primary" type="button" data-action="view-wishlist">View Watchlist</button></footer>
+        <footer class="dialog-actions"><button class="button-ghost" type="button" data-action="close-plan-comparison">Close</button><button class="button-primary" type="button" data-page="plus">Explore Plus</button></footer>
       </section>
     </div>`;
 }
@@ -600,6 +606,7 @@ function shellMarkup(content) {
         <div class="user-area">
           ${avatarHtml(state.user)}
           <span class="user-copy"><strong class="user-name">${escapeHtml(displayName)}</strong>${accountPlan ? `<small>${escapeHtml(accountPlan)}</small>` : ''}</span>
+          <button class="button-ghost account-plus-button" type="button" data-page="plus" aria-current="${state.activePage === 'plus' ? 'page' : 'false'}">${iconMarkup('plus')}<span>Plus</span></button>
           <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">${iconMarkup('settings')}<span>Settings</span></button>
           ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
         </div>
@@ -612,6 +619,7 @@ function shellMarkup(content) {
         </a>
         <div class="user-area">
           ${avatarHtml(state.user)}
+          <button class="button-ghost account-plus-button" type="button" data-page="plus" aria-current="${state.activePage === 'plus' ? 'page' : 'false'}">${iconMarkup('plus')}<span>Plus</span></button>
           <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">${iconMarkup('settings')}<span>Settings</span></button>
           ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
         </div>
@@ -652,6 +660,7 @@ function iconMarkup(name) {
     vault: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
     alerts: '<path d="M4 5h16v14H4z"/><path d="m4 14 4-4h8l4 4"/><path d="M8 14h8"/>',
     shelf: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.1 4.9-4.9 2.1 2.1-4.9 4.9-2.1Z"/>',
+    plus: '<path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.4v-.1A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-1.5-1H2V10h.1A1.7 1.7 0 0 0 3.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.06 4.2l.06.06A1.7 1.7 0 0 0 8 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 18.4 9a1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
     logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h7v18h-7"/>'
   };
@@ -860,6 +869,73 @@ function settingsPageMarkup() {
       </form>
     </section>
     ${settingsCurrencyConfirmationMarkup()}
+  `;
+}
+
+function plusPlanFeatureList(plan) {
+  return `
+    <ul>
+      <li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards at once</li>
+      <li>Targeted listing checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li>
+      <li>${plan.advancedFiltering ? 'Precision condition, listing, priority, note, and exclusion controls' : 'Core card, budget, and grading preferences'}</li>
+      <li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops monitoring' : 'eBay monitoring'}</li>
+      <li>${plan.discoveryDepth === 'full' ? 'Personalized Display Case access once enough collecting history is available' : 'Editorial inspiration in Discover'}</li>
+    </ul>
+  `;
+}
+
+function plusPageMarkup() {
+  if (state.isVaultLoading && !state.vaultLoaded) {
+    return `<section class="plus-page" aria-labelledby="plus-title"><header class="page-header"><p class="eyebrow">PLANS</p><h1 id="plus-title">Vaultr Plus</h1></header><div class="settings-loading" role="status">Loading plan details…</div></section>`;
+  }
+  if (state.vaultError && !state.vaultLoaded) {
+    return `<section class="plus-page" aria-labelledby="plus-title"><header class="page-header"><p class="eyebrow">PLANS</p><h1 id="plus-title">Vaultr Plus</h1></header>${statePanelMarkup("Couldn't load plan details.", 'Try again when you are ready.', 'Try again', 'retry-vault')}</section>`;
+  }
+  const plans = state.vaultOptions?.plans || [];
+  const currentTier = state.vaultPlan?.tier || 'FREE';
+  const currentPlan = plans.find((plan) => plan.tier === currentTier);
+  const isPlus = currentTier === 'PRO';
+  const activeCount = state.vaultPlan?.activeCount ?? 0;
+  const environmentLabel = state.authConfig?.environment?.label || '';
+  const staging = environmentLabel.toLowerCase() === 'staging';
+  const billingAvailable = Boolean(state.vaultOptions?.billing?.selfServiceAvailable);
+  return `
+    <section class="plus-page" aria-labelledby="plus-title">
+      <header class="page-header plus-header">
+        <p class="eyebrow">PLANS</p>
+        <h1 id="plus-title">Vaultr Plus</h1>
+        <p>More room for the cards you want, finer control over matching, and personalized discovery shaped by your collection.</p>
+      </header>
+      ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. No plan changes can be made here.</p>' : ''}
+      <section class="plus-current" aria-labelledby="plus-current-title">
+        <div><p class="eyebrow">YOUR PLAN</p><h2 id="plus-current-title">${escapeHtml(planLabel(currentTier))}</h2><p>${escapeHtml(activeCount)} of ${escapeHtml(currentPlan?.maxActiveChases ?? state.vaultPlan?.maxActiveChases ?? 0)} Watchlist spots currently active.</p></div>
+        <span class="plus-current-badge">${isPlus ? 'Plus active' : 'Free plan'}</span>
+      </section>
+      <section class="plus-comparison" aria-labelledby="plus-comparison-title">
+        <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">Choose the room and precision that fit your collection</h2><p>Check intervals are targets, not guaranteed listing or notification times.</p></div>
+        <div class="plus-plan-grid">
+          ${plans.map((plan) => `<article class="plus-plan${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3>${plusPlanFeatureList(plan)}</article>`).join('')}
+        </div>
+      </section>
+      <section class="plus-benefits" aria-labelledby="plus-benefits-title">
+        <div class="plus-section-heading"><p class="eyebrow">VAULTR PLUS</p><h2 id="plus-benefits-title">Built for a growing Watchlist</h2></div>
+        <div class="plus-benefit-grid">
+          <article><strong>Watch more cards</strong><p>Keep more active searches moving without losing paused cards or pickups.</p></article>
+          <article><strong>Refine the match</strong><p>Use precision filters and Trusted Shops when the exact version and listing details matter.</p></article>
+          <article><strong>Discover around your taste</strong><p>Your Watchlist and pickups shape a personalized Display Case after enough distinct card history is available and preparation completes.</p></article>
+        </div>
+      </section>
+      <section class="plus-next-step" aria-labelledby="plus-next-title">
+        <div><p class="eyebrow">NEXT STEP</p><h2 id="plus-next-title">${isPlus ? 'Make the most of Plus' : 'Keep building your Watchlist'}</h2><p>${isPlus
+          ? 'Your Plus access is active. Add or refine the cards you want Vaultr to watch.'
+          : staging
+            ? 'Upgrades aren’t available in this staging workspace. You can still explore the full comparison and test your Free Watchlist.'
+            : billingAvailable
+              ? 'Self-service plan changes are not available from this page yet.'
+              : 'Self-service upgrades aren’t available yet. Your Free Watchlist remains fully usable.'}</p></div>
+        <button class="button-primary" type="button" data-page="vault">${isPlus ? 'Open Watchlist' : 'Build your Watchlist'}</button>
+      </section>
+    </section>
   `;
 }
 
@@ -1222,23 +1298,30 @@ function homePageMarkup() {
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, shelfItems.length);
   const starters = starterDiscoveryItems();
   const discovery = state.shelf?.discovery;
+  const hasCollectionHistory = activeChases + userPausedChases + planLimitedChases + completedChases > 0;
+  const staging = String(state.authConfig?.environment?.label || '').toLowerCase() === 'staging';
 
   return `
     <section class="home-page" aria-labelledby="home-title">
       <header class="home-header">
-        <div>
-          <p class="eyebrow">HOME</p>
-          <h1 id="home-title">Welcome back, ${escapeHtml(userDisplayName(state.user))}</h1>
-          <p>Build your Vault. Chase your grails. Discover what you love next.</p>
-        </div>
-        <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
+        <p class="eyebrow">HOME</p>
+        <h1 id="home-title">Welcome back, ${escapeHtml(userDisplayName(state.user))}</h1>
+        <p>Build your Vault. Chase your grails. Discover what you love next.</p>
       </header>
       ${vaultNoticeMarkup('home')}
       ${alertNoticeMarkup()}
-      <section class="home-discovery" aria-labelledby="home-shelf-title">
-        <div class="home-discovery-copy">
-          <p class="eyebrow">YOUR DISPLAY CASE</p>
-          <h2 id="home-shelf-title">${shelfReady ? 'Same favourites. New discoveries.' : 'Your next favourite starts here.'}</h2>
+      <section class="home-introduction${hasCollectionHistory ? ' returning' : ''}" aria-labelledby="home-introduction-title">
+        <div><p class="eyebrow">WATCH · MATCH · DISCOVER</p><h2 id="home-introduction-title">The cards you want. The discoveries you’ll love.</h2><p>Keep track of cards you’re looking for, set your preferences, and let Vaultr watch for matching listings. Your Watchlist and pickups help shape your collecting profile—and your next discoveries.</p>${staging ? '<small>Marketplace checks are paused in this staging workspace.</small>' : ''}</div>
+        <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
+      </section>
+
+      <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
+        <div class="home-section-heading">
+          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">Your Display Case</h2><p>Collector picks shaped around the cards you watch and acquire.</p></div>
+        </div>
+        <div class="home-discovery">
+          <div class="home-discovery-copy">
+          <h3 id="home-shelf-title">${shelfReady ? 'Same favourites. New discoveries.' : 'Your next favourite starts here.'}</h3>
           <p>${state.isShelfLoading
             ? 'Opening your latest collector picks...'
             : state.shelfError
@@ -1249,8 +1332,8 @@ function homePageMarkup() {
           ${shelfReady && state.shelf.marketReadyCount !== undefined ? `<span class="home-shelf-count">${escapeHtml(state.shelf.marketReadyCount)} priced</span>` : ''}
           <div class="home-discovery-actions"><button class="button-primary home-explore-shelf" type="button" data-page="shelf">Explore your Display Case</button>${shelfReady ? '' : '<button class="home-text-link" type="button" data-action="toggle-display-case-explanation">How your Display Case works</button>'}</div>
           ${!shelfReady && state.homeDiscoveryExplanationOpen ? `<p class="home-discovery-explanation">${escapeHtml(discoveryStateCopy(discovery, true))}</p>` : ''}
-        </div>
-        <div class="home-discovery-stage">
+          </div>
+          <div class="home-discovery-stage">
           ${state.shelfError
             ? '<div class="home-discovery-state"><p>Your Display Case could not be loaded right now.</p><button class="button-ghost" type="button" data-action="retry-shelf">Try again</button></div>'
             : shelfReady
@@ -1258,14 +1341,16 @@ function homePageMarkup() {
               : state.shelfLoaded
                 ? `<div class="home-starter-discovery"><div><p class="eyebrow">A LITTLE INSPIRATION</p><p>A few collector favourites to explore while your collecting profile takes shape.</p><small>Editorial picks, not personalized recommendations.</small></div>${starterArtworkMarkup(starters, true)}</div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
+          </div>
         </div>
       </section>
 
-      <section class="home-attention-section" aria-labelledby="home-alerts-title">
+      <section class="home-product-section home-attention-section" aria-labelledby="home-alerts-title">
         <div class="home-section-heading">
           <div>
-            <p class="eyebrow">NEEDS ATTENTION</p>
-            <h2 id="home-alerts-title">${state.homeAttentionLoading ? 'Checking matches...' : alertPreview.length ? 'New matches to review' : "You're caught up"}</h2>
+            <p class="eyebrow">LATEST MATCHES</p>
+            <h2 id="home-alerts-title">${state.homeAttentionError ? 'Latest matches unavailable' : state.homeAttentionLoading ? 'Checking for new matches…' : alertPreview.length ? 'New finds for your Watchlist' : 'No new matches yet'}</h2>
+            <p>${state.homeAttentionError ? 'Your Inbox is still available while this preview recovers.' : state.homeAttentionLoading ? 'Looking for New matches waiting for your review.' : alertPreview.length ? 'Fresh listings waiting for your review.' : activeChases ? 'Nothing new is waiting. New finds will appear here as Vaultr checks your Watchlist.' : 'Add a card to your Watchlist to start looking for matching listings.'}</p>
           </div>
           <button class="home-text-link" type="button" data-action="view-new-alerts">Open Inbox</button>
           ${alertPreview.length ? '<span class="home-plan-label">New</span>' : ''}
@@ -1274,22 +1359,26 @@ function homePageMarkup() {
           ? '<p class="home-section-state">New matches could not be loaded right now.</p>'
           : alertPreview.length
             ? `<ul class="home-preview-list">${alertPreview.map(homeAlertPreviewMarkup).join('')}</ul>`
-            : `<p class="home-section-state">${state.homeAttentionLoaded ? 'No new matches need review right now.' : 'Loading your latest matches...'}</p>`}
+            : state.homeAttentionLoading || !state.homeAttentionLoaded
+              ? '<p class="home-section-state">Loading your latest matches…</p>'
+              : activeChases
+                ? '<p class="home-section-state">Your Inbox is clear of New matches.</p>'
+                : '<div class="home-section-state home-empty-action"><p>Your first watched card gives Vaultr something specific to look for.</p><button class="button-ghost" type="button" data-action="open-add-chase">Add to Watchlist</button></div>'}
       </section>
 
-      <section class="home-vault-strip" aria-labelledby="home-vault-title">
-        <div class="home-vault-copy">
-          <p class="eyebrow">WATCHLIST</p>
-          <h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Watchlist...' : 'Cards you’re watching'}</h2>
-          <p>${state.vaultError ? "Your Watchlist couldn't be loaded right now." : activeChases ? 'Your searches and their current status at a glance.' : 'Add cards you love. We’ll watch for matches that fit.'}</p>
+      <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
+        <div class="home-section-heading">
+          <div><p class="eyebrow">WATCHLIST</p><h2 id="home-vault-title">${state.isVaultLoading ? 'Loading your Watchlist…' : 'The cards you’re watching'}</h2><p>${state.vaultError ? "Your Watchlist couldn't be loaded right now." : activeChases ? 'Your searches and their current status at a glance.' : 'Add cards you love. We’ll watch for matches that fit.'}</p></div>
+          <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
         </div>
-        <div class="home-vault-stats" aria-label="Vault summary">
-          <span><strong>${escapeHtml(activeChases)}</strong> Watching</span>
-          <span><strong>${escapeHtml(userPausedChases)}</strong> Paused</span>
-          <span><strong>${escapeHtml(planLimitedChases)}</strong> Plan limit</span>
-          <span><strong>${escapeHtml(completedChases)}</strong> Pickups</span>
+        <div class="home-vault-strip">
+          <div class="home-vault-stats" aria-label="Watchlist summary">
+            <span><strong>${escapeHtml(activeChases)}</strong> Watching</span>
+            <span><strong>${escapeHtml(userPausedChases)}</strong> Paused</span>
+            <span><strong>${escapeHtml(planLimitedChases)}</strong> Plan limit</span>
+            <span><strong>${escapeHtml(completedChases)}</strong> Pickups</span>
+          </div>
         </div>
-        <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
       </section>
       ${vaultDialogMarkup()}
     </section>
@@ -1429,7 +1518,7 @@ function vaultSummaryMarkup() {
         <strong>${escapeHtml(completed)}</strong>
       </div>` : ''}
       ${paused > 0 ? `<p>${escapeHtml(paused)} ${paused === 1 ? 'card is' : 'cards are'} paused or outside the monitoring limit.</p>` : ''}
-      <button class="vault-action-link" type="button" data-action="open-plan-comparison">Compare plans</button>
+      <button class="vault-action-link" type="button" data-page="plus">${plan.tier === 'PRO' ? 'View Plus' : 'Explore Plus'}</button>
     </div>
   `;
 }
@@ -1605,7 +1694,7 @@ function shelfEmptyMarkup(shelf) {
         <h2>Your next favourite starts here.</h2>
         <p>Add cards to your Watchlist and mark pickups to shape future personalized recommendations.</p>
         <p class="discovery-state-note">${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p>
-        <button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>
+        <div class="shelf-first-actions"><button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>${shelf?.discovery?.state === 'PLAN_RESTRICTED' ? '<button class="button-ghost" type="button" data-page="plus">Explore Plus</button>' : ''}</div>
       </div>
       <div class="starter-discovery-section">
         <p class="eyebrow">EDITORIAL PICKS</p>
@@ -1671,7 +1760,7 @@ function vaultDialogMarkup() {
         </header>
         ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect this form, but changes will not be saved.</p>' : ''}
         ${state.vaultFormError ? `<div class="form-error" role="alert"><span>${escapeHtml(state.vaultFormError)}</span>${state.vaultCreateRecovery?.uncertain ? '<button class="vault-action-link" type="button" data-action="reconcile-vault-create">Check saved card</button>' : ''}</div>` : ''}
-        ${!editing && atLimit ? `<aside class="plan-limit-note"><strong>Your Watchlist has ${escapeHtml(savedCount)} cards—the limit on your ${escapeHtml(planLabel(state.vaultPlan.tier))} plan.</strong><span>${hasPlus ? 'Remove a card or mark one acquired before adding another.' : `Vaultr Plus gives you room to watch up to ${escapeHtml(state.vaultOptions?.plans?.find((plan) => plan.tier === 'PRO')?.maxActiveChases || 50)}.`}</span><button class="vault-action-link" type="button" data-action="open-plan-comparison">Compare plans</button></aside>` : ''}
+        ${!editing && atLimit ? `<aside class="plan-limit-note"><strong>Your Watchlist has ${escapeHtml(savedCount)} cards—the limit on your ${escapeHtml(planLabel(state.vaultPlan.tier))} plan.</strong><span>${hasPlus ? 'Remove a card or mark one acquired before adding another.' : `Vaultr Plus gives you room to watch up to ${escapeHtml(state.vaultOptions?.plans?.find((plan) => plan.tier === 'PRO')?.maxActiveChases || 50)}.`}</span>${hasPlus ? '' : '<button class="vault-action-link" type="button" data-page="plus">Explore Plus</button>'}</aside>` : ''}
         <label class="field">
           <span>Card <span class="required-marker">Required</span></span>
           <div class="card-autocomplete">
@@ -1721,7 +1810,7 @@ function vaultDialogMarkup() {
           <summary>${hasPlus ? 'Vaultr Plus controls' : 'See Vaultr Plus controls'}</summary>
           <div class="advanced-section-heading">
             <div><h3 id="advanced-fields-title">Vaultr Plus controls</h3><p>${hasPlus ? 'Optional controls for a more precise search.' : 'Advanced filters and Trusted Shops monitoring are included with Vaultr Plus. Saved locked values stay intact.'}</p></div>
-            <button class="vault-action-link" type="button" data-action="open-plan-comparison">Compare plans</button>
+            ${hasPlus ? '' : '<button class="vault-action-link" type="button" data-page="plus">Explore Plus</button>'}
           </div>
         <fieldset class="advanced-fields" aria-describedby="advanced-fields-title" ${hasPlus ? '' : 'disabled'}>
           <legend class="visually-hidden">Precision controls</legend>
@@ -1845,6 +1934,10 @@ function renderCurrentPage() {
   }
   if (state.activePage === 'settings') {
     renderShell(settingsPageMarkup());
+    return;
+  }
+  if (state.activePage === 'plus') {
+    renderShell(plusPageMarkup());
     return;
   }
   if (state.activePage === 'onboarding') {
@@ -2676,7 +2769,7 @@ async function bootstrap() {
     state.identities = body.identities || state.identities;
     const onboarding = await loadOnboarding();
     const requestedPage = pageFromHash();
-    const hasExplicitRoute = /^#(home|vault|alerts|shelf|settings|onboarding)$/i.test(window.location.hash);
+    const hasExplicitRoute = /^#(home|vault|alerts|shelf|plus|settings|onboarding)$/i.test(window.location.hash);
     state.activePage = (!isPreviewMode && onboarding?.status === 'IN_PROGRESS' && !hasExplicitRoute) || requestedPage === 'onboarding'
       ? 'onboarding'
       : state.emailConfirmation?.purpose === 'LINK_EMAIL'
@@ -2705,6 +2798,7 @@ app.addEventListener('click', async (event) => {
 
   const page = target.getAttribute('data-page');
   if (page) {
+    if (page === 'plus') state.planComparisonOpen = false;
     if (page === 'alerts') {
       state.alertChaseId = null;
       state.alertChaseName = '';

@@ -272,7 +272,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('const hasVisibleRows = items.length > 0 || completed.length > 0;');
     expect(jsResponse.body).toContain("hasVisibleRows\n    ? ''\n    : state.vaultFilter === 'ALL'");
     expect(jsResponse.body).toContain("function pageFromHash(hash = window.location.hash)");
-    expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'settings' || value === 'onboarding') return value;");
+    expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'plus' || value === 'settings' || value === 'onboarding') return value;");
     expect(jsResponse.body).toContain("return 'home';");
     expect(jsResponse.body).toContain("activePage: 'home'");
     expect(jsResponse.body).toContain('Welcome back, ${escapeHtml(userDisplayName(state.user))}');
@@ -285,6 +285,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("navButton('vault', 'Watchlist')");
     expect(jsResponse.body).toContain("navButton('alerts', 'Inbox')");
     expect(jsResponse.body).toContain("navButton('shelf', 'Discover')");
+    expect(jsResponse.body).toContain('data-page="plus"');
+    expect(jsResponse.body).toContain("plus: '<path");
     expect(jsResponse.body).toContain('function iconMarkup(name)');
     expect(jsResponse.body).toContain('class="nav-icon" aria-hidden="true" focusable="false"');
     expect(jsResponse.body).toContain('data-page="settings"');
@@ -296,7 +298,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-action="revisit-onboarding">Revisit setup');
     expect(jsResponse.body).toContain('onboardingRevisitMode');
     expect(jsResponse.body).toContain("state.onboarding?.status === 'IN_PROGRESS'");
-    expect(jsResponse.body).toContain("const hasExplicitRoute = /^#(home|vault|alerts|shelf|settings|onboarding)$/i.test(window.location.hash);");
+    expect(jsResponse.body).toContain("const hasExplicitRoute = /^#(home|vault|alerts|shelf|plus|settings|onboarding)$/i.test(window.location.hash);");
     expect(jsResponse.body).toContain('Tell Vaultr which Pokémon cards you\'re looking for and what matters to you.');
     expect(jsResponse.body).toContain('Get started');
     expect(jsResponse.body).toContain('const hasLoadedChase = !isPreviewMode');
@@ -343,7 +345,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("imageKind: 'Listing image'");
     expect(jsResponse.body).toContain('data-home-alert-image');
     expect(jsResponse.body).toContain("reviewStateButton('REVIEWED', 'Reviewed')");
-    expect(jsResponse.body).toContain('No new matches need review right now.');
+    expect(jsResponse.body).toContain('LATEST MATCHES');
+    expect(jsResponse.body).toContain('New finds for your Watchlist');
+    expect(jsResponse.body).toContain('No new matches yet');
+    expect(jsResponse.body).toContain('Your Inbox is clear of New matches.');
     expect(jsResponse.body).toContain('data-action="dismiss-alert"');
     expect(jsResponse.body).toContain('data-action="undo-dismiss"');
     expect(jsResponse.body).toContain('data-action="view-alert-chase"');
@@ -353,6 +358,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('${escapeHtml(alertPreview.length)} New');
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index)');
     expect(jsResponse.body).toContain('Same favourites. New discoveries.');
+    expect(jsResponse.body).toContain('The cards you want. The discoveries you’ll love.');
+    expect(jsResponse.body).toContain('Keep track of cards you’re looking for, set your preferences, and let Vaultr watch for matching listings.');
     expect(jsResponse.body).toContain('Explore your Display Case');
     expect(jsResponse.body).toContain('Open Inbox');
     expect(jsResponse.body).toContain('View Watchlist');
@@ -370,6 +377,11 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('A LITTLE INSPIRATION');
     expect(jsResponse.body).toContain('These are not personalized recommendations.');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
+    expect(jsResponse.body).toContain('<h1 id="plus-title">Vaultr Plus</h1>');
+    expect(jsResponse.body).toContain('Self-service upgrades aren’t available yet.');
+    expect(jsResponse.body).toContain('Preview mode is read-only. No plan changes can be made here.');
+    expect(jsResponse.body).not.toContain('data-action="grant-plus"');
+    expect(cssResponse.body).toContain('border-radius: 999px;');
     expect(jsResponse.body).toContain('View on eBay');
     expect(jsResponse.body).toContain('Pricing unavailable');
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
@@ -542,6 +554,11 @@ describe('web app preview mode', () => {
     expect(previewAlerts.items.length).toBeGreaterThanOrEqual(4);
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_USER')).toBe(true);
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_PLAN_LIMIT')).toBe(true);
+    expect(previewVault.options.plans).toEqual([
+      expect.objectContaining({ tier: 'FREE', maxActiveChases: 3, checkIntervalMinutes: 30, discoveryDepth: 'limited', discoveryVisibleCards: 3 }),
+      expect.objectContaining({ tier: 'PRO', maxActiveChases: 50, checkIntervalMinutes: 15, discoveryDepth: 'full', discoveryVisibleCards: 7 })
+    ]);
+    expect(previewVault.options.billing).toEqual({ selfServiceAvailable: false });
     expect(previewAlerts.items.map((item: { priceDelta: number }) => item.priceDelta)).toEqual([27, 6, 7, 6, 15]);
     expect(previewShelf).toMatchObject({ status: 'READY', itemCount: 12, marketReadyCount: 10, imageReadyCount: 8 });
     expect(previewSettings).toMatchObject({
@@ -1655,9 +1672,10 @@ describe('authenticated chase API', () => {
     expect(body.currency).toBe('USD');
     expect(body.options.gradingTypes.some((option: any) => option.value === 'PSA')).toBe(true);
     expect(body.options.plans).toEqual([
-      expect.objectContaining({ tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, advancedFiltering: false, storefrontMonitoring: false }),
-      expect.objectContaining({ tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, advancedFiltering: true, storefrontMonitoring: true })
+      expect.objectContaining({ tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited', discoveryVisibleCards: 3 }),
+      expect.objectContaining({ tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full', discoveryVisibleCards: 7 })
     ]);
+    expect(body.options.billing).toEqual({ selfServiceAvailable: false });
     expect(body.items[0].chase).not.toHaveProperty('guildId');
 
     clearUser(userId);
