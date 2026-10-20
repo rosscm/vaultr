@@ -256,6 +256,8 @@ db.exec(`
     revalidation_successes INTEGER NOT NULL DEFAULT 0,
     revalidation_unavailable INTEGER NOT NULL DEFAULT 0,
     revalidation_failures INTEGER NOT NULL DEFAULT 0,
+    provider_page_limit INTEGER,
+    last_limited_sweep_at TEXT,
     updated_at TEXT NOT NULL
   );
 
@@ -1067,6 +1069,13 @@ migrateAlertInboxState(db);
 
 migrateLegacyDiscordUserIdsToAccounts();
 migrateWebOnboarding(db);
+
+if (!sqliteColumnExists('trusted_shop_catalog_state', 'provider_page_limit')) {
+  db.exec(`ALTER TABLE trusted_shop_catalog_state ADD COLUMN provider_page_limit INTEGER;`);
+}
+if (!sqliteColumnExists('trusted_shop_catalog_state', 'last_limited_sweep_at')) {
+  db.exec(`ALTER TABLE trusted_shop_catalog_state ADD COLUMN last_limited_sweep_at TEXT;`);
+}
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_completed_chases_user_completed ON completed_chases(user_id, completed_at DESC);`);

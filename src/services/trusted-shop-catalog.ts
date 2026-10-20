@@ -22,6 +22,8 @@ export type TrustedShopCatalogState = {
   revalidationSuccesses: number;
   revalidationUnavailable: number;
   revalidationFailures: number;
+  providerPageLimit?: number;
+  lastLimitedSweepAt?: string;
   updatedAt: string;
 };
 
@@ -44,6 +46,8 @@ type CatalogStateRow = {
   revalidation_successes: number;
   revalidation_unavailable: number;
   revalidation_failures: number;
+  provider_page_limit: number | null;
+  last_limited_sweep_at: string | null;
   updated_at: string;
 };
 
@@ -67,6 +71,8 @@ function mapState(row: CatalogStateRow): TrustedShopCatalogState {
     revalidationSuccesses: row.revalidation_successes,
     revalidationUnavailable: row.revalidation_unavailable,
     revalidationFailures: row.revalidation_failures,
+    providerPageLimit: row.provider_page_limit ?? (row.coverage_status === 'LIMITED_PROVIDER_BOUNDARY' ? 100 : undefined),
+    lastLimitedSweepAt: row.last_limited_sweep_at ?? undefined,
     updatedAt: row.updated_at
   };
 }
@@ -93,8 +99,21 @@ export function listTrustedShopCatalogStates(): TrustedShopCatalogState[] {
 }
 
 export function trustedShopCatalogBatchDue(state: TrustedShopCatalogState, nowMs = Date.now()): boolean {
-  if (state.coverageStatus === 'LIMITED_PROVIDER_BOUNDARY') return false;
   return Date.parse(state.nextRunAt) <= nowMs;
+}
+
+export function beginTrustedShopCatalogRefresh(shopSlug: string, now = new Date().toISOString()): TrustedShopCatalogState {
+  const current = ensureTrustedShopCatalogState(shopSlug, now);
+  if (current.coverageStatus !== 'LIMITED_PROVIDER_BOUNDARY') return current;
+  db.prepare(`
+    UPDATE trusted_shop_catalog_state
+    SET sweep_id = ?, next_page = 1, pages_scanned = 0, products_seen = 0,
+        coverage_status = 'IN_PROGRESS', sweep_started_at = ?, next_run_at = ?,
+        retry_count = 0, last_error = NULL,
+        provider_page_limit = COALESCE(provider_page_limit, 100), updated_at = ?
+    WHERE shop_slug = ? AND coverage_status = 'LIMITED_PROVIDER_BOUNDARY'
+  `).run(randomUUID(), now, now, now, shopSlug);
+  return mapState(selectState.get(shopSlug) as CatalogStateRow);
 }
 
 export type IndexedTrustedShopProduct = {
@@ -205,15 +224,23 @@ export function limitTrustedShopCatalogCoverage(input: {
   shopSlug: string;
   reason: string;
   now?: string;
+  providerPageLimit?: number;
+  refreshAfterMs?: number;
 }): TrustedShopCatalogState {
   const now = input.now ?? new Date().toISOString();
+  const nowMs = Date.parse(now);
   ensureTrustedShopCatalogState(input.shopSlug, now);
   db.prepare(`
     UPDATE trusted_shop_catalog_state
     SET coverage_status = 'LIMITED_PROVIDER_BOUNDARY', retry_count = 0,
-        last_error = ?, next_run_at = ?, updated_at = ?
+        last_error = ?, provider_page_limit = COALESCE(provider_page_limit, ?),
+        last_limited_sweep_at = ?, sweep_started_at = NULL,
+        next_run_at = ?, updated_at = ?
     WHERE shop_slug = ?
-  `).run(input.reason.slice(0, 500), now, now, input.shopSlug);
+  `).run(
+    input.reason.slice(0, 500), input.providerPageLimit ?? 100, now,
+    new Date(nowMs + (input.refreshAfterMs ?? 6 * 60 * 60 * 1000)).toISOString(), now, input.shopSlug
+  );
   return mapState(selectState.get(input.shopSlug) as CatalogStateRow);
 }
 
@@ -228,14 +255,21 @@ export function classifyTrustedShopCatalogHealth(
   stallAfterMs = 30 * 60_000
 ): TrustedShopCatalogHealth {
   if (state.coverageStatus === 'LIMITED_PROVIDER_BOUNDARY') {
-    return { status: 'LIMITED', reason: state.lastError ?? 'Provider coverage boundary reached' };
+    return { status: 'LIMITED', reason: `${state.lastError ?? 'Provider coverage boundary reached'}; refresh scheduled ${state.nextRunAt}` };
   }
   if (state.coverageStatus === 'COMPLETE_OBSERVED') return { status: 'HEALTHY', reason: 'Observed sweep complete' };
   const progressAt = Date.parse(state.lastSuccessfulBatchAt ?? state.updatedAt);
   if (state.coverageStatus === 'INTERRUPTED' && state.retryCount > 0 && nowMs - progressAt > stallAfterMs) {
     return { status: 'STALLED', reason: state.lastError ?? 'Repeated catalog batch failures' };
   }
-  return { status: 'WAITING', reason: state.coverageStatus === 'INTERRUPTED' ? 'Transient retry scheduled' : 'Progressive scan scheduled' };
+  return {
+    status: 'WAITING',
+    reason: state.coverageStatus === 'INTERRUPTED'
+      ? 'Transient retry scheduled'
+      : state.providerPageLimit
+        ? `Limited-coverage refresh active through page ${state.providerPageLimit}`
+        : 'Progressive scan scheduled'
+  };
 }
 
 export function findTrustedShopCatalogCandidates(shopSlug: string, searchText: string, limit = 24): IndexedTrustedShopProduct[] {

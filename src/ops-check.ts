@@ -180,7 +180,8 @@ function checkTrustedShopCatalogs(): CheckResult {
   const classified = states.map((state) => ({ state, health: classifyTrustedShopCatalogHealth(state) }));
   const stalled = classified.filter(({ health }) => health.status === 'STALLED');
   const details = classified.map(({ state, health }) =>
-    `${state.shopSlug}=${health.status}@p${state.nextPage},last=${state.lastSuccessfulBatchAt ?? 'never'},failures=${state.retryCount}`
+    `${state.shopSlug}=${health.status}@p${state.nextPage},limit=${state.providerPageLimit ?? 'none'},` +
+    `last=${state.lastSuccessfulBatchAt ?? 'never'},next=${state.nextRunAt},failures=${state.retryCount}`
   ).join('; ');
   return { name: 'trusted-shop-catalogs', ok: stalled.length === 0, details };
 }

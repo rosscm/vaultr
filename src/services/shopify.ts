@@ -2,6 +2,7 @@ import type { Chase, Listing } from '../types.js';
 import { buildEbaySearchKeywords } from './ebay.js';
 import {
   commitTrustedShopCatalogBatch,
+  beginTrustedShopCatalogRefresh,
   countTrustedShopCatalogProducts,
   ensureTrustedShopCatalogState,
   failTrustedShopCatalogBatch,
@@ -119,6 +120,8 @@ export type TrustedShopifyShopResult = {
     lastCompletedSweepAt?: string;
     nextRunAt: string;
     retryCount: number;
+    providerPageLimit?: number;
+    lastLimitedSweepAt?: string;
     error?: string;
   };
   search: {
@@ -381,12 +384,14 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
   if (inFlight) return inFlight;
 
   const request = (async () => {
-    const state = getTrustedShopCatalogState(shop.slug) ?? initial;
+    let state = getTrustedShopCatalogState(shop.slug) ?? initial;
+    if (state.coverageStatus === 'LIMITED_PROVIDER_BOUNDARY') state = beginTrustedShopCatalogRefresh(shop.slug);
     const startedAt = Date.now();
     const products: ShopifyProduct[] = [];
     let pagesFetched = 0;
     let exhausted = false;
     let failure: string | undefined;
+    let reachedKnownBoundary = false;
 
     for (let offset = 0; offset < SHOPIFY_SCAN_BATCH_PAGES; offset += 1) {
       if (Date.now() - startedAt >= SHOPIFY_SCAN_BATCH_TIME_BUDGET_MS) break;
@@ -398,6 +403,10 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
         pagesFetched += 1;
         const pageProducts = Array.isArray(body.products) ? body.products : [];
         products.push(...pageProducts);
+        if (state.providerPageLimit && state.nextPage + offset >= state.providerPageLimit && pageProducts.length === SHOPIFY_PAGE_LIMIT) {
+          reachedKnownBoundary = true;
+          break;
+        }
         if (pageProducts.length < SHOPIFY_PAGE_LIMIT) {
           exhausted = true;
           break;
@@ -407,7 +416,8 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
         if (error instanceof ShopifyHttpError && error.status === 400 && requestedPage >= 101 && state.pagesScanned >= 100) {
           return limitTrustedShopCatalogCoverage({
             shopSlug: shop.slug,
-            reason: 'Provider rejects products pagination beyond page 100 (HTTP 400); indexed coverage retained'
+            reason: 'Provider rejects products pagination beyond page 100 (HTTP 400); indexed coverage retained',
+            providerPageLimit: 100
           });
         }
         failure = error instanceof Error ? error.message : String(error);
@@ -428,6 +438,13 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
     }
     if (failure) return failTrustedShopCatalogBatch({ shopSlug: shop.slug, error: failure });
     if (pagesFetched === 0) return failTrustedShopCatalogBatch({ shopSlug: shop.slug, error: 'Catalog batch ended before a page completed' });
+    if (reachedKnownBoundary) {
+      return limitTrustedShopCatalogCoverage({
+        shopSlug: shop.slug,
+        reason: `Provider-accessible pages 1-${state.providerPageLimit} refreshed; deeper inventory remains unavailable`,
+        providerPageLimit: state.providerPageLimit
+      });
+    }
     return updated;
   })();
   shopifyScanRequests.set(shop.slug, request);
@@ -461,8 +478,8 @@ export function startTrustedShopifyCatalogWorker(): void {
           console.info(
             `[Trusted shops catalog] shop=${state.shopSlug} coverage=${state.coverageStatus} ` +
             `nextPage=${state.nextPage} pages=${state.pagesScanned} products=${state.productsSeen} ` +
-            `lastProgress=${state.lastSuccessfulBatchAt ?? 'never'} nextRun=${state.coverageStatus === 'LIMITED_PROVIDER_BOUNDARY' ? 'none' : state.nextRunAt} ` +
-            `failures=${state.retryCount} reason=${state.lastError ?? 'none'}`
+            `lastProgress=${state.lastSuccessfulBatchAt ?? 'never'} nextRun=${state.nextRunAt} ` +
+            `failures=${state.retryCount} limitPage=${state.providerPageLimit ?? 'none'} reason=${state.lastError ?? 'none'}`
           );
         }
       })
@@ -543,6 +560,8 @@ async function searchTrustedShop(shop: TrustedShopifyShop, chase: Chase): Promis
       lastCompletedSweepAt: state.lastCompletedSweepAt,
       nextRunAt: state.nextRunAt,
       retryCount: state.retryCount,
+      providerPageLimit: state.providerPageLimit,
+      lastLimitedSweepAt: state.lastLimitedSweepAt,
       error: state.lastError
     },
     search: {

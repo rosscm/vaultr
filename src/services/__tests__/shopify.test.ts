@@ -140,13 +140,54 @@ describe('progressive trusted Shopify catalog coverage', () => {
 
     await advanceTrustedShopifyCatalogCoverage({ force: true });
     const limited = getTrustedShopCatalogState('hobbiesville')!;
-    expect(limited).toMatchObject({ coverageStatus: 'LIMITED_PROVIDER_BOUNDARY', nextPage: 101, pagesScanned: 100, retryCount: 0 });
-    expect(trustedShopCatalogBatchDue(limited, Date.now() + 365 * 24 * 60 * 60 * 1000)).toBe(false);
+    expect(limited).toMatchObject({ coverageStatus: 'LIMITED_PROVIDER_BOUNDARY', nextPage: 101, pagesScanned: 100, retryCount: 0, providerPageLimit: 100 });
+    expect(trustedShopCatalogBatchDue(limited)).toBe(false);
+    expect(trustedShopCatalogBatchDue(limited, Date.now() + 7 * 60 * 60 * 1000)).toBe(true);
     expect(classifyTrustedShopCatalogHealth(limited).status).toBe('LIMITED');
     expect(countTrustedShopCatalogProducts('hobbiesville')).toBe(1);
 
     await advanceTrustedShopifyCatalogCoverage();
     expect(calls).toBe(1);
+  });
+
+  it('refreshes the accessible range after a boundary and retains unseen indexed products', async () => {
+    const state = ensureTrustedShopCatalogState('hobbiesville');
+    commitTrustedShopCatalogBatch({
+      shopSlug: 'hobbiesville', sweepId: state.sweepId, startPage: 1, pagesFetched: 2,
+      products: [product(1, 'prior-indexed', { title: 'Prior Indexed Mew Single' })], exhausted: false
+    });
+    db.prepare(`
+      UPDATE trusted_shop_catalog_state
+      SET coverage_status = 'LIMITED_PROVIDER_BOUNDARY', provider_page_limit = 2,
+          last_limited_sweep_at = ?, next_run_at = ?
+      WHERE shop_slug = ?
+    `).run('2026-10-20T12:00:00.000Z', '2026-10-20T12:00:00.000Z', 'hobbiesville');
+
+    const requested: number[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (!url.hostname.includes('hobbiesville')) return jsonResponse({ products: [] });
+      const page = Number(url.searchParams.get('page'));
+      requested.push(page);
+      return jsonResponse({
+        products: Array.from({ length: 250 }, (_, index) =>
+          product(
+            page * 10_000 + index,
+            index === 0 && page === 1 ? 'newly-indexed' : `refresh-${page}-${index}`,
+            index === 0 && page === 1 ? { title: 'Newly Indexed Mew Single' } : {}
+          )
+        )
+      });
+    }));
+
+    await advanceTrustedShopifyCatalogCoverage();
+    expect(requested).toEqual([1, 2]);
+    expect(getTrustedShopCatalogState('hobbiesville')).toMatchObject({
+      coverageStatus: 'LIMITED_PROVIDER_BOUNDARY', providerPageLimit: 2, pagesScanned: 2, nextPage: 3
+    });
+    expect(findTrustedShopCatalogCandidates('hobbiesville', 'newly')).toHaveLength(1);
+    expect(findTrustedShopCatalogCandidates('hobbiesville', 'prior')).toHaveLength(1);
+    expect(countTrustedShopCatalogProducts('hobbiesville')).toBe(501);
   });
 
   it('distinguishes scheduled transient retry from a sustained catalog stall', () => {
