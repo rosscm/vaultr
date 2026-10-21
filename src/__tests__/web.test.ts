@@ -349,7 +349,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("reviewStateButton('REVIEWED', 'Reviewed')");
     expect(jsResponse.body).not.toContain('<p class="eyebrow">LATEST MATCHES</p>');
     expect(jsResponse.body).toContain('New finds for your Watchlist');
-    expect(jsResponse.body).toContain('Nothing new needs your attention.');
+    expect(jsResponse.body.match(/Nothing new needs your attention\./g)).toHaveLength(1);
     expect(jsResponse.body).toContain('data-action="dismiss-alert"');
     expect(jsResponse.body).toContain('data-action="undo-dismiss"');
     expect(jsResponse.body).toContain('data-action="view-alert-chase"');
@@ -359,11 +359,13 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('${escapeHtml(alertPreview.length)} New');
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index)');
     expect(jsResponse.body).toContain('Less searching. More collecting.');
-    expect(jsResponse.body).toContain('Vaultr looks for the cards you want, so you can spend less time browsing listings.');
+    expect(jsResponse.body).toContain('Vaultr finds matching listings for your Watchlist and learns what you love to help you discover your next favourite.');
     expect(jsResponse.body).toContain('Your Watchlist, Pickups, and feedback help Vaultr learn what you love');
     expect(jsResponse.body).toContain('data-action="select-home-how"');
     expect(jsResponse.body).toContain('role="tablist"');
     expect(jsResponse.body).toContain("homeHowMoment: 'WATCH'");
+    expect(jsResponse.body).toContain("FIND: '/assets/onboarding/sylveon-ex-212.webp'");
+    expect(jsResponse.body).toContain('Marketplace checks paused');
     expect(jsResponse.body).not.toContain('home-introduction');
     expect(jsResponse.body).toContain('Your Display Case');
     expect(jsResponse.body).toContain('Explore Display Case');

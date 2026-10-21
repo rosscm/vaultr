@@ -540,6 +540,14 @@ function sourceLabel(source) {
   return 'Source';
 }
 
+function environmentBadgeMarkup() {
+  const label = state.authConfig?.environment?.label;
+  if (!label) return '';
+  const staging = String(label).toLowerCase() === 'staging';
+  const detail = staging ? 'Marketplace checks paused' : '';
+  return `<span class="environment-label"${detail ? ` title="${detail}" aria-label="${escapeHtml(label)}. ${detail}."` : ''}>${escapeHtml(label)}</span>`;
+}
+
 function relativeTime(value) {
   const created = Date.parse(value);
   if (Number.isNaN(created)) return '';
@@ -599,7 +607,7 @@ function shellMarkup(content) {
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
-          ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
+          ${environmentBadgeMarkup()}
         </a>
         <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
           ${navButton('home', 'Home')}
@@ -619,7 +627,7 @@ function shellMarkup(content) {
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
-          ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
+          ${environmentBadgeMarkup()}
         </a>
         <div class="user-area">
           ${avatarHtml(state.user)}
@@ -1294,25 +1302,30 @@ function homeHowMomentMarkup() {
   const firstAlert = state.homeAttentionAlerts.find((alert) => alert?.imageUrl);
   const firstDiscovery = state.shelf?.items?.find((item) => item?.imageUrl) || starterDiscoveryItems().find((item) => item?.imageUrl);
   const fallback = starterDiscoveryItems().find((item) => item?.imageUrl);
+  const approvedArtwork = {
+    WATCH: '/assets/onboarding/pichu-expedition-022.webp',
+    FIND: '/assets/onboarding/sylveon-ex-212.webp',
+    DISCOVER: '/assets/onboarding/mew-corocoro-promo-151.webp'
+  };
   const moments = {
     WATCH: {
       title: 'Watch it',
       copy: 'Choose an exact card and set the price, condition, and listing preferences that matter to you.',
-      imageUrl: firstVaultCard?.cardImageUrl || fallback?.imageUrl,
+      imageUrl: firstVaultCard?.cardImageUrl || fallback?.imageUrl || approvedArtwork.WATCH,
       imageName: firstVaultCard?.cardName || fallback?.name || 'Illustrative card artwork',
       label: firstVaultCard ? 'From your Watchlist' : 'Illustrative workflow'
     },
     FIND: {
       title: 'Find it',
       copy: `${state.vaultPlan?.tier === 'PRO' ? 'eBay and enabled supported shops are' : 'eBay is'} checked for listings that fit your saved criteria. Matches wait in your Inbox for review.`,
-      imageUrl: firstAlert?.imageUrl || fallback?.imageUrl,
+      imageUrl: firstAlert?.imageUrl || fallback?.imageUrl || approvedArtwork.FIND,
       imageName: firstAlert?.chaseName || fallback?.name || 'Illustrative card artwork',
       label: firstAlert ? 'Recent Inbox match' : 'Illustrative workflow'
     },
     DISCOVER: {
       title: 'Discover more',
       copy: 'Your Watchlist, pickups, and feedback help shape recommendations as your collecting profile develops.',
-      imageUrl: firstDiscovery?.imageUrl || fallback?.imageUrl,
+      imageUrl: firstDiscovery?.imageUrl || fallback?.imageUrl || approvedArtwork.DISCOVER,
       imageName: firstDiscovery?.name || fallback?.name || 'Illustrative card artwork',
       label: state.shelf?.items?.includes(firstDiscovery) ? 'From your Display Case' : 'Editorial example'
     }
@@ -1324,8 +1337,8 @@ function homeHowMomentMarkup() {
         ${Object.entries(moments).map(([key, value]) => `<button id="home-how-${key.toLowerCase()}" class="home-how-tab${key === moment ? ' selected' : ''}" type="button" role="tab" aria-selected="${key === moment}" aria-controls="home-how-panel" tabindex="${key === moment ? '0' : '-1'}" data-action="select-home-how" data-home-moment="${key}">${value.title}</button>`).join('')}
       </div>
       <div id="home-how-panel" class="home-how-panel" role="tabpanel" aria-labelledby="home-how-${moment.toLowerCase()}">
-        <div class="home-how-artwork" aria-hidden="true">${selected.imageUrl ? `<img src="${escapeHtml(selected.imageUrl)}" alt="" loading="lazy">` : '<span>V</span>'}</div>
-        <div><small>${escapeHtml(selected.label)}</small><h2>${escapeHtml(selected.title)}</h2><p>${escapeHtml(selected.copy)}</p>${selected.imageName && selected.label !== 'Illustrative workflow' ? `<span>${escapeHtml(selected.imageName)}</span>` : ''}</div>
+        <div class="home-how-artwork" aria-hidden="true"><img src="${escapeHtml(selected.imageUrl)}" alt="" loading="lazy"></div>
+        <div><small>${escapeHtml(selected.label)}</small><p>${escapeHtml(selected.copy)}</p>${selected.imageName && selected.label !== 'Illustrative workflow' ? `<span>${escapeHtml(selected.imageName)}</span>` : ''}</div>
       </div>
     </div>
   `;
@@ -1342,7 +1355,6 @@ function homePageMarkup() {
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, shelfItems.length);
   const starters = starterDiscoveryItems();
   const discovery = state.shelf?.discovery;
-  const staging = String(state.authConfig?.environment?.label || '').toLowerCase() === 'staging';
   const hasCollectorHistory = activeChases > 0 || userPausedChases > 0 || planLimitedChases > 0 || completedChases > 0;
   const returningCollector = hasCollectorHistory || ['COMPLETED', 'SKIPPED'].includes(state.onboarding?.status);
   const showHowItWorks = !returningCollector || state.homeDiscoveryExplanationOpen;
@@ -1353,7 +1365,7 @@ function homePageMarkup() {
         <div class="home-intro-copy">
           <p class="home-greeting">Welcome back, ${escapeHtml(userDisplayName(state.user))}</p>
           <h1 id="home-title">Less searching. More collecting.</h1>
-          <p>Vaultr looks for the cards you want, so you can spend less time browsing listings. Build your Watchlist, set your preferences, and review matching listings.</p>
+          <p>Vaultr finds matching listings for your Watchlist and learns what you love to help you discover your next favourite.</p>
           ${showHowItWorks ? '<p class="home-intro-secondary">Your Watchlist, Pickups, and feedback help Vaultr learn what you love—and introduce you to your next favourite.</p>' : ''}
           <div class="home-intro-actions">
             <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
@@ -1362,7 +1374,6 @@ function homePageMarkup() {
         </div>
         ${showHowItWorks ? homeHowMomentMarkup() : ''}
       </header>
-      ${staging ? '<p class="home-environment-status"><strong>Staging</strong><span>Marketplace checks are paused in this workspace.</span></p>' : ''}
       ${vaultNoticeMarkup('home')}
       ${alertNoticeMarkup()}
 
@@ -1388,7 +1399,7 @@ function homePageMarkup() {
         <div class="home-section-heading">
           <div>
             <h2 id="home-alerts-title">${state.homeAttentionError ? 'Latest matches unavailable' : state.homeAttentionLoading ? 'Checking for new matches…' : alertPreview.length ? 'New finds for your Watchlist' : 'Latest matches'}</h2>
-            <p>${state.homeAttentionError ? 'Your Inbox is still available while this preview recovers.' : state.homeAttentionLoading ? 'Looking for New matches waiting for your review.' : alertPreview.length ? 'Fresh listings waiting for your review.' : activeChases ? 'Nothing new needs your attention.' : 'Add a card to start watching for matching listings.'}</p>
+            ${state.homeAttentionError ? '<p>Your Inbox is still available while this preview recovers.</p>' : state.homeAttentionLoading ? '<p>Looking for New matches waiting for your review.</p>' : alertPreview.length ? '<p>Fresh listings waiting for your review.</p>' : ''}
           </div>
           <button class="home-text-link" type="button" data-action="view-new-alerts">Open Inbox</button>
           ${alertPreview.length ? '<span class="home-plan-label">New</span>' : ''}
