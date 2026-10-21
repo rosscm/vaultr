@@ -57,9 +57,10 @@ const state = {
   shelfError: null,
   homeShelfIndex: 0,
   homeDiscoveryExplanationOpen: false,
+  homeHowMoment: 'WATCH',
   discoveryFeedbackPending: {},
   discoveryFeedbackErrors: {},
-  discoveryFeedbackNotice: '',
+  discoveryFeedbackNotices: {},
   settings: null,
   settingsDraft: null,
   settingsLoaded: false,
@@ -1189,7 +1190,6 @@ function homeShelfFeatureMarkup(items, index) {
     : 'Pricing unavailable';
   return `
     <div class="home-shelf-feature">
-      ${state.discoveryFeedbackNotice ? `<p class="discovery-feedback-notice" role="status">${escapeHtml(state.discoveryFeedbackNotice)}</p>` : ''}
       <div class="home-shelf-artwork${decorative.length ? ' layered' : ''}${item.imageUrl ? '' : ' empty'}">
         ${decorative.map((backgroundItem, backgroundIndex) => `<img class="home-shelf-background-card layer-${backgroundIndex + 1}" src="${escapeHtml(backgroundItem.imageUrl)}" alt="" aria-hidden="true" loading="lazy" data-home-shelf-background-image>`).join('')}
         ${item.imageUrl
@@ -1208,6 +1208,7 @@ function homeShelfFeatureMarkup(items, index) {
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : '<p>Open your Display Case to explore this recommendation.</p>'}
         ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : `<span class="home-shelf-price unavailable">${escapeHtml(marketUnavailable)}</span>`}
+        ${discoveryCardActionMarkup(item, 'button-primary home-shelf-card-action')}
         ${discoveryFeedbackMarkup(item, true)}
       </div>
       ${total > 1 ? `
@@ -1287,6 +1288,49 @@ function starterArtworkMarkup(items, compact = false) {
     </article>`).join('')}</div>`;
 }
 
+function homeHowMomentMarkup() {
+  const moment = ['WATCH', 'FIND', 'DISCOVER'].includes(state.homeHowMoment) ? state.homeHowMoment : 'WATCH';
+  const firstVaultCard = state.vault.find((entry) => entry?.chase?.cardImageUrl)?.chase;
+  const firstAlert = state.homeAttentionAlerts.find((alert) => alert?.imageUrl);
+  const firstDiscovery = state.shelf?.items?.find((item) => item?.imageUrl) || starterDiscoveryItems().find((item) => item?.imageUrl);
+  const fallback = starterDiscoveryItems().find((item) => item?.imageUrl);
+  const moments = {
+    WATCH: {
+      title: 'Watch it',
+      copy: 'Choose an exact card and set the price, condition, and listing preferences that matter to you.',
+      imageUrl: firstVaultCard?.cardImageUrl || fallback?.imageUrl,
+      imageName: firstVaultCard?.cardName || fallback?.name || 'Illustrative card artwork',
+      label: firstVaultCard ? 'From your Watchlist' : 'Illustrative workflow'
+    },
+    FIND: {
+      title: 'Find it',
+      copy: `${state.vaultPlan?.tier === 'PRO' ? 'eBay and enabled supported shops are' : 'eBay is'} checked for listings that fit your saved criteria. Matches wait in your Inbox for review.`,
+      imageUrl: firstAlert?.imageUrl || fallback?.imageUrl,
+      imageName: firstAlert?.chaseName || fallback?.name || 'Illustrative card artwork',
+      label: firstAlert ? 'Recent Inbox match' : 'Illustrative workflow'
+    },
+    DISCOVER: {
+      title: 'Discover more',
+      copy: 'Your Watchlist, pickups, and feedback help shape recommendations as your collecting profile develops.',
+      imageUrl: firstDiscovery?.imageUrl || fallback?.imageUrl,
+      imageName: firstDiscovery?.name || fallback?.name || 'Illustrative card artwork',
+      label: state.shelf?.items?.includes(firstDiscovery) ? 'From your Display Case' : 'Editorial example'
+    }
+  };
+  const selected = moments[moment];
+  return `
+    <div class="home-how" aria-label="How Vaultr works">
+      <div class="home-how-tabs" role="tablist" aria-label="How Vaultr works">
+        ${Object.entries(moments).map(([key, value]) => `<button id="home-how-${key.toLowerCase()}" class="home-how-tab${key === moment ? ' selected' : ''}" type="button" role="tab" aria-selected="${key === moment}" aria-controls="home-how-panel" tabindex="${key === moment ? '0' : '-1'}" data-action="select-home-how" data-home-moment="${key}">${value.title}</button>`).join('')}
+      </div>
+      <div id="home-how-panel" class="home-how-panel" role="tabpanel" aria-labelledby="home-how-${moment.toLowerCase()}">
+        <div class="home-how-artwork" aria-hidden="true">${selected.imageUrl ? `<img src="${escapeHtml(selected.imageUrl)}" alt="" loading="lazy">` : '<span>V</span>'}</div>
+        <div><small>${escapeHtml(selected.label)}</small><h2>${escapeHtml(selected.title)}</h2><p>${escapeHtml(selected.copy)}</p>${selected.imageName && selected.label !== 'Illustrative workflow' ? `<span>${escapeHtml(selected.imageName)}</span>` : ''}</div>
+      </div>
+    </div>
+  `;
+}
+
 function homePageMarkup() {
   const activeChases = state.vaultPlan?.activeCount ?? state.vault.length;
   const userPausedChases = state.vault.filter((item) => item.monitoringState === 'PAUSED_USER').length;
@@ -1294,47 +1338,47 @@ function homePageMarkup() {
   const completedChases = state.completedChases?.length ?? 0;
   const alertPreview = state.homeAttentionAlerts.slice(0, 4);
   const shelfItems = state.shelf?.items || [];
-  const shelfCount = state.shelf?.itemCount ?? shelfItems.length;
   const shelfReady = shelfItems.length > 0;
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, shelfItems.length);
   const starters = starterDiscoveryItems();
   const discovery = state.shelf?.discovery;
   const staging = String(state.authConfig?.environment?.label || '').toLowerCase() === 'staging';
+  const hasCollectorHistory = activeChases > 0 || userPausedChases > 0 || planLimitedChases > 0 || completedChases > 0;
+  const returningCollector = hasCollectorHistory || ['COMPLETED', 'SKIPPED'].includes(state.onboarding?.status);
+  const showHowItWorks = !returningCollector || state.homeDiscoveryExplanationOpen;
 
   return `
     <section class="home-page" aria-labelledby="home-title">
-      <header class="home-header">
-        <div><p class="eyebrow">HOME</p><h1 id="home-title">Welcome back, ${escapeHtml(userDisplayName(state.user))}</h1><p>Track the cards you want. Find matching listings. Discover your next favourite.</p><small>Build your Vault. Chase your grails. Discover what you love next.</small>${staging ? '<small class="home-staging-note">Marketplace checks are paused in this staging workspace.</small>' : ''}</div>
-        <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
+      <header class="home-header${showHowItWorks ? ' expanded' : ''}">
+        <div class="home-intro-copy">
+          <p class="home-greeting">Welcome back, ${escapeHtml(userDisplayName(state.user))}</p>
+          <h1 id="home-title">Less searching. More collecting.</h1>
+          <p>Vaultr looks for the cards you want, so you can spend less time browsing listings. Build your Watchlist, set your preferences, and review matching listings.</p>
+          ${showHowItWorks ? '<p class="home-intro-secondary">Your Watchlist, Pickups, and feedback help Vaultr learn what you love—and introduce you to your next favourite.</p>' : ''}
+          <div class="home-intro-actions">
+            <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
+            <button class="home-text-link" type="button" data-action="toggle-display-case-explanation" aria-expanded="${showHowItWorks}">${showHowItWorks ? 'Hide how it works' : 'How Vaultr works'}</button>
+          </div>
+        </div>
+        ${showHowItWorks ? homeHowMomentMarkup() : ''}
       </header>
+      ${staging ? '<p class="home-environment-status"><strong>Staging</strong><span>Marketplace checks are paused in this workspace.</span></p>' : ''}
       ${vaultNoticeMarkup('home')}
       ${alertNoticeMarkup()}
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">Display Case</h2><p>${shelfReady ? 'Personalized recommendations shaped by your Watchlist, pickups, and feedback.' : 'Editorial inspiration while Vaultr learns what you collect.'}</p></div>
+          <div><h2 id="home-display-case-title">Your Display Case</h2><p>${shelfReady ? '<strong>Picked for you.</strong> Shaped by your Watchlist, pickups, and feedback.' : '<strong>A little inspiration.</strong> Editorial picks while Vaultr learns what you collect.'}</p></div>
+          <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
-          <div class="home-discovery-copy">
-          <h3 id="home-shelf-title">${shelfReady ? 'Picked around your taste' : 'Start with a little inspiration'}</h3>
-          <p>${state.isShelfLoading
-            ? 'Opening your latest collector picks...'
-            : state.shelfError
-              ? 'Your Display Case is unavailable right now.'
-              : shelfReady
-                ? `${escapeHtml(shelfCount)} picks are ready to explore.`
-                : 'Your Display Case takes shape around your collecting taste.'}</p>
-          ${shelfReady && state.shelf.marketReadyCount !== undefined ? `<span class="home-shelf-count">${escapeHtml(state.shelf.marketReadyCount)} priced</span>` : ''}
-          <div class="home-discovery-actions"><button class="button-primary home-explore-shelf" type="button" data-page="shelf">Explore your Display Case</button>${shelfReady ? '' : '<button class="home-text-link" type="button" data-action="toggle-display-case-explanation">How your Display Case works</button>'}</div>
-          ${!shelfReady && state.homeDiscoveryExplanationOpen ? `<p class="home-discovery-explanation">${escapeHtml(discoveryStateCopy(discovery, true))}</p>` : ''}
-          </div>
           <div class="home-discovery-stage">
           ${state.shelfError
             ? '<div class="home-discovery-state"><p>Your Display Case could not be loaded right now.</p><button class="button-ghost" type="button" data-action="retry-shelf">Try again</button></div>'
             : shelfReady
               ? homeShelfFeatureMarkup(shelfItems, shelfIndex)
               : state.shelfLoaded
-                ? `<div class="home-starter-discovery"><div><p class="eyebrow">EDITORIAL STARTER PICKS</p><small>Inspiration, not personalized recommendations.</small></div>${starterArtworkMarkup(starters, true)}</div>`
+                ? `<div class="home-starter-discovery"><div><small>Editorial examples, not personalized recommendations.</small><p>${escapeHtml(discoveryStateCopy(discovery, true))}</p></div>${starterArtworkMarkup(starters, true)}</div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
           </div>
         </div>
@@ -1343,7 +1387,6 @@ function homePageMarkup() {
       <section class="home-product-section home-attention-section" aria-labelledby="home-alerts-title">
         <div class="home-section-heading">
           <div>
-            <p class="eyebrow">LATEST MATCHES</p>
             <h2 id="home-alerts-title">${state.homeAttentionError ? 'Latest matches unavailable' : state.homeAttentionLoading ? 'Checking for new matches…' : alertPreview.length ? 'New finds for your Watchlist' : 'Latest matches'}</h2>
             <p>${state.homeAttentionError ? 'Your Inbox is still available while this preview recovers.' : state.homeAttentionLoading ? 'Looking for New matches waiting for your review.' : alertPreview.length ? 'Fresh listings waiting for your review.' : activeChases ? 'Nothing new needs your attention.' : 'Add a card to start watching for matching listings.'}</p>
           </div>
@@ -1645,7 +1688,6 @@ function shelfPageMarkup() {
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
       ${items.length ? shelfMetaMarkup(state.shelf) : ''}
-      ${state.discoveryFeedbackNotice ? `<p class="discovery-feedback-notice" role="status">${escapeHtml(state.discoveryFeedbackNotice)}</p>` : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map(shelfCardMarkup).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
     </section>
@@ -1750,6 +1792,7 @@ function discoveryFeedbackMarkup(item, compact = false) {
   const pending = Boolean(state.discoveryFeedbackPending[key]);
   const saved = item.feedback?.feedback;
   const error = state.discoveryFeedbackErrors[key];
+  const notice = state.discoveryFeedbackNotices[key];
   const disabled = pending || isPreviewMode;
   const context = `data-feedback-period="${escapeHtml(item.recommendation.periodKey)}" data-feedback-position="${escapeHtml(item.recommendation.position)}"`;
   return `
@@ -1760,7 +1803,7 @@ function discoveryFeedbackMarkup(item, compact = false) {
         <button class="discovery-feedback-button${saved === 'NOT_FOR_ME' ? ' selected' : ''}" type="button" data-action="discovery-feedback" data-feedback-action="NOT_FOR_ME" ${context} ${disabled ? 'disabled' : ''} aria-pressed="${saved === 'NOT_FOR_ME'}">Not for me</button>
         ${saved ? `<button class="discovery-feedback-undo" type="button" data-action="undo-discovery-feedback" ${context} data-feedback-version="${escapeHtml(item.feedback.version)}" ${disabled ? 'disabled' : ''}>Undo</button>` : ''}
       </div>
-      ${pending ? '<span class="discovery-feedback-status" role="status">Saving…</span>' : error ? `<span class="discovery-feedback-status error" role="alert">${escapeHtml(error)}</span>` : ''}
+      ${pending ? '<span class="discovery-feedback-status" role="status">Saving…</span>' : error ? `<span class="discovery-feedback-status error" role="alert">${escapeHtml(error)}</span>` : notice ? `<span class="discovery-feedback-status" role="status">${escapeHtml(notice)}</span>` : ''}
     </div>
   `;
 }
@@ -2277,6 +2320,7 @@ async function mutateDiscoveryFeedback(target, action) {
   const previousFocus = action;
   state.discoveryFeedbackPending[key] = true;
   delete state.discoveryFeedbackErrors[key];
+  delete state.discoveryFeedbackNotices[key];
   renderCurrentPage();
   try {
     const body = await fetchJson('/api/shelf/feedback', {
@@ -2290,7 +2334,7 @@ async function mutateDiscoveryFeedback(target, action) {
       })
     });
     updateShelfFeedback(periodKey, position, body.feedback || null);
-    state.discoveryFeedbackNotice = action === 'MORE_LIKE_THIS'
+    state.discoveryFeedbackNotices[key] = action === 'MORE_LIKE_THIS'
       ? 'Noted. We’ll use this to shape future discoveries.'
       : action === 'NOT_FOR_ME'
         ? 'Noted. We’ll keep this in mind for future discoveries.'
@@ -3038,6 +3082,15 @@ app.addEventListener('click', async (event) => {
     renderCurrentPage();
     return;
   }
+  if (action === 'select-home-how') {
+    const moment = target.getAttribute('data-home-moment');
+    if (['WATCH', 'FIND', 'DISCOVER'].includes(moment)) {
+      state.homeHowMoment = moment;
+      renderCurrentPage();
+      requestAnimationFrame(() => document.querySelector(`[data-home-moment="${moment}"]`)?.focus());
+    }
+    return;
+  }
   if (action === 'view-alert-chase') {
     state.vaultFilter = 'ALL';
     state.pendingVaultFocusId = target.getAttribute('data-chase-id');
@@ -3350,6 +3403,21 @@ app.addEventListener('input', (event) => {
 
 app.addEventListener('keydown', (event) => {
   const target = event.target;
+  const homeMomentTab = target instanceof Element ? target.closest('[data-home-moment]') : null;
+  if (homeMomentTab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault();
+    const moments = ['WATCH', 'FIND', 'DISCOVER'];
+    const current = moments.indexOf(homeMomentTab.getAttribute('data-home-moment'));
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? moments.length - 1
+        : (current + (event.key === 'ArrowRight' ? 1 : -1) + moments.length) % moments.length;
+    state.homeHowMoment = moments[next];
+    renderCurrentPage();
+    requestAnimationFrame(() => document.querySelector(`[data-home-moment="${moments[next]}"]`)?.focus());
+    return;
+  }
   if (!(target instanceof HTMLInputElement)) return;
   if (target.name !== 'cardName' || !target.closest('[data-vault-form]')) return;
   if (event.key === 'ArrowDown') {

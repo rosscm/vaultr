@@ -347,7 +347,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("imageKind: 'Listing image'");
     expect(jsResponse.body).toContain('data-home-alert-image');
     expect(jsResponse.body).toContain("reviewStateButton('REVIEWED', 'Reviewed')");
-    expect(jsResponse.body).toContain('LATEST MATCHES');
+    expect(jsResponse.body).not.toContain('<p class="eyebrow">LATEST MATCHES</p>');
     expect(jsResponse.body).toContain('New finds for your Watchlist');
     expect(jsResponse.body).toContain('Nothing new needs your attention.');
     expect(jsResponse.body).toContain('data-action="dismiss-alert"');
@@ -358,9 +358,16 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('if (state.vaultLoaded && !state.isVaultLoading) state.pendingVaultFocusId = null;');
     expect(jsResponse.body).not.toContain('${escapeHtml(alertPreview.length)} New');
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index)');
-    expect(jsResponse.body).toContain('Track the cards you want. Find matching listings. Discover your next favourite.');
+    expect(jsResponse.body).toContain('Less searching. More collecting.');
+    expect(jsResponse.body).toContain('Vaultr looks for the cards you want, so you can spend less time browsing listings.');
+    expect(jsResponse.body).toContain('Your Watchlist, Pickups, and feedback help Vaultr learn what you love');
+    expect(jsResponse.body).toContain('data-action="select-home-how"');
+    expect(jsResponse.body).toContain('role="tablist"');
+    expect(jsResponse.body).toContain("homeHowMoment: 'WATCH'");
     expect(jsResponse.body).not.toContain('home-introduction');
-    expect(jsResponse.body).toContain('Explore your Display Case');
+    expect(jsResponse.body).toContain('Your Display Case');
+    expect(jsResponse.body).toContain('Explore Display Case');
+    expect(jsResponse.body).not.toContain('Picked around your taste');
     expect(jsResponse.body).toContain('Open Inbox');
     expect(jsResponse.body).toContain('View Watchlist');
     expect(jsResponse.body).toContain("data-action=\"previous-home-shelf\"");
@@ -368,7 +375,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("total > 1 ?");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
-    expect(jsResponse.body).toContain('Personalized recommendations shaped by your Watchlist, pickups, and feedback.');
+    expect(jsResponse.body).toContain('<strong>Picked for you.</strong> Shaped by your Watchlist, pickups, and feedback.');
+    expect(jsResponse.body).toContain('<strong>A little inspiration.</strong> Editorial picks while Vaultr learns what you collect.');
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Display Case</h1>');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
@@ -377,7 +385,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Your feedback helps shape future discoveries.');
     expect(jsResponse.body).toContain('Taste feedback is read-only in preview.');
     expect(jsResponse.body).toContain('Add to Watchlist');
-    expect(jsResponse.body).toContain('EDITORIAL STARTER PICKS');
+    expect(jsResponse.body).toContain('Editorial examples, not personalized recommendations.');
     expect(jsResponse.body).toContain('These are editorial picks, not personalized recommendations.');
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
