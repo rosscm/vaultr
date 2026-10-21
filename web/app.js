@@ -57,6 +57,9 @@ const state = {
   shelfError: null,
   homeShelfIndex: 0,
   homeDiscoveryExplanationOpen: false,
+  discoveryFeedbackPending: {},
+  discoveryFeedbackErrors: {},
+  discoveryFeedbackNotice: '',
   settings: null,
   settingsDraft: null,
   settingsLoaded: false,
@@ -1194,6 +1197,7 @@ function homeShelfFeatureMarkup(items, index) {
     : 'Pricing unavailable';
   return `
     <div class="home-shelf-feature">
+      ${state.discoveryFeedbackNotice ? `<p class="discovery-feedback-notice" role="status">${escapeHtml(state.discoveryFeedbackNotice)}</p>` : ''}
       <div class="home-shelf-artwork${decorative.length ? ' layered' : ''}${item.imageUrl ? '' : ' empty'}">
         ${decorative.map((backgroundItem, backgroundIndex) => `<img class="home-shelf-background-card layer-${backgroundIndex + 1}" src="${escapeHtml(backgroundItem.imageUrl)}" alt="" aria-hidden="true" loading="lazy" data-home-shelf-background-image>`).join('')}
         ${item.imageUrl
@@ -1212,6 +1216,7 @@ function homeShelfFeatureMarkup(items, index) {
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : '<p>Open your Display Case to explore this recommendation.</p>'}
         ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : `<span class="home-shelf-price unavailable">${escapeHtml(marketUnavailable)}</span>`}
+        ${discoveryFeedbackMarkup(item, true)}
       </div>
       ${total > 1 ? `
         <div class="home-shelf-controls" aria-label="Display Case preview controls">
@@ -1654,6 +1659,7 @@ function shelfPageMarkup() {
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
       ${items.length ? shelfMetaMarkup(state.shelf) : ''}
+      ${state.discoveryFeedbackNotice ? `<p class="discovery-feedback-notice" role="status">${escapeHtml(state.discoveryFeedbackNotice)}</p>` : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map(shelfCardMarkup).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
     </section>
@@ -1744,9 +1750,35 @@ function shelfCardMarkup(item) {
             ${discoveryCardActionMarkup(item, 'button-primary shelf-add-button')}
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
           </div>
+          ${discoveryFeedbackMarkup(item)}
         </div>
       </div>
     </article>
+  `;
+}
+
+function discoveryFeedbackKey(item) {
+  return `${item?.recommendation?.periodKey || ''}:${item?.recommendation?.position || ''}`;
+}
+
+function discoveryFeedbackMarkup(item, compact = false) {
+  if (!item?.recommendation) return '';
+  const key = discoveryFeedbackKey(item);
+  const pending = Boolean(state.discoveryFeedbackPending[key]);
+  const saved = item.feedback?.feedback;
+  const error = state.discoveryFeedbackErrors[key];
+  const disabled = pending || isPreviewMode;
+  const context = `data-feedback-period="${escapeHtml(item.recommendation.periodKey)}" data-feedback-position="${escapeHtml(item.recommendation.position)}"`;
+  return `
+    <div class="discovery-feedback${compact ? ' compact' : ''}" aria-label="Taste feedback">
+      <span class="discovery-feedback-label">${isPreviewMode ? 'Taste feedback is read-only in preview.' : 'Your feedback helps shape future discoveries.'}</span>
+      <div class="discovery-feedback-actions">
+        <button class="discovery-feedback-button${saved === 'MORE_LIKE_THIS' ? ' selected' : ''}" type="button" data-action="discovery-feedback" data-feedback-action="MORE_LIKE_THIS" ${context} ${disabled ? 'disabled' : ''} aria-pressed="${saved === 'MORE_LIKE_THIS'}">More like this</button>
+        <button class="discovery-feedback-button${saved === 'NOT_FOR_ME' ? ' selected' : ''}" type="button" data-action="discovery-feedback" data-feedback-action="NOT_FOR_ME" ${context} ${disabled ? 'disabled' : ''} aria-pressed="${saved === 'NOT_FOR_ME'}">Not for me</button>
+        ${saved ? `<button class="discovery-feedback-undo" type="button" data-action="undo-discovery-feedback" ${context} data-feedback-version="${escapeHtml(item.feedback.version)}" ${disabled ? 'disabled' : ''}>Undo</button>` : ''}
+      </div>
+      ${pending ? '<span class="discovery-feedback-status" role="status">Saving…</span>' : error ? `<span class="discovery-feedback-status error" role="alert">${escapeHtml(error)}</span>` : ''}
+    </div>
   `;
 }
 
@@ -2243,6 +2275,59 @@ async function loadShelf({ force = false } = {}) {
     state.shelfError = 'load_failed';
     state.isShelfLoading = false;
     renderCurrentPage();
+  }
+}
+
+function updateShelfFeedback(periodKey, position, feedback) {
+  const item = state.shelf?.items?.find((candidate) =>
+    candidate.recommendation?.periodKey === periodKey && candidate.recommendation?.position === position
+  );
+  if (item) item.feedback = feedback;
+}
+
+async function mutateDiscoveryFeedback(target, action) {
+  if (isPreviewMode) return;
+  const periodKey = target.getAttribute('data-feedback-period') || '';
+  const position = Number(target.getAttribute('data-feedback-position'));
+  const key = `${periodKey}:${position}`;
+  if (!periodKey || !Number.isInteger(position) || state.discoveryFeedbackPending[key]) return;
+  const previousFocus = action;
+  state.discoveryFeedbackPending[key] = true;
+  delete state.discoveryFeedbackErrors[key];
+  renderCurrentPage();
+  try {
+    const body = await fetchJson('/api/shelf/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        periodKey,
+        position,
+        action,
+        ...(action === 'UNDO' ? { expectedVersion: Number(target.getAttribute('data-feedback-version')) } : {})
+      })
+    });
+    updateShelfFeedback(periodKey, position, body.feedback || null);
+    state.discoveryFeedbackNotice = action === 'MORE_LIKE_THIS'
+      ? 'Noted. We’ll use this to shape future discoveries.'
+      : action === 'NOT_FOR_ME'
+        ? 'Noted. We’ll keep this in mind for future discoveries.'
+        : 'Feedback undone.';
+  } catch (error) {
+    if (String(error?.message) === 'unauthorized') return;
+    if (error?.status === 409) {
+      state.shelfLoaded = false;
+      await loadShelf({ force: true });
+      state.discoveryFeedbackErrors[key] = 'Feedback changed elsewhere. The latest choice is shown.';
+    } else {
+      state.discoveryFeedbackErrors[key] = 'Couldn’t save feedback. Try again.';
+    }
+  } finally {
+    delete state.discoveryFeedbackPending[key];
+    renderCurrentPage();
+    const selector = previousFocus === 'UNDO'
+      ? `[data-action="discovery-feedback"][data-feedback-period="${CSS.escape(periodKey)}"][data-feedback-position="${position}"]`
+      : `[data-action="discovery-feedback"][data-feedback-action="${previousFocus}"][data-feedback-period="${CSS.escape(periodKey)}"][data-feedback-position="${position}"]`;
+    document.querySelector(selector)?.focus();
   }
 }
 
@@ -2955,6 +3040,14 @@ app.addEventListener('click', async (event) => {
       state.homeShelfIndex = boundedHomeShelfIndex(currentIndex + direction, itemCount);
       renderCurrentPage();
     }
+    return;
+  }
+  if (action === 'discovery-feedback') {
+    await mutateDiscoveryFeedback(target, target.getAttribute('data-feedback-action'));
+    return;
+  }
+  if (action === 'undo-discovery-feedback') {
+    await mutateDiscoveryFeedback(target, 'UNDO');
     return;
   }
   if (action === 'toggle-display-case-explanation') {

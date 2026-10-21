@@ -8,6 +8,7 @@ import { pathToFileURL, URL } from 'node:url';
 import {
   dismissAlert,
   getUserPlan,
+  getUserDiscoveryFeedback,
   getUserAlertSettings,
   getAlertEventForUser,
   listAlertEventsForUser,
@@ -16,6 +17,7 @@ import {
   restoreAlert,
   type ListAlertEventsForUserOptions
 } from './services/chase-store.js';
+import { applyPreparedDiscoveryFeedback, type DiscoveryFeedbackAction } from './services/discovery-feedback.js';
 import {
   autocompleteChaseCardsWithStatus,
   cacheTrustedChaseCardPreview,
@@ -454,7 +456,7 @@ function usefulShelfImageUrl(item: ScheduledDiscoveryDropItem): string | undefin
   return imageUrl;
 }
 
-function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string) {
+function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, periodKey: string) {
   const reference = item.suggestion.canonicalReference;
   const marketReady = item.market.status === 'READY';
   const imageUrl = usefulShelfImageUrl(item);
@@ -469,6 +471,8 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string) {
     : undefined;
   return {
     position: item.position,
+    recommendation: { periodKey, position: item.position },
+    feedback: getUserDiscoveryFeedback(userId, item.suggestion.name),
     name: item.suggestion.name,
     nativeName: item.suggestion.nativeName,
     imageUrl,
@@ -679,7 +683,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     marketReadyCount: drop.marketReadyCount,
     imageReadyCount: drop.imageReadyCount,
     currency: drop.currency,
-    items: drop.items.map((item) => publicShelfItem(item, userId)),
+    items: drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey)),
     discovery: webDiscoveryState(userId, config, true)
   });
 }
@@ -1147,6 +1151,34 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
           ? dismissAlert(session.userId, alertId, now)
           : restoreAlert(session.userId, alertId);
     return item ? jsonResponse(200, { item: publicAlertItem(item) }) : errorResponse(404, 'not_found');
+  }
+
+  if (method === 'POST' && url.pathname === '/api/shelf/feedback') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    const parsed = requireJsonBody(request);
+    if ('status' in parsed) return parsed;
+    const allowedFields = new Set(['periodKey', 'position', 'action', 'expectedVersion']);
+    if (Object.keys(parsed.body).some((field) => !allowedFields.has(field))) return errorResponse(400, 'invalid_feedback_request');
+    const { periodKey, position, action, expectedVersion } = parsed.body;
+    if (
+      typeof periodKey !== 'string' || !/^\d{4}-W\d{2}(?:-[A-Z]+)?$/.test(periodKey) ||
+      typeof position !== 'number' || !Number.isInteger(position) || position < 1 ||
+      typeof action !== 'string' || !['MORE_LIKE_THIS', 'NOT_FOR_ME', 'UNDO'].includes(action) ||
+      (expectedVersion !== undefined && (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion)))
+    ) return errorResponse(400, 'invalid_feedback_request');
+    const result = applyPreparedDiscoveryFeedback({
+      userId: session.userId,
+      periodKey,
+      position: Number(position),
+      action: action as DiscoveryFeedbackAction,
+      expectedVersion: expectedVersion as number | undefined
+    });
+    if (!result.ok) {
+      const status = result.code === 'STALE_FEEDBACK' ? 409 : result.code === 'RECOMMENDATION_NOT_FOUND' ? 404 : 400;
+      return jsonResponse(status, { error: result.code });
+    }
+    return jsonResponse(200, { feedback: result.feedback });
   }
 
   if (method === 'GET' && url.pathname === '/api/shelf') {

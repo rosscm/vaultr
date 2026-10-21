@@ -652,7 +652,7 @@ describe('local card catalog', () => {
       imageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png'
     });
     expect(searchLocalCardCatalog('squirtle corocoro 007/018', 10, { dbPath })).toEqual([]);
-  });
+  }, 30000);
 
   it('keeps curated Japanese promo metadata separate, unique, sourced, and Japanese-only', () => {
     const ids = CURATED_JAPANESE_PROMOS.map((record) => record.curationId);

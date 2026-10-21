@@ -2351,6 +2351,82 @@ a {
   color: var(--text);
 }
 
+.discovery-feedback {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.discovery-feedback-label,
+.discovery-feedback-status,
+.discovery-feedback-notice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.discovery-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.discovery-feedback-button,
+.discovery-feedback-undo {
+  min-height: 34px;
+  border: 1px solid rgba(191, 165, 255, 0.24);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 740;
+  cursor: pointer;
+  transition: border-color var(--ease), background var(--ease), color var(--ease);
+}
+
+.discovery-feedback-button:hover,
+.discovery-feedback-button:focus-visible,
+.discovery-feedback-undo:hover,
+.discovery-feedback-undo:focus-visible {
+  border-color: rgba(255, 170, 157, 0.52);
+  color: var(--text);
+}
+
+.discovery-feedback-button.selected {
+  border-color: rgba(255, 170, 157, 0.62);
+  background: rgba(255, 170, 157, 0.14);
+  color: var(--text);
+}
+
+.discovery-feedback-button:disabled,
+.discovery-feedback-undo:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.discovery-feedback-undo {
+  border-color: transparent;
+  background: transparent;
+  color: var(--gold);
+}
+
+.discovery-feedback-status.error {
+  color: var(--pink);
+}
+
+.discovery-feedback.compact {
+  margin-top: 3px;
+}
+
+.discovery-feedback-notice {
+  grid-column: 1 / -1;
+  color: var(--muted-strong);
+}
+
 .alert-artwork {
   width: 82px;
   min-height: 110px;

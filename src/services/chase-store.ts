@@ -121,6 +121,7 @@ type UserDiscoveryFeedbackRow = {
   feedback: UserDiscoveryFeedback;
   interaction_count: number;
   last_interacted_at: string;
+  version: number;
 };
 
 type DiscoveryTrainingOutcomeRow = {
@@ -912,11 +913,12 @@ const upsertUserDiscoveryFeedbackStmt = db.prepare(`
     lane = excluded.lane,
     feedback = excluded.feedback,
     interaction_count = user_discovery_feedback.interaction_count + 1,
+    version = user_discovery_feedback.version + 1,
     last_interacted_at = excluded.last_interacted_at
 `);
 
 const listRecentUserDiscoveryFeedbackStmt = db.prepare(`
-  SELECT suggestion_name, lane, feedback, interaction_count, last_interacted_at
+  SELECT suggestion_name, lane, feedback, interaction_count, last_interacted_at, version
   FROM user_discovery_feedback
   WHERE user_id = ? AND feedback = ?
   ORDER BY last_interacted_at DESC
@@ -924,7 +926,7 @@ const listRecentUserDiscoveryFeedbackStmt = db.prepare(`
 `);
 
 const getUserDiscoveryFeedbackStmt = db.prepare(`
-  SELECT suggestion_name, lane, feedback, interaction_count, last_interacted_at
+  SELECT suggestion_name, lane, feedback, interaction_count, last_interacted_at, version
   FROM user_discovery_feedback
   WHERE user_id = ? AND suggestion_name = ?
   LIMIT 1
@@ -1780,42 +1782,59 @@ export function recordDiscoveryFeedback(input: {
   lane: string;
   feedback: UserDiscoveryFeedback;
   maxPrice?: number;
-}): void {
-  const now = new Date().toISOString();
-  upsertUserDiscoveryFeedbackStmt.run(input.userId, input.cardName, input.lane, input.feedback, now, now);
-  updateDiscoveryTrainingOutcomeStmt.run(input.feedback, now, now, input.userId, input.cardName);
-  if (input.feedback === 'MORE_LIKE_THIS') {
-    rememberTasteSignal({
-      userId: input.userId,
-      signalId: discoveryTasteSignalId(input.cardName),
-      source: 'DISCOVERY_LIKE',
-      cardName: input.cardName,
-      maxPrice: input.maxPrice
-    });
-  } else {
-    deleteUserTasteMemoryStmt.run(input.userId, discoveryTasteSignalId(input.cardName), 'DISCOVERY_LIKE');
-  }
+}): { suggestionName: string; lane: string; feedback: UserDiscoveryFeedback; interactionCount: number; lastInteractedAt: string; version: number } {
+  return db.transaction(() => {
+    const existing = getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow | undefined;
+    if (existing?.feedback === input.feedback) return mapUserDiscoveryFeedback(existing);
+    const now = new Date().toISOString();
+    upsertUserDiscoveryFeedbackStmt.run(input.userId, input.cardName, input.lane, input.feedback, now, now);
+    updateDiscoveryTrainingOutcomeStmt.run(input.feedback, now, now, input.userId, input.cardName);
+    if (input.feedback === 'MORE_LIKE_THIS') {
+      rememberTasteSignal({
+        userId: input.userId,
+        signalId: discoveryTasteSignalId(input.cardName),
+        source: 'DISCOVERY_LIKE',
+        cardName: input.cardName,
+        maxPrice: input.maxPrice
+      });
+    } else {
+      deleteUserTasteMemoryStmt.run(input.userId, discoveryTasteSignalId(input.cardName), 'DISCOVERY_LIKE');
+    }
+    return mapUserDiscoveryFeedback(getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow);
+  })();
+}
+
+function mapUserDiscoveryFeedback(row: UserDiscoveryFeedbackRow) {
+  return {
+    suggestionName: row.suggestion_name,
+    lane: row.lane,
+    feedback: row.feedback,
+    interactionCount: row.interaction_count,
+    lastInteractedAt: row.last_interacted_at,
+    version: row.version
+  };
+}
+
+export function getUserDiscoveryFeedback(userId: string, cardName: string) {
+  const row = getUserDiscoveryFeedbackStmt.get(userId, cardName) as UserDiscoveryFeedbackRow | undefined;
+  return row ? mapUserDiscoveryFeedback(row) : null;
 }
 
 export function undoDiscoveryFeedback(input: {
   userId: string;
   cardName: string;
-}): { suggestionName: string; lane: string; feedback: UserDiscoveryFeedback; interactionCount: number; lastInteractedAt: string } | null {
+  expectedVersion?: number;
+}): { suggestionName: string; lane: string; feedback: UserDiscoveryFeedback; interactionCount: number; lastInteractedAt: string; version: number } | null {
   const undo = db.transaction(() => {
     const row = getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow | undefined;
     if (!row) return null;
+    if (input.expectedVersion !== undefined && row.version !== input.expectedVersion) return null;
     deleteUserDiscoveryFeedbackStmt.run(input.userId, input.cardName);
     clearDiscoveryTrainingOutcomeStmt.run(new Date().toISOString(), input.userId, input.cardName);
     if (row.feedback === 'MORE_LIKE_THIS') {
       deleteUserTasteMemoryStmt.run(input.userId, discoveryTasteSignalId(input.cardName), 'DISCOVERY_LIKE');
     }
-    return {
-      suggestionName: row.suggestion_name,
-      lane: row.lane,
-      feedback: row.feedback,
-      interactionCount: row.interaction_count,
-      lastInteractedAt: row.last_interacted_at
-    };
+    return mapUserDiscoveryFeedback(row);
   });
   return undo();
 }

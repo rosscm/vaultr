@@ -19,6 +19,7 @@ import {
   getDiscoveryVaultAction,
   getDiscoveryLearnedSignalSummary,
   getUserDiscoveryState,
+  getUserDiscoveryFeedback,
   getUserAlertSettings,
   getUserPlan,
   listChases,
@@ -26,12 +27,12 @@ import {
   listRecentUserDiscoverySeenNames,
   listUserTasteMemoryChases,
   markUserDiscoverySuggestionsSeen,
-  recordDiscoveryFeedback,
   recordDiscoveryAddTaste,
   recordDiscoveryTrainingExamples,
   undoDiscoveryFeedback,
   upsertUserDiscoveryState
 } from '../services/chase-store.js';
+import { applyResolvedDiscoveryFeedback } from '../services/discovery-feedback.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice, type SupportedCurrency } from '../services/currency.js';
 import { buildEbaySearchKeywords, searchEbayListings, searchEbaySoldListings, snapshotEbayRuntimeStats, type EbayRuntimeStats } from '../services/ebay.js';
 import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
@@ -14243,22 +14244,22 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
     return;
   }
 
-  recordDiscoveryFeedback({
+  const savedFeedback = applyResolvedDiscoveryFeedback({
     userId: interaction.user.id,
     cardName: pick.cardName,
     lane: pick.lane,
-    feedback,
+    action: feedback,
     maxPrice: pick.maxPrice
   });
 
   const title = feedback === 'MORE_LIKE_THIS' ? 'Taste Saved' : 'Discovery Tuned';
   const message =
     feedback === 'MORE_LIKE_THIS'
-      ? `Vaultr will treat **${pick.cardName}** as a stronger preference signal for your next Discovery release`
-      : `Noted. Vaultr will keep **${pick.cardName}** off future Shelves and favor sharper grail signals around your Vault`;
+      ? `Noted. Vaultr will use **${pick.cardName}** to shape future discoveries`
+      : `Noted. Vaultr will keep **${pick.cardName}** in mind when shaping future discoveries`;
   const undoRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:${interaction.user.id}:${pick.token}`)
+      .setCustomId(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:${interaction.user.id}:${pick.token}:${savedFeedback.version}`)
       .setLabel('Undo')
       .setStyle(ButtonStyle.Secondary)
   );
@@ -14274,7 +14275,7 @@ export async function handleDiscoveryFeedbackUndo(interaction: any): Promise<boo
   if (!interaction.isButton()) return false;
   if (!interaction.customId.startsWith(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:`)) return false;
 
-  const [, ownerUserId, token] = interaction.customId.split(':');
+  const [, ownerUserId, token, rawVersion] = interaction.customId.split(':');
   if (!ownerUserId || !token) return false;
 
   if (interaction.user.id !== ownerUserId) {
@@ -14294,10 +14295,15 @@ export async function handleDiscoveryFeedbackUndo(interaction: any): Promise<boo
     return true;
   }
 
-  const undone = undoDiscoveryFeedback({ userId: interaction.user.id, cardName: pick.cardName });
+  const expectedVersion = Number(rawVersion);
+  const currentFeedback = getUserDiscoveryFeedback(interaction.user.id, pick.cardName);
+  const stale = !Number.isInteger(expectedVersion) || currentFeedback?.version !== expectedVersion;
+  const undone = stale ? null : undoDiscoveryFeedback({ userId: interaction.user.id, cardName: pick.cardName, expectedVersion });
   const description = undone
-    ? `Removed your feedback for **${pick.cardName}**. Your next Discovery release will ignore that signal`
-    : `No active Discovery feedback was found for **${pick.cardName}**`;
+    ? `Removed your feedback for **${pick.cardName}**. Future discoveries will no longer use that signal`
+    : stale
+      ? `That feedback changed after this Undo was created. Open the latest Shelf to see the current choice`
+      : `No active Discovery feedback was found for **${pick.cardName}**`;
   await interaction.update({
     embeds: [successEmbed('Feedback Undone', description)],
     components: []

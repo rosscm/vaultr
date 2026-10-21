@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { addChase, enqueueAlertEventDelivery, getUserAlertSettings, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, setUserAlertSettings, setUserPlan } from '../services/chase-store.js';
+import { addChase, enqueueAlertEventDelivery, getUserAlertSettings, getUserDiscoveryFeedback, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, setUserAlertSettings, setUserPlan } from '../services/chase-store.js';
 import { createUser, getIdentity, getUserById, linkIdentity } from '../services/accounts.js';
 import { db } from '../services/db.js';
 import {
@@ -41,6 +41,7 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_discovery_feedback WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_alert_settings WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
@@ -373,6 +374,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Your Display Case</h1>');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
+    expect(jsResponse.body).toContain('data-action="discovery-feedback"');
+    expect(jsResponse.body).toContain('data-action="undo-discovery-feedback"');
+    expect(jsResponse.body).toContain('Your feedback helps shape future discoveries.');
+    expect(jsResponse.body).toContain('Taste feedback is read-only in preview.');
     expect(jsResponse.body).toContain('Add to Watchlist');
     expect(jsResponse.body).toContain('Your next favourite starts here.');
     expect(jsResponse.body).toContain('A LITTLE INSPIRATION');
@@ -644,6 +649,7 @@ describe('web app preview mode', () => {
       ['POST', '/api/preview/chases/preview-gardevoir/resume'],
       ['POST', '/api/preview/completed-chases/preview-pichu/reopen'],
       ['POST', '/api/preview/account/email'],
+      ['POST', '/api/preview/shelf/feedback'],
       ['PATCH', '/api/preview/settings'],
       ['PATCH', '/api/preview/onboarding']
     ]) {
@@ -1316,6 +1322,80 @@ describe('authenticated Weekly Shelf API', () => {
 
     clearUser(userId);
     clearUser(otherUserId);
+  });
+
+  it('records, changes, reads, and version-checks feedback for an owned prepared recommendation', async () => {
+    const userId = 'web-shelf-feedback-user';
+    clearUser(userId);
+    seedWeeklyShelf(userId);
+    const { token } = createWebSession({ userId }, { token: 'shelf-feedback-token' });
+    const headers = { cookie: sessionCookie(token), 'content-type': 'application/json' };
+    const shelf = await handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config, now: () => new Date('2026-08-30T13:00:00.000Z') });
+    const item = JSON.parse(shelf.body ?? '{}').items[0];
+    const actionBody = { ...item.recommendation, action: 'MORE_LIKE_THIS', cardName: 'Untrusted client card' };
+
+    const rejectedMetadata = await handleWebRequest({ method: 'POST', url: '/api/shelf/feedback', headers, body: JSON.stringify(actionBody) }, { config });
+    expect(rejectedMetadata.status).toBe(400);
+
+    const liked = await handleWebRequest({
+      method: 'POST', url: '/api/shelf/feedback', headers,
+      body: JSON.stringify({ ...item.recommendation, action: 'MORE_LIKE_THIS' })
+    }, { config });
+    const likedFeedback = JSON.parse(liked.body ?? '{}').feedback;
+    expect(liked.status).toBe(200);
+    expect(likedFeedback).toMatchObject({ suggestionName: 'Mew CoroCoro Promo 151', feedback: 'MORE_LIKE_THIS', interactionCount: 1 });
+    expect(listUserTasteMemoryChases(userId).map((entry) => entry.cardName)).toContain('Mew CoroCoro Promo 151');
+
+    const retried = await handleWebRequest({
+      method: 'POST', url: '/api/shelf/feedback', headers,
+      body: JSON.stringify({ ...item.recommendation, action: 'MORE_LIKE_THIS' })
+    }, { config });
+    expect(JSON.parse(retried.body ?? '{}').feedback.interactionCount).toBe(1);
+
+    const changed = await handleWebRequest({
+      method: 'POST', url: '/api/shelf/feedback', headers,
+      body: JSON.stringify({ ...item.recommendation, action: 'NOT_FOR_ME' })
+    }, { config });
+    const changedFeedback = JSON.parse(changed.body ?? '{}').feedback;
+    expect(changedFeedback).toMatchObject({ feedback: 'NOT_FOR_ME', interactionCount: 2 });
+    expect(listUserTasteMemoryChases(userId).map((entry) => entry.cardName)).not.toContain('Mew CoroCoro Promo 151');
+
+    const staleUndo = await handleWebRequest({
+      method: 'POST', url: '/api/shelf/feedback', headers,
+      body: JSON.stringify({ ...item.recommendation, action: 'UNDO', expectedVersion: likedFeedback.version })
+    }, { config });
+    expect(staleUndo.status).toBe(409);
+    expect(getUserDiscoveryFeedback(userId, 'Mew CoroCoro Promo 151')?.feedback).toBe('NOT_FOR_ME');
+
+    const undone = await handleWebRequest({
+      method: 'POST', url: '/api/shelf/feedback', headers,
+      body: JSON.stringify({ ...item.recommendation, action: 'UNDO', expectedVersion: changedFeedback.version })
+    }, { config });
+    expect(undone.status).toBe(200);
+    expect(JSON.parse(undone.body ?? '{}').feedback).toBeNull();
+    expect(getUserDiscoveryFeedback(userId, 'Mew CoroCoro Promo 151')).toBeNull();
+
+    const reread = await handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config, now: () => new Date('2026-08-30T13:00:00.000Z') });
+    expect(JSON.parse(reread.body ?? '{}').items[0].feedback).toBeNull();
+    expect(listChases(userId)).toEqual([]);
+    clearUser(userId);
+  });
+
+  it('rejects unauthenticated, cross-account, and unknown recommendation feedback', async () => {
+    const ownerId = 'web-shelf-feedback-owner';
+    const otherId = 'web-shelf-feedback-other';
+    clearUser(ownerId);
+    clearUser(otherId);
+    const drop = seedWeeklyShelf(ownerId);
+    const { token } = createWebSession({ userId: otherId }, { token: 'shelf-feedback-other-token' });
+    const body = JSON.stringify({ periodKey: drop.periodKey, position: 1, action: 'MORE_LIKE_THIS' });
+    const anonymous = await handleWebRequest({ method: 'POST', url: '/api/shelf/feedback', headers: { 'content-type': 'application/json' }, body }, { config });
+    const crossAccount = await handleWebRequest({ method: 'POST', url: '/api/shelf/feedback', headers: { cookie: sessionCookie(token), 'content-type': 'application/json' }, body }, { config });
+    expect(anonymous.status).toBe(401);
+    expect(crossAccount.status).toBe(404);
+    expect(getUserDiscoveryFeedback(ownerId, 'Mew CoroCoro Promo 151')).toBeNull();
+    clearUser(ownerId);
+    clearUser(otherId);
   });
 
   it('keeps Weekly Shelf read-only and uses the Chase API as the write path', async () => {

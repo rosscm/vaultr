@@ -321,6 +321,7 @@ db.exec(`
     suggestion_name TEXT NOT NULL,
     lane TEXT NOT NULL,
     feedback TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
     interaction_count INTEGER NOT NULL DEFAULT 1,
     first_interacted_at TEXT NOT NULL,
     last_interacted_at TEXT NOT NULL,
@@ -1011,6 +1012,11 @@ try {
 }
 try {
   db.exec(`ALTER TABLE alert_feedback ADD COLUMN feedback_reason TEXT;`);
+} catch {
+  // Column already exists on upgraded databases.
+}
+try {
+  db.exec(`ALTER TABLE user_discovery_feedback ADD COLUMN version INTEGER NOT NULL DEFAULT 1;`);
 } catch {
   // Column already exists on upgraded databases.
 }
