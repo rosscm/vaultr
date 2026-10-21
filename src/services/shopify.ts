@@ -96,11 +96,14 @@ const SHOPIFY_PAGE_LIMIT = 250;
 const SHOPIFY_SCAN_BATCH_PAGES = 5;
 const SHOPIFY_SCAN_BATCH_TIME_BUDGET_MS = 12_000;
 const SHOPIFY_FETCH_TIMEOUT_MS = 10_000;
+const DEFAULT_SHOPIFY_SCAN_BATCH_TIMEOUT_MS = 25_000;
 const SHOPIFY_SUGGEST_LIMIT = 10;
 const SHOPIFY_CANDIDATE_LIMIT = 12;
 const SHOPIFY_CANDIDATE_HYDRATION_CONCURRENCY = 3;
 const SHOPIFY_PRODUCT_CACHE_TTL_MS = 60_000;
 const SHOPIFY_CATALOG_WORK_INTERVAL_MS = 60_000;
+let shopifyScanBatchTimeoutMs = DEFAULT_SHOPIFY_SCAN_BATCH_TIMEOUT_MS;
+const shopifyScanGenerations = new Map<string, number>();
 
 export type ShopifyCoverage = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE_OBSERVED' | 'INTERRUPTED' | 'LIMITED_PROVIDER_BOUNDARY';
 export type ShopifyOperationStatus = 'SUCCESS' | 'PARTIAL' | 'FAILURE';
@@ -233,8 +236,11 @@ function conditionFromVariant(variant: ShopifyVariant): string | undefined {
   return condition ? `Raw ${condition}` : 'Raw';
 }
 
-async function fetchShopifyJson<T>(url: URL): Promise<T> {
+async function fetchShopifyJson<T>(url: URL, outerSignal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
+  const abortFromOuter = () => controller.abort();
+  if (outerSignal?.aborted) controller.abort();
+  else outerSignal?.addEventListener('abort', abortFromOuter, { once: true });
   const timeout = setTimeout(() => controller.abort(), SHOPIFY_FETCH_TIMEOUT_MS);
   try {
     const response = await fetch(url, {
@@ -248,6 +254,7 @@ async function fetchShopifyJson<T>(url: URL): Promise<T> {
     return (await response.json()) as T;
   } finally {
     clearTimeout(timeout);
+    outerSignal?.removeEventListener('abort', abortFromOuter);
   }
 }
 
@@ -383,9 +390,15 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
   const inFlight = shopifyScanRequests.get(shop.slug);
   if (inFlight) return inFlight;
 
-  const request = (async () => {
+  const generation = (shopifyScanGenerations.get(shop.slug) ?? 0) + 1;
+  shopifyScanGenerations.set(shop.slug, generation);
+  const controller = new AbortController();
+  const isCurrentGeneration = () => shopifyScanGenerations.get(shop.slug) === generation;
+  let batchState = initial;
+  const work = (async () => {
     let state = getTrustedShopCatalogState(shop.slug) ?? initial;
     if (state.coverageStatus === 'LIMITED_PROVIDER_BOUNDARY') state = beginTrustedShopCatalogRefresh(shop.slug);
+    batchState = state;
     const startedAt = Date.now();
     const products: ShopifyProduct[] = [];
     let pagesFetched = 0;
@@ -399,7 +412,7 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
       url.searchParams.set('limit', String(SHOPIFY_PAGE_LIMIT));
       url.searchParams.set('page', String(state.nextPage + offset));
       try {
-        const body = await fetchShopifyJson<ShopifyProductsResponse>(url);
+        const body = await fetchShopifyJson<ShopifyProductsResponse>(url, controller.signal);
         pagesFetched += 1;
         const pageProducts = Array.isArray(body.products) ? body.products : [];
         products.push(...pageProducts);
@@ -414,6 +427,7 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
       } catch (error) {
         const requestedPage = state.nextPage + offset;
         if (error instanceof ShopifyHttpError && error.status === 400 && requestedPage >= 101 && state.pagesScanned >= 100) {
+          if (!isCurrentGeneration()) return getTrustedShopCatalogState(shop.slug) ?? state;
           return limitTrustedShopCatalogCoverage({
             shopSlug: shop.slug,
             reason: 'Provider rejects products pagination beyond page 100 (HTTP 400); indexed coverage retained',
@@ -427,6 +441,7 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
 
     let updated = state;
     if (pagesFetched > 0) {
+      if (!isCurrentGeneration()) return getTrustedShopCatalogState(shop.slug) ?? state;
       updated = commitTrustedShopCatalogBatch({
         shopSlug: shop.slug,
         sweepId: state.sweepId,
@@ -436,8 +451,14 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
         exhausted
       });
     }
-    if (failure) return failTrustedShopCatalogBatch({ shopSlug: shop.slug, error: failure });
-    if (pagesFetched === 0) return failTrustedShopCatalogBatch({ shopSlug: shop.slug, error: 'Catalog batch ended before a page completed' });
+    if (!isCurrentGeneration()) return getTrustedShopCatalogState(shop.slug) ?? state;
+    if (failure) return failTrustedShopCatalogBatch({
+      shopSlug: shop.slug,
+      error: failure,
+      expectedSweepId: updated.sweepId,
+      expectedStartPage: updated.nextPage
+    });
+    if (pagesFetched === 0) return failTrustedShopCatalogBatch({ shopSlug: shop.slug, error: 'Catalog batch ended before a page completed', expectedSweepId: state.sweepId, expectedStartPage: state.nextPage });
     if (reachedKnownBoundary) {
       return limitTrustedShopCatalogCoverage({
         shopSlug: shop.slug,
@@ -447,6 +468,34 @@ async function scanTrustedShopCatalogBatch(shop: TrustedShopifyShop, force = fal
     }
     return updated;
   })();
+  const request = new Promise<TrustedShopCatalogState>((resolve) => {
+    let settled = false;
+    const settle = (state: TrustedShopCatalogState) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(state);
+    };
+    const timeout = setTimeout(() => {
+      shopifyScanGenerations.set(shop.slug, generation + 1);
+      controller.abort();
+      settle(failTrustedShopCatalogBatch({
+        shopSlug: shop.slug,
+        error: `Catalog batch exceeded ${shopifyScanBatchTimeoutMs}ms deadline`,
+        expectedSweepId: batchState.sweepId,
+        expectedStartPage: batchState.nextPage
+      }));
+    }, shopifyScanBatchTimeoutMs);
+    work.then(settle).catch((error: unknown) => {
+      if (!isCurrentGeneration()) return;
+      settle(failTrustedShopCatalogBatch({
+        shopSlug: shop.slug,
+        error: error instanceof Error ? error.message : String(error),
+        expectedSweepId: batchState.sweepId,
+        expectedStartPage: batchState.nextPage
+      }));
+    });
+  });
   shopifyScanRequests.set(shop.slug, request);
   try {
     return await request;
@@ -594,3 +643,14 @@ export async function searchTrustedShopifyListingsDetailed(chase: Chase): Promis
 export async function searchTrustedShopifyListings(chase: Chase): Promise<Listing[]> {
   return (await searchTrustedShopifyListingsDetailed(chase)).listings;
 }
+
+export const __shopifyCatalogTestHooks = {
+  setBatchTimeoutMs(timeoutMs: number): void {
+    shopifyScanBatchTimeoutMs = timeoutMs;
+  },
+  reset(): void {
+    shopifyScanBatchTimeoutMs = DEFAULT_SHOPIFY_SCAN_BATCH_TIMEOUT_MS;
+    shopifyScanRequests.clear();
+    shopifyScanGenerations.clear();
+  }
+};

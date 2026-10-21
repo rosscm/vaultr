@@ -207,17 +207,25 @@ export function failTrustedShopCatalogBatch(input: {
   error: string;
   now?: string;
   retryBaseMs?: number;
+  expectedSweepId?: string;
+  expectedStartPage?: number;
 }): TrustedShopCatalogState {
   const now = input.now ?? new Date().toISOString();
-  const current = ensureTrustedShopCatalogState(input.shopSlug, now);
-  const retryCount = current.retryCount + 1;
-  const retryMs = Math.min(15 * 60_000, (input.retryBaseMs ?? 60_000) * 2 ** Math.min(4, retryCount - 1));
-  db.prepare(`
-    UPDATE trusted_shop_catalog_state
-    SET coverage_status = 'INTERRUPTED', retry_count = ?, last_error = ?, next_run_at = ?, updated_at = ?
-    WHERE shop_slug = ?
-  `).run(retryCount, input.error.slice(0, 500), new Date(Date.parse(now) + retryMs).toISOString(), now, input.shopSlug);
-  return mapState(selectState.get(input.shopSlug) as CatalogStateRow);
+  return db.transaction(() => {
+    const current = ensureTrustedShopCatalogState(input.shopSlug, now);
+    if (
+      (input.expectedSweepId !== undefined && current.sweepId !== input.expectedSweepId) ||
+      (input.expectedStartPage !== undefined && current.nextPage !== input.expectedStartPage)
+    ) return current;
+    const retryCount = current.retryCount + 1;
+    const retryMs = Math.min(15 * 60_000, (input.retryBaseMs ?? 60_000) * 2 ** Math.min(4, retryCount - 1));
+    db.prepare(`
+      UPDATE trusted_shop_catalog_state
+      SET coverage_status = 'INTERRUPTED', retry_count = ?, last_error = ?, next_run_at = ?, updated_at = ?
+      WHERE shop_slug = ?
+    `).run(retryCount, input.error.slice(0, 500), new Date(Date.parse(now) + retryMs).toISOString(), now, input.shopSlug);
+    return mapState(selectState.get(input.shopSlug) as CatalogStateRow);
+  })();
 }
 
 export function limitTrustedShopCatalogCoverage(input: {
@@ -259,8 +267,14 @@ export function classifyTrustedShopCatalogHealth(
   }
   if (state.coverageStatus === 'COMPLETE_OBSERVED') return { status: 'HEALTHY', reason: 'Observed sweep complete' };
   const progressAt = Date.parse(state.lastSuccessfulBatchAt ?? state.updatedAt);
-  if (state.coverageStatus === 'INTERRUPTED' && state.retryCount > 0 && nowMs - progressAt > stallAfterMs) {
-    return { status: 'STALLED', reason: state.lastError ?? 'Repeated catalog batch failures' };
+  if (
+    (state.coverageStatus === 'INTERRUPTED' || state.coverageStatus === 'IN_PROGRESS') &&
+    nowMs - progressAt > stallAfterMs && Date.parse(state.nextRunAt) <= nowMs
+  ) {
+    return {
+      status: 'STALLED',
+      reason: state.lastError ?? `No catalog progress since ${state.lastSuccessfulBatchAt ?? state.updatedAt}`
+    };
   }
   return {
     status: 'WAITING',

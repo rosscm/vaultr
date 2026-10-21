@@ -11,6 +11,7 @@ import {
   trustedShopCatalogBatchDue
 } from '../trusted-shop-catalog.js';
 import {
+  __shopifyCatalogTestHooks,
   advanceTrustedShopifyCatalogCoverage,
   searchTrustedShopifyListings,
   searchTrustedShopifyListingsDetailed
@@ -43,6 +44,7 @@ describe('progressive trusted Shopify catalog coverage', () => {
   beforeEach(clearCatalog);
 
   afterEach(() => {
+    __shopifyCatalogTestHooks.reset();
     vi.unstubAllGlobals();
   });
 
@@ -121,6 +123,38 @@ describe('progressive trusted Shopify catalog coverage', () => {
     expect(requested.filter((page) => page === 1)).toHaveLength(1);
     expect(requested.filter((page) => page === 2)).toHaveLength(2);
     expect(getTrustedShopCatalogState('hobbiesville')?.coverageStatus).toBe('COMPLETE_OBSERVED');
+  });
+
+  it('times out a hung overdue store without starving other stores and resumes its cursor', async () => {
+    const ghost = ensureTrustedShopCatalogState('theghostgames');
+    commitTrustedShopCatalogBatch({
+      shopSlug: 'theghostgames', sweepId: ghost.sweepId, startPage: 1, pagesFetched: 19,
+      products: [product(7001, 'retained-before-hang')], exhausted: false
+    });
+    db.prepare(`UPDATE trusted_shop_catalog_state SET next_run_at = ? WHERE shop_slug = ?`)
+      .run('2026-10-20T19:11:05.124Z', 'theghostgames');
+    __shopifyCatalogTestHooks.setBatchTimeoutMs(25);
+    let hangGhost = true;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname !== '/products.json') return jsonResponse({ resources: { results: { products: [] } } });
+      if (url.hostname.includes('ghostgames') && hangGhost) return new Promise<Response>(() => undefined);
+      return jsonResponse({ products: [] });
+    }));
+
+    const first = await advanceTrustedShopifyCatalogCoverage();
+    expect(first.find((state) => state.shopSlug === 'theghostgames')).toMatchObject({
+      coverageStatus: 'INTERRUPTED', nextPage: 20, pagesScanned: 19, retryCount: 1
+    });
+    expect(first.filter((state) => state.shopSlug !== 'theghostgames').every((state) => state.coverageStatus === 'COMPLETE_OBSERVED')).toBe(true);
+    expect(countTrustedShopCatalogProducts('theghostgames')).toBe(1);
+
+    hangGhost = false;
+    const second = await advanceTrustedShopifyCatalogCoverage({ force: true });
+    expect(second.find((state) => state.shopSlug === 'theghostgames')).toMatchObject({
+      coverageStatus: 'COMPLETE_OBSERVED', lastCompletedPages: 20, retryCount: 0
+    });
+    expect(countTrustedShopCatalogProducts('theghostgames')).toBe(1);
   });
 
   it('records the permanent Shopify page boundary without retrying or reconciling indexed coverage', async () => {
@@ -203,6 +237,17 @@ describe('progressive trusted Shopify catalog coverage', () => {
     const current = getTrustedShopCatalogState('hobbiesville')!;
     expect(classifyTrustedShopCatalogHealth(current, Date.parse('2026-10-20T17:15:00.000Z')).status).toBe('WAITING');
     expect(classifyTrustedShopCatalogHealth(current, Date.parse('2026-10-20T18:00:01.000Z')).status).toBe('STALLED');
+
+    db.prepare(`
+      UPDATE trusted_shop_catalog_state
+      SET coverage_status = 'IN_PROGRESS', retry_count = 0, last_error = NULL,
+          last_successful_batch_at = '2026-10-20T17:00:00.000Z', next_run_at = '2026-10-20T17:10:00.000Z'
+      WHERE shop_slug = ?
+    `).run(state.shopSlug);
+    const overdueWithoutFailure = getTrustedShopCatalogState('hobbiesville')!;
+    expect(classifyTrustedShopCatalogHealth(overdueWithoutFailure, Date.parse('2026-10-20T18:00:01.000Z'))).toMatchObject({
+      status: 'STALLED', reason: 'No catalog progress since 2026-10-20T17:00:00.000Z'
+    });
   });
 
   it('reconciles products only after a completed later sweep', () => {
