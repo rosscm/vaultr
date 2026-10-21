@@ -605,12 +605,12 @@ function shellMarkup(content) {
           ${navButton('vault', 'Watchlist')}
           ${navButton('alerts', 'Inbox')}
           ${navButton('shelf', 'Discover')}
+          ${navButton('plus', 'Plus')}
+          ${navButton('settings', 'Settings')}
         </nav>
         <div class="user-area">
           ${avatarHtml(state.user)}
           <span class="user-copy"><strong class="user-name">${escapeHtml(displayName)}</strong>${accountPlan ? `<small>${escapeHtml(accountPlan)}</small>` : ''}</span>
-          <button class="button-ghost account-plus-button" type="button" data-page="plus" aria-current="${state.activePage === 'plus' ? 'page' : 'false'}">${iconMarkup('plus')}<span>Plus</span></button>
-          <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">${iconMarkup('settings')}<span>Settings</span></button>
           ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
         </div>
       </aside>
@@ -917,15 +917,7 @@ function plusPageMarkup() {
       <section class="plus-comparison" aria-labelledby="plus-comparison-title">
         <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">Choose the room and precision that fit your collection</h2><p>Check intervals are targets, not guaranteed listing or notification times.</p></div>
         <div class="plus-plan-grid">
-          ${plans.map((plan) => `<article class="plus-plan${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3>${plusPlanFeatureList(plan)}</article>`).join('')}
-        </div>
-      </section>
-      <section class="plus-benefits" aria-labelledby="plus-benefits-title">
-        <div class="plus-section-heading"><p class="eyebrow">VAULTR PLUS</p><h2 id="plus-benefits-title">Built for a growing Watchlist</h2></div>
-        <div class="plus-benefit-grid">
-          <article><strong>Watch more cards</strong><p>Keep more active searches moving without losing paused cards or pickups.</p></article>
-          <article><strong>Refine the match</strong><p>Use precision filters and Trusted Shops when the exact version and listing details matter.</p></article>
-          <article><strong>Discover around your taste</strong><p>Your Watchlist and pickups shape a personalized Display Case after enough distinct card history is available and preparation completes.</p></article>
+          ${plans.map((plan) => `<article class="plus-plan${plan.tier === currentTier ? ' current' : ''}${plan.tier === 'PRO' ? ' featured' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : plan.tier === 'PRO' ? 'VAULTR PLUS' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3>${plusPlanFeatureList(plan)}</article>`).join('')}
         </div>
       </section>
       <section class="plus-next-step" aria-labelledby="plus-next-title">
@@ -1307,30 +1299,24 @@ function homePageMarkup() {
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, shelfItems.length);
   const starters = starterDiscoveryItems();
   const discovery = state.shelf?.discovery;
-  const hasCollectionHistory = activeChases + userPausedChases + planLimitedChases + completedChases > 0;
   const staging = String(state.authConfig?.environment?.label || '').toLowerCase() === 'staging';
 
   return `
     <section class="home-page" aria-labelledby="home-title">
       <header class="home-header">
-        <p class="eyebrow">HOME</p>
-        <h1 id="home-title">Welcome back, ${escapeHtml(userDisplayName(state.user))}</h1>
-        <p>Build your Vault. Chase your grails. Discover what you love next.</p>
+        <div><p class="eyebrow">HOME</p><h1 id="home-title">Welcome back, ${escapeHtml(userDisplayName(state.user))}</h1><p>Track the cards you want. Find matching listings. Discover your next favourite.</p><small>Build your Vault. Chase your grails. Discover what you love next.</small>${staging ? '<small class="home-staging-note">Marketplace checks are paused in this staging workspace.</small>' : ''}</div>
+        <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
       </header>
       ${vaultNoticeMarkup('home')}
       ${alertNoticeMarkup()}
-      <section class="home-introduction${hasCollectionHistory ? ' returning' : ''}" aria-labelledby="home-introduction-title">
-        <div><p class="eyebrow">WATCH · MATCH · DISCOVER</p><h2 id="home-introduction-title">The cards you want. The discoveries you’ll love.</h2><p>Keep track of cards you’re looking for, set your preferences, and let Vaultr watch for matching listings. Your Watchlist and pickups help shape your collecting profile—and your next discoveries.</p>${staging ? '<small>Marketplace checks are paused in this staging workspace.</small>' : ''}</div>
-        <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
-      </section>
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">Your Display Case</h2><p>Collector picks shaped around the cards you watch and acquire.</p></div>
+          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">Display Case</h2><p>${shelfReady ? 'Personalized recommendations shaped by your Watchlist, pickups, and feedback.' : 'Editorial inspiration while Vaultr learns what you collect.'}</p></div>
         </div>
         <div class="home-discovery">
           <div class="home-discovery-copy">
-          <h3 id="home-shelf-title">${shelfReady ? 'Same favourites. New discoveries.' : 'Your next favourite starts here.'}</h3>
+          <h3 id="home-shelf-title">${shelfReady ? 'Picked around your taste' : 'Start with a little inspiration'}</h3>
           <p>${state.isShelfLoading
             ? 'Opening your latest collector picks...'
             : state.shelfError
@@ -1348,7 +1334,7 @@ function homePageMarkup() {
             : shelfReady
               ? homeShelfFeatureMarkup(shelfItems, shelfIndex)
               : state.shelfLoaded
-                ? `<div class="home-starter-discovery"><div><p class="eyebrow">A LITTLE INSPIRATION</p><p>A few collector favourites to explore while your collecting profile takes shape.</p><small>Editorial picks, not personalized recommendations.</small></div>${starterArtworkMarkup(starters, true)}</div>`
+                ? `<div class="home-starter-discovery"><div><p class="eyebrow">EDITORIAL STARTER PICKS</p><small>Inspiration, not personalized recommendations.</small></div>${starterArtworkMarkup(starters, true)}</div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
           </div>
         </div>
@@ -1358,8 +1344,8 @@ function homePageMarkup() {
         <div class="home-section-heading">
           <div>
             <p class="eyebrow">LATEST MATCHES</p>
-            <h2 id="home-alerts-title">${state.homeAttentionError ? 'Latest matches unavailable' : state.homeAttentionLoading ? 'Checking for new matches…' : alertPreview.length ? 'New finds for your Watchlist' : 'No new matches yet'}</h2>
-            <p>${state.homeAttentionError ? 'Your Inbox is still available while this preview recovers.' : state.homeAttentionLoading ? 'Looking for New matches waiting for your review.' : alertPreview.length ? 'Fresh listings waiting for your review.' : activeChases ? 'Nothing new is waiting. New finds will appear here as Vaultr checks your Watchlist.' : 'Add a card to your Watchlist to start looking for matching listings.'}</p>
+            <h2 id="home-alerts-title">${state.homeAttentionError ? 'Latest matches unavailable' : state.homeAttentionLoading ? 'Checking for new matches…' : alertPreview.length ? 'New finds for your Watchlist' : 'Latest matches'}</h2>
+            <p>${state.homeAttentionError ? 'Your Inbox is still available while this preview recovers.' : state.homeAttentionLoading ? 'Looking for New matches waiting for your review.' : alertPreview.length ? 'Fresh listings waiting for your review.' : activeChases ? 'Nothing new needs your attention.' : 'Add a card to start watching for matching listings.'}</p>
           </div>
           <button class="home-text-link" type="button" data-action="view-new-alerts">Open Inbox</button>
           ${alertPreview.length ? '<span class="home-plan-label">New</span>' : ''}
@@ -1371,8 +1357,8 @@ function homePageMarkup() {
             : state.homeAttentionLoading || !state.homeAttentionLoaded
               ? '<p class="home-section-state">Loading your latest matches…</p>'
               : activeChases
-                ? '<p class="home-section-state">Your Inbox is clear of New matches.</p>'
-                : '<div class="home-section-state home-empty-action"><p>Your first watched card gives Vaultr something specific to look for.</p><button class="button-ghost" type="button" data-action="open-add-chase">Add to Watchlist</button></div>'}
+                ? '<p class="home-section-state">Nothing new needs your attention.</p>'
+                : '<div class="home-section-state home-empty-action"><p>Add your first card to start watching for matches.</p><button class="button-ghost" type="button" data-action="open-add-chase">Add to Watchlist</button></div>'}
       </section>
 
       <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
@@ -1384,7 +1370,7 @@ function homePageMarkup() {
           <div class="home-vault-stats" aria-label="Watchlist summary">
             <span><strong>${escapeHtml(activeChases)}</strong> Watching</span>
             <span><strong>${escapeHtml(userPausedChases)}</strong> Paused</span>
-            <span><strong>${escapeHtml(planLimitedChases)}</strong> Plan limit</span>
+            ${planLimitedChases ? `<span><strong>${escapeHtml(planLimitedChases)}</strong> Paused by your plan</span>` : ''}
             <span><strong>${escapeHtml(completedChases)}</strong> Pickups</span>
           </div>
         </div>
@@ -1670,8 +1656,8 @@ function shelfHeaderMarkup() {
   return `
     <header class="page-header shelf-page-header">
       <p class="eyebrow">DISCOVER</p>
-      <h1 id="shelf-title">Your Display Case</h1>
-      <p>Discover cards inspired by your Watchlist and pickups.</p>
+      <h1 id="shelf-title">Display Case</h1>
+      <p>${state.shelf?.items?.length ? 'Personalized recommendations shaped by your Watchlist, pickups, and feedback.' : 'Explore editorial inspiration while your collecting profile takes shape.'}</p>
     </header>
   `;
 }
@@ -1700,16 +1686,13 @@ function shelfEmptyMarkup(shelf) {
   return `
     <section class="shelf-first-use" aria-labelledby="starter-discovery-title">
       <div class="shelf-first-use-copy">
-        <p class="eyebrow">YOUR DISPLAY CASE</p>
-        <h2>Your next favourite starts here.</h2>
-        <p>Add cards to your Watchlist and mark pickups to shape future personalized recommendations.</p>
+        <p class="eyebrow">EDITORIAL STARTER PICKS</p>
+        <h2 id="starter-discovery-title">A little inspiration</h2>
+        <p>These are editorial picks, not personalized recommendations. Add cards and record pickups to help future Display Cases reflect your taste.</p>
         <p class="discovery-state-note">${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p>
         <div class="shelf-first-actions"><button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>${shelf?.discovery?.state === 'PLAN_RESTRICTED' ? '<button class="button-ghost" type="button" data-page="plus">Explore Plus</button>' : ''}</div>
       </div>
       <div class="starter-discovery-section">
-        <p class="eyebrow">EDITORIAL PICKS</p>
-        <h3 id="starter-discovery-title">A little inspiration</h3>
-        <p>A few collector favourites to explore while your collecting profile takes shape. These are not personalized recommendations.</p>
         ${starterArtworkMarkup(starters)}
       </div>
     </section>

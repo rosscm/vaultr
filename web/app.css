@@ -313,8 +313,8 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 42px;
-  padding: 0 17px;
+  min-height: 40px;
+  padding: 0 15px;
   border: 1px solid rgba(255, 190, 210, 0.72);
   background: #ff9fbd;
   color: #150b19;
@@ -1485,7 +1485,7 @@ a {
 
 .home-vault-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(70px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
   gap: 8px;
 }
 
@@ -1525,10 +1525,10 @@ a {
 
 .home-header {
   max-width: none;
-  display: grid;
-  align-items: start;
-  justify-content: stretch;
-  gap: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
   padding-bottom: 2px;
 }
 
@@ -1548,6 +1548,15 @@ a {
   margin: 0;
   color: var(--muted);
   font-size: 0.92rem;
+}
+
+.home-header small {
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+}
+
+.home-header .home-staging-note {
+  color: var(--gold);
 }
 
 .home-add-chase,
@@ -2850,7 +2859,7 @@ a {
 }
 
 .vault-action-link {
-  min-height: 34px;
+  min-height: 36px;
   border: 0;
   padding: 0 6px;
   background: transparent;
@@ -2877,7 +2886,7 @@ a {
 
 .vault-actions .button-ghost {
   grid-column: auto;
-  min-height: 34px;
+  min-height: 36px;
   padding: 0 13px;
 }
 
@@ -3427,6 +3436,16 @@ a {
   background: rgba(255, 211, 135, 0.045);
 }
 
+.plus-plan.featured {
+  border-color: rgba(255, 148, 187, 0.42);
+  background: linear-gradient(145deg, rgba(255, 148, 187, 0.09), rgba(111, 79, 184, 0.08));
+  box-shadow: 0 14px 32px rgba(4, 2, 12, 0.2);
+}
+
+.plus-plan.featured.current {
+  border-color: rgba(255, 211, 135, 0.48);
+}
+
 .plus-plan > span {
   color: var(--gold);
   font-size: 0.72rem;
@@ -3483,7 +3502,7 @@ a {
 .dialog-actions .button-primary,
 .dialog-actions .button-ghost {
   display: inline-flex;
-  min-height: 42px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
   margin-top: 0;
@@ -3603,6 +3622,7 @@ a {
     min-width: 0;
   }
 
+  .mobile-header .account-plus-button span,
   .mobile-header .account-settings-button span,
   .mobile-header [data-action="logout"] span {
     display: none;
@@ -3747,6 +3767,12 @@ a {
 
   .home-panel {
     padding: 16px;
+  }
+
+  .home-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
   }
 
   .settings-group {

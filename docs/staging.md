@@ -77,3 +77,33 @@ Set `VAULTR_WEB_BASE_URL` to that public HTTPS origin and register the matching 
 6. Confirm Home, Inbox, and Discover first-use states are accurate, then use **Revisit setup** in Settings and confirm the account remains completed after exit.
 
 Inbox review/dismiss can be tested only after a later controlled staging worker creates genuine staging matches. Email login, email delivery, Discord DMs, polling, Discovery preparation, and fabricated match seeding are intentionally unavailable in this setup.
+
+## Synthetic personalized Display Case
+
+The operator-only fixture command can prepare a small personalized Display Case for one explicit staging account. It uses the normal persisted shelf and authenticated feedback API, contains no market estimates, and does not start workers or provider requests. It fails unless the full staging isolation configuration passes, the Discovery scheduler is disabled, and the selected account has no genuine prepared Display Case.
+
+After building the staging checkout, find the internal account ID in the isolated staging database and run:
+
+```bash
+set -a
+source "$HOME/.config/vaultr/staging.env"
+set +a
+sqlite3 -readonly "$DATABASE_PATH" "SELECT id, COALESCE(display_name, '') FROM users ORDER BY created_at;"
+```
+
+```bash
+cd /home/pi/Documents/GitHub/vaultr-staging
+VAULTR_STAGING_ENV_FILE="$HOME/.config/vaultr/staging.env" \
+  npm run staging:discovery:dist -- --user 'usr_EXPLICIT_STAGING_ACCOUNT_ID'
+```
+
+Reload Home or Discover while signed into that same staging account. Verify **More like this**, **Not for me**, replacement feedback, and versioned **Undo** through the real UI. The fixture is idempotent for the current week and cannot affect another account.
+
+Cleanup removes only fixture-marked shelves for that account and their associated fixture-card feedback:
+
+```bash
+VAULTR_STAGING_ENV_FILE="$HOME/.config/vaultr/staging.env" \
+  npm run staging:discovery:dist -- --user 'usr_EXPLICIT_STAGING_ACCOUNT_ID' --cleanup
+```
+
+The visual application changes require a staging build and web-service restart after deployment. Creating or cleaning the fixture itself does not require a restart.
