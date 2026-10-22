@@ -95,6 +95,7 @@ const EMAIL_CONFIRM_COOKIE = 'vaultr_email_confirm';
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const SESSION_TTL_DAYS = 30;
 const WEB_ASSET_ROOT = path.resolve('web');
+const DOCS_ASSET_ROOT = path.resolve('docs');
 const MAX_JSON_BODY_BYTES = 32 * 1024;
 const CARD_SELECTION_TTL_MS = 15 * 60 * 1000;
 const MAX_CARD_SELECTIONS = 500;
@@ -108,6 +109,14 @@ const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/onboarding-art/pichu-expedition-022.webp': { file: 'assets/onboarding/pichu-expedition-022.webp', contentType: 'image/webp' },
   '/onboarding-art/sylveon-ex-212.webp': { file: 'assets/onboarding/sylveon-ex-212.webp', contentType: 'image/webp' },
   '/fonts/roboto-latin-variable.woff2': { file: 'fonts/roboto-latin-variable.woff2', contentType: 'font/woff2' }
+};
+const LEGAL_ASSETS: Record<string, { file: string; contentType: string }> = {
+  '/privacy': { file: 'privacy.html', contentType: 'text/html; charset=utf-8' },
+  '/privacy/': { file: 'privacy.html', contentType: 'text/html; charset=utf-8' },
+  '/terms': { file: 'terms.html', contentType: 'text/html; charset=utf-8' },
+  '/terms/': { file: 'terms.html', contentType: 'text/html; charset=utf-8' },
+  '/legal.css': { file: 'styles.css', contentType: 'text/css; charset=utf-8' },
+  '/legal-favicon.svg': { file: 'assets/favicon.svg', contentType: 'image/svg+xml' }
 };
 
 type FetchLike = typeof fetch;
@@ -704,11 +713,25 @@ function chasePayload(body: Record<string, unknown>) {
 
 function staticResponse(pathname: string): WebResponse | null {
   if (pathname.includes('..')) return errorResponse(404, 'not_found');
-  const asset = WEB_ASSETS[pathname];
+  const asset = WEB_ASSETS[pathname] ?? LEGAL_ASSETS[pathname];
   if (!asset) return null;
-  const filePath = path.resolve(WEB_ASSET_ROOT, asset.file);
-  if (!filePath.startsWith(`${WEB_ASSET_ROOT}${path.sep}`)) return errorResponse(404, 'not_found');
+  const assetRoot = LEGAL_ASSETS[pathname] ? DOCS_ASSET_ROOT : WEB_ASSET_ROOT;
+  const filePath = path.resolve(assetRoot, asset.file);
+  if (!filePath.startsWith(`${assetRoot}${path.sep}`)) return errorResponse(404, 'not_found');
   try {
+    const isBinary = asset.contentType === 'font/woff2' || asset.contentType.startsWith('image/');
+    let body = isBinary ? fs.readFileSync(filePath).toString('latin1') : fs.readFileSync(filePath, 'utf8');
+    if (asset.contentType.startsWith('text/html') && LEGAL_ASSETS[pathname]) {
+      body = body
+        .replaceAll('./styles.css', '/legal.css')
+        .replaceAll('./assets/favicon.svg', '/legal-favicon.svg')
+        .replaceAll('./index.html#how-it-works', '/app#home')
+        .replaceAll('./index.html#weekly-shelf', '/app#shelf')
+        .replaceAll('./index.html#plans', '/app#plus')
+        .replaceAll('./index.html', '/app')
+        .replaceAll('./privacy.html', '/privacy')
+        .replaceAll('./terms.html', '/terms');
+    }
     return {
       status: 200,
       headers: {
@@ -717,10 +740,8 @@ function staticResponse(pathname: string): WebResponse | null {
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'same-origin'
       },
-      body: asset.contentType === 'font/woff2' || asset.contentType.startsWith('image/')
-        ? fs.readFileSync(filePath).toString('latin1')
-        : fs.readFileSync(filePath, 'utf8'),
-      bodyEncoding: asset.contentType === 'font/woff2' || asset.contentType.startsWith('image/') ? 'latin1' : undefined
+      body,
+      bodyEncoding: isBinary ? 'latin1' : undefined
     };
   } catch {
     return errorResponse(404, 'not_found');

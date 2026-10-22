@@ -357,10 +357,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("alertPreview.length ? '<span class=\"home-plan-label\">New</span>' : ''");
     expect(jsResponse.body).toContain('if (state.vaultLoaded && !state.isVaultLoading) state.pendingVaultFocusId = null;');
     expect(jsResponse.body).not.toContain('${escapeHtml(alertPreview.length)} New');
-    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index)');
+    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false } = {})');
     expect(jsResponse.body).toContain('Less searching. More collecting.');
-    expect(jsResponse.body).toContain('Vaultr finds matching listings for your Watchlist and learns what you love to help you discover your next favourite.');
-    expect(jsResponse.body).toContain('Your Watchlist, Pickups, and feedback help Vaultr learn what you love');
+    expect(jsResponse.body).toContain('Add the cards you’re looking for and tell Vaultr what matters to you. We’ll look for matching listings while you get on with collecting.');
     expect(jsResponse.body).toContain('data-action="select-home-how"');
     expect(jsResponse.body).toContain('role="tablist"');
     expect(jsResponse.body).toContain("homeHowMoment: 'WATCH'");
@@ -377,8 +376,11 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("total > 1 ?");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
-    expect(jsResponse.body).toContain('<strong>Picked for you.</strong> Shaped by your Watchlist, pickups, and feedback.');
-    expect(jsResponse.body).toContain('<strong>A little inspiration.</strong> Editorial picks while Vaultr learns what you collect.');
+    expect(jsResponse.body).toContain('A few picks we think you’ll love.');
+    expect(jsResponse.body).toContain('A little inspiration to get you started.');
+    expect(jsResponse.body).toContain("${editorial ? 'Editorial pick' : 'Picked for you'}");
+    expect(jsResponse.body).toContain("${editorial ? '' : discoveryFeedbackMarkup(item, true)}");
+    expect(jsResponse.body).not.toContain('home-shelf-background-card');
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Display Case</h1>');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
@@ -387,7 +389,6 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Your feedback helps shape future discoveries.');
     expect(jsResponse.body).toContain('Taste feedback is read-only in preview.');
     expect(jsResponse.body).toContain('Add to Watchlist');
-    expect(jsResponse.body).toContain('Editorial examples, not personalized recommendations.');
     expect(jsResponse.body).toContain('These are editorial picks, not personalized recommendations.');
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
@@ -429,9 +430,22 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.shelf-card-meta > .status-pill.active');
     expect(cssResponse.body).toContain('display: none;');
     expect(cssResponse.body).not.toContain('-webkit-line-clamp: 4');
+    expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
+    expect(jsResponse.body).toContain('https://linktr.ee/pokaccini');
+    expect(jsResponse.body).toContain('data-action="footer-how-vaultr-works"');
+
+    const privacyResponse = await handleWebRequest({ method: 'GET', url: '/privacy' }, { config });
+    const termsResponse = await handleWebRequest({ method: 'GET', url: '/terms' }, { config });
+    const legalCssResponse = await handleWebRequest({ method: 'GET', url: '/legal.css' }, { config });
+    expect(privacyResponse.status).toBe(200);
+    expect(privacyResponse.body).toContain('Privacy Policy');
+    expect(privacyResponse.body).toContain('href="/legal.css"');
+    expect(termsResponse.status).toBe(200);
+    expect(termsResponse.body).toContain('Terms of Service');
+    expect(legalCssResponse.headers?.['Content-Type']).toBe('text/css; charset=utf-8');
   });
 
-  it('keeps the Home Shelf preview bounded and uses only real secondary artwork', async () => {
+  it('keeps the Home Display Case preview bounded to one featured card', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const functionSource = (name: string): string => {
@@ -446,7 +460,6 @@ describe('web app static routes', () => {
       homeShelfPresentation: (items: Array<{ name: string; imageUrl?: string }>, index: number) => {
         featuredIndex: number;
         featured?: { name: string; imageUrl?: string };
-        decorative: Array<{ name: string; imageUrl?: string }>;
       };
     };
 
@@ -461,8 +474,7 @@ describe('web app static routes', () => {
       { name: 'Third artwork', imageUrl: '/third.png' }
     ], 1);
     expect(presentation.featured?.name).toBe('Featured');
-    expect(presentation.decorative.map((item) => item.name)).toEqual(['First', 'Second artwork']);
-    expect(utilities.homeShelfPresentation([{ name: 'Only' }], 0).decorative).toEqual([]);
+    expect(Object.keys(presentation)).toEqual(['featuredIndex', 'featured']);
     expect(utilities.homeShelfPresentation([], 4).featured).toBeUndefined();
   });
 

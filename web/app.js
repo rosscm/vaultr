@@ -639,6 +639,7 @@ function shellMarkup(content) {
       <main id="app-main" class="app-main">
         ${onboardingResumePromptMarkup()}
         ${content}
+        ${appFooterMarkup()}
       </main>
       <nav class="mobile-nav" aria-label="Vaultr mobile navigation">
         ${navButton('home', 'Home')}
@@ -648,6 +649,35 @@ function shellMarkup(content) {
       </nav>
       ${planComparisonMarkup()}
     </div>
+  `;
+}
+
+function appFooterMarkup() {
+  return `
+    <footer class="app-footer">
+      <div class="app-footer-brand">
+        <strong>Vaultr</strong>
+        <p>Build your Vault. Chase your grails. Discover what you love next.</p>
+        <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Built with <span aria-label="love">♥</span> by Pokaccini</a>
+      </div>
+      <nav class="app-footer-links" aria-label="Product links">
+        <strong>Product</strong>
+        <button type="button" data-page="vault">Watchlist</button>
+        <button type="button" data-page="alerts">Inbox</button>
+        <button type="button" data-page="shelf">Discover</button>
+        <button type="button" data-page="plus">Plus</button>
+      </nav>
+      <nav class="app-footer-links" aria-label="Help and account links">
+        <strong>Help &amp; account</strong>
+        <button type="button" data-action="footer-how-vaultr-works">How Vaultr works</button>
+        <button type="button" data-page="settings">Settings</button>
+      </nav>
+      <nav class="app-footer-links" aria-label="Legal links">
+        <strong>Legal</strong>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </nav>
+    </footer>
   `;
 }
 
@@ -837,7 +867,7 @@ function settingsPageMarkup() {
             <select name="listingSourceMode" aria-describedby="${describedBy('listingSourceMode', 'settings-source-help')}"${controlsDisabled ? ' disabled' : ''}>
               ${(options.sources || []).map((option) => {
                 const locked = option.requiresPro && !access.trustedShops;
-                return `<option value="${escapeHtml(option.value)}"${draft.listingSourceMode === option.value ? ' selected' : ''}${locked ? ' disabled' : ''}>${escapeHtml(option.label)}${locked ? ' — Vaultr Plus' : ''}</option>`;
+                return `<option value="${escapeHtml(option.value)}"${draft.listingSourceMode === option.value ? ' selected' : ''}${locked ? ' disabled' : ''}>${escapeHtml(option.label)}${locked ? ' (Vaultr Plus)' : ''}</option>`;
               }).join('')}
             </select>
             <small class="field-hint" id="settings-source-help">Trusted Shops require Vaultr Plus.${sourceMismatch ? ` Your saved preference is retained, but Vaultr currently watches ${escapeHtml(draft.effectiveListingSourceMode === 'EBAY' ? 'eBay' : draft.effectiveListingSourceMode)}.` : ''}</small>
@@ -1175,15 +1205,12 @@ function homeShelfPresentation(items, index) {
   const featuredIndex = boundedHomeShelfIndex(index, shelfItems.length);
   return {
     featuredIndex,
-    featured: shelfItems[featuredIndex],
-    decorative: shelfItems
-      .filter((item, candidateIndex) => candidateIndex !== featuredIndex && item?.imageUrl)
-      .slice(0, 2)
+    featured: shelfItems[featuredIndex]
   };
 }
 
-function homeShelfFeatureMarkup(items, index) {
-  const { featured: item, featuredIndex, decorative } = homeShelfPresentation(items, index);
+function homeShelfFeatureMarkup(items, index, { editorial = false } = {}) {
+  const { featured: item, featuredIndex } = homeShelfPresentation(items, index);
   if (!item) return '';
   const total = items.length;
   const details = [item.setName, item.language].filter(Boolean);
@@ -1198,8 +1225,7 @@ function homeShelfFeatureMarkup(items, index) {
     : 'Pricing unavailable';
   return `
     <div class="home-shelf-feature">
-      <div class="home-shelf-artwork${decorative.length ? ' layered' : ''}${item.imageUrl ? '' : ' empty'}">
-        ${decorative.map((backgroundItem, backgroundIndex) => `<img class="home-shelf-background-card layer-${backgroundIndex + 1}" src="${escapeHtml(backgroundItem.imageUrl)}" alt="" aria-hidden="true" loading="lazy" data-home-shelf-background-image>`).join('')}
+      <div class="home-shelf-artwork${item.imageUrl ? '' : ' empty'}">
         ${item.imageUrl
           ? artworkTriggerMarkup({
               imageUrl: item.imageUrl,
@@ -1211,13 +1237,14 @@ function homeShelfFeatureMarkup(items, index) {
           : '<p class="home-shelf-artwork-unavailable">Artwork unavailable</p>'}
       </div>
       <div class="home-shelf-copy">
+        <small class="home-shelf-kind">${editorial ? 'Editorial pick' : 'Picked for you'}</small>
         <strong>${escapeHtml(item.name || 'Display Case pick')}</strong>
         ${item.nativeName ? `<span class="home-shelf-details">Original name: ${escapeHtml(item.nativeName)}</span>` : ''}
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : '<p>Open your Display Case to explore this recommendation.</p>'}
         ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : `<span class="home-shelf-price unavailable">${escapeHtml(marketUnavailable)}</span>`}
         ${discoveryCardActionMarkup(item, 'button-primary home-shelf-card-action')}
-        ${discoveryFeedbackMarkup(item, true)}
+        ${editorial ? '' : discoveryFeedbackMarkup(item, true)}
       </div>
       ${total > 1 ? `
         <div class="home-shelf-controls" aria-label="Display Case preview controls">
@@ -1232,6 +1259,11 @@ function homeShelfFeatureMarkup(items, index) {
 
 function starterDiscoveryItems() {
   return state.shelf?.starterItems || [];
+}
+
+function homeDisplayCaseItems() {
+  const personalizedItems = state.shelf?.items || [];
+  return personalizedItems.length ? personalizedItems : starterDiscoveryItems();
 }
 
 function normalizedDiscoveryIdentity(value) {
@@ -1324,7 +1356,9 @@ function homeHowMomentMarkup() {
     },
     DISCOVER: {
       title: 'Discover more',
-      copy: 'Your Watchlist, pickups, and feedback help shape recommendations as your collecting profile develops.',
+      copy: state.vaultPlan?.tier === 'PRO'
+        ? 'Your Watchlist, pickups, and feedback shape personalized picks once Vaultr has enough collecting history.'
+        : 'Editorial picks offer inspiration while your profile grows. Personalized Display Cases require Vaultr Plus and enough collecting history.',
       imageUrl: firstDiscovery?.imageUrl || fallback?.imageUrl || approvedArtwork.DISCOVER,
       imageName: firstDiscovery?.name || fallback?.name || 'Illustrative card artwork',
       label: state.shelf?.items?.includes(firstDiscovery) ? 'From your Display Case' : 'Editorial example'
@@ -1359,8 +1393,9 @@ function homePageMarkup() {
   const alertPreview = state.homeAttentionAlerts.slice(0, 4);
   const shelfItems = state.shelf?.items || [];
   const shelfReady = shelfItems.length > 0;
-  const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, shelfItems.length);
   const starters = starterDiscoveryItems();
+  const displayCaseItems = homeDisplayCaseItems();
+  const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
   const showHowItWorks = homeExplanationExpanded();
 
@@ -1370,8 +1405,7 @@ function homePageMarkup() {
         <div class="home-intro-copy">
           <p class="home-greeting">Welcome back, ${escapeHtml(userDisplayName(state.user))}</p>
           <h1 id="home-title">Less searching. More collecting.</h1>
-          <p>Vaultr finds matching listings for your Watchlist and learns what you love to help you discover your next favourite.</p>
-          ${showHowItWorks ? '<p class="home-intro-secondary">Your Watchlist, Pickups, and feedback help Vaultr learn what you love—and introduce you to your next favourite.</p>' : ''}
+          <p>Add the cards you’re looking for and tell Vaultr what matters to you. We’ll look for matching listings while you get on with collecting.</p>
           <div class="home-intro-actions">
             <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
             <button class="home-text-link" type="button" data-action="toggle-display-case-explanation" aria-controls="home-how-it-works" aria-expanded="${showHowItWorks}">${showHowItWorks ? 'Hide how it works' : 'How Vaultr works'}</button>
@@ -1384,7 +1418,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><h2 id="home-display-case-title">Your Display Case</h2><p>${shelfReady ? '<strong>Picked for you.</strong> Shaped by your Watchlist, pickups, and feedback.' : '<strong>A little inspiration.</strong> Editorial picks while Vaultr learns what you collect.'}</p></div>
+          <div><h2 id="home-display-case-title">Your Display Case</h2><p>${shelfReady ? 'A few picks we think you’ll love.' : 'A little inspiration to get you started.'}</p></div>
           <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
@@ -1394,7 +1428,9 @@ function homePageMarkup() {
             : shelfReady
               ? homeShelfFeatureMarkup(shelfItems, shelfIndex)
               : state.shelfLoaded
-                ? `<div class="home-starter-discovery"><div><small>Editorial examples, not personalized recommendations.</small><p>${escapeHtml(discoveryStateCopy(discovery, true))}</p></div>${starterArtworkMarkup(starters, true)}</div>`
+                ? displayCaseItems.length
+                  ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: true })
+                  : `<div class="home-discovery-state"><p>${escapeHtml(discoveryStateCopy(discovery, true))}</p></div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
           </div>
         </div>
@@ -1722,14 +1758,10 @@ function shelfHeaderMarkup() {
 
 function shelfMetaMarkup(shelf) {
   const updated = shelf.updatedAt ? formatDate(shelf.updatedAt) : '';
-  const marketReady = shelf.marketReadyCount !== undefined && shelf.itemCount !== undefined
-    ? `${shelf.marketReadyCount} priced`
-    : '';
   const details = [
     shelf.periodKey,
     shelf.shelfKind === 'PREVIOUS' ? 'Previous shelf' : shelf.status === 'READY' ? 'Ready' : shelf.status === 'PARTIAL' ? 'Preview' : '',
     `${shelf.itemCount || shelf.items?.length || 0} picks`,
-    marketReady,
     updated ? `Updated ${updated}` : ''
   ].filter(Boolean);
   return `
@@ -1842,7 +1874,7 @@ function vaultDialogMarkup() {
         </header>
         ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect this form, but changes will not be saved.</p>' : ''}
         ${state.vaultFormError ? `<div class="form-error" role="alert"><span>${escapeHtml(state.vaultFormError)}</span>${state.vaultCreateRecovery?.uncertain ? '<button class="vault-action-link" type="button" data-action="reconcile-vault-create">Check saved card</button>' : ''}</div>` : ''}
-        ${!editing && atLimit ? `<aside class="plan-limit-note"><strong>Your Watchlist has ${escapeHtml(savedCount)} cards—the limit on your ${escapeHtml(planLabel(state.vaultPlan.tier))} plan.</strong><span>${hasPlus ? 'Remove a card or mark one acquired before adding another.' : `Vaultr Plus gives you room to watch up to ${escapeHtml(state.vaultOptions?.plans?.find((plan) => plan.tier === 'PRO')?.maxActiveChases || 50)}.`}</span>${hasPlus ? '' : '<button class="vault-action-link" type="button" data-page="plus">Explore Plus</button>'}</aside>` : ''}
+        ${!editing && atLimit ? `<aside class="plan-limit-note"><strong>Your Watchlist has ${escapeHtml(savedCount)} cards, the limit on your ${escapeHtml(planLabel(state.vaultPlan.tier))} plan.</strong><span>${hasPlus ? 'Remove a card or mark one acquired before adding another.' : `Vaultr Plus gives you room to watch up to ${escapeHtml(state.vaultOptions?.plans?.find((plan) => plan.tier === 'PRO')?.maxActiveChases || 50)}.`}</span>${hasPlus ? '' : '<button class="vault-action-link" type="button" data-page="plus">Explore Plus</button>'}</aside>` : ''}
         <label class="field">
           <span>Card <span class="required-marker">Required</span></span>
           <div class="card-autocomplete">
@@ -2351,9 +2383,9 @@ async function mutateDiscoveryFeedback(target, action) {
     });
     updateShelfFeedback(periodKey, position, body.feedback || null);
     state.discoveryFeedbackNotices[key] = action === 'MORE_LIKE_THIS'
-      ? 'Noted. We’ll use this to shape future discoveries.'
+      ? 'Noted. More inspiration like this.'
       : action === 'NOT_FOR_ME'
-        ? 'Noted. We’ll keep this in mind for future discoveries.'
+        ? 'Got it. We’ll keep that in mind.'
         : 'Feedback undone.';
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
@@ -3076,7 +3108,7 @@ app.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'previous-home-shelf' || action === 'next-home-shelf') {
-    const itemCount = state.shelf?.items?.length || 0;
+    const itemCount = homeDisplayCaseItems().length;
     if (itemCount > 1) {
       const direction = action === 'previous-home-shelf' ? -1 : 1;
       const currentIndex = boundedHomeShelfIndex(state.homeShelfIndex, itemCount);
@@ -3097,6 +3129,14 @@ app.addEventListener('click', async (event) => {
     state.homeDiscoveryExplanationOpen = !homeExplanationExpanded();
     renderCurrentPage();
     requestAnimationFrame(() => document.querySelector('[data-action="toggle-display-case-explanation"]')?.focus());
+    return;
+  }
+  if (action === 'footer-how-vaultr-works') {
+    const navigated = await navigateToPage('home');
+    if (!navigated) return;
+    state.homeDiscoveryExplanationOpen = true;
+    renderCurrentPage();
+    requestAnimationFrame(() => document.querySelector('#home-how-it-works')?.focus());
     return;
   }
   if (action === 'select-home-how') {
