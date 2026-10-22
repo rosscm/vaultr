@@ -349,7 +349,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("reviewStateButton('REVIEWED', 'Reviewed')");
     expect(jsResponse.body).not.toContain('<p class="eyebrow">LATEST MATCHES</p>');
     expect(jsResponse.body).toContain('New finds for your Watchlist');
-    expect(jsResponse.body.match(/Nothing new needs your attention\./g)).toHaveLength(1);
+    expect(jsResponse.body?.match(/Nothing new needs your attention\./g)).toHaveLength(1);
     expect(jsResponse.body).toContain('data-action="dismiss-alert"');
     expect(jsResponse.body).toContain('data-action="undo-dismiss"');
     expect(jsResponse.body).toContain('data-action="view-alert-chase"');
@@ -364,7 +364,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-action="select-home-how"');
     expect(jsResponse.body).toContain('role="tablist"');
     expect(jsResponse.body).toContain("homeHowMoment: 'WATCH'");
-    expect(jsResponse.body).toContain("FIND: '/assets/onboarding/sylveon-ex-212.webp'");
+    expect(jsResponse.body).toContain("FIND: '/onboarding-art/sylveon-ex-212.webp'");
     expect(jsResponse.body).toContain('Marketplace checks paused');
     expect(jsResponse.body).not.toContain('home-introduction');
     expect(jsResponse.body).toContain('Your Display Case');
@@ -464,6 +464,62 @@ describe('web app static routes', () => {
     expect(presentation.decorative.map((item) => item.name)).toEqual(['First', 'Second artwork']);
     expect(utilities.homeShelfPresentation([{ name: 'Only' }], 0).decorative).toEqual([]);
     expect(utilities.homeShelfPresentation([], 4).featured).toBeUndefined();
+  });
+
+  it('lets new and returning collectors explicitly expand or collapse the Home explanation', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body?.match(/function homeExplanationExpanded\([^]*?\n\}/)?.[0];
+    expect(source).toBeTruthy();
+    const state = {
+      homeDiscoveryExplanationOpen: null as boolean | null,
+      vault: [] as unknown[],
+      completedChases: [] as unknown[],
+      vaultLoaded: false,
+      onboardingLoaded: false,
+      onboarding: { status: 'IN_PROGRESS' }
+    };
+    const expanded = new Function('state', `${source}\nreturn homeExplanationExpanded;`)(state) as () => boolean;
+    expect(expanded()).toBe(false);
+    state.vaultLoaded = true;
+    state.onboardingLoaded = true;
+    expect(expanded()).toBe(true);
+    state.homeDiscoveryExplanationOpen = false;
+    expect(expanded()).toBe(false);
+    state.homeDiscoveryExplanationOpen = null;
+    for (const status of ['SKIPPED', 'COMPLETED']) {
+      state.onboarding.status = status;
+      expect(expanded()).toBe(false);
+    }
+    state.homeDiscoveryExplanationOpen = true;
+    expect(expanded()).toBe(true);
+    state.homeDiscoveryExplanationOpen = null;
+    state.onboarding.status = 'IN_PROGRESS';
+    state.vault = [{}];
+    expect(expanded()).toBe(false);
+    state.vault = [];
+    state.completedChases = [{}];
+    expect(expanded()).toBe(false);
+  });
+
+  it('serves every Home workflow fallback through an actual approved artwork route', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body?.match(/function homeHowMomentMarkup\([^]*?\n\}/)?.[0];
+    expect(source).toBeTruthy();
+    const state = { homeHowMoment: 'WATCH', vault: [], homeAttentionAlerts: [], shelf: null, vaultPlan: { tier: 'FREE' } };
+    const renderMoment = new Function('state', 'starterDiscoveryItems', 'escapeHtml', `${source}\nreturn homeHowMomentMarkup;`)(
+      state, () => [], (value: string) => value
+    ) as () => string;
+    for (const moment of ['WATCH', 'FIND', 'DISCOVER']) {
+      state.homeHowMoment = moment;
+      const markup = renderMoment();
+      const imageUrl = markup.match(/<img src="([^"]+)"/)?.[1];
+      expect(imageUrl).toMatch(/^\/onboarding-art\/[a-z0-9-]+\.webp$/);
+      const artwork = await handleWebRequest({ method: 'GET', url: imageUrl! }, { config });
+      expect(artwork.status).toBe(200);
+      expect(artwork.headers?.['Content-Type']).toBe('image/webp');
+      expect(markup).toContain('data-home-how-image');
+      expect(markup).toContain('tabindex="0"');
+    }
   });
 
   it('normalizes and updates grading controls without touching unsaved fields', async () => {

@@ -56,7 +56,7 @@ const state = {
   shelfLoaded: false,
   shelfError: null,
   homeShelfIndex: 0,
-  homeDiscoveryExplanationOpen: false,
+  homeDiscoveryExplanationOpen: null,
   homeHowMoment: 'WATCH',
   discoveryFeedbackPending: {},
   discoveryFeedbackErrors: {},
@@ -1303,9 +1303,9 @@ function homeHowMomentMarkup() {
   const firstDiscovery = state.shelf?.items?.find((item) => item?.imageUrl) || starterDiscoveryItems().find((item) => item?.imageUrl);
   const fallback = starterDiscoveryItems().find((item) => item?.imageUrl);
   const approvedArtwork = {
-    WATCH: '/assets/onboarding/pichu-expedition-022.webp',
-    FIND: '/assets/onboarding/sylveon-ex-212.webp',
-    DISCOVER: '/assets/onboarding/mew-corocoro-promo-151.webp'
+    WATCH: '/onboarding-art/pichu-expedition-022.webp',
+    FIND: '/onboarding-art/sylveon-ex-212.webp',
+    DISCOVER: '/onboarding-art/mew-corocoro-promo-151.webp'
   };
   const moments = {
     WATCH: {
@@ -1332,16 +1332,23 @@ function homeHowMomentMarkup() {
   };
   const selected = moments[moment];
   return `
-    <div class="home-how" aria-label="How Vaultr works">
+    <div id="home-how-it-works" class="home-how" aria-label="How Vaultr works">
       <div class="home-how-tabs" role="tablist" aria-label="How Vaultr works">
         ${Object.entries(moments).map(([key, value]) => `<button id="home-how-${key.toLowerCase()}" class="home-how-tab${key === moment ? ' selected' : ''}" type="button" role="tab" aria-selected="${key === moment}" aria-controls="home-how-panel" tabindex="${key === moment ? '0' : '-1'}" data-action="select-home-how" data-home-moment="${key}">${value.title}</button>`).join('')}
       </div>
-      <div id="home-how-panel" class="home-how-panel" role="tabpanel" aria-labelledby="home-how-${moment.toLowerCase()}">
-        <div class="home-how-artwork" aria-hidden="true"><img src="${escapeHtml(selected.imageUrl)}" alt="" loading="lazy"></div>
+      <div id="home-how-panel" class="home-how-panel" role="tabpanel" aria-labelledby="home-how-${moment.toLowerCase()}" tabindex="0">
+        <div class="home-how-artwork" aria-hidden="true"><img src="${escapeHtml(selected.imageUrl)}" alt="" loading="lazy" data-home-how-image></div>
         <div><small>${escapeHtml(selected.label)}</small><p>${escapeHtml(selected.copy)}</p>${selected.imageName && selected.label !== 'Illustrative workflow' ? `<span>${escapeHtml(selected.imageName)}</span>` : ''}</div>
       </div>
     </div>
   `;
+}
+
+function homeExplanationExpanded() {
+  if (typeof state.homeDiscoveryExplanationOpen === 'boolean') return state.homeDiscoveryExplanationOpen;
+  const hasCollectorHistory = state.vault.length > 0 || state.completedChases.length > 0;
+  return state.vaultLoaded && state.onboardingLoaded && !hasCollectorHistory
+    && !['COMPLETED', 'SKIPPED'].includes(state.onboarding?.status);
 }
 
 function homePageMarkup() {
@@ -1355,9 +1362,7 @@ function homePageMarkup() {
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, shelfItems.length);
   const starters = starterDiscoveryItems();
   const discovery = state.shelf?.discovery;
-  const hasCollectorHistory = activeChases > 0 || userPausedChases > 0 || planLimitedChases > 0 || completedChases > 0;
-  const returningCollector = hasCollectorHistory || ['COMPLETED', 'SKIPPED'].includes(state.onboarding?.status);
-  const showHowItWorks = !returningCollector || state.homeDiscoveryExplanationOpen;
+  const showHowItWorks = homeExplanationExpanded();
 
   return `
     <section class="home-page" aria-labelledby="home-title">
@@ -1369,7 +1374,7 @@ function homePageMarkup() {
           ${showHowItWorks ? '<p class="home-intro-secondary">Your Watchlist, Pickups, and feedback help Vaultr learn what you love—and introduce you to your next favourite.</p>' : ''}
           <div class="home-intro-actions">
             <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
-            <button class="home-text-link" type="button" data-action="toggle-display-case-explanation" aria-expanded="${showHowItWorks}">${showHowItWorks ? 'Hide how it works' : 'How Vaultr works'}</button>
+            <button class="home-text-link" type="button" data-action="toggle-display-case-explanation" aria-controls="home-how-it-works" aria-expanded="${showHowItWorks}">${showHowItWorks ? 'Hide how it works' : 'How Vaultr works'}</button>
           </div>
         </div>
         ${showHowItWorks ? homeHowMomentMarkup() : ''}
@@ -3089,8 +3094,9 @@ app.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'toggle-display-case-explanation') {
-    state.homeDiscoveryExplanationOpen = !state.homeDiscoveryExplanationOpen;
+    state.homeDiscoveryExplanationOpen = !homeExplanationExpanded();
     renderCurrentPage();
+    requestAnimationFrame(() => document.querySelector('[data-action="toggle-display-case-explanation"]')?.focus());
     return;
   }
   if (action === 'select-home-how') {
@@ -3465,6 +3471,11 @@ app.addEventListener(
       placeholder.setAttribute('aria-hidden', 'true');
       placeholder.textContent = 'V';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
+    } else if (target instanceof HTMLImageElement && target.matches('[data-home-how-image]')) {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'home-how-image-unavailable';
+      placeholder.textContent = 'Card artwork unavailable';
+      target.replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-shelf-image]')) {
       const placeholder = document.createElement('p');
       placeholder.className = 'home-shelf-artwork-unavailable';
