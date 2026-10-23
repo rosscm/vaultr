@@ -1853,6 +1853,12 @@ a {
   font-weight: 780;
 }
 
+.app-footer-container {
+  min-width: 0;
+  container-name: app-footer;
+  container-type: inline-size;
+}
+
 .app-footer {
   display: grid;
   grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);
@@ -2741,7 +2747,7 @@ a {
   margin-top: 18px;
 }
 
-@media (max-width: 1100px) {
+@container app-footer (max-width: 1100px) {
   .app-footer {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     column-gap: 0.75rem;
@@ -2756,7 +2762,9 @@ a {
   .app-footer-link-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+}
 
+@media (max-width: 1100px) {
   .home-grid {
     grid-template-columns: 1fr;
   }
@@ -3838,7 +3846,6 @@ a {
 
 @media (max-width: 820px) {
   .app-footer {
-    gap: 14px;
     padding-bottom: 70px;
   }
 
@@ -4376,7 +4383,11 @@ a {
   }
 }
 
-@media (max-width: 720px) {
+@container app-footer (max-width: 720px) {
+  .app-footer {
+    gap: 14px;
+  }
+
   .app-footer-link-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     column-gap: 0.75rem;
@@ -4403,7 +4414,7 @@ a {
   }
 }
 
-@media (max-width: 340px) {
+@container app-footer (max-width: 340px) {
   .app-footer {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

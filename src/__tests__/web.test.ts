@@ -446,16 +446,19 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
     expect(jsResponse.body).toContain('https://linktr.ee/pokaccini');
     expect(jsResponse.body).toContain('data-action="footer-how-vaultr-works"');
+    expect(jsResponse.body).toContain('<div class="app-footer-container">');
     expect(jsResponse.body).toContain('<nav class="app-footer-link-grid" aria-label="Footer">');
     expect(jsResponse.body).toContain('<strong>Trust &amp; Support</strong>');
     expect(jsResponse.body).toContain('<strong>Community</strong>');
     expect(jsResponse.body).not.toContain('Help &amp; account');
     expect(cssResponse.body).toContain('grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);');
+    expect(cssResponse.body).toContain('container-name: app-footer;');
+    expect(cssResponse.body).toContain('container-type: inline-size;');
     expect(cssResponse.body).toContain('.app-footer-lockup .brand-mark');
     expect(cssResponse.body).toContain('flex: 0 0 44px;');
-    expect(cssResponse.body).toContain('@media (max-width: 1100px)');
-    expect(cssResponse.body).toContain('@media (max-width: 720px)');
-    expect(cssResponse.body).toContain('@media (max-width: 340px)');
+    expect(cssResponse.body).toContain('@container app-footer (max-width: 1100px)');
+    expect(cssResponse.body).toContain('@container app-footer (max-width: 720px)');
+    expect(cssResponse.body).toContain('@container app-footer (max-width: 340px)');
     expect(cssResponse.body).not.toContain('@media (max-width: 620px)');
 
     const privacyResponse = await handleWebRequest({ method: 'GET', url: '/privacy' }, { config });
