@@ -349,7 +349,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("reviewStateButton('REVIEWED', 'Reviewed')");
     expect(jsResponse.body).not.toContain('<p class="eyebrow">LATEST MATCHES</p>');
     expect(jsResponse.body).toContain('<h2 id="home-alerts-title">Latest matches</h2>');
-    expect(jsResponse.body?.match(/No new matches just yet\. New finds for your watched cards will appear here\./g)).toHaveLength(1);
+    expect(jsResponse.body?.match(/New matches for the cards you’re watching will appear here\./g)).toHaveLength(2);
     expect(jsResponse.body).toContain('data-action="dismiss-alert"');
     expect(jsResponse.body).toContain('data-action="undo-dismiss"');
     expect(jsResponse.body).toContain('data-action="view-alert-chase"');
@@ -359,11 +359,16 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('${escapeHtml(alertPreview.length)} New');
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
-    expect(jsResponse.body).toContain('Vaultr searches eBay and, with Plus, supported shops for matching listings.');
-    expect(jsResponse.body).toContain('data-action="select-home-how"');
-    expect(jsResponse.body).toContain('role="tablist"');
-    expect(jsResponse.body).toContain("homeHowMoment: 'WATCH'");
-    expect(jsResponse.body).toContain("FIND: '/onboarding-art/sylveon-ex-212.webp'");
+    expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
+    expect(jsResponse.body).toContain('let Vaultr do the hunting');
+    expect(jsResponse.body).toContain('function homeHowMarkup()');
+    expect(jsResponse.body).toContain('<ol class="home-how-steps">');
+    expect(jsResponse.body).toContain("['01', 'Watch it'");
+    expect(jsResponse.body).toContain("['02', 'Find it'");
+    expect(jsResponse.body).toContain("['03', 'Discover more'");
+    expect(jsResponse.body).not.toContain('data-action="select-home-how"');
+    expect(jsResponse.body).not.toContain('role="tablist"');
+    expect(jsResponse.body).not.toContain('toggle-display-case-explanation');
     expect(jsResponse.body).toContain('Marketplace checks paused');
     expect(jsResponse.body).not.toContain('home-introduction');
     expect(jsResponse.body).toContain('Your Display Case');
@@ -376,9 +381,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("total > 1 ?");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
-    expect(jsResponse.body).toContain('Picks shaped by your Watchlist, Pickups, and the cards you tell us you like.');
+    expect(jsResponse.body).toContain('Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.');
     expect(jsResponse.body).toContain('A few collector favourites to explore while Vaultr gets to know your taste.');
-    expect(jsResponse.body).toContain("${editorial ? 'Editorial pick' : 'Picked for you'}");
+    expect(jsResponse.body).toContain("shelfReady ? 'PICKED FOR YOU' : 'STARTER PICKS'");
+    expect(jsResponse.body).toContain("${editorial ? 'Starter pick' : 'Picked for you'}");
     expect(jsResponse.body).toContain("${editorial ? '' : discoveryFeedbackMarkup(item, true)}");
     expect(jsResponse.body).toContain('home-shelf-supporting-card');
     expect(jsResponse.body).toContain('aria-hidden="true"');
@@ -410,6 +416,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('More actions for ${escapeHtml(chase.cardName');
     expect(jsResponse.body).toContain('<details class="vault-more-actions">');
     expect(jsResponse.body).toContain('data-action="open-acquire-chase"');
+    expect(jsResponse.body).toContain('View matches <span aria-hidden="true">→</span>');
+    expect(jsResponse.body).toContain('<span aria-hidden="true">•••</span>');
     expect(jsResponse.body).toContain("openDisclosure.removeAttribute('open')");
     expect(jsResponse.body).toContain('vaultNotice');
     expect(jsResponse.body).toContain('data-action="open-artwork"');
@@ -438,6 +446,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
     expect(jsResponse.body).toContain('https://linktr.ee/pokaccini');
     expect(jsResponse.body).toContain('data-action="footer-how-vaultr-works"');
+    expect(jsResponse.body).toContain('<nav class="app-footer-link-grid" aria-label="Footer">');
+    expect(jsResponse.body).toContain('<strong>Trust &amp; Support</strong>');
+    expect(jsResponse.body).toContain('<strong>Community</strong>');
+    expect(jsResponse.body).not.toContain('Help &amp; account');
 
     const privacyResponse = await handleWebRequest({ method: 'GET', url: '/privacy' }, { config });
     const termsResponse = await handleWebRequest({ method: 'GET', url: '/terms' }, { config });
@@ -490,60 +502,20 @@ describe('web app static routes', () => {
     expect(utilities.homeShelfPresentation([], 4).featured).toBeUndefined();
   });
 
-  it('lets new and returning collectors explicitly expand or collapse the Home explanation', async () => {
+  it('renders the full Home product loop without tabs, hidden state, or workflow artwork', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
-    const source = response.body?.match(/function homeExplanationExpanded\([^]*?\n\}/)?.[0];
+    const source = response.body?.match(/function homeHowMarkup\([^]*?\n\}/)?.[0];
     expect(source).toBeTruthy();
-    const state = {
-      homeDiscoveryExplanationOpen: null as boolean | null,
-      vault: [] as unknown[],
-      completedChases: [] as unknown[],
-      vaultLoaded: false,
-      onboardingLoaded: false,
-      onboarding: { status: 'IN_PROGRESS' }
-    };
-    const expanded = new Function('state', `${source}\nreturn homeExplanationExpanded;`)(state) as () => boolean;
-    expect(expanded()).toBe(false);
-    state.vaultLoaded = true;
-    state.onboardingLoaded = true;
-    expect(expanded()).toBe(true);
-    state.homeDiscoveryExplanationOpen = false;
-    expect(expanded()).toBe(false);
-    state.homeDiscoveryExplanationOpen = null;
-    for (const status of ['SKIPPED', 'COMPLETED']) {
-      state.onboarding.status = status;
-      expect(expanded()).toBe(false);
-    }
-    state.homeDiscoveryExplanationOpen = true;
-    expect(expanded()).toBe(true);
-    state.homeDiscoveryExplanationOpen = null;
-    state.onboarding.status = 'IN_PROGRESS';
-    state.vault = [{}];
-    expect(expanded()).toBe(false);
-    state.vault = [];
-    state.completedChases = [{}];
-    expect(expanded()).toBe(false);
-  });
-
-  it('serves every Home workflow fallback through an actual approved artwork route', async () => {
-    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
-    const source = response.body?.match(/function homeHowMomentMarkup\([^]*?\n\}/)?.[0];
-    expect(source).toBeTruthy();
-    const state = { homeHowMoment: 'WATCH', vault: [], homeAttentionAlerts: [], shelf: null, vaultPlan: { tier: 'FREE' } };
-    const renderMoment = new Function('state', 'starterDiscoveryItems', 'escapeHtml', `${source}\nreturn homeHowMomentMarkup;`)(
-      state, () => [], (value: string) => value
-    ) as () => string;
-    for (const moment of ['WATCH', 'FIND', 'DISCOVER']) {
-      state.homeHowMoment = moment;
-      const markup = renderMoment();
-      const imageUrl = markup.match(/<img src="([^"]+)"/)?.[1];
-      expect(imageUrl).toMatch(/^\/onboarding-art\/[a-z0-9-]+\.webp$/);
-      const artwork = await handleWebRequest({ method: 'GET', url: imageUrl! }, { config });
-      expect(artwork.status).toBe(200);
-      expect(artwork.headers?.['Content-Type']).toBe('image/webp');
-      expect(markup).toContain('data-home-how-image');
-      expect(markup).toContain('tabindex="0"');
-    }
+    const render = new Function(`${source}\nreturn homeHowMarkup;`)() as () => string;
+    const markup = render();
+    expect(markup).toContain('01');
+    expect(markup).toContain('Watch it');
+    expect(markup).toContain('02');
+    expect(markup).toContain('Find it');
+    expect(markup).toContain('03');
+    expect(markup).toContain('Discover more');
+    expect(markup).not.toContain('role="tab"');
+    expect(markup).not.toContain('<img');
   });
 
   it('normalizes and updates grading controls without touching unsaved fields', async () => {
