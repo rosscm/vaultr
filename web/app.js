@@ -1394,7 +1394,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">${shelfReady ? 'PICKED FOR YOU' : 'STARTER PICKS'}</p><h2 id="home-display-case-title">Your Display Case</h2><p>${shelfReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : 'A few collector favourites to explore while Vaultr gets to know your taste.'}</p></div>
+          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">Picked for you</h2><p>${shelfReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : 'A few collector favourites to explore while Vaultr gets to know your taste.'}</p></div>
           <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
@@ -1435,7 +1435,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">YOUR COLLECTION</p><h2 id="home-vault-title">Your Watchlist</h2><p>Keep track of the cards you want, manage your searches, and celebrate your Pickups.</p></div>
+          <div><p class="eyebrow">WATCHLIST</p><h2 id="home-vault-title">Current chases</h2><p>Keep track of the cards you want, manage your searches, and celebrate your Pickups.</p></div>
           <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
         </div>
         <div class="home-vault-strip">
@@ -1560,7 +1560,6 @@ function vaultHeaderMarkup() {
       </div>
       <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Watchlist</button>
     </header>
-    <p class="vault-auto-filter-note">Common proxy, reprint, lot, code-card, and non-card listings are filtered automatically.</p>
   `;
 }
 
@@ -1629,18 +1628,13 @@ function vaultCardMarkup(item) {
         ${item.monitoringState === 'PAUSED_PLAN_LIMIT' ? '<p class="paused-copy">Saved in your Watchlist, but not monitored under the current plan limit.</p>' : userPaused ? '<p class="paused-copy">Search is paused. Your preferences are preserved.</p>' : ''}
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${chase.targetNote ? `<p class="vault-note">${escapeHtml(chase.targetNote)}</p>` : ''}
-        ${chase.negativeKeywords?.length ? `<p class="vault-note">Custom exclusions: ${escapeHtml(chase.negativeKeywords.join(', '))}</p>` : ''}
+        ${chase.negativeKeywords?.length ? `<p class="vault-criteria-note"><strong>Custom exclusions:</strong> ${escapeHtml(chase.negativeKeywords.join(', '))}</p>` : ''}
         <div class="vault-actions">
           <button class="vault-action-link vault-view-matches" type="button" data-action="view-chase-matches" data-chase-id="${escapeHtml(chase.id)}" data-card-name="${escapeHtml(chase.cardName)}">View matches <span aria-hidden="true">→</span></button>
-          <details class="vault-more-actions">
-            <summary aria-label="More actions for ${escapeHtml(chase.cardName || 'this Watchlist card')}"><span aria-hidden="true">•••</span></summary>
-            <div class="vault-more-actions-panel">
-              <button type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>
-              <button type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button>
-              ${item.monitoringState === 'ACTIVE' ? `<button type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}
-              <button class="danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button>
-            </div>
-          </details>
+          <button class="vault-action-link" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button>
+          <button class="vault-action-link" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>
+          ${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}
+          <button class="vault-action-link danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button>
         </div>
       </div>
     </article>
@@ -1933,8 +1927,9 @@ function vaultDialogMarkup() {
           </label>
           <label class="field">
             <span>Custom exclusions</span>
-            <input name="customExclusions" type="text" maxlength="240" aria-describedby="custom-exclusions-hint" value="${escapeHtml(draft.customExclusions)}">
-            <small id="custom-exclusions-hint" class="field-hint">Up to 15 comma-separated terms.</small>
+            <input name="customExclusions" type="text" maxlength="240" aria-describedby="custom-exclusions-hint custom-exclusions-auto-note" value="${escapeHtml(draft.customExclusions)}">
+            <small id="custom-exclusions-hint" class="field-hint">Fine-tune what Vaultr should skip for this card. Examples: Korean, Chinese, damaged, played, creased, altered.</small>
+            <small id="custom-exclusions-auto-note" class="field-hint field-hint-secondary">* Vaultr already filters common proxies, reprints, replicas, code cards, accessories, and multi-card lots automatically.</small>
           </label>
         </fieldset>
         </details>
@@ -2943,10 +2938,6 @@ async function bootstrap() {
 }
 
 app.addEventListener('click', async (event) => {
-  const activeDisclosure = event.target.closest('.vault-more-actions');
-  document.querySelectorAll('.vault-more-actions[open]').forEach((details) => {
-    if (details !== activeDisclosure) details.removeAttribute('open');
-  });
   const target = event.target.closest('button, a');
   if (!target) return;
 
@@ -3423,15 +3414,6 @@ app.addEventListener('input', (event) => {
 
 app.addEventListener('keydown', (event) => {
   const target = event.target;
-  if (event.key === 'Escape') {
-    const openDisclosure = document.querySelector('.vault-more-actions[open]');
-    if (openDisclosure) {
-      event.preventDefault();
-      openDisclosure.removeAttribute('open');
-      openDisclosure.querySelector('summary')?.focus();
-      return;
-    }
-  }
   if (!(target instanceof HTMLInputElement)) return;
   if (target.name !== 'cardName' || !target.closest('[data-vault-form]')) return;
   if (event.key === 'ArrowDown') {
