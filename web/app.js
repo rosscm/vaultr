@@ -654,8 +654,10 @@ function appFooterMarkup() {
   return `
     <footer class="app-footer">
       <div class="app-footer-brand">
-        <span class="app-footer-lockup"><span class="brand-mark" aria-hidden="true"><span>V</span></span><strong>Vaultr</strong></span>
-        <p>Build your Vault. Chase your grails. Discover what you love next.</p>
+        <div class="app-footer-lockup">
+          <span class="brand-mark" aria-hidden="true"><span>V</span></span>
+          <div><strong>Vaultr</strong><p>Build your Vault. Chase your grails. Discover what you love next.</p></div>
+        </div>
         <p class="app-footer-credit">Built with <span aria-label="love">♥</span> by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
       </div>
       <nav class="app-footer-link-grid" aria-label="Footer">

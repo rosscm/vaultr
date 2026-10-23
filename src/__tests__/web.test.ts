@@ -450,6 +450,13 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('<strong>Trust &amp; Support</strong>');
     expect(jsResponse.body).toContain('<strong>Community</strong>');
     expect(jsResponse.body).not.toContain('Help &amp; account');
+    expect(cssResponse.body).toContain('grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);');
+    expect(cssResponse.body).toContain('.app-footer-lockup .brand-mark');
+    expect(cssResponse.body).toContain('flex: 0 0 44px;');
+    expect(cssResponse.body).toContain('@media (max-width: 1100px)');
+    expect(cssResponse.body).toContain('@media (max-width: 720px)');
+    expect(cssResponse.body).toContain('@media (max-width: 340px)');
+    expect(cssResponse.body).not.toContain('@media (max-width: 620px)');
 
     const privacyResponse = await handleWebRequest({ method: 'GET', url: '/privacy' }, { config });
     const termsResponse = await handleWebRequest({ method: 'GET', url: '/terms' }, { config });
