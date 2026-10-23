@@ -673,7 +673,7 @@ function appFooterMarkup() {
           </div>
           <div class="app-footer-links">
             <h2>Trust &amp; Support</h2>
-            <a href="#how-vaultr-works" data-action="footer-how-vaultr-works">How Vaultr works</a>
+            <a href="#onboarding" data-action="revisit-onboarding">How Vaultr works</a>
             <a href="/privacy">Privacy Policy</a>
             <a href="/terms">Terms of Service</a>
           </div>
@@ -999,7 +999,7 @@ function onboardingMarketMarkup(revisit = false) {
         <label class="field"><span>Ship-to country</span><select name="shippingCountry"${isPreviewMode ? ' disabled' : ''}>${(options.shippingCountries || []).map((option) => `<option value="${escapeHtml(option.value)}"${country === option.value ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select><small class="field-hint">Used for shipping availability and estimates.</small>${settingsFieldError('shippingCountry')}</label>
         <label class="field settings-postal-field"${supportsPostal ? '' : ' hidden'}><span>${country === 'CA' ? 'Postal region' : 'ZIP region'}</span><input name="shippingPostalCode" value="${escapeHtml(draft.shippingPostalCode || '')}" placeholder="${country === 'CA' ? 'M5V' : '90210'}" maxlength="16"${isPreviewMode || !supportsPostal ? ' disabled' : ''}><small class="field-hint">Only a coarse region is retained.</small>${settingsFieldError('shippingPostalCode')}</label>
       </div>
-      <footer class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-ghost" type="button" data-action="${revisit ? 'exit-onboarding-revisit' : 'skip-onboarding'}">${revisit ? 'Exit setup' : 'Skip setup'}</button><button class="button-primary" type="submit"${state.onboardingBusy ? ' disabled' : ''}>Save and continue</button></footer>
+      <footer class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="onboarding-exit" type="button" data-action="${revisit ? 'exit-onboarding-revisit' : 'skip-onboarding'}">${revisit ? 'Exit setup' : 'Skip setup'}</button><button class="button-primary" type="submit"${state.onboardingBusy ? ' disabled' : ''}>Save and continue</button></footer>
     </form>`;
 }
 
@@ -1030,8 +1030,8 @@ function onboardingPageMarkup() {
   const step = revisit ? state.onboardingRevisitStep : state.onboarding?.step || 'WELCOME';
   const hasLoadedChase = !isPreviewMode && ((state.vault || []).length > 0 || state.onboardingSavedChasePending);
   const leaveAction = revisit
-    ? '<button class="button-ghost" type="button" data-action="exit-onboarding-revisit">Exit setup</button>'
-    : '<button class="button-ghost" type="button" data-action="skip-onboarding">Skip setup</button>';
+    ? '<button class="onboarding-exit" type="button" data-action="exit-onboarding-revisit">Exit setup</button>'
+    : '<button class="onboarding-exit" type="button" data-action="skip-onboarding">Skip setup</button>';
   const previewNotice = isPreviewMode ? '<p class="preview-read-only" role="status">Preview simulation is read-only. No settings or Watchlist cards will be saved.</p>' : '';
   let content = '';
   if (step === 'WELCOME') content = onboardingWelcomeMarkup(revisit);
@@ -1355,28 +1355,11 @@ function starterArtworkMarkup(items, compact = false) {
     </article>`).join('')}</div>`;
 }
 
-function homeHowMarkup() {
-  const steps = [
-    ['01', 'Watch it', 'Add the exact card you want and tell Vaultr what matters, including price, grade or condition, and listing preferences.'],
-    ['02', 'Find it', 'Vaultr searches supported marketplaces for listings that match what you’re looking for and brings the best matches back to your Inbox.'],
-    ['03', 'Discover more', 'As your Watchlist and Pickups grow, Vaultr learns your collecting taste and uses it to surface cards you may want to chase next.']
-  ];
-  return `
-    <section id="home-how-it-works" class="home-how" aria-labelledby="home-how-title" tabindex="-1">
-      <h2 class="eyebrow" id="home-how-title">How Vaultr works</h2>
-      <ol class="home-how-steps">
-        ${steps.map(([number, title, copy]) => `<li><span class="home-how-number">${number}</span><div><h3>${title}</h3><p>${copy}</p></div></li>`).join('')}
-      </ol>
-    </section>
-  `;
-}
-
 function homeAttentionEmptyMarkup() {
   return `
     <div class="home-attention-empty">
       <span class="home-attention-empty-icon" aria-hidden="true">${iconMarkup('alerts')}</span>
       <div><strong>You’re all caught up</strong><p>New matches for the cards you’re watching will appear here.</p></div>
-      <button class="home-text-link" type="button" data-page="alerts">Open Inbox</button>
     </div>
   `;
 }
@@ -1397,16 +1380,15 @@ function homePageMarkup() {
   return `
     <section class="home-page" aria-labelledby="home-title">
       <header class="home-header">
-        <div class="home-intro-copy">
+        <div class="home-intro-primary">
           <p class="home-greeting">Welcome back, ${escapeHtml(userDisplayName(state.user))}</p>
           <h1 id="home-title">Less searching. <span>More collecting.</span></h1>
-          <p>Finding the cards you want shouldn’t feel like a full-time job. Add what you’re looking for and let Vaultr do the hunting, searching eBay and supported shops for listings that actually match what you want. As you keep watching cards, making pickups, and telling Vaultr what you like, your collecting profile develops with you. Vaultr learns your taste along the way, helping you find not just what you’re chasing now, but your next favourite too.</p>
           <div class="home-intro-actions">
             <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
           </div>
         </div>
+        <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit. As you watch, pick up, and rate cards, Vaultr learns your taste and helps surface your next favourite.</p>
       </header>
-      ${homeHowMarkup()}
       ${vaultNoticeMarkup('home')}
       ${alertNoticeMarkup()}
 
@@ -1453,7 +1435,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">YOUR COLLECTION</p><h2 id="home-vault-title">Watchlist</h2><p>Keep track of the cards you want, manage your searches, and celebrate your Pickups.</p></div>
+          <div><p class="eyebrow">YOUR COLLECTION</p><h2 id="home-vault-title">Your Watchlist</h2><p>Keep track of the cards you want, manage your searches, and celebrate your Pickups.</p></div>
           <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
         </div>
         <div class="home-vault-strip">
@@ -3127,12 +3109,6 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'undo-discovery-feedback') {
     await mutateDiscoveryFeedback(target, 'UNDO');
-    return;
-  }
-  if (action === 'footer-how-vaultr-works') {
-    const navigated = await navigateToPage('home');
-    if (!navigated) return;
-    requestAnimationFrame(() => document.querySelector('#home-how-it-works')?.focus());
     return;
   }
   if (action === 'view-alert-chase') {

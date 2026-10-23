@@ -357,15 +357,18 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("alertPreview.length ? '<span class=\"home-plan-label\">New</span>' : ''");
     expect(jsResponse.body).toContain('if (state.vaultLoaded && !state.isVaultLoading) state.pendingVaultFocusId = null;');
     expect(jsResponse.body).not.toContain('${escapeHtml(alertPreview.length)} New');
+    const homeEmptySource = (jsResponse.body ?? '').slice(
+      (jsResponse.body ?? '').indexOf('function homeAttentionEmptyMarkup()'),
+      (jsResponse.body ?? '').indexOf('function homePageMarkup()')
+    );
+    expect(homeEmptySource).not.toContain('Open Inbox');
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
     expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
-    expect(jsResponse.body).toContain('let Vaultr do the hunting');
-    expect(jsResponse.body).toContain('function homeHowMarkup()');
-    expect(jsResponse.body).toContain('<ol class="home-how-steps">');
-    expect(jsResponse.body).toContain("['01', 'Watch it'");
-    expect(jsResponse.body).toContain("['02', 'Find it'");
-    expect(jsResponse.body).toContain("['03', 'Discover more'");
+    expect(jsResponse.body).toContain('Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit.');
+    expect(jsResponse.body).not.toContain('function homeHowMarkup()');
+    expect(jsResponse.body).not.toContain('home-how-steps');
+    expect(jsResponse.body).not.toContain("['01', 'Watch it'");
     expect(jsResponse.body).not.toContain('data-action="select-home-how"');
     expect(jsResponse.body).not.toContain('role="tablist"');
     expect(jsResponse.body).not.toContain('toggle-display-case-explanation');
@@ -412,7 +415,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('On your Watchlist');
     expect(jsResponse.body).toContain('In your Pickups');
     expect(jsResponse.body).toContain('Exact card selected');
-    expect(jsResponse.body).toContain('<h2 id="home-vault-title">Watchlist</h2>');
+    expect(jsResponse.body).toContain('<h2 id="home-vault-title">Your Watchlist</h2>');
     expect(jsResponse.body).toContain('More actions for ${escapeHtml(chase.cardName');
     expect(jsResponse.body).toContain('<details class="vault-more-actions">');
     expect(jsResponse.body).toContain('data-action="open-acquire-chase"');
@@ -445,7 +448,7 @@ describe('web app static routes', () => {
     expect(cssResponse.body).not.toContain('-webkit-line-clamp: 4');
     expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
     expect(jsResponse.body).toContain('https://linktr.ee/pokaccini');
-    expect(jsResponse.body).toContain('data-action="footer-how-vaultr-works"');
+    expect(jsResponse.body).toContain('<a href="#onboarding" data-action="revisit-onboarding">How Vaultr works</a>');
     expect(jsResponse.body).toContain('<footer class="app-footer-region">');
     expect(jsResponse.body).toContain('<nav class="app-footer-link-grid" aria-label="Footer">');
     expect(jsResponse.body).toContain('<h2>Trust &amp; Support</h2>');
@@ -462,6 +465,9 @@ describe('web app static routes', () => {
     expect(shellSource).toContain('</div>\n      ${appFooterMarkup()}');
     expect(cssResponse.body).toContain('width: min(1240px, calc(100vw - 32px));');
     expect(cssResponse.body).toContain('grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);');
+    expect(cssResponse.body).toContain('font-family: "Roboto", "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
+    expect(cssResponse.body).toContain('.app-footer-links h2');
+    expect(cssResponse.body).toContain('.app-footer-links a');
     expect(cssResponse.body).toContain('.app-footer-lockup .brand-mark');
     expect(cssResponse.body).toContain('flex: 0 0 44px;');
     expect(cssResponse.body).toContain('@media (max-width: 1100px)');
@@ -522,20 +528,17 @@ describe('web app static routes', () => {
     expect(utilities.homeShelfPresentation([], 4).featured).toBeUndefined();
   });
 
-  it('renders the full Home product loop without tabs, hidden state, or workflow artwork', async () => {
+  it('keeps Home focused on the compact product promise and one Inbox action', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
-    const source = response.body?.match(/function homeHowMarkup\([^]*?\n\}/)?.[0];
-    expect(source).toBeTruthy();
-    const render = new Function(`${source}\nreturn homeHowMarkup;`)() as () => string;
-    const markup = render();
-    expect(markup).toContain('01');
-    expect(markup).toContain('Watch it');
-    expect(markup).toContain('02');
-    expect(markup).toContain('Find it');
-    expect(markup).toContain('03');
-    expect(markup).toContain('Discover more');
-    expect(markup).not.toContain('role="tab"');
-    expect(markup).not.toContain('<img');
+    const source = response.body ?? '';
+    const homeSource = source.slice(source.indexOf('function homePageMarkup()'), source.indexOf('function alertCardMarkup'));
+    const emptySource = source.slice(source.indexOf('function homeAttentionEmptyMarkup()'), source.indexOf('function homePageMarkup()'));
+    expect(homeSource).toContain('class="home-intro-primary"');
+    expect(homeSource).toContain('class="home-intro-support"');
+    expect(homeSource).toContain('Less searching. <span>More collecting.</span>');
+    expect(homeSource).not.toContain('homeHowMarkup');
+    expect(homeSource.match(/>Open Inbox</g)).toHaveLength(1);
+    expect(emptySource).not.toContain('Open Inbox');
   });
 
   it('normalizes and updates grading controls without touching unsaved fields', async () => {
