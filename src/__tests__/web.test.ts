@@ -415,6 +415,13 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('border-radius: 999px;');
     expect(jsResponse.body).toContain('View on eBay');
     expect(jsResponse.body).toContain('Pricing unavailable');
+    expect(jsResponse.body).toContain('class="shelf-market-status"');
+    expect(jsResponse.body).toContain('class="shelf-saved-status"');
+    expect(jsResponse.body).toContain('function discoveryCardPrimaryActionMarkup(item)');
+    expect(jsResponse.body).toContain('View Watchlist item');
+    expect(jsResponse.body).toContain('View Pickup');
+    expect(jsResponse.body).not.toContain('<p class="eyebrow">YOUR PLAN</p>');
+    expect(jsResponse.body).toContain('<h2 id="plus-current-title">${isPlus ? \'Vaultr Plus\' : \'Free plan\'}</h2>');
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
     expect(jsResponse.body).toContain('state.vaultPrefillCardName = selectedCardName;');
     expect(jsResponse.body).toContain("data-action=\"view-discovery-card\"");

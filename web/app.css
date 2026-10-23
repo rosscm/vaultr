@@ -588,7 +588,7 @@ a {
 
 .page-header {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   max-width: 720px;
 }
 
@@ -1111,14 +1111,14 @@ a {
 
 .home-page {
   display: grid;
-  gap: clamp(34px, 5vw, 64px);
+  gap: clamp(28px, 3.5vw, 48px);
 }
 
 .home-product-section {
   min-width: 0;
   display: grid;
-  gap: 20px;
-  padding: clamp(24px, 3vw, 38px) clamp(18px, 3vw, 36px);
+  gap: 18px;
+  padding: clamp(20px, 2.4vw, 30px) clamp(18px, 3vw, 36px);
   border: 0;
   background: rgba(20, 16, 39, 0.32);
 }
@@ -1509,13 +1509,14 @@ a {
 .home-header {
   max-width: 78rem;
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: clamp(34px, 6vw, 84px);
+  gap: 18px;
   padding: clamp(12px, 2vw, 24px) 0 10px;
 }
 
 .home-intro-primary {
+  width: 100%;
   min-width: 0;
   display: grid;
   justify-items: start;
@@ -1551,7 +1552,8 @@ a {
 }
 
 .home-header .home-intro-support {
-  max-width: 62ch;
+  width: 100%;
+  max-width: none;
   color: var(--muted);
 }
 
@@ -1855,7 +1857,7 @@ a {
   display: grid;
   grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);
   gap: 20px;
-  padding: 18px 0 8px;
+  padding: 18px 0 30px;
   font-family: "Roboto", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   font-size: 1rem;
   font-weight: 400;
@@ -1992,7 +1994,7 @@ a {
 }
 
 .home-section-heading p:not(.eyebrow) {
-  max-width: 60ch;
+  max-width: 72ch;
   margin: 8px 0 0;
   color: var(--muted);
   font-size: 1rem;
@@ -2424,6 +2426,7 @@ a {
 
 .shelf-card-footer {
   display: grid;
+  grid-template-rows: minmax(38px, auto) minmax(38px, auto) auto;
   gap: 11px;
   align-content: end;
   margin-top: auto;
@@ -2454,6 +2457,31 @@ a {
   font-weight: 700;
 }
 
+.shelf-market-status {
+  min-height: 38px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shelf-saved-status {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  color: var(--gold);
+  font-size: 0.78rem;
+  font-weight: 760;
+  text-align: right;
+}
+
+.shelf-saved-status small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
 .shelf-card-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2462,6 +2490,7 @@ a {
 }
 
 .shelf-card-actions .button-primary,
+.shelf-card-actions .button-ghost,
 .shelf-card-actions .listing-link {
   width: 100%;
   min-height: 38px;
@@ -2469,6 +2498,10 @@ a {
   padding: 0 13px;
   font-size: 0.86rem;
   white-space: nowrap;
+}
+
+.shelf-card-actions .button-ghost {
+  justify-content: center;
 }
 
 .shelf-card-actions > :only-child {
@@ -2763,10 +2796,6 @@ a {
     gap: 18px;
   }
 
-  .home-header .home-intro-support {
-    max-width: 65ch;
-  }
-
   .home-grid {
     grid-template-columns: 1fr;
   }
@@ -2924,6 +2953,11 @@ a {
   background: rgba(255, 166, 74, 0.08);
 }
 
+.vault-limit-warning > div {
+  min-width: 0;
+  flex: 1;
+}
+
 .vault-limit-warning h2 {
   margin: 0;
   color: #ffd59a;
@@ -2932,7 +2966,7 @@ a {
 }
 
 .vault-limit-warning p {
-  max-width: 74ch;
+  max-width: none;
   margin: 4px 0 0;
   color: var(--muted-strong);
   font-size: 0.88rem;
@@ -3620,13 +3654,13 @@ a {
 }
 
 .plus-page {
-  width: min(100%, 1040px);
+  width: min(100%, 1120px);
   display: grid;
   gap: 28px;
 }
 
 .plus-header {
-  max-width: 760px;
+  max-width: 880px;
 }
 
 .plus-current,
@@ -3640,6 +3674,10 @@ a {
   border-radius: var(--radius-lg);
   background: var(--surface-raised);
   box-shadow: var(--shadow-sm);
+}
+
+.plus-current {
+  padding: 16px 20px;
 }
 
 .plus-current > div,
@@ -3663,17 +3701,6 @@ a {
 .plus-section-heading p {
   color: var(--muted);
   line-height: 1.5;
-}
-
-.plus-current-badge {
-  flex: none;
-  padding: 6px 11px;
-  border: 1px solid rgba(255, 211, 135, 0.34);
-  border-radius: 999px;
-  color: var(--gold);
-  background: rgba(255, 211, 135, 0.08);
-  font-size: 0.78rem;
-  font-weight: 800;
 }
 
 .plus-comparison,
@@ -4347,6 +4374,7 @@ a {
   }
 
   .shelf-card-actions .button-primary,
+  .shelf-card-actions .button-ghost,
   .shelf-card-actions .listing-link {
     width: 100%;
   }

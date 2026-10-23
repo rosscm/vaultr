@@ -58,6 +58,23 @@ describe('staging personalized Display Case fixture', () => {
       itemCount: 3
     });
     expect(created.drop.items.every((item) => item.market.status === 'MISSING' && item.imageSourceKind === 'CARD_REFERENCE')).toBe(true);
+    expect(created.drop.items.map((item) => ({
+      role: item.suggestion.discoveryRole,
+      why: item.suggestion.why
+    }))).toEqual([
+      {
+        role: 'CORE_MATCH',
+        why: 'A distinctive Japanese Mew promo that lines up with your interest in unusual collector releases.'
+      },
+      {
+        role: 'ADJACENT_DISCOVERY',
+        why: 'An e-Reader-era Pichu that explores a vintage side of the artwork and eras you tend to like.'
+      },
+      {
+        role: 'CONTROLLED_EXPLORATION',
+        why: 'A modern special-art Sylveon that takes your taste in expressive artwork in a newer direction.'
+      }
+    ]);
     expect(installStagingDiscoveryFixture({ userId: user.id, env: stagingEnv(), cwd: '/', now }).action).toBe('UNCHANGED');
     expect(getScheduledDiscoveryDrop(other.id, 'WEEKLY_DISCOVERY', periodKey)).toBeNull();
     expect(getUserPlan(user.id)).toEqual(originalPlan);

@@ -961,8 +961,7 @@ function plusPageMarkup() {
       </header>
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. No plan changes can be made here.</p>' : ''}
       <section class="plus-current" aria-labelledby="plus-current-title">
-        <div><p class="eyebrow">YOUR PLAN</p><h2 id="plus-current-title">${escapeHtml(planLabel(currentTier))}</h2><p>${escapeHtml(activeCount)} of ${escapeHtml(currentPlan?.maxActiveChases ?? state.vaultPlan?.maxActiveChases ?? 0)} Watchlist spots currently active.</p></div>
-        <span class="plus-current-badge">${isPlus ? 'Plus active' : 'Free plan'}</span>
+        <div><h2 id="plus-current-title">${isPlus ? 'Vaultr Plus' : 'Free plan'}</h2><p>${escapeHtml(activeCount)} of ${escapeHtml(currentPlan?.maxActiveChases ?? state.vaultPlan?.maxActiveChases ?? 0)} Watchlist spots active.</p></div>
       </section>
       <section class="plus-comparison" aria-labelledby="plus-comparison-title">
         <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">Choose the room and precision that fit your collection</h2><p>Check intervals are targets, not guaranteed listing or notification times.</p></div>
@@ -1329,6 +1328,20 @@ function discoveryCardActionMarkup(item, className = 'vault-action-link') {
     return `<span class="discovery-saved-action"><span>${label}</span>${detail}<button class="vault-action-link" type="button" data-action="view-discovery-card" data-chase-id="${escapeHtml(saved.id)}">View</button></span>`;
   }
   return `<button class="${className}" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name || '')}" data-card-set="${escapeHtml(item.setName || '')}" data-card-number="${escapeHtml(item.cardNumber || '')}" data-card-language="${escapeHtml(item.language || '')}" data-card-image="${escapeHtml(item.imageUrl || '')}" data-card-selection-token="${escapeHtml(item.selection?.token || '')}">Add to Watchlist</button>`;
+}
+
+function discoverySavedStatusMarkup(item) {
+  const saved = savedDiscoveryCard(item);
+  if (!saved) return '';
+  const label = saved.kind === 'PICKUP' ? 'In your Pickups' : 'On your Watchlist';
+  return `<span class="shelf-saved-status"><span>${label}</span>${saved.paused ? '<small>Search paused</small>' : ''}</span>`;
+}
+
+function discoveryCardPrimaryActionMarkup(item) {
+  const saved = savedDiscoveryCard(item);
+  if (!saved) return discoveryCardActionMarkup(item, 'button-primary shelf-add-button');
+  const label = saved.kind === 'PICKUP' ? 'View Pickup' : 'View Watchlist item';
+  return `<button class="button-ghost shelf-saved-view" type="button" data-action="view-discovery-card" data-chase-id="${escapeHtml(saved.id)}">${label}</button>`;
 }
 
 function discoveryStateCopy(discovery, compact = false) {
@@ -1813,9 +1826,12 @@ function shelfCardMarkup(item) {
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
         <div class="shelf-card-footer">
-          ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
+          <div class="shelf-market-status">
+            ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
+            ${discoverySavedStatusMarkup(item)}
+          </div>
           <div class="shelf-card-actions">
-            ${discoveryCardActionMarkup(item, 'button-primary shelf-add-button')}
+            ${discoveryCardPrimaryActionMarkup(item)}
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
           </div>
           ${discoveryFeedbackMarkup(item)}

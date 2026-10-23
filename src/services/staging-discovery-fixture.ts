@@ -21,7 +21,8 @@ const FIXTURE_CARDS = [
     sourceCardId: 'staging-mew-corocoro-151',
     imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp',
     lane: 'Collector Match',
-    why: 'A distinctive Japanese promo selected to exercise personalized taste feedback.'
+    discoveryRole: 'CORE_MATCH' as const,
+    why: 'A distinctive Japanese Mew promo that lines up with your interest in unusual collector releases.'
   },
   {
     name: 'Pichu Expedition Base Set 22/165',
@@ -31,7 +32,8 @@ const FIXTURE_CARDS = [
     sourceCardId: 'staging-pichu-expedition-22',
     imageUrl: '/onboarding-art/pichu-expedition-022.webp',
     lane: 'Collector Trail',
-    why: 'An e-Reader printing selected to exercise adjacent recommendation feedback.'
+    discoveryRole: 'ADJACENT_DISCOVERY' as const,
+    why: 'An e-Reader-era Pichu that explores a vintage side of the artwork and eras you tend to like.'
   },
   {
     name: 'Sylveon ex 212/187',
@@ -41,7 +43,8 @@ const FIXTURE_CARDS = [
     sourceCardId: 'staging-sylveon-ex-212',
     imageUrl: '/onboarding-art/sylveon-ex-212.webp',
     lane: 'Something Different',
-    why: 'A modern special-art printing selected to exercise varied recommendation feedback.'
+    discoveryRole: 'CONTROLLED_EXPLORATION' as const,
+    why: 'A modern special-art Sylveon that takes your taste in expressive artwork in a newer direction.'
   }
 ] as const;
 
@@ -57,6 +60,7 @@ function fixtureItems(currency: ReturnType<typeof getUserAlertSettings>['alertCu
       why: card.why,
       lane: card.lane,
       laneWhy: 'Synthetic staging coverage for the real personalized feedback workflow.',
+      discoveryRole: card.discoveryRole,
       nearby: [],
       canonicalReference: {
         provider: 'VAULTR_STAGING_FIXTURE',
