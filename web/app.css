@@ -432,6 +432,22 @@ a {
   stroke-linejoin: round;
 }
 
+.nav-label {
+  position: relative;
+}
+
+.nav-notification-dot {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 6px);
+  width: 7px;
+  height: 7px;
+  border: 1px solid rgba(255, 230, 238, 0.65);
+  border-radius: 50%;
+  background: #ff5f78;
+  box-shadow: 0 0 0 2px var(--sidebar);
+}
+
 .nav-button[aria-selected="true"] {
   border-color: transparent;
   background: rgba(255, 255, 255, 0.04);
@@ -1494,7 +1510,7 @@ a {
   max-width: 78rem;
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
-  align-items: end;
+  align-items: start;
   gap: clamp(34px, 6vw, 84px);
   padding: clamp(12px, 2vw, 24px) 0 10px;
 }
@@ -1524,6 +1540,7 @@ a {
   color: var(--muted);
   font-size: clamp(1rem, 1.25vw, 1.1rem);
   line-height: 1.58;
+  text-wrap: pretty;
 }
 
 .home-header .home-greeting {
@@ -1534,10 +1551,24 @@ a {
 }
 
 .home-header .home-intro-support {
-  max-width: 47ch;
-  justify-self: end;
-  padding-bottom: 4px;
+  max-width: 62ch;
   color: var(--muted);
+}
+
+.page-header h1,
+.home-section-heading h2,
+.shelf-card h2,
+.vault-card h2,
+.state-panel h2 {
+  text-wrap: balance;
+}
+
+.page-header p,
+.home-section-heading p:not(.eyebrow),
+.state-panel p,
+.shelf-reason,
+.vault-card p {
+  text-wrap: pretty;
 }
 
 .home-intro-actions {
@@ -2734,8 +2765,6 @@ a {
 
   .home-header .home-intro-support {
     max-width: 65ch;
-    justify-self: start;
-    padding-bottom: 0;
   }
 
   .home-grid {
@@ -2881,6 +2910,40 @@ a {
 .vault-summary p {
   margin: 0;
   color: var(--muted);
+}
+
+.vault-limit-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 190, 105, 0.34);
+  border-radius: var(--radius-md);
+  background: rgba(255, 166, 74, 0.08);
+}
+
+.vault-limit-warning h2 {
+  margin: 0;
+  color: #ffd59a;
+  font-size: 1rem;
+  text-wrap: balance;
+}
+
+.vault-limit-warning p {
+  max-width: 74ch;
+  margin: 4px 0 0;
+  color: var(--muted-strong);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.vault-limit-warning .button-ghost {
+  flex: 0 0 auto;
+  border-color: rgba(255, 190, 105, 0.3);
+  color: #ffd59a;
 }
 
 .vault-grid {
@@ -3962,6 +4025,15 @@ a {
 }
 
 @media (max-width: 560px) {
+  .vault-limit-warning {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .vault-limit-warning .button-ghost {
+    width: fit-content;
+  }
+
   .signed-out-card {
     padding: 26px 20px;
   }
@@ -4365,16 +4437,4 @@ a {
   .home-shelf-artwork .artwork-trigger:hover {
     transform: translate(-50%, -50%);
   }
-}
-
-/* Weekly Shelf: keep evidence/connection tags, hide abstract ranking-role labels */
-.shelf-card-meta > .status-pill.active {
-  display: none;
-}
-
-/* Weekly Shelf evidence tags */
-.shelf-card-meta > .source-pill {
-  border-color: rgba(142, 242, 202, 0.34);
-  background: rgba(142, 242, 202, 0.10);
-  color: var(--green);
 }

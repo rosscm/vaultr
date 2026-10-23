@@ -4,6 +4,8 @@ const appHomePath = isPreviewMode ? '/preview' : '/app';
 let artworkReturnFocus = null;
 let artworkPreviousBodyOverflow = '';
 let artworkKeydownHandler = null;
+let newAlertPresenceRequest = null;
+let newAlertPresenceTimer = null;
 
 function apiUrl(url) {
   if (!isPreviewMode || !url.startsWith('/api/')) return url;
@@ -41,6 +43,7 @@ const state = {
   homeAttentionLoaded: false,
   homeAttentionError: null,
   homeAttentionRequestId: 0,
+  hasNewAlerts: false,
   vault: [],
   vaultFilter: 'ALL',
   completedChases: [],
@@ -699,7 +702,9 @@ function onboardingResumePromptMarkup() {
 
 function navButton(page, label) {
   const selected = state.activePage === page;
-  return `<button class="nav-button" type="button" data-page="${page}" aria-selected="${selected ? 'true' : 'false'}">${iconMarkup(page)}<span>${label}</span></button>`;
+  const hasNewMatches = page === 'alerts' && state.hasNewAlerts;
+  const accessibleLabel = hasNewMatches ? `${label}, new matches available` : label;
+  return `<button class="nav-button" type="button" data-page="${page}" aria-label="${accessibleLabel}" aria-selected="${selected ? 'true' : 'false'}">${iconMarkup(page)}<span class="nav-label">${label}${hasNewMatches ? '<span class="nav-notification-dot" aria-hidden="true"></span>' : ''}</span></button>`;
 }
 
 function iconMarkup(name) {
@@ -1351,7 +1356,7 @@ function starterArtworkMarkup(items, compact = false) {
   return `<div class="starter-discovery-grid${compact ? ' compact' : ''}">${starterItems.map((item) => `
     <article class="starter-discovery-card">
       ${item.imageUrl ? artworkTriggerMarkup({ imageUrl: item.imageUrl, identity: item.name, imageKind: 'Card artwork', imageClass: 'starter-discovery-image', imageDataAttribute: 'data-starter-card-image' }) : '<div class="starter-discovery-image placeholder-image"><span>Image unavailable</span></div>'}
-      <div><strong>${escapeHtml(item.name)}</strong>${discoveryCardActionMarkup(item)}</div>
+      <div>${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}<strong>${escapeHtml(item.name)}</strong>${discoveryCardActionMarkup(item)}</div>
     </article>`).join('')}</div>`;
 }
 
@@ -1383,11 +1388,11 @@ function homePageMarkup() {
         <div class="home-intro-primary">
           <p class="home-greeting">Welcome back, ${escapeHtml(userDisplayName(state.user))}</p>
           <h1 id="home-title">Less searching. <span>More collecting.</span></h1>
+          <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit. As you watch, pick up, and rate cards, Vaultr learns your taste and helps surface your next favourite.</p>
           <div class="home-intro-actions">
             <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
           </div>
         </div>
-        <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit. As you watch, pick up, and rate cards, Vaultr learns your taste and helps surface your next favourite.</p>
       </header>
       ${vaultNoticeMarkup('home')}
       ${alertNoticeMarkup()}
@@ -1435,7 +1440,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">WATCHLIST</p><h2 id="home-vault-title">Current chases</h2><p>Keep track of the cards you want, manage your searches, and celebrate your Pickups.</p></div>
+          <div><p class="eyebrow">WATCHLIST</p><h2 id="home-vault-title">Current chases</h2><p>Keep track of your chases, manage searches, and celebrate your Pickups.</p></div>
           <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
         </div>
         <div class="home-vault-strip">
@@ -1534,6 +1539,7 @@ function vaultPageMarkup() {
       ${vaultHeaderMarkup()}
       ${vaultNoticeMarkup('vault')}
       ${vaultSummaryMarkup()}
+      ${vaultLimitWarningMarkup()}
       ${vaultLifecycleFiltersMarkup()}
       ${items.length ? `<div class="vault-grid" aria-label="Watchlist cards">${items.map(vaultCardMarkup).join('')}</div>` : ''}
       ${emptyState}
@@ -1579,13 +1585,26 @@ function vaultSummaryMarkup() {
         <span class="summary-label">Plan</span>
         <strong>${escapeHtml(planLabel(plan.tier))}</strong>
       </div>
-      ${completed > 0 ? `<div>
+      <div>
         <span class="summary-label">Pickups</span>
         <strong>${escapeHtml(completed)}</strong>
-      </div>` : ''}
+      </div>
       ${paused > 0 ? `<p>${escapeHtml(paused)} ${paused === 1 ? 'card is' : 'cards are'} paused or outside the monitoring limit.</p>` : ''}
-      <button class="vault-action-link" type="button" data-page="plus">${plan.tier === 'PRO' ? 'View Plus' : 'Explore Plus'}</button>
     </div>
+  `;
+}
+
+function vaultLimitWarningMarkup() {
+  const plan = state.vaultPlan || {};
+  const watching = plan.activeCount ?? state.vault.filter((item) => item.monitoringState === 'ACTIVE').length;
+  const max = plan.maxActiveChases ?? 0;
+  if (!max || watching < max) return '';
+  const isPlus = plan.tier === 'PRO';
+  return `
+    <aside class="vault-limit-warning" aria-labelledby="vault-limit-warning-title">
+      <div><h2 id="vault-limit-warning-title">Watchlist full</h2><p>You’re watching ${escapeHtml(watching)} of ${escapeHtml(max)} cards on ${escapeHtml(planLabel(plan.tier))}. Remove a card or mark one acquired to make room${isPlus ? '.' : ', or explore Vaultr Plus for a larger Watchlist.'}</p></div>
+      ${isPlus ? '' : '<button class="button-ghost" type="button" data-page="plus">Explore Plus</button>'}
+    </aside>
   `;
 }
 
@@ -1787,7 +1806,7 @@ function shelfCardMarkup(item) {
       }) : '<div class="shelf-card-image placeholder-image shelf-image-unavailable"><span>Image unavailable</span></div>'}
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
-          ${item.signalLabel ? `<span class="source-pill">${escapeHtml(item.signalLabel)}</span>` : ''}
+          ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
         </div>
         <h2>${escapeHtml(item.name || 'Display Case pick')}</h2>
         ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
@@ -2166,6 +2185,7 @@ async function loadHomeAttention() {
     const body = await fetchJson('/api/alerts?reviewState=NEW&limit=4');
     if (requestId !== state.homeAttentionRequestId) return;
     state.homeAttentionAlerts = body.items || [];
+    state.hasNewAlerts = state.homeAttentionAlerts.length > 0;
     state.homeAttentionLoaded = true;
     state.homeAttentionLoading = false;
     renderCurrentPage();
@@ -2177,6 +2197,34 @@ async function loadHomeAttention() {
   }
 }
 
+async function refreshNewAlertPresence() {
+  if (!state.user || document.visibilityState === 'hidden') return;
+  if (newAlertPresenceRequest) return newAlertPresenceRequest;
+  newAlertPresenceRequest = (async () => {
+    try {
+      const body = await fetchJson('/api/alerts?reviewState=NEW&limit=1');
+      const hasNewAlerts = Boolean(body.items?.length);
+      if (hasNewAlerts !== state.hasNewAlerts) {
+        state.hasNewAlerts = hasNewAlerts;
+        renderCurrentPage();
+      }
+    } catch (error) {
+      if (String(error?.message) !== 'unauthorized') return;
+    } finally {
+      newAlertPresenceRequest = null;
+    }
+  })();
+  return newAlertPresenceRequest;
+}
+
+function startNewAlertPresenceRefresh() {
+  if (newAlertPresenceTimer) window.clearInterval(newAlertPresenceTimer);
+  if (!state.homeAttentionLoaded) void refreshNewAlertPresence();
+  newAlertPresenceTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') void refreshNewAlertPresence();
+  }, 60_000);
+}
+
 async function refreshAlertSurfaces() {
   const work = [];
   state.homeAttentionLoaded = false;
@@ -2185,6 +2233,7 @@ async function refreshAlertSurfaces() {
     state.alertsLoaded = false;
     work.push(loadAlerts());
   }
+  if (state.activePage !== 'home') work.push(refreshNewAlertPresence());
   await Promise.all(work);
 }
 
@@ -2922,6 +2971,7 @@ async function bootstrap() {
         : requestedPage;
     renderCurrentPage();
     await loadActivePageData();
+    startNewAlertPresenceRefresh();
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
     app.innerHTML = `
@@ -3473,6 +3523,14 @@ window.addEventListener('beforeunload', (event) => {
   if (!state.settingsDirty) return;
   event.preventDefault();
   event.returnValue = '';
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void refreshNewAlertPresence();
+});
+
+window.addEventListener('focus', () => {
+  void refreshNewAlertPresence();
 });
 
 bootstrap();

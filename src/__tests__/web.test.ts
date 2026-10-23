@@ -344,6 +344,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('You already have a card on your Watchlist. You’re ready to continue.');
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
     expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=4')");
+    expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=1')");
+    expect(jsResponse.body).toContain('new matches available');
+    expect(jsResponse.body).toContain('60_000');
+    expect(jsResponse.body).toContain("document.addEventListener('visibilitychange'");
     expect(jsResponse.body).toContain("imageKind: 'Listing image'");
     expect(jsResponse.body).toContain('data-home-alert-image');
     expect(jsResponse.body).toContain("reviewStateButton('REVIEWED', 'Reviewed')");
@@ -419,6 +423,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Exact card selected');
     expect(jsResponse.body).toContain('<p class="eyebrow">WATCHLIST</p>');
     expect(jsResponse.body).toContain('<h2 id="home-vault-title">Current chases</h2>');
+    expect(jsResponse.body).toContain('Keep track of your chases, manage searches, and celebrate your Pickups.');
     expect(jsResponse.body).not.toContain('Automatic filtering is always on');
     expect(jsResponse.body).not.toContain('<details class="vault-more-actions">');
     expect(jsResponse.body).toContain('data-action="open-acquire-chase"');
@@ -431,6 +436,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain("openDisclosure.removeAttribute('open')");
     expect(jsResponse.body).toContain('Fine-tune what Vaultr should skip for this card. Examples: Korean, Chinese, damaged, played, creased, altered.');
     expect(jsResponse.body).toContain('* Vaultr already filters common proxies, reprints, replicas, code cards, accessories, and multi-card lots automatically.');
+    expect(jsResponse.body).toContain('function vaultLimitWarningMarkup()');
+    expect(jsResponse.body).toContain('Watchlist full');
     expect(jsResponse.body).toContain('vaultNotice');
     expect(jsResponse.body).toContain('data-action="open-artwork"');
     expect(jsResponse.body).toContain('role="dialog" aria-modal="true"');
@@ -448,12 +455,12 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("['ALL', 'All'], ['WATCHING', 'Watching'], ['PAUSED', 'Paused'], ['COMPLETED', 'Pickups']");
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
     expect(jsResponse.body).not.toContain("${state.vaultNotice ? `<div class=\"vault-notice\"");
-    expect(jsResponse.body).not.toContain('${item.roleLabel ? `<span class="status-pill active">');
+    expect(jsResponse.body).toContain('${item.roleLabel ? `<span class="status-pill active">');
+    expect(jsResponse.body).toContain('<div>${item.roleLabel ? `<span class="status-pill active">');
     expect(jsResponse.body).not.toContain('A read-only shelf');
     expect(cssResponse.body).toContain('.shelf-card-actions');
     expect(cssResponse.body).toContain('.shelf-card-actions .shelf-ebay-link');
-    expect(cssResponse.body).toContain('.shelf-card-meta > .status-pill.active');
-    expect(cssResponse.body).toContain('display: none;');
+    expect(cssResponse.body).not.toContain('.shelf-card-meta > .status-pill.active {\n  display: none;');
     expect(cssResponse.body).not.toContain('-webkit-line-clamp: 4');
     expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
     expect(jsResponse.body).toContain('https://linktr.ee/pokaccini');
@@ -544,10 +551,48 @@ describe('web app static routes', () => {
     const emptySource = source.slice(source.indexOf('function homeAttentionEmptyMarkup()'), source.indexOf('function homePageMarkup()'));
     expect(homeSource).toContain('class="home-intro-primary"');
     expect(homeSource).toContain('class="home-intro-support"');
+    expect(homeSource.indexOf('class="home-intro-support"')).toBeLessThan(homeSource.indexOf('class="home-intro-actions"'));
     expect(homeSource).toContain('Less searching. <span>More collecting.</span>');
     expect(homeSource).not.toContain('homeHowMarkup');
     expect(homeSource.match(/>Open Inbox</g)).toHaveLength(1);
     expect(emptySource).not.toContain('Open Inbox');
+  });
+
+  it('renders NEW-alert navigation presence without shifting the Inbox label', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function navButton('), source.indexOf('function iconMarkup('));
+    const renderNav = (hasNewAlerts: boolean) => new Function(
+      'state',
+      'iconMarkup',
+      `${functionSource}\nreturn navButton('alerts', 'Inbox');`
+    )({ activePage: 'home', hasNewAlerts }, () => '<svg></svg>') as string;
+
+    expect(renderNav(true)).toContain('aria-label="Inbox, new matches available"');
+    expect(renderNav(true)).toContain('class="nav-notification-dot"');
+    expect(renderNav(false)).toContain('aria-label="Inbox"');
+    expect(renderNav(false)).not.toContain('nav-notification-dot');
+  });
+
+  it('shows the Watchlist limit warning only at the plan limit', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function vaultLimitWarningMarkup()'), source.indexOf('function vaultEmptyMarkup()'));
+    const renderWarning = (plan: Record<string, unknown>) => new Function(
+      'state',
+      'escapeHtml',
+      'planLabel',
+      `${functionSource}\nreturn vaultLimitWarningMarkup();`
+    )({ vaultPlan: plan, vault: [] }, String, (tier: string) => tier === 'PRO' ? 'Vaultr Plus' : 'Free') as string;
+
+    expect(renderWarning({ tier: 'FREE', activeCount: 2, maxActiveChases: 3 })).toBe('');
+    expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).toContain('Explore Plus');
+    expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).toContain('Watchlist full');
+    expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).not.toContain('Explore Plus');
+
+    const summarySource = source.slice(source.indexOf('function vaultSummaryMarkup()'), source.indexOf('function vaultLimitWarningMarkup()'));
+    expect(summarySource).not.toContain('Explore Plus');
+    expect(summarySource).not.toContain('View Plus');
   });
 
   it('normalizes and updates grading controls without touching unsaved fields', async () => {
@@ -659,6 +704,12 @@ describe('web app preview mode', () => {
     expect(previewVault.options.billing).toEqual({ selfServiceAvailable: false });
     expect(previewAlerts.items.map((item: { priceDelta: number }) => item.priceDelta)).toEqual([27, 6, 7, 6, 15]);
     expect(previewShelf).toMatchObject({ status: 'READY', itemCount: 12, marketReadyCount: 10, imageReadyCount: 8 });
+    expect(previewShelf.items.every((item: { roleLabel?: string }) => Boolean(item.roleLabel))).toBe(true);
+    expect(previewShelf.items.slice(0, 3).map((item: { roleLabel: string }) => item.roleLabel)).toEqual([
+      'Right up your alley',
+      'Worth exploring',
+      'Something different'
+    ]);
     expect(previewSettings).toMatchObject({
       settings: { alertCurrency: 'CAD', listingSourceMode: 'EBAY_SHOPIFY', effectiveListingSourceMode: 'EBAY' },
       access: { tier: 'FREE', trustedShops: false }
@@ -1404,6 +1455,7 @@ describe('authenticated Weekly Shelf API', () => {
     expect(body.items[1].imageUrl).toBeUndefined();
     expect(body.items[1].market.status).toBe('EMPTY');
     expect(body.items[1].reason).toBeUndefined();
+    expect(body.items[1].roleLabel).toBe('Something different');
     expect(body.items[1].signalLabel).toBe('Collector Thread');
     expect(body.items[1].ebayUrl).toMatch(/^https:\/\/www\.ebay\.ca\/sch\/i\.html\?_nkw=/);
     expect(JSON.stringify(body)).not.toContain('rankExplanation');
@@ -1695,9 +1747,9 @@ describe('authenticated Weekly Shelf API', () => {
     const free = JSON.parse((await request()).body ?? '{}');
     expect(free.discovery).toMatchObject({ state: 'PLAN_RESTRICTED', tier: 'FREE', minimumSignalCount: 5 });
     expect(free.starterItems).toEqual([
-      expect.objectContaining({ name: 'Mew CoroCoro Promo 151', imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp' }),
-      expect.objectContaining({ name: 'Pichu Expedition Base Set 22/165' }),
-      expect.objectContaining({ name: 'Sylveon ex 212/187' })
+      expect.objectContaining({ name: 'Mew CoroCoro Promo 151', imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp', roleLabel: 'Right up your alley' }),
+      expect.objectContaining({ name: 'Pichu Expedition Base Set 22/165', roleLabel: 'Worth exploring' }),
+      expect.objectContaining({ name: 'Sylveon ex 212/187', roleLabel: 'Something different' })
     ]);
     expect(JSON.stringify(free.starterItems)).not.toContain('market');
     expect(JSON.stringify(free.starterItems)).not.toContain('reason');

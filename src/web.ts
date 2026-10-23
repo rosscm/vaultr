@@ -396,11 +396,14 @@ function validDashboardShelf(drop: ScheduledDiscoveryDrop | null): drop is Sched
   return !!drop && (drop.status === 'READY' || drop.status === 'PARTIAL') && drop.itemCount > 0;
 }
 
-function weeklyShelfRoleLabel(role: ScheduledDiscoveryDropItem['suggestion']['discoveryRole']): string | undefined {
+function weeklyShelfRoleLabel(role: ScheduledDiscoveryDropItem['suggestion']['discoveryRole'], lane?: string): string {
   if (role === 'CORE_MATCH') return 'Right up your alley';
   if (role === 'ADJACENT_DISCOVERY') return 'Worth exploring';
   if (role === 'CONTROLLED_EXPLORATION') return 'Something different';
-  return undefined;
+  const normalizedLane = lane?.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (normalizedLane === 'source-backed matches') return 'Right up your alley';
+  if (normalizedLane === 'adjacent collector source match' || normalizedLane === 'multi-card discovery') return 'Worth exploring';
+  return 'Something different';
 }
 
 function shelfSignalLabel(raw: string | undefined): string | undefined {
@@ -497,7 +500,7 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, perio
         }
       : undefined,
     selection,
-    roleLabel: weeklyShelfRoleLabel(item.suggestion.discoveryRole),
+    roleLabel: weeklyShelfRoleLabel(item.suggestion.discoveryRole, item.suggestion.lane),
     signalLabel: shelfSignalLabel(item.suggestion.lane),
     reason: safeShelfReason(item),
     market: marketReady
@@ -568,6 +571,7 @@ const WEB_STARTER_DISCOVERY = [
     setName: 'CoroCoro Promo',
     cardNumber: '151',
     language: 'Japanese',
+    discoveryRole: 'CORE_MATCH',
     sourceCardId: 'editorial-mew-corocoro-promo-151'
   },
   {
@@ -576,11 +580,13 @@ const WEB_STARTER_DISCOVERY = [
     setName: 'Expedition Base Set',
     cardNumber: '22/165',
     language: 'English',
+    discoveryRole: 'ADJACENT_DISCOVERY',
     sourceCardId: 'editorial-pichu-expedition-22'
   },
   {
     name: 'Sylveon ex 212/187',
     imageUrl: '/onboarding-art/sylveon-ex-212.webp',
+    discoveryRole: 'CONTROLLED_EXPLORATION',
     sourceCardId: 'editorial-sylveon-ex-212'
   }
 ] as const;
@@ -592,6 +598,7 @@ function publicStarterDiscoveryItems(userId: string, config: WebConfig) {
     ...('setName' in item ? { setName: item.setName } : {}),
     ...('cardNumber' in item ? { cardNumber: item.cardNumber } : {}),
     ...('language' in item ? { language: item.language } : {}),
+    roleLabel: weeklyShelfRoleLabel(item.discoveryRole),
     cardIdentity: {
       value: item.name,
       matchKey: normalizedCardIdentity(normalizeChaseCardName(item.name)),

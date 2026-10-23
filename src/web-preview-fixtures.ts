@@ -161,18 +161,18 @@ export const WEB_PREVIEW_AUTOCOMPLETE = [
 ];
 
 const shelfCards = [
-  ['Mew VMAX Lost Origin TG30', images.mewVmax, 'Lost Origin', 'ENGLISH', 'Collector Match', 'Follows your Mew interest into a different textured Trainer Gallery printing.', 48, 'READY'],
-  ['Umbreon V Brilliant Stars TG22', images.umbreonV, 'Brilliant Stars', 'ENGLISH', 'Collector Thread', 'Keeps the Umbreon thread while moving to a distinct single-prize gallery card.', 44, 'READY'],
-  ['Zapdos Aquapolis H32/H32', images.zapdosAquapolis, 'Aquapolis', 'ENGLISH', 'Release Trail', 'An e-reader holo that connects vintage texture with your interest in standout artwork.', 195, 'READY'],
-  ['Dragonair 151 181/165', images.dragonair, '151', 'ENGLISH', 'Collector Trail', 'Explores Dragonite family artwork through a quieter modern illustration rare.', 31, 'READY'],
-  ['Moltres Wizards Black Star Promos 21', images.moltresPromo, 'Wizards Black Star Promos', 'ENGLISH', 'Release Trail', 'A vintage promotional release that broadens your interest in distinctive standalone cards.', 46, 'READY'],
-  ['Pikachu Skyridge 84/144', images.pikachuSkyridge, 'Skyridge', 'ENGLISH', 'Collector Match', 'Pairs your Pikachu promo interest with a very different e-reader-era illustration.', 96, 'READY'],
-  ['Celebi Neo Revelation 3/64', images.celebi, 'Neo Revelation', 'ENGLISH', 'Collector Trail', 'A vintage holo with the soft illustrated character treatment seen across your saved cards.', 88, 'READY'],
-  ['Raikou V Crown Zenith GG41/GG70', images.raikou, 'Crown Zenith', 'ENGLISH', 'Collector Trail', 'A modern gallery card that explores the legendary theme without repeating a current Chase.', 29, 'READY'],
-  ['Mew Japanese PCG-P 019/PCG-P', undefined, 'PCG-P Promos', 'JAPANESE', 'Release Trail', 'A Japanese campaign printing grounded in your repeated Mew and promo interests.', 74, 'READY'],
-  ['Pikachu Japanese PLAY 005/PLAY', undefined, 'PLAY Promos', 'JAPANESE', 'Collector Thread', 'Explores a documented Japanese PLAY release beside your existing Pikachu promo.', 0, 'THIN'],
-  ['Articuno Trainers Magazine 014/T', undefined, 'T Promos', 'JAPANESE', 'Release Trail', 'A Trainers Magazine release that broadens your Japanese promotional thread.', 0, 'MISSING'],
-  ['Gardevoir Japanese PCG-P 070/PCG-P', undefined, 'PCG-P Promos', 'JAPANESE', 'Collector Trail', 'Carries your Gardevoir interest into a source-backed Japanese promo printing.', 58, 'READY']
+  ['Mew VMAX Lost Origin TG30', images.mewVmax, 'Lost Origin', 'ENGLISH', 'Collector Match', 'CORE_MATCH', 'Follows your Mew interest into a different textured Trainer Gallery printing.', 48, 'READY'],
+  ['Umbreon V Brilliant Stars TG22', images.umbreonV, 'Brilliant Stars', 'ENGLISH', 'Collector Thread', 'ADJACENT_DISCOVERY', 'Keeps the Umbreon thread while moving to a distinct single-prize gallery card.', 44, 'READY'],
+  ['Zapdos Aquapolis H32/H32', images.zapdosAquapolis, 'Aquapolis', 'ENGLISH', 'Release Trail', 'CONTROLLED_EXPLORATION', 'An e-reader holo that connects vintage texture with your interest in standout artwork.', 195, 'READY'],
+  ['Dragonair 151 181/165', images.dragonair, '151', 'ENGLISH', 'Collector Trail', 'ADJACENT_DISCOVERY', 'Explores Dragonite family artwork through a quieter modern illustration rare.', 31, 'READY'],
+  ['Moltres Wizards Black Star Promos 21', images.moltresPromo, 'Wizards Black Star Promos', 'ENGLISH', 'Release Trail', 'CONTROLLED_EXPLORATION', 'A vintage promotional release that broadens your interest in distinctive standalone cards.', 46, 'READY'],
+  ['Pikachu Skyridge 84/144', images.pikachuSkyridge, 'Skyridge', 'ENGLISH', 'Collector Match', 'CORE_MATCH', 'Pairs your Pikachu promo interest with a very different e-reader-era illustration.', 96, 'READY'],
+  ['Celebi Neo Revelation 3/64', images.celebi, 'Neo Revelation', 'ENGLISH', 'Collector Trail', 'ADJACENT_DISCOVERY', 'A vintage holo with the soft illustrated character treatment seen across your saved cards.', 88, 'READY'],
+  ['Raikou V Crown Zenith GG41/GG70', images.raikou, 'Crown Zenith', 'ENGLISH', 'Collector Trail', 'ADJACENT_DISCOVERY', 'A modern gallery card that explores the legendary theme without repeating a current Chase.', 29, 'READY'],
+  ['Mew Japanese PCG-P 019/PCG-P', undefined, 'PCG-P Promos', 'JAPANESE', 'Release Trail', 'CORE_MATCH', 'A Japanese campaign printing grounded in your repeated Mew and promo interests.', 74, 'READY'],
+  ['Pikachu Japanese PLAY 005/PLAY', undefined, 'PLAY Promos', 'JAPANESE', 'Collector Thread', 'ADJACENT_DISCOVERY', 'Explores a documented Japanese PLAY release beside your existing Pikachu promo.', 0, 'THIN'],
+  ['Articuno Trainers Magazine 014/T', undefined, 'T Promos', 'JAPANESE', 'Release Trail', 'CONTROLLED_EXPLORATION', 'A Trainers Magazine release that broadens your Japanese promotional thread.', 0, 'MISSING'],
+  ['Gardevoir Japanese PCG-P 070/PCG-P', undefined, 'PCG-P Promos', 'JAPANESE', 'Collector Trail', 'ADJACENT_DISCOVERY', 'Carries your Gardevoir interest into a source-backed Japanese promo printing.', 58, 'READY']
 ] as const;
 
 export const WEB_PREVIEW_SHELF = {
@@ -184,16 +184,16 @@ export const WEB_PREVIEW_SHELF = {
   availableAt: '2026-10-05T13:00:00.000Z',
   updatedAt: '2026-10-05T12:30:00.000Z',
   itemCount: shelfCards.length,
-  marketReadyCount: shelfCards.filter((card) => card[7] === 'READY').length,
+  marketReadyCount: shelfCards.filter((card) => card[8] === 'READY').length,
   imageReadyCount: shelfCards.filter((card) => !!card[1]).length,
   currency: 'CAD',
-  items: shelfCards.map(([name, imageUrl, setName, language, signalLabel, reason, price, status], index) => ({
+  items: shelfCards.map(([name, imageUrl, setName, language, signalLabel, discoveryRole, reason, price, status], index) => ({
     position: index + 1,
     name,
     imageUrl,
     setName,
     language,
-    roleLabel: index < 4 ? 'Right up your alley' : index < 9 ? 'Worth exploring' : 'Something different',
+    roleLabel: discoveryRole === 'CORE_MATCH' ? 'Right up your alley' : discoveryRole === 'ADJACENT_DISCOVERY' ? 'Worth exploring' : 'Something different',
     signalLabel,
     reason,
     market: status === 'READY' ? { status, currency: 'CAD', askingTotal: price, askingSampleSize: 4 } : { status, currency: 'CAD' },
