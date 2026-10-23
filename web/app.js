@@ -600,8 +600,9 @@ function shellMarkup(content) {
   const displayName = userDisplayName(state.user);
   const accountPlan = state.vaultPlan ? planLabel(state.vaultPlan.tier) : '';
   return `
-    <div class="app-shell">
-      <aside class="app-sidebar">
+    <div class="app-page">
+      <div class="app-shell">
+        <aside class="app-sidebar">
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
@@ -620,8 +621,8 @@ function shellMarkup(content) {
           <span class="user-copy"><strong class="user-name">${escapeHtml(displayName)}</strong>${accountPlan ? `<small>${escapeHtml(accountPlan)}</small>` : ''}</span>
           ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
         </div>
-      </aside>
-      <header class="mobile-header">
+        </aside>
+        <header class="mobile-header">
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
           <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
@@ -633,18 +634,19 @@ function shellMarkup(content) {
           <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">${iconMarkup('settings')}<span>Settings</span></button>
           ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
         </div>
-      </header>
-      <main id="app-main" class="app-main">
-        ${onboardingResumePromptMarkup()}
-        ${content}
-        ${appFooterMarkup()}
-      </main>
-      <nav class="mobile-nav" aria-label="Vaultr mobile navigation">
-        ${navButton('home', 'Home')}
-        ${navButton('vault', 'Watchlist')}
-        ${navButton('alerts', 'Inbox')}
-        ${navButton('shelf', 'Discover')}
-      </nav>
+        </header>
+        <main id="app-main" class="app-main">
+          ${onboardingResumePromptMarkup()}
+          ${content}
+        </main>
+        <nav class="mobile-nav" aria-label="Vaultr mobile navigation">
+          ${navButton('home', 'Home')}
+          ${navButton('vault', 'Watchlist')}
+          ${navButton('alerts', 'Inbox')}
+          ${navButton('shelf', 'Discover')}
+        </nav>
+      </div>
+      ${appFooterMarkup()}
       ${planComparisonMarkup()}
     </div>
   `;
@@ -652,36 +654,36 @@ function shellMarkup(content) {
 
 function appFooterMarkup() {
   return `
-    <div class="app-footer-container">
-      <footer class="app-footer">
-      <div class="app-footer-brand">
-        <div class="app-footer-lockup">
-          <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-          <div><strong>Vaultr</strong><p>Build your Vault. Chase your grails. Discover what you love next.</p></div>
+    <footer class="app-footer-region">
+      <div class="app-footer">
+        <div class="app-footer-brand">
+          <a class="app-footer-lockup" href="#home" data-page="home" aria-label="Vaultr home">
+            <span class="brand-mark" aria-hidden="true"><span>V</span></span>
+            <div><strong>Vaultr</strong><p>Build your Vault. Chase your grails. Discover what you love next.</p></div>
+          </a>
+          <p class="app-footer-credit">Built with <span aria-label="love">♥</span> by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
         </div>
-        <p class="app-footer-credit">Built with <span aria-label="love">♥</span> by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
+        <nav class="app-footer-link-grid" aria-label="Footer">
+          <div class="app-footer-links">
+            <h2>Product</h2>
+            <a href="#vault" data-page="vault">Watchlist</a>
+            <a href="#alerts" data-page="alerts">Inbox</a>
+            <a href="#shelf" data-page="shelf">Discover</a>
+            <a href="#plus" data-page="plus">Vaultr Plus</a>
+          </div>
+          <div class="app-footer-links">
+            <h2>Trust &amp; Support</h2>
+            <a href="#how-vaultr-works" data-action="footer-how-vaultr-works">How Vaultr works</a>
+            <a href="/privacy">Privacy Policy</a>
+            <a href="/terms">Terms of Service</a>
+          </div>
+          <div class="app-footer-links">
+            <h2>Community</h2>
+            <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a>
+          </div>
+        </nav>
       </div>
-      <nav class="app-footer-link-grid" aria-label="Footer">
-        <div class="app-footer-links">
-          <strong>Product</strong>
-          <button type="button" data-page="vault">Watchlist</button>
-          <button type="button" data-page="alerts">Inbox</button>
-          <button type="button" data-page="shelf">Discover</button>
-          <button type="button" data-page="plus">Vaultr Plus</button>
-        </div>
-        <div class="app-footer-links">
-          <strong>Trust &amp; Support</strong>
-          <button type="button" data-action="footer-how-vaultr-works">How Vaultr works</button>
-          <a href="/privacy">Privacy Policy</a>
-          <a href="/terms">Terms of Service</a>
-        </div>
-        <div class="app-footer-links">
-          <strong>Community</strong>
-          <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a>
-        </div>
-      </nav>
-      </footer>
-    </div>
+    </footer>
   `;
 }
 
