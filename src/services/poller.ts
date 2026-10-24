@@ -37,8 +37,8 @@ import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
 import { activePlanTier, getRuntimePollIntervalSeconds, monitoringPlanChases, PLAN_LIMITS } from './plans.js';
+import { getEntitlementsForTier, type PlanEntitlements } from './entitlements.js';
 import { CHASE_ALERT_COOLDOWN_MINUTES, SHOW_ALERT_IMAGES, USE_COMPACT_ALERT_LAYOUT } from './alert-policy.js';
-import { getEntitlementsForTier } from './entitlements.js';
 import {
   getPollerState,
   initializePollerState,
@@ -360,11 +360,16 @@ const lastSourceFetchAtMsByQueryKey = new Map<string, number>();
 let backoffUntilMs = 0;
 
 type ActiveGroup = {
-  members: Array<{ chase: Chase; settings: ReturnType<typeof getUserAlertSettings> }>;
+  members: Array<{
+    chase: Chase;
+    settings: ReturnType<typeof getUserAlertSettings>;
+    monitoringPriority: PlanEntitlements['monitoringPriority'];
+  }>;
   sourceMode: string;
   oldestCreatedAt: string;
   oldestDueAtMs: number;
   oldestChaseName?: string;
+  monitoringPriority?: PlanEntitlements['monitoringPriority'];
 };
 
 type CoverageAccumulator = {
@@ -386,6 +391,10 @@ export function orderGroupsForRun(
   groups: ReadonlyArray<{ queryKey: string; group: ActiveGroup; lastSourceFetchAtMs?: number }>
 ): Array<{ queryKey: string; group: ActiveGroup; lastSourceFetchAtMs?: number }> {
   return [...groups].sort((left, right) => {
+    const priorityDelta = (left.group.monitoringPriority === 'PRIORITY' ? 0 : 1)
+      - (right.group.monitoringPriority === 'PRIORITY' ? 0 : 1);
+    if (priorityDelta !== 0) return priorityDelta;
+
     if (left.group.oldestDueAtMs !== right.group.oldestDueAtMs) {
       return left.group.oldestDueAtMs - right.group.oldestDueAtMs;
     }
@@ -403,6 +412,13 @@ export function orderGroupsForRun(
     }
 
     return left.queryKey.localeCompare(right.queryKey);
+  });
+}
+
+export function orderGroupMembersForRun<T extends { monitoringPriority?: PlanEntitlements['monitoringPriority'] }>(members: readonly T[]): T[] {
+  return [...members].sort((left, right) => {
+    if (left.monitoringPriority === right.monitoringPriority) return 0;
+    return left.monitoringPriority === 'PRIORITY' ? -1 : 1;
   });
 }
 
@@ -927,6 +943,7 @@ async function runPoll(client: Client): Promise<void> {
     if (!activeChaseIds.has(chase.id)) continue;
     const userPlan = getUserPlan(chase.userId);
     const tier = activePlanTier(userPlan);
+    const monitoringPriority = getEntitlementsForTier(tier).monitoringPriority;
     const intervalSeconds = PLAN_LIMITS[tier].pollIntervalSeconds;
     const lastCheckedAtIso = getChaseLastPollCheckAt(chase.id);
     const lastCheckedAtMs = lastCheckedAtIso ? new Date(lastCheckedAtIso).getTime() : undefined;
@@ -941,8 +958,16 @@ async function runPoll(client: Client): Promise<void> {
     const settings = getUserAlertSettings(chase.userId);
     const memberSourceMode = effectiveListingSourceMode(sourceMode, tier, settings.listingSourceMode);
     const key = sourceQueryKey(chase, settings, memberSourceMode);
-    const group = activeGroups.get(key) ?? { members: [], sourceMode: memberSourceMode, oldestCreatedAt: chase.createdAt, oldestDueAtMs: dueAtMs, oldestChaseName: chase.cardName };
-    group.members.push({ chase, settings });
+    const group = activeGroups.get(key) ?? {
+      members: [],
+      sourceMode: memberSourceMode,
+      oldestCreatedAt: chase.createdAt,
+      oldestDueAtMs: dueAtMs,
+      oldestChaseName: chase.cardName,
+      monitoringPriority
+    };
+    group.members.push({ chase, settings, monitoringPriority });
+    if (monitoringPriority === 'PRIORITY') group.monitoringPriority = 'PRIORITY';
     if (chase.createdAt.localeCompare(group.oldestCreatedAt) < 0) {
       group.oldestCreatedAt = chase.createdAt;
     }
@@ -951,6 +976,10 @@ async function runPoll(client: Client): Promise<void> {
       group.oldestChaseName = chase.cardName;
     }
     activeGroups.set(key, group);
+  }
+
+  for (const group of activeGroups.values()) {
+    group.members = orderGroupMembersForRun(group.members);
   }
 
   const orderedGroups = orderGroupsForRun(

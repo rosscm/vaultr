@@ -110,6 +110,7 @@ function previewPlanOption(tier: PlanTier) {
     label: tier === 'PRO' ? 'Vaultr Plus' : 'Free',
     maxActiveChases: entitlements.maxActiveChases,
     checkIntervalMinutes: Math.round(entitlements.pollIntervalSeconds / 60),
+    monitoringPriority: entitlements.monitoringPriority,
     advancedFiltering: entitlements.advancedFiltering,
     storefrontMonitoring: entitlements.storefrontMonitoring,
     discoveryDepth: entitlements.discoveryDepth,

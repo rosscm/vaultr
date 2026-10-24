@@ -10,6 +10,7 @@ import {
   isDueForPollInterval,
   listingSourceFailureReason,
   orderAlertCandidatesForSending,
+  orderGroupMembersForRun,
   processPendingDiscordAlertDeliveries,
   shouldSendChaseTuningNotice,
   orderGroupsForRun,
@@ -20,6 +21,7 @@ import {
   shouldPostDailyPulse,
   shouldApplyEbayBackoff
 } from '../poller.js';
+import { getEntitlementsForTier } from '../entitlements.js';
 import {
   enqueueAlertEventDelivery,
   getAlertDeliveryById,
@@ -68,6 +70,30 @@ afterEach(() => {
 });
 
 describe('orderGroupsForRun', () => {
+  it('orders due Plus work before due Free work without dropping Free work', () => {
+    const ordered = orderGroupsForRun([
+      {
+        queryKey: 'free-overdue',
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-20T00:00:00.000Z', oldestDueAtMs: 100, monitoringPriority: 'STANDARD' }
+      },
+      {
+        queryKey: 'plus-due',
+        group: { members: [], sourceMode: 'EBAY', oldestCreatedAt: '2026-05-21T00:00:00.000Z', oldestDueAtMs: 200, monitoringPriority: 'PRIORITY' }
+      }
+    ]);
+
+    expect(ordered.map((entry) => entry.queryKey)).toEqual(['plus-due', 'free-overdue']);
+  });
+
+  it('orders Plus members first inside one shared source group', () => {
+    const ordered = orderGroupMembersForRun([
+      { id: 'free', monitoringPriority: 'STANDARD' as const },
+      { id: 'plus', monitoringPriority: 'PRIORITY' as const }
+    ]);
+
+    expect(ordered.map((member) => member.id)).toEqual(['plus', 'free']);
+  });
+
   it('prioritizes the most overdue group before process-local source history', () => {
     const ordered = orderGroupsForRun([
       {
@@ -167,6 +193,11 @@ describe('plan access', () => {
     expect(PLAN_LIMITS.PRO.maxActiveChases).toBe(50);
   });
 
+  it('exposes standard Free and priority Plus monitoring without changing intervals', () => {
+    expect(getEntitlementsForTier('FREE')).toMatchObject({ monitoringPriority: 'STANDARD', pollIntervalSeconds: 1800 });
+    expect(getEntitlementsForTier('PRO')).toMatchObject({ monitoringPriority: 'PRIORITY', pollIntervalSeconds: 900 });
+  });
+
   it('treats inactive Pro subscriptions as Free access', () => {
     expect(activePlanTier({ tier: 'PRO', status: 'ACTIVE' })).toBe('PRO');
     expect(activePlanTier({ tier: 'PRO', status: 'PAST_DUE' })).toBe('FREE');
@@ -211,6 +242,12 @@ describe('isDueForPollInterval', () => {
 
   it('blocks checks until the interval window has elapsed', () => {
     expect(isDueForPollInterval(1_000, 1800, 1_000 + 1_799_000)).toBe(false);
+  });
+
+  it('does not make Free work due when the Plus interval elapses', () => {
+    const nowMs = 1_000 + 900_000;
+    expect(isDueForPollInterval(1_000, PLAN_LIMITS.PRO.pollIntervalSeconds, nowMs)).toBe(true);
+    expect(isDueForPollInterval(1_000, PLAN_LIMITS.FREE.pollIntervalSeconds, nowMs)).toBe(false);
   });
 
   it('allows checks once the interval window has elapsed', () => {
@@ -290,6 +327,14 @@ describe('alert eBay search options', () => {
     expect(sourceQueryKey(baseChase({ queryName: 'Mew RC24', maxPrice: 100 }), settings, 'EBAY_SHOPIFY')).not.toBe(base);
     expect(sourceQueryKey(baseChase({ maxPrice: 200 }), settings, 'EBAY_SHOPIFY')).not.toBe(base);
     expect(sourceQueryKey(baseChase({ maxPrice: 100 }), { ...settings, alertCurrency: 'USD' }, 'EBAY_SHOPIFY')).not.toBe(base);
+  });
+
+  it('keeps plan priority out of shared source request identity', () => {
+    const settings = { ...getUserAlertSettings('poller-shared-priority-key'), alertCurrency: 'CAD' as const };
+    const free = sourceQueryKey(baseChase({ userId: 'free-user', maxPrice: 100 }), settings, 'EBAY');
+    const plus = sourceQueryKey(baseChase({ userId: 'plus-user', maxPrice: 100 }), settings, 'EBAY');
+
+    expect(plus).toBe(free);
   });
 
   it('keeps poller eBay searches lightweight so broad chases do not block alert delivery on shipping enrichment', () => {

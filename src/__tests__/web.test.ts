@@ -378,7 +378,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('toggle-display-case-explanation');
     expect(jsResponse.body).toContain('Marketplace checks paused');
     expect(jsResponse.body).not.toContain('home-introduction');
-    expect(jsResponse.body).toContain('<h2 id="home-display-case-title">Picked for you</h2>');
+    expect(jsResponse.body).toContain("${shelfReady ? 'Picked for you' : 'Starter picks'}");
     expect(jsResponse.body).toContain('Explore Display Case');
     expect(jsResponse.body).not.toContain('Picked around your taste');
     expect(jsResponse.body).toContain('Open Inbox');
@@ -389,7 +389,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
     expect(jsResponse.body).toContain('Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.');
-    expect(jsResponse.body).toContain('A few collector favourites to explore while Vaultr gets to know your taste.');
+    expect(jsResponse.body).toContain('A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('<p class="eyebrow">INBOX</p>');
     expect(jsResponse.body).toContain('<h2 id="home-alerts-title">Latest matches</h2>');
@@ -409,7 +409,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
     expect(jsResponse.body).toContain('<h1 id="plus-title">Vaultr Plus</h1>');
-    expect(jsResponse.body).toContain('Self-service upgrades aren’t available yet.');
+    expect(jsResponse.body).toContain('Your Watchlist is full');
+    expect(jsResponse.body).toContain('Manage Watchlist');
     expect(jsResponse.body).toContain('Preview mode is read-only. No plan changes can be made here.');
     expect(jsResponse.body).not.toContain('data-action="grant-plus"');
     expect(cssResponse.body).toContain('border-radius: 999px;');
@@ -421,7 +422,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('View Watchlist item');
     expect(jsResponse.body).toContain('View Pickup');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">YOUR PLAN</p>');
-    expect(jsResponse.body).toContain('<h2 id="plus-current-title">${isPlus ? \'Vaultr Plus\' : \'Free plan\'}</h2>');
+    expect(jsResponse.body).not.toContain('class="plus-current"');
+    expect(jsResponse.body).toContain('editorial Discover picks, not personalized recommendations');
+    expect(jsResponse.body).toContain('Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks');
+    expect(jsResponse.body).toContain('Priority monitoring with targeted checks');
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
     expect(jsResponse.body).toContain('state.vaultPrefillCardName = selectedCardName;');
     expect(jsResponse.body).toContain("data-action=\"view-discovery-card\"");
@@ -565,6 +569,31 @@ describe('web app static routes', () => {
     expect(emptySource).not.toContain('Open Inbox');
   });
 
+  it('uses a state-aware Plus next step when a Free Watchlist is full', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function plusNextStep('), source.indexOf('function plusPageMarkup('));
+    const nextStep = new Function(`${functionSource}\nreturn plusNextStep;`)() as (input: {
+      isPlus: boolean;
+      atLimit: boolean;
+      billingAvailable: boolean;
+      staging: boolean;
+    }) => { heading: string; action: string };
+
+    expect(nextStep({ isPlus: false, atLimit: true, billingAvailable: false, staging: true })).toMatchObject({
+      heading: 'Your Watchlist is full',
+      action: 'Manage Watchlist'
+    });
+    expect(nextStep({ isPlus: false, atLimit: false, billingAvailable: false, staging: false })).toMatchObject({
+      heading: 'Keep building your Watchlist',
+      action: 'Build your Watchlist'
+    });
+    expect(nextStep({ isPlus: true, atLimit: true, billingAvailable: false, staging: false })).toMatchObject({
+      heading: 'Make the most of Plus',
+      action: 'Open Watchlist'
+    });
+  });
+
   it('renders NEW-alert navigation presence without shifting the Inbox label', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
@@ -705,8 +734,8 @@ describe('web app preview mode', () => {
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_USER')).toBe(true);
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_PLAN_LIMIT')).toBe(true);
     expect(previewVault.options.plans).toEqual([
-      expect.objectContaining({ tier: 'FREE', maxActiveChases: 3, checkIntervalMinutes: 30, discoveryDepth: 'limited', discoveryVisibleCards: 3 }),
-      expect.objectContaining({ tier: 'PRO', maxActiveChases: 50, checkIntervalMinutes: 15, discoveryDepth: 'full', discoveryVisibleCards: 7 })
+      expect.objectContaining({ tier: 'FREE', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', discoveryDepth: 'limited', discoveryVisibleCards: 3 }),
+      expect.objectContaining({ tier: 'PRO', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', discoveryDepth: 'full', discoveryVisibleCards: 7 })
     ]);
     expect(previewVault.options.billing).toEqual({ selfServiceAvailable: false });
     expect(previewAlerts.items.map((item: { priceDelta: number }) => item.priceDelta)).toEqual([27, 6, 7, 6, 15]);
@@ -1906,8 +1935,8 @@ describe('authenticated chase API', () => {
     expect(body.currency).toBe('USD');
     expect(body.options.gradingTypes.some((option: any) => option.value === 'PSA')).toBe(true);
     expect(body.options.plans).toEqual([
-      expect.objectContaining({ tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited', discoveryVisibleCards: 3 }),
-      expect.objectContaining({ tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full', discoveryVisibleCards: 7 })
+      expect.objectContaining({ tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited', discoveryVisibleCards: 3 }),
+      expect.objectContaining({ tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full', discoveryVisibleCards: 7 })
     ]);
     expect(body.options.billing).toEqual({ selfServiceAvailable: false });
     expect(body.items[0].chase).not.toHaveProperty('guildId');

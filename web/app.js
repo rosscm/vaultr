@@ -602,6 +602,7 @@ function signedOutMarkup() {
 function shellMarkup(content) {
   const displayName = userDisplayName(state.user);
   const accountPlan = state.vaultPlan ? planLabel(state.vaultPlan.tier) : '';
+  const accountPlanClass = state.vaultPlan?.tier === 'PRO' ? 'plan-plus' : '';
   return `
     <div class="app-page">
       <div class="app-shell">
@@ -621,7 +622,7 @@ function shellMarkup(content) {
         </nav>
         <div class="user-area">
           ${avatarHtml(state.user)}
-          <span class="user-copy"><strong class="user-name">${escapeHtml(displayName)}</strong>${accountPlan ? `<small>${escapeHtml(accountPlan)}</small>` : ''}</span>
+          <span class="user-copy"><strong class="user-name">${escapeHtml(displayName)}</strong>${accountPlan ? `<small class="${accountPlanClass.trim()}">${escapeHtml(accountPlan)}</small>` : ''}</span>
           ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
         </div>
         </aside>
@@ -929,12 +930,45 @@ function plusPlanFeatureList(plan) {
   return `
     <ul>
       <li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards at once</li>
-      <li>Targeted listing checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li>
+      <li>${plan.monitoringPriority === 'PRIORITY' ? 'Priority monitoring with targeted checks' : 'Standard monitoring with targeted eBay checks'} every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li>
       <li>${plan.advancedFiltering ? 'Precision condition, listing, priority, note, and exclusion controls' : 'Core card, budget, and grading preferences'}</li>
       <li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops monitoring' : 'eBay monitoring'}</li>
-      <li>${plan.discoveryDepth === 'full' ? 'Personalized Display Case access once enough collecting history is available' : 'Editorial inspiration in Discover'}</li>
+      <li>${plan.discoveryDepth === 'full' ? `Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks shaped by your Watchlist, Pickups, and feedback` : `${escapeHtml(plan.discoveryVisibleCards)} editorial Discover picks, not personalized recommendations`}</li>
     </ul>
   `;
+}
+
+function plusNextStep({ isPlus, atLimit, billingAvailable, staging }) {
+  if (isPlus) {
+    return {
+      heading: 'Make the most of Plus',
+      copy: 'Your Plus access is active. Add or refine the cards you want Vaultr to watch.',
+      action: 'Open Watchlist',
+      page: 'vault'
+    };
+  }
+  if (!atLimit) {
+    return {
+      heading: 'Keep building your Watchlist',
+      copy: 'Add another card when you are ready. Your Free Watchlist remains fully usable.',
+      action: 'Build your Watchlist',
+      page: 'vault'
+    };
+  }
+  if (billingAvailable && !staging) {
+    return {
+      heading: 'Ready for more room?',
+      copy: 'Upgrade to add more chases and unlock priority monitoring, Trusted Shops, precision controls, and personalized discovery.',
+      action: 'Upgrade to Vaultr Plus',
+      page: 'settings'
+    };
+  }
+  return {
+    heading: 'Your Watchlist is full',
+    copy: 'Manage your current chases, or compare what Vaultr Plus adds when upgrades become available.',
+    action: 'Manage Watchlist',
+    page: 'vault'
+  };
 }
 
 function plusPageMarkup() {
@@ -949,9 +983,12 @@ function plusPageMarkup() {
   const currentPlan = plans.find((plan) => plan.tier === currentTier);
   const isPlus = currentTier === 'PRO';
   const activeCount = state.vaultPlan?.activeCount ?? 0;
+  const maxActiveChases = currentPlan?.maxActiveChases ?? state.vaultPlan?.maxActiveChases ?? 0;
+  const atLimit = maxActiveChases > 0 && activeCount >= maxActiveChases;
   const environmentLabel = state.authConfig?.environment?.label || '';
   const staging = environmentLabel.toLowerCase() === 'staging';
   const billingAvailable = Boolean(state.vaultOptions?.billing?.selfServiceAvailable);
+  const nextStep = plusNextStep({ isPlus, atLimit, billingAvailable, staging });
   return `
     <section class="plus-page" aria-labelledby="plus-title">
       <header class="page-header plus-header">
@@ -960,24 +997,16 @@ function plusPageMarkup() {
         <p>More room for the cards you want, finer control over matching, and personalized discovery shaped by your collection.</p>
       </header>
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. No plan changes can be made here.</p>' : ''}
-      <section class="plus-current" aria-labelledby="plus-current-title">
-        <div><h2 id="plus-current-title">${isPlus ? 'Vaultr Plus' : 'Free plan'}</h2><p>${escapeHtml(activeCount)} of ${escapeHtml(currentPlan?.maxActiveChases ?? state.vaultPlan?.maxActiveChases ?? 0)} Watchlist spots active.</p></div>
-      </section>
       <section class="plus-comparison" aria-labelledby="plus-comparison-title">
         <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">Choose the room and precision that fit your collection</h2><p>Check intervals are targets, not guaranteed listing or notification times.</p></div>
         <div class="plus-plan-grid">
           ${plans.map((plan) => `<article class="plus-plan${plan.tier === currentTier ? ' current' : ''}${plan.tier === 'PRO' ? ' featured' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : plan.tier === 'PRO' ? 'VAULTR PLUS' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3>${plusPlanFeatureList(plan)}</article>`).join('')}
         </div>
+        <p class="plus-discovery-note">Free Discover uses editorial starter picks. Personalized recommendations are part of Vaultr Plus and develop once Vaultr has enough collecting history to understand your taste.</p>
       </section>
       <section class="plus-next-step" aria-labelledby="plus-next-title">
-        <div><p class="eyebrow">NEXT STEP</p><h2 id="plus-next-title">${isPlus ? 'Make the most of Plus' : 'Keep building your Watchlist'}</h2><p>${isPlus
-          ? 'Your Plus access is active. Add or refine the cards you want Vaultr to watch.'
-          : staging
-            ? 'Upgrades aren’t available in this staging workspace. You can still explore the full comparison and test your Free Watchlist.'
-            : billingAvailable
-              ? 'Self-service plan changes are not available from this page yet.'
-              : 'Self-service upgrades aren’t available yet. Your Free Watchlist remains fully usable.'}</p></div>
-        <button class="button-primary" type="button" data-page="vault">${isPlus ? 'Open Watchlist' : 'Build your Watchlist'}</button>
+        <div><p class="eyebrow">NEXT STEP</p><h2 id="plus-next-title">${escapeHtml(nextStep.heading)}</h2><p>${escapeHtml(nextStep.copy)}</p></div>
+        <button class="button-primary" type="button" data-page="${escapeHtml(nextStep.page)}">${escapeHtml(nextStep.action)}</button>
       </section>
     </section>
   `;
@@ -1412,7 +1441,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">Picked for you</h2><p>${shelfReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : 'A few collector favourites to explore while Vaultr gets to know your taste.'}</p></div>
+          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${shelfReady ? 'Picked for you' : 'Starter picks'}</h2><p>${shelfReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : 'A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.'}</p></div>
           <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
@@ -1596,7 +1625,7 @@ function vaultSummaryMarkup() {
       </div>
       <div>
         <span class="summary-label">Plan</span>
-        <strong>${escapeHtml(planLabel(plan.tier))}</strong>
+        <strong class="${plan.tier === 'PRO' ? 'plan-plus' : ''}">${escapeHtml(planLabel(plan.tier))}</strong>
       </div>
       <div>
         <span class="summary-label">Pickups</span>
@@ -1755,11 +1784,12 @@ function shelfPageMarkup() {
 }
 
 function shelfHeaderMarkup() {
+  const personalized = Boolean(state.shelf?.items?.length);
   return `
     <header class="page-header shelf-page-header">
       <p class="eyebrow">DISCOVER</p>
       <h1 id="shelf-title">Display Case</h1>
-      <p>${state.shelf?.items?.length ? 'Personalized recommendations shaped by your Watchlist, pickups, and feedback.' : 'Explore editorial inspiration while your collecting profile takes shape.'}</p>
+      <p>${personalized ? 'Personalized recommendations shaped by your Watchlist, pickups, and feedback.' : 'A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.'}</p>
     </header>
   `;
 }

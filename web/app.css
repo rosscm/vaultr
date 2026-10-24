@@ -508,6 +508,11 @@ a {
   font-size: 0.7rem;
 }
 
+.user-copy small.plan-plus,
+.vault-summary .plan-plus {
+  color: var(--gold);
+}
+
 .preview-label {
   grid-column: 1 / -1;
   width: fit-content;
@@ -590,6 +595,11 @@ a {
   display: grid;
   gap: 10px;
   max-width: 720px;
+}
+
+.page-header > div {
+  display: grid;
+  gap: 10px;
 }
 
 .shelf-page-header {
@@ -1111,7 +1121,7 @@ a {
 
 .home-page {
   display: grid;
-  gap: clamp(28px, 3.5vw, 48px);
+  gap: clamp(26px, 3vw, 42px);
 }
 
 .home-product-section {
@@ -3663,7 +3673,6 @@ a {
   max-width: 880px;
 }
 
-.plus-current,
 .plus-next-step {
   display: flex;
   align-items: center;
@@ -3676,19 +3685,12 @@ a {
   box-shadow: var(--shadow-sm);
 }
 
-.plus-current {
-  padding: 16px 20px;
-}
-
-.plus-current > div,
 .plus-next-step > div,
 .plus-section-heading {
   display: grid;
   gap: 6px;
 }
 
-.plus-current h2,
-.plus-current p,
 .plus-next-step h2,
 .plus-next-step p,
 .plus-section-heading h2,
@@ -3696,7 +3698,6 @@ a {
   margin: 0;
 }
 
-.plus-current p,
 .plus-next-step p,
 .plus-section-heading p {
   color: var(--muted);
@@ -3707,6 +3708,15 @@ a {
 .plus-benefits {
   display: grid;
   gap: 16px;
+}
+
+.plus-discovery-note {
+  max-width: 78ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  text-wrap: pretty;
 }
 
 .plus-plan-grid {
@@ -4090,7 +4100,6 @@ a {
     padding: 22px 0;
   }
 
-  .plus-current,
   .plus-next-step {
     align-items: flex-start;
     flex-direction: column;
