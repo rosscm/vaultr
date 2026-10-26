@@ -45,6 +45,32 @@ function stagingEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 }
 
 describe('staging personalized Display Case fixture', () => {
+  it('preserves the learner e-reader token for evidence-backed recommendations', () => {
+    expect(discoveryLearningFeatures({
+      name: 'Pichu Expedition Base Set 22/165',
+      why: 'An evidence-backed e-Reader recommendation.',
+      lane: 'Collector Trail',
+      laneWhy: 'Supported by the prepared recommendation context.',
+      nearby: [],
+      requiredEvidenceTokens: ['pichu', 'e-reader'],
+      canonicalReference: {
+        provider: 'POKEMONTCG',
+        sourceCardId: 'ecard1-22',
+        canonicalCardId: 'ecard1-22',
+        canonicalName: 'Pichu',
+        setName: 'Expedition Base Set',
+        cardNumber: '22/165',
+        language: 'ENGLISH',
+        imageUrl: 'https://example.test/pichu.png',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    })).toMatchObject({
+      collectorTerms: expect.arrayContaining(['e-reader']),
+      collectorTraits: { era: ['e-reader'] },
+      eReaderSignal: true
+    });
+  });
+
   it('requires an explicit account and parses cleanup deliberately', () => {
     expect(parseStagingDiscoveryFixtureArgs(['--user', 'usr_fixture', '--cleanup'])).toEqual({ userId: 'usr_fixture', cleanup: true });
     expect(() => parseStagingDiscoveryFixtureArgs([])).toThrow('explicit --user');

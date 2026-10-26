@@ -18,7 +18,8 @@ function normalize(value: string): string {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .replace(/\bcoro coro\b/g, 'corocoro')
-    .replace(/\boddball release\b/g, 'odd release');
+    .replace(/\boddball release\b/g, 'odd release')
+    .replace(/\be reader\b/g, 'e-reader');
 }
 
 function matchingTerms(text: string, supplied: string[]): string[] {
