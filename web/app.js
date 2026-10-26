@@ -1321,9 +1321,21 @@ function starterDiscoveryItems() {
   return state.shelf?.starterItems || [];
 }
 
+function hasPersonalizedDiscoveryAccess() {
+  return state.vaultPlan?.tier === 'PRO'
+    && state.shelf?.discovery?.tier === 'PRO'
+    && state.shelf?.discovery?.state === 'POPULATED'
+    && Boolean(state.shelf?.items?.length);
+}
+
 function homeDisplayCaseItems() {
-  const personalizedItems = state.shelf?.items || [];
-  return personalizedItems.length ? personalizedItems : starterDiscoveryItems();
+  return hasPersonalizedDiscoveryAccess() ? state.shelf.items : starterDiscoveryItems();
+}
+
+function editorialDiscoveryCopy() {
+  return state.vaultPlan?.tier === 'PRO'
+    ? 'A few collector picks to explore while Vaultr learns your taste.'
+    : 'A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.';
 }
 
 function normalizedDiscoveryIdentity(value) {
@@ -1417,9 +1429,7 @@ function homePageMarkup() {
   const planLimitedChases = state.vault.filter((item) => item.monitoringState === 'PAUSED_PLAN_LIMIT').length;
   const completedChases = state.completedChases?.length ?? 0;
   const alertPreview = state.homeAttentionAlerts.slice(0, 4);
-  const shelfItems = state.shelf?.items || [];
-  const shelfReady = shelfItems.length > 0;
-  const starters = starterDiscoveryItems();
+  const personalizedReady = hasPersonalizedDiscoveryAccess();
   const displayCaseItems = homeDisplayCaseItems();
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
@@ -1441,18 +1451,16 @@ function homePageMarkup() {
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${shelfReady ? 'Picked for you' : 'Starter picks'}</h2><p>${shelfReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : 'A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.'}</p></div>
+          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${personalizedReady ? 'Picked for you' : 'Starter picks'}</h2><p>${personalizedReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : editorialDiscoveryCopy()}</p></div>
           <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
           <div class="home-discovery-stage">
           ${state.shelfError
             ? '<div class="home-discovery-state"><p>Your Display Case could not be loaded right now.</p><button class="button-ghost" type="button" data-action="retry-shelf">Try again</button></div>'
-            : shelfReady
-              ? homeShelfFeatureMarkup(shelfItems, shelfIndex)
-              : state.shelfLoaded
+            : state.shelfLoaded
                 ? displayCaseItems.length
-                  ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: true })
+                  ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: !personalizedReady })
                   : `<div class="home-discovery-state"><p>${escapeHtml(discoveryStateCopy(discovery, true))}</p></div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
           </div>
@@ -1644,7 +1652,7 @@ function vaultLimitWarningMarkup() {
   const isPlus = plan.tier === 'PRO';
   return `
     <aside class="vault-limit-warning" aria-labelledby="vault-limit-warning-title">
-      <div><h2 id="vault-limit-warning-title">Watchlist full</h2><p>You’re watching ${escapeHtml(watching)} of ${escapeHtml(max)} cards on ${escapeHtml(planLabel(plan.tier))}. Remove a card or mark one acquired to make room${isPlus ? '.' : ', or explore Vaultr Plus for a larger Watchlist.'}</p></div>
+      <div><h2 id="vault-limit-warning-title">Watchlist full</h2><p>Remove a card or mark one acquired to make room${isPlus ? '.' : ', or explore Vaultr Plus for a larger Watchlist.'}</p></div>
       ${isPlus ? '' : '<button class="button-ghost" type="button" data-page="plus">Explore Plus</button>'}
     </aside>
   `;
@@ -1771,7 +1779,7 @@ function shelfPageMarkup() {
       </section>
     `;
   }
-  const items = state.shelf?.items || [];
+  const items = hasPersonalizedDiscoveryAccess() ? state.shelf?.items || [] : [];
   return `
     <section class="shelf-page" aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
@@ -1784,7 +1792,7 @@ function shelfPageMarkup() {
 }
 
 function shelfHeaderMarkup() {
-  const personalized = Boolean(state.shelf?.items?.length);
+  const personalized = hasPersonalizedDiscoveryAccess();
   return `
     <header class="page-header shelf-page-header">
       <p class="eyebrow">DISCOVER</p>
@@ -1816,7 +1824,7 @@ function shelfEmptyMarkup(shelf) {
       <div class="shelf-first-use-copy">
         <p class="eyebrow">EDITORIAL STARTER PICKS</p>
         <h2 id="starter-discovery-title">A little inspiration</h2>
-        <p>These are editorial picks, not personalized recommendations. Add cards and record pickups to help future Display Cases reflect your taste.</p>
+        <p>These are editorial picks, not personalized recommendations. ${escapeHtml(editorialDiscoveryCopy())}</p>
         <p class="discovery-state-note">${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p>
         <div class="shelf-first-actions"><button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>${shelf?.discovery?.state === 'PLAN_RESTRICTED' ? '<button class="button-ghost" type="button" data-page="plus">Explore Plus</button>' : ''}</div>
       </div>

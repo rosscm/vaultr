@@ -91,6 +91,7 @@ function seedWeeklyShelf(
   date = new Date('2026-08-31T13:00:00.000Z'),
   options: { name?: string; cardNumber?: string; setName?: string; language?: 'ENGLISH' | 'JAPANESE'; updatedAt?: string } = {}
 ) {
+  setUserPlan(userId, 'PRO');
   const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
   const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
   const name = options.name ?? 'Mew CoroCoro Promo 151';
@@ -378,7 +379,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('toggle-display-case-explanation');
     expect(jsResponse.body).toContain('Marketplace checks paused');
     expect(jsResponse.body).not.toContain('home-introduction');
-    expect(jsResponse.body).toContain("${shelfReady ? 'Picked for you' : 'Starter picks'}");
+    expect(jsResponse.body).toContain("${personalizedReady ? 'Picked for you' : 'Starter picks'}");
     expect(jsResponse.body).toContain('Explore Display Case');
     expect(jsResponse.body).not.toContain('Picked around your taste');
     expect(jsResponse.body).toContain('Open Inbox');
@@ -569,6 +570,39 @@ describe('web app static routes', () => {
     expect(emptySource).not.toContain('Open Inbox');
   });
 
+  it('uses plan and discovery state instead of item presence for personalized discovery', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function starterDiscoveryItems()'), source.indexOf('function normalizedDiscoveryIdentity('));
+    const evaluate = (state: Record<string, unknown>) => new Function(
+      'state',
+      `${functionSource}\nreturn { personalized: hasPersonalizedDiscoveryAccess(), items: homeDisplayCaseItems(), copy: editorialDiscoveryCopy() };`
+    )(state) as { personalized: boolean; items: Array<{ name: string }>; copy: string };
+    const personalizedItems = [{ name: 'Persisted personalized card' }];
+    const starterItems = [{ name: 'Editorial starter card' }];
+
+    expect(evaluate({
+      vaultPlan: { tier: 'FREE' },
+      shelf: { items: personalizedItems, starterItems, discovery: { tier: 'FREE', state: 'PLAN_RESTRICTED' } }
+    })).toEqual({
+      personalized: false,
+      items: starterItems,
+      copy: 'A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.'
+    });
+    expect(evaluate({
+      vaultPlan: { tier: 'PRO' },
+      shelf: { items: personalizedItems, starterItems, discovery: { tier: 'PRO', state: 'POPULATED' } }
+    })).toMatchObject({ personalized: true, items: personalizedItems });
+    expect(evaluate({
+      vaultPlan: { tier: 'PRO' },
+      shelf: { items: personalizedItems, starterItems, discovery: { tier: 'PRO', state: 'INSUFFICIENT_SIGNALS' } }
+    })).toEqual({
+      personalized: false,
+      items: starterItems,
+      copy: 'A few collector picks to explore while Vaultr learns your taste.'
+    });
+  });
+
   it('uses a state-aware Plus next step when a Free Watchlist is full', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
@@ -592,6 +626,22 @@ describe('web app static routes', () => {
       heading: 'Make the most of Plus',
       action: 'Open Watchlist'
     });
+  });
+
+  it('keeps every Discover card on one shared market, action, and feedback footer structure', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const cardSource = source.slice(source.indexOf('function shelfCardMarkup('), source.indexOf('function discoveryFeedbackKey('));
+    const marketRow = cardSource.slice(cardSource.indexOf('<div class="shelf-market-status">'), cardSource.indexOf('<div class="shelf-card-actions">'));
+    const actionRow = cardSource.slice(cardSource.indexOf('<div class="shelf-card-actions">'), cardSource.indexOf('${discoveryFeedbackMarkup(item)}'));
+
+    expect(marketRow).toContain('shelf-price');
+    expect(marketRow).toContain('discoverySavedStatusMarkup(item)');
+    expect(actionRow).toContain('discoveryCardPrimaryActionMarkup(item)');
+    expect(actionRow).toContain('View on eBay');
+    expect(cardSource.match(/class="shelf-card-actions"/g)).toHaveLength(1);
+    expect(cardSource.indexOf('shelf-market-status')).toBeLessThan(cardSource.indexOf('shelf-card-actions'));
+    expect(cardSource.indexOf('shelf-card-actions')).toBeLessThan(cardSource.indexOf('discoveryFeedbackMarkup(item)'));
   });
 
   it('renders NEW-alert navigation presence without shifting the Inbox label', async () => {
@@ -623,8 +673,12 @@ describe('web app static routes', () => {
 
     expect(renderWarning({ tier: 'FREE', activeCount: 2, maxActiveChases: 3 })).toBe('');
     expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).toContain('Explore Plus');
+    expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).not.toContain('3 of 3');
+    expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).not.toContain('cards on Free');
+    expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).toContain('Remove a card or mark one acquired to make room, or explore Vaultr Plus for a larger Watchlist.');
     expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).toContain('Watchlist full');
     expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).not.toContain('Explore Plus');
+    expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).toContain('Remove a card or mark one acquired to make room.');
 
     const summarySource = source.slice(source.indexOf('function vaultSummaryMarkup()'), source.indexOf('function vaultLimitWarningMarkup()'));
     expect(summarySource).not.toContain('Explore Plus');
@@ -1504,6 +1558,29 @@ describe('authenticated Weekly Shelf API', () => {
     clearUser(otherUserId);
   });
 
+  it('keeps persisted personalized items hidden behind Free discovery entitlement', async () => {
+    const userId = 'web-shelf-free-persisted-user';
+    clearUser(userId);
+    seedWeeklyShelf(userId);
+    setUserPlan(userId, 'FREE');
+    const { token } = createWebSession({ userId }, { token: 'shelf-free-persisted-token' });
+
+    const response = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+    const body = JSON.parse(response.body ?? '{}');
+
+    expect(response.status).toBe(200);
+    expect(body.discovery).toMatchObject({ state: 'PLAN_RESTRICTED', tier: 'FREE' });
+    expect(body.items).toEqual([]);
+    expect(body.itemCount).toBe(0);
+    expect(body.starterItems).toHaveLength(3);
+    expect(JSON.stringify(body.starterItems)).not.toContain('Persisted personalized card');
+
+    clearUser(userId);
+  });
+
   it('records, changes, reads, and version-checks feedback for an owned prepared recommendation', async () => {
     const userId = 'web-shelf-feedback-user';
     clearUser(userId);
@@ -1839,6 +1916,7 @@ describe('authenticated Weekly Shelf API', () => {
   it('keeps malformed optional shelf fields usable', async () => {
     const userId = 'web-shelf-malformed-user';
     clearUser(userId);
+    setUserPlan(userId, 'PRO');
     const date = new Date('2026-08-31T13:00:00.000Z');
     const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
     const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);

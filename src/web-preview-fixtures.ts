@@ -188,6 +188,22 @@ export const WEB_PREVIEW_SHELF = {
   marketReadyCount: shelfCards.filter((card) => card[8] === 'READY').length,
   imageReadyCount: shelfCards.filter((card) => !!card[1]).length,
   currency: 'CAD',
+  discovery: {
+    state: 'PLAN_RESTRICTED',
+    tier: 'FREE',
+    preparationExpected: false,
+    minimumSignalCount: 5,
+    uniqueSignalCount: 3,
+    signalsNeeded: 2
+  },
+  starterItems: shelfCards.slice(0, 3).map(([name, imageUrl, setName, language, , discoveryRole], index) => ({
+    name,
+    imageUrl,
+    setName,
+    language,
+    roleLabel: discoveryRole === 'CORE_MATCH' ? 'Right up your alley' : discoveryRole === 'ADJACENT_DISCOVERY' ? 'Worth exploring' : 'Something different',
+    cardIdentity: { value: name, sourceName: 'VAULTR_EDITORIAL', sourceCardId: `preview-editorial-${index + 1}` }
+  })),
   items: shelfCards.map(([name, imageUrl, setName, language, signalLabel, discoveryRole, reason, price, status], index) => ({
     position: index + 1,
     name,

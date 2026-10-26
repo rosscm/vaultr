@@ -621,10 +621,10 @@ function webDiscoveryState(userId: string, config: WebConfig, populated: boolean
   const eligibility = weeklyDiscoveryEligibilityForUser(userId);
   const preparationExpected = config.environmentLabel?.trim().toLowerCase() !== 'staging'
     && process.env.DISCOVERY_DROP_SCHEDULER_ENABLED !== 'false';
-  const state = populated
-    ? 'POPULATED'
-    : tier !== 'PRO'
-      ? 'PLAN_RESTRICTED'
+  const state = tier !== 'PRO'
+    ? 'PLAN_RESTRICTED'
+    : populated
+      ? 'POPULATED'
       : !eligibility.eligible
         ? 'INSUFFICIENT_SIGNALS'
         : preparationExpected
@@ -688,6 +688,8 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     });
   }
 
+  const discovery = webDiscoveryState(userId, config, true);
+  const personalized = discovery.state === 'POPULATED' && discovery.tier === 'PRO';
   return jsonResponse(200, {
     status: drop.status,
     shelfKind,
@@ -696,12 +698,13 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     summary: drop.summary,
     availableAt: drop.availableAt,
     updatedAt: drop.updatedAt,
-    itemCount: drop.itemCount,
-    marketReadyCount: drop.marketReadyCount,
-    imageReadyCount: drop.imageReadyCount,
+    itemCount: personalized ? drop.itemCount : 0,
+    marketReadyCount: personalized ? drop.marketReadyCount : 0,
+    imageReadyCount: personalized ? drop.imageReadyCount : 0,
     currency: drop.currency,
-    items: drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey)),
-    discovery: webDiscoveryState(userId, config, true)
+    items: personalized ? drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey)) : [],
+    discovery,
+    ...(personalized ? {} : { starterItems: publicStarterDiscoveryItems(userId, config) })
   });
 }
 
