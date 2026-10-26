@@ -963,6 +963,22 @@ const upsertDiscoveryTrainingExampleStmt = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
+const upsertLabeledDiscoveryTrainingExampleStmt = db.prepare(`
+  INSERT INTO discovery_training_examples (
+    user_id, surface, period_key, suggestion_name, lane, position, ranker_version,
+    feature_json, score_json, shown_at, outcome, outcome_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(user_id, surface, period_key, suggestion_name) DO UPDATE SET
+    lane = excluded.lane,
+    position = excluded.position,
+    ranker_version = excluded.ranker_version,
+    feature_json = excluded.feature_json,
+    score_json = excluded.score_json,
+    outcome = excluded.outcome,
+    outcome_at = excluded.outcome_at,
+    updated_at = excluded.updated_at
+`);
+
 const updateDiscoveryTrainingOutcomeStmt = db.prepare(`
   UPDATE discovery_training_examples
   SET outcome = ?, outcome_at = ?, updated_at = ?
@@ -977,16 +993,26 @@ const clearDiscoveryTrainingOutcomeStmt = db.prepare(`
 
 const listDiscoveryTrainingOutcomesStmt = db.prepare(`
   SELECT outcome, feature_json
-  FROM discovery_training_examples
-  WHERE user_id = ? AND outcome IN ('MORE_LIKE_THIS', 'NOT_FOR_ME')
+  FROM (
+    SELECT outcome, feature_json, outcome_at, updated_at,
+      ROW_NUMBER() OVER (PARTITION BY suggestion_name ORDER BY outcome_at DESC, updated_at DESC, shown_at DESC, surface ASC) AS choice_rank
+    FROM discovery_training_examples
+    WHERE user_id = ? AND outcome IN ('MORE_LIKE_THIS', 'NOT_FOR_ME')
+  )
+  WHERE choice_rank = 1
   ORDER BY outcome_at DESC, updated_at DESC
   LIMIT ?
 `);
 
 const listGlobalDiscoveryTrainingOutcomesStmt = db.prepare(`
   SELECT user_id, outcome, feature_json
-  FROM discovery_training_examples
-  WHERE outcome IN ('MORE_LIKE_THIS', 'NOT_FOR_ME')
+  FROM (
+    SELECT user_id, outcome, feature_json, outcome_at, updated_at,
+      ROW_NUMBER() OVER (PARTITION BY user_id, suggestion_name ORDER BY outcome_at DESC, updated_at DESC, shown_at DESC, surface ASC) AS choice_rank
+    FROM discovery_training_examples
+    WHERE outcome IN ('MORE_LIKE_THIS', 'NOT_FOR_ME')
+  )
+  WHERE choice_rank = 1
   ORDER BY outcome_at DESC, updated_at DESC
   LIMIT ?
 `);
@@ -1804,23 +1830,64 @@ export function recordDiscoveryFeedback(input: {
   maxPrice?: number;
 }): { suggestionName: string; lane: string; feedback: UserDiscoveryFeedback; interactionCount: number; lastInteractedAt: string; version: number } {
   return db.transaction(() => {
-    const existing = getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow | undefined;
-    if (existing?.feedback === input.feedback) return mapUserDiscoveryFeedback(existing);
+    return persistDiscoveryFeedback(input);
+  })();
+}
+
+function persistDiscoveryFeedback(input: {
+  userId: string;
+  cardName: string;
+  lane: string;
+  feedback: UserDiscoveryFeedback;
+  maxPrice?: number;
+}): ReturnType<typeof mapUserDiscoveryFeedback> {
+  const existing = getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow | undefined;
+  if (existing?.feedback === input.feedback) return mapUserDiscoveryFeedback(existing);
+  const now = new Date().toISOString();
+  upsertUserDiscoveryFeedbackStmt.run(input.userId, input.cardName, input.lane, input.feedback, now, now);
+  updateDiscoveryTrainingOutcomeStmt.run(input.feedback, now, now, input.userId, input.cardName);
+  if (input.feedback === 'MORE_LIKE_THIS') {
+    rememberTasteSignal({
+      userId: input.userId,
+      signalId: discoveryTasteSignalId(input.cardName),
+      source: 'DISCOVERY_LIKE',
+      cardName: input.cardName,
+      maxPrice: input.maxPrice
+    });
+  } else {
+    deleteUserTasteMemoryStmt.run(input.userId, discoveryTasteSignalId(input.cardName), 'DISCOVERY_LIKE');
+  }
+  return mapUserDiscoveryFeedback(getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow);
+}
+
+export function recordDiscoveryFeedbackWithTrainingExample(input: {
+  userId: string;
+  cardName: string;
+  lane: string;
+  feedback: UserDiscoveryFeedback;
+  maxPrice?: number;
+  example: DiscoveryTrainingExampleInput;
+}): ReturnType<typeof mapUserDiscoveryFeedback> {
+  return db.transaction(() => {
     const now = new Date().toISOString();
-    upsertUserDiscoveryFeedbackStmt.run(input.userId, input.cardName, input.lane, input.feedback, now, now);
-    updateDiscoveryTrainingOutcomeStmt.run(input.feedback, now, now, input.userId, input.cardName);
-    if (input.feedback === 'MORE_LIKE_THIS') {
-      rememberTasteSignal({
-        userId: input.userId,
-        signalId: discoveryTasteSignalId(input.cardName),
-        source: 'DISCOVERY_LIKE',
-        cardName: input.cardName,
-        maxPrice: input.maxPrice
-      });
-    } else {
-      deleteUserTasteMemoryStmt.run(input.userId, discoveryTasteSignalId(input.cardName), 'DISCOVERY_LIKE');
-    }
-    return mapUserDiscoveryFeedback(getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow);
+    const existing = getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow | undefined;
+    upsertLabeledDiscoveryTrainingExampleStmt.run(
+      input.userId,
+      input.example.surface,
+      input.example.periodKey,
+      input.cardName,
+      input.lane,
+      input.example.position,
+      input.example.rankerVersion,
+      JSON.stringify(input.example.features),
+      JSON.stringify(input.example.scores),
+      now,
+      input.feedback,
+      now,
+      now
+    );
+    if (existing?.feedback === input.feedback) return mapUserDiscoveryFeedback(existing);
+    return persistDiscoveryFeedback(input);
   })();
 }
 

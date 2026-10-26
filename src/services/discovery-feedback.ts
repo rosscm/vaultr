@@ -2,12 +2,13 @@ import {
   getUserDiscoveryFeedback,
   getUserPlan,
   recordDiscoveryFeedback,
-  recordDiscoveryTrainingExamples,
+  recordDiscoveryFeedbackWithTrainingExample,
   undoDiscoveryFeedback,
   type UserDiscoveryFeedback
 } from './chase-store.js';
 import { getScheduledDiscoveryDrop } from './scheduled-discovery-drops.js';
 import { activePlanTier } from './plans.js';
+import { discoveryLearningFeatures } from './discovery-learning-features.js';
 
 export type DiscoveryFeedbackAction = UserDiscoveryFeedback | 'UNDO';
 
@@ -33,14 +34,14 @@ export function applyResolvedDiscoveryFeedback(input: {
   return { ok: true, feedback };
 }
 
-function recordPreparedFeedbackContext(input: {
+function preparedFeedbackContext(input: {
   userId: string;
   periodKey: string;
   position: number;
   item: NonNullable<ReturnType<typeof getScheduledDiscoveryDrop>>['items'][number];
-}): void {
+}) {
   const suggestion = input.item.suggestion;
-  recordDiscoveryTrainingExamples([{
+  return {
     userId: input.userId,
     surface: 'WEB_DISPLAY_CASE',
     periodKey: input.periodKey,
@@ -49,6 +50,7 @@ function recordPreparedFeedbackContext(input: {
     position: input.position,
     rankerVersion: 'prepared-display-case-v1',
     features: {
+      ...discoveryLearningFeatures(suggestion),
       canonicalReference: suggestion.canonicalReference,
       generationStrategies: suggestion.generationStrategies ?? [],
       generationReasons: suggestion.generationReasons ?? [],
@@ -58,7 +60,7 @@ function recordPreparedFeedbackContext(input: {
       noveltyReason: suggestion.rankExplanation?.noveltyReason
     },
     scores: suggestion.rankExplanation?.scoreComponents ?? {}
-  }]);
+  };
 }
 
 export function applyPreparedDiscoveryFeedback(input: {
@@ -90,18 +92,20 @@ export function applyPreparedDiscoveryFeedback(input: {
 
   if (activePlanTier(getUserPlan(input.userId)) !== 'PRO') return { ok: false, code: 'PLUS_REQUIRED' };
 
-  recordPreparedFeedbackContext({
+  const example = preparedFeedbackContext({
     userId: input.userId,
     periodKey: input.periodKey,
     position: input.position,
     item
   });
 
-  return applyResolvedDiscoveryFeedback({
+  const feedback = recordDiscoveryFeedbackWithTrainingExample({
     userId: input.userId,
     cardName: item.suggestion.name,
     lane: item.suggestion.lane,
-    action: input.action,
-    maxPrice: item.market.askingTotal ?? item.market.soldTotal
+    feedback: input.action,
+    maxPrice: item.market.askingTotal ?? item.market.soldTotal,
+    example
   });
+  return { ok: true, feedback };
 }

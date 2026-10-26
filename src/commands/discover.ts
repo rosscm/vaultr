@@ -33,6 +33,7 @@ import {
   upsertUserDiscoveryState
 } from '../services/chase-store.js';
 import { applyResolvedDiscoveryFeedback } from '../services/discovery-feedback.js';
+import { discoveryLearningFeatures } from '../services/discovery-learning-features.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice, type SupportedCurrency } from '../services/currency.js';
 import { buildEbaySearchKeywords, searchEbayListings, searchEbaySoldListings, snapshotEbayRuntimeStats, type EbayRuntimeStats } from '../services/ebay.js';
 import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
@@ -4227,7 +4228,21 @@ export function collectorDiscoveryFeatures(candidate: DiscoveryCandidate, chases
   const exactNicheIdentity = isExactNicheDiscoveryCandidate(candidate);
   const premiumFormatContext = hasPremiumVmaxContextText(text) || /\b(?:sir|sar|ar|special illustration rare|illustration rare|alt art|alternate art|secret rare|trainer gallery|galarian gallery)\b/.test(text);
   const ordinaryFormatPenalty = isOrdinaryVmaxDiscoveryCandidate(candidate) || (/\b(?:gx|ex|vmax|vstar)\b/.test(text) && !premiumFormatContext && !exactNicheIdentity);
-  const collectorTerms = collectorTermTokens(candidate);
+  const sharedFeatures = discoveryLearningFeatures(candidate.suggestion);
+  const sharedTerms = Array.isArray(sharedFeatures.collectorTerms)
+    ? sharedFeatures.collectorTerms.filter((term): term is string => typeof term === 'string')
+    : [];
+  const collectorTerms = Array.from(new Set([...collectorTermTokens(candidate), ...sharedTerms])).sort();
+  const candidateTraits = collectorTraitMap(candidate, collectorTerms);
+  const sharedTraits = sharedFeatures.collectorTraits && typeof sharedFeatures.collectorTraits === 'object' && !Array.isArray(sharedFeatures.collectorTraits)
+    ? sharedFeatures.collectorTraits as Record<string, string[]>
+    : {};
+  const collectorTraits = Object.fromEntries(
+    Array.from(new Set([...Object.keys(sharedTraits), ...Object.keys(candidateTraits)])).map((key) => [
+      key,
+      Array.from(new Set([...(sharedTraits[key] ?? []), ...(candidateTraits[key] ?? [])])).sort()
+    ])
+  );
   return {
     directSubjectSupport,
     adjacentThemeNovelty,
@@ -4247,7 +4262,7 @@ export function collectorDiscoveryFeatures(candidate: DiscoveryCandidate, chases
     imageEvidence: imageQualityRank(candidate),
     curiosity: candidate.suggestion.curiosityScore ?? 0,
     collectorTerms,
-    collectorTraits: collectorTraitMap(candidate, collectorTerms)
+    collectorTraits
   };
 }
 
