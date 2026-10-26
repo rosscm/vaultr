@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createUser } from '../accounts.js';
-import { getUserDiscoveryFeedback, getUserPlan } from '../chase-store.js';
+import { getUserDiscoveryFeedback, getUserPlan, setUserPlan } from '../chase-store.js';
+import { db } from '../db.js';
 import { applyPreparedDiscoveryFeedback } from '../discovery-feedback.js';
 import { parseStagingDiscoveryFixtureArgs } from '../../staging-discovery-fixture.js';
 import {
@@ -45,6 +46,7 @@ describe('staging personalized Display Case fixture', () => {
     const other = createUser({ displayName: 'Other Account' });
     const now = new Date('2026-10-21T18:00:00.000Z');
     const periodKey = `${scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', now)}-STAGING`;
+    setUserPlan(user.id, 'PRO');
     const originalPlan = getUserPlan(user.id);
 
     const created = installStagingDiscoveryFixture({ userId: user.id, env: stagingEnv(), cwd: '/', now });
@@ -79,13 +81,29 @@ describe('staging personalized Display Case fixture', () => {
     expect(getScheduledDiscoveryDrop(other.id, 'WEEKLY_DISCOVERY', periodKey)).toBeNull();
     expect(getUserPlan(user.id)).toEqual(originalPlan);
 
-    expect(applyPreparedDiscoveryFeedback({
+    const firstFeedback = applyPreparedDiscoveryFeedback({
       userId: user.id,
       periodKey,
       position: 1,
       action: 'MORE_LIKE_THIS'
-    }).ok).toBe(true);
+    });
+    expect(firstFeedback.ok).toBe(true);
     expect(getUserDiscoveryFeedback(user.id, created.drop.items[0].suggestion.name)?.feedback).toBe('MORE_LIKE_THIS');
+    const firstVersion = getUserDiscoveryFeedback(user.id, created.drop.items[0].suggestion.name)!.version;
+    expect(applyPreparedDiscoveryFeedback({ userId: user.id, periodKey, position: 1, action: 'MORE_LIKE_THIS' })).toEqual(firstFeedback);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM discovery_training_examples WHERE user_id = ? AND surface = ?').get(user.id, 'WEB_DISPLAY_CASE')).toEqual({ count: 1 });
+
+    expect(applyPreparedDiscoveryFeedback({ userId: user.id, periodKey, position: 1, action: 'UNDO', expectedVersion: firstVersion })).toEqual({ ok: true, feedback: null });
+    const replacement = applyPreparedDiscoveryFeedback({ userId: user.id, periodKey, position: 1, action: 'NOT_FOR_ME' });
+    expect(replacement.ok).toBe(true);
+    const replacementVersion = getUserDiscoveryFeedback(user.id, created.drop.items[0].suggestion.name)!.version;
+    expect(replacementVersion).toBeGreaterThan(firstVersion);
+    expect(applyPreparedDiscoveryFeedback({ userId: user.id, periodKey, position: 1, action: 'UNDO', expectedVersion: firstVersion })).toEqual({ ok: false, code: 'STALE_FEEDBACK' });
+    expect(getUserDiscoveryFeedback(user.id, created.drop.items[0].suggestion.name)?.feedback).toBe('NOT_FOR_ME');
+
+    setUserPlan(user.id, 'FREE');
+    expect(applyPreparedDiscoveryFeedback({ userId: user.id, periodKey, position: 1, action: 'MORE_LIKE_THIS' })).toEqual({ ok: false, code: 'PLUS_REQUIRED' });
+    expect(applyPreparedDiscoveryFeedback({ userId: user.id, periodKey, position: 1, action: 'UNDO', expectedVersion: replacementVersion })).toEqual({ ok: true, feedback: null });
 
     expect(removeStagingDiscoveryFixture({ userId: user.id, env: stagingEnv(), cwd: '/' })).toEqual({ action: 'REMOVED', count: 1 });
     expect(getScheduledDiscoveryDrop(user.id, 'WEEKLY_DISCOVERY', periodKey)).toBeNull();

@@ -42,6 +42,7 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_discovery_feedback WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM discovery_training_examples WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_alert_settings WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
@@ -88,7 +89,7 @@ function seedAlert(userId: string, index: number, overrides: Partial<Parameters<
 
 function seedWeeklyShelf(
   userId: string,
-  date = new Date('2026-08-31T13:00:00.000Z'),
+  date = new Date('2026-08-24T13:00:00.000Z'),
   options: { name?: string; cardNumber?: string; setName?: string; language?: 'ENGLISH' | 'JAPANESE'; updatedAt?: string } = {}
 ) {
   setUserPlan(userId, 'PRO');
@@ -390,7 +391,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
     expect(jsResponse.body).toContain('Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.');
-    expect(jsResponse.body).toContain('A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.');
+    expect(jsResponse.body).toContain('A few collector favourites to get you started.');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('<p class="eyebrow">INBOX</p>');
     expect(jsResponse.body).toContain('<h2 id="home-alerts-title">Latest matches</h2>');
@@ -428,8 +429,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('View Pickup');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">YOUR PLAN</p>');
     expect(jsResponse.body).not.toContain('class="plus-current"');
-    expect(jsResponse.body).toContain('editorial Discover picks, not personalized recommendations');
-    expect(jsResponse.body).toContain('Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks');
+    expect(jsResponse.body).toContain('Your full personalized Display Case, shaped by your Watchlist, Pickups, and feedback');
+    expect(jsResponse.body).toContain('Editorial picks to explore');
+    expect(jsResponse.body).not.toContain('Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks');
     expect(jsResponse.body).toContain('Priority monitoring with targeted checks');
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
     expect(jsResponse.body).toContain('state.vaultPrefillCardName = selectedCardName;');
@@ -578,9 +580,10 @@ describe('web app static routes', () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const functionSource = source.slice(source.indexOf('function starterDiscoveryItems()'), source.indexOf('function normalizedDiscoveryIdentity('));
+    const stateCopySource = source.slice(source.indexOf('function discoveryStateCopy('), source.indexOf('function homeAttentionEmptyMarkup('));
     const evaluate = (state: Record<string, unknown>) => new Function(
       'state',
-      `${functionSource}\nreturn { personalized: hasPersonalizedDiscoveryAccess(), items: homeDisplayCaseItems(), copy: editorialDiscoveryCopy() };`
+      `${stateCopySource}\n${functionSource}\nreturn { personalized: hasPersonalizedDiscoveryAccess(), items: homeDisplayCaseItems(), copy: editorialDiscoveryCopy() };`
     )(state) as { personalized: boolean; items: Array<{ name: string }>; copy: string };
     const personalizedItems = [{ name: 'Persisted personalized card' }];
     const starterItems = [{ name: 'Editorial starter card' }];
@@ -591,7 +594,7 @@ describe('web app static routes', () => {
     })).toEqual({
       personalized: false,
       items: starterItems,
-      copy: 'A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.'
+      copy: 'A few collector favourites to get you started.'
     });
     expect(evaluate({
       vaultPlan: { tier: 'PRO' },
@@ -599,11 +602,11 @@ describe('web app static routes', () => {
     })).toMatchObject({ personalized: true, items: personalizedItems });
     expect(evaluate({
       vaultPlan: { tier: 'PRO' },
-      shelf: { items: personalizedItems, starterItems, discovery: { tier: 'PRO', state: 'INSUFFICIENT_SIGNALS' } }
+      shelf: { items: personalizedItems, starterItems, discovery: { tier: 'PRO', state: 'INSUFFICIENT_SIGNALS', uniqueSignalCount: 3, minimumSignalCount: 5, signalsNeeded: 2 } }
     })).toEqual({
       personalized: false,
       items: starterItems,
-      copy: 'A few collector picks to explore while Vaultr learns your taste.'
+      copy: 'Your Display Case starts with what you love collecting. Your profile has 3 of 5 distinct card signals and needs 2 more. Watchlist cards and Pickups both help build it.'
     });
   });
 
@@ -817,8 +820,8 @@ describe('web app preview mode', () => {
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_USER')).toBe(true);
     expect(previewVault.items.some((item: { monitoringState: string }) => item.monitoringState === 'PAUSED_PLAN_LIMIT')).toBe(true);
     expect(previewVault.options.plans).toEqual([
-      expect.objectContaining({ tier: 'FREE', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', discoveryDepth: 'limited', discoveryVisibleCards: 3 }),
-      expect.objectContaining({ tier: 'PRO', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', discoveryDepth: 'full', discoveryVisibleCards: 7 })
+      expect.objectContaining({ tier: 'FREE', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', discoveryDepth: 'limited' }),
+      expect.objectContaining({ tier: 'PRO', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', discoveryDepth: 'full' })
     ]);
     expect(previewVault.options.billing).toEqual({ selfServiceAvailable: false });
     expect(previewAlerts.items.map((item: { priceDelta: number }) => item.priceDelta)).toEqual([27, 6, 7, 6, 15]);
@@ -1548,7 +1551,7 @@ describe('authenticated Weekly Shelf API', () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
       status: 'READY',
-      title: 'Weekly Shelf',
+      title: 'Display Case',
       itemCount: 2,
       marketReadyCount: 1,
       imageReadyCount: 1,
@@ -1637,6 +1640,7 @@ describe('authenticated Weekly Shelf API', () => {
       body: JSON.stringify({ ...item.recommendation, action: 'MORE_LIKE_THIS' })
     }, { config });
     expect(JSON.parse(retried.body ?? '{}').feedback.interactionCount).toBe(1);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM discovery_training_examples WHERE user_id = ? AND surface = ?').get(userId, 'WEB_DISPLAY_CASE')).toEqual({ count: 1 });
 
     const changed = await handleWebRequest({
       method: 'POST', url: '/api/shelf/feedback', headers,
@@ -1645,6 +1649,14 @@ describe('authenticated Weekly Shelf API', () => {
     const changedFeedback = JSON.parse(changed.body ?? '{}').feedback;
     expect(changedFeedback).toMatchObject({ feedback: 'NOT_FOR_ME', interactionCount: 2 });
     expect(listUserTasteMemoryChases(userId).map((entry) => entry.cardName)).not.toContain('Mew CoroCoro Promo 151');
+
+    setUserPlan(userId, 'FREE');
+    const rejectedAfterDowngrade = await handleWebRequest({
+      method: 'POST', url: '/api/shelf/feedback', headers,
+      body: JSON.stringify({ ...item.recommendation, action: 'MORE_LIKE_THIS' })
+    }, { config });
+    expect(rejectedAfterDowngrade.status).toBe(403);
+    expect(JSON.parse(rejectedAfterDowngrade.body ?? '{}')).toEqual({ error: 'PLUS_REQUIRED' });
 
     const staleUndo = await handleWebRequest({
       method: 'POST', url: '/api/shelf/feedback', headers,
@@ -1662,7 +1674,8 @@ describe('authenticated Weekly Shelf API', () => {
     expect(getUserDiscoveryFeedback(userId, 'Mew CoroCoro Promo 151')).toBeNull();
 
     const reread = await handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config, now: () => new Date('2026-08-30T13:00:00.000Z') });
-    expect(JSON.parse(reread.body ?? '{}').items[0].feedback).toBeNull();
+    expect(JSON.parse(reread.body ?? '{}').items).toEqual([]);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM discovery_training_examples WHERE user_id = ? AND surface = ?').get(userId, 'WEB_DISPLAY_CASE')).toEqual({ count: 1 });
     expect(listChases(userId)).toEqual([]);
     clearUser(userId);
   });
@@ -1766,7 +1779,7 @@ describe('authenticated Weekly Shelf API', () => {
     clearUser(userId);
   });
 
-  it('prefers a prepared target-period shelf over the still-current previous week', async () => {
+  it('keeps the released Display Case visible while a future version is prepared', async () => {
     const userId = 'web-shelf-target-period-user';
     clearUser(userId);
     seedWeeklyShelf(userId, new Date('2026-08-24T13:00:00.000Z'), {
@@ -1792,10 +1805,10 @@ describe('authenticated Weekly Shelf API', () => {
     const body = JSON.parse(response.body ?? '{}');
 
     expect(response.status).toBe(200);
-    expect(body.shelfKind).toBe('PREPARED');
-    expect(body.periodKey).toBe('2026-W36');
-    expect(body.items[0].name).toBe('W36 Shelf Card');
-    expect(JSON.stringify(body)).not.toContain('W35 Shelf Card');
+    expect(body.shelfKind).toBe('CURRENT');
+    expect(body.periodKey).toBe('2026-W35');
+    expect(body.items[0].name).toBe('W35 Shelf Card');
+    expect(JSON.stringify(body)).not.toContain('W36 Shelf Card');
 
     clearUser(userId);
   });
@@ -1829,7 +1842,7 @@ describe('authenticated Weekly Shelf API', () => {
   it('builds encoded eBay search URLs from shelf card identity only', async () => {
     const userId = 'web-shelf-ebay-user';
     clearUser(userId);
-    seedWeeklyShelf(userId, new Date('2026-08-31T13:00:00.000Z'), {
+    seedWeeklyShelf(userId, new Date('2026-08-24T13:00:00.000Z'), {
       name: 'Mega Gardevoir ex 087/063',
       cardNumber: '087/063',
       setName: 'Mega Symphonia',
@@ -1870,7 +1883,7 @@ describe('authenticated Weekly Shelf API', () => {
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body ?? '{}')).toMatchObject({
       status: 'UPCOMING',
-      title: 'Weekly Shelf',
+      title: 'Display Case',
       items: []
     });
 
@@ -1946,7 +1959,7 @@ describe('authenticated Weekly Shelf API', () => {
     const userId = 'web-shelf-malformed-user';
     clearUser(userId);
     setUserPlan(userId, 'PRO');
-    const date = new Date('2026-08-31T13:00:00.000Z');
+    const date = new Date('2026-08-24T13:00:00.000Z');
     const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date);
     const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', date);
     upsertScheduledDiscoveryDrop({
@@ -2042,8 +2055,8 @@ describe('authenticated chase API', () => {
     expect(body.currency).toBe('USD');
     expect(body.options.gradingTypes.some((option: any) => option.value === 'PSA')).toBe(true);
     expect(body.options.plans).toEqual([
-      expect.objectContaining({ tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited', discoveryVisibleCards: 3 }),
-      expect.objectContaining({ tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full', discoveryVisibleCards: 7 })
+      expect.objectContaining({ tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited' }),
+      expect.objectContaining({ tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full' })
     ]);
     expect(body.options.billing).toEqual({ selfServiceAvailable: false });
     expect(body.items[0].chase).not.toHaveProperty('guildId');

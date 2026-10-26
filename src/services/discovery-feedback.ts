@@ -1,16 +1,19 @@
 import {
   getUserDiscoveryFeedback,
+  getUserPlan,
   recordDiscoveryFeedback,
+  recordDiscoveryTrainingExamples,
   undoDiscoveryFeedback,
   type UserDiscoveryFeedback
 } from './chase-store.js';
 import { getScheduledDiscoveryDrop } from './scheduled-discovery-drops.js';
+import { activePlanTier } from './plans.js';
 
 export type DiscoveryFeedbackAction = UserDiscoveryFeedback | 'UNDO';
 
 export type DiscoveryFeedbackResult =
   | { ok: true; feedback: ReturnType<typeof getUserDiscoveryFeedback> }
-  | { ok: false; code: 'INVALID_ACTION' | 'RECOMMENDATION_NOT_FOUND' | 'STALE_FEEDBACK' };
+  | { ok: false; code: 'INVALID_ACTION' | 'RECOMMENDATION_NOT_FOUND' | 'STALE_FEEDBACK' | 'PLUS_REQUIRED' };
 
 export function applyResolvedDiscoveryFeedback(input: {
   userId: string;
@@ -18,14 +21,44 @@ export function applyResolvedDiscoveryFeedback(input: {
   lane: string;
   action: UserDiscoveryFeedback;
   maxPrice?: number;
-}) {
-  return recordDiscoveryFeedback({
+}): DiscoveryFeedbackResult {
+  if (activePlanTier(getUserPlan(input.userId)) !== 'PRO') return { ok: false, code: 'PLUS_REQUIRED' };
+  const feedback = recordDiscoveryFeedback({
     userId: input.userId,
     cardName: input.cardName,
     lane: input.lane,
     feedback: input.action,
     maxPrice: input.maxPrice
   });
+  return { ok: true, feedback };
+}
+
+function recordPreparedFeedbackContext(input: {
+  userId: string;
+  periodKey: string;
+  position: number;
+  item: NonNullable<ReturnType<typeof getScheduledDiscoveryDrop>>['items'][number];
+}): void {
+  const suggestion = input.item.suggestion;
+  recordDiscoveryTrainingExamples([{
+    userId: input.userId,
+    surface: 'WEB_DISPLAY_CASE',
+    periodKey: input.periodKey,
+    suggestionName: suggestion.name,
+    lane: suggestion.lane,
+    position: input.position,
+    rankerVersion: 'prepared-display-case-v1',
+    features: {
+      canonicalReference: suggestion.canonicalReference,
+      generationStrategies: suggestion.generationStrategies ?? [],
+      generationReasons: suggestion.generationReasons ?? [],
+      discoveryRole: suggestion.discoveryRole,
+      sourceTasteTokens: suggestion.sourceTasteTokens ?? [],
+      strongestSignals: suggestion.rankExplanation?.strongestSignals ?? [],
+      noveltyReason: suggestion.rankExplanation?.noveltyReason
+    },
+    scores: suggestion.rankExplanation?.scoreComponents ?? {}
+  }]);
 }
 
 export function applyPreparedDiscoveryFeedback(input: {
@@ -55,12 +88,20 @@ export function applyPreparedDiscoveryFeedback(input: {
     return { ok: true, feedback: null };
   }
 
-  const feedback = applyResolvedDiscoveryFeedback({
+  if (activePlanTier(getUserPlan(input.userId)) !== 'PRO') return { ok: false, code: 'PLUS_REQUIRED' };
+
+  recordPreparedFeedbackContext({
+    userId: input.userId,
+    periodKey: input.periodKey,
+    position: input.position,
+    item
+  });
+
+  return applyResolvedDiscoveryFeedback({
     userId: input.userId,
     cardName: item.suggestion.name,
     lane: item.suggestion.lane,
     action: input.action,
     maxPrice: item.market.askingTotal ?? item.market.soldTotal
   });
-  return { ok: true, feedback };
 }

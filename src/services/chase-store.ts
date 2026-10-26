@@ -907,11 +907,12 @@ const upsertUserDiscoverySeenStmt = db.prepare(`
 `);
 
 const upsertUserDiscoveryFeedbackStmt = db.prepare(`
-  INSERT INTO user_discovery_feedback (user_id, suggestion_name, lane, feedback, interaction_count, first_interacted_at, last_interacted_at)
-  VALUES (?, ?, ?, ?, 1, ?, ?)
+  INSERT INTO user_discovery_feedback (user_id, suggestion_name, lane, feedback, version, active, interaction_count, first_interacted_at, last_interacted_at)
+  VALUES (?, ?, ?, ?, 1, 1, 1, ?, ?)
   ON CONFLICT(user_id, suggestion_name) DO UPDATE SET
     lane = excluded.lane,
     feedback = excluded.feedback,
+    active = 1,
     interaction_count = user_discovery_feedback.interaction_count + 1,
     version = user_discovery_feedback.version + 1,
     last_interacted_at = excluded.last_interacted_at
@@ -920,7 +921,7 @@ const upsertUserDiscoveryFeedbackStmt = db.prepare(`
 const listRecentUserDiscoveryFeedbackStmt = db.prepare(`
   SELECT suggestion_name, lane, feedback, interaction_count, last_interacted_at, version
   FROM user_discovery_feedback
-  WHERE user_id = ? AND feedback = ?
+  WHERE user_id = ? AND feedback = ? AND active = 1
   ORDER BY last_interacted_at DESC
   LIMIT ?
 `);
@@ -928,12 +929,13 @@ const listRecentUserDiscoveryFeedbackStmt = db.prepare(`
 const getUserDiscoveryFeedbackStmt = db.prepare(`
   SELECT suggestion_name, lane, feedback, interaction_count, last_interacted_at, version
   FROM user_discovery_feedback
-  WHERE user_id = ? AND suggestion_name = ?
+  WHERE user_id = ? AND suggestion_name = ? AND active = 1
   LIMIT 1
 `);
 
-const deleteUserDiscoveryFeedbackStmt = db.prepare(`
-  DELETE FROM user_discovery_feedback
+const deactivateUserDiscoveryFeedbackStmt = db.prepare(`
+  UPDATE user_discovery_feedback
+  SET active = 0
   WHERE user_id = ? AND suggestion_name = ?
 `);
 
@@ -1142,6 +1144,12 @@ const listUsersWithChasesStmt = db.prepare(`
   FROM chases
 `);
 
+const listUsersWithDiscoverySignalsStmt = db.prepare(`
+  SELECT user_id FROM chases
+  UNION
+  SELECT user_id FROM user_taste_memory WHERE source <> 'REMOVED_CHASE'
+`);
+
 const countUserAlertsSinceStmt = db.prepare(`
   SELECT COUNT(*) AS count
   FROM sent_alerts
@@ -1315,6 +1323,13 @@ const listUserTasteMemoryStmt = db.prepare(`
   WHERE user_id = ?
   ORDER BY weight DESC, interaction_count DESC, last_interacted_at DESC
   LIMIT ?
+`);
+
+const listAllUserTasteMemoryStmt = db.prepare(`
+  SELECT user_id, signal_id, source, card_name, max_price, weight, interaction_count, first_interacted_at, last_interacted_at
+  FROM user_taste_memory
+  WHERE user_id = ?
+  ORDER BY weight DESC, interaction_count DESC, last_interacted_at DESC
 `);
 
 const deleteUserTasteMemoryStmt = db.prepare(`
@@ -1586,6 +1601,11 @@ export function listUserTasteMemoryChases(userId: string, limit = 24): Chase[] {
   return rows.map(mapTasteMemoryRow);
 }
 
+export function listAllUserTasteMemoryChases(userId: string): Chase[] {
+  const rows = listAllUserTasteMemoryStmt.all(userId) as UserTasteMemoryRow[];
+  return rows.map(mapTasteMemoryRow);
+}
+
 export function recordDiscoveryAddTaste(userId: string, cardName: string, maxPrice?: number): void {
   rememberTasteSignal({
     userId,
@@ -1829,7 +1849,7 @@ export function undoDiscoveryFeedback(input: {
     const row = getUserDiscoveryFeedbackStmt.get(input.userId, input.cardName) as UserDiscoveryFeedbackRow | undefined;
     if (!row) return null;
     if (input.expectedVersion !== undefined && row.version !== input.expectedVersion) return null;
-    deleteUserDiscoveryFeedbackStmt.run(input.userId, input.cardName);
+    deactivateUserDiscoveryFeedbackStmt.run(input.userId, input.cardName);
     clearDiscoveryTrainingOutcomeStmt.run(new Date().toISOString(), input.userId, input.cardName);
     if (row.feedback === 'MORE_LIKE_THIS') {
       deleteUserTasteMemoryStmt.run(input.userId, discoveryTasteSignalId(input.cardName), 'DISCOVERY_LIKE');
@@ -1944,6 +1964,11 @@ export function markPostedUserWeeklyReflection(userId: string, weekKey: string):
 
 export function listUsersWithChases(): string[] {
   const rows = listUsersWithChasesStmt.all() as Array<{ user_id: string }>;
+  return rows.map((row) => row.user_id);
+}
+
+export function listUsersWithDiscoverySignals(): string[] {
+  const rows = listUsersWithDiscoverySignalsStmt.all() as Array<{ user_id: string }>;
   return rows.map((row) => row.user_id);
 }
 

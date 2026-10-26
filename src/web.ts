@@ -48,7 +48,6 @@ import { activePlanTier } from './services/plans.js';
 import { weeklyDiscoveryEligibilityForUser } from './services/weekly-discovery-eligibility.js';
 import {
   getLatestAvailableScheduledDiscoveryDrop,
-  getScheduledDiscoveryDrop,
   listScheduledDiscoveryDropsForUser,
   scheduledDiscoveryPeriodKey,
   type ScheduledDiscoveryDrop,
@@ -366,8 +365,7 @@ function vaultOptions() {
       monitoringPriority: entitlements.monitoringPriority,
       advancedFiltering: entitlements.advancedFiltering,
       storefrontMonitoring: entitlements.storefrontMonitoring,
-      discoveryDepth: entitlements.discoveryDepth,
-      discoveryVisibleCards: entitlements.discoveryVisibleCards
+      discoveryDepth: entitlements.discoveryDepth
     };
   });
   return {
@@ -643,12 +641,8 @@ function webDiscoveryState(userId: string, config: WebConfig, populated: boolean
 function shelfResponse(userId: string, config: WebConfig, now = new Date()): WebResponse {
   const targetDate = weeklyPreparationTargetDate(now);
   const targetPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', targetDate);
-  const targetDrop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', targetPeriod);
   const nowIso = now.toISOString();
   const allDrops = listScheduledDiscoveryDropsForUser(userId, 'WEEKLY_DISCOVERY').filter(validDashboardShelf);
-  const upcomingDrop = allDrops
-    .filter((drop) => Date.parse(drop.availableAt) > now.getTime())
-    .sort((a, b) => Date.parse(a.availableAt) - Date.parse(b.availableAt))[0];
   const currentDrop = allDrops
     .filter((drop) => Date.parse(drop.availableAt) <= now.getTime() && (!drop.expiresAt || Date.parse(drop.expiresAt) > now.getTime()))
     .sort((a, b) => Date.parse(b.availableAt) - Date.parse(a.availableAt))[0];
@@ -656,32 +650,19 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
   const latestHistoricalDrop = allDrops
     .filter((drop) => Date.parse(drop.availableAt) <= now.getTime())
     .sort((a, b) => Date.parse(b.availableAt) - Date.parse(a.availableAt))[0];
-  const targetShelfKind = validDashboardShelf(targetDrop) && Date.parse(targetDrop.availableAt) > now.getTime()
-    ? 'PREPARED'
-    : validDashboardShelf(targetDrop)
+  const drop = currentDrop ?? latestAvailableDrop ?? latestHistoricalDrop;
+  const shelfKind = !drop
+    ? 'UPCOMING'
+    : currentDrop?.periodKey === drop.periodKey
       ? 'CURRENT'
-      : undefined;
-  const shelfKind = targetShelfKind
-    ? targetShelfKind
-    : upcomingDrop
-      ? 'PREPARED'
-      : currentDrop
-        ? 'CURRENT'
-        : validDashboardShelf(latestAvailableDrop)
-          ? 'PREVIOUS'
-          : latestHistoricalDrop
-            ? 'PREVIOUS'
-            : 'UPCOMING';
-  const drop = validDashboardShelf(targetDrop)
-    ? targetDrop
-    : upcomingDrop ?? currentDrop ?? latestAvailableDrop ?? latestHistoricalDrop;
+      : 'PREVIOUS';
 
   if (!validDashboardShelf(drop)) {
     return jsonResponse(200, {
       status: 'UPCOMING',
       shelfKind,
       periodKey: targetPeriod,
-      title: 'Weekly Shelf',
+      title: 'Display Case',
       items: [],
       discovery: webDiscoveryState(userId, config, false),
       starterItems: publicStarterDiscoveryItems(userId, config)
@@ -694,7 +675,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     status: drop.status,
     shelfKind,
     periodKey: drop.periodKey,
-    title: drop.title,
+    title: 'Display Case',
     summary: drop.summary,
     availableAt: drop.availableAt,
     updatedAt: drop.updatedAt,
@@ -1207,7 +1188,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       expectedVersion: expectedVersion as number | undefined
     });
     if (!result.ok) {
-      const status = result.code === 'STALE_FEEDBACK' ? 409 : result.code === 'RECOMMENDATION_NOT_FOUND' ? 404 : 400;
+      const status = result.code === 'STALE_FEEDBACK' ? 409 : result.code === 'RECOMMENDATION_NOT_FOUND' ? 404 : result.code === 'PLUS_REQUIRED' ? 403 : 400;
       return jsonResponse(status, { error: result.code });
     }
     return jsonResponse(200, { feedback: result.feedback });

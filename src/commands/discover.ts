@@ -14251,6 +14251,13 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
     action: feedback,
     maxPrice: pick.maxPrice
   });
+  if (!savedFeedback.ok) {
+    await interaction.reply({
+      embeds: [warningEmbed('Vaultr Plus Required', 'Personalized Display Case feedback is available with Vaultr Plus')],
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
 
   const title = feedback === 'MORE_LIKE_THIS' ? 'Taste Saved' : 'Discovery Tuned';
   const message =
@@ -14259,7 +14266,7 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
       : `Noted. Vaultr will keep **${pick.cardName}** in mind when shaping future discoveries`;
   const undoRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:${interaction.user.id}:${pick.token}:${savedFeedback.version}`)
+      .setCustomId(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:${interaction.user.id}:${pick.token}:${savedFeedback.feedback!.version}`)
       .setLabel('Undo')
       .setStyle(ButtonStyle.Secondary)
   );

@@ -113,8 +113,7 @@ function previewPlanOption(tier: PlanTier) {
     monitoringPriority: entitlements.monitoringPriority,
     advancedFiltering: entitlements.advancedFiltering,
     storefrontMonitoring: entitlements.storefrontMonitoring,
-    discoveryDepth: entitlements.discoveryDepth,
-    discoveryVisibleCards: entitlements.discoveryVisibleCards
+    discoveryDepth: entitlements.discoveryDepth
   };
 }
 
@@ -180,7 +179,7 @@ export const WEB_PREVIEW_SHELF = {
   status: 'READY',
   shelfKind: 'CURRENT',
   periodKey: '2026-W41',
-  title: 'Weekly Shelf',
+  title: 'Display Case',
   summary: 'Collector picks shaped by your Vault and completed Chases.',
   availableAt: '2026-10-05T13:00:00.000Z',
   updatedAt: '2026-10-05T12:30:00.000Z',

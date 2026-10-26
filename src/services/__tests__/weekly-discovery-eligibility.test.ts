@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { addChase, removeAllChases, setUserPlan } from '../chase-store.js';
+import { addChase, removeAllChases, resolveChaseRemoval, setUserPlan } from '../chase-store.js';
+import { db } from '../db.js';
 import {
   evaluateWeeklyDiscoveryEligibility,
   listProUsersEligibleForWeeklyDiscovery,
@@ -10,7 +11,11 @@ import type { Chase } from '../../types.js';
 const userIds: string[] = [];
 
 afterEach(() => {
-  for (const userId of userIds.splice(0)) removeAllChases(userId);
+  for (const userId of userIds.splice(0)) {
+    removeAllChases(userId);
+    db.prepare('DELETE FROM completed_chases WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
+  }
 });
 
 function chase(name: string, fields: Partial<Chase> = {}): Chase {
@@ -102,5 +107,24 @@ describe('weekly discovery eligibility', () => {
     expect(weeklyDiscoveryEligibilityForUser(thinUserId).eligible).toBe(false);
     expect(listProUsersEligibleForWeeklyDiscovery()).toContain(eligibleUserId);
     expect(listProUsersEligibleForWeeklyDiscovery()).not.toContain(thinUserId);
+  });
+
+  it('includes eligible Plus collectors whose positive signals are all Pickups', () => {
+    const userId = `weekly-eligibility-pickups-${Date.now()}`;
+    userIds.push(userId);
+    setUserPlan(userId, 'PRO');
+
+    for (let index = 1; index <= 5; index += 1) {
+      const saved = addChase({ userId, cardName: `Pickup Signal ${index}`, priority: 'NORMAL' });
+      expect(resolveChaseRemoval(userId, saved.id, 'COMPLETED').removed).toBe(true);
+    }
+
+    expect(weeklyDiscoveryEligibilityForUser(userId)).toMatchObject({ eligible: true, activeChaseCount: 0, uniqueSignalCount: 5 });
+    expect(listProUsersEligibleForWeeklyDiscovery()).toContain(userId);
+
+    setUserPlan(userId, 'PRO', 'CANCELED');
+    expect(listProUsersEligibleForWeeklyDiscovery()).not.toContain(userId);
+    setUserPlan(userId, 'FREE');
+    expect(listProUsersEligibleForWeeklyDiscovery()).not.toContain(userId);
   });
 });

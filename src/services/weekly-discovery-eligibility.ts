@@ -1,4 +1,4 @@
-import { getUserPlan, listChases, listUserTasteMemoryChases, listUsersWithChases } from './chase-store.js';
+import { getUserPlan, listAllUserTasteMemoryChases, listChases, listUsersWithDiscoverySignals } from './chase-store.js';
 import { activePlanTier } from './plans.js';
 import type { Chase } from '../types.js';
 
@@ -84,18 +84,18 @@ export function evaluateWeeklyDiscoveryEligibility(
 export function weeklyDiscoveryEligibilityForUser(userId: string): WeeklyDiscoveryEligibility {
   return evaluateWeeklyDiscoveryEligibility(
     listChases(userId),
-    listUserTasteMemoryChases(userId, WEEKLY_DISCOVERY_MIN_UNIQUE_SIGNAL_COUNT * 2)
+    listAllUserTasteMemoryChases(userId)
   );
 }
 
 export function listProUsersEligibleForWeeklyDiscovery(): string[] {
-  return listUsersWithChases().filter((userId) =>
+  return listUsersWithDiscoverySignals().filter((userId) =>
     activePlanTier(getUserPlan(userId)) === 'PRO' && weeklyDiscoveryEligibilityForUser(userId).eligible
   );
 }
 
 export function countProUsersIneligibleForWeeklyDiscovery(): number {
-  return listUsersWithChases().filter((userId) =>
+  return listUsersWithDiscoverySignals().filter((userId) =>
     activePlanTier(getUserPlan(userId)) === 'PRO' && !weeklyDiscoveryEligibilityForUser(userId).eligible
   ).length;
 }

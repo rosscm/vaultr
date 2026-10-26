@@ -933,7 +933,7 @@ function plusPlanFeatureList(plan) {
       <li>${plan.monitoringPriority === 'PRIORITY' ? 'Priority monitoring with targeted checks' : 'Standard monitoring with targeted eBay checks'} every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li>
       <li>${plan.advancedFiltering ? 'Precision condition, listing, priority, note, and exclusion controls' : 'Core card, budget, and grading preferences'}</li>
       <li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops monitoring' : 'eBay monitoring'}</li>
-      <li>${plan.discoveryDepth === 'full' ? `Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks shaped by your Watchlist, Pickups, and feedback` : `${escapeHtml(plan.discoveryVisibleCards)} editorial Discover picks, not personalized recommendations`}</li>
+      <li>${plan.discoveryDepth === 'full' ? 'Your full personalized Display Case, shaped by your Watchlist, Pickups, and feedback' : 'Editorial picks to explore'}</li>
     </ul>
   `;
 }
@@ -1333,9 +1333,10 @@ function homeDisplayCaseItems() {
 }
 
 function editorialDiscoveryCopy() {
-  return state.vaultPlan?.tier === 'PRO'
-    ? 'A few collector picks to explore while Vaultr learns your taste.'
-    : 'A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.';
+  const discovery = state.shelf?.discovery;
+  if (discovery?.state === 'INSUFFICIENT_SIGNALS') return discoveryStateCopy(discovery, true);
+  if (discovery?.state === 'AWAITING_PREPARATION' || discovery?.state === 'PREPARATION_UNAVAILABLE') return discoveryStateCopy(discovery, true);
+  return 'A few collector favourites to get you started.';
 }
 
 function normalizedDiscoveryIdentity(value) {
@@ -1387,21 +1388,21 @@ function discoveryCardPrimaryActionMarkup(item) {
 
 function discoveryStateCopy(discovery, compact = false) {
   if (discovery?.state === 'PLAN_RESTRICTED') {
-    return compact
-      ? 'Your Watchlist and pickups shape your collecting profile. Personalized Display Cases require Vaultr Plus and may take time to appear.'
-      : 'These picks are editorial, not personalized. Your Watchlist and pickups shape your collecting profile; personalized Display Cases require Vaultr Plus and may take time to appear.';
+    return 'Your Watchlist and Pickups help shape your collecting profile. With Vaultr Plus, that profile guides your personalized Display Case.';
   }
   if (discovery?.state === 'INSUFFICIENT_SIGNALS') {
-    const needed = discovery.signalsNeeded || 1;
-    return `Add or acquire ${needed} more distinct ${needed === 1 ? 'card' : 'cards'} to build enough card history for personalized recommendations.`;
+    const count = Number(discovery.uniqueSignalCount || 0);
+    const minimum = Number(discovery.minimumSignalCount || 0);
+    const needed = Number(discovery.signalsNeeded || 0);
+    return `Your Display Case starts with what you love collecting. Your profile has ${count} of ${minimum} distinct card signals and needs ${needed} more. Watchlist cards and Pickups both help build it.`;
   }
   if (discovery?.state === 'AWAITING_PREPARATION') {
-    return 'Your collecting profile is ready. Your next personalized Display Case is pending.';
+    return 'Your collecting profile is ready. We’re putting together your first personalized Display Case.';
   }
   if (discovery?.state === 'PREPARATION_UNAVAILABLE') {
-    return 'Your collecting profile is ready, but personalized Display Cases are not being updated here right now.';
+    return 'Your collecting profile is ready, but personalized Display Case updates are unavailable in this environment.';
   }
-  return 'Your Watchlist and pickups help shape your collecting profile. With Vaultr Plus, that profile guides your personalized Display Case.';
+  return compact ? 'A few collector favourites to get you started.' : 'Your Watchlist and Pickups help shape your collecting profile.';
 }
 
 function homeAttentionEmptyMarkup() {
@@ -1815,9 +1816,7 @@ function shelfEmptyMarkup(shelf) {
   return `
     <section class="shelf-editorial" aria-label="Editorial starter picks">
       <div class="shelf-editorial-note">
-        <p>${isFree
-          ? 'Your Watchlist and Pickups help shape your collecting profile. With Vaultr Plus, that profile guides your personalized Display Case.'
-          : 'Your Watchlist and Pickups help shape your collecting profile while Vaultr learns what you love.'}</p>
+        <p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p>
         ${isFree ? '<button class="home-text-link" type="button" data-page="plus">Explore Plus</button>' : ''}
       </div>
       ${starters.length
@@ -2465,6 +2464,8 @@ async function mutateDiscoveryFeedback(target, action) {
       state.shelfLoaded = false;
       await loadShelf({ force: true });
       state.discoveryFeedbackErrors[key] = 'Feedback changed elsewhere. The latest choice is shown.';
+    } else if (error?.status === 403) {
+      state.discoveryFeedbackErrors[key] = 'Vaultr Plus is required to add new Display Case feedback.';
     } else {
       state.discoveryFeedbackErrors[key] = 'Couldn’t save feedback. Try again.';
     }
