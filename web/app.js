@@ -1404,16 +1404,6 @@ function discoveryStateCopy(discovery, compact = false) {
   return 'Your Watchlist and pickups help shape your collecting profile. With Vaultr Plus, that profile guides your personalized Display Case.';
 }
 
-function starterArtworkMarkup(items, compact = false) {
-  const starterItems = items.slice(0, compact ? 3 : 6);
-  if (!starterItems.length) return '<div class="starter-artwork-fallback">Card artwork will appear here when available.</div>';
-  return `<div class="starter-discovery-grid${compact ? ' compact' : ''}">${starterItems.map((item) => `
-    <article class="starter-discovery-card">
-      ${item.imageUrl ? artworkTriggerMarkup({ imageUrl: item.imageUrl, identity: item.name, imageKind: 'Card artwork', imageClass: 'starter-discovery-image', imageDataAttribute: 'data-starter-card-image' }) : '<div class="starter-discovery-image placeholder-image"><span>Image unavailable</span></div>'}
-      <div>${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}<strong>${escapeHtml(item.name)}</strong>${discoveryCardActionMarkup(item)}</div>
-    </article>`).join('')}</div>`;
-}
-
 function homeAttentionEmptyMarkup() {
   return `
     <div class="home-attention-empty">
@@ -1623,7 +1613,8 @@ function vaultSummaryMarkup() {
   const plan = state.vaultPlan || {};
   const watching = plan.activeCount ?? state.vault.filter((item) => item.monitoringState === 'ACTIVE').length;
   const max = plan.maxActiveChases ?? 0;
-  const paused = plan.pausedCount ?? 0;
+  const userPaused = state.vault.filter((item) => item.monitoringState === 'PAUSED_USER').length;
+  const planLimited = state.vault.filter((item) => item.monitoringState === 'PAUSED_PLAN_LIMIT').length;
   const completed = state.completedChases?.length ?? 0;
   return `
     <div class="vault-summary" aria-label="Watchlist plan summary">
@@ -1639,7 +1630,8 @@ function vaultSummaryMarkup() {
         <span class="summary-label">Pickups</span>
         <strong>${escapeHtml(completed)}</strong>
       </div>
-      ${paused > 0 ? `<p>${escapeHtml(paused)} ${paused === 1 ? 'card is' : 'cards are'} paused or outside the monitoring limit.</p>` : ''}
+      ${userPaused > 0 ? `<p>${escapeHtml(userPaused)} user-paused ${userPaused === 1 ? 'card' : 'cards'}.</p>` : ''}
+      ${planLimited > 0 ? `<p>${escapeHtml(planLimited)} ${planLimited === 1 ? 'card is' : 'cards are'} outside your plan's monitoring limit.</p>` : ''}
     </div>
   `;
 }
@@ -1796,8 +1788,8 @@ function shelfHeaderMarkup() {
   return `
     <header class="page-header shelf-page-header">
       <p class="eyebrow">DISCOVER</p>
-      <h1 id="shelf-title">Display Case</h1>
-      <p>${personalized ? 'Personalized recommendations shaped by your Watchlist, pickups, and feedback.' : 'A few collector picks to explore. Personalized recommendations are available with Vaultr Plus.'}</p>
+      <h1 id="shelf-title">Your Display Case</h1>
+      <p>${personalized ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell us you like.' : 'A few collector favourites to get you started.'}</p>
     </header>
   `;
 }
@@ -1819,23 +1811,23 @@ function shelfMetaMarkup(shelf) {
 
 function shelfEmptyMarkup(shelf) {
   const starters = shelf?.starterItems || [];
+  const isFree = shelf?.discovery?.state === 'PLAN_RESTRICTED';
   return `
-    <section class="shelf-first-use" aria-labelledby="starter-discovery-title">
-      <div class="shelf-first-use-copy">
-        <p class="eyebrow">EDITORIAL STARTER PICKS</p>
-        <h2 id="starter-discovery-title">A little inspiration</h2>
-        <p>These are editorial picks, not personalized recommendations. ${escapeHtml(editorialDiscoveryCopy())}</p>
-        <p class="discovery-state-note">${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p>
-        <div class="shelf-first-actions"><button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>${shelf?.discovery?.state === 'PLAN_RESTRICTED' ? '<button class="button-ghost" type="button" data-page="plus">Explore Plus</button>' : ''}</div>
+    <section class="shelf-editorial" aria-label="Editorial starter picks">
+      <div class="shelf-editorial-note">
+        <p>${isFree
+          ? 'Your Watchlist and Pickups help shape your collecting profile. With Vaultr Plus, that profile guides your personalized Display Case.'
+          : 'Your Watchlist and Pickups help shape your collecting profile while Vaultr learns what you love.'}</p>
+        ${isFree ? '<button class="home-text-link" type="button" data-page="plus">Explore Plus</button>' : ''}
       </div>
-      <div class="starter-discovery-section">
-        ${starterArtworkMarkup(starters)}
-      </div>
+      ${starters.length
+        ? `<div class="shelf-grid shelf-editorial-grid" aria-label="Editorial starter picks">${starters.map((item) => shelfCardMarkup(item, { editorial: true })).join('')}</div>`
+        : '<div class="starter-artwork-fallback">Collector picks will appear here when available.</div>'}
     </section>
   `;
 }
 
-function shelfCardMarkup(item) {
+function shelfCardMarkup(item, { editorial = false } = {}) {
   const details = [item.setName, item.language].filter(Boolean);
   const price = item.market?.askingTotal !== undefined
     ? formatMoney(item.market.askingTotal, item.market.currency)
@@ -1857,7 +1849,7 @@ function shelfCardMarkup(item) {
       }) : '<div class="shelf-card-image placeholder-image shelf-image-unavailable"><span>Image unavailable</span></div>'}
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
-          ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
+          ${!editorial && item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
         </div>
         <h2>${escapeHtml(item.name || 'Display Case pick')}</h2>
         ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
@@ -1872,7 +1864,7 @@ function shelfCardMarkup(item) {
             ${discoveryCardPrimaryActionMarkup(item)}
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
           </div>
-          ${discoveryFeedbackMarkup(item)}
+          ${editorial ? '' : discoveryFeedbackMarkup(item)}
         </div>
       </div>
     </article>

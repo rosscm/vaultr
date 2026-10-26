@@ -398,7 +398,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("${editorial ? '' : discoveryFeedbackMarkup(item, true)}");
     expect(jsResponse.body).toContain('home-shelf-supporting-card');
     expect(jsResponse.body).toContain('aria-hidden="true"');
-    expect(jsResponse.body).toContain('<h1 id="shelf-title">Display Case</h1>');
+    expect(jsResponse.body).toContain('<h1 id="shelf-title">Your Display Case</h1>');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
     expect(jsResponse.body).toContain('data-action="discovery-feedback"');
@@ -406,7 +406,11 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Your feedback helps shape future discoveries.');
     expect(jsResponse.body).toContain('Taste feedback is read-only in preview.');
     expect(jsResponse.body).toContain('Add to Watchlist');
-    expect(jsResponse.body).toContain('These are editorial picks, not personalized recommendations.');
+    expect(jsResponse.body).toContain('A few collector favourites to get you started.');
+    expect(jsResponse.body).toContain('With Vaultr Plus, that profile guides your personalized Display Case.');
+    expect(jsResponse.body).not.toContain('A little inspiration');
+    expect(jsResponse.body).toContain('!editorial && item.roleLabel');
+    expect(jsResponse.body).toContain("editorial ? '' : discoveryFeedbackMarkup(item)");
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
     expect(jsResponse.body).toContain('<h1 id="plus-title">Vaultr Plus</h1>');
@@ -467,8 +471,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("['ALL', 'All'], ['WATCHING', 'Watching'], ['PAUSED', 'Paused'], ['COMPLETED', 'Pickups']");
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
     expect(jsResponse.body).not.toContain("${state.vaultNotice ? `<div class=\"vault-notice\"");
-    expect(jsResponse.body).toContain('${item.roleLabel ? `<span class="status-pill active">');
-    expect(jsResponse.body).toContain('<div>${item.roleLabel ? `<span class="status-pill active">');
+    expect(jsResponse.body).toContain('${!editorial && item.roleLabel ? `<span class="status-pill active">');
+    expect(jsResponse.body).toContain('shelfCardMarkup(item, { editorial: true })');
     expect(jsResponse.body).not.toContain('A read-only shelf');
     expect(cssResponse.body).toContain('.shelf-card-actions');
     expect(cssResponse.body).toContain('.shelf-card-actions .shelf-ebay-link');
@@ -683,6 +687,31 @@ describe('web app static routes', () => {
     const summarySource = source.slice(source.indexOf('function vaultSummaryMarkup()'), source.indexOf('function vaultLimitWarningMarkup()'));
     expect(summarySource).not.toContain('Explore Plus');
     expect(summarySource).not.toContain('View Plus');
+  });
+
+  it('labels user-paused and plan-limited Watchlist counts separately', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function vaultSummaryMarkup()'), source.indexOf('function vaultLimitWarningMarkup()'));
+    const renderSummary = (vault: Array<{ monitoringState: string }>) => new Function(
+      'state',
+      'escapeHtml',
+      'planLabel',
+      `${functionSource}\nreturn vaultSummaryMarkup();`
+    )({
+      vault,
+      vaultPlan: { tier: 'FREE', activeCount: 1, maxActiveChases: 3 },
+      completedChases: []
+    }, String, () => 'Free') as string;
+
+    const mixed = renderSummary([{ monitoringState: 'ACTIVE' }, { monitoringState: 'PAUSED_USER' }, { monitoringState: 'PAUSED_PLAN_LIMIT' }]);
+    expect(mixed).toContain('1 user-paused card.');
+    expect(mixed).toContain("1 card is outside your plan's monitoring limit.");
+    expect(mixed).not.toContain('paused or outside');
+
+    const activeOnly = renderSummary([{ monitoringState: 'ACTIVE' }]);
+    expect(activeOnly).not.toContain('user-paused');
+    expect(activeOnly).not.toContain('monitoring limit');
   });
 
   it('normalizes and updates grading controls without touching unsaved fields', async () => {
