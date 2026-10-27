@@ -3115,7 +3115,51 @@ a {
 
 .shelf-editorial {
   display: grid;
-  gap: 8px;
+  gap: 18px;
+}
+
+.shelf-plus-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px 32px;
+  padding-block: 18px 4px;
+}
+
+.shelf-plus-intro > div {
+  max-width: 68ch;
+}
+
+.shelf-plus-intro h2,
+.shelf-editorial-heading h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  line-height: 1.25;
+}
+
+.shelf-plus-intro p,
+.shelf-editorial-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.shelf-plus-intro .button-primary {
+  flex: none;
+  width: auto;
+}
+
+.shelf-editorial-heading {
+  padding-top: 10px;
+}
+
+.shelf-personalized-note {
+  max-width: 68ch;
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.55;
 }
 
 .shelf-editorial-note {
@@ -4175,6 +4219,11 @@ a {
   }
 
   .shelf-editorial-note {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .shelf-plus-intro {
     align-items: flex-start;
     flex-direction: column;
   }

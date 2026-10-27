@@ -1777,6 +1777,7 @@ function shelfPageMarkup() {
     <section class="shelf-page" aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
+      ${items.length ? '<p class="shelf-personalized-note">Picks shaped by your Watchlist, Pickups, and the cards you tell us you like.</p>' : ''}
       ${items.length ? shelfMetaMarkup(state.shelf) : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map(shelfCardMarkup).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
@@ -1785,12 +1786,11 @@ function shelfPageMarkup() {
 }
 
 function shelfHeaderMarkup() {
-  const personalized = hasPersonalizedDiscoveryAccess();
   return `
     <header class="page-header shelf-page-header">
       <p class="eyebrow">DISCOVER</p>
       <h1 id="shelf-title">Your Display Case</h1>
-      <p>${personalized ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell us you like.' : 'A few collector favourites to get you started.'}</p>
+      <p>Explore standout cards and discover your next favourite.</p>
     </header>
   `;
 }
@@ -1815,10 +1815,19 @@ function shelfEmptyMarkup(shelf) {
   const isFree = shelf?.discovery?.state === 'PLAN_RESTRICTED';
   return `
     <section class="shelf-editorial" aria-label="Editorial starter picks">
-      <div class="shelf-editorial-note">
-        <p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p>
-        ${isFree ? '<button class="home-text-link" type="button" data-page="plus">Explore Plus</button>' : ''}
-      </div>
+      ${isFree ? `
+        <div class="shelf-plus-intro">
+          <div>
+            <h2>Make your Display Case yours.</h2>
+            <p>With Vaultr Plus, discover cards shaped by your Watchlist and Pickups. Use More like this and Not for me to help Vaultr learn what you love.</p>
+          </div>
+          <button class="button-primary" type="button" data-page="plus">Explore Vaultr Plus</button>
+        </div>
+        <header class="shelf-editorial-heading">
+          <h2>Editorial picks</h2>
+          <p>A few handpicked cards to explore.</p>
+        </header>
+      ` : `<div class="shelf-editorial-note"><p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p></div>`}
       ${starters.length
         ? `<div class="shelf-grid shelf-editorial-grid" aria-label="Editorial starter picks">${starters.map((item) => shelfCardMarkup(item, { editorial: true })).join('')}</div>`
         : '<div class="starter-artwork-fallback">Collector picks will appear here when available.</div>'}

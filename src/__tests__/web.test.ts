@@ -400,6 +400,12 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('home-shelf-supporting-card');
     expect(jsResponse.body).toContain('aria-hidden="true"');
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Your Display Case</h1>');
+    expect(jsResponse.body).toContain('Explore standout cards and discover your next favourite.');
+    expect(jsResponse.body).toContain('Make your Display Case yours.');
+    expect(jsResponse.body).toContain('With Vaultr Plus, discover cards shaped by your Watchlist and Pickups. Use More like this and Not for me to help Vaultr learn what you love.');
+    expect(jsResponse.body).toContain('Explore Vaultr Plus');
+    expect(jsResponse.body).toContain('<h2>Editorial picks</h2>');
+    expect(jsResponse.body).toContain('A few handpicked cards to explore.');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
     expect(jsResponse.body).toContain('data-action="discovery-feedback"');
