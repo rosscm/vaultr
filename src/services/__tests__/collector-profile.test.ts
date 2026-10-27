@@ -17,6 +17,7 @@ import { deleteWeeklyDiscoveryPreparedReserve, getWeeklyDiscoveryPreparedReserve
 import { analyzeWeeklyDiscoveryCandidateReserve, rerankWeeklyDiscoveryReserve, type CollectorTasteProfile } from '../weekly-discovery-ranking.js';
 
 const originalCatalogPath = process.env.CARD_CATALOG_PATH;
+const originalTasteFlag = process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
 const tempDirs = new Set<string>();
 
 function tempCatalogPath(label: string): string {
@@ -101,10 +102,13 @@ afterEach(() => {
   else process.env.CARD_CATALOG_PATH = originalCatalogPath;
   for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });
   tempDirs.clear();
+  if (originalTasteFlag === undefined) delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+  else process.env.VAULTR_TASTE_ONBOARDING_ENABLED = originalTasteFlag;
 });
 
 describe('collector interest profile', () => {
   it('incorporates explicit subjects without fabricating Watchlist evidence', () => {
+    process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'true';
     const user = createUser({ displayName: 'Explicit collector' });
     db.prepare(`INSERT INTO user_collector_subject_preferences (user_id, subject_key, subject_label, created_at, updated_at) VALUES (?, 'mew', 'Mew', ?, ?)`).run(user.id, '2026-10-27T00:00:00.000Z', '2026-10-27T00:00:00.000Z');
     const profile = getCollectorInterestProfile(user.id);
@@ -115,7 +119,20 @@ describe('collector interest profile', () => {
     db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
   });
 
+  it('ignores saved explicit preferences while taste onboarding is disabled', () => {
+    process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'false';
+    const user = createUser({ displayName: 'Hidden preference collector' });
+    db.prepare(`INSERT INTO user_collector_subject_preferences (user_id, subject_key, subject_label, created_at, updated_at) VALUES (?, 'mew', 'Mew', ?, ?)`).run(user.id, '2026-10-27T00:00:00.000Z', '2026-10-27T00:00:00.000Z');
+    const profile = getCollectorInterestProfile(user.id);
+    expect(traitLabels(profile, 'subjects')).toEqual([]);
+    expect(profile.sourceSummary.explicitPreferences).toBeUndefined();
+    expect(db.prepare('SELECT subject_label FROM user_collector_subject_preferences WHERE user_id = ?').get(user.id)).toEqual({ subject_label: 'Mew' });
+    db.prepare('DELETE FROM user_collector_subject_preferences WHERE user_id = ?').run(user.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+  });
+
   it('learns artwork traits without treating depicted Pokemon as favourite subjects', () => {
+    process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'true';
     const dbPath = tempCatalogPath('explicit-artwork-traits');
     process.env.CARD_CATALOG_PATH = dbPath;
     replaceCardCatalogSourceRecords('POKEMONTCG', [record({

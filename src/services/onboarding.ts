@@ -1,5 +1,6 @@
 import { db } from './db.js';
 import { listChases } from './chase-store.js';
+import { tasteOnboardingEnabled } from './features.js';
 
 export type OnboardingStatus = 'IN_PROGRESS' | 'SKIPPED' | 'COMPLETED';
 export type OnboardingStep = 'WELCOME' | 'MARKET' | 'PROFILE' | 'CHASE' | 'READY';
@@ -25,9 +26,10 @@ const updateStmt = db.prepare(`
 `);
 
 function publicState(userId: string, row: Row): OnboardingState {
+  const step = !tasteOnboardingEnabled() && row.status === 'IN_PROGRESS' && row.step === 'PROFILE' ? 'CHASE' : row.step;
   return {
     status: row.status,
-    step: row.step,
+    step,
     automatic: row.status === 'IN_PROGRESS',
     hasChase: listChases(userId).length > 0,
     updatedAt: row.updated_at
@@ -78,9 +80,9 @@ export function transitionOnboarding(userId: string, action: OnboardingAction, e
     } else if (action === 'CONTINUE' && step === 'WELCOME') step = 'MARKET';
     else if (action === 'BACK' && step === 'MARKET') step = 'WELCOME';
     else if (action === 'BACK' && step === 'PROFILE') step = 'MARKET';
-    else if (action === 'BACK' && step === 'CHASE') step = 'PROFILE';
-    else if (action === 'BACK' && step === 'READY') step = 'PROFILE';
-    else if (action === 'MARKET_SAVED' && step === 'MARKET') step = 'PROFILE';
+    else if (action === 'BACK' && step === 'CHASE') step = tasteOnboardingEnabled() ? 'PROFILE' : 'MARKET';
+    else if (action === 'BACK' && step === 'READY') step = tasteOnboardingEnabled() ? 'PROFILE' : 'CHASE';
+    else if (action === 'MARKET_SAVED' && step === 'MARKET') step = tasteOnboardingEnabled() ? 'PROFILE' : current.hasChase ? 'READY' : 'CHASE';
     else if (action === 'PROFILE_SAVED' && step === 'PROFILE') step = current.hasChase ? 'READY' : 'CHASE';
     else if (action === 'CHASE_CREATED' && step === 'CHASE' && current.hasChase) step = 'READY';
     else if (action === 'FINISH' && step === 'READY') status = 'COMPLETED';

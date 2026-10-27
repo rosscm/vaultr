@@ -6,6 +6,7 @@ import { getCollectorInterestProfile, type CollectorInterestProfile } from './co
 import { analyzeCollectorProfileReserve, collectorInterestProfileToTasteProfile } from './collector-profile-ranking-adapter.js';
 import { getCollectorPreferences } from './collector-preferences.js';
 import type { DiscoveryCandidate } from '../commands/discover.js';
+import { tasteOnboardingEnabled } from './features.js';
 
 export type FreeDiscoverySampleStatus = 'NOT_REQUESTED' | 'QUEUED' | 'PREPARING' | 'RETRYABLE_FAILURE' | 'COMPLETE' | 'UNDERSUPPLIED' | 'FAILED';
 export type FreeDiscoverySampleItem = {
@@ -60,6 +61,7 @@ export function getFreeDiscoverySample(userId: string): FreeDiscoverySample {
 }
 
 export function requestFreeDiscoverySample(userId: string, now = new Date()): FreeDiscoverySample {
+  if (!tasteOnboardingEnabled()) throw new Error('feature_disabled');
   if (!getCollectorPreferences(userId).readiness.ready) throw new Error('preferences_not_ready');
   const iso = now.toISOString();
   db.prepare(`
@@ -71,6 +73,7 @@ export function requestFreeDiscoverySample(userId: string, now = new Date()): Fr
 }
 
 export function claimFreeDiscoverySampleJob(now = new Date(), onlyUserId?: string): { userId: string; attemptCount: number } | null {
+  if (!tasteOnboardingEnabled()) return null;
   return db.transaction(() => {
     const iso = now.toISOString();
     db.prepare(`UPDATE free_discovery_samples SET status = 'FAILED', lease_expires_at = NULL, next_retry_at = NULL, failure_code = 'RETRY_LIMIT', failure_summary = 'Preparation did not complete within the bounded retry limit', updated_at = @now WHERE (@userId IS NULL OR user_id = @userId) AND attempt_count >= @maxAttempts AND ((status = 'PREPARING' AND lease_expires_at <= @now) OR (status = 'RETRYABLE_FAILURE' AND next_retry_at <= @now))`).run({ now: iso, userId: onlyUserId ?? null, maxAttempts: MAX_ATTEMPTS });

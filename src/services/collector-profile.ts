@@ -5,6 +5,7 @@ import type { StoredCardCatalogRecord } from './card-catalog/types.js';
 import { listChases, listCompletedChases, listUserTasteMemoryChases } from './chase-store.js';
 import { JAPANESE_SUBJECT_ALIASES } from './collector-card-aliases.js';
 import { db } from './db.js';
+import { tasteOnboardingEnabled } from './features.js';
 
 export type CollectorProfileEvidenceSource = 'ACTIVE_CHASE' | 'COMPLETED_CHASE' | 'LEGACY_BOUGHT_OR_SEEN' | 'EXPLICIT_PREFERENCE';
 export type CollectorProfileConfidenceTier = 'SEED' | 'EMERGING' | 'USABLE' | 'STRONG';
@@ -460,7 +461,7 @@ export function getCollectorInterestProfile(userId: string): CollectorInterestPr
     legacyTasteMemoryChases: listUserTasteMemoryChases(userId),
     includeLegacyBoughtOrSeen: true
   });
-  const explicit = explicitPreferenceEvidence(userId);
+  const explicit = tasteOnboardingEnabled() ? explicitPreferenceEvidence(userId) : [];
   if (explicit.length === 0) return profile;
   const evidence = capExactIdentityContribution([...profile.evidence, ...explicit]);
   const distinctCards = new Set(evidence.map((item) => item.identityKey)).size;

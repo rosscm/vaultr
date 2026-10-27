@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createUser } from '../accounts.js';
 import { db } from '../db.js';
 import { collectorPreferenceReadiness, saveCollectorPreferences } from '../collector-preferences.js';
@@ -12,6 +12,7 @@ import type { StoredCardCatalogRecord } from '../card-catalog/types.js';
 
 const users = new Set<string>();
 const originalCatalogPath = process.env.CARD_CATALOG_PATH;
+const originalTasteFlag = process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
 const tempDirs = new Set<string>();
 
 function userId(): string {
@@ -19,6 +20,8 @@ function userId(): string {
   users.add(user.id);
   return user.id;
 }
+
+beforeEach(() => { process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'true'; });
 
 afterEach(() => {
   for (const id of users) {
@@ -32,6 +35,8 @@ afterEach(() => {
   else process.env.CARD_CATALOG_PATH = originalCatalogPath;
   for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });
   tempDirs.clear();
+  if (originalTasteFlag === undefined) delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+  else process.env.VAULTR_TASTE_ONBOARDING_ENABLED = originalTasteFlag;
 });
 
 function missingCatalogPath(): string {
@@ -61,6 +66,19 @@ describe('Free Display Case sample', () => {
     expect(claimFreeDiscoverySampleJob(new Date(created))).toBeNull();
     expect(getFreeDiscoverySample(id)).toMatchObject({ status: 'PREPARING', attemptCount: 1 });
     expect(claimFreeDiscoverySampleJob(new Date('2026-10-27T10:06:00.000Z'))).toEqual({ userId: id, attemptCount: 2 });
+  });
+
+  it('leaves queued and expired jobs untouched while the feature is disabled', () => {
+    const queued = userId();
+    const expired = userId();
+    const created = '2026-10-27T10:00:00.000Z';
+    db.prepare(`INSERT INTO free_discovery_samples (user_id, status, attempt_count, created_at, updated_at) VALUES (?, 'QUEUED', 0, ?, ?)`).run(queued, created, created);
+    db.prepare(`INSERT INTO free_discovery_samples (user_id, status, attempt_count, lease_expires_at, created_at, updated_at) VALUES (?, 'PREPARING', 3, ?, ?, ?)`).run(expired, '2026-10-27T10:01:00.000Z', created, created);
+    process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'false';
+
+    expect(claimFreeDiscoverySampleJob(new Date('2026-10-27T10:02:00.000Z'))).toBeNull();
+    expect(getFreeDiscoverySample(queued)).toMatchObject({ status: 'QUEUED', attemptCount: 0 });
+    expect(getFreeDiscoverySample(expired)).toMatchObject({ status: 'PREPARING', attemptCount: 3 });
   });
 
   it('keeps account-specific expired-lease cleanup scoped to that account', () => {

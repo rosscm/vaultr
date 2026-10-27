@@ -1,11 +1,14 @@
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createUser } from '../accounts.js';
 import { addChase, listChases, removeAllChases } from '../chase-store.js';
 import { db, migrateWebOnboarding } from '../db.js';
 import { getOrCreateOnboardingState, transitionOnboarding } from '../onboarding.js';
 
 const users = new Set<string>();
+const originalTasteFlag = process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+
+beforeEach(() => { process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'true'; });
 
 function newUser(label: string): string {
   const user = createUser({ displayName: label });
@@ -20,6 +23,8 @@ afterEach(() => {
     db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   }
   users.clear();
+  if (originalTasteFlag === undefined) delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+  else process.env.VAULTR_TASTE_ONBOARDING_ENABLED = originalTasteFlag;
 });
 
 describe('web onboarding', () => {
@@ -97,5 +102,17 @@ describe('web onboarding', () => {
     transitionOnboarding(first, 'CONTINUE', 'WELCOME');
     expect(getOrCreateOnboardingState(first).step).toBe('MARKET');
     expect(getOrCreateOnboardingState(second).step).toBe('WELCOME');
+  });
+
+  it('skips disabled taste setup while preserving a stored profile step', () => {
+    process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'false';
+    const fresh = newUser('Disabled taste collector');
+    transitionOnboarding(fresh, 'CONTINUE', 'WELCOME');
+    expect(transitionOnboarding(fresh, 'MARKET_SAVED', 'MARKET')).toMatchObject({ ok: true, state: { step: 'CHASE' } });
+
+    const existing = newUser('Stored profile collector');
+    db.prepare(`INSERT INTO user_onboarding (user_id, status, step, created_at, updated_at) VALUES (?, 'IN_PROGRESS', 'PROFILE', ?, ?)`).run(existing, '2026-10-27T00:00:00.000Z', '2026-10-27T00:00:00.000Z');
+    expect(getOrCreateOnboardingState(existing)).toMatchObject({ status: 'IN_PROGRESS', step: 'CHASE' });
+    expect(db.prepare('SELECT step FROM user_onboarding WHERE user_id = ?').get(existing)).toEqual({ step: 'PROFILE' });
   });
 });

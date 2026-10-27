@@ -3,6 +3,7 @@ import { activePlanTier } from './plans.js';
 import type { Chase } from '../types.js';
 import { getCollectorPreferences } from './collector-preferences.js';
 import { db } from './db.js';
+import { tasteOnboardingEnabled } from './features.js';
 
 export const WEEKLY_DISCOVERY_MIN_UNIQUE_SIGNAL_COUNT = 5;
 
@@ -91,7 +92,7 @@ export function weeklyDiscoveryEligibilityForUser(userId: string): WeeklyDiscove
 }
 
 export function weeklyDiscoveryExplicitPreferenceEligibilityForUser(userId: string): boolean {
-  return getCollectorPreferences(userId).readiness.ready;
+  return tasteOnboardingEnabled() && getCollectorPreferences(userId).readiness.ready;
 }
 
 export function listProUsersEligibleForWeeklyDiscovery(): string[] {
@@ -107,6 +108,7 @@ export function countProUsersIneligibleForWeeklyDiscovery(): number {
 }
 
 function usersWithAnyDiscoverySignals(): string[] {
+  if (!tasteOnboardingEnabled()) return listUsersWithDiscoverySignals();
   const explicit = db.prepare(`
     SELECT user_id FROM user_collector_subject_preferences
     UNION

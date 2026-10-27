@@ -120,6 +120,10 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+function tasteOnboardingEnabled() {
+  return isPreviewMode || state.authConfig?.features?.tasteOnboarding === true;
+}
+
 function artworkTriggerMarkup({ imageUrl, identity, imageKind, imageClass, imageDataAttribute }) {
   if (!imageUrl) return '';
   return `
@@ -824,7 +828,7 @@ function settingsPageMarkup() {
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
       <section class="settings-overview" aria-label="Account overview">
         <div class="settings-overview-row"><span><small>Current plan</small><strong>${escapeHtml(currentPlan)}</strong></span><button class="button-ghost settings-plan-link" type="button" data-action="open-plan-comparison">Compare plans</button></div>
-        <div class="settings-overview-row"><span><strong>Collecting profile</strong><small>Update favourite Pokémon and artwork without changing your Watchlist.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="edit-collector-profile">Edit profile</button></div>
+        ${tasteOnboardingEnabled() ? '<div class="settings-overview-row"><span><strong>Collecting profile</strong><small>Update favourite Pokémon and artwork without changing your Watchlist.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="edit-collector-profile">Edit profile</button></div>' : ''}
         <div class="settings-overview-row"><span><strong>Getting started</strong><small>Review your market preferences or the first-card walkthrough.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="revisit-onboarding">Revisit setup</button></div>
       </section>
       <section class="settings-group account-methods" aria-labelledby="settings-login-title">
@@ -1020,9 +1024,10 @@ function plusPageMarkup() {
 }
 
 function onboardingStepIndicator(step) {
-  const steps = ['WELCOME', 'MARKET', 'PROFILE', 'CHASE', 'READY'];
+  const steps = tasteOnboardingEnabled() ? ['WELCOME', 'MARKET', 'PROFILE', 'CHASE', 'READY'] : ['WELCOME', 'MARKET', 'CHASE', 'READY'];
+  const labels = tasteOnboardingEnabled() ? ['Welcome', 'Market', 'Your taste', 'First card', 'Ready'] : ['Welcome', 'Market', 'First card', 'Ready'];
   const active = Math.max(0, steps.indexOf(step));
-  return `<ol class="onboarding-steps" aria-label="Setup progress">${steps.map((item, index) => `<li${index === active ? ' aria-current="step"' : ''}><span>${index + 1}</span><small>${['Welcome', 'Market', 'Your taste', 'First card', 'Ready'][index]}</small></li>`).join('')}</ol>`;
+  return `<ol class="onboarding-steps" aria-label="Setup progress">${steps.map((item, index) => `<li${index === active ? ' aria-current="step"' : ''}><span>${index + 1}</span><small>${labels[index]}</small></li>`).join('')}</ol>`;
 }
 
 function collectorProfileMarkup(revisit = false) {
@@ -1365,7 +1370,7 @@ function starterDiscoveryItems() {
 }
 
 function freeSampleDiscoveryItems() {
-  return state.shelf?.freeSample?.items || [];
+  return state.authConfig?.features?.tasteOnboarding === true ? state.shelf?.freeSample?.items || [] : [];
 }
 
 function hasPersonalizedDiscoveryAccess() {
@@ -1869,13 +1874,14 @@ function shelfEmptyMarkup(shelf) {
   const sample = shelf?.freeSample;
   const profileReady = shelf?.collectorPreferences?.readiness?.ready;
   const sampleStatus = sample?.status;
+  const tasteEnabled = tasteOnboardingEnabled();
   const sampleCount = sample?.items?.length || 0;
   const terminalSampleCopy = sampleStatus === 'UNDERSUPPLIED'
     ? sampleCount === 0
       ? 'We could not find a qualified match for this one-time sample. Editorial picks are still here to explore.'
       : `We found ${sampleCount} qualified ${sampleCount === 1 ? 'pick' : 'picks'} for this one-time sample. We did not add weaker cards just to fill the space.`
     : '';
-  const samplePanel = isFree && sampleStatus !== 'COMPLETE' ? `
+  const samplePanel = tasteEnabled && isFree && sampleStatus !== 'COMPLETE' ? `
     <div class="shelf-sample-state">
       <h2>${sampleStatus === 'UNDERSUPPLIED' ? sampleCount ? 'A small set of qualified picks.' : 'No qualified sample picks this time.' : profileReady ? 'Your first picks are ready to prepare.' : 'Shape your first personalized picks.'}</h2>
       <p>${terminalSampleCopy || (sampleStatus === 'QUEUED' || sampleStatus === 'PREPARING' ? 'Your sample is being prepared. Editorial picks remain available while you wait.' : sampleStatus === 'RETRYABLE_FAILURE' ? 'Preparation hit a temporary issue and will retry automatically.' : sampleStatus === 'FAILED' ? 'Your sample could not be prepared after bounded retries. Editorial picks remain available.' : profileReady ? 'This one-time sample can include up to three qualified cards.' : 'Choose favourite Pokémon and artwork in your collecting profile.')}</p>
@@ -1884,7 +1890,7 @@ function shelfEmptyMarkup(shelf) {
   return `
     <section class="shelf-editorial" aria-label="Editorial starter picks">
       ${samplePanel}
-      ${isFree ? `
+      ${isFree && tasteEnabled ? `
         <div class="shelf-plus-intro">
           <div>
             <h2>Make your Display Case yours.</h2>
@@ -1898,7 +1904,7 @@ function shelfEmptyMarkup(shelf) {
           <h2>Editorial picks</h2>
           <p>A few handpicked cards to explore.</p>
         </header>
-      ` : `<div class="shelf-editorial-note"><p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p></div>`}
+      ` : isFree ? '<header class="shelf-editorial-heading"><h2>Editorial picks</h2><p>A few handpicked cards to explore.</p></header>' : `<div class="shelf-editorial-note"><p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p></div>`}
       ${starters.length
         ? `<div class="shelf-grid shelf-editorial-grid" aria-label="Editorial starter picks">${starters.map((item) => shelfCardMarkup(item, { editorial: true })).join('')}</div>`
         : '<div class="starter-artwork-fallback">Collector picks will appear here when available.</div>'}
@@ -2637,8 +2643,8 @@ async function updateOnboarding(action) {
   if (state.onboardingRevisitMode) {
     const step = state.onboardingRevisitStep;
     if (action === 'CONTINUE') state.onboardingRevisitStep = 'MARKET';
-    if (action === 'BACK') state.onboardingRevisitStep = step === 'MARKET' ? 'WELCOME' : step === 'PROFILE' ? 'MARKET' : step === 'CHASE' ? 'PROFILE' : 'CHASE';
-    if (action === 'MARKET_SAVED') state.onboardingRevisitStep = 'PROFILE';
+    if (action === 'BACK') state.onboardingRevisitStep = step === 'MARKET' ? 'WELCOME' : step === 'PROFILE' ? 'MARKET' : step === 'CHASE' ? tasteOnboardingEnabled() ? 'PROFILE' : 'MARKET' : 'CHASE';
+    if (action === 'MARKET_SAVED') state.onboardingRevisitStep = tasteOnboardingEnabled() ? 'PROFILE' : 'CHASE';
     if (action === 'PROFILE_SAVED') state.onboardingRevisitStep = 'CHASE';
     if (action === 'CHASE_CREATED') state.onboardingRevisitStep = 'READY';
     if (action === 'FINISH' || action === 'SKIP') {
@@ -3213,6 +3219,7 @@ app.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'edit-collector-profile') {
+    if (!tasteOnboardingEnabled()) return;
     const opened = await navigateToPage('onboarding');
     if (!opened) return;
     state.onboardingRevisitMode = true;

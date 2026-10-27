@@ -3,6 +3,7 @@ import { getCardCatalogRecordBySourceCardId, listVerifiedCardCatalogRecordsWithI
 import { catalogSubjectsEquivalent } from './card-catalog/search.js';
 import { KNOWN_COLLECTOR_SUBJECTS } from './collector-profile.js';
 import type { CardCatalogSource, StoredCardCatalogRecord } from './card-catalog/types.js';
+import { tasteOnboardingEnabled } from './features.js';
 
 export type CollectorArtworkPreference = {
   source: CardCatalogSource;
@@ -61,6 +62,7 @@ export function collectorPreferenceCatalogRecords(userId: string): StoredCardCat
 }
 
 export function saveCollectorPreferences(userId: string, input: { subjects: unknown; artwork: unknown }): CollectorPreferences {
+  if (!tasteOnboardingEnabled()) throw new Error('feature_disabled');
   if (!Array.isArray(input.subjects) || !Array.isArray(input.artwork)) throw new Error('invalid_preferences');
   const subjects = [...new Set(input.subjects.map((value) => typeof value === 'string' ? supportedSubject(value.trim()) : undefined))];
   if (subjects.some((value) => !value) || subjects.length > 8) throw new Error('unsupported_subject');

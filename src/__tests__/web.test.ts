@@ -832,7 +832,7 @@ describe('web app preview mode', () => {
       identities: { email: { connected: true, verified: true }, discord: { connected: true } },
       preview: true
     });
-    expect(JSON.parse(authConfig.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true }, preview: true });
+    expect(JSON.parse(authConfig.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true }, features: { tasteOnboarding: true }, preview: true });
     expect(JSON.parse(vault.body ?? '{}').items.length).toBeGreaterThanOrEqual(6);
     expect(JSON.parse(vault.body ?? '{}').completedItems).toHaveLength(1);
     const previewVault = JSON.parse(vault.body ?? '{}');
@@ -982,7 +982,8 @@ describe('web auth routes', () => {
     expect(JSON.parse(methods.body ?? '{}')).toEqual({
       email: { available: false },
       discord: { available: true },
-      environment: { label: 'Staging' }
+      environment: { label: 'Staging' },
+      features: { tasteOnboarding: false }
     });
 
     const authorize = await handleWebRequest({ method: 'GET', url: '/auth/discord' }, { config: stagingConfig });
@@ -1000,12 +1001,12 @@ describe('web auth routes', () => {
     })).toMatchObject({ baseUrl: 'https://vaultr.example', emailAuth: { fromEmail: 'login@vaultr.example' } });
 
     const methods = await handleWebRequest({ method: 'GET', url: '/api/auth/config' }, { config: emailConfig });
-    expect(JSON.parse(methods.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true } });
+    expect(JSON.parse(methods.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true }, features: { tasteOnboarding: false } });
     const emailOnly = await handleWebRequest(
       { method: 'GET', url: '/api/auth/config' },
       { config: { baseUrl: 'https://vaultr.example', emailAuth: emailConfig.emailAuth } }
     );
-    expect(JSON.parse(emailOnly.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: false } });
+    expect(JSON.parse(emailOnly.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: false }, features: { tasteOnboarding: false } });
   });
 
   it('requests, confirms without consuming, and redeems an email sign-in with rotated protected cookies', async () => {
@@ -1258,6 +1259,9 @@ describe('authenticated onboarding API', () => {
 
 describe('authenticated collecting profile API', () => {
   it('keeps preferences account-scoped and rejects unsupported client subjects', async () => {
+    const originalFlag = process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+    process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'true';
+    try {
     expect((await handleWebRequest({ method: 'GET', url: '/api/collector-profile' }, { config })).status).toBe(401);
     const userId = createUser({ displayName: 'Taste owner' }).id;
     const otherUserId = createUser({ displayName: 'Other taste' }).id;
@@ -1275,6 +1279,34 @@ describe('authenticated collecting profile API', () => {
     expect((await handleWebRequest({ method: 'POST', url: '/api/preview/collector-profile', headers, body: '{}' }, { config: { ...config, previewEnabled: true } })).status).toBe(405);
     clearUser(userId);
     clearUser(otherUserId);
+    } finally {
+      if (originalFlag === undefined) delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+      else process.env.VAULTR_TASTE_ONBOARDING_ENABLED = originalFlag;
+    }
+  });
+
+  it('hides the feature and rejects authenticated mutations while disabled', async () => {
+    const originalFlag = process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+    delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+    const userId = createUser({ displayName: 'Beta collector' }).id;
+    createWebSession({ userId }, { token: 'disabled-collector-profile-token' });
+    const headers = { cookie: sessionCookie('disabled-collector-profile-token'), 'content-type': 'application/json' };
+    try {
+      const authConfig = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/auth/config' }, { config })).body ?? '{}');
+      expect(authConfig.features).toEqual({ tasteOnboarding: false });
+      expect((await handleWebRequest({ method: 'PUT', url: '/api/collector-profile', headers, body: JSON.stringify({ subjects: ['Mew'], artwork: [] }) }, { config })).status).toBe(404);
+      expect((await handleWebRequest({ method: 'POST', url: '/api/free-discovery-sample', headers, body: '{}' }, { config })).status).toBe(404);
+      const shelf = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config })).body ?? '{}');
+      expect(shelf.starterItems.length).toBeGreaterThan(0);
+      expect(shelf).not.toHaveProperty('freeSample');
+      expect(shelf).not.toHaveProperty('collectorPreferences');
+      expect(db.prepare('SELECT COUNT(*) AS count FROM user_collector_subject_preferences WHERE user_id = ?').get(userId)).toEqual({ count: 0 });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM free_discovery_samples WHERE user_id = ?').get(userId)).toEqual({ count: 0 });
+    } finally {
+      clearUser(userId);
+      if (originalFlag === undefined) delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+      else process.env.VAULTR_TASTE_ONBOARDING_ENABLED = originalFlag;
+    }
   });
 });
 
@@ -1783,11 +1815,13 @@ describe('authenticated Weekly Shelf API', () => {
 
   it('preserves a generated Free sample exact printing through Watchlist save and readback', async () => {
     const originalCatalogPath = process.env.CARD_CATALOG_PATH;
+    const originalFlag = process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vaultr-web-free-sample-'));
     const catalogPath = path.join(tempDir, 'catalog.db');
     const user = createUser({ displayName: 'Free sample collector' });
     const userId = user.id;
     try {
+      process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'true';
       process.env.CARD_CATALOG_PATH = catalogPath;
       replaceCardCatalogSourceRecords('CURATED', [{
         source: 'CURATED', sourceCardId: 'sample-mew-151', language: 'ja', name: 'Mew', normalizedName: 'mew',
@@ -1837,6 +1871,8 @@ describe('authenticated Weekly Shelf API', () => {
       clearUser(userId);
       if (originalCatalogPath === undefined) delete process.env.CARD_CATALOG_PATH;
       else process.env.CARD_CATALOG_PATH = originalCatalogPath;
+      if (originalFlag === undefined) delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+      else process.env.VAULTR_TASTE_ONBOARDING_ENABLED = originalFlag;
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });

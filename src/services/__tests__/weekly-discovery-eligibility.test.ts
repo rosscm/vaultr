@@ -4,9 +4,11 @@ import { db } from '../db.js';
 import {
   evaluateWeeklyDiscoveryEligibility,
   listProUsersEligibleForWeeklyDiscovery,
+  weeklyDiscoveryExplicitPreferenceEligibilityForUser,
   weeklyDiscoveryEligibilityForUser
 } from '../weekly-discovery-eligibility.js';
 import type { Chase } from '../../types.js';
+import { createUser } from '../accounts.js';
 
 const userIds: string[] = [];
 
@@ -107,6 +109,26 @@ describe('weekly discovery eligibility', () => {
     expect(weeklyDiscoveryEligibilityForUser(thinUserId).eligible).toBe(false);
     expect(listProUsersEligibleForWeeklyDiscovery()).toContain(eligibleUserId);
     expect(listProUsersEligibleForWeeklyDiscovery()).not.toContain(thinUserId);
+  });
+
+  it('does not use saved explicit preferences for readiness while the feature is disabled', () => {
+    const userId = createUser({ displayName: 'Hidden preference eligibility' }).id;
+    userIds.push(userId);
+    setUserPlan(userId, 'PRO');
+    const now = '2026-10-27T00:00:00.000Z';
+    db.prepare(`INSERT INTO user_collector_subject_preferences (user_id, subject_key, subject_label, created_at, updated_at) VALUES (?, 'mew', 'Mew', ?, ?)`).run(userId, now, now);
+    const originalFlag = process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+    delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+    try {
+      expect(weeklyDiscoveryExplicitPreferenceEligibilityForUser(userId)).toBe(false);
+      expect(listProUsersEligibleForWeeklyDiscovery()).not.toContain(userId);
+      expect(db.prepare('SELECT subject_label FROM user_collector_subject_preferences WHERE user_id = ?').get(userId)).toEqual({ subject_label: 'Mew' });
+    } finally {
+      db.prepare('DELETE FROM user_collector_subject_preferences WHERE user_id = ?').run(userId);
+      db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+      if (originalFlag === undefined) delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
+      else process.env.VAULTR_TASTE_ONBOARDING_ENABLED = originalFlag;
+    }
   });
 
   it('includes eligible Plus collectors whose positive signals are all Pickups', () => {

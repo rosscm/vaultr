@@ -58,6 +58,7 @@ import { alertSettingsResponse, updateAlertSettings } from './services/alert-set
 import { getOrCreateOnboardingState, transitionOnboarding, type OnboardingAction, type OnboardingStep } from './services/onboarding.js';
 import { collectorPreferenceOptions, getCollectorPreferences, saveCollectorPreferences } from './services/collector-preferences.js';
 import { getFreeDiscoverySample, requestFreeDiscoverySample } from './services/free-discovery-sample.js';
+import { tasteOnboardingEnabled } from './services/features.js';
 import { getCardCatalogRecordBySourceCardId } from './services/card-catalog-db.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
 import {
@@ -666,6 +667,7 @@ function webDiscoveryState(userId: string, config: WebConfig, populated: boolean
 }
 
 function shelfResponse(userId: string, config: WebConfig, now = new Date()): WebResponse {
+  const tasteOnboarding = tasteOnboardingEnabled();
   const targetDate = weeklyPreparationTargetDate(now);
   const targetPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', targetDate);
   const nowIso = now.toISOString();
@@ -693,8 +695,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
       items: [],
       discovery: webDiscoveryState(userId, config, false),
       starterItems: publicStarterDiscoveryItems(userId, config),
-      freeSample: publicFreeDiscoverySample(userId),
-      collectorPreferences: getCollectorPreferences(userId)
+      ...(tasteOnboarding ? { freeSample: publicFreeDiscoverySample(userId), collectorPreferences: getCollectorPreferences(userId) } : {})
     });
   }
 
@@ -714,7 +715,10 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     currency: drop.currency,
     items: personalized ? drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey)) : [],
     discovery,
-    ...(personalized ? {} : { starterItems: publicStarterDiscoveryItems(userId, config), freeSample: publicFreeDiscoverySample(userId), collectorPreferences: getCollectorPreferences(userId) })
+    ...(personalized ? {} : {
+      starterItems: publicStarterDiscoveryItems(userId, config),
+      ...(tasteOnboarding ? { freeSample: publicFreeDiscoverySample(userId), collectorPreferences: getCollectorPreferences(userId) } : {})
+    })
   });
 }
 
@@ -773,7 +777,7 @@ function previewResponse(method: string, url: URL): WebResponse | null {
   if (!url.pathname.startsWith('/api/preview/')) return null;
   if (method !== 'GET') return errorResponse(405, 'preview_read_only', { Allow: 'GET' });
   if (url.pathname === '/api/preview/me') return jsonResponse(200, WEB_PREVIEW_ME);
-  if (url.pathname === '/api/preview/auth/config') return jsonResponse(200, { email: { available: true }, discord: { available: true }, preview: true });
+  if (url.pathname === '/api/preview/auth/config') return jsonResponse(200, { email: { available: true }, discord: { available: true }, features: { tasteOnboarding: true }, preview: true });
   if (url.pathname === '/api/preview/auth/email/confirmation') return jsonResponse(200, { ready: false, preview: true });
   if (url.pathname === '/api/preview/onboarding') return jsonResponse(200, WEB_PREVIEW_ONBOARDING);
   if (url.pathname === '/api/preview/collector-profile') return jsonResponse(200, {
@@ -944,7 +948,8 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     return jsonResponse(200, {
       email: { available: configuredEmailAuth(options) !== null },
       discord: { available: Boolean(options.config.discordClientId && options.config.discordClientSecret) },
-      ...(options.config.environmentLabel ? { environment: { label: options.config.environmentLabel } } : {})
+      ...(options.config.environmentLabel ? { environment: { label: options.config.environmentLabel } } : {}),
+      features: { tasteOnboarding: tasteOnboardingEnabled() }
     });
   }
 
@@ -1169,6 +1174,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
   if (url.pathname === '/api/collector-profile') {
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');
+    if (!tasteOnboardingEnabled()) return errorResponse(404, 'feature_disabled');
     if (method === 'GET') return jsonResponse(200, { preferences: getCollectorPreferences(session.userId), options: collectorPreferenceOptions() });
     if (method === 'PUT') {
       const parsed = requireJsonBody(request);
@@ -1186,6 +1192,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
   if (url.pathname === '/api/free-discovery-sample') {
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');
+    if (!tasteOnboardingEnabled()) return errorResponse(404, 'feature_disabled');
     if (method === 'GET') return jsonResponse(200, { sample: publicFreeDiscoverySample(session.userId) });
     if (method === 'POST') {
       if (activePlanTier(getUserPlan(session.userId)) !== 'FREE') return errorResponse(403, 'free_sample_not_available');
