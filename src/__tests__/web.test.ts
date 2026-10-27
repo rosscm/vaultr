@@ -635,13 +635,16 @@ describe('web app static routes', () => {
     expect(nextChoices({ mew: 'MORE_LIKE_THIS' }, 'mew', 'NOT_FOR_ME')).toEqual({ mew: 'NOT_FOR_ME' });
     expect(nextChoices({ mew: 'NOT_FOR_ME' }, 'mew', 'UNDO')).toEqual({});
     expect(source).toContain('state.displayCasePreviewChoices = {};');
-    expect(source).toContain('displayCasePreviewReturnFocus');
-    expect(source).toContain("if (event.key === 'Escape')");
+    expect(source).toContain('aria-expanded="${state.displayCasePreviewOpen}"');
+    expect(source).toContain('aria-controls="display-case-preview-example"');
+    expect(source).toContain('function collapseDisplayCasePreview(');
+    expect(source).toContain("focusDisplayCasePreview('[data-action=\"open-display-case-preview\"]')");
     expect(eventSource).not.toContain('mutateDiscoveryFeedback');
     expect(eventSource).not.toContain('fetchJson');
-    expect(source).toContain('Preview choices are temporary and are not saved.');
+    expect(source).toContain('Example only. Your choices aren’t saved.');
     expect(source).toContain('In your personalized Display Case, this helps shape future picks.');
     expect(source).toContain("if (action === 'discovery-feedback')");
+    expect(source).not.toContain('display-case-preview-dialog');
   });
 
   it('uses a state-aware Plus next step when a Free Watchlist is full', async () => {
@@ -1956,6 +1959,12 @@ describe('authenticated Weekly Shelf API', () => {
       language: 'English',
       cardIdentity: { sourceName: 'VAULTR_EDITORIAL', sourceCardId: 'editorial-pichu-expedition-22' },
       selection: { value: 'Pichu Expedition Base Set 22/165', imageUrl: 'http://127.0.0.1:8790/onboarding-art/pichu-expedition-022.webp' }
+    });
+    expect(free.starterItems[2]).toMatchObject({
+      name: 'Sylveon ex 212/187',
+      setName: 'Terastal Festival ex',
+      cardNumber: '212/187',
+      language: 'Japanese'
     });
 
     setUserPlan(userId, 'PRO');
