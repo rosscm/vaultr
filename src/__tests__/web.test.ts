@@ -406,6 +406,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Explore Vaultr Plus');
     expect(jsResponse.body).toContain('<h2>Editorial picks</h2>');
     expect(jsResponse.body).toContain('A few handpicked cards to explore.');
+    expect(jsResponse.body).not.toContain('Try a Plus example');
+    expect(jsResponse.body).not.toContain('displayCasePreview');
+    expect(jsResponse.body).not.toContain('display-case-preview');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
     expect(jsResponse.body).toContain('data-action="discovery-feedback"');
@@ -416,7 +419,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('A few collector favourites to get you started.');
     expect(jsResponse.body).toContain('With Vaultr Plus, that profile guides your personalized Display Case.');
     expect(jsResponse.body).not.toContain('A little inspiration');
-    expect(jsResponse.body).toContain('!editorial && !demo && item.roleLabel');
+    expect(jsResponse.body).toContain('!editorial && item.roleLabel');
     expect(jsResponse.body).toContain("editorial ? '' : discoveryFeedbackMarkup(item)");
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
@@ -479,7 +482,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("['ALL', 'All'], ['WATCHING', 'Watching'], ['PAUSED', 'Paused'], ['COMPLETED', 'Pickups']");
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
     expect(jsResponse.body).not.toContain("${state.vaultNotice ? `<div class=\"vault-notice\"");
-    expect(jsResponse.body).toContain('${!editorial && !demo && item.roleLabel ? `<span class="status-pill active">');
+    expect(jsResponse.body).toContain('${!editorial && item.roleLabel ? `<span class="status-pill active">');
     expect(jsResponse.body).toContain('shelfCardMarkup(item, { editorial: true })');
     expect(jsResponse.body).not.toContain('A read-only shelf');
     expect(cssResponse.body).toContain('.shelf-card-actions');
@@ -614,37 +617,6 @@ describe('web app static routes', () => {
       items: starterItems,
       copy: 'Your Display Case starts with what you love collecting. Your profile has 3 of 5 distinct card signals and needs 2 more. Watchlist cards and Pickups both help build it.'
     });
-  });
-
-  it('keeps the Plus Display Case preview local, resettable, and separate from real feedback', async () => {
-    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
-    const source = response.body ?? '';
-    const choiceSource = source.slice(
-      source.indexOf('function nextDisplayCasePreviewChoices('),
-      source.indexOf('function displayCasePreviewFeedbackMarkup(')
-    );
-    const nextChoices = new Function(`${choiceSource}\nreturn nextDisplayCasePreviewChoices;`)() as (
-      choices: Record<string, string>, key: string, action: string
-    ) => Record<string, string>;
-    const eventSource = source.slice(
-      source.indexOf("if (action === 'open-display-case-preview')"),
-      source.indexOf("if (action === 'review-listing')")
-    );
-
-    expect(nextChoices({}, 'mew', 'MORE_LIKE_THIS')).toEqual({ mew: 'MORE_LIKE_THIS' });
-    expect(nextChoices({ mew: 'MORE_LIKE_THIS' }, 'mew', 'NOT_FOR_ME')).toEqual({ mew: 'NOT_FOR_ME' });
-    expect(nextChoices({ mew: 'NOT_FOR_ME' }, 'mew', 'UNDO')).toEqual({});
-    expect(source).toContain('state.displayCasePreviewChoices = {};');
-    expect(source).toContain('aria-expanded="${state.displayCasePreviewOpen}"');
-    expect(source).toContain('aria-controls="display-case-preview-example"');
-    expect(source).toContain('function collapseDisplayCasePreview(');
-    expect(source).toContain("focusDisplayCasePreview('[data-action=\"open-display-case-preview\"]')");
-    expect(eventSource).not.toContain('mutateDiscoveryFeedback');
-    expect(eventSource).not.toContain('fetchJson');
-    expect(source).toContain('Example only. Your choices aren’t saved.');
-    expect(source).toContain('In your personalized Display Case, this helps shape future picks.');
-    expect(source).toContain("if (action === 'discovery-feedback')");
-    expect(source).not.toContain('display-case-preview-dialog');
   });
 
   it('uses a state-aware Plus next step when a Free Watchlist is full', async () => {

@@ -62,8 +62,6 @@ const state = {
   discoveryFeedbackPending: {},
   discoveryFeedbackErrors: {},
   discoveryFeedbackNotices: {},
-  displayCasePreviewOpen: false,
-  displayCasePreviewChoices: {},
   settings: null,
   settingsDraft: null,
   settingsLoaded: false,
@@ -1824,11 +1822,9 @@ function shelfEmptyMarkup(shelf) {
             <p>With Vaultr Plus, discover cards shaped by your Watchlist and Pickups. Use More like this and Not for me to help Vaultr learn what you love.</p>
           </div>
           <div class="shelf-plus-actions">
-            <button class="button-ghost" type="button" data-action="open-display-case-preview" aria-expanded="${state.displayCasePreviewOpen}" aria-controls="display-case-preview-example">Try a Plus example</button>
             <button class="button-primary" type="button" data-page="plus">Explore Vaultr Plus</button>
           </div>
         </div>
-        ${displayCasePreviewMarkup()}
         <header class="shelf-editorial-heading">
           <h2>Editorial picks</h2>
           <p>A few handpicked cards to explore.</p>
@@ -1841,78 +1837,7 @@ function shelfEmptyMarkup(shelf) {
   `;
 }
 
-function displayCasePreviewReason() {
-  return 'Illustrative example: explore a distinctive Japanese magazine promo with an iconic artwork treatment.';
-}
-
-function nextDisplayCasePreviewChoices(choices, key, action) {
-  const next = { ...choices };
-  if (action === 'UNDO') delete next[key];
-  else if (action === 'MORE_LIKE_THIS' || action === 'NOT_FOR_ME') next[key] = action;
-  return next;
-}
-
-function displayCasePreviewFeedbackMarkup(item, index) {
-  const key = String(item?.cardIdentity?.sourceCardId || index);
-  const saved = state.displayCasePreviewChoices[key];
-  return `
-    <div class="discovery-feedback display-case-preview-feedback" aria-label="Example taste feedback">
-      <div class="discovery-feedback-actions">
-        <button class="discovery-feedback-button${saved === 'MORE_LIKE_THIS' ? ' selected' : ''}" type="button" data-action="display-case-preview-feedback" data-preview-key="${escapeHtml(key)}" data-preview-choice="MORE_LIKE_THIS" aria-pressed="${saved === 'MORE_LIKE_THIS'}">More like this</button>
-        <button class="discovery-feedback-button${saved === 'NOT_FOR_ME' ? ' selected' : ''}" type="button" data-action="display-case-preview-feedback" data-preview-key="${escapeHtml(key)}" data-preview-choice="NOT_FOR_ME" aria-pressed="${saved === 'NOT_FOR_ME'}">Not for me</button>
-        ${saved ? `<button class="discovery-feedback-undo" type="button" data-action="display-case-preview-feedback" data-preview-key="${escapeHtml(key)}" data-preview-choice="UNDO">Undo</button>` : ''}
-      </div>
-    </div>
-  `;
-}
-
-function displayCasePreviewMarkup() {
-  if (!state.displayCasePreviewOpen) return '';
-  const example = starterDiscoveryItems()[0];
-  const hasChoice = Object.keys(state.displayCasePreviewChoices).length > 0;
-  return `
-    <section class="display-case-preview-example" id="display-case-preview-example" aria-labelledby="display-case-preview-title">
-      <header class="display-case-preview-heading">
-        <div>
-          <p class="eyebrow">Example preview</p>
-          <h2 id="display-case-preview-title" tabindex="-1">A personalized Display Case</h2>
-          <p>Your own Display Case is shaped by your Watchlist, Pickups, and feedback.</p>
-        </div>
-        <button class="button-ghost" type="button" data-action="collapse-display-case-preview">Collapse example</button>
-      </header>
-      ${example
-        ? shelfCardMarkup({ ...example, reason: displayCasePreviewReason(example) }, { demo: true })
-        : '<div class="starter-artwork-fallback">The example card is unavailable right now.</div>'}
-      ${hasChoice ? '<p class="display-case-preview-notice" role="status">In your personalized Display Case, this helps shape future picks.</p>' : ''}
-      <div class="display-case-preview-footer">
-        <span>Example only. Your choices aren’t saved.</span>
-        <button class="button-primary" type="button" data-action="explore-plus-from-preview">Explore Vaultr Plus</button>
-      </div>
-    </section>
-  `;
-}
-
-function focusDisplayCasePreview(selector = '#display-case-preview-title') {
-  const target = document.querySelector(selector);
-  if (target instanceof HTMLElement) target.focus();
-}
-
-function openDisplayCasePreview() {
-  state.displayCasePreviewChoices = {};
-  state.displayCasePreviewOpen = true;
-  renderCurrentPage();
-  focusDisplayCasePreview();
-}
-
-function collapseDisplayCasePreview({ restoreFocus = true } = {}) {
-  if (!state.displayCasePreviewOpen) return;
-  state.displayCasePreviewOpen = false;
-  state.displayCasePreviewChoices = {};
-  renderCurrentPage();
-  if (restoreFocus) focusDisplayCasePreview('[data-action="open-display-case-preview"]');
-}
-
-function shelfCardMarkup(item, { editorial = false, demo = false, demoIndex = 0 } = {}) {
+function shelfCardMarkup(item, { editorial = false } = {}) {
   const details = [item.setName, item.language].filter(Boolean);
   const price = item.market?.askingTotal !== undefined
     ? formatMoney(item.market.askingTotal, item.market.currency)
@@ -1934,22 +1859,22 @@ function shelfCardMarkup(item, { editorial = false, demo = false, demoIndex = 0 
       }) : '<div class="shelf-card-image placeholder-image shelf-image-unavailable"><span>Image unavailable</span></div>'}
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
-          ${!editorial && !demo && item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
+          ${!editorial && item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
         </div>
         <h2>${escapeHtml(item.name || 'Display Case pick')}</h2>
         ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
         <div class="shelf-card-footer">
-          ${demo ? '' : `<div class="shelf-market-status">
+          <div class="shelf-market-status">
             ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
             ${discoverySavedStatusMarkup(item)}
           </div>
           <div class="shelf-card-actions">
             ${discoveryCardPrimaryActionMarkup(item)}
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
-          </div>`}
-          ${demo ? displayCasePreviewFeedbackMarkup(item, demoIndex) : editorial ? '' : discoveryFeedbackMarkup(item)}
+          </div>
+          ${editorial ? '' : discoveryFeedbackMarkup(item)}
         </div>
       </div>
     </article>
@@ -3239,28 +3164,6 @@ app.addEventListener('click', async (event) => {
   if (action === 'open-artwork') {
     event.preventDefault();
     openArtworkOverlay(target);
-    return;
-  }
-  if (action === 'open-display-case-preview') {
-    openDisplayCasePreview();
-    return;
-  }
-  if (action === 'collapse-display-case-preview') {
-    collapseDisplayCasePreview();
-    return;
-  }
-  if (action === 'display-case-preview-feedback') {
-    const key = target.getAttribute('data-preview-key') || '';
-    const choice = target.getAttribute('data-preview-choice') || '';
-    if (!key) return;
-    state.displayCasePreviewChoices = nextDisplayCasePreviewChoices(state.displayCasePreviewChoices, key, choice);
-    renderCurrentPage();
-    focusDisplayCasePreview(`[data-preview-key="${CSS.escape(key)}"][data-preview-choice="${CSS.escape(choice === 'UNDO' ? 'MORE_LIKE_THIS' : choice)}"]`);
-    return;
-  }
-  if (action === 'explore-plus-from-preview') {
-    collapseDisplayCasePreview({ restoreFocus: false });
-    await navigateToPage('plus');
     return;
   }
   if (action === 'review-listing') {
