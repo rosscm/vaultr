@@ -89,6 +89,11 @@ const state = {
   vaultSubmitting: false,
   vaultCreateRecovery: null,
   onboardingSavedChasePending: false,
+  collectorProfile: null,
+  collectorProfileOptions: null,
+  collectorProfileDraft: null,
+  collectorProfileLoading: false,
+  collectorProfileError: '',
   planComparisonOpen: false,
   vaultAutocompleteTimer: null,
   vaultAutocompleteRequestId: 0,
@@ -281,7 +286,8 @@ async function loadActivePageData() {
   if (state.activePage === 'onboarding') {
     await Promise.all([
       state.settingsLoaded ? Promise.resolve() : loadSettings(),
-      state.vaultLoaded ? Promise.resolve() : loadVault()
+      state.vaultLoaded ? Promise.resolve() : loadVault(),
+      state.collectorProfileDraft ? Promise.resolve() : loadCollectorProfile()
     ]);
   }
 }
@@ -818,6 +824,7 @@ function settingsPageMarkup() {
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
       <section class="settings-overview" aria-label="Account overview">
         <div class="settings-overview-row"><span><small>Current plan</small><strong>${escapeHtml(currentPlan)}</strong></span><button class="button-ghost settings-plan-link" type="button" data-action="open-plan-comparison">Compare plans</button></div>
+        <div class="settings-overview-row"><span><strong>Collecting profile</strong><small>Update favourite Pokémon and artwork without changing your Watchlist.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="edit-collector-profile">Edit profile</button></div>
         <div class="settings-overview-row"><span><strong>Getting started</strong><small>Review your market preferences or the first-card walkthrough.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="revisit-onboarding">Revisit setup</button></div>
       </section>
       <section class="settings-group account-methods" aria-labelledby="settings-login-title">
@@ -1013,9 +1020,44 @@ function plusPageMarkup() {
 }
 
 function onboardingStepIndicator(step) {
-  const steps = ['WELCOME', 'MARKET', 'CHASE', 'READY'];
+  const steps = ['WELCOME', 'MARKET', 'PROFILE', 'CHASE', 'READY'];
   const active = Math.max(0, steps.indexOf(step));
-  return `<ol class="onboarding-steps" aria-label="Setup progress">${steps.map((item, index) => `<li${index === active ? ' aria-current="step"' : ''}><span>${index + 1}</span><small>${['Welcome', 'Market', 'First card', 'Ready'][index]}</small></li>`).join('')}</ol>`;
+  return `<ol class="onboarding-steps" aria-label="Setup progress">${steps.map((item, index) => `<li${index === active ? ' aria-current="step"' : ''}><span>${index + 1}</span><small>${['Welcome', 'Market', 'Your taste', 'First card', 'Ready'][index]}</small></li>`).join('')}</ol>`;
+}
+
+function collectorProfileMarkup(revisit = false) {
+  if (state.collectorProfileLoading && !state.collectorProfileDraft) return '<div class="state-panel" role="status">Loading collecting-profile choices…</div>';
+  if (!state.collectorProfileDraft || !state.collectorProfileOptions) return `<div class="state-panel"><p>Collecting-profile choices are unavailable right now.</p><button class="button-ghost" type="button" data-action="retry-collector-profile">Try again</button></div>`;
+  const selectedSubjects = new Set(state.collectorProfileDraft.subjects);
+  const selectedArtwork = new Set(state.collectorProfileDraft.artwork.map((item) => `${item.source}:${item.sourceCardId}`));
+  const subjectCount = selectedSubjects.size;
+  const artworkCount = selectedArtwork.size;
+  const ready = artworkCount >= 3 || (subjectCount >= 1 && artworkCount >= 2);
+  const needed = Math.max(0, (subjectCount ? 2 : 3) - artworkCount);
+  return `
+    <div class="collector-profile-setup">
+      <div class="collector-profile-group">
+        <h2>Favourite Pokémon</h2>
+        <p>Choose any favourites you would enjoy seeing more often.</p>
+        <label class="field"><span>Search supported Pokémon</span><input type="search" data-collector-subject-search autocomplete="off" placeholder="Search Pokémon"></label>
+        <div class="collector-subject-options" role="group" aria-label="Favourite Pokémon">
+          ${state.collectorProfileOptions.subjects.map((subject) => `<button class="choice-chip${selectedSubjects.has(subject) ? ' selected' : ''}" type="button" data-action="toggle-collector-subject" data-subject="${escapeHtml(subject)}" aria-pressed="${selectedSubjects.has(subject)}">${escapeHtml(subject)}</button>`).join('')}
+        </div>
+      </div>
+      <div class="collector-profile-group">
+        <h2>Artwork you like</h2>
+        <p>Pick exact printings whose artwork catches your eye.</p>
+        <div class="collector-artwork-options">
+          ${state.collectorProfileOptions.artwork.map((item) => {
+            const key = `${item.source}:${item.sourceCardId}`;
+            return `<button class="collector-artwork-choice${selectedArtwork.has(key) ? ' selected' : ''}" type="button" data-action="toggle-collector-artwork" data-artwork-key="${escapeHtml(key)}" aria-pressed="${selectedArtwork.has(key)}"><img src="${escapeHtml(item.imageUrl)}" alt=""><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml([item.setName, item.cardNumber, item.language].filter(Boolean).join(' · '))}</small></span></button>`;
+          }).join('')}
+        </div>
+      </div>
+      <p class="collector-profile-progress" role="status">${ready ? 'Ready to find your first picks.' : `Choose ${needed} more artwork ${subjectCount ? '' : 'or add a favourite Pokémon'} to prepare a sample.`}</p>
+      ${state.collectorProfileError ? `<p class="form-error" role="alert">${escapeHtml(state.collectorProfileError)}</p>` : ''}
+      <footer class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="onboarding-exit" type="button" data-action="skip-collector-profile">Skip for now</button><button class="button-primary" type="button" data-action="save-collector-profile">Save and continue</button></footer>
+    </div>`;
 }
 
 function onboardingMarketMarkup(revisit = false) {
@@ -1069,6 +1111,7 @@ function onboardingPageMarkup() {
   let content = '';
   if (step === 'WELCOME') content = onboardingWelcomeMarkup(revisit);
   if (step === 'MARKET') content = `<p class="eyebrow">PRICING & SHIPPING</p><h1 id="onboarding-title">Set your market context</h1><p>Choose how prices are shown and where listings need to ship.</p>${onboardingMarketMarkup(revisit)}`;
+  if (step === 'PROFILE') content = `<p class="eyebrow">YOUR TASTE</p><h1 id="onboarding-title">What catches your eye?</h1><p>These choices shape a one-time sample and stay separate from your Watchlist and Pickups.</p>${collectorProfileMarkup(revisit)}`;
   if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">Inspect the shared Watchlist form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Watchlist form</button></div>`;
   if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'You already have a card on your Watchlist. You’re ready to continue.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${!revisit && state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${!revisit && state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
   if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Your Watchlist and pickups shape your collecting profile; personalized recommendations require Vaultr Plus and enough distinct card history, and may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
@@ -1268,7 +1311,7 @@ function homeShelfPresentation(items, index) {
   };
 }
 
-function homeShelfFeatureMarkup(items, index, { editorial = false } = {}) {
+function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial } = {}) {
   const { featured: item, featuredIndex, supporting } = homeShelfPresentation(items, index);
   if (!item) return '';
   const total = items.length;
@@ -1304,7 +1347,7 @@ function homeShelfFeatureMarkup(items, index, { editorial = false } = {}) {
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : '<p>Open your Display Case to explore this recommendation.</p>'}
         ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : `<span class="home-shelf-price unavailable">${escapeHtml(marketUnavailable)}</span>`}
         ${discoveryCardActionMarkup(item, 'button-primary home-shelf-card-action')}
-        ${editorial ? '' : discoveryFeedbackMarkup(item, true)}
+        ${feedback ? discoveryFeedbackMarkup(item, true) : ''}
       </div>
       ${total > 1 ? `
         <div class="home-shelf-controls" aria-label="Display Case preview controls">
@@ -1321,6 +1364,10 @@ function starterDiscoveryItems() {
   return state.shelf?.starterItems || [];
 }
 
+function freeSampleDiscoveryItems() {
+  return state.shelf?.freeSample?.items || [];
+}
+
 function hasPersonalizedDiscoveryAccess() {
   return state.vaultPlan?.tier === 'PRO'
     && state.shelf?.discovery?.tier === 'PRO'
@@ -1329,7 +1376,8 @@ function hasPersonalizedDiscoveryAccess() {
 }
 
 function homeDisplayCaseItems() {
-  return hasPersonalizedDiscoveryAccess() ? state.shelf.items : starterDiscoveryItems();
+  if (hasPersonalizedDiscoveryAccess()) return state.shelf.items;
+  return freeSampleDiscoveryItems().length ? freeSampleDiscoveryItems() : starterDiscoveryItems();
 }
 
 function editorialDiscoveryCopy() {
@@ -1421,6 +1469,7 @@ function homePageMarkup() {
   const completedChases = state.completedChases?.length ?? 0;
   const alertPreview = state.homeAttentionAlerts.slice(0, 4);
   const personalizedReady = hasPersonalizedDiscoveryAccess();
+  const freeSampleReady = !personalizedReady && freeSampleDiscoveryItems().length > 0;
   const displayCaseItems = homeDisplayCaseItems();
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
@@ -1442,7 +1491,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${personalizedReady ? 'Picked for you' : 'Starter picks'}</h2><p>${personalizedReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : editorialDiscoveryCopy()}</p></div>
+          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${personalizedReady ? 'Picked for you' : freeSampleReady ? 'Your first personalized picks' : 'Starter picks'}</h2><p>${personalizedReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : freeSampleReady ? 'A one-time sample shaped by your collecting profile.' : editorialDiscoveryCopy()}</p></div>
           <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
@@ -1451,7 +1500,7 @@ function homePageMarkup() {
             ? '<div class="home-discovery-state"><p>Your Display Case could not be loaded right now.</p><button class="button-ghost" type="button" data-action="retry-shelf">Try again</button></div>'
             : state.shelfLoaded
                 ? displayCaseItems.length
-                  ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: !personalizedReady })
+                  ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: !personalizedReady && !freeSampleReady, feedback: personalizedReady })
                   : `<div class="home-discovery-state"><p>${escapeHtml(discoveryStateCopy(discovery, true))}</p></div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
           </div>
@@ -1772,14 +1821,17 @@ function shelfPageMarkup() {
       </section>
     `;
   }
-  const items = hasPersonalizedDiscoveryAccess() ? state.shelf?.items || [] : [];
+  const personalized = hasPersonalizedDiscoveryAccess();
+  const freeSampleItems = personalized ? [] : freeSampleDiscoveryItems();
+  const items = personalized ? state.shelf?.items || [] : freeSampleItems;
   return `
     <section class="shelf-page" aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
-      ${items.length ? '<p class="shelf-personalized-note">Picks shaped by your Watchlist, Pickups, and the cards you tell us you like.</p>' : ''}
-      ${items.length ? shelfMetaMarkup(state.shelf) : ''}
-      ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map(shelfCardMarkup).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
+      ${personalized && items.length ? '<p class="shelf-personalized-note">Picks shaped by your Watchlist, Pickups, and the cards you tell us you like.</p>' : ''}
+      ${freeSampleItems.length ? '<div class="shelf-personalized-note"><strong>Your first personalized picks</strong><p>This one-time sample is shaped by your collecting profile.</p></div>' : ''}
+      ${personalized && items.length ? shelfMetaMarkup(state.shelf) : ''}
+      ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>${freeSampleItems.length ? '<div class="shelf-plus-actions"><button class="button-primary" type="button" data-page="plus">Explore ongoing discovery with Vaultr Plus</button></div>' : ''}` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
     </section>
   `;
@@ -1813,8 +1865,18 @@ function shelfMetaMarkup(shelf) {
 function shelfEmptyMarkup(shelf) {
   const starters = shelf?.starterItems || [];
   const isFree = shelf?.discovery?.state === 'PLAN_RESTRICTED';
+  const sample = shelf?.freeSample;
+  const profileReady = shelf?.collectorPreferences?.readiness?.ready;
+  const sampleStatus = sample?.status;
+  const samplePanel = isFree && sampleStatus !== 'COMPLETE' && sampleStatus !== 'UNDERSUPPLIED' ? `
+    <div class="shelf-sample-state">
+      <h2>${profileReady ? 'Your first picks are ready to prepare.' : 'Shape your first personalized picks.'}</h2>
+      <p>${sampleStatus === 'QUEUED' || sampleStatus === 'PREPARING' ? 'Your sample is being prepared. Editorial picks remain available while you wait.' : sampleStatus === 'RETRYABLE_FAILURE' ? 'Preparation hit a temporary issue and will retry automatically.' : sampleStatus === 'FAILED' ? 'Your sample could not be prepared after bounded retries. Your profile is still saved.' : profileReady ? 'This one-time sample can include up to three qualified cards.' : 'Choose favourite Pokémon and artwork in your collecting profile.'}</p>
+      ${profileReady && (!sampleStatus || sampleStatus === 'NOT_REQUESTED') ? '<button class="button-primary" type="button" data-action="request-free-sample">Find my first picks</button>' : !profileReady ? '<button class="button-ghost" type="button" data-action="edit-collector-profile">Set up my collecting profile</button>' : ''}
+    </div>` : '';
   return `
     <section class="shelf-editorial" aria-label="Editorial starter picks">
+      ${samplePanel}
       ${isFree ? `
         <div class="shelf-plus-intro">
           <div>
@@ -1837,7 +1899,7 @@ function shelfEmptyMarkup(shelf) {
   `;
 }
 
-function shelfCardMarkup(item, { editorial = false } = {}) {
+function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}) {
   const details = [item.setName, item.language].filter(Boolean);
   const price = item.market?.askingTotal !== undefined
     ? formatMoney(item.market.askingTotal, item.market.currency)
@@ -1874,7 +1936,7 @@ function shelfCardMarkup(item, { editorial = false } = {}) {
             ${discoveryCardPrimaryActionMarkup(item)}
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
           </div>
-          ${editorial ? '' : discoveryFeedbackMarkup(item)}
+          ${feedback ? discoveryFeedbackMarkup(item) : ''}
         </div>
       </div>
     </article>
@@ -2525,12 +2587,52 @@ async function loadOnboarding() {
   }
 }
 
+async function loadCollectorProfile() {
+  state.collectorProfileLoading = true;
+  state.collectorProfileError = '';
+  renderCurrentPage();
+  try {
+    const body = await fetchJson(isPreviewMode ? '/api/preview/collector-profile' : '/api/collector-profile');
+    state.collectorProfile = body.preferences;
+    state.collectorProfileOptions = body.options;
+    state.collectorProfileDraft = { subjects: [...body.preferences.subjects], artwork: [...body.preferences.artwork] };
+  } catch (error) {
+    if (String(error?.message) !== 'unauthorized') state.collectorProfileError = 'Collecting-profile choices could not be loaded.';
+  } finally {
+    state.collectorProfileLoading = false;
+    renderCurrentPage();
+  }
+}
+
+async function saveCollectorProfile({ advance = true } = {}) {
+  if (isPreviewMode) {
+    if (advance) await updateOnboarding('PROFILE_SAVED');
+    return;
+  }
+  state.onboardingBusy = true;
+  state.collectorProfileError = '';
+  renderCurrentPage();
+  try {
+    const body = await fetchJson('/api/collector-profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state.collectorProfileDraft) });
+    state.collectorProfile = body.preferences;
+    state.collectorProfileOptions = body.options;
+    state.collectorProfileDraft = { subjects: [...body.preferences.subjects], artwork: [...body.preferences.artwork] };
+    if (advance) await updateOnboarding('PROFILE_SAVED');
+  } catch (error) {
+    state.collectorProfileError = 'Your collecting profile could not be saved. Your choices are still here.';
+  } finally {
+    state.onboardingBusy = false;
+    renderCurrentPage();
+  }
+}
+
 async function updateOnboarding(action) {
   if (state.onboardingRevisitMode) {
     const step = state.onboardingRevisitStep;
     if (action === 'CONTINUE') state.onboardingRevisitStep = 'MARKET';
-    if (action === 'BACK') state.onboardingRevisitStep = step === 'MARKET' ? 'WELCOME' : step === 'CHASE' ? 'MARKET' : 'CHASE';
-    if (action === 'MARKET_SAVED') state.onboardingRevisitStep = 'CHASE';
+    if (action === 'BACK') state.onboardingRevisitStep = step === 'MARKET' ? 'WELCOME' : step === 'PROFILE' ? 'MARKET' : step === 'CHASE' ? 'PROFILE' : 'CHASE';
+    if (action === 'MARKET_SAVED') state.onboardingRevisitStep = 'PROFILE';
+    if (action === 'PROFILE_SAVED') state.onboardingRevisitStep = 'CHASE';
     if (action === 'CHASE_CREATED') state.onboardingRevisitStep = 'READY';
     if (action === 'FINISH' || action === 'SKIP') {
       state.onboardingRevisitMode = false;
@@ -2542,7 +2644,7 @@ async function updateOnboarding(action) {
     return true;
   }
   if (isPreviewMode) {
-    const transitions = { CONTINUE: 'MARKET', BACK: state.onboarding?.step === 'MARKET' ? 'WELCOME' : 'MARKET', MARKET_SAVED: 'CHASE', CHASE_CREATED: 'READY', FINISH: 'READY', RESUME: 'WELCOME' };
+    const transitions = { CONTINUE: 'MARKET', BACK: state.onboarding?.step === 'MARKET' ? 'WELCOME' : state.onboarding?.step === 'PROFILE' ? 'MARKET' : state.onboarding?.step === 'CHASE' ? 'PROFILE' : 'CHASE', MARKET_SAVED: 'PROFILE', PROFILE_SAVED: 'CHASE', CHASE_CREATED: 'READY', FINISH: 'READY', RESUME: 'WELCOME' };
     if (action === 'SKIP' || action === 'FINISH') {
       if (action === 'SKIP') resetSettingsDraft();
       state.onboarding = { ...(state.onboarding || {}), status: action === 'SKIP' ? 'SKIPPED' : 'COMPLETED', automatic: false };
@@ -3103,6 +3205,14 @@ app.addEventListener('click', async (event) => {
     renderCurrentPage();
     return;
   }
+  if (action === 'edit-collector-profile') {
+    const opened = await navigateToPage('onboarding');
+    if (!opened) return;
+    state.onboardingRevisitMode = true;
+    state.onboardingRevisitStep = 'PROFILE';
+    renderCurrentPage();
+    return;
+  }
   if (action === 'exit-onboarding-revisit') {
     if (state.settingsDirty && !window.confirm('Discard your unsaved setup changes?')) return;
     resetSettingsDraft();
@@ -3124,6 +3234,51 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'onboarding-back') {
     await updateOnboarding('BACK');
+    return;
+  }
+  if (action === 'retry-collector-profile') {
+    await loadCollectorProfile();
+    return;
+  }
+  if (action === 'toggle-collector-subject') {
+    const subject = target.getAttribute('data-subject');
+    if (!subject || !state.collectorProfileDraft) return;
+    const selected = new Set(state.collectorProfileDraft.subjects);
+    selected.has(subject) ? selected.delete(subject) : selected.add(subject);
+    state.collectorProfileDraft.subjects = [...selected];
+    renderCurrentPage();
+    return;
+  }
+  if (action === 'toggle-collector-artwork') {
+    const key = target.getAttribute('data-artwork-key');
+    if (!key || !state.collectorProfileDraft) return;
+    const current = new Map(state.collectorProfileDraft.artwork.map((item) => [`${item.source}:${item.sourceCardId}`, item]));
+    if (current.has(key)) current.delete(key);
+    else {
+      const item = state.collectorProfileOptions?.artwork.find((option) => `${option.source}:${option.sourceCardId}` === key);
+      if (item) current.set(key, item);
+    }
+    state.collectorProfileDraft.artwork = [...current.values()];
+    renderCurrentPage();
+    return;
+  }
+  if (action === 'save-collector-profile') {
+    await saveCollectorProfile();
+    return;
+  }
+  if (action === 'request-free-sample') {
+    target.disabled = true;
+    try {
+      await fetchJson('/api/free-discovery-sample', { method: 'POST' });
+      await loadShelf({ force: true });
+    } catch (error) {
+      setVaultNotice('Your sample could not be queued. Your collecting profile is still saved.', 'shelf');
+      renderCurrentPage();
+    }
+    return;
+  }
+  if (action === 'skip-collector-profile') {
+    await updateOnboarding('PROFILE_SAVED');
     return;
   }
   if (action === 'skip-onboarding') {
@@ -3491,6 +3646,13 @@ app.addEventListener('submit', async (event) => {
 app.addEventListener('input', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
+  if (target.matches('[data-collector-subject-search]')) {
+    const query = target.value.trim().toLowerCase();
+    document.querySelectorAll('[data-action="toggle-collector-subject"]').forEach((button) => {
+      button.hidden = query.length > 0 && !String(button.getAttribute('data-subject') || '').toLowerCase().includes(query);
+    });
+    return;
+  }
   if (target.closest('[data-email-signin-form], [data-email-link-form]')) {
     state.authEmailDraft = target.value;
     state.authError = '';

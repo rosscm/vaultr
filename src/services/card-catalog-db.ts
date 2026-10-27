@@ -353,6 +353,27 @@ export function getCardCatalogRecordByReference(sourceName: string, sourceId: st
   }
 }
 
+export function listVerifiedCardCatalogRecordsWithImages(limit = 120, dbPath = cardCatalogPath()): StoredCardCatalogRecord[] {
+  if (!fs.existsSync(dbPath)) return [];
+  let db: Database.Database | undefined;
+  try {
+    db = openCardCatalogDb(dbPath, { readonly: true, fileMustExist: true });
+    const rows = db.prepare(`
+      SELECT * FROM card_catalog_records
+      WHERE verification_status = 'VERIFIED'
+        AND image_url IS NOT NULL
+        AND TRIM(image_url) != ''
+      ORDER BY is_promo DESC, release_date DESC, id ASC
+      LIMIT ?
+    `).all(Math.max(1, Math.min(limit, 500))) as any[];
+    return rows.map(rowToRecord);
+  } catch {
+    return [];
+  } finally {
+    db?.close();
+  }
+}
+
 export function queryCardCatalogRecords(params: {
   dbPath?: string;
   subject?: string;

@@ -35,6 +35,41 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS user_collector_subject_preferences (
+    user_id TEXT NOT NULL,
+    subject_key TEXT NOT NULL,
+    subject_label TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, subject_key),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS user_collector_artwork_preferences (
+    user_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_card_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, source, source_card_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS free_discovery_samples (
+    user_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    lease_expires_at TEXT,
+    next_retry_at TEXT,
+    result_json TEXT,
+    failure_code TEXT,
+    failure_summary TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS user_identities (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -662,6 +697,9 @@ const USER_ID_OWNED_TABLES = [
   'user_plans',
   'user_alert_settings',
   'user_discovery_preferences',
+  'user_collector_subject_preferences',
+  'user_collector_artwork_preferences',
+  'free_discovery_samples',
   'user_discovery_seen',
   'user_discovery_feedback',
   'discovery_training_examples',

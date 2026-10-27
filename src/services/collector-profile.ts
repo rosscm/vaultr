@@ -4,8 +4,9 @@ import { normalizeCatalogText } from './card-catalog/normalize.js';
 import type { StoredCardCatalogRecord } from './card-catalog/types.js';
 import { listChases, listCompletedChases, listUserTasteMemoryChases } from './chase-store.js';
 import { JAPANESE_SUBJECT_ALIASES } from './collector-card-aliases.js';
+import { db } from './db.js';
 
-export type CollectorProfileEvidenceSource = 'ACTIVE_CHASE' | 'COMPLETED_CHASE' | 'LEGACY_BOUGHT_OR_SEEN';
+export type CollectorProfileEvidenceSource = 'ACTIVE_CHASE' | 'COMPLETED_CHASE' | 'LEGACY_BOUGHT_OR_SEEN' | 'EXPLICIT_PREFERENCE';
 export type CollectorProfileConfidenceTier = 'SEED' | 'EMERGING' | 'USABLE' | 'STRONG';
 export type CollectorProfileTraitConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
 export type CollectorProfileTraitGroup =
@@ -61,6 +62,7 @@ export type CollectorInterestProfile = {
     activeChases: number;
     completedChases: number;
     legacyBoughtOrSeen: number;
+    explicitPreferences?: number;
     distinctCards: number;
   };
   confidence: {
@@ -88,7 +90,8 @@ export type BuildCollectorInterestProfileInput = {
 const SOURCE_WEIGHTS: Record<CollectorProfileEvidenceSource, number> = {
   ACTIVE_CHASE: 1,
   COMPLETED_CHASE: 1.15,
-  LEGACY_BOUGHT_OR_SEEN: 0.65
+  LEGACY_BOUGHT_OR_SEEN: 0.65,
+  EXPLICIT_PREFERENCE: 0.9
 };
 
 const PRIORITY_MULTIPLIERS: Record<NonNullable<Chase['priority']>, number> = {
@@ -287,6 +290,43 @@ function evidenceFromChase(chase: Chase | CompletedChase, source: CollectorProfi
   };
 }
 
+function explicitPreferenceEvidence(userId: string): CollectorProfileEvidence[] {
+  const now = new Date(0).toISOString();
+  const subjects = db.prepare('SELECT subject_key, subject_label, updated_at FROM user_collector_subject_preferences WHERE user_id = ? ORDER BY subject_key').all(userId) as Array<{ subject_key: string; subject_label: string; updated_at: string }>;
+  const artwork = db.prepare('SELECT source, source_card_id, updated_at FROM user_collector_artwork_preferences WHERE user_id = ? ORDER BY source, source_card_id').all(userId) as Array<{ source: string; source_card_id: string; updated_at: string }>;
+  const subjectEvidence: CollectorProfileEvidence[] = subjects.map((row) => ({
+    id: `explicit-subject:${row.subject_key}`,
+    source: 'EXPLICIT_PREFERENCE',
+    sourceId: row.subject_key,
+    cardName: row.subject_label,
+    timestamp: row.updated_at || now,
+    weight: SOURCE_WEIGHTS.EXPLICIT_PREFERENCE,
+    identityKey: `explicit-subject:${row.subject_key}`,
+    extractedTraits: { subjects: [row.subject_label] },
+    extractionConfidence: 'HIGH'
+  }));
+  const artworkEvidence = artwork.flatMap((row): CollectorProfileEvidence[] => {
+    const record = getCardCatalogRecordBySourceCardId(row.source, row.source_card_id);
+    if (!record || record.verificationStatus !== 'VERIFIED') return [];
+    const chase = {
+      id: `explicit-artwork:${row.source}:${row.source_card_id}`,
+      userId,
+      cardName: record.name,
+      cardImageSourceKind: 'CARD_REFERENCE' as const,
+      cardImageSourceName: record.source,
+      cardImageSourceCardId: record.sourceCardId,
+      priority: 'NORMAL' as const,
+      region: 'ANY' as const,
+      listingType: 'ANY' as const,
+      pausedAt: undefined,
+      createdAt: row.updated_at
+    } as Chase;
+    const evidence = evidenceFromChase(chase, 'EXPLICIT_PREFERENCE');
+    return [{ ...evidence, weight: SOURCE_WEIGHTS.EXPLICIT_PREFERENCE }];
+  });
+  return [...subjectEvidence, ...artworkEvidence];
+}
+
 function capExactIdentityContribution(evidence: CollectorProfileEvidence[]): CollectorProfileEvidence[] {
   const totals = new Map<string, number>();
   return evidence.map((item) => {
@@ -412,10 +452,21 @@ export function buildCollectorInterestProfile(input: BuildCollectorInterestProfi
 }
 
 export function getCollectorInterestProfile(userId: string): CollectorInterestProfile {
-  return buildCollectorInterestProfile({
+  const profile = buildCollectorInterestProfile({
     activeChases: listChases(userId),
     completedChases: listCompletedChases(userId),
     legacyTasteMemoryChases: listUserTasteMemoryChases(userId),
     includeLegacyBoughtOrSeen: true
   });
+  const explicit = explicitPreferenceEvidence(userId);
+  if (explicit.length === 0) return profile;
+  const evidence = capExactIdentityContribution([...profile.evidence, ...explicit]);
+  const distinctCards = new Set(evidence.map((item) => item.identityKey)).size;
+  return {
+    ...profile,
+    sourceSummary: { ...profile.sourceSummary, explicitPreferences: explicit.length, distinctCards },
+    confidence: profileConfidence(distinctCards, evidence.length),
+    traits: aggregateTraits(evidence),
+    evidence
+  };
 }

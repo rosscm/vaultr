@@ -8,7 +8,7 @@ import { getCardCatalogRecordBySourceCardId, replaceCardCatalogSourceRecords } f
 import { importVerifiedCuratedRecords } from '../card-catalog/importers/curated.js';
 import type { CardCatalogRecord } from '../card-catalog/types.js';
 import { addChase, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, resolveChaseRemoval } from '../chase-store.js';
-import { buildCollectorInterestProfile, type CollectorInterestProfile } from '../collector-profile.js';
+import { buildCollectorInterestProfile, getCollectorInterestProfile, type CollectorInterestProfile } from '../collector-profile.js';
 import { analyzeCollectorProfileShadowReserve, collectorInterestProfileToTasteProfile, extractCollectorProfileDiscoveryFeatures, weeklyDiscoveryRankingModeForCollectorProfile } from '../collector-profile-ranking-adapter.js';
 import { db } from '../db.js';
 import { parseCollectorProfileInspectArgs, runCollectorProfileInspectCli } from '../../collector-profile-inspect.js';
@@ -104,6 +104,17 @@ afterEach(() => {
 });
 
 describe('collector interest profile', () => {
+  it('incorporates explicit subjects without fabricating Watchlist evidence', () => {
+    const user = createUser({ displayName: 'Explicit collector' });
+    db.prepare(`INSERT INTO user_collector_subject_preferences (user_id, subject_key, subject_label, created_at, updated_at) VALUES (?, 'mew', 'Mew', ?, ?)`).run(user.id, '2026-10-27T00:00:00.000Z', '2026-10-27T00:00:00.000Z');
+    const profile = getCollectorInterestProfile(user.id);
+    expect(traitLabels(profile, 'subjects')).toContain('Mew');
+    expect(profile.sourceSummary).toMatchObject({ activeChases: 0, completedChases: 0, explicitPreferences: 1 });
+    expect(profile.evidence[0]).toMatchObject({ source: 'EXPLICIT_PREFERENCE', sourceId: 'mew' });
+    db.prepare('DELETE FROM user_collector_subject_preferences WHERE user_id = ?').run(user.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+  });
+
   it('builds a deterministic active-only profile from conservative traits', () => {
     const activeChases = [
       { id: 'a1', userId: 'u1', cardName: 'Mew-EX Legendary Treasures RC24', priority: 'GRAIL' as const, createdAt: '2026-01-01T00:00:00.000Z' },

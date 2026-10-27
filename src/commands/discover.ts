@@ -7178,13 +7178,21 @@ function localCatalogTopOffQueries(profileChases: Chase[], readiness: WeeklyDisc
 
 function collectLocalCatalogTopOffCandidates(input: {
   profileChases: Chase[];
+  collectorProfile?: CollectorTasteProfile;
   readiness: WeeklyDiscoverySupplyReadiness;
   selectionIndexStart: number;
   limit?: number;
 }): { candidates: DiscoveryCandidate[]; recordsConsidered: number; queryCount: number } {
   const choices: LocalCardCatalogChoice[] = [];
   const seenChoiceKeys = new Set<string>();
-  const queries = localCatalogTopOffQueries(input.profileChases, input.readiness);
+  const profileQueries = input.collectorProfile ? uniqueValuesPreservingOrder([
+    ...Object.keys(input.collectorProfile.subjects),
+    ...Object.keys(input.collectorProfile.sets),
+    ...Object.keys(input.collectorProfile.artists),
+    ...Object.keys(input.collectorProfile.promoTypes),
+    ...Object.keys(input.collectorProfile.releaseTypes)
+  ]).filter((query) => query.trim().length >= 2).slice(0, 24) : [];
+  const queries = uniqueValuesPreservingOrder([...localCatalogTopOffQueries(input.profileChases, input.readiness), ...profileQueries]);
   for (const query of queries) {
     for (const choice of searchLocalCardCatalog(query, 8)) {
       const key = `${choice.source}:${choice.sourceCardId}:${choice.language}`;
@@ -7319,6 +7327,7 @@ async function expandWeeklyDiscoveryCanonicalSupplyTopOff(input: {
   const localCatalogCollected = canRunLocalCatalogTopOff
     ? collectLocalCatalogTopOffCandidates({
       profileChases: discovery.tasteProfileChases,
+      collectorProfile: input.collectorProfile,
       readiness,
       selectionIndexStart: currentReserve.length + rawUserUniverseCandidates.length + rawGlobalUniverseCandidates.length,
       limit: 160
@@ -11891,6 +11900,7 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   const localCatalogQualityCandidates = discovery.hasFullDiscovery
     ? collectLocalCatalogTopOffCandidates({
         profileChases: localCatalogProfileChases,
+        collectorProfile: profileContext.collectorProfile,
         readiness: {
           selectedSubjectCounts: {},
           selectedFamilyCounts: {}

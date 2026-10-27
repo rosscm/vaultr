@@ -1,6 +1,8 @@
 import { getUserPlan, listAllUserTasteMemoryChases, listChases, listUsersWithDiscoverySignals } from './chase-store.js';
 import { activePlanTier } from './plans.js';
 import type { Chase } from '../types.js';
+import { getCollectorPreferences } from './collector-preferences.js';
+import { db } from './db.js';
 
 export const WEEKLY_DISCOVERY_MIN_UNIQUE_SIGNAL_COUNT = 5;
 
@@ -88,14 +90,27 @@ export function weeklyDiscoveryEligibilityForUser(userId: string): WeeklyDiscove
   );
 }
 
+export function weeklyDiscoveryExplicitPreferenceEligibilityForUser(userId: string): boolean {
+  return getCollectorPreferences(userId).readiness.ready;
+}
+
 export function listProUsersEligibleForWeeklyDiscovery(): string[] {
-  return listUsersWithDiscoverySignals().filter((userId) =>
-    activePlanTier(getUserPlan(userId)) === 'PRO' && weeklyDiscoveryEligibilityForUser(userId).eligible
+  return usersWithAnyDiscoverySignals().filter((userId) =>
+    activePlanTier(getUserPlan(userId)) === 'PRO' && (weeklyDiscoveryEligibilityForUser(userId).eligible || weeklyDiscoveryExplicitPreferenceEligibilityForUser(userId))
   );
 }
 
 export function countProUsersIneligibleForWeeklyDiscovery(): number {
-  return listUsersWithDiscoverySignals().filter((userId) =>
-    activePlanTier(getUserPlan(userId)) === 'PRO' && !weeklyDiscoveryEligibilityForUser(userId).eligible
+  return usersWithAnyDiscoverySignals().filter((userId) =>
+    activePlanTier(getUserPlan(userId)) === 'PRO' && !weeklyDiscoveryEligibilityForUser(userId).eligible && !weeklyDiscoveryExplicitPreferenceEligibilityForUser(userId)
   ).length;
+}
+
+function usersWithAnyDiscoverySignals(): string[] {
+  const explicit = db.prepare(`
+    SELECT user_id FROM user_collector_subject_preferences
+    UNION
+    SELECT user_id FROM user_collector_artwork_preferences
+  `).all() as Array<{ user_id: string }>;
+  return [...new Set([...listUsersWithDiscoverySignals(), ...explicit.map((row) => row.user_id)])].sort();
 }

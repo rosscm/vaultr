@@ -49,6 +49,9 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM discovery_scheduled_drop_items WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_scheduled_drops WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_onboarding WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM free_discovery_samples WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_collector_artwork_preferences WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_collector_subject_preferences WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 }
@@ -368,7 +371,7 @@ describe('web app static routes', () => {
       (jsResponse.body ?? '').indexOf('function homePageMarkup()')
     );
     expect(homeEmptySource).not.toContain('Open Inbox');
-    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false } = {})');
+    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
     expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
     expect(jsResponse.body).toContain('Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit.');
@@ -380,7 +383,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('toggle-display-case-explanation');
     expect(jsResponse.body).toContain('Marketplace checks paused');
     expect(jsResponse.body).not.toContain('home-introduction');
-    expect(jsResponse.body).toContain("${personalizedReady ? 'Picked for you' : 'Starter picks'}");
+    expect(jsResponse.body).toContain("${personalizedReady ? 'Picked for you' : freeSampleReady ? 'Your first personalized picks' : 'Starter picks'}");
     expect(jsResponse.body).toContain('Explore Display Case');
     expect(jsResponse.body).not.toContain('Picked around your taste');
     expect(jsResponse.body).toContain('Open Inbox');
@@ -396,7 +399,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('<p class="eyebrow">INBOX</p>');
     expect(jsResponse.body).toContain('<h2 id="home-alerts-title">Latest matches</h2>');
     expect(jsResponse.body).toContain("${editorial ? 'Starter pick' : 'Picked for you'}");
-    expect(jsResponse.body).toContain("${editorial ? '' : discoveryFeedbackMarkup(item, true)}");
+    expect(jsResponse.body).toContain("${feedback ? discoveryFeedbackMarkup(item, true) : ''}");
     expect(jsResponse.body).toContain('home-shelf-supporting-card');
     expect(jsResponse.body).toContain('aria-hidden="true"');
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Your Display Case</h1>');
@@ -420,7 +423,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('With Vaultr Plus, that profile guides your personalized Display Case.');
     expect(jsResponse.body).not.toContain('A little inspiration');
     expect(jsResponse.body).toContain('!editorial && item.roleLabel');
-    expect(jsResponse.body).toContain("editorial ? '' : discoveryFeedbackMarkup(item)");
+    expect(jsResponse.body).toContain("feedback ? discoveryFeedbackMarkup(item) : ''");
+    expect(jsResponse.body).toContain('Find my first picks');
+    expect(jsResponse.body).toContain('What catches your eye?');
+    expect(jsResponse.body).toContain('data-action="edit-collector-profile"');
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
     expect(jsResponse.body).toContain('<h1 id="plus-title">Vaultr Plus</h1>');
@@ -1238,6 +1244,28 @@ describe('authenticated onboarding API', () => {
     expect(stale.status).toBe(409);
     expect(JSON.parse(stale.body ?? '{}')).toMatchObject({ error: 'STALE_STATE', state: { step: 'MARKET' } });
     clearUser(userId);
+  });
+});
+
+describe('authenticated collecting profile API', () => {
+  it('keeps preferences account-scoped and rejects unsupported client subjects', async () => {
+    expect((await handleWebRequest({ method: 'GET', url: '/api/collector-profile' }, { config })).status).toBe(401);
+    const userId = createUser({ displayName: 'Taste owner' }).id;
+    const otherUserId = createUser({ displayName: 'Other taste' }).id;
+    createWebSession({ userId }, { token: 'collector-profile-token' });
+    const headers = { cookie: sessionCookie('collector-profile-token'), 'content-type': 'application/json' };
+
+    const saved = await handleWebRequest({ method: 'PUT', url: `/api/collector-profile?userId=${otherUserId}`, headers, body: JSON.stringify({ subjects: ['Mew'], artwork: [] }) }, { config });
+    expect(saved.status).toBe(200);
+    expect(JSON.parse(saved.body ?? '{}')).toMatchObject({ preferences: { subjects: ['Mew'], readiness: { ready: false } } });
+    expect(db.prepare('SELECT subject_label FROM user_collector_subject_preferences WHERE user_id = ?').all(userId)).toEqual([{ subject_label: 'Mew' }]);
+    expect(db.prepare('SELECT subject_label FROM user_collector_subject_preferences WHERE user_id = ?').all(otherUserId)).toEqual([]);
+
+    const unsupported = await handleWebRequest({ method: 'PUT', url: '/api/collector-profile', headers, body: JSON.stringify({ subjects: ['Client invented subject'], artwork: [] }) }, { config });
+    expect(unsupported.status).toBe(400);
+    expect((await handleWebRequest({ method: 'POST', url: '/api/preview/collector-profile', headers, body: '{}' }, { config: { ...config, previewEnabled: true } })).status).toBe(405);
+    clearUser(userId);
+    clearUser(otherUserId);
   });
 });
 

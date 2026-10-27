@@ -45,7 +45,7 @@ import {
 } from './services/chase-options.js';
 import { getEntitlementsForTier } from './services/entitlements.js';
 import { activePlanTier } from './services/plans.js';
-import { weeklyDiscoveryEligibilityForUser } from './services/weekly-discovery-eligibility.js';
+import { weeklyDiscoveryEligibilityForUser, weeklyDiscoveryExplicitPreferenceEligibilityForUser } from './services/weekly-discovery-eligibility.js';
 import {
   getLatestAvailableScheduledDiscoveryDrop,
   listScheduledDiscoveryDropsForUser,
@@ -56,6 +56,9 @@ import {
 import { weeklyPreparationTargetDate } from './services/discovery-drop-scheduler.js';
 import { alertSettingsResponse, updateAlertSettings } from './services/alert-settings.js';
 import { getOrCreateOnboardingState, transitionOnboarding, type OnboardingAction, type OnboardingStep } from './services/onboarding.js';
+import { collectorPreferenceOptions, getCollectorPreferences, saveCollectorPreferences } from './services/collector-preferences.js';
+import { getFreeDiscoverySample, requestFreeDiscoverySample } from './services/free-discovery-sample.js';
+import { getCardCatalogRecordBySourceCardId } from './services/card-catalog-db.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
 import {
   createWebSession,
@@ -617,16 +620,35 @@ function publicStarterDiscoveryItems(userId: string, config: WebConfig) {
   }));
 }
 
+function publicFreeDiscoverySample(userId: string) {
+  const sample = getFreeDiscoverySample(userId);
+  return {
+    ...sample,
+    items: sample.items.map((item) => {
+      const record = getCardCatalogRecordBySourceCardId(item.cardIdentity.sourceName, item.cardIdentity.sourceCardId);
+      const selection = record?.imageUrl ? issueCardSelection(userId, item.cardIdentity.value, {
+        imageUrl: record.imageUrl,
+        imageIdentity: item.name,
+        imageSourceKind: 'CARD_REFERENCE',
+        imageSourceName: record.source,
+        imageSourceCardId: record.sourceCardId
+      }) : undefined;
+      return { ...item, selection };
+    })
+  };
+}
+
 function webDiscoveryState(userId: string, config: WebConfig, populated: boolean) {
   const tier = activePlanTier(getUserPlan(userId));
   const eligibility = weeklyDiscoveryEligibilityForUser(userId);
+  const explicitPreferenceReady = weeklyDiscoveryExplicitPreferenceEligibilityForUser(userId);
   const preparationExpected = config.environmentLabel?.trim().toLowerCase() !== 'staging'
     && process.env.DISCOVERY_DROP_SCHEDULER_ENABLED !== 'false';
   const state = tier !== 'PRO'
     ? 'PLAN_RESTRICTED'
     : populated
       ? 'POPULATED'
-      : !eligibility.eligible
+      : !eligibility.eligible && !explicitPreferenceReady
         ? 'INSUFFICIENT_SIGNALS'
         : preparationExpected
           ? 'AWAITING_PREPARATION'
@@ -637,7 +659,8 @@ function webDiscoveryState(userId: string, config: WebConfig, populated: boolean
     preparationExpected,
     minimumSignalCount: eligibility.minimumSignalCount,
     uniqueSignalCount: eligibility.uniqueSignalCount,
-    signalsNeeded: eligibility.signalsNeeded
+    signalsNeeded: eligibility.signalsNeeded,
+    explicitPreferenceReady
   };
 }
 
@@ -668,7 +691,9 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
       title: 'Display Case',
       items: [],
       discovery: webDiscoveryState(userId, config, false),
-      starterItems: publicStarterDiscoveryItems(userId, config)
+      starterItems: publicStarterDiscoveryItems(userId, config),
+      freeSample: publicFreeDiscoverySample(userId),
+      collectorPreferences: getCollectorPreferences(userId)
     });
   }
 
@@ -688,7 +713,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     currency: drop.currency,
     items: personalized ? drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey)) : [],
     discovery,
-    ...(personalized ? {} : { starterItems: publicStarterDiscoveryItems(userId, config) })
+    ...(personalized ? {} : { starterItems: publicStarterDiscoveryItems(userId, config), freeSample: publicFreeDiscoverySample(userId), collectorPreferences: getCollectorPreferences(userId) })
   });
 }
 
@@ -750,6 +775,11 @@ function previewResponse(method: string, url: URL): WebResponse | null {
   if (url.pathname === '/api/preview/auth/config') return jsonResponse(200, { email: { available: true }, discord: { available: true }, preview: true });
   if (url.pathname === '/api/preview/auth/email/confirmation') return jsonResponse(200, { ready: false, preview: true });
   if (url.pathname === '/api/preview/onboarding') return jsonResponse(200, WEB_PREVIEW_ONBOARDING);
+  if (url.pathname === '/api/preview/collector-profile') return jsonResponse(200, {
+    preferences: { subjects: [], artwork: [], readiness: { ready: false, subjectCount: 0, artworkCount: 0, neededArtworkCount: 3 } },
+    options: collectorPreferenceOptions(),
+    readOnly: true
+  });
   if (url.pathname === '/api/preview/settings') return jsonResponse(200, WEB_PREVIEW_SETTINGS);
   if (url.pathname === '/api/preview/chases') return jsonResponse(200, WEB_PREVIEW_CHASES);
   if (url.pathname === '/api/preview/chases/autocomplete') {
@@ -1124,8 +1154,8 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       if (Object.keys(parsed.body).some((field) => !allowedFields.has(field))) return errorResponse(400, 'invalid_onboarding_update');
       const action = parsed.body.action;
       const expectedStep = parsed.body.expectedStep;
-      const actions: OnboardingAction[] = ['CONTINUE', 'BACK', 'MARKET_SAVED', 'CHASE_CREATED', 'SKIP', 'FINISH', 'RESUME'];
-      const steps: OnboardingStep[] = ['WELCOME', 'MARKET', 'CHASE', 'READY'];
+      const actions: OnboardingAction[] = ['CONTINUE', 'BACK', 'MARKET_SAVED', 'PROFILE_SAVED', 'CHASE_CREATED', 'SKIP', 'FINISH', 'RESUME'];
+      const steps: OnboardingStep[] = ['WELCOME', 'MARKET', 'PROFILE', 'CHASE', 'READY'];
       if (typeof action !== 'string' || !actions.includes(action as OnboardingAction)) return errorResponse(400, 'invalid_onboarding_action');
       if (expectedStep !== undefined && (typeof expectedStep !== 'string' || !steps.includes(expectedStep as OnboardingStep))) return errorResponse(400, 'invalid_onboarding_step');
       const result = transitionOnboarding(session.userId, action as OnboardingAction, expectedStep as OnboardingStep | undefined);
@@ -1133,6 +1163,39 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       return jsonResponse(200, { state: result.state });
     }
     return errorResponse(405, 'method_not_allowed', { Allow: 'GET, PATCH' });
+  }
+
+  if (url.pathname === '/api/collector-profile') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    if (method === 'GET') return jsonResponse(200, { preferences: getCollectorPreferences(session.userId), options: collectorPreferenceOptions() });
+    if (method === 'PUT') {
+      const parsed = requireJsonBody(request);
+      if ('status' in parsed) return parsed;
+      if (Object.keys(parsed.body).some((field) => !['subjects', 'artwork'].includes(field))) return errorResponse(400, 'invalid_preferences');
+      try {
+        return jsonResponse(200, { preferences: saveCollectorPreferences(session.userId, parsed.body as { subjects: unknown; artwork: unknown }), options: collectorPreferenceOptions() });
+      } catch (error) {
+        return errorResponse(400, error instanceof Error ? error.message : 'invalid_preferences');
+      }
+    }
+    return errorResponse(405, 'method_not_allowed', { Allow: 'GET, PUT' });
+  }
+
+  if (url.pathname === '/api/free-discovery-sample') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    if (method === 'GET') return jsonResponse(200, { sample: publicFreeDiscoverySample(session.userId) });
+    if (method === 'POST') {
+      if (activePlanTier(getUserPlan(session.userId)) !== 'FREE') return errorResponse(403, 'free_sample_not_available');
+      try {
+        requestFreeDiscoverySample(session.userId, options.now?.() ?? new Date());
+        return jsonResponse(202, { sample: publicFreeDiscoverySample(session.userId) });
+      } catch (error) {
+        return errorResponse(400, error instanceof Error ? error.message : 'sample_request_failed');
+      }
+    }
+    return errorResponse(405, 'method_not_allowed', { Allow: 'GET, POST' });
   }
 
   if (method === 'GET' && url.pathname === '/api/alerts') {

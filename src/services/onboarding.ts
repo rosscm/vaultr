@@ -2,8 +2,8 @@ import { db } from './db.js';
 import { listChases } from './chase-store.js';
 
 export type OnboardingStatus = 'IN_PROGRESS' | 'SKIPPED' | 'COMPLETED';
-export type OnboardingStep = 'WELCOME' | 'MARKET' | 'CHASE' | 'READY';
-export type OnboardingAction = 'CONTINUE' | 'BACK' | 'MARKET_SAVED' | 'CHASE_CREATED' | 'SKIP' | 'FINISH' | 'RESUME';
+export type OnboardingStep = 'WELCOME' | 'MARKET' | 'PROFILE' | 'CHASE' | 'READY';
+export type OnboardingAction = 'CONTINUE' | 'BACK' | 'MARKET_SAVED' | 'PROFILE_SAVED' | 'CHASE_CREATED' | 'SKIP' | 'FINISH' | 'RESUME';
 
 export type OnboardingState = {
   status: OnboardingStatus;
@@ -77,9 +77,11 @@ export function transitionOnboarding(userId: string, action: OnboardingAction, e
       step = current.hasChase ? 'READY' : 'WELCOME';
     } else if (action === 'CONTINUE' && step === 'WELCOME') step = 'MARKET';
     else if (action === 'BACK' && step === 'MARKET') step = 'WELCOME';
-    else if (action === 'BACK' && step === 'CHASE') step = 'MARKET';
-    else if (action === 'BACK' && step === 'READY') step = 'MARKET';
-    else if (action === 'MARKET_SAVED' && step === 'MARKET') step = current.hasChase ? 'READY' : 'CHASE';
+    else if (action === 'BACK' && step === 'PROFILE') step = 'MARKET';
+    else if (action === 'BACK' && step === 'CHASE') step = 'PROFILE';
+    else if (action === 'BACK' && step === 'READY') step = 'PROFILE';
+    else if (action === 'MARKET_SAVED' && step === 'MARKET') step = 'PROFILE';
+    else if (action === 'PROFILE_SAVED' && step === 'PROFILE') step = current.hasChase ? 'READY' : 'CHASE';
     else if (action === 'CHASE_CREATED' && step === 'CHASE' && current.hasChase) step = 'READY';
     else if (action === 'FINISH' && step === 'READY') status = 'COMPLETED';
     else return { ok: false, code: 'INVALID_TRANSITION', state: current };

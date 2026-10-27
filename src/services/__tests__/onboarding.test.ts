@@ -49,7 +49,8 @@ describe('web onboarding', () => {
   it('persists guarded progress, reconciles an interrupted Chase creation, and completes idempotently', () => {
     const userId = newUser('Progress collector');
     expect(transitionOnboarding(userId, 'CONTINUE', 'WELCOME')).toMatchObject({ ok: true, state: { step: 'MARKET' } });
-    expect(transitionOnboarding(userId, 'MARKET_SAVED', 'MARKET')).toMatchObject({ ok: true, state: { step: 'CHASE' } });
+    expect(transitionOnboarding(userId, 'MARKET_SAVED', 'MARKET')).toMatchObject({ ok: true, state: { step: 'PROFILE' } });
+    expect(transitionOnboarding(userId, 'PROFILE_SAVED', 'PROFILE')).toMatchObject({ ok: true, state: { step: 'CHASE' } });
     expect(transitionOnboarding(userId, 'BACK', 'WELCOME')).toMatchObject({ ok: false, code: 'STALE_STATE', state: { step: 'CHASE' } });
 
     addChase({ userId, cardName: 'Pichu Expedition 22/165' });
@@ -71,6 +72,8 @@ describe('web onboarding', () => {
     expect(getOrCreateOnboardingState(userId).step).toBe('MARKET');
 
     transitionOnboarding(userId, 'MARKET_SAVED', 'MARKET');
+    expect(getOrCreateOnboardingState(userId)).toMatchObject({ status: 'IN_PROGRESS', step: 'PROFILE' });
+    transitionOnboarding(userId, 'PROFILE_SAVED', 'PROFILE');
     expect(getOrCreateOnboardingState(userId)).toMatchObject({ status: 'IN_PROGRESS', step: 'CHASE' });
     expect(getOrCreateOnboardingState(userId).step).toBe('CHASE');
 
