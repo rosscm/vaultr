@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { addChase, enqueueAlertEventDelivery, getUserAlertSettings, getUserDiscoveryFeedback, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, setUserAlertSettings, setUserPlan } from '../services/chase-store.js';
 import { createUser, getIdentity, getUserById, linkIdentity } from '../services/accounts.js';
@@ -10,6 +13,9 @@ import {
 } from '../services/web-sessions.js';
 import { __chaseCardCatalogTestHooks, clearChaseCardAutocompleteCache } from '../services/chase-card-catalog.js';
 import { getOrCreateOnboardingState } from '../services/onboarding.js';
+import { replaceCardCatalogSourceRecords } from '../services/card-catalog-db.js';
+import { completeFreeDiscoverySampleJob, rankFreeDiscoverySampleRecords } from '../services/free-discovery-sample.js';
+import type { CollectorInterestProfile } from '../services/collector-profile.js';
 import {
   deleteScheduledDiscoveryDrop,
   scheduledDiscoveryAvailability,
@@ -425,6 +431,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('!editorial && item.roleLabel');
     expect(jsResponse.body).toContain("feedback ? discoveryFeedbackMarkup(item) : ''");
     expect(jsResponse.body).toContain('Find my first picks');
+    expect(jsResponse.body).toContain('No qualified sample picks this time.');
+    expect(jsResponse.body).toContain('We did not add weaker cards just to fill the space.');
+    expect(jsResponse.body).toContain('Editorial picks are still here to explore.');
     expect(jsResponse.body).toContain('What catches your eye?');
     expect(jsResponse.body).toContain('data-action="edit-collector-profile"');
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
@@ -1770,6 +1779,66 @@ describe('authenticated Weekly Shelf API', () => {
     });
 
     clearUser(userId);
+  });
+
+  it('preserves a generated Free sample exact printing through Watchlist save and readback', async () => {
+    const originalCatalogPath = process.env.CARD_CATALOG_PATH;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vaultr-web-free-sample-'));
+    const catalogPath = path.join(tempDir, 'catalog.db');
+    const user = createUser({ displayName: 'Free sample collector' });
+    const userId = user.id;
+    try {
+      process.env.CARD_CATALOG_PATH = catalogPath;
+      replaceCardCatalogSourceRecords('CURATED', [{
+        source: 'CURATED', sourceCardId: 'sample-mew-151', language: 'ja', name: 'Mew', normalizedName: 'mew',
+        setName: 'CoroCoro Promo', normalizedSetName: 'corocoro promo', cardNumber: '151', normalizedCardNumber: '151',
+        imageUrl: 'https://cards.example/mew-151.png', isPromo: true, verificationStatus: 'VERIFIED', importedAt: '2026-10-27T00:00:00.000Z'
+      }], catalogPath);
+      const profile: CollectorInterestProfile = {
+        version: 1,
+        sourceSummary: { activeChases: 0, completedChases: 0, legacyBoughtOrSeen: 0, explicitPreferences: 1, distinctCards: 1 },
+        confidence: { tier: 'SEED', score: 0.2, reasons: ['explicit preference'] },
+        traits: {
+          subjects: [{ key: 'mew', label: 'Mew', score: 1.8, evidenceCount: 1, activeEvidenceCount: 0, completedEvidenceCount: 0, legacyEvidenceCount: 0, confidence: 'HIGH', evidenceIds: ['subject:mew'] }],
+          languages: [], sets: [], eras: [], formats: [], artists: [], rarities: [], promoTypes: [], releaseTypes: [], releaseEvents: [], gradingPreferences: [], conditionPreferences: []
+        },
+        evidence: []
+      };
+      const record = {
+        id: 1, source: 'CURATED' as const, sourceCardId: 'sample-mew-151', language: 'ja' as const, name: 'Mew', normalizedName: 'mew',
+        setName: 'CoroCoro Promo', normalizedSetName: 'corocoro promo', cardNumber: '151', normalizedCardNumber: '151',
+        imageUrl: 'https://cards.example/mew-151.png', isPromo: true, verificationStatus: 'VERIFIED' as const, importedAt: '2026-10-27T00:00:00.000Z'
+      };
+      const generated = rankFreeDiscoverySampleRecords(profile, new Set(), [record], 'api-sample');
+      expect(generated[0]?.name).toBe('Mew CoroCoro Promo 151 Japanese');
+      db.prepare(`INSERT INTO free_discovery_samples (user_id, status, attempt_count, created_at, updated_at) VALUES (?, 'PREPARING', 1, ?, ?)`).run(userId, '2026-10-27T00:00:00.000Z', '2026-10-27T00:00:00.000Z');
+      completeFreeDiscoverySampleJob(userId, 1, generated, new Date('2026-10-27T00:01:00.000Z'));
+      const { token } = createWebSession({ userId }, { token: 'free-sample-exact-printing-token' });
+      const headers = { cookie: sessionCookie(token) };
+
+      const shelf = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config })).body ?? '{}');
+      const item = shelf.freeSample.items[0];
+      expect(item).toMatchObject({
+        name: 'Mew CoroCoro Promo 151 Japanese',
+        cardIdentity: { value: 'Mew CoroCoro Promo 151 Japanese', sourceName: 'CURATED', sourceCardId: 'sample-mew-151' },
+        selection: { value: 'Mew CoroCoro Promo 151 Japanese', sourceName: 'CURATED', sourceCardId: 'sample-mew-151' }
+      });
+      const created = await handleWebRequest({
+        method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ cardName: item.name, cardSelectionToken: item.selection.token })
+      }, { config });
+      expect(created.status).toBe(201);
+      const vault = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/chases', headers }, { config })).body ?? '{}');
+      expect(vault.items[0].chase).toMatchObject({
+        cardName: 'Mew CoroCoro Promo 151 Japanese',
+        cardIdentity: { value: 'Mew CoroCoro Promo 151 Japanese', sourceName: 'CURATED', sourceCardId: 'sample-mew-151' }
+      });
+    } finally {
+      clearUser(userId);
+      if (originalCatalogPath === undefined) delete process.env.CARD_CATALOG_PATH;
+      else process.env.CARD_CATALOG_PATH = originalCatalogPath;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('preserves an editorial starter printing and approved artwork through save and acquisition', async () => {

@@ -42,6 +42,10 @@ function termsOfType(terms: string[], allowed: string[]): string[] {
 
 function subjectTerms(suggestion: DiscoverySuggestion, collectorTerms: string[]): string[] {
   const name = normalize(suggestion.canonicalReference?.canonicalName ?? suggestion.name);
+  const anchoredIdentity = (suggestion.requiredEvidenceTokens ?? [])
+    .map(normalize)
+    .find((term) => term.length >= 3 && !/^\d+$/.test(term) && (name === term || name.startsWith(`${term} `)));
+  if (anchoredIdentity) return [anchoredIdentity];
   const excluded = new Set([...collectorTerms.flatMap((term) => term.split(' ')), 'card', 'pokemon']);
   return [...new Set(name.split(' ').filter((term) => term.length >= 3 && !excluded.has(term) && !/^\d+$/.test(term)))].slice(0, 4);
 }

@@ -322,7 +322,9 @@ function explicitPreferenceEvidence(userId: string): CollectorProfileEvidence[] 
       createdAt: row.updated_at
     } as Chase;
     const evidence = evidenceFromChase(chase, 'EXPLICIT_PREFERENCE');
-    return [{ ...evidence, weight: SOURCE_WEIGHTS.EXPLICIT_PREFERENCE }];
+    const artworkTraits = { ...evidence.extractedTraits };
+    delete artworkTraits.subjects;
+    return [{ ...evidence, extractedTraits: artworkTraits, weight: SOURCE_WEIGHTS.EXPLICIT_PREFERENCE }];
   });
   return [...subjectEvidence, ...artworkEvidence];
 }

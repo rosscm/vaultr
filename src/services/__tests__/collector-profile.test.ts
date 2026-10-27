@@ -115,6 +115,31 @@ describe('collector interest profile', () => {
     db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
   });
 
+  it('learns artwork traits without treating depicted Pokemon as favourite subjects', () => {
+    const dbPath = tempCatalogPath('explicit-artwork-traits');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('POKEMONTCG', [record({
+      sourceCardId: 'birds-sm210',
+      name: 'Moltres & Zapdos & Articuno-GX',
+      setName: 'SM Black Star Promos',
+      cardNumber: 'SM210',
+      illustrator: 'Mitsuhiro Arita',
+      language: 'en',
+      verificationStatus: 'VERIFIED'
+    })], dbPath);
+    const user = createUser({ displayName: 'Artwork collector' });
+    db.prepare(`INSERT INTO user_collector_artwork_preferences (user_id, source, source_card_id, created_at, updated_at) VALUES (?, 'POKEMONTCG', 'birds-sm210', ?, ?)`).run(user.id, '2026-10-27T00:00:00.000Z', '2026-10-27T00:00:00.000Z');
+
+    const profile = getCollectorInterestProfile(user.id);
+    expect(traitLabels(profile, 'subjects')).toEqual([]);
+    expect(traitLabels(profile, 'sets')).toContain('SM Black Star Promos');
+    expect(traitLabels(profile, 'artists')).toContain('Mitsuhiro Arita');
+    expect(profile.evidence[0]?.extractedTraits.subjects).toBeUndefined();
+
+    db.prepare('DELETE FROM user_collector_artwork_preferences WHERE user_id = ?').run(user.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+  });
+
   it('builds a deterministic active-only profile from conservative traits', () => {
     const activeChases = [
       { id: 'a1', userId: 'u1', cardName: 'Mew-EX Legendary Treasures RC24', priority: 'GRAIL' as const, createdAt: '2026-01-01T00:00:00.000Z' },

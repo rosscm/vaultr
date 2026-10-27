@@ -1,5 +1,6 @@
 import { db } from './db.js';
-import { listVerifiedCardCatalogRecordsWithImages } from './card-catalog-db.js';
+import { requireVerifiedCardCatalogRecordsWithImages } from './card-catalog-db.js';
+import { catalogDisplayValue } from './card-catalog/normalize.js';
 import type { StoredCardCatalogRecord } from './card-catalog/types.js';
 import { getCollectorInterestProfile, type CollectorInterestProfile } from './collector-profile.js';
 import { analyzeCollectorProfileReserve, collectorInterestProfileToTasteProfile } from './collector-profile-ranking-adapter.js';
@@ -72,7 +73,7 @@ export function requestFreeDiscoverySample(userId: string, now = new Date()): Fr
 export function claimFreeDiscoverySampleJob(now = new Date(), onlyUserId?: string): { userId: string; attemptCount: number } | null {
   return db.transaction(() => {
     const iso = now.toISOString();
-    db.prepare(`UPDATE free_discovery_samples SET status = 'FAILED', lease_expires_at = NULL, next_retry_at = NULL, failure_code = 'RETRY_LIMIT', failure_summary = 'Preparation did not complete within the bounded retry limit', updated_at = ? WHERE attempt_count >= ? AND ((status = 'PREPARING' AND lease_expires_at <= ?) OR (status = 'RETRYABLE_FAILURE' AND next_retry_at <= ?))`).run(iso, MAX_ATTEMPTS, iso, iso);
+    db.prepare(`UPDATE free_discovery_samples SET status = 'FAILED', lease_expires_at = NULL, next_retry_at = NULL, failure_code = 'RETRY_LIMIT', failure_summary = 'Preparation did not complete within the bounded retry limit', updated_at = @now WHERE (@userId IS NULL OR user_id = @userId) AND attempt_count >= @maxAttempts AND ((status = 'PREPARING' AND lease_expires_at <= @now) OR (status = 'RETRYABLE_FAILURE' AND next_retry_at <= @now))`).run({ now: iso, userId: onlyUserId ?? null, maxAttempts: MAX_ATTEMPTS });
     const row = db.prepare(`
       SELECT user_id, attempt_count FROM free_discovery_samples
       WHERE (@userId IS NULL OR user_id = @userId) AND (
@@ -159,9 +160,11 @@ export function rankFreeDiscoverySampleRecords(
     .slice(0, 3);
   return ranked.map((candidate) => {
     const reference = candidate.suggestion.canonicalReference!;
+    const record = records.find((item) => item.source === reference.provider && item.sourceCardId === reference.sourceCardId)!;
+    const exactPrintingName = catalogDisplayValue(record);
     const strongest = candidate.weeklyDiscovery?.rankExplanation.strongestSignals ?? [];
     return {
-      name: reference.canonicalName,
+      name: exactPrintingName,
       imageUrl: reference.imageUrl,
       setName: reference.setName,
       cardNumber: reference.cardNumber,
@@ -169,8 +172,8 @@ export function rankFreeDiscoverySampleRecords(
       reason: strongest.length ? `A profile match through ${strongest.slice(0, 2).join(' and ')}.` : 'A verified card aligned with your collecting profile.',
       roleLabel: candidate.weeklyDiscovery?.discoveryRole === 'CORE_MATCH' ? 'Core match' : 'Adjacent discovery',
       cardIdentity: {
-        value: candidate.suggestion.name,
-        matchKey: candidate.suggestion.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(),
+        value: exactPrintingName,
+        matchKey: exactPrintingName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(),
         sourceName: reference.provider,
         sourceCardId: reference.sourceCardId
       }
@@ -179,13 +182,14 @@ export function rankFreeDiscoverySampleRecords(
 }
 
 export function generateFreeDiscoverySample(userId: string): FreeDiscoverySampleItem[] {
+  const records = requireVerifiedCardCatalogRecordsWithImages(500);
   const preferences = getCollectorPreferences(userId);
   if (!preferences.readiness.ready) throw new Error('preferences_not_ready');
   const selected = new Set(preferences.artwork.map((item) => `${item.source}:${item.sourceCardId}`));
   return rankFreeDiscoverySampleRecords(
     getCollectorInterestProfile(userId),
     selected,
-    listVerifiedCardCatalogRecordsWithImages(500),
+    records,
     `free-sample:${userId}`
   );
 }
@@ -201,8 +205,10 @@ export function failFreeDiscoverySampleJob(userId: string, attemptCount: number,
   const terminal = current.attemptCount >= MAX_ATTEMPTS;
   const iso = now.toISOString();
   const nextRetryAt = terminal ? null : new Date(now.getTime() + Math.min(60_000 * 2 ** current.attemptCount, 15 * 60_000)).toISOString();
-  db.prepare(`UPDATE free_discovery_samples SET status = ?, lease_expires_at = NULL, next_retry_at = ?, failure_code = 'GENERATION_FAILED', failure_summary = ?, updated_at = ? WHERE user_id = ? AND status = 'PREPARING' AND attempt_count = ?`)
-    .run(terminal ? 'FAILED' : 'RETRYABLE_FAILURE', nextRetryAt, error instanceof Error ? error.message.slice(0, 300) : 'Unknown generation failure', iso, userId, attemptCount);
+  const summary = error instanceof Error ? error.message.slice(0, 300) : 'Unknown generation failure';
+  const code = summary.startsWith('card_catalog_unavailable:') ? 'CATALOG_UNAVAILABLE' : 'GENERATION_FAILED';
+  db.prepare(`UPDATE free_discovery_samples SET status = ?, lease_expires_at = NULL, next_retry_at = ?, failure_code = ?, failure_summary = ?, updated_at = ? WHERE user_id = ? AND status = 'PREPARING' AND attempt_count = ?`)
+    .run(terminal ? 'FAILED' : 'RETRYABLE_FAILURE', nextRetryAt, code, summary, iso, userId, attemptCount);
 }
 
 export function processOneFreeDiscoverySampleJob(now = new Date()): boolean {

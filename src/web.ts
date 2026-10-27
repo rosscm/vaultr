@@ -626,14 +626,15 @@ function publicFreeDiscoverySample(userId: string) {
     ...sample,
     items: sample.items.map((item) => {
       const record = getCardCatalogRecordBySourceCardId(item.cardIdentity.sourceName, item.cardIdentity.sourceCardId);
-      const selection = record?.imageUrl ? issueCardSelection(userId, item.cardIdentity.value, {
+      const exactPrintingName = item.cardIdentity.value;
+      const selection = record?.imageUrl ? issueCardSelection(userId, exactPrintingName, {
         imageUrl: record.imageUrl,
-        imageIdentity: item.name,
+        imageIdentity: exactPrintingName,
         imageSourceKind: 'CARD_REFERENCE',
         imageSourceName: record.source,
         imageSourceCardId: record.sourceCardId
       }) : undefined;
-      return { ...item, selection };
+      return { ...item, name: exactPrintingName, selection };
     })
   };
 }

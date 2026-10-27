@@ -1824,12 +1824,13 @@ function shelfPageMarkup() {
   const personalized = hasPersonalizedDiscoveryAccess();
   const freeSampleItems = personalized ? [] : freeSampleDiscoveryItems();
   const items = personalized ? state.shelf?.items || [] : freeSampleItems;
+  const partialFreeSample = state.shelf?.freeSample?.status === 'UNDERSUPPLIED' && freeSampleItems.length > 0;
   return `
     <section class="shelf-page" aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
       ${personalized && items.length ? '<p class="shelf-personalized-note">Picks shaped by your Watchlist, Pickups, and the cards you tell us you like.</p>' : ''}
-      ${freeSampleItems.length ? '<div class="shelf-personalized-note"><strong>Your first personalized picks</strong><p>This one-time sample is shaped by your collecting profile.</p></div>' : ''}
+      ${freeSampleItems.length ? `<div class="shelf-personalized-note"><strong>Your first personalized picks</strong><p>${partialFreeSample ? `We found ${freeSampleItems.length} qualified ${freeSampleItems.length === 1 ? 'pick' : 'picks'} for this one-time sample. We did not add weaker cards just to fill the space.` : 'This one-time sample is shaped by your collecting profile.'}</p></div>` : ''}
       ${personalized && items.length ? shelfMetaMarkup(state.shelf) : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>${freeSampleItems.length ? '<div class="shelf-plus-actions"><button class="button-primary" type="button" data-page="plus">Explore ongoing discovery with Vaultr Plus</button></div>' : ''}` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
@@ -1868,10 +1869,16 @@ function shelfEmptyMarkup(shelf) {
   const sample = shelf?.freeSample;
   const profileReady = shelf?.collectorPreferences?.readiness?.ready;
   const sampleStatus = sample?.status;
-  const samplePanel = isFree && sampleStatus !== 'COMPLETE' && sampleStatus !== 'UNDERSUPPLIED' ? `
+  const sampleCount = sample?.items?.length || 0;
+  const terminalSampleCopy = sampleStatus === 'UNDERSUPPLIED'
+    ? sampleCount === 0
+      ? 'We could not find a qualified match for this one-time sample. Editorial picks are still here to explore.'
+      : `We found ${sampleCount} qualified ${sampleCount === 1 ? 'pick' : 'picks'} for this one-time sample. We did not add weaker cards just to fill the space.`
+    : '';
+  const samplePanel = isFree && sampleStatus !== 'COMPLETE' ? `
     <div class="shelf-sample-state">
-      <h2>${profileReady ? 'Your first picks are ready to prepare.' : 'Shape your first personalized picks.'}</h2>
-      <p>${sampleStatus === 'QUEUED' || sampleStatus === 'PREPARING' ? 'Your sample is being prepared. Editorial picks remain available while you wait.' : sampleStatus === 'RETRYABLE_FAILURE' ? 'Preparation hit a temporary issue and will retry automatically.' : sampleStatus === 'FAILED' ? 'Your sample could not be prepared after bounded retries. Your profile is still saved.' : profileReady ? 'This one-time sample can include up to three qualified cards.' : 'Choose favourite Pokémon and artwork in your collecting profile.'}</p>
+      <h2>${sampleStatus === 'UNDERSUPPLIED' ? sampleCount ? 'A small set of qualified picks.' : 'No qualified sample picks this time.' : profileReady ? 'Your first picks are ready to prepare.' : 'Shape your first personalized picks.'}</h2>
+      <p>${terminalSampleCopy || (sampleStatus === 'QUEUED' || sampleStatus === 'PREPARING' ? 'Your sample is being prepared. Editorial picks remain available while you wait.' : sampleStatus === 'RETRYABLE_FAILURE' ? 'Preparation hit a temporary issue and will retry automatically.' : sampleStatus === 'FAILED' ? 'Your sample could not be prepared after bounded retries. Editorial picks remain available.' : profileReady ? 'This one-time sample can include up to three qualified cards.' : 'Choose favourite Pokémon and artwork in your collecting profile.')}</p>
       ${profileReady && (!sampleStatus || sampleStatus === 'NOT_REQUESTED') ? '<button class="button-primary" type="button" data-action="request-free-sample">Find my first picks</button>' : !profileReady ? '<button class="button-ghost" type="button" data-action="edit-collector-profile">Set up my collecting profile</button>' : ''}
     </div>` : '';
   return `
