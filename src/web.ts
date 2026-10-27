@@ -585,6 +585,9 @@ const WEB_STARTER_DISCOVERY = [
   {
     name: 'Sylveon ex 212/187',
     imageUrl: '/onboarding-art/sylveon-ex-212.webp',
+    setName: 'Terastal Festival ex',
+    cardNumber: '212/187',
+    language: 'Japanese',
     discoveryRole: 'CONTROLLED_EXPLORATION',
     sourceCardId: 'editorial-sylveon-ex-212'
   }

@@ -4,6 +4,8 @@ const appHomePath = isPreviewMode ? '/preview' : '/app';
 let artworkReturnFocus = null;
 let artworkPreviousBodyOverflow = '';
 let artworkKeydownHandler = null;
+let displayCasePreviewReturnFocus = null;
+let displayCasePreviewPreviousBodyOverflow = '';
 let newAlertPresenceRequest = null;
 let newAlertPresenceTimer = null;
 
@@ -62,6 +64,8 @@ const state = {
   discoveryFeedbackPending: {},
   discoveryFeedbackErrors: {},
   discoveryFeedbackNotices: {},
+  displayCasePreviewOpen: false,
+  displayCasePreviewChoices: {},
   settings: null,
   settingsDraft: null,
   settingsLoaded: false,
@@ -1781,6 +1785,7 @@ function shelfPageMarkup() {
       ${items.length ? shelfMetaMarkup(state.shelf) : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map(shelfCardMarkup).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
+      ${displayCasePreviewMarkup()}
     </section>
   `;
 }
@@ -1821,7 +1826,10 @@ function shelfEmptyMarkup(shelf) {
             <h2>Make your Display Case yours.</h2>
             <p>With Vaultr Plus, discover cards shaped by your Watchlist and Pickups. Use More like this and Not for me to help Vaultr learn what you love.</p>
           </div>
-          <button class="button-primary" type="button" data-page="plus">Explore Vaultr Plus</button>
+          <div class="shelf-plus-actions">
+            <button class="button-ghost" type="button" data-action="open-display-case-preview">Preview Vaultr Plus</button>
+            <button class="button-primary" type="button" data-page="plus">Explore Vaultr Plus</button>
+          </div>
         </div>
         <header class="shelf-editorial-heading">
           <h2>Editorial picks</h2>
@@ -1835,7 +1843,95 @@ function shelfEmptyMarkup(shelf) {
   `;
 }
 
-function shelfCardMarkup(item, { editorial = false } = {}) {
+function displayCasePreviewReason(item) {
+  const sourceCardId = String(item?.cardIdentity?.sourceCardId || '');
+  if (sourceCardId.includes('mew-corocoro')) return 'Illustrative example: explore a distinctive Japanese magazine promo with an iconic artwork treatment.';
+  if (sourceCardId.includes('pichu-expedition')) return 'Illustrative example: follow a vintage e-Reader thread into a playful early-era printing.';
+  return 'Illustrative example: branch into a modern Japanese special-art printing with a different visual style.';
+}
+
+function nextDisplayCasePreviewChoices(choices, key, action) {
+  const next = { ...choices };
+  if (action === 'UNDO') delete next[key];
+  else if (action === 'MORE_LIKE_THIS' || action === 'NOT_FOR_ME') next[key] = action;
+  return next;
+}
+
+function displayCasePreviewFeedbackMarkup(item, index) {
+  const key = String(item?.cardIdentity?.sourceCardId || index);
+  const saved = state.displayCasePreviewChoices[key];
+  return `
+    <div class="discovery-feedback display-case-preview-feedback" aria-label="Example taste feedback">
+      <span class="discovery-feedback-label">Example only. Your preview choices are not saved.</span>
+      <div class="discovery-feedback-actions">
+        <button class="discovery-feedback-button${saved === 'MORE_LIKE_THIS' ? ' selected' : ''}" type="button" data-action="display-case-preview-feedback" data-preview-key="${escapeHtml(key)}" data-preview-choice="MORE_LIKE_THIS" aria-pressed="${saved === 'MORE_LIKE_THIS'}">More like this</button>
+        <button class="discovery-feedback-button${saved === 'NOT_FOR_ME' ? ' selected' : ''}" type="button" data-action="display-case-preview-feedback" data-preview-key="${escapeHtml(key)}" data-preview-choice="NOT_FOR_ME" aria-pressed="${saved === 'NOT_FOR_ME'}">Not for me</button>
+        ${saved ? `<button class="discovery-feedback-undo" type="button" data-action="display-case-preview-feedback" data-preview-key="${escapeHtml(key)}" data-preview-choice="UNDO">Undo</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function displayCasePreviewMarkup() {
+  if (!state.displayCasePreviewOpen) return '';
+  const examples = starterDiscoveryItems().slice(0, 3).map((item) => ({ ...item, reason: displayCasePreviewReason(item) }));
+  const hasChoice = Object.keys(state.displayCasePreviewChoices).length > 0;
+  return `
+    <div class="modal-backdrop display-case-preview-backdrop" role="presentation">
+      <section class="vault-dialog display-case-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="display-case-preview-title" aria-describedby="display-case-preview-description" data-display-case-preview-dialog>
+        <header class="display-case-preview-header">
+          <div>
+            <p class="eyebrow">Example preview</p>
+            <h2 id="display-case-preview-title">A personalized Display Case</h2>
+            <p id="display-case-preview-description" class="dialog-intro">Your own Display Case is shaped by your Watchlist, Pickups, and feedback. These illustrative cards are not selected from your taste.</p>
+          </div>
+          <button class="button-ghost" type="button" data-action="close-display-case-preview">Close</button>
+        </header>
+        ${examples.length
+          ? `<div class="shelf-grid display-case-preview-grid" aria-label="Example Display Case recommendations">${examples.map((item, index) => shelfCardMarkup(item, { demo: true, demoIndex: index })).join('')}</div>`
+          : '<div class="starter-artwork-fallback">Example cards are unavailable right now.</div>'}
+        ${hasChoice ? '<p class="display-case-preview-notice" role="status">In your personalized Display Case, this helps shape future picks.</p>' : ''}
+        <footer class="dialog-actions">
+          <span>Preview choices are temporary and are not saved.</span>
+          <button class="button-ghost" type="button" data-action="close-display-case-preview">Close</button>
+          <button class="button-primary" type="button" data-action="explore-plus-from-preview">Explore Vaultr Plus</button>
+        </footer>
+      </section>
+    </div>
+  `;
+}
+
+function focusDisplayCasePreview(selector = '[data-action="close-display-case-preview"]') {
+  const dialog = document.querySelector('[data-display-case-preview-dialog]');
+  const target = dialog?.querySelector(selector);
+  if (target instanceof HTMLElement) target.focus();
+}
+
+function openDisplayCasePreview(trigger) {
+  displayCasePreviewReturnFocus = trigger;
+  displayCasePreviewPreviousBodyOverflow = document.body.style.overflow;
+  state.displayCasePreviewChoices = {};
+  state.displayCasePreviewOpen = true;
+  renderCurrentPage();
+  document.body.style.overflow = 'hidden';
+  focusDisplayCasePreview();
+}
+
+function closeDisplayCasePreview({ restoreFocus = true } = {}) {
+  if (!state.displayCasePreviewOpen) return;
+  state.displayCasePreviewOpen = false;
+  state.displayCasePreviewChoices = {};
+  document.body.style.overflow = displayCasePreviewPreviousBodyOverflow;
+  renderCurrentPage();
+  if (restoreFocus) {
+    const fallback = document.querySelector('[data-action="open-display-case-preview"]');
+    const target = displayCasePreviewReturnFocus?.isConnected ? displayCasePreviewReturnFocus : fallback;
+    if (target instanceof HTMLElement) target.focus();
+  }
+  displayCasePreviewReturnFocus = null;
+}
+
+function shelfCardMarkup(item, { editorial = false, demo = false, demoIndex = 0 } = {}) {
   const details = [item.setName, item.language].filter(Boolean);
   const price = item.market?.askingTotal !== undefined
     ? formatMoney(item.market.askingTotal, item.market.currency)
@@ -1857,22 +1953,22 @@ function shelfCardMarkup(item, { editorial = false } = {}) {
       }) : '<div class="shelf-card-image placeholder-image shelf-image-unavailable"><span>Image unavailable</span></div>'}
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
-          ${!editorial && item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
+          ${!editorial && !demo && item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
         </div>
         <h2>${escapeHtml(item.name || 'Display Case pick')}</h2>
         ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
         <div class="shelf-card-footer">
-          <div class="shelf-market-status">
+          ${demo ? '' : `<div class="shelf-market-status">
             ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
             ${discoverySavedStatusMarkup(item)}
           </div>
           <div class="shelf-card-actions">
             ${discoveryCardPrimaryActionMarkup(item)}
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
-          </div>
-          ${editorial ? '' : discoveryFeedbackMarkup(item)}
+          </div>`}
+          ${demo ? displayCasePreviewFeedbackMarkup(item, demoIndex) : editorial ? '' : discoveryFeedbackMarkup(item)}
         </div>
       </div>
     </article>
@@ -3164,6 +3260,29 @@ app.addEventListener('click', async (event) => {
     openArtworkOverlay(target);
     return;
   }
+  if (action === 'open-display-case-preview') {
+    openDisplayCasePreview(target);
+    return;
+  }
+  if (action === 'close-display-case-preview') {
+    closeDisplayCasePreview();
+    return;
+  }
+  if (action === 'display-case-preview-feedback') {
+    const key = target.getAttribute('data-preview-key') || '';
+    const choice = target.getAttribute('data-preview-choice') || '';
+    if (!key) return;
+    state.displayCasePreviewChoices = nextDisplayCasePreviewChoices(state.displayCasePreviewChoices, key, choice);
+    renderCurrentPage();
+    document.body.style.overflow = 'hidden';
+    focusDisplayCasePreview(`[data-preview-key="${CSS.escape(key)}"][data-preview-choice="${CSS.escape(choice === 'UNDO' ? 'MORE_LIKE_THIS' : choice)}"]`);
+    return;
+  }
+  if (action === 'explore-plus-from-preview') {
+    closeDisplayCasePreview({ restoreFocus: false });
+    await navigateToPage('plus');
+    return;
+  }
   if (action === 'review-listing') {
     if (target.getAttribute('data-reviewed') !== 'true' && !isPreviewMode) {
       void mutateAlert(target.getAttribute('data-alert-id'), 'review');
@@ -3519,6 +3638,29 @@ app.addEventListener('input', (event) => {
 });
 
 app.addEventListener('keydown', (event) => {
+  if (state.displayCasePreviewOpen) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeDisplayCasePreview();
+      return;
+    }
+    if (event.key === 'Tab') {
+      const dialog = document.querySelector('[data-display-case-preview-dialog]');
+      const focusable = [...(dialog?.querySelectorAll('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') || [])]
+        .filter((element) => element instanceof HTMLElement && !element.hidden);
+      if (focusable.length) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+  }
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
   if (target.name !== 'cardName' || !target.closest('[data-vault-form]')) return;

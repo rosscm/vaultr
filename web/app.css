@@ -3150,6 +3150,18 @@ a {
   width: auto;
 }
 
+.shelf-plus-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.shelf-plus-actions .button-primary,
+.shelf-plus-actions .button-ghost {
+  width: auto;
+}
+
 .shelf-editorial-heading {
   padding-top: 10px;
 }
@@ -3160,6 +3172,64 @@ a {
   color: var(--muted);
   font-size: 0.95rem;
   line-height: 1.55;
+}
+
+.display-case-preview-backdrop {
+  z-index: 60;
+}
+
+.display-case-preview-dialog {
+  width: min(1120px, 100%);
+  max-height: calc(100vh - 36px);
+}
+
+.display-case-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.display-case-preview-header > div {
+  max-width: 70ch;
+}
+
+.display-case-preview-header h2 {
+  margin: 3px 0 0;
+}
+
+.display-case-preview-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.display-case-preview-grid .shelf-card {
+  min-width: 0;
+}
+
+.display-case-preview-grid .shelf-card > .artwork-trigger {
+  width: min(100%, 220px);
+}
+
+.display-case-preview-feedback {
+  margin-top: auto;
+}
+
+.display-case-preview-notice {
+  margin: 18px 0 0;
+  color: var(--gold);
+  font-size: 0.9rem;
+}
+
+.display-case-preview-dialog .dialog-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.display-case-preview-dialog .dialog-actions > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .shelf-editorial-note {
@@ -4226,6 +4296,22 @@ a {
   .shelf-plus-intro {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .shelf-plus-actions {
+    width: 100%;
+  }
+
+  .display-case-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .display-case-preview-header {
+    flex-direction: column-reverse;
+  }
+
+  .display-case-preview-header > .button-ghost {
+    align-self: flex-end;
   }
 
   .home-section-heading {

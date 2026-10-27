@@ -37,9 +37,9 @@ const FIXTURE_CARDS = [
   },
   {
     name: 'Sylveon ex 212/187',
-    setName: 'Prismatic Evolutions',
+    setName: 'Terastal Festival ex',
     cardNumber: '212/187',
-    language: 'ENGLISH' as const,
+    language: 'JAPANESE' as const,
     sourceCardId: 'staging-sylveon-ex-212',
     imageUrl: '/onboarding-art/sylveon-ex-212.webp',
     lane: 'Something Different',
