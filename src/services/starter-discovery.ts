@@ -1,0 +1,5 @@
+export const APPROVED_STARTER_DISCOVERY = [
+  { canonicalName: 'Mew', name: 'Mew CoroCoro Promo 151', imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp', setName: 'CoroCoro Promo', cardNumber: '151', language: 'Japanese', reason: 'A Japanese promo with shimmering artwork and a distinctive place in Mew’s collecting history.', discoveryRole: 'CORE_MATCH', sourceCardId: 'editorial-mew-corocoro-promo-151' },
+  { canonicalName: 'Pichu', name: 'Pichu Expedition Base Set 22/165', imageUrl: '/onboarding-art/pichu-expedition-022.webp', setName: 'Expedition Base Set', cardNumber: '22/165', language: 'English', reason: 'An Expedition-era Pichu with the unmistakable e-Reader frame.', discoveryRole: 'ADJACENT_DISCOVERY', sourceCardId: 'editorial-pichu-expedition-22' },
+  { canonicalName: 'Sylveon ex', name: 'Sylveon ex 212/187', imageUrl: '/onboarding-art/sylveon-ex-212.webp', setName: 'Terastal Festival ex', cardNumber: '212/187', language: 'Japanese', reason: 'A Japanese special-art Sylveon from Terastal Festival ex, full of colour and detail.', discoveryRole: 'CONTROLLED_EXPLORATION', sourceCardId: 'editorial-sylveon-ex-212' }
+] as const;

@@ -113,6 +113,12 @@ const updateUserProfileStmt = db.prepare(`
   WHERE id = @id
 `);
 
+const updateGeneralDiscoveryStartedAtStmt = db.prepare(`
+  UPDATE users
+  SET general_discovery_started_at = ?
+  WHERE id = ?
+`);
+
 const insertIdentityStmt = db.prepare(`
   INSERT INTO user_identities (
     id, user_id, provider, provider_user_id, username, display_name, avatar_url, email, created_at, updated_at
@@ -172,6 +178,11 @@ export function createUser(input: { displayName?: string; avatarUrl?: string } =
 export function getUserById(userId: VaultrUserId): VaultrUser | null {
   const row = getUserByIdStmt.get(userId) as UserRow | undefined;
   return row ? mapUser(row) : null;
+}
+
+export function setGeneralDiscoveryStartedAt(userId: VaultrUserId, startedAt: Date): VaultrUser | null {
+  updateGeneralDiscoveryStartedAtStmt.run(startedAt.toISOString(), userId);
+  return getUserById(userId);
 }
 
 export function getIdentity(provider: IdentityProvider, providerUserId: string): UserIdentity | null {

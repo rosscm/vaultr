@@ -633,7 +633,10 @@ describe('web app static routes', () => {
       items: starterItems,
       copy: 'A few handpicked cards to explore.'
     });
-    expect(source).toContain("plusAccount\n        ? `<div class=\"shelf-plus-actions\"><p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p></div>`");
+    expect(source).toContain('Find the cards you didn’t know you loved.');
+    expect(source).toContain('Start with three collector picks, with fresh finds to explore each week.');
+    expect(source).toContain('Free brings you three fresh finds each week.');
+    expect(source).not.toContain('Vaultr Plus adds ongoing personalized discovery');
   });
 
   it('keeps Home discovery headings accurate across starter, weekly, personalized, and fallback states', async () => {
@@ -1948,12 +1951,14 @@ describe('authenticated Weekly Shelf API', () => {
       expect(JSON.stringify(initial.starterItems)).not.toContain('recommendation');
       expect(JSON.stringify(initial.starterItems)).not.toContain('feedback');
       expect(initial.starterItems[2]).toMatchObject({
+        displayName: 'Sylveon ex',
         imageUrl: '/onboarding-art/sylveon-ex-212.webp',
         setName: 'Terastal Festival ex',
         cardNumber: '212/187',
         language: 'Japanese',
         roleLabel: 'Collector pick'
       });
+      expect(initial.starterItems.map((item: any) => item.displayName)).toEqual(['Mew', 'Pichu', 'Sylveon ex']);
 
       const pichu = initial.starterItems[1];
       const created = JSON.parse((await handleWebRequest({

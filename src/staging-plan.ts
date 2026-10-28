@@ -3,11 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
 import type { StagingPlanTier } from './services/staging-plan.js';
 
-export type StagingPlanArgs = { userId: string; tier: StagingPlanTier };
+export type StagingPlanArgs = { userId: string; tier: StagingPlanTier; refreshStarter: boolean };
 
 export function parseStagingPlanArgs(argv: string[]): StagingPlanArgs {
   let userId = '';
   let tier = '';
+  let refreshStarter = false;
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === '--user') {
@@ -20,13 +21,16 @@ export function parseStagingPlanArgs(argv: string[]): StagingPlanArgs {
       index += 1;
     } else if (token.startsWith('--plan=')) {
       tier = token.slice('--plan='.length).trim().toUpperCase();
+    } else if (token === '--refresh-starter') {
+      refreshStarter = true;
     } else {
       throw new Error(`Unknown argument: ${token}`);
     }
   }
   if (!userId) throw new Error('An explicit --user account ID is required');
   if (tier !== 'FREE' && tier !== 'PRO') throw new Error('Plan must be FREE or PRO');
-  return { userId, tier };
+  if (refreshStarter && tier !== 'FREE') throw new Error('--refresh-starter requires plan FREE');
+  return { userId, tier, refreshStarter };
 }
 
 export async function runStagingPlanCli(argv: string[]): Promise<void> {
@@ -40,8 +44,14 @@ export async function runStagingPlanCli(argv: string[]): Promise<void> {
   const { assertStagingEnvironment } = await import('./services/staging-config.js');
   assertStagingEnvironment(process.env, process.cwd());
   const { setStagingAccountPlan } = await import('./services/staging-plan.js');
-  const result = setStagingAccountPlan({ userId: args.userId, tier: args.tier });
-  console.log(JSON.stringify({ userId: result.userId, tier: result.tier, status: result.status }, null, 2));
+  const result = setStagingAccountPlan({ userId: args.userId, tier: args.tier, refreshStarter: args.refreshStarter });
+  console.log(JSON.stringify({
+    userId: result.userId,
+    tier: result.tier,
+    status: result.status,
+    starterRefreshed: result.starterRefreshed,
+    exclusions: result.exclusions
+  }, null, 2));
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

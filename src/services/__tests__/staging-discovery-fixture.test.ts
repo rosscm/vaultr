@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { createUser } from '../accounts.js';
+import { createUser, getUserById } from '../accounts.js';
 import {
+  addChase,
   getDiscoveryLearnedSignalSummary,
   getUserDiscoveryFeedback,
   getUserPlan,
   recordDiscoveryFeedback,
   recordDiscoveryFeedbackWithTrainingExample,
   recordDiscoveryTrainingExamples,
+  resolveChaseRemoval,
   setUserPlan
 } from '../chase-store.js';
 import { db } from '../db.js';
@@ -79,7 +81,9 @@ describe('staging personalized Display Case fixture', () => {
   });
 
   it('switches only an explicit staging account between active allowlisted plans', () => {
-    expect(parseStagingPlanArgs(['--user', 'usr_fixture', '--plan=pro'])).toEqual({ userId: 'usr_fixture', tier: 'PRO' });
+    expect(parseStagingPlanArgs(['--user', 'usr_fixture', '--plan=pro'])).toEqual({ userId: 'usr_fixture', tier: 'PRO', refreshStarter: false });
+    expect(parseStagingPlanArgs(['--user=usr_fixture', '--plan=free', '--refresh-starter'])).toEqual({ userId: 'usr_fixture', tier: 'FREE', refreshStarter: true });
+    expect(() => parseStagingPlanArgs(['--user=usr_fixture', '--plan=PRO', '--refresh-starter'])).toThrow('requires plan FREE');
     expect(() => parseStagingPlanArgs(['--user=usr_fixture', '--plan=ENTERPRISE'])).toThrow('FREE or PRO');
     expect(() => parseStagingPlanArgs(['--plan=FREE'])).toThrow('explicit --user');
 
@@ -93,6 +97,44 @@ describe('staging personalized Display Case fixture', () => {
     expect(getUserPlan(user.id)).toMatchObject({ tier: 'PRO', status: 'ACTIVE' });
     expect(setStagingAccountPlan({ userId: user.id, tier: 'FREE', env: stagingEnv(), cwd: '/' })).toMatchObject({ tier: 'FREE', status: 'ACTIVE' });
     expect(getUserPlan(user.id)).toMatchObject({ tier: 'FREE', status: 'ACTIVE' });
+  });
+
+  it('refreshes only starter eligibility and reports exact staging exclusions', () => {
+    const user = createUser({ displayName: 'Starter test account' });
+    const originalUpdatedAt = user.updatedAt;
+    addChase({
+      userId: user.id,
+      cardName: 'Mew CoroCoro Promo 151',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceName: 'VAULTR_EDITORIAL',
+      cardImageSourceCardId: 'editorial-mew-corocoro-promo-151'
+    });
+    const completed = addChase({ userId: user.id, cardName: 'Sylveon ex 212/187' });
+    resolveChaseRemoval(user.id, completed.id, 'COMPLETED');
+    const now = new Date('2026-10-28T12:00:00.000Z');
+
+    const result = setStagingAccountPlan({
+      userId: user.id,
+      tier: 'FREE',
+      refreshStarter: true,
+      now,
+      env: stagingEnv(),
+      cwd: '/'
+    });
+
+    expect(result).toMatchObject({
+      tier: 'FREE',
+      status: 'ACTIVE',
+      starterRefreshed: true,
+      exclusions: [
+        { name: 'Mew CoroCoro Promo 151', location: 'WATCHLIST' },
+        { name: 'Sylveon ex 212/187', location: 'PICKUPS' }
+      ]
+    });
+    expect(getUserById(user.id)).toMatchObject({
+      generalDiscoveryStartedAt: now.toISOString(),
+      updatedAt: originalUpdatedAt
+    });
   });
 
   it('is explicit, idempotent, account-isolated, and removes fixture feedback', () => {

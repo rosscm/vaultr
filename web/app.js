@@ -1346,10 +1346,10 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
       </div>
       <div class="home-shelf-copy">
         <small class="home-shelf-kind">${escapeHtml(label || (editorial ? 'Collector pick' : 'Picked for you'))}</small>
-        <strong>${escapeHtml(item.name || 'Display Case pick')}</strong>
+        <strong>${escapeHtml(item.displayName || item.name || 'Display Case pick')}</strong>
         ${item.nativeName ? `<span class="home-shelf-details">Original name: ${escapeHtml(item.nativeName)}</span>` : ''}
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
-        ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : '<p>Open your Display Case to explore this recommendation.</p>'}
+        ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : ''}
         ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : `<span class="home-shelf-price unavailable">${escapeHtml(marketUnavailable)}</span>`}
         ${discoveryCardActionMarkup(item, {
           addClass: 'button-primary home-shelf-card-action',
@@ -1887,20 +1887,20 @@ function shelfEmptyMarkup(shelf) {
   const starter = shelf?.generalDiscovery?.mode === 'STARTER';
   const weekly = shelf?.generalDiscovery?.mode === 'WEEKLY';
   const plusAccount = state.vaultPlan?.tier === 'PRO';
-  const description = starter
-    ? 'A first look at what you could discover. Start with these collector picks, then come back for fresh finds each week.'
+  const freeIntroduction = starter
+    ? 'Start with three collector picks, with fresh finds to explore each week. With Vaultr Plus, unlock a full personalized Display Case shaped by your Watchlist, Pickups, and feedback. More of what catches your eye, with a few unexpected favourites along the way.'
     : weekly
-    ? starters.length === 3 ? 'Three cards to explore. New picks every week.' : `${starters.length} cards to explore this week.`
-    : 'A few handpicked cards to explore.';
+    ? 'Free brings you three fresh finds each week. With Vaultr Plus, unlock a full personalized Display Case shaped by your Watchlist, Pickups, and feedback. More of what catches your eye, with a few unexpected favourites along the way.'
+    : 'Explore these collector picks while the weekly catalog is unavailable. With Vaultr Plus, unlock a full personalized Display Case shaped by your Watchlist, Pickups, and feedback.';
   return `
     <section class="shelf-editorial" aria-label="General discovery picks">
-      <header class="shelf-editorial-heading"><h2>${weekly ? 'This week’s finds' : 'Collector picks'}</h2><p>${escapeHtml(description)}</p></header>
+      ${plusAccount
+        ? `<p class="shelf-personalized-note">${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p>`
+        : `<div class="shelf-plus-intro"><div><h2>Find the cards you didn’t know you loved.</h2><p>${escapeHtml(freeIntroduction)}</p></div><button class="button-primary" type="button" data-page="plus">Explore Vaultr Plus</button></div>`}
+      <header class="shelf-editorial-heading"><h2>${weekly ? 'This week’s finds' : 'Collector picks'}</h2></header>
       ${starters.length
         ? `<div class="shelf-grid shelf-editorial-grid" aria-label="General discovery picks">${starters.map((item) => shelfCardMarkup(item, { editorial: true })).join('')}</div>`
         : '<div class="starter-artwork-fallback">Collector picks will appear here when available.</div>'}
-      ${plusAccount
-        ? `<div class="shelf-plus-actions"><p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p></div>`
-        : '<div class="shelf-plus-actions"><p>Vaultr Plus adds ongoing personalized discovery shaped by your Watchlist, Pickups, and feedback.</p><button class="button-primary" type="button" data-page="plus">Explore Vaultr Plus</button></div>'}
     </section>
   `;
 }
@@ -1929,7 +1929,7 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
         <div class="shelf-card-meta">
           ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
         </div>
-        <h2>${escapeHtml(item.name || 'Display Case pick')}</h2>
+        <h2>${escapeHtml(item.displayName || item.name || 'Display Case pick')}</h2>
         ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}

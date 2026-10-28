@@ -59,6 +59,7 @@ import { getOrCreateOnboardingState, transitionOnboarding, type OnboardingAction
 import { collectorPreferenceOptions, getCollectorPreferences, saveCollectorPreferences } from './services/collector-preferences.js';
 import { tasteOnboardingEnabled } from './services/features.js';
 import { weeklyGeneralDiscoveryForUser, weeklyGeneralDiscoveryPeriodKey } from './services/weekly-general-discovery.js';
+import { APPROVED_STARTER_DISCOVERY } from './services/starter-discovery.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
 import {
   createWebSession,
@@ -496,6 +497,7 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, perio
     recommendation: { periodKey, position: item.position },
     feedback: getUserDiscoveryFeedback(userId, item.suggestion.name),
     name: item.suggestion.name,
+    displayName: reference?.canonicalName,
     nativeName: item.suggestion.nativeName,
     imageUrl,
     setName: reference?.setName,
@@ -574,39 +576,6 @@ function applyCardSelection(userId: string, body: Record<string, unknown>): WebR
   return null;
 }
 
-const WEB_STARTER_DISCOVERY = [
-  {
-    name: 'Mew CoroCoro Promo 151',
-    imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp',
-    setName: 'CoroCoro Promo',
-    cardNumber: '151',
-    language: 'Japanese',
-    reason: 'A Japanese promo with shimmering artwork and a distinctive place in Mew’s collecting history.',
-    discoveryRole: 'CORE_MATCH',
-    sourceCardId: 'editorial-mew-corocoro-promo-151'
-  },
-  {
-    name: 'Pichu Expedition Base Set 22/165',
-    imageUrl: '/onboarding-art/pichu-expedition-022.webp',
-    setName: 'Expedition Base Set',
-    cardNumber: '22/165',
-    language: 'English',
-    reason: 'An Expedition-era Pichu with the unmistakable e-Reader frame.',
-    discoveryRole: 'ADJACENT_DISCOVERY',
-    sourceCardId: 'editorial-pichu-expedition-22'
-  },
-  {
-    name: 'Sylveon ex 212/187',
-    imageUrl: '/onboarding-art/sylveon-ex-212.webp',
-    setName: 'Terastal Festival ex',
-    cardNumber: '212/187',
-    language: 'Japanese',
-    reason: 'A Japanese special-art Sylveon from Terastal Festival ex, full of colour and detail.',
-    discoveryRole: 'CONTROLLED_EXPLORATION',
-    sourceCardId: 'editorial-sylveon-ex-212'
-  }
-] as const;
-
 function publicEditorialDiscoveryItems(userId: string, config: WebConfig) {
   const currency = getUserAlertSettings(userId).alertCurrency;
   const owned = getVaultChases(userId);
@@ -615,11 +584,12 @@ function publicEditorialDiscoveryItems(userId: string, config: WebConfig) {
     .filter((chase) => chase.cardImageSourceKind === 'CARD_REFERENCE' && chase.cardImageSourceName && chase.cardImageSourceCardId)
     .map((chase) => `${chase.cardImageSourceName}:${chase.cardImageSourceCardId}`));
   const ownedNames = new Set(ownedChases.flatMap((chase) => [chase.cardName, chase.cardImageIdentity].filter(Boolean).map((name) => normalizedCardIdentity(name!))));
-  return WEB_STARTER_DISCOVERY.filter((item) =>
+  return APPROVED_STARTER_DISCOVERY.filter((item) =>
     !ownedSources.has(`VAULTR_EDITORIAL:${item.sourceCardId}`)
     && !ownedNames.has(normalizedCardIdentity(item.name))
   ).map((item) => ({
     name: item.name,
+    displayName: item.canonicalName,
     imageUrl: item.imageUrl,
     ...('setName' in item ? { setName: item.setName } : {}),
     ...('cardNumber' in item ? { cardNumber: item.cardNumber } : {}),
@@ -648,6 +618,7 @@ function publicGeneralDiscovery(userId: string, config: WebConfig, now: Date) {
   const currency = getUserAlertSettings(userId).alertCurrency;
   const weeklyItems = weekly.items.map((item) => ({
     name: item.name,
+    displayName: item.canonicalName,
     imageUrl: item.imageUrl,
     setName: item.setName,
     cardNumber: item.cardNumber,
