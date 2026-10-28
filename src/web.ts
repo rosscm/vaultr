@@ -431,13 +431,12 @@ function safeShelfReason(item: ScheduledDiscoveryDropItem): string | undefined {
   return reason;
 }
 
-function shelfIdentitySearchText(item: ScheduledDiscoveryDropItem): string {
-  const reference = item.suggestion.canonicalReference;
+function discoveryIdentitySearchText(item: { name: string; setName?: string; cardNumber?: string; language?: string }): string {
   const parts = [
-    reference?.canonicalName || item.suggestion.name,
-    reference?.cardNumber,
-    reference?.setName,
-    reference?.language === 'JAPANESE' ? 'Japanese' : undefined
+    item.name,
+    item.cardNumber,
+    item.setName,
+    item.language === 'Japanese' ? 'Japanese' : undefined
   ].filter((part): part is string => !!part?.trim());
   const selected: string[] = [];
   const normalizedSelected: string[] = [];
@@ -451,11 +450,20 @@ function shelfIdentitySearchText(item: ScheduledDiscoveryDropItem): string {
 }
 
 function shelfEbayUrl(item: ScheduledDiscoveryDropItem, currency: ScheduledDiscoveryDrop['currency']): string {
+  return discoveryEbayUrl({
+    name: item.suggestion.canonicalReference?.canonicalName || item.suggestion.name,
+    setName: item.suggestion.canonicalReference?.setName,
+    cardNumber: item.suggestion.canonicalReference?.cardNumber,
+    language: item.suggestion.canonicalReference?.language === 'JAPANESE' ? 'Japanese' : undefined
+  }, currency);
+}
+
+function discoveryEbayUrl(item: { name: string; setName?: string; cardNumber?: string; language?: string }, currency: ScheduledDiscoveryDrop['currency']): string {
   const host = currency === 'CAD' ? 'www.ebay.ca' : 'www.ebay.com';
   const keywords = buildEbaySearchKeywords({
     id: 'dashboard-shelf-search',
     userId: 'dashboard',
-    cardName: shelfIdentitySearchText(item),
+    cardName: discoveryIdentitySearchText(item),
     createdAt: new Date(0).toISOString()
   }).trim();
   const query = /\bpokemon card\b/i.test(keywords) ? keywords : `${keywords} Pokemon card`;
@@ -573,6 +581,7 @@ const WEB_STARTER_DISCOVERY = [
     setName: 'CoroCoro Promo',
     cardNumber: '151',
     language: 'Japanese',
+    reason: 'A Japanese promo with shimmering artwork and a distinctive place in Mew’s collecting history.',
     discoveryRole: 'CORE_MATCH',
     sourceCardId: 'editorial-mew-corocoro-promo-151'
   },
@@ -582,6 +591,7 @@ const WEB_STARTER_DISCOVERY = [
     setName: 'Expedition Base Set',
     cardNumber: '22/165',
     language: 'English',
+    reason: 'An Expedition-era Pichu with the unmistakable e-Reader frame.',
     discoveryRole: 'ADJACENT_DISCOVERY',
     sourceCardId: 'editorial-pichu-expedition-22'
   },
@@ -591,12 +601,14 @@ const WEB_STARTER_DISCOVERY = [
     setName: 'Terastal Festival ex',
     cardNumber: '212/187',
     language: 'Japanese',
+    reason: 'A Japanese special-art Sylveon from Terastal Festival ex, full of colour and detail.',
     discoveryRole: 'CONTROLLED_EXPLORATION',
     sourceCardId: 'editorial-sylveon-ex-212'
   }
 ] as const;
 
 function publicEditorialDiscoveryItems(userId: string, config: WebConfig) {
+  const currency = getUserAlertSettings(userId).alertCurrency;
   const owned = getVaultChases(userId);
   const ownedChases = [...owned.chases.map((item) => item.chase), ...owned.completedChases];
   const ownedSources = new Set(ownedChases
@@ -612,7 +624,9 @@ function publicEditorialDiscoveryItems(userId: string, config: WebConfig) {
     ...('setName' in item ? { setName: item.setName } : {}),
     ...('cardNumber' in item ? { cardNumber: item.cardNumber } : {}),
     ...('language' in item ? { language: item.language } : {}),
+    reason: item.reason,
     roleLabel: 'Collector pick',
+    ebayUrl: discoveryEbayUrl(item, currency),
     cardIdentity: {
       value: item.name,
       matchKey: normalizedCardIdentity(normalizeChaseCardName(item.name)),
@@ -631,6 +645,7 @@ function publicEditorialDiscoveryItems(userId: string, config: WebConfig) {
 
 function publicGeneralDiscovery(userId: string, config: WebConfig, now: Date) {
   const weekly = weeklyGeneralDiscoveryForUser(userId, now);
+  const currency = getUserAlertSettings(userId).alertCurrency;
   const weeklyItems = weekly.items.map((item) => ({
     name: item.name,
     imageUrl: item.imageUrl,
@@ -638,6 +653,7 @@ function publicGeneralDiscovery(userId: string, config: WebConfig, now: Date) {
     cardNumber: item.cardNumber,
     language: item.language,
     roleLabel: 'Weekly find',
+    ebayUrl: discoveryEbayUrl(item, currency),
     cardIdentity: {
       value: item.name,
       matchKey: normalizedCardIdentity(normalizeChaseCardName(item.name)),

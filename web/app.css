@@ -287,6 +287,7 @@ a {
 
 .button-primary,
 .button-ghost,
+.button-watchlist,
 .listing-link,
 .retry-button {
   border-radius: 999px;
@@ -308,6 +309,7 @@ a {
 }
 
 .button-primary,
+.button-watchlist,
 .listing-link,
 .retry-button {
   display: inline-flex;
@@ -322,12 +324,19 @@ a {
   text-decoration: none;
 }
 
+.button-watchlist {
+  border-color: rgba(255, 225, 167, 0.88);
+  background: var(--gold);
+  color: #1b1120;
+}
+
 .button-primary,
 .retry-button {
   margin-top: 22px;
 }
 
 .button-primary:hover,
+.button-watchlist:hover,
 .listing-link:hover,
 .retry-button:hover {
   transform: translateY(-1px);
@@ -2457,22 +2466,6 @@ a {
   gap: 12px;
 }
 
-.shelf-saved-status {
-  display: grid;
-  justify-items: end;
-  gap: 2px;
-  color: var(--gold);
-  font-size: 0.78rem;
-  font-weight: 760;
-  text-align: right;
-}
-
-.shelf-saved-status small {
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
 .shelf-card-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2482,6 +2475,7 @@ a {
 
 .shelf-card-actions .button-primary,
 .shelf-card-actions .button-ghost,
+.shelf-card-actions .button-watchlist,
 .shelf-card-actions .listing-link {
   width: 100%;
   min-height: 38px;
@@ -2501,28 +2495,6 @@ a {
 
 .shelf-card-actions .shelf-add-button {
   min-width: 112px;
-}
-
-.discovery-saved-action {
-  min-height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--gold);
-  font-size: 0.82rem;
-  font-weight: 760;
-}
-
-.discovery-saved-action small {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
-.shelf-card-actions .discovery-saved-action {
-  grid-column: 1 / -1;
-  padding: 0 4px;
 }
 
 .shelf-card-actions .shelf-ebay-link {
@@ -4445,6 +4417,7 @@ a {
 
   .shelf-card-actions .button-primary,
   .shelf-card-actions .button-ghost,
+  .shelf-card-actions .button-watchlist,
   .shelf-card-actions .listing-link {
     width: 100%;
   }

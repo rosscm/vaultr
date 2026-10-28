@@ -1320,7 +1320,7 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
   const { featured: item, featuredIndex, supporting } = homeShelfPresentation(items, index);
   if (!item) return '';
   const total = items.length;
-  const details = [item.setName, item.language].filter(Boolean);
+  const details = [item.setName, item.cardNumber, item.language].filter(Boolean);
   const price = item.market?.askingTotal !== undefined
     ? formatMoney(item.market.askingTotal, item.market.currency)
     : item.market?.soldTotal !== undefined
@@ -1351,7 +1351,11 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : '<p>Open your Display Case to explore this recommendation.</p>'}
         ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : `<span class="home-shelf-price unavailable">${escapeHtml(marketUnavailable)}</span>`}
-        ${discoveryCardActionMarkup(item, 'button-primary home-shelf-card-action')}
+        ${discoveryCardActionMarkup(item, {
+          addClass: 'button-primary home-shelf-card-action',
+          savedClass: 'button-watchlist home-shelf-card-action',
+          pickupClass: 'button-ghost home-shelf-card-action'
+        })}
         ${feedback ? discoveryFeedbackMarkup(item, true) : ''}
       </div>
       ${total > 1 ? `
@@ -1383,9 +1387,25 @@ function homeDisplayCaseItems() {
 
 function editorialDiscoveryCopy() {
   const count = starterDiscoveryItems().length;
-  if (state.shelf?.generalDiscovery?.mode === 'STARTER') return 'A few collector picks to introduce Discover. General finds change every week.';
+  if (state.shelf?.generalDiscovery?.mode === 'STARTER') return 'Meet your first collector picks. Fresh finds follow each week.';
   if (state.shelf?.generalDiscovery?.mode === 'WEEKLY') return count === 3 ? 'Three cards to explore. New picks every week.' : `${count} cards to explore this week.`;
   return 'A few handpicked cards to explore.';
+}
+
+function homeDiscoveryHeadingCopy(mode) {
+  if (mode === 'PERSONALIZED') return {
+    heading: 'Picked for you',
+    copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.'
+  };
+  if (mode === 'STARTER') return {
+    heading: 'Your next favourite could be here.',
+    copy: 'Meet your first collector picks. Fresh finds follow each week.'
+  };
+  if (mode === 'WEEKLY') return {
+    heading: 'Your next favourite could be here.',
+    copy: 'Three fresh finds each week. See what catches your eye.'
+  };
+  return { heading: 'Collector picks', copy: editorialDiscoveryCopy() };
 }
 
 function normalizedDiscoveryIdentity(value) {
@@ -1411,28 +1431,27 @@ function savedDiscoveryCard(item) {
   return completed ? { kind: 'PICKUP', id: completed.id } : null;
 }
 
-function discoveryCardActionMarkup(item, className = 'vault-action-link') {
+function discoveryCardActionMarkup(item, {
+  addClass = 'vault-action-link',
+  savedClass = 'button-watchlist',
+  pickupClass = 'button-ghost'
+} = {}) {
   const saved = savedDiscoveryCard(item);
-  if (saved) {
-    const label = saved.kind === 'PICKUP' ? 'In your Pickups' : 'On your Watchlist';
-    const detail = saved.paused ? '<small>Search paused</small>' : '';
-    return `<span class="discovery-saved-action"><span>${label}</span>${detail}<button class="vault-action-link" type="button" data-action="view-discovery-card" data-chase-id="${escapeHtml(saved.id)}">View</button></span>`;
+  if (saved?.kind === 'WATCHLIST') {
+    return `<button class="${savedClass}" type="button" data-action="view-discovery-card" data-chase-id="${escapeHtml(saved.id)}">View on Watchlist</button>`;
   }
-  return `<button class="${className}" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name || '')}" data-card-set="${escapeHtml(item.setName || '')}" data-card-number="${escapeHtml(item.cardNumber || '')}" data-card-language="${escapeHtml(item.language || '')}" data-card-image="${escapeHtml(item.imageUrl || '')}" data-card-selection-token="${escapeHtml(item.selection?.token || '')}">Add to Watchlist</button>`;
-}
-
-function discoverySavedStatusMarkup(item) {
-  const saved = savedDiscoveryCard(item);
-  if (!saved) return '';
-  const label = saved.kind === 'PICKUP' ? 'In your Pickups' : 'On your Watchlist';
-  return `<span class="shelf-saved-status"><span>${label}</span>${saved.paused ? '<small>Search paused</small>' : ''}</span>`;
+  if (saved?.kind === 'PICKUP') {
+    return `<button class="${pickupClass}" type="button" data-action="view-discovery-card" data-chase-id="${escapeHtml(saved.id)}">View Pickup</button>`;
+  }
+  return `<button class="${addClass}" type="button" data-action="add-shelf-card-to-vault" data-card-name="${escapeHtml(item.name || '')}" data-card-set="${escapeHtml(item.setName || '')}" data-card-number="${escapeHtml(item.cardNumber || '')}" data-card-language="${escapeHtml(item.language || '')}" data-card-image="${escapeHtml(item.imageUrl || '')}" data-card-selection-token="${escapeHtml(item.selection?.token || '')}">Add to Watchlist</button>`;
 }
 
 function discoveryCardPrimaryActionMarkup(item) {
-  const saved = savedDiscoveryCard(item);
-  if (!saved) return discoveryCardActionMarkup(item, 'button-primary shelf-add-button');
-  const label = saved.kind === 'PICKUP' ? 'View Pickup' : 'View Watchlist item';
-  return `<button class="button-ghost shelf-saved-view" type="button" data-action="view-discovery-card" data-chase-id="${escapeHtml(saved.id)}">${label}</button>`;
+  return discoveryCardActionMarkup(item, {
+    addClass: 'button-primary shelf-add-button',
+    savedClass: 'button-watchlist shelf-saved-view',
+    pickupClass: 'button-ghost shelf-saved-view'
+  });
 }
 
 function discoveryStateCopy(discovery, compact = false) {
@@ -1470,7 +1489,9 @@ function homePageMarkup() {
   const completedChases = state.completedChases?.length ?? 0;
   const alertPreview = state.homeAttentionAlerts.slice(0, 4);
   const personalizedReady = hasPersonalizedDiscoveryAccess();
+  const starterPicks = !personalizedReady && state.shelf?.generalDiscovery?.mode === 'STARTER';
   const weeklyFinds = !personalizedReady && state.shelf?.generalDiscovery?.mode === 'WEEKLY';
+  const discoveryHeading = homeDiscoveryHeadingCopy(personalizedReady ? 'PERSONALIZED' : starterPicks ? 'STARTER' : weeklyFinds ? 'WEEKLY' : 'FALLBACK');
   const displayCaseItems = homeDisplayCaseItems();
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
@@ -1492,7 +1513,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${personalizedReady ? 'Picked for you' : weeklyFinds ? 'This week’s finds' : 'Collector picks'}</h2><p>${personalizedReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : editorialDiscoveryCopy()}</p></div>
+          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${escapeHtml(discoveryHeading.heading)}</h2><p>${escapeHtml(discoveryHeading.copy)}</p></div>
           <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
@@ -1867,7 +1888,7 @@ function shelfEmptyMarkup(shelf) {
   const weekly = shelf?.generalDiscovery?.mode === 'WEEKLY';
   const plusAccount = state.vaultPlan?.tier === 'PRO';
   const description = starter
-    ? 'A few collector picks to introduce Discover. General finds change every week.'
+    ? 'A first look at what you could discover. Start with these collector picks, then come back for fresh finds each week.'
     : weekly
     ? starters.length === 3 ? 'Three cards to explore. New picks every week.' : `${starters.length} cards to explore this week.`
     : 'A few handpicked cards to explore.';
@@ -1885,7 +1906,7 @@ function shelfEmptyMarkup(shelf) {
 }
 
 function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}) {
-  const details = [item.setName, item.language].filter(Boolean);
+  const details = [item.setName, item.cardNumber, item.language].filter(Boolean);
   const price = item.market?.askingTotal !== undefined
     ? formatMoney(item.market.askingTotal, item.market.currency)
     : item.market?.soldTotal !== undefined
@@ -1906,7 +1927,7 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
       }) : '<div class="shelf-card-image placeholder-image shelf-image-unavailable"><span>Image unavailable</span></div>'}
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
-          ${!editorial && item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
+          ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
         </div>
         <h2>${escapeHtml(item.name || 'Display Case pick')}</h2>
         ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
@@ -1915,7 +1936,6 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
         <div class="shelf-card-footer">
           <div class="shelf-market-status">
             ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
-            ${discoverySavedStatusMarkup(item)}
           </div>
           <div class="shelf-card-actions">
             ${discoveryCardPrimaryActionMarkup(item)}

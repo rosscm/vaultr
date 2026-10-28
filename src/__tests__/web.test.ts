@@ -392,7 +392,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('toggle-display-case-explanation');
     expect(jsResponse.body).toContain('Marketplace checks paused');
     expect(jsResponse.body).not.toContain('home-introduction');
-    expect(jsResponse.body).toContain("${personalizedReady ? 'Picked for you' : weeklyFinds ? 'This week’s finds' : 'Collector picks'}");
+    expect(jsResponse.body).toContain('function homeDiscoveryHeadingCopy(mode)');
+    expect(jsResponse.body).toContain('Meet your first collector picks. Fresh finds follow each week.');
+    expect(jsResponse.body).toContain('Three fresh finds each week. See what catches your eye.');
     expect(jsResponse.body).toContain('Explore Display Case');
     expect(jsResponse.body).not.toContain('Picked around your taste');
     expect(jsResponse.body).toContain('Open Inbox');
@@ -429,7 +431,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Add to Watchlist');
     expect(jsResponse.body).toContain('With Vaultr Plus, that profile guides your personalized Display Case.');
     expect(jsResponse.body).not.toContain('A little inspiration');
-    expect(jsResponse.body).toContain('!editorial && item.roleLabel');
+    expect(jsResponse.body).toContain('item.roleLabel ? `<span class="status-pill active">');
     expect(jsResponse.body).toContain("feedback ? discoveryFeedbackMarkup(item) : ''");
     expect(jsResponse.body).not.toContain('Find my first picks');
     expect(jsResponse.body).not.toContain('freeSample');
@@ -446,9 +448,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('View on eBay');
     expect(jsResponse.body).toContain('Pricing unavailable');
     expect(jsResponse.body).toContain('class="shelf-market-status"');
-    expect(jsResponse.body).toContain('class="shelf-saved-status"');
+    expect(jsResponse.body).not.toContain('class="shelf-saved-status"');
     expect(jsResponse.body).toContain('function discoveryCardPrimaryActionMarkup(item)');
-    expect(jsResponse.body).toContain('View Watchlist item');
+    expect(jsResponse.body).toContain('View on Watchlist');
     expect(jsResponse.body).toContain('View Pickup');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">YOUR PLAN</p>');
     expect(jsResponse.body).not.toContain('class="plus-current"');
@@ -459,8 +461,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
     expect(jsResponse.body).toContain('state.vaultPrefillCardName = selectedCardName;');
     expect(jsResponse.body).toContain("data-action=\"view-discovery-card\"");
-    expect(jsResponse.body).toContain('On your Watchlist');
-    expect(jsResponse.body).toContain('In your Pickups');
+    expect(jsResponse.body).not.toContain('discovery-saved-action');
     expect(jsResponse.body).toContain('Exact card selected');
     expect(jsResponse.body).toContain('<p class="eyebrow">WATCHLIST</p>');
     expect(jsResponse.body).toContain('<h2 id="home-vault-title">Current chases</h2>');
@@ -496,10 +497,11 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("['ALL', 'All'], ['WATCHING', 'Watching'], ['PAUSED', 'Paused'], ['COMPLETED', 'Pickups']");
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
     expect(jsResponse.body).not.toContain("${state.vaultNotice ? `<div class=\"vault-notice\"");
-    expect(jsResponse.body).toContain('${!editorial && item.roleLabel ? `<span class="status-pill active">');
+    expect(jsResponse.body).toContain('${item.roleLabel ? `<span class="status-pill active">');
     expect(jsResponse.body).toContain('shelfCardMarkup(item, { editorial: true })');
     expect(jsResponse.body).not.toContain('A read-only shelf');
     expect(cssResponse.body).toContain('.shelf-card-actions');
+    expect(cssResponse.body).toContain('.button-watchlist');
     expect(cssResponse.body).toContain('.shelf-card-actions .shelf-ebay-link');
     expect(cssResponse.body).not.toContain('.shelf-card-meta > .status-pill.active {\n  display: none;');
     expect(cssResponse.body).not.toContain('-webkit-line-clamp: 4');
@@ -634,6 +636,30 @@ describe('web app static routes', () => {
     expect(source).toContain("plusAccount\n        ? `<div class=\"shelf-plus-actions\"><p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p></div>`");
   });
 
+  it('keeps Home discovery headings accurate across starter, weekly, personalized, and fallback states', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function homeDiscoveryHeadingCopy('), source.indexOf('function normalizedDiscoveryIdentity('));
+    const headingFor = new Function(
+      'mode',
+      `function editorialDiscoveryCopy() { return 'A few handpicked cards to explore.'; }\n${functionSource}\nreturn homeDiscoveryHeadingCopy(mode);`
+    ) as (mode: string) => { heading: string; copy: string };
+
+    expect(headingFor('STARTER')).toEqual({
+      heading: 'Your next favourite could be here.',
+      copy: 'Meet your first collector picks. Fresh finds follow each week.'
+    });
+    expect(headingFor('WEEKLY')).toEqual({
+      heading: 'Your next favourite could be here.',
+      copy: 'Three fresh finds each week. See what catches your eye.'
+    });
+    expect(headingFor('PERSONALIZED')).toEqual({
+      heading: 'Picked for you',
+      copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.'
+    });
+    expect(headingFor('FALLBACK')).toEqual({ heading: 'Collector picks', copy: 'A few handpicked cards to explore.' });
+  });
+
   it('uses a state-aware Plus next step when a Free Watchlist is full', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
@@ -667,12 +693,43 @@ describe('web app static routes', () => {
     const actionRow = cardSource.slice(cardSource.indexOf('<div class="shelf-card-actions">'), cardSource.indexOf('${discoveryFeedbackMarkup(item)}'));
 
     expect(marketRow).toContain('shelf-price');
-    expect(marketRow).toContain('discoverySavedStatusMarkup(item)');
+    expect(marketRow).not.toContain('discoverySavedStatusMarkup(item)');
     expect(actionRow).toContain('discoveryCardPrimaryActionMarkup(item)');
     expect(actionRow).toContain('View on eBay');
     expect(cardSource.match(/class="shelf-card-actions"/g)).toHaveLength(1);
     expect(cardSource.indexOf('shelf-market-status')).toBeLessThan(cardSource.indexOf('shelf-card-actions'));
     expect(cardSource.indexOf('shelf-card-actions')).toBeLessThan(cardSource.indexOf('discoveryFeedbackMarkup(item)'));
+  });
+
+  it('uses one exact-identity action for watched and acquired Display Case cards', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const actionSource = source.slice(source.indexOf('function normalizedDiscoveryIdentity('), source.indexOf('function discoveryStateCopy('));
+    const render = (state: Record<string, unknown>, item: Record<string, unknown>) => new Function(
+      'state',
+      'item',
+      'escapeHtml',
+      `${actionSource}\nreturn discoveryCardPrimaryActionMarkup(item);`
+    )(state, item, (value: unknown) => String(value)) as string;
+    const item = { name: 'Pichu Expedition Base Set 22/165', cardIdentity: { sourceName: 'POKEMONTCG', sourceCardId: 'ecard1-22' } };
+
+    const watched = render({
+      vault: [{ chase: { id: 'watch-pichu', cardIdentity: { sourceName: 'POKEMONTCG', sourceCardId: 'ecard1-22' } }, monitoringState: 'ACTIVE' }],
+      completedChases: []
+    }, item);
+    expect(watched).toContain('class="button-watchlist shelf-saved-view"');
+    expect(watched).toContain('data-chase-id="watch-pichu"');
+    expect(watched).toContain('View on Watchlist');
+    expect(watched).not.toContain('Add to Watchlist');
+
+    const acquired = render({
+      vault: [],
+      completedChases: [{ id: 'pickup-pichu', cardIdentity: { sourceName: 'POKEMONTCG', sourceCardId: 'ecard1-22' } }]
+    }, item);
+    expect(acquired).toContain('data-chase-id="pickup-pichu"');
+    expect(acquired).toContain('View Pickup');
+    expect(acquired).not.toContain('View on Watchlist');
+    expect(source).toContain("state.pendingVaultFocusId = target.getAttribute('data-chase-id');");
   });
 
   it('renders NEW-alert navigation presence without shifting the Inbox label', async () => {
@@ -1882,6 +1939,14 @@ describe('authenticated Weekly Shelf API', () => {
         'Pichu Expedition Base Set 22/165',
         'Sylveon ex 212/187'
       ]);
+      expect(initial.starterItems.map((item: any) => item.reason)).toEqual([
+        'A Japanese promo with shimmering artwork and a distinctive place in Mew’s collecting history.',
+        'An Expedition-era Pichu with the unmistakable e-Reader frame.',
+        'A Japanese special-art Sylveon from Terastal Festival ex, full of colour and detail.'
+      ]);
+      expect(initial.starterItems.every((item: any) => item.roleLabel === 'Collector pick' && item.ebayUrl?.startsWith('https://www.ebay.'))).toBe(true);
+      expect(JSON.stringify(initial.starterItems)).not.toContain('recommendation');
+      expect(JSON.stringify(initial.starterItems)).not.toContain('feedback');
       expect(initial.starterItems[2]).toMatchObject({
         imageUrl: '/onboarding-art/sylveon-ex-212.webp',
         setName: 'Terastal Festival ex',
@@ -2107,7 +2172,6 @@ describe('authenticated Weekly Shelf API', () => {
       })
     ]);
     expect(JSON.stringify(free.starterItems)).not.toContain('market');
-    expect(JSON.stringify(free.starterItems)).not.toContain('reason');
     expect(free.starterItems[1]).toMatchObject({
       name: 'Pichu Expedition Base Set 22/165',
       imageUrl: '/onboarding-art/pichu-expedition-022.webp',
