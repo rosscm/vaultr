@@ -15,8 +15,6 @@
     "staging:discovery": "tsx src/staging-discovery-fixture.ts",
     "staging:discovery:dist": "node dist/staging-discovery-fixture.js",
     "start:discovery-worker": "node dist/discovery-market-worker.js",
-    "start:free-sample-worker": "node dist/free-discovery-sample-worker.js --limit=10",
-    "staging:free-sample": "node dist/staging-free-discovery-sample.js",
     "start:webhook": "node dist/ebay-webhook.js",
     "register:commands": "tsx src/register-commands.ts",
     "backup": "tsx src/backup.ts",

@@ -57,9 +57,8 @@ import { weeklyPreparationTargetDate } from './services/discovery-drop-scheduler
 import { alertSettingsResponse, updateAlertSettings } from './services/alert-settings.js';
 import { getOrCreateOnboardingState, transitionOnboarding, type OnboardingAction, type OnboardingStep } from './services/onboarding.js';
 import { collectorPreferenceOptions, getCollectorPreferences, saveCollectorPreferences } from './services/collector-preferences.js';
-import { getFreeDiscoverySample, requestFreeDiscoverySample } from './services/free-discovery-sample.js';
 import { tasteOnboardingEnabled } from './services/features.js';
-import { getCardCatalogRecordBySourceCardId } from './services/card-catalog-db.js';
+import { weeklyGeneralDiscoveryForUser } from './services/weekly-general-discovery.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
 import {
   createWebSession,
@@ -597,14 +596,18 @@ const WEB_STARTER_DISCOVERY = [
   }
 ] as const;
 
-function publicStarterDiscoveryItems(userId: string, config: WebConfig) {
-  return WEB_STARTER_DISCOVERY.map((item) => ({
+function publicEditorialDiscoveryItems(userId: string, config: WebConfig) {
+  const owned = getVaultChases(userId);
+  const ownedSources = new Set([...owned.chases.map((item) => item.chase), ...owned.completedChases]
+    .filter((chase) => chase.cardImageSourceKind === 'CARD_REFERENCE' && chase.cardImageSourceName && chase.cardImageSourceCardId)
+    .map((chase) => `${chase.cardImageSourceName}:${chase.cardImageSourceCardId}`));
+  return WEB_STARTER_DISCOVERY.filter((item) => !ownedSources.has(`VAULTR_EDITORIAL:${item.sourceCardId}`)).map((item) => ({
     name: item.name,
     imageUrl: item.imageUrl,
     ...('setName' in item ? { setName: item.setName } : {}),
     ...('cardNumber' in item ? { cardNumber: item.cardNumber } : {}),
     ...('language' in item ? { language: item.language } : {}),
-    roleLabel: weeklyShelfRoleLabel(item.discoveryRole),
+    roleLabel: 'Collector pick',
     cardIdentity: {
       value: item.name,
       matchKey: normalizedCardIdentity(normalizeChaseCardName(item.name)),
@@ -621,22 +624,39 @@ function publicStarterDiscoveryItems(userId: string, config: WebConfig) {
   }));
 }
 
-function publicFreeDiscoverySample(userId: string) {
-  const sample = getFreeDiscoverySample(userId);
-  return {
-    ...sample,
-    items: sample.items.map((item) => {
-      const record = getCardCatalogRecordBySourceCardId(item.cardIdentity.sourceName, item.cardIdentity.sourceCardId);
-      const exactPrintingName = item.cardIdentity.value;
-      const selection = record?.imageUrl ? issueCardSelection(userId, exactPrintingName, {
-        imageUrl: record.imageUrl,
-        imageIdentity: exactPrintingName,
-        imageSourceKind: 'CARD_REFERENCE',
-        imageSourceName: record.source,
-        imageSourceCardId: record.sourceCardId
-      }) : undefined;
-      return { ...item, name: exactPrintingName, selection };
+function publicGeneralDiscovery(userId: string, config: WebConfig, now: Date) {
+  const weekly = weeklyGeneralDiscoveryForUser(userId, now);
+  const weeklyItems = weekly.items.map((item) => ({
+    name: item.name,
+    imageUrl: item.imageUrl,
+    setName: item.setName,
+    cardNumber: item.cardNumber,
+    language: item.language,
+    roleLabel: 'Weekly find',
+    cardIdentity: {
+      value: item.name,
+      matchKey: normalizedCardIdentity(normalizeChaseCardName(item.name)),
+      sourceName: item.sourceName,
+      sourceCardId: item.sourceCardId
+    },
+    selection: issueCardSelection(userId, item.name, {
+      imageUrl: item.imageUrl,
+      imageIdentity: item.name,
+      imageSourceKind: 'CARD_REFERENCE',
+      imageSourceName: item.sourceName,
+      imageSourceCardId: item.sourceCardId
     })
+  }));
+  const seen = new Set(weeklyItems.map((item) => normalizedCardIdentity(item.name)));
+  const fallback = publicEditorialDiscoveryItems(userId, config).filter((item) => !seen.has(normalizedCardIdentity(item.name)));
+  const status = weekly.status === 'WEEKLY'
+    ? weeklyItems.length >= 3 ? 'WEEKLY' : 'INSUFFICIENT'
+    : weekly.status;
+  return {
+    periodKey: weekly.periodKey,
+    status,
+    catalogItemCount: weeklyItems.length,
+    items: [...weeklyItems, ...fallback].slice(0, 3)
   };
 }
 
@@ -667,7 +687,6 @@ function webDiscoveryState(userId: string, config: WebConfig, populated: boolean
 }
 
 function shelfResponse(userId: string, config: WebConfig, now = new Date()): WebResponse {
-  const tasteOnboarding = tasteOnboardingEnabled();
   const targetDate = weeklyPreparationTargetDate(now);
   const targetPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', targetDate);
   const nowIso = now.toISOString();
@@ -687,6 +706,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
       : 'PREVIOUS';
 
   if (!validDashboardShelf(drop)) {
+    const generalDiscovery = publicGeneralDiscovery(userId, config, now);
     return jsonResponse(200, {
       status: 'UPCOMING',
       shelfKind,
@@ -694,13 +714,14 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
       title: 'Display Case',
       items: [],
       discovery: webDiscoveryState(userId, config, false),
-      starterItems: publicStarterDiscoveryItems(userId, config),
-      ...(tasteOnboarding ? { freeSample: publicFreeDiscoverySample(userId), collectorPreferences: getCollectorPreferences(userId) } : {})
+      starterItems: generalDiscovery.items,
+      generalDiscovery: { periodKey: generalDiscovery.periodKey, status: generalDiscovery.status, catalogItemCount: generalDiscovery.catalogItemCount }
     });
   }
 
   const discovery = webDiscoveryState(userId, config, true);
   const personalized = discovery.state === 'POPULATED' && discovery.tier === 'PRO';
+  const generalDiscovery = personalized ? undefined : publicGeneralDiscovery(userId, config, now);
   return jsonResponse(200, {
     status: drop.status,
     shelfKind,
@@ -716,8 +737,8 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     items: personalized ? drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey)) : [],
     discovery,
     ...(personalized ? {} : {
-      starterItems: publicStarterDiscoveryItems(userId, config),
-      ...(tasteOnboarding ? { freeSample: publicFreeDiscoverySample(userId), collectorPreferences: getCollectorPreferences(userId) } : {})
+      starterItems: generalDiscovery!.items,
+      generalDiscovery: { periodKey: generalDiscovery!.periodKey, status: generalDiscovery!.status, catalogItemCount: generalDiscovery!.catalogItemCount }
     })
   });
 }
@@ -1187,23 +1208,6 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       }
     }
     return errorResponse(405, 'method_not_allowed', { Allow: 'GET, PUT' });
-  }
-
-  if (url.pathname === '/api/free-discovery-sample') {
-    const session = authenticatedSession(request, options);
-    if (!session) return errorResponse(401, 'unauthorized');
-    if (!tasteOnboardingEnabled()) return errorResponse(404, 'feature_disabled');
-    if (method === 'GET') return jsonResponse(200, { sample: publicFreeDiscoverySample(session.userId) });
-    if (method === 'POST') {
-      if (activePlanTier(getUserPlan(session.userId)) !== 'FREE') return errorResponse(403, 'free_sample_not_available');
-      try {
-        requestFreeDiscoverySample(session.userId, options.now?.() ?? new Date());
-        return jsonResponse(202, { sample: publicFreeDiscoverySample(session.userId) });
-      } catch (error) {
-        return errorResponse(400, error instanceof Error ? error.message : 'sample_request_failed');
-      }
-    }
-    return errorResponse(405, 'method_not_allowed', { Allow: 'GET, POST' });
   }
 
   if (method === 'GET' && url.pathname === '/api/alerts') {

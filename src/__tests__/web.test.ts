@@ -14,8 +14,7 @@ import {
 import { __chaseCardCatalogTestHooks, clearChaseCardAutocompleteCache } from '../services/chase-card-catalog.js';
 import { getOrCreateOnboardingState } from '../services/onboarding.js';
 import { replaceCardCatalogSourceRecords } from '../services/card-catalog-db.js';
-import { completeFreeDiscoverySampleJob, rankFreeDiscoverySampleRecords } from '../services/free-discovery-sample.js';
-import type { CollectorInterestProfile } from '../services/collector-profile.js';
+import { weeklyGeneralDiscoveryPeriodKey } from '../services/weekly-general-discovery.js';
 import {
   deleteScheduledDiscoveryDrop,
   scheduledDiscoveryAvailability,
@@ -55,7 +54,6 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM discovery_scheduled_drop_items WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_scheduled_drops WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_onboarding WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM free_discovery_samples WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_collector_artwork_preferences WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_collector_subject_preferences WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
@@ -184,6 +182,11 @@ function seedWeeklyShelf(
     ]
   }, updatedAt);
   return drop;
+}
+
+function seedGeneralDiscoveryFallback(date: Date): void {
+  db.prepare(`INSERT OR REPLACE INTO weekly_general_discovery_snapshots (period_key, status, reserve_json, catalog_record_count, created_at) VALUES (?, 'CATALOG_UNAVAILABLE', '[]', 0, ?)`)
+    .run(weeklyGeneralDiscoveryPeriodKey(date), date.toISOString());
 }
 
 describe('web sessions', () => {
@@ -377,7 +380,7 @@ describe('web app static routes', () => {
       (jsResponse.body ?? '').indexOf('function homePageMarkup()')
     );
     expect(homeEmptySource).not.toContain('Open Inbox');
-    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial } = {})');
+    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial, label } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
     expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
     expect(jsResponse.body).toContain('Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit.');
@@ -389,7 +392,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('toggle-display-case-explanation');
     expect(jsResponse.body).toContain('Marketplace checks paused');
     expect(jsResponse.body).not.toContain('home-introduction');
-    expect(jsResponse.body).toContain("${personalizedReady ? 'Picked for you' : freeSampleReady ? 'Your first personalized picks' : 'Starter picks'}");
+    expect(jsResponse.body).toContain("${personalizedReady ? 'Picked for you' : weeklyFinds ? 'This week’s finds' : 'Collector picks'}");
     expect(jsResponse.body).toContain('Explore Display Case');
     expect(jsResponse.body).not.toContain('Picked around your taste');
     expect(jsResponse.body).toContain('Open Inbox');
@@ -400,20 +403,19 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
     expect(jsResponse.body).toContain('Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.');
-    expect(jsResponse.body).toContain('A few collector favourites to get you started.');
+    expect(jsResponse.body).toContain('Three cards to explore. New picks every week.');
     expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('<p class="eyebrow">INBOX</p>');
     expect(jsResponse.body).toContain('<h2 id="home-alerts-title">Latest matches</h2>');
-    expect(jsResponse.body).toContain("${editorial ? 'Starter pick' : 'Picked for you'}");
+    expect(jsResponse.body).toContain("label || (editorial ? 'Collector pick' : 'Picked for you')");
     expect(jsResponse.body).toContain("${feedback ? discoveryFeedbackMarkup(item, true) : ''}");
     expect(jsResponse.body).toContain('home-shelf-supporting-card');
     expect(jsResponse.body).toContain('aria-hidden="true"');
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Your Display Case</h1>');
     expect(jsResponse.body).toContain('Explore standout cards and discover your next favourite.');
-    expect(jsResponse.body).toContain('Make your Display Case yours.');
-    expect(jsResponse.body).toContain('With Vaultr Plus, discover cards shaped by your Watchlist and Pickups. Use More like this and Not for me to help Vaultr learn what you love.');
+    expect(jsResponse.body).toContain('Vaultr Plus adds ongoing personalized discovery shaped by your Watchlist, Pickups, and feedback.');
     expect(jsResponse.body).toContain('Explore Vaultr Plus');
-    expect(jsResponse.body).toContain('<h2>Editorial picks</h2>');
+    expect(jsResponse.body).toContain("weekly ? 'This week’s finds' : 'Collector picks'");
     expect(jsResponse.body).toContain('A few handpicked cards to explore.');
     expect(jsResponse.body).not.toContain('Try a Plus example');
     expect(jsResponse.body).not.toContain('displayCasePreview');
@@ -425,15 +427,12 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Your feedback helps shape future discoveries.');
     expect(jsResponse.body).toContain('Taste feedback is read-only in preview.');
     expect(jsResponse.body).toContain('Add to Watchlist');
-    expect(jsResponse.body).toContain('A few collector favourites to get you started.');
     expect(jsResponse.body).toContain('With Vaultr Plus, that profile guides your personalized Display Case.');
     expect(jsResponse.body).not.toContain('A little inspiration');
     expect(jsResponse.body).toContain('!editorial && item.roleLabel');
     expect(jsResponse.body).toContain("feedback ? discoveryFeedbackMarkup(item) : ''");
-    expect(jsResponse.body).toContain('Find my first picks');
-    expect(jsResponse.body).toContain('No qualified sample picks this time.');
-    expect(jsResponse.body).toContain('We did not add weaker cards just to fill the space.');
-    expect(jsResponse.body).toContain('Editorial picks are still here to explore.');
+    expect(jsResponse.body).not.toContain('Find my first picks');
+    expect(jsResponse.body).not.toContain('freeSample');
     expect(jsResponse.body).toContain('What catches your eye?');
     expect(jsResponse.body).toContain('data-action="edit-collector-profile"');
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
@@ -618,7 +617,7 @@ describe('web app static routes', () => {
     })).toEqual({
       personalized: false,
       items: starterItems,
-      copy: 'A few collector favourites to get you started.'
+      copy: 'A few handpicked cards to explore.'
     });
     expect(evaluate({
       vaultPlan: { tier: 'PRO' },
@@ -630,8 +629,9 @@ describe('web app static routes', () => {
     })).toEqual({
       personalized: false,
       items: starterItems,
-      copy: 'Your Display Case starts with what you love collecting. Your profile has 3 of 5 distinct card signals and needs 2 more. Watchlist cards and Pickups both help build it.'
+      copy: 'A few handpicked cards to explore.'
     });
+    expect(source).toContain("plusAccount\n        ? `<div class=\"shelf-plus-actions\"><p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p></div>`");
   });
 
   it('uses a state-aware Plus next step when a Free Watchlist is full', async () => {
@@ -1301,7 +1301,6 @@ describe('authenticated collecting profile API', () => {
       expect(shelf).not.toHaveProperty('freeSample');
       expect(shelf).not.toHaveProperty('collectorPreferences');
       expect(db.prepare('SELECT COUNT(*) AS count FROM user_collector_subject_preferences WHERE user_id = ?').get(userId)).toEqual({ count: 0 });
-      expect(db.prepare('SELECT COUNT(*) AS count FROM free_discovery_samples WHERE user_id = ?').get(userId)).toEqual({ count: 0 });
     } finally {
       clearUser(userId);
       if (originalFlag === undefined) delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
@@ -1813,50 +1812,28 @@ describe('authenticated Weekly Shelf API', () => {
     clearUser(userId);
   });
 
-  it('preserves a generated Free sample exact printing through Watchlist save and readback', async () => {
+  it('preserves a weekly find exact printing through Watchlist save and readback', async () => {
     const originalCatalogPath = process.env.CARD_CATALOG_PATH;
-    const originalFlag = process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vaultr-web-free-sample-'));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vaultr-web-weekly-finds-'));
     const catalogPath = path.join(tempDir, 'catalog.db');
-    const user = createUser({ displayName: 'Free sample collector' });
-    const userId = user.id;
+    const userId = createUser({ displayName: 'Weekly finds collector' }).id;
     try {
-      process.env.VAULTR_TASTE_ONBOARDING_ENABLED = 'true';
       process.env.CARD_CATALOG_PATH = catalogPath;
-      replaceCardCatalogSourceRecords('CURATED', [{
-        source: 'CURATED', sourceCardId: 'sample-mew-151', language: 'ja', name: 'Mew', normalizedName: 'mew',
-        setName: 'CoroCoro Promo', normalizedSetName: 'corocoro promo', cardNumber: '151', normalizedCardNumber: '151',
-        imageUrl: 'https://cards.example/mew-151.png', isPromo: true, verificationStatus: 'VERIFIED', importedAt: '2026-10-27T00:00:00.000Z'
-      }], catalogPath);
-      const profile: CollectorInterestProfile = {
-        version: 1,
-        sourceSummary: { activeChases: 0, completedChases: 0, legacyBoughtOrSeen: 0, explicitPreferences: 1, distinctCards: 1 },
-        confidence: { tier: 'SEED', score: 0.2, reasons: ['explicit preference'] },
-        traits: {
-          subjects: [{ key: 'mew', label: 'Mew', score: 1.8, evidenceCount: 1, activeEvidenceCount: 0, completedEvidenceCount: 0, legacyEvidenceCount: 0, confidence: 'HIGH', evidenceIds: ['subject:mew'] }],
-          languages: [], sets: [], eras: [], formats: [], artists: [], rarities: [], promoTypes: [], releaseTypes: [], releaseEvents: [], gradingPreferences: [], conditionPreferences: []
-        },
-        evidence: []
-      };
-      const record = {
-        id: 1, source: 'CURATED' as const, sourceCardId: 'sample-mew-151', language: 'ja' as const, name: 'Mew', normalizedName: 'mew',
-        setName: 'CoroCoro Promo', normalizedSetName: 'corocoro promo', cardNumber: '151', normalizedCardNumber: '151',
-        imageUrl: 'https://cards.example/mew-151.png', isPromo: true, verificationStatus: 'VERIFIED' as const, importedAt: '2026-10-27T00:00:00.000Z'
-      };
-      const generated = rankFreeDiscoverySampleRecords(profile, new Set(), [record], 'api-sample');
-      expect(generated[0]?.name).toBe('Mew CoroCoro Promo 151 Japanese');
-      db.prepare(`INSERT INTO free_discovery_samples (user_id, status, attempt_count, created_at, updated_at) VALUES (?, 'PREPARING', 1, ?, ?)`).run(userId, '2026-10-27T00:00:00.000Z', '2026-10-27T00:00:00.000Z');
-      completeFreeDiscoverySampleJob(userId, 1, generated, new Date('2026-10-27T00:01:00.000Z'));
-      const { token } = createWebSession({ userId }, { token: 'free-sample-exact-printing-token' });
+      replaceCardCatalogSourceRecords('CURATED', ['Mew', 'Pikachu', 'Gardevoir', 'Umbreon'].map((name, index) => ({
+        source: 'CURATED' as const, sourceCardId: `weekly-api-${index + 1}`, language: index === 0 ? 'ja' as const : 'en' as const,
+        name, normalizedName: name.toLowerCase(), setName: `API Set ${index + 1}`, normalizedSetName: `api set ${index + 1}`,
+        cardNumber: `${index + 1}`, normalizedCardNumber: `${index + 1}`, imageUrl: `https://cards.example/api-${index + 1}.png`,
+        isPromo: false, verificationStatus: 'VERIFIED' as const, importedAt: '2026-10-27T00:00:00.000Z'
+      })), catalogPath);
+      db.prepare('DELETE FROM weekly_general_discovery_snapshots').run();
+      const { token } = createWebSession({ userId }, { token: 'weekly-find-exact-printing-token' });
       const headers = { cookie: sessionCookie(token) };
+      const shelf = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config, now: () => new Date('2026-10-27T12:00:00.000Z') })).body ?? '{}');
+      expect(shelf.generalDiscovery).toMatchObject({ status: 'WEEKLY', catalogItemCount: 3 });
+      const item = shelf.starterItems[0];
+      expect(item.name).toBe(item.cardIdentity.value);
+      expect(item.selection).toMatchObject({ value: item.name, sourceName: item.cardIdentity.sourceName, sourceCardId: item.cardIdentity.sourceCardId });
 
-      const shelf = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config })).body ?? '{}');
-      const item = shelf.freeSample.items[0];
-      expect(item).toMatchObject({
-        name: 'Mew CoroCoro Promo 151 Japanese',
-        cardIdentity: { value: 'Mew CoroCoro Promo 151 Japanese', sourceName: 'CURATED', sourceCardId: 'sample-mew-151' },
-        selection: { value: 'Mew CoroCoro Promo 151 Japanese', sourceName: 'CURATED', sourceCardId: 'sample-mew-151' }
-      });
       const created = await handleWebRequest({
         method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' },
         body: JSON.stringify({ cardName: item.name, cardSelectionToken: item.selection.token })
@@ -1864,15 +1841,14 @@ describe('authenticated Weekly Shelf API', () => {
       expect(created.status).toBe(201);
       const vault = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/chases', headers }, { config })).body ?? '{}');
       expect(vault.items[0].chase).toMatchObject({
-        cardName: 'Mew CoroCoro Promo 151 Japanese',
-        cardIdentity: { value: 'Mew CoroCoro Promo 151 Japanese', sourceName: 'CURATED', sourceCardId: 'sample-mew-151' }
+        cardName: item.name,
+        cardIdentity: { value: item.name, sourceName: item.cardIdentity.sourceName, sourceCardId: item.cardIdentity.sourceCardId }
       });
     } finally {
       clearUser(userId);
+      db.prepare('DELETE FROM weekly_general_discovery_snapshots').run();
       if (originalCatalogPath === undefined) delete process.env.CARD_CATALOG_PATH;
       else process.env.CARD_CATALOG_PATH = originalCatalogPath;
-      if (originalFlag === undefined) delete process.env.VAULTR_TASTE_ONBOARDING_ENABLED;
-      else process.env.VAULTR_TASTE_ONBOARDING_ENABLED = originalFlag;
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
@@ -1882,6 +1858,7 @@ describe('authenticated Weekly Shelf API', () => {
     clearUser(userId);
     const { token } = createWebSession({ userId }, { token: 'starter-selection-lifecycle-token' });
     const headers = { cookie: sessionCookie(token) };
+    seedGeneralDiscoveryFallback(new Date('2026-08-30T13:00:00.000Z'));
     const shelf = await handleWebRequest(
       { method: 'GET', url: '/api/shelf', headers },
       { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
@@ -2036,6 +2013,7 @@ describe('authenticated Weekly Shelf API', () => {
     const userId = 'web-shelf-discovery-state-user';
     clearUser(userId);
     const { token } = createWebSession({ userId }, { token: 'shelf-discovery-state-token' });
+    seedGeneralDiscoveryFallback(new Date('2026-08-30T13:00:00.000Z'));
     const request = (webConfig = config) => handleWebRequest(
       { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
       { config: webConfig, now: () => new Date('2026-08-30T13:00:00.000Z') }
@@ -2044,14 +2022,14 @@ describe('authenticated Weekly Shelf API', () => {
     const free = JSON.parse((await request()).body ?? '{}');
     expect(free.discovery).toMatchObject({ state: 'PLAN_RESTRICTED', tier: 'FREE', minimumSignalCount: 5 });
     expect(free.starterItems).toEqual([
-      expect.objectContaining({ name: 'Mew CoroCoro Promo 151', imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp', roleLabel: 'Right up your alley' }),
-      expect.objectContaining({ name: 'Pichu Expedition Base Set 22/165', roleLabel: 'Worth exploring' }),
+      expect.objectContaining({ name: 'Mew CoroCoro Promo 151', imageUrl: '/onboarding-art/mew-corocoro-promo-151.webp', roleLabel: 'Collector pick' }),
+      expect.objectContaining({ name: 'Pichu Expedition Base Set 22/165', roleLabel: 'Collector pick' }),
       expect.objectContaining({
         name: 'Sylveon ex 212/187',
         setName: 'Terastal Festival ex',
         cardNumber: '212/187',
         language: 'Japanese',
-        roleLabel: 'Something different'
+        roleLabel: 'Collector pick'
       })
     ]);
     expect(JSON.stringify(free.starterItems)).not.toContain('market');
@@ -2352,6 +2330,7 @@ describe('authenticated chase API', () => {
     const headers = auth(userId, 'chases-expired-editorial-selection-token');
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
     try {
+      seedGeneralDiscoveryFallback(new Date('2026-08-30T13:00:00.000Z'));
       const shelf = await handleWebRequest(
         { method: 'GET', url: '/api/shelf', headers },
         { config, now: () => new Date('2026-08-30T13:00:00.000Z') }

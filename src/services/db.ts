@@ -55,19 +55,12 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS free_discovery_samples (
-    user_id TEXT PRIMARY KEY,
+  CREATE TABLE IF NOT EXISTS weekly_general_discovery_snapshots (
+    period_key TEXT PRIMARY KEY,
     status TEXT NOT NULL,
-    attempt_count INTEGER NOT NULL DEFAULT 0,
-    lease_expires_at TEXT,
-    next_retry_at TEXT,
-    result_json TEXT,
-    failure_code TEXT,
-    failure_summary TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    completed_at TEXT,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    reserve_json TEXT NOT NULL,
+    catalog_record_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS user_identities (
@@ -699,7 +692,6 @@ const USER_ID_OWNED_TABLES = [
   'user_discovery_preferences',
   'user_collector_subject_preferences',
   'user_collector_artwork_preferences',
-  'free_discovery_samples',
   'user_discovery_seen',
   'user_discovery_feedback',
   'discovery_training_examples',

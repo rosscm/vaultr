@@ -312,11 +312,11 @@ function providerRecordFromPokemonCard(card: PokemonTcgCard): CanonicalProviderR
   };
 }
 
-function isMarketplaceLikeImageUrl(url: string | undefined): boolean {
+export function isMarketplaceLikeImageUrl(url: string | undefined): boolean {
   return !!url && /ebayimg|ebay\.|marketplace|seller|listing|bigcommerce|shopify/i.test(url);
 }
 
-function isKnownNonFrontCardImageUrl(url: string | undefined): boolean {
+export function isKnownNonFrontCardImageUrl(url: string | undefined): boolean {
   if (!url) return true;
   try {
     const parsed = new URL(url);

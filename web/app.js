@@ -1116,7 +1116,7 @@ function onboardingPageMarkup() {
   let content = '';
   if (step === 'WELCOME') content = onboardingWelcomeMarkup(revisit);
   if (step === 'MARKET') content = `<p class="eyebrow">PRICING & SHIPPING</p><h1 id="onboarding-title">Set your market context</h1><p>Choose how prices are shown and where listings need to ship.</p>${onboardingMarketMarkup(revisit)}`;
-  if (step === 'PROFILE') content = `<p class="eyebrow">YOUR TASTE</p><h1 id="onboarding-title">What catches your eye?</h1><p>These choices shape a one-time sample and stay separate from your Watchlist and Pickups.</p>${collectorProfileMarkup(revisit)}`;
+  if (step === 'PROFILE') content = `<p class="eyebrow">YOUR TASTE</p><h1 id="onboarding-title">What catches your eye?</h1><p>These choices stay separate from your Watchlist and Pickups.</p>${collectorProfileMarkup(revisit)}`;
   if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">Inspect the shared Watchlist form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Watchlist form</button></div>`;
   if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'You already have a card on your Watchlist. You’re ready to continue.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${!revisit && state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${!revisit && state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
   if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Your Watchlist and pickups shape your collecting profile; personalized recommendations require Vaultr Plus and enough distinct card history, and may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
@@ -1316,7 +1316,7 @@ function homeShelfPresentation(items, index) {
   };
 }
 
-function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial } = {}) {
+function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial, label } = {}) {
   const { featured: item, featuredIndex, supporting } = homeShelfPresentation(items, index);
   if (!item) return '';
   const total = items.length;
@@ -1345,7 +1345,7 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
           : '<p class="home-shelf-artwork-unavailable">Artwork unavailable</p>'}
       </div>
       <div class="home-shelf-copy">
-        <small class="home-shelf-kind">${editorial ? 'Starter pick' : 'Picked for you'}</small>
+        <small class="home-shelf-kind">${escapeHtml(label || (editorial ? 'Collector pick' : 'Picked for you'))}</small>
         <strong>${escapeHtml(item.name || 'Display Case pick')}</strong>
         ${item.nativeName ? `<span class="home-shelf-details">Original name: ${escapeHtml(item.nativeName)}</span>` : ''}
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
@@ -1369,10 +1369,6 @@ function starterDiscoveryItems() {
   return state.shelf?.starterItems || [];
 }
 
-function freeSampleDiscoveryItems() {
-  return state.authConfig?.features?.tasteOnboarding === true ? state.shelf?.freeSample?.items || [] : [];
-}
-
 function hasPersonalizedDiscoveryAccess() {
   return state.vaultPlan?.tier === 'PRO'
     && state.shelf?.discovery?.tier === 'PRO'
@@ -1382,14 +1378,13 @@ function hasPersonalizedDiscoveryAccess() {
 
 function homeDisplayCaseItems() {
   if (hasPersonalizedDiscoveryAccess()) return state.shelf.items;
-  return freeSampleDiscoveryItems().length ? freeSampleDiscoveryItems() : starterDiscoveryItems();
+  return starterDiscoveryItems();
 }
 
 function editorialDiscoveryCopy() {
-  const discovery = state.shelf?.discovery;
-  if (discovery?.state === 'INSUFFICIENT_SIGNALS') return discoveryStateCopy(discovery, true);
-  if (discovery?.state === 'AWAITING_PREPARATION' || discovery?.state === 'PREPARATION_UNAVAILABLE') return discoveryStateCopy(discovery, true);
-  return 'A few collector favourites to get you started.';
+  const count = starterDiscoveryItems().length;
+  if (state.shelf?.generalDiscovery?.status === 'WEEKLY') return count === 3 ? 'Three cards to explore. New picks every week.' : `${count} cards to explore this week.`;
+  return 'A few handpicked cards to explore.';
 }
 
 function normalizedDiscoveryIdentity(value) {
@@ -1474,7 +1469,7 @@ function homePageMarkup() {
   const completedChases = state.completedChases?.length ?? 0;
   const alertPreview = state.homeAttentionAlerts.slice(0, 4);
   const personalizedReady = hasPersonalizedDiscoveryAccess();
-  const freeSampleReady = !personalizedReady && freeSampleDiscoveryItems().length > 0;
+  const weeklyFinds = !personalizedReady && state.shelf?.generalDiscovery?.status === 'WEEKLY';
   const displayCaseItems = homeDisplayCaseItems();
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
@@ -1496,7 +1491,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${personalizedReady ? 'Picked for you' : freeSampleReady ? 'Your first personalized picks' : 'Starter picks'}</h2><p>${personalizedReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : freeSampleReady ? 'A one-time sample shaped by your collecting profile.' : editorialDiscoveryCopy()}</p></div>
+          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${personalizedReady ? 'Picked for you' : weeklyFinds ? 'This week’s finds' : 'Collector picks'}</h2><p>${personalizedReady ? 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.' : editorialDiscoveryCopy()}</p></div>
           <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
@@ -1505,7 +1500,7 @@ function homePageMarkup() {
             ? '<div class="home-discovery-state"><p>Your Display Case could not be loaded right now.</p><button class="button-ghost" type="button" data-action="retry-shelf">Try again</button></div>'
             : state.shelfLoaded
                 ? displayCaseItems.length
-                  ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: !personalizedReady && !freeSampleReady, feedback: personalizedReady })
+                  ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: !personalizedReady, feedback: personalizedReady, label: personalizedReady ? 'Picked for you' : weeklyFinds ? 'Weekly find' : 'Collector pick' })
                   : `<div class="home-discovery-state"><p>${escapeHtml(discoveryStateCopy(discovery, true))}</p></div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
           </div>
@@ -1827,17 +1822,14 @@ function shelfPageMarkup() {
     `;
   }
   const personalized = hasPersonalizedDiscoveryAccess();
-  const freeSampleItems = personalized ? [] : freeSampleDiscoveryItems();
-  const items = personalized ? state.shelf?.items || [] : freeSampleItems;
-  const partialFreeSample = state.shelf?.freeSample?.status === 'UNDERSUPPLIED' && freeSampleItems.length > 0;
+  const items = personalized ? state.shelf?.items || [] : [];
   return `
     <section class="shelf-page" aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
       ${personalized && items.length ? '<p class="shelf-personalized-note">Picks shaped by your Watchlist, Pickups, and the cards you tell us you like.</p>' : ''}
-      ${freeSampleItems.length ? `<div class="shelf-personalized-note"><strong>Your first personalized picks</strong><p>${partialFreeSample ? `We found ${freeSampleItems.length} qualified ${freeSampleItems.length === 1 ? 'pick' : 'picks'} for this one-time sample. We did not add weaker cards just to fill the space.` : 'This one-time sample is shaped by your collecting profile.'}</p></div>` : ''}
       ${personalized && items.length ? shelfMetaMarkup(state.shelf) : ''}
-      ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>${freeSampleItems.length ? '<div class="shelf-plus-actions"><button class="button-primary" type="button" data-page="plus">Explore ongoing discovery with Vaultr Plus</button></div>' : ''}` : shelfEmptyMarkup(state.shelf)}
+      ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
     </section>
   `;
@@ -1870,44 +1862,20 @@ function shelfMetaMarkup(shelf) {
 
 function shelfEmptyMarkup(shelf) {
   const starters = shelf?.starterItems || [];
-  const isFree = shelf?.discovery?.state === 'PLAN_RESTRICTED';
-  const sample = shelf?.freeSample;
-  const profileReady = shelf?.collectorPreferences?.readiness?.ready;
-  const sampleStatus = sample?.status;
-  const tasteEnabled = tasteOnboardingEnabled();
-  const sampleCount = sample?.items?.length || 0;
-  const terminalSampleCopy = sampleStatus === 'UNDERSUPPLIED'
-    ? sampleCount === 0
-      ? 'We could not find a qualified match for this one-time sample. Editorial picks are still here to explore.'
-      : `We found ${sampleCount} qualified ${sampleCount === 1 ? 'pick' : 'picks'} for this one-time sample. We did not add weaker cards just to fill the space.`
-    : '';
-  const samplePanel = tasteEnabled && isFree && sampleStatus !== 'COMPLETE' ? `
-    <div class="shelf-sample-state">
-      <h2>${sampleStatus === 'UNDERSUPPLIED' ? sampleCount ? 'A small set of qualified picks.' : 'No qualified sample picks this time.' : profileReady ? 'Your first picks are ready to prepare.' : 'Shape your first personalized picks.'}</h2>
-      <p>${terminalSampleCopy || (sampleStatus === 'QUEUED' || sampleStatus === 'PREPARING' ? 'Your sample is being prepared. Editorial picks remain available while you wait.' : sampleStatus === 'RETRYABLE_FAILURE' ? 'Preparation hit a temporary issue and will retry automatically.' : sampleStatus === 'FAILED' ? 'Your sample could not be prepared after bounded retries. Editorial picks remain available.' : profileReady ? 'This one-time sample can include up to three qualified cards.' : 'Choose favourite Pokémon and artwork in your collecting profile.')}</p>
-      ${profileReady && (!sampleStatus || sampleStatus === 'NOT_REQUESTED') ? '<button class="button-primary" type="button" data-action="request-free-sample">Find my first picks</button>' : !profileReady ? '<button class="button-ghost" type="button" data-action="edit-collector-profile">Set up my collecting profile</button>' : ''}
-    </div>` : '';
+  const weekly = shelf?.generalDiscovery?.status === 'WEEKLY';
+  const plusAccount = state.vaultPlan?.tier === 'PRO';
+  const description = weekly
+    ? starters.length === 3 ? 'Three cards to explore. New picks every week.' : `${starters.length} cards to explore this week.`
+    : 'A few handpicked cards to explore.';
   return `
-    <section class="shelf-editorial" aria-label="Editorial starter picks">
-      ${samplePanel}
-      ${isFree && tasteEnabled ? `
-        <div class="shelf-plus-intro">
-          <div>
-            <h2>Make your Display Case yours.</h2>
-            <p>With Vaultr Plus, discover cards shaped by your Watchlist and Pickups. Use More like this and Not for me to help Vaultr learn what you love.</p>
-          </div>
-          <div class="shelf-plus-actions">
-            <button class="button-primary" type="button" data-page="plus">Explore Vaultr Plus</button>
-          </div>
-        </div>
-        <header class="shelf-editorial-heading">
-          <h2>Editorial picks</h2>
-          <p>A few handpicked cards to explore.</p>
-        </header>
-      ` : isFree ? '<header class="shelf-editorial-heading"><h2>Editorial picks</h2><p>A few handpicked cards to explore.</p></header>' : `<div class="shelf-editorial-note"><p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p></div>`}
+    <section class="shelf-editorial" aria-label="General discovery picks">
+      <header class="shelf-editorial-heading"><h2>${weekly ? 'This week’s finds' : 'Collector picks'}</h2><p>${escapeHtml(description)}</p></header>
       ${starters.length
-        ? `<div class="shelf-grid shelf-editorial-grid" aria-label="Editorial starter picks">${starters.map((item) => shelfCardMarkup(item, { editorial: true })).join('')}</div>`
+        ? `<div class="shelf-grid shelf-editorial-grid" aria-label="General discovery picks">${starters.map((item) => shelfCardMarkup(item, { editorial: true })).join('')}</div>`
         : '<div class="starter-artwork-fallback">Collector picks will appear here when available.</div>'}
+      ${plusAccount
+        ? `<div class="shelf-plus-actions"><p>${escapeHtml(discoveryStateCopy(shelf?.discovery))}</p></div>`
+        : '<div class="shelf-plus-actions"><p>Vaultr Plus adds ongoing personalized discovery shaped by your Watchlist, Pickups, and feedback.</p><button class="button-primary" type="button" data-page="plus">Explore Vaultr Plus</button></div>'}
     </section>
   `;
 }
@@ -3278,17 +3246,6 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'save-collector-profile') {
     await saveCollectorProfile();
-    return;
-  }
-  if (action === 'request-free-sample') {
-    target.disabled = true;
-    try {
-      await fetchJson('/api/free-discovery-sample', { method: 'POST' });
-      await loadShelf({ force: true });
-    } catch (error) {
-      setVaultNotice('Your sample could not be queued. Your collecting profile is still saved.', 'shelf');
-      renderCurrentPage();
-    }
     return;
   }
   if (action === 'skip-collector-profile') {
