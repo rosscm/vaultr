@@ -26,6 +26,7 @@ function catalogPath(): string {
 function records(count = 12) {
   const subjects = ['Mew', 'Pikachu', 'Gardevoir', 'Umbreon', 'Squirtle', 'Dragonite', 'Gengar', 'Eevee', 'Raichu', 'Lapras', 'Celebi', 'Jirachi'];
   return subjects.slice(0, count).map((name, index) => ({
+    id: index + 1,
     source: 'CURATED' as const,
     sourceCardId: `weekly-${index + 1}`,
     language: index % 2 ? 'ja' as const : 'en' as const,
