@@ -6,7 +6,12 @@ import { createUser } from '../accounts.js';
 import { replaceCardCatalogSourceRecords } from '../card-catalog-db.js';
 import { addChase, removeAllChases, resolveChaseRemoval } from '../chase-store.js';
 import { db } from '../db.js';
-import { getOrCreateWeeklyGeneralDiscoverySnapshot, weeklyGeneralDiscoveryForUser, weeklyGeneralDiscoveryPeriodKey } from '../weekly-general-discovery.js';
+import {
+  getOrCreateWeeklyGeneralDiscoverySnapshot,
+  WEEKLY_GENERAL_DISCOVERY_RETRY_MS,
+  weeklyGeneralDiscoveryForUser,
+  weeklyGeneralDiscoveryPeriodKey
+} from '../weekly-general-discovery.js';
 
 const originalCatalogPath = process.env.CARD_CATALOG_PATH;
 const tempDirs = new Set<string>();
@@ -125,5 +130,70 @@ describe('weekly general discovery', () => {
     db.prepare('DELETE FROM weekly_general_discovery_snapshots').run();
     replaceCardCatalogSourceRecords('CURATED', records(2), missing);
     expect(getOrCreateWeeklyGeneralDiscoverySnapshot(new Date('2026-10-27T12:00:00.000Z'))).toMatchObject({ status: 'INSUFFICIENT' });
+  });
+
+  it('bounds unavailable retries, recovers within the same week, and preserves the recovered reserve', () => {
+    const start = new Date('2026-10-27T12:00:00.000Z');
+    let attempts = 0;
+    let available = false;
+    let catalog = records();
+    const loadCatalog = () => {
+      attempts += 1;
+      if (!available) throw new Error('catalog unavailable');
+      return catalog;
+    };
+
+    expect(getOrCreateWeeklyGeneralDiscoverySnapshot(start, loadCatalog)).toMatchObject({ status: 'CATALOG_UNAVAILABLE', items: [] });
+    available = true;
+    expect(getOrCreateWeeklyGeneralDiscoverySnapshot(new Date(start.getTime() + WEEKLY_GENERAL_DISCOVERY_RETRY_MS - 1), loadCatalog))
+      .toMatchObject({ status: 'CATALOG_UNAVAILABLE', items: [] });
+    expect(attempts).toBe(1);
+
+    const recovered = getOrCreateWeeklyGeneralDiscoverySnapshot(new Date(start.getTime() + WEEKLY_GENERAL_DISCOVERY_RETRY_MS), loadCatalog);
+    expect(recovered).toMatchObject({ status: 'WEEKLY', catalogRecordCount: 12 });
+    expect(recovered.items.length).toBeGreaterThanOrEqual(3);
+    expect(attempts).toBe(2);
+
+    catalog = [...records(), { ...records(1)[0]!, sourceCardId: 'later-card', name: 'Mewtwo', normalizedName: 'mewtwo' }];
+    const stable = getOrCreateWeeklyGeneralDiscoverySnapshot(new Date(start.getTime() + WEEKLY_GENERAL_DISCOVERY_RETRY_MS * 2), loadCatalog);
+    expect(stable).toEqual(recovered);
+    expect(attempts).toBe(2);
+  });
+
+  it('does not let concurrent recovery overwrite an established valid reserve', () => {
+    const start = new Date('2026-10-27T12:00:00.000Z');
+    getOrCreateWeeklyGeneralDiscoverySnapshot(start, () => { throw new Error('catalog unavailable'); });
+    const established = [{
+      name: 'Established Card Stable Set 1', canonicalName: 'Established Card', imageUrl: 'https://cards.example/established.png',
+      setName: 'Stable Set', cardNumber: '1', language: 'English' as const, sourceName: 'CURATED', sourceCardId: 'established-1',
+      identityKey: 'established|stable set|1||en', subjectKey: 'established card'
+    }];
+    const retryAt = new Date(start.getTime() + WEEKLY_GENERAL_DISCOVERY_RETRY_MS);
+    const result = getOrCreateWeeklyGeneralDiscoverySnapshot(retryAt, () => {
+      db.prepare(`UPDATE weekly_general_discovery_snapshots SET status = 'WEEKLY', reserve_json = ?, catalog_record_count = 1 WHERE period_key = ?`)
+        .run(JSON.stringify(established), weeklyGeneralDiscoveryPeriodKey(retryAt));
+      return records();
+    });
+
+    expect(result).toMatchObject({ status: 'WEEKLY', items: established, catalogRecordCount: 1 });
+  });
+
+  it('retains fallback after failed retries and schedules another bounded attempt', () => {
+    const start = new Date('2026-10-27T12:00:00.000Z');
+    let attempts = 0;
+    const unavailable = () => {
+      attempts += 1;
+      throw new Error('still unavailable');
+    };
+
+    getOrCreateWeeklyGeneralDiscoverySnapshot(start, unavailable);
+    expect(getOrCreateWeeklyGeneralDiscoverySnapshot(new Date(start.getTime() + WEEKLY_GENERAL_DISCOVERY_RETRY_MS), unavailable))
+      .toMatchObject({ status: 'CATALOG_UNAVAILABLE', items: [] });
+    expect(getOrCreateWeeklyGeneralDiscoverySnapshot(new Date(start.getTime() + WEEKLY_GENERAL_DISCOVERY_RETRY_MS * 2 - 1), unavailable))
+      .toMatchObject({ status: 'CATALOG_UNAVAILABLE', items: [] });
+    expect(attempts).toBe(2);
+    expect(getOrCreateWeeklyGeneralDiscoverySnapshot(new Date(start.getTime() + WEEKLY_GENERAL_DISCOVERY_RETRY_MS * 2), unavailable))
+      .toMatchObject({ status: 'CATALOG_UNAVAILABLE', items: [] });
+    expect(attempts).toBe(3);
   });
 });

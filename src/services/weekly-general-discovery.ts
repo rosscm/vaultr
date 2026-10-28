@@ -29,6 +29,9 @@ export type WeeklyGeneralDiscovery = {
 type SnapshotRow = { period_key: string; status: WeeklyGeneralDiscovery['status']; reserve_json: string; catalog_record_count: number };
 const unavailableLogged = new Set<string>();
 const RESERVE_LIMIT = 60;
+export const WEEKLY_GENERAL_DISCOVERY_RETRY_MS = 5 * 60 * 1000;
+
+type CatalogLoader = () => StoredCardCatalogRecord[];
 
 // UTC is deliberate: every account and process crosses the ISO-week boundary together.
 export function weeklyGeneralDiscoveryPeriodKey(date = new Date()): string {
@@ -99,15 +102,15 @@ function previousSnapshot(periodKey: string): Set<string> {
   try { return new Set((JSON.parse(row.reserve_json) as WeeklyGeneralDiscoveryItem[]).slice(0, 3).map((item) => item.identityKey)); } catch { return new Set(); }
 }
 
-export function getOrCreateWeeklyGeneralDiscoverySnapshot(date = new Date()): WeeklyGeneralDiscovery {
-  const periodKey = weeklyGeneralDiscoveryPeriodKey(date);
-  const existing = db.prepare('SELECT * FROM weekly_general_discovery_snapshots WHERE period_key = ?').get(periodKey) as SnapshotRow | undefined;
-  if (existing) return { periodKey, status: existing.status, items: parseSnapshot(existing), catalogRecordCount: existing.catalog_record_count };
+function snapshotResult(periodKey: string, row: SnapshotRow): WeeklyGeneralDiscovery {
+  return { periodKey, status: row.status, items: parseSnapshot(row), catalogRecordCount: row.catalog_record_count };
+}
 
+function loadSnapshotCandidate(periodKey: string, loadCatalog: CatalogLoader): Omit<WeeklyGeneralDiscovery, 'periodKey'> {
   let records: StoredCardCatalogRecord[] = [];
   let status: WeeklyGeneralDiscovery['status'] = 'WEEKLY';
   try {
-    records = requireVerifiedCardCatalogRecordsWithImages(500);
+    records = loadCatalog();
   } catch (error) {
     status = 'CATALOG_UNAVAILABLE';
     if (!unavailableLogged.has(periodKey)) {
@@ -115,13 +118,52 @@ export function getOrCreateWeeklyGeneralDiscoverySnapshot(date = new Date()): We
       console.warn(`[weekly-general-discovery] catalog unavailable period=${periodKey}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  const reserve = status === 'CATALOG_UNAVAILABLE' ? [] : buildReserve(periodKey, records, previousSnapshot(periodKey));
-  if (status === 'WEEKLY' && reserve.length < 3) status = 'INSUFFICIENT';
-  const createdAt = date.toISOString();
+  const items = status === 'CATALOG_UNAVAILABLE' ? [] : buildReserve(periodKey, records, previousSnapshot(periodKey));
+  if (status === 'WEEKLY' && items.length < 3) status = 'INSUFFICIENT';
+  return { status, items, catalogRecordCount: records.length };
+}
+
+export function getOrCreateWeeklyGeneralDiscoverySnapshot(
+  date = new Date(),
+  loadCatalog: CatalogLoader = () => requireVerifiedCardCatalogRecordsWithImages(500)
+): WeeklyGeneralDiscovery {
+  const periodKey = weeklyGeneralDiscoveryPeriodKey(date);
+  const existing = db.prepare('SELECT * FROM weekly_general_discovery_snapshots WHERE period_key = ?').get(periodKey) as (SnapshotRow & { created_at: string }) | undefined;
+  if (existing && existing.status !== 'CATALOG_UNAVAILABLE') return snapshotResult(periodKey, existing);
+
+  const attemptAt = date.toISOString();
+  if (existing) {
+    const lastAttemptAt = Date.parse(existing.created_at);
+    if (Number.isFinite(lastAttemptAt) && date.getTime() - lastAttemptAt < WEEKLY_GENERAL_DISCOVERY_RETRY_MS) {
+      return snapshotResult(periodKey, existing);
+    }
+    const claimed = db.prepare(`
+      UPDATE weekly_general_discovery_snapshots
+      SET created_at = ?
+      WHERE period_key = ? AND status = 'CATALOG_UNAVAILABLE' AND created_at = ?
+    `).run(attemptAt, periodKey, existing.created_at);
+    if (claimed.changes === 0) {
+      const current = db.prepare('SELECT * FROM weekly_general_discovery_snapshots WHERE period_key = ?').get(periodKey) as SnapshotRow;
+      return snapshotResult(periodKey, current);
+    }
+
+    const recovered = loadSnapshotCandidate(periodKey, loadCatalog);
+    if (recovered.status !== 'CATALOG_UNAVAILABLE') {
+      db.prepare(`
+        UPDATE weekly_general_discovery_snapshots
+        SET status = ?, reserve_json = ?, catalog_record_count = ?
+        WHERE period_key = ? AND status = 'CATALOG_UNAVAILABLE' AND created_at = ?
+      `).run(recovered.status, JSON.stringify(recovered.items), recovered.catalogRecordCount, periodKey, attemptAt);
+    }
+    const saved = db.prepare('SELECT * FROM weekly_general_discovery_snapshots WHERE period_key = ?').get(periodKey) as SnapshotRow;
+    return snapshotResult(periodKey, saved);
+  }
+
+  const candidate = loadSnapshotCandidate(periodKey, loadCatalog);
   db.prepare('INSERT OR IGNORE INTO weekly_general_discovery_snapshots (period_key, status, reserve_json, catalog_record_count, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(periodKey, status, JSON.stringify(reserve), records.length, createdAt);
+    .run(periodKey, candidate.status, JSON.stringify(candidate.items), candidate.catalogRecordCount, attemptAt);
   const saved = db.prepare('SELECT * FROM weekly_general_discovery_snapshots WHERE period_key = ?').get(periodKey) as SnapshotRow;
-  return { periodKey, status: saved.status, items: parseSnapshot(saved), catalogRecordCount: saved.catalog_record_count };
+  return snapshotResult(periodKey, saved);
 }
 
 function ownedIdentityKeys(userId: string): Set<string> {
