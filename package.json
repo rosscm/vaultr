@@ -14,6 +14,8 @@
     "start:web:staging": "node dist/staging-web.js",
     "staging:discovery": "tsx src/staging-discovery-fixture.ts",
     "staging:discovery:dist": "node dist/staging-discovery-fixture.js",
+    "staging:plan": "tsx src/staging-plan.ts",
+    "staging:plan:dist": "node dist/staging-plan.js",
     "start:discovery-worker": "node dist/discovery-market-worker.js",
     "start:webhook": "node dist/ebay-webhook.js",
     "register:commands": "tsx src/register-commands.ts",

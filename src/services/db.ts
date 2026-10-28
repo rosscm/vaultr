@@ -17,6 +17,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     display_name TEXT,
     avatar_url TEXT,
+    general_discovery_started_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -819,6 +820,11 @@ export function migrateLegacyDiscordUserIdsToAccounts(): void {
   })();
 }
 
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN general_discovery_started_at TEXT;`);
+} catch {
+  // Column already exists on upgraded databases. Existing accounts remain unmarked.
+}
 try {
   db.exec(`ALTER TABLE chases ADD COLUMN guild_id TEXT;`);
 } catch {

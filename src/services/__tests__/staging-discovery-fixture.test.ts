@@ -13,12 +13,14 @@ import { db } from '../db.js';
 import { applyPreparedDiscoveryFeedback } from '../discovery-feedback.js';
 import { discoveryLearningFeatures } from '../discovery-learning-features.js';
 import { parseStagingDiscoveryFixtureArgs } from '../../staging-discovery-fixture.js';
+import { parseStagingPlanArgs } from '../../staging-plan.js';
 import {
   STAGING_DISCOVERY_FIXTURE_MARKER,
   installStagingDiscoveryFixture,
   removeStagingDiscoveryFixture
 } from '../staging-discovery-fixture.js';
 import { getScheduledDiscoveryDrop, scheduledDiscoveryPeriodKey, upsertScheduledDiscoveryDrop } from '../scheduled-discovery-drops.js';
+import { setStagingAccountPlan } from '../staging-plan.js';
 
 function stagingEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
@@ -74,6 +76,23 @@ describe('staging personalized Display Case fixture', () => {
   it('requires an explicit account and parses cleanup deliberately', () => {
     expect(parseStagingDiscoveryFixtureArgs(['--user', 'usr_fixture', '--cleanup'])).toEqual({ userId: 'usr_fixture', cleanup: true });
     expect(() => parseStagingDiscoveryFixtureArgs([])).toThrow('explicit --user');
+  });
+
+  it('switches only an explicit staging account between active allowlisted plans', () => {
+    expect(parseStagingPlanArgs(['--user', 'usr_fixture', '--plan=pro'])).toEqual({ userId: 'usr_fixture', tier: 'PRO' });
+    expect(() => parseStagingPlanArgs(['--user=usr_fixture', '--plan=ENTERPRISE'])).toThrow('FREE or PRO');
+    expect(() => parseStagingPlanArgs(['--plan=FREE'])).toThrow('explicit --user');
+
+    const user = createUser({ displayName: 'Staging plan account' });
+    expect(() => setStagingAccountPlan({ userId: user.id, tier: 'PRO', env: stagingEnv({ DATABASE_PATH: '/tmp/vaultr-fixture-production/vaultr.db' }), cwd: '/' }))
+      .toThrow();
+    expect(() => setStagingAccountPlan({ userId: 'usr_missing', tier: 'PRO', env: stagingEnv(), cwd: '/' }))
+      .toThrow('not found');
+
+    expect(setStagingAccountPlan({ userId: user.id, tier: 'PRO', env: stagingEnv(), cwd: '/' })).toMatchObject({ tier: 'PRO', status: 'ACTIVE' });
+    expect(getUserPlan(user.id)).toMatchObject({ tier: 'PRO', status: 'ACTIVE' });
+    expect(setStagingAccountPlan({ userId: user.id, tier: 'FREE', env: stagingEnv(), cwd: '/' })).toMatchObject({ tier: 'FREE', status: 'ACTIVE' });
+    expect(getUserPlan(user.id)).toMatchObject({ tier: 'FREE', status: 'ACTIVE' });
   });
 
   it('is explicit, idempotent, account-isolated, and removes fixture feedback', () => {

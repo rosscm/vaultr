@@ -58,7 +58,7 @@ import { alertSettingsResponse, updateAlertSettings } from './services/alert-set
 import { getOrCreateOnboardingState, transitionOnboarding, type OnboardingAction, type OnboardingStep } from './services/onboarding.js';
 import { collectorPreferenceOptions, getCollectorPreferences, saveCollectorPreferences } from './services/collector-preferences.js';
 import { tasteOnboardingEnabled } from './services/features.js';
-import { weeklyGeneralDiscoveryForUser } from './services/weekly-general-discovery.js';
+import { weeklyGeneralDiscoveryForUser, weeklyGeneralDiscoveryPeriodKey } from './services/weekly-general-discovery.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
 import {
   createWebSession,
@@ -598,10 +598,15 @@ const WEB_STARTER_DISCOVERY = [
 
 function publicEditorialDiscoveryItems(userId: string, config: WebConfig) {
   const owned = getVaultChases(userId);
-  const ownedSources = new Set([...owned.chases.map((item) => item.chase), ...owned.completedChases]
+  const ownedChases = [...owned.chases.map((item) => item.chase), ...owned.completedChases];
+  const ownedSources = new Set(ownedChases
     .filter((chase) => chase.cardImageSourceKind === 'CARD_REFERENCE' && chase.cardImageSourceName && chase.cardImageSourceCardId)
     .map((chase) => `${chase.cardImageSourceName}:${chase.cardImageSourceCardId}`));
-  return WEB_STARTER_DISCOVERY.filter((item) => !ownedSources.has(`VAULTR_EDITORIAL:${item.sourceCardId}`)).map((item) => ({
+  const ownedNames = new Set(ownedChases.flatMap((chase) => [chase.cardName, chase.cardImageIdentity].filter(Boolean).map((name) => normalizedCardIdentity(name!))));
+  return WEB_STARTER_DISCOVERY.filter((item) =>
+    !ownedSources.has(`VAULTR_EDITORIAL:${item.sourceCardId}`)
+    && !ownedNames.has(normalizedCardIdentity(item.name))
+  ).map((item) => ({
     name: item.name,
     imageUrl: item.imageUrl,
     ...('setName' in item ? { setName: item.setName } : {}),
@@ -648,13 +653,31 @@ function publicGeneralDiscovery(userId: string, config: WebConfig, now: Date) {
     })
   }));
   const seen = new Set(weeklyItems.map((item) => normalizedCardIdentity(item.name)));
-  const fallback = publicEditorialDiscoveryItems(userId, config).filter((item) => !seen.has(normalizedCardIdentity(item.name)));
+  const editorial = publicEditorialDiscoveryItems(userId, config);
+  const fallback = editorial.filter((item) => !seen.has(normalizedCardIdentity(item.name)));
+  const account = getUserById(userId);
+  const starterWeek = !!account?.generalDiscoveryStartedAt
+    && weeklyGeneralDiscoveryPeriodKey(new Date(account.generalDiscoveryStartedAt)) === weekly.periodKey;
+  if (starterWeek) {
+    const starterSeen = new Set(editorial.map((item) => normalizedCardIdentity(item.name)));
+    const replacements = weeklyItems
+      .filter((item) => !starterSeen.has(normalizedCardIdentity(item.name)))
+      .map((item) => ({ ...item, roleLabel: 'Collector pick' }));
+    return {
+      periodKey: weekly.periodKey,
+      status: weekly.status,
+      mode: 'STARTER' as const,
+      catalogItemCount: weeklyItems.length,
+      items: [...editorial, ...replacements].slice(0, 3)
+    };
+  }
   const status = weekly.status === 'WEEKLY'
     ? weeklyItems.length >= 3 ? 'WEEKLY' : 'INSUFFICIENT'
     : weekly.status;
   return {
     periodKey: weekly.periodKey,
     status,
+    mode: status === 'WEEKLY' ? 'WEEKLY' as const : 'FALLBACK' as const,
     catalogItemCount: weeklyItems.length,
     items: [...weeklyItems, ...fallback].slice(0, 3)
   };
@@ -715,7 +738,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
       items: [],
       discovery: webDiscoveryState(userId, config, false),
       starterItems: generalDiscovery.items,
-      generalDiscovery: { periodKey: generalDiscovery.periodKey, status: generalDiscovery.status, catalogItemCount: generalDiscovery.catalogItemCount }
+      generalDiscovery: { periodKey: generalDiscovery.periodKey, status: generalDiscovery.status, mode: generalDiscovery.mode, catalogItemCount: generalDiscovery.catalogItemCount }
     });
   }
 
@@ -738,7 +761,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     discovery,
     ...(personalized ? {} : {
       starterItems: generalDiscovery!.items,
-      generalDiscovery: { periodKey: generalDiscovery!.periodKey, status: generalDiscovery!.status, catalogItemCount: generalDiscovery!.catalogItemCount }
+      generalDiscovery: { periodKey: generalDiscovery!.periodKey, status: generalDiscovery!.status, mode: generalDiscovery!.mode, catalogItemCount: generalDiscovery!.catalogItemCount }
     })
   });
 }

@@ -9,6 +9,7 @@ export type VaultrUser = {
   id: VaultrUserId;
   displayName?: string;
   avatarUrl?: string;
+  generalDiscoveryStartedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -37,6 +38,7 @@ type UserRow = {
   id: string;
   display_name: string | null;
   avatar_url: string | null;
+  general_discovery_started_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -70,6 +72,7 @@ function mapUser(row: UserRow): VaultrUser {
     id: row.id,
     displayName: row.display_name ?? undefined,
     avatarUrl: row.avatar_url ?? undefined,
+    generalDiscoveryStartedAt: row.general_discovery_started_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -91,12 +94,12 @@ function mapIdentity(row: IdentityRow): UserIdentity {
 }
 
 const insertUserStmt = db.prepare(`
-  INSERT INTO users (id, display_name, avatar_url, created_at, updated_at)
-  VALUES (@id, @display_name, @avatar_url, @created_at, @updated_at)
+  INSERT INTO users (id, display_name, avatar_url, general_discovery_started_at, created_at, updated_at)
+  VALUES (@id, @display_name, @avatar_url, @general_discovery_started_at, @created_at, @updated_at)
 `);
 
 const getUserByIdStmt = db.prepare(`
-  SELECT id, display_name, avatar_url, created_at, updated_at
+  SELECT id, display_name, avatar_url, general_discovery_started_at, created_at, updated_at
   FROM users
   WHERE id = ?
   LIMIT 1
@@ -157,6 +160,7 @@ export function createUser(input: { displayName?: string; avatarUrl?: string } =
     id,
     display_name: input.displayName ?? null,
     avatar_url: input.avatarUrl ?? null,
+    general_discovery_started_at: now,
     created_at: now,
     updated_at: now
   });

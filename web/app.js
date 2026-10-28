@@ -1383,7 +1383,8 @@ function homeDisplayCaseItems() {
 
 function editorialDiscoveryCopy() {
   const count = starterDiscoveryItems().length;
-  if (state.shelf?.generalDiscovery?.status === 'WEEKLY') return count === 3 ? 'Three cards to explore. New picks every week.' : `${count} cards to explore this week.`;
+  if (state.shelf?.generalDiscovery?.mode === 'STARTER') return 'A few collector picks to introduce Discover. General finds change every week.';
+  if (state.shelf?.generalDiscovery?.mode === 'WEEKLY') return count === 3 ? 'Three cards to explore. New picks every week.' : `${count} cards to explore this week.`;
   return 'A few handpicked cards to explore.';
 }
 
@@ -1469,7 +1470,7 @@ function homePageMarkup() {
   const completedChases = state.completedChases?.length ?? 0;
   const alertPreview = state.homeAttentionAlerts.slice(0, 4);
   const personalizedReady = hasPersonalizedDiscoveryAccess();
-  const weeklyFinds = !personalizedReady && state.shelf?.generalDiscovery?.status === 'WEEKLY';
+  const weeklyFinds = !personalizedReady && state.shelf?.generalDiscovery?.mode === 'WEEKLY';
   const displayCaseItems = homeDisplayCaseItems();
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
@@ -1862,9 +1863,12 @@ function shelfMetaMarkup(shelf) {
 
 function shelfEmptyMarkup(shelf) {
   const starters = shelf?.starterItems || [];
-  const weekly = shelf?.generalDiscovery?.status === 'WEEKLY';
+  const starter = shelf?.generalDiscovery?.mode === 'STARTER';
+  const weekly = shelf?.generalDiscovery?.mode === 'WEEKLY';
   const plusAccount = state.vaultPlan?.tier === 'PRO';
-  const description = weekly
+  const description = starter
+    ? 'A few collector picks to introduce Discover. General finds change every week.'
+    : weekly
     ? starters.length === 3 ? 'Three cards to explore. New picks every week.' : `${starters.length} cards to explore this week.`
     : 'A few handpicked cards to explore.';
   return `

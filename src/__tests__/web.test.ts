@@ -1853,6 +1853,80 @@ describe('authenticated Weekly Shelf API', () => {
     }
   });
 
+  it('serves approved first-week collector picks without enrolling existing accounts', async () => {
+    const originalCatalogPath = process.env.CARD_CATALOG_PATH;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vaultr-web-starter-week-'));
+    const catalogPath = path.join(tempDir, 'catalog.db');
+    const userId = createUser({ displayName: 'New starter collector' }).id;
+    const existingUserId = createUser({ displayName: 'Existing collector' }).id;
+    const firstWeek = new Date('2026-10-27T12:00:00.000Z');
+    try {
+      process.env.CARD_CATALOG_PATH = catalogPath;
+      replaceCardCatalogSourceRecords('CURATED', ['Gengar', 'Dragonite', 'Umbreon', 'Eevee', 'Raichu', 'Lapras'].map((name, index) => ({
+        source: 'CURATED' as const, sourceCardId: `starter-fill-${index + 1}`, language: index % 2 ? 'ja' as const : 'en' as const,
+        name, normalizedName: name.toLowerCase(), setName: `Starter Fill Set ${index + 1}`, normalizedSetName: `starter fill set ${index + 1}`,
+        cardNumber: `${index + 1}`, normalizedCardNumber: `${index + 1}`, imageUrl: `https://cards.example/starter-fill-${index + 1}.png`,
+        isPromo: false, verificationStatus: 'VERIFIED' as const, importedAt: firstWeek.toISOString()
+      })), catalogPath);
+      db.prepare('DELETE FROM weekly_general_discovery_snapshots').run();
+      db.prepare('UPDATE users SET general_discovery_started_at = ? WHERE id = ?').run(firstWeek.toISOString(), userId);
+      db.prepare('UPDATE users SET general_discovery_started_at = NULL WHERE id = ?').run(existingUserId);
+      const { token } = createWebSession({ userId }, { token: 'starter-week-token' });
+      const headers = { cookie: sessionCookie(token) };
+      const request = (date: Date) => handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config, now: () => date });
+
+      const initial = JSON.parse((await request(firstWeek)).body ?? '{}');
+      expect(initial.generalDiscovery).toMatchObject({ mode: 'STARTER', status: 'WEEKLY' });
+      expect(initial.starterItems.map((item: any) => item.name)).toEqual([
+        'Mew CoroCoro Promo 151',
+        'Pichu Expedition Base Set 22/165',
+        'Sylveon ex 212/187'
+      ]);
+      expect(initial.starterItems[2]).toMatchObject({
+        imageUrl: '/onboarding-art/sylveon-ex-212.webp',
+        setName: 'Terastal Festival ex',
+        cardNumber: '212/187',
+        language: 'Japanese',
+        roleLabel: 'Collector pick'
+      });
+
+      const pichu = initial.starterItems[1];
+      const created = JSON.parse((await handleWebRequest({
+        method: 'POST', url: '/api/chases', headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ cardName: pichu.name, cardSelectionToken: pichu.selection.token })
+      }, { config })).body ?? '{}').item.chase;
+      const watched = JSON.parse((await request(firstWeek)).body ?? '{}');
+      expect(watched.starterItems).toHaveLength(3);
+      expect(watched.starterItems.map((item: any) => item.name)).not.toContain(pichu.name);
+
+      await handleWebRequest({
+        method: 'DELETE', url: `/api/chases/${encodeURIComponent(created.id)}`,
+        headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ outcome: 'COMPLETED' })
+      }, { config });
+      const acquired = JSON.parse((await request(firstWeek)).body ?? '{}');
+      expect(acquired.starterItems).toHaveLength(3);
+      expect(acquired.starterItems.map((item: any) => item.name)).not.toContain(pichu.name);
+
+      const nextWeek = JSON.parse((await request(new Date('2026-11-03T12:00:00.000Z'))).body ?? '{}');
+      expect(nextWeek.generalDiscovery.mode).toBe('WEEKLY');
+      expect(nextWeek.starterItems.map((item: any) => item.name)).not.toContain('Mew CoroCoro Promo 151');
+
+      const existingSession = createWebSession({ userId: existingUserId }, { token: 'existing-weekly-token' });
+      const existing = JSON.parse((await handleWebRequest(
+        { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(existingSession.token) } },
+        { config, now: () => firstWeek }
+      )).body ?? '{}');
+      expect(existing.generalDiscovery.mode).toBe('WEEKLY');
+    } finally {
+      clearUser(userId);
+      clearUser(existingUserId);
+      db.prepare('DELETE FROM weekly_general_discovery_snapshots').run();
+      if (originalCatalogPath === undefined) delete process.env.CARD_CATALOG_PATH;
+      else process.env.CARD_CATALOG_PATH = originalCatalogPath;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('preserves an editorial starter printing and approved artwork through save and acquisition', async () => {
     const userId = 'web-starter-selection-lifecycle-user';
     clearUser(userId);
