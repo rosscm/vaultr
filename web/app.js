@@ -1348,11 +1348,6 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
         ${item.nativeName ? `<span class="home-shelf-details">Original name: ${escapeHtml(item.nativeName)}</span>` : ''}
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : ''}
-        ${discoveryCardActionMarkup(item, {
-          addClass: 'button-primary home-shelf-card-action',
-          savedClass: 'button-watchlist home-shelf-card-action',
-          pickupClass: 'button-ghost home-shelf-card-action'
-        })}
         ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : ''}
         ${feedback ? discoveryFeedbackMarkup(item, true) : ''}
       </div>
@@ -1364,6 +1359,37 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
         </div>
       ` : ''}
     </div>
+  `;
+}
+
+function homeWatchlistPreviewMarkup(item) {
+  const chase = item.chase || {};
+  const paused = item.monitoringState !== 'ACTIVE';
+  const status = item.monitoringState === 'PAUSED_USER'
+    ? 'Paused'
+    : item.monitoringState === 'PAUSED_PLAN_LIMIT'
+      ? 'Plan limit'
+      : 'Watching';
+  return `
+    <article class="home-watchlist-card${paused ? ' paused' : ''}">
+      <div class="home-watchlist-artwork">
+        ${chase.cardImageUrl
+          ? artworkTriggerMarkup({
+              imageUrl: chase.cardImageUrl,
+              identity: chase.cardName || 'Watchlist card',
+              imageKind: 'Card artwork',
+              imageClass: 'home-watchlist-image',
+              imageDataAttribute: 'data-home-watchlist-image'
+            })
+          : '<span class="home-watchlist-placeholder" aria-hidden="true">V</span>'}
+      </div>
+      <div class="home-watchlist-copy">
+        <span class="home-watchlist-status">${escapeHtml(status)}</span>
+        <strong>${escapeHtml(chase.cardName || 'Watchlist card')}</strong>
+        <span>${chase.maxPrice !== undefined ? `Up to ${escapeHtml(formatMoney(chase.maxPrice, state.vaultCurrency))} ${escapeHtml(state.vaultCurrency)}` : 'No maximum price'}</span>
+      </div>
+      <button class="home-watchlist-action" type="button" data-action="view-chase-matches" data-chase-id="${escapeHtml(chase.id)}" data-card-name="${escapeHtml(chase.cardName)}" aria-label="View matches for ${escapeHtml(chase.cardName || 'Watchlist card')}">&rarr;</button>
+    </article>
   `;
 }
 
@@ -1491,6 +1517,7 @@ function homePageMarkup() {
   const weeklyFinds = !personalizedReady && state.shelf?.generalDiscovery?.mode === 'WEEKLY';
   const discoveryHeading = homeDiscoveryHeadingCopy(personalizedReady ? 'PERSONALIZED' : starterPicks ? 'STARTER' : weeklyFinds ? 'WEEKLY' : 'FALLBACK');
   const displayCaseItems = homeDisplayCaseItems();
+  const watchlistPreview = state.vault.slice(0, 4);
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
 
@@ -1500,18 +1527,16 @@ function homePageMarkup() {
         <div class="home-intro-primary">
           <p class="home-greeting">Welcome back, ${escapeHtml(userDisplayName(state.user))}</p>
           <h1 id="home-title">Less searching. <span>More collecting.</span></h1>
-          <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit. With <strong class="inline-vaultr-plus">Vaultr Plus</strong>, your Watchlist, Pickups, and feedback also shape a personalized Display Case to help surface your next favourite.</p>
-          <div class="home-intro-actions">
-            <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
-          </div>
+          <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit. With <a class="inline-vaultr-plus" href="#plus" data-page="plus">Vaultr Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case to help surface your next favourite.</p>
         </div>
+        <button class="button-primary home-watchlist-cta" type="button" data-page="vault">View Watchlist <span aria-hidden="true">&rarr;</span></button>
       </header>
       ${vaultNoticeMarkup('home')}
       ${alertNoticeMarkup()}
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">DISCOVER</p><h2 id="home-display-case-title">${escapeHtml(discoveryHeading.heading)}</h2><p>${escapeHtml(discoveryHeading.copy)}</p></div>
+          <div><h2 id="home-display-case-title">${escapeHtml(discoveryHeading.heading)}</h2><p>${escapeHtml(discoveryHeading.copy)}</p></div>
           <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
@@ -1527,13 +1552,27 @@ function homePageMarkup() {
         </div>
       </section>
 
+      <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
+        <div class="home-section-heading">
+          <div><h2 id="home-vault-title">Your Watchlist</h2><p>Vaultr is searching for these cards across eBay and supported shops.</p></div>
+          <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
+        </div>
+        ${watchlistPreview.length
+          ? `<div class="home-watchlist-grid">${watchlistPreview.map(homeWatchlistPreviewMarkup).join('')}</div>`
+          : state.vaultLoaded
+            ? '<div class="home-section-state home-empty-action"><p>Add your first card to start watching for matches.</p><button class="button-ghost" type="button" data-action="open-add-chase">Add to Watchlist</button></div>'
+            : '<p class="home-section-state">Loading your Watchlist…</p>'}
+        <div class="home-vault-stats" aria-label="Watchlist summary">
+          <span><strong>${escapeHtml(activeChases)}</strong> Watching</span>
+          ${userPausedChases ? `<span><strong>${escapeHtml(userPausedChases)}</strong> Paused</span>` : ''}
+          ${planLimitedChases ? `<span><strong>${escapeHtml(planLimitedChases)}</strong> Paused by your plan</span>` : ''}
+          <span><strong>${escapeHtml(completedChases)}</strong> Pickups</span>
+        </div>
+      </section>
+
       <section class="home-product-section home-attention-section" aria-labelledby="home-alerts-title">
         <div class="home-section-heading">
-          <div>
-            <p class="eyebrow">INBOX</p>
-            <h2 id="home-alerts-title">Latest matches</h2>
-            <p>New listings for the cards you’re watching, ready to look through.</p>
-          </div>
+          <div><h2 id="home-alerts-title">Latest matches</h2><p>New listings for the cards you’re watching, ready to look through.</p></div>
           <button class="home-text-link" type="button" data-action="view-new-alerts">Open Inbox</button>
           ${alertPreview.length ? '<span class="home-plan-label">New</span>' : ''}
         </div>
@@ -1546,21 +1585,6 @@ function homePageMarkup() {
               : activeChases
                 ? homeAttentionEmptyMarkup()
                 : '<div class="home-section-state home-empty-action"><p>Add your first card to start watching for matches.</p><button class="button-ghost" type="button" data-action="open-add-chase">Add to Watchlist</button></div>'}
-      </section>
-
-      <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
-        <div class="home-section-heading">
-          <div><p class="eyebrow">WATCHLIST</p><h2 id="home-vault-title">Your Watchlist</h2><p>Keep track of the cards you’re watching, manage searches, and celebrate your Pickups.</p></div>
-          <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
-        </div>
-        <div class="home-vault-strip">
-          <div class="home-vault-stats" aria-label="Watchlist summary">
-            <span><strong>${escapeHtml(activeChases)}</strong> Watching</span>
-            <span><strong>${escapeHtml(userPausedChases)}</strong> Paused</span>
-            ${planLimitedChases ? `<span><strong>${escapeHtml(planLimitedChases)}</strong> Paused by your plan</span>` : ''}
-            <span><strong>${escapeHtml(completedChases)}</strong> Pickups</span>
-          </div>
-        </div>
       </section>
       ${vaultDialogMarkup()}
     </section>
@@ -3716,6 +3740,12 @@ app.addEventListener(
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-shelf-background-image]')) {
       target.remove();
+    } else if (target instanceof HTMLImageElement && target.matches('[data-home-watchlist-image]')) {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'home-watchlist-placeholder';
+      placeholder.setAttribute('aria-hidden', 'true');
+      placeholder.textContent = 'V';
+      (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-vault-card-image], [data-shelf-card-image]')) {
       const placeholder = document.createElement('div');
       placeholder.className = `${target.matches('[data-shelf-card-image]') ? 'shelf-card-image' : 'vault-card-image'} placeholder-image`;

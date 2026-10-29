@@ -383,7 +383,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial, label } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
     expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
-    expect(jsResponse.body).toContain('With <strong class="inline-vaultr-plus">Vaultr Plus</strong>, your Watchlist, Pickups, and feedback also shape a personalized Display Case');
+    expect(jsResponse.body).toContain('With <a class="inline-vaultr-plus" href="#plus" data-page="plus">Vaultr Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case');
     expect(jsResponse.body).toContain('Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit.');
     expect(jsResponse.body).not.toContain('function homeHowMarkup()');
     expect(jsResponse.body).not.toContain('home-how-steps');
@@ -407,8 +407,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
     expect(jsResponse.body).toContain('Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.');
     expect(jsResponse.body).toContain('Three cards to explore. New picks every week.');
-    expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
-    expect(jsResponse.body).toContain('<p class="eyebrow">INBOX</p>');
+    expect(jsResponse.body).not.toContain('<p class="eyebrow">DISCOVER</p>');
+    expect(jsResponse.body).not.toContain('<p class="eyebrow">INBOX</p>');
     expect(jsResponse.body).toContain('<h2 id="home-alerts-title">Latest matches</h2>');
     expect(jsResponse.body).toContain("label || (editorial ? 'Collector pick' : 'Picked for you')");
     expect(jsResponse.body).toContain("${feedback ? discoveryFeedbackMarkup(item, true) : ''}");
@@ -423,7 +423,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('Try a Plus example');
     expect(jsResponse.body).not.toContain('displayCasePreview');
     expect(jsResponse.body).not.toContain('display-case-preview');
-    expect(jsResponse.body).toContain('<p class="eyebrow">DISCOVER</p>');
+    expect(jsResponse.body).not.toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).toContain('data-action="add-shelf-card-to-vault"');
     expect(jsResponse.body).toContain('data-action="discovery-feedback"');
     expect(jsResponse.body).toContain('data-action="undo-discovery-feedback"');
@@ -464,9 +464,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("data-action=\"view-discovery-card\"");
     expect(jsResponse.body).not.toContain('discovery-saved-action');
     expect(jsResponse.body).toContain('Exact card selected');
-    expect(jsResponse.body).toContain('<p class="eyebrow">WATCHLIST</p>');
+    expect(jsResponse.body).not.toContain('<p class="eyebrow">WATCHLIST</p>');
     expect(jsResponse.body).toContain('<h2 id="home-vault-title">Your Watchlist</h2>');
-    expect(jsResponse.body).toContain('Keep track of the cards you’re watching, manage searches, and celebrate your Pickups.');
+    expect(jsResponse.body).toContain('Vaultr is searching for these cards across eBay and supported shops.');
     expect(jsResponse.body).not.toContain('Automatic filtering is always on');
     expect(jsResponse.body).toContain('<details class="vault-more-actions">');
     expect(jsResponse.body).toContain('data-action="open-acquire-chase"');
@@ -607,7 +607,7 @@ describe('web app static routes', () => {
     expect(utilities.homeShelfPresentation([], 4).featured).toBeUndefined();
   });
 
-  it('keeps the Home recommendation action attached and omits unavailable pricing', async () => {
+  it('keeps the Home recommendation editorial and omits unavailable pricing', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const functionSource = source.slice(source.indexOf('function homeShelfFeatureMarkup('), source.indexOf('function starterDiscoveryItems('));
@@ -617,7 +617,6 @@ describe('web app static routes', () => {
       'escapeHtml',
       'formatMoney',
       'artworkTriggerMarkup',
-      'discoveryCardActionMarkup',
       'discoveryFeedbackMarkup',
       `${functionSource}\nreturn homeShelfFeatureMarkup([item], 0, { editorial: true, feedback: false });`
     ) as (...args: any[]) => string;
@@ -627,18 +626,31 @@ describe('web app static routes', () => {
       String,
       (amount: number, currency: string) => `${currency} ${amount.toFixed(2)}`,
       () => '<button class="artwork-trigger">Artwork</button>',
-      () => '<button class="home-shelf-card-action">Add to Watchlist</button>',
       () => ''
     );
 
     const withoutPrice = renderItem({ name: 'Mew', reason: 'Collector context.' });
     expect(withoutPrice).not.toContain('Pricing unavailable');
     expect(withoutPrice).not.toContain('home-shelf-price unavailable');
-    expect(withoutPrice.indexOf('Collector context.')).toBeLessThan(withoutPrice.indexOf('Add to Watchlist'));
+    expect(withoutPrice).not.toContain('Add to Watchlist');
 
     const withPrice = renderItem({ name: 'Mew', reason: 'Collector context.', market: { askingTotal: 42, currency: 'CAD' } });
     expect(withPrice).toContain('CAD 42.00');
-    expect(withPrice.indexOf('Add to Watchlist')).toBeLessThan(withPrice.indexOf('CAD 42.00'));
+    expect(withPrice).not.toContain('Add to Watchlist');
+  });
+
+  it('uses real Watchlist data in the Home preview without changing lifecycle hooks', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const previewSource = source.slice(source.indexOf('function homeWatchlistPreviewMarkup('), source.indexOf('function starterDiscoveryItems('));
+    expect(previewSource).toContain('chase.cardImageUrl');
+    expect(previewSource).toContain('chase.cardName');
+    expect(previewSource).toContain('chase.maxPrice');
+    expect(previewSource).toContain('data-action="view-chase-matches"');
+    expect(previewSource).toContain("item.monitoringState === 'PAUSED_USER'");
+    expect(previewSource).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
+    expect(source).toContain('state.vault.slice(0, 4)');
+    expect(source).toContain('data-page="vault">View Watchlist');
   });
 
   it('summarizes Watchlist criteria and preserves lifecycle action hierarchy', async () => {
@@ -668,7 +680,8 @@ describe('web app static routes', () => {
     const emptySource = source.slice(source.indexOf('function homeAttentionEmptyMarkup()'), source.indexOf('function homePageMarkup()'));
     expect(homeSource).toContain('class="home-intro-primary"');
     expect(homeSource).toContain('class="home-intro-support"');
-    expect(homeSource.indexOf('class="home-intro-support"')).toBeLessThan(homeSource.indexOf('class="home-intro-actions"'));
+    expect(homeSource.indexOf('class="home-intro-support"')).toBeLessThan(homeSource.indexOf('class="button-primary home-watchlist-cta"'));
+    expect(homeSource).toContain('data-page="vault">View Watchlist');
     expect(homeSource).toContain('Less searching. <span>More collecting.</span>');
     expect(homeSource).not.toContain('homeHowMarkup');
     expect(homeSource.match(/>Open Inbox</g)).toHaveLength(1);
@@ -842,7 +855,7 @@ describe('web app static routes', () => {
     expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).toContain('Explore Plus');
     expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).not.toContain('3 of 3');
     expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).not.toContain('cards on Free');
-    expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).toContain('Remove a card or mark one acquired to make room, or explore Vaultr Plus for a larger Watchlist.');
+    expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).toContain('Remove a card or mark one acquired to make room, or explore <strong class="inline-vaultr-plus">Vaultr Plus</strong> for a larger Watchlist.');
     expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).toContain('Watchlist full');
     expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).not.toContain('Explore Plus');
     expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).toContain('Remove a card or mark one acquired to make room.');

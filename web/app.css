@@ -1224,16 +1224,16 @@ a {
 
 .home-page {
   display: grid;
-  gap: clamp(26px, 3vw, 42px);
+  gap: clamp(40px, 5vw, 72px);
 }
 
 .home-product-section {
   min-width: 0;
   display: grid;
-  gap: 18px;
-  padding: clamp(20px, 2.4vw, 30px) clamp(18px, 3vw, 36px);
+  gap: 22px;
+  padding: 0;
   border: 0;
-  background: rgba(20, 16, 39, 0.32);
+  background: transparent;
 }
 
 .home-grid {
@@ -1620,12 +1620,12 @@ a {
 
 /* Discovery-led Home composition */
 .home-header {
-  max-width: 78rem;
+  width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 18px;
-  padding: clamp(12px, 2vw, 24px) 0 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: clamp(36px, 8vw, 120px);
+  padding: clamp(20px, 3vw, 42px) clamp(4px, 1vw, 14px) 0;
 }
 
 .home-intro-primary {
@@ -1638,9 +1638,9 @@ a {
 
 .home-header h1 {
   margin: 0;
-  max-width: 18ch;
-  font-size: clamp(2.75rem, 4.3vw, 3.75rem);
-  line-height: 1.02;
+  max-width: 16ch;
+  font-size: clamp(3rem, 5vw, 4.7rem);
+  line-height: 0.98;
   text-wrap: balance;
 }
 
@@ -1666,8 +1666,30 @@ a {
 
 .home-header .home-intro-support {
   width: 100%;
-  max-width: none;
+  max-width: 60ch;
   color: var(--muted);
+}
+
+.home-watchlist-cta {
+  min-width: 174px;
+  min-height: 48px;
+  margin: 24px 0 0;
+  padding-inline: 22px;
+  gap: 14px;
+}
+
+.inline-vaultr-plus:is(a) {
+  border-radius: 3px;
+  text-decoration: none;
+}
+
+.inline-vaultr-plus:is(a):hover {
+  color: #ffb0cf;
+}
+
+.inline-vaultr-plus:is(a):focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
 }
 
 .page-header h1,
@@ -1701,10 +1723,10 @@ a {
 .home-discovery {
   min-width: 0;
   min-height: 0;
-  padding: 18px clamp(14px, 2vw, 24px) 12px;
-  overflow: hidden;
-  border-bottom: 1px solid rgba(184, 148, 255, 0.12);
-  background: rgba(35, 26, 67, 0.28);
+  padding: 4px 0 0;
+  overflow: clip;
+  border: 0;
+  background: transparent;
 }
 
 .home-discovery-stage {
@@ -1733,10 +1755,10 @@ a {
 }
 
 .home-shelf-feature {
-  grid-template-columns: minmax(430px, 1.2fr) minmax(300px, 0.8fr);
-  align-items: center;
-  column-gap: clamp(34px, 5vw, 72px);
-  row-gap: 18px;
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  row-gap: 12px;
   animation: home-feature-in 180ms ease both;
 }
 
@@ -1747,12 +1769,13 @@ a {
 
 .home-shelf-artwork {
   position: relative;
-  min-height: 390px;
-  overflow: hidden;
+  width: 100%;
+  min-height: clamp(430px, 43vw, 620px);
+  overflow: visible;
+  padding: 0 clamp(48px, 7vw, 100px);
   border-color: transparent;
   background:
-    radial-gradient(circle at 50% 45%, rgba(184, 148, 255, 0.18), transparent 48%),
-    linear-gradient(180deg, rgba(35, 26, 67, 0.22), rgba(7, 5, 16, 0.12));
+    radial-gradient(ellipse at 50% 54%, rgba(184, 148, 255, 0.2), transparent 48%);
   box-shadow: none;
 }
 
@@ -1760,10 +1783,10 @@ a {
   content: "";
   position: absolute;
   z-index: 0;
-  left: 13%;
-  right: 13%;
-  bottom: 34px;
-  height: 18px;
+  left: 18%;
+  right: 18%;
+  bottom: 46px;
+  height: 26px;
   border-radius: 50%;
   background: rgba(2, 1, 8, 0.46);
   filter: blur(12px);
@@ -1774,7 +1797,7 @@ a {
   z-index: 3;
   left: 50%;
   top: 50%;
-  width: min(230px, 45%);
+  width: min(330px, 34%);
   transform: translate(-50%, -50%);
   transition: transform var(--ease);
 }
@@ -1785,35 +1808,36 @@ a {
 
 .home-shelf-feature-image {
   width: 100%;
-  max-height: 340px;
+  max-height: 500px;
   aspect-ratio: 3 / 4;
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
-  box-shadow: 0 22px 44px rgba(2, 1, 8, 0.42);
+  box-shadow: 0 28px 64px rgba(2, 1, 8, 0.58), 0 0 42px rgba(184, 148, 255, 0.12);
   object-fit: contain;
 }
 
 .home-shelf-supporting-card {
   position: absolute;
   z-index: 1;
-  top: 52%;
+  top: 54%;
   left: 50%;
-  width: min(205px, 40%);
-  max-height: 315px;
+  width: min(285px, 30%);
+  max-height: 445px;
   border-radius: var(--radius-md);
   object-fit: contain;
   box-shadow: 0 18px 38px rgba(2, 1, 8, 0.34);
-  opacity: 0.88;
+  opacity: 0.78;
+  filter: saturate(0.88) brightness(0.72);
 }
 
 .home-shelf-supporting-card.supporting-1 {
-  transform: translate(-103%, -50%) rotate(-9deg);
+  transform: translate(-112%, -50%) rotate(-10deg);
 }
 
 .home-shelf-supporting-card.supporting-2 {
   z-index: 2;
-  transform: translate(3%, -50%) rotate(9deg);
+  transform: translate(12%, -50%) rotate(10deg);
 }
 
 .home-shelf-artwork-unavailable {
@@ -1827,9 +1851,11 @@ a {
 }
 
 .home-shelf-copy {
-  width: min(100%, 620px);
+  width: min(100%, 720px);
   margin: 0;
-  padding: 0;
+  padding: 0 16px;
+  justify-items: center;
+  text-align: center;
 }
 
 .home-shelf-kind {
@@ -1939,7 +1965,7 @@ a {
 }
 
 .home-shelf-copy > strong {
-  font-size: clamp(1.18rem, 1.8vw, 1.42rem);
+  font-size: clamp(1.25rem, 2vw, 1.6rem);
   line-height: 1.2;
 }
 
@@ -1949,29 +1975,36 @@ a {
 }
 
 .home-shelf-controls {
-  grid-column: 2;
-  justify-self: start;
-  width: auto;
-  margin: -4px 0 0;
-  padding: 4px;
-  border: 1px solid rgba(211, 196, 255, 0.14);
-  border-radius: 999px;
-  background: rgba(8, 6, 18, 0.42);
+  position: absolute;
+  z-index: 5;
+  inset: calc(min(620px, 43vw) / 2) 0 auto;
+  width: 100%;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .home-shelf-controls > span {
-  min-width: 48px;
+  position: absolute;
+  left: 50%;
+  top: calc(min(620px, 43vw) / 2 + 112px);
+  min-width: 56px;
   text-align: center;
   color: var(--muted-strong);
   font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
 }
 
 .home-shelf-controls .home-shelf-control {
-  width: 32px;
-  height: 32px;
-  border-color: transparent;
-  background: rgba(255, 255, 255, 0.055);
+  width: 46px;
+  height: 46px;
+  border-color: rgba(211, 196, 255, 0.18);
+  background: rgba(15, 12, 35, 0.76);
   color: var(--text);
+  pointer-events: auto;
 }
 
 .home-shelf-card-action {
@@ -1993,12 +2026,13 @@ a {
 
 .home-attention-section {
   min-width: 0;
-  padding-block: 24px;
-  background: rgba(14, 11, 29, 0.26);
+  padding: 32px 4px 0;
+  border-top: 1px solid rgba(211, 196, 255, 0.1);
+  background: transparent;
 }
 
 .home-display-case-section {
-  background: linear-gradient(180deg, rgba(31, 23, 59, 0.42), rgba(20, 16, 39, 0.28));
+  background: transparent;
 }
 
 .home-section-heading {
@@ -2011,7 +2045,7 @@ a {
 
 .home-section-heading h2 {
   margin: 4px 0 0;
-  font-size: clamp(1.75rem, 2.6vw, 2.125rem);
+  font-size: clamp(2rem, 3vw, 2.7rem);
   line-height: 1.12;
 }
 
@@ -2031,6 +2065,21 @@ a {
   grid-column: 2;
   grid-row: 1;
   align-self: center;
+}
+
+.home-text-link {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(211, 196, 255, 0.16);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.home-text-link:hover,
+.home-text-link:focus-visible {
+  border-color: rgba(255, 148, 187, 0.34);
+  color: var(--text);
 }
 
 .home-section-heading .home-plan-label {
@@ -2133,8 +2182,107 @@ a {
 }
 
 .home-vault-section {
-  padding-block: 24px;
-  background: rgba(12, 10, 26, 0.22);
+  padding: 32px 4px 0;
+  border-top: 1px solid rgba(211, 196, 255, 0.1);
+  background: transparent;
+}
+
+.home-watchlist-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-watchlist-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 12px;
+  min-height: 96px;
+  padding: 12px;
+  border: 1px solid rgba(211, 196, 255, 0.12);
+  border-radius: var(--radius-sm);
+  background: rgba(27, 22, 52, 0.58);
+  transition: border-color var(--ease), background var(--ease), transform var(--ease);
+}
+
+.home-watchlist-card:hover {
+  border-color: rgba(255, 148, 187, 0.24);
+  background: rgba(35, 28, 66, 0.68);
+  transform: translateY(-2px);
+}
+
+.home-watchlist-card.paused {
+  opacity: 0.78;
+}
+
+.home-watchlist-artwork,
+.home-watchlist-artwork .artwork-trigger,
+.home-watchlist-image,
+.home-watchlist-placeholder {
+  width: 52px;
+  height: 70px;
+}
+
+.home-watchlist-image,
+.home-watchlist-placeholder {
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.home-watchlist-placeholder {
+  color: var(--purple);
+  font-weight: 850;
+}
+
+.home-watchlist-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.home-watchlist-copy strong,
+.home-watchlist-copy > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-watchlist-copy strong {
+  font-size: 0.92rem;
+}
+
+.home-watchlist-copy > span:last-child {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.home-watchlist-status {
+  color: var(--pink);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.home-watchlist-action {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted-strong);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.home-watchlist-action:hover,
+.home-watchlist-action:focus-visible {
+  color: var(--text);
+  background: rgba(255, 148, 187, 0.12);
 }
 
 .alert-control-stack {
@@ -2783,6 +2931,14 @@ a {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
     gap: 18px;
+  }
+
+  .home-watchlist-cta {
+    margin-top: 0;
+  }
+
+  .home-watchlist-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .home-grid {
@@ -4241,6 +4397,10 @@ a {
     gap: 14px;
   }
 
+  .home-watchlist-cta {
+    width: fit-content;
+  }
+
   .settings-group {
     grid-template-columns: 1fr;
     gap: 15px;
@@ -4389,6 +4549,11 @@ a {
 
   .home-shelf-controls {
     grid-column: auto;
+    inset: 155px 0 auto;
+  }
+
+  .home-shelf-controls > span {
+    top: 188px;
   }
 
   .home-shelf-artwork .artwork-trigger {
@@ -4406,6 +4571,10 @@ a {
 
   .home-shelf-supporting-card.supporting-2 {
     transform: translate(5%, -50%) rotate(8deg);
+  }
+
+  .home-watchlist-grid {
+    grid-template-columns: 1fr;
   }
 
   .shelf-editorial-note {
@@ -4600,6 +4769,7 @@ a {
   .onboarding-skip:hover,
   .artwork-trigger:hover img,
   .home-shelf-control:hover,
+  .home-watchlist-card:hover,
   .alert-card:hover,
   .shelf-card:hover {
     transform: none;
