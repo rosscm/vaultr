@@ -241,6 +241,20 @@ function inlineVaultrPlusCopy(value) {
   return escapeHtml(value).replaceAll('Vaultr Plus', '<strong class="inline-vaultr-plus">Vaultr Plus</strong>');
 }
 
+function linkedVaultrPlusCopy(value) {
+  return escapeHtml(value).replaceAll('Vaultr Plus', '<a class="inline-vaultr-plus" href="#plus" data-page="plus">Vaultr Plus</a>');
+}
+
+function pageHeaderMarkup({ id, title, tagline, copy, className = '' }) {
+  return `
+    <header class="page-header${className ? ` ${className}` : ''}">
+      <h1 id="${escapeHtml(id)}">${escapeHtml(title)}</h1>
+      <p class="page-tagline">${escapeHtml(tagline)}</p>
+      <p class="page-support">${escapeHtml(copy)}</p>
+    </header>
+  `;
+}
+
 function planLabel(tier) {
   return tier === 'PRO' ? 'Vaultr Plus' : 'Free';
 }
@@ -433,7 +447,7 @@ function planComparisonMarkup() {
   return `
     <div class="modal-backdrop" role="presentation">
       <section class="vault-dialog plan-comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-comparison-title">
-        <header><p class="eyebrow">PLANS</p><h2 id="plan-comparison-title">Compare plans</h2><p class="dialog-intro">Choose how much room and precision you need. Check intervals are targets, not guaranteed notification times.</p></header>
+        <header><p class="eyebrow">PLANS</p><h2 id="plan-comparison-title">Compare plans</h2><p class="dialog-intro">Choose how much room and precision you need. Vaultr checks regularly for new matches. Timing can vary depending on the source and when new listings become available.</p></header>
         <div class="plan-comparison-grid">
           ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li><li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect, with market context when reliable data is available.' : 'Three general finds each week, starting with collector picks.'}</li></ul></article>`).join('')}
         </div>
@@ -620,26 +634,28 @@ function shellMarkup(content) {
   return `
     <div class="app-page">
       <div class="app-shell">
-        <aside class="app-sidebar">
-        <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
-          <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-          <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
-          ${environmentBadgeMarkup()}
-        </a>
-        <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
-          ${navButton('home', 'Home')}
-          ${navButton('vault', 'Watchlist')}
-          ${navButton('alerts', 'Inbox')}
-          ${navButton('shelf', 'Discover')}
-          ${navButton('plus', 'Plus')}
-          ${navButton('settings', 'Settings')}
-        </nav>
-        <div class="user-area">
-          ${avatarHtml(state.user)}
-          <span class="user-copy"><strong class="user-name">${escapeHtml(displayName)}</strong>${accountPlan ? `<small class="${accountPlanClass.trim()}">${escapeHtml(accountPlan)}</small>` : ''}</span>
-          ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
-        </div>
-        </aside>
+        <header class="desktop-header">
+          <div class="desktop-header-inner">
+            <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
+              <span class="brand-mark" aria-hidden="true"><span>V</span></span>
+              <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
+              ${environmentBadgeMarkup()}
+            </a>
+            <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
+              ${navButton('home', 'Home')}
+              ${navButton('vault', 'Watchlist')}
+              ${navButton('alerts', 'Inbox')}
+              ${navButton('shelf', 'Discover')}
+              ${navButton('plus', 'Vaultr Plus')}
+              ${navButton('settings', 'Settings')}
+            </nav>
+            <div class="user-area">
+              ${avatarHtml(state.user)}
+              <span class="user-copy"><strong class="user-name">${escapeHtml(displayName)}</strong>${accountPlan ? `<small class="${accountPlanClass.trim()}">${escapeHtml(accountPlan)}</small>` : ''}</span>
+              ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
+            </div>
+          </div>
+        </header>
         <header class="mobile-header">
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
           <span class="brand-mark" aria-hidden="true"><span>V</span></span>
@@ -801,11 +817,17 @@ function settingsCurrencyConfirmationMarkup() {
 }
 
 function settingsPageMarkup() {
+  const header = pageHeaderMarkup({
+    id: 'settings-title',
+    title: 'Settings',
+    tagline: 'Set Vaultr up your way.',
+    copy: 'Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.'
+  });
   if (state.isSettingsLoading && !state.settingsLoaded) {
-    return `<section class="settings-page" aria-labelledby="settings-title"><header class="page-header"><h1 id="settings-title">Settings</h1><p>Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.</p></header><div class="settings-loading" role="status">Loading Settings…</div></section>`;
+    return `<section class="settings-page" aria-labelledby="settings-title">${header}<div class="settings-loading" role="status">Loading Settings…</div></section>`;
   }
   if (state.settingsError && !state.settingsLoaded) {
-    return `<section class="settings-page" aria-labelledby="settings-title"><header class="page-header"><h1 id="settings-title">Settings</h1><p>Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.</p></header><div class="state-panel"><h2>Couldn't load Settings.</h2><p>Try again when you are ready.</p><button class="retry-button" type="button" data-action="retry-settings">Try again</button></div></section>`;
+    return `<section class="settings-page" aria-labelledby="settings-title">${header}<div class="state-panel"><h2>Couldn't load Settings.</h2><p>Try again when you are ready.</p><button class="retry-button" type="button" data-action="retry-settings">Try again</button></div></section>`;
   }
   const draft = state.settingsDraft;
   const access = state.settings?.access || {};
@@ -824,10 +846,7 @@ function settingsPageMarkup() {
   const currentPlan = planLabel(state.vaultPlan?.tier || 'FREE');
   return `
     <section class="settings-page" aria-labelledby="settings-title">
-      <header class="page-header">
-        <h1 id="settings-title">Settings</h1>
-        <p>Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.</p>
-      </header>
+      ${header}
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
       <section class="settings-overview" aria-label="Account overview">
         <div class="settings-overview-row"><span><small>Current plan</small><strong>${escapeHtml(currentPlan)}</strong></span><button class="button-ghost settings-plan-link" type="button" data-action="open-plan-comparison">Compare plans</button></div>
@@ -986,11 +1005,18 @@ function plusNextStep({ isPlus, atLimit, billingAvailable, staging }) {
 }
 
 function plusPageMarkup() {
+  const header = pageHeaderMarkup({
+    id: 'plus-title',
+    title: 'Vaultr Plus',
+    tagline: 'Make discovery feel more like you.',
+    copy: 'Give your collection more room to grow, with more cards to watch and a personalized Display Case that gets to know what you love.',
+    className: 'plus-header'
+  });
   if (state.isVaultLoading && !state.vaultLoaded) {
-    return `<section class="plus-page" aria-labelledby="plus-title"><header class="page-header"><h1 id="plus-title">Vaultr Plus</h1><p>Give your collection more room to grow, with more cards to watch and a personalized Display Case that gets to know what you love.</p></header><div class="settings-loading" role="status">Loading plan details…</div></section>`;
+    return `<section class="plus-page" aria-labelledby="plus-title">${header}<div class="settings-loading" role="status">Loading plan details…</div></section>`;
   }
   if (state.vaultError && !state.vaultLoaded) {
-    return `<section class="plus-page" aria-labelledby="plus-title"><header class="page-header"><h1 id="plus-title">Vaultr Plus</h1><p>Give your collection more room to grow, with more cards to watch and a personalized Display Case that gets to know what you love.</p></header>${statePanelMarkup("Couldn't load plan details.", 'Try again when you are ready.', 'Try again', 'retry-vault')}</section>`;
+    return `<section class="plus-page" aria-labelledby="plus-title">${header}${statePanelMarkup("Couldn't load plan details.", 'Try again when you are ready.', 'Try again', 'retry-vault')}</section>`;
   }
   const plans = state.vaultOptions?.plans || [];
   const currentTier = state.vaultPlan?.tier || 'FREE';
@@ -1005,13 +1031,10 @@ function plusPageMarkup() {
   const nextStep = plusNextStep({ isPlus, atLimit, billingAvailable, staging });
   return `
     <section class="plus-page" aria-labelledby="plus-title">
-      <header class="page-header plus-header">
-        <h1 id="plus-title">Vaultr Plus</h1>
-        <p>Give your collection more room to grow, with more cards to watch and a personalized Display Case that gets to know what you love.</p>
-      </header>
+      ${header}
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. No plan changes can be made here.</p>' : ''}
       <section class="plus-comparison" aria-labelledby="plus-comparison-title">
-        <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">Choose the room and precision that fit your collection</h2><p>Check intervals are targets, not guaranteed listing or notification times.</p></div>
+        <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">Choose the room and precision that fit your collection</h2><p>Vaultr checks regularly for new matches. Timing can vary depending on the source and when new listings become available.</p></div>
         <div class="plus-plan-grid">
           ${plans.map((plan) => `<article class="plus-plan${plan.tier === currentTier ? ' current' : ''}${plan.tier === 'PRO' ? ' featured' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : plan.tier === 'PRO' ? 'VAULTR PLUS' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3>${plusPlanFeatureList(plan)}</article>`).join('')}
         </div>
@@ -1128,10 +1151,12 @@ function onboardingPageMarkup() {
 function alertsPageMarkup(inner) {
   return `
     <section aria-labelledby="alerts-title">
-      <header class="page-header">
-        <h1 id="alerts-title">Your matches</h1>
-        <p>See what’s turned up for the cards you’re watching. Take a closer look, compare your options, and find the right one for your collection.</p>
-      </header>
+      ${pageHeaderMarkup({
+        id: 'alerts-title',
+        title: 'Your matches',
+        tagline: 'The right card might have just turned up.',
+        copy: 'See what’s turned up for the cards you’re watching. Take a closer look, compare your options, and find the right one for your collection.'
+      })}
       ${state.alertChaseId ? `
         <div class="active-chase-filter" role="status">
           <span>Matches for <strong>${escapeHtml(state.alertChaseName || 'this Watchlist card')}</strong></span>
@@ -1695,7 +1720,8 @@ function vaultHeaderMarkup() {
     <header class="page-header vault-page-header">
       <div>
         <h1 id="vault-title">Your Watchlist</h1>
-        <p>From longtime grails to cards that just caught your eye, keep them here. Vaultr looks for listings that match what you’re after.</p>
+        <p class="page-tagline">Keep the cards you’re chasing close.</p>
+        <p class="page-support">From longtime grails to cards that just caught your eye, keep them here. Vaultr looks for listings that match what you’re after.</p>
       </div>
       <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Watchlist</button>
     </header>
@@ -1877,11 +1903,13 @@ function shelfPageMarkup() {
 }
 
 function shelfHeaderMarkup() {
-  return `
-    <header class="page-header shelf-page-header">
-      <h1 id="shelf-title">Your Display Case</h1>
-    </header>
-  `;
+  return pageHeaderMarkup({
+    id: 'shelf-title',
+    title: 'Your Display Case',
+    tagline: 'Find the cards you didn’t know you loved.',
+    copy: 'Explore standout cards and discover your next favourite.',
+    className: 'shelf-page-header'
+  });
 }
 
 function shelfMetaMarkup(shelf) {
@@ -1905,15 +1933,15 @@ function shelfEmptyMarkup(shelf) {
   const weekly = shelf?.generalDiscovery?.mode === 'WEEKLY';
   const plusAccount = state.vaultPlan?.tier === 'PRO';
   const freeIntroduction = starter
-    ? 'Find the cards you didn’t know you loved. Start with three collector picks, with fresh finds each week. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.'
+    ? 'Start with three collector picks, with fresh finds each week. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.'
     : weekly
-    ? 'Find the cards you didn’t know you loved. Explore three fresh finds each week. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.'
-    : 'Find the cards you didn’t know you loved. Explore these collector picks while this week’s finds are unavailable. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.';
+    ? 'Explore three fresh finds each week. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.'
+    : 'Explore these collector picks while this week’s finds are unavailable. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.';
   return `
     <section class="shelf-editorial" aria-label="General discovery picks">
       ${plusAccount
         ? `<p class="shelf-personalized-note">${inlineVaultrPlusCopy(discoveryStateCopy(shelf?.discovery))}</p>`
-        : `<div class="shelf-plus-intro"><p>${inlineVaultrPlusCopy(freeIntroduction)}</p><button class="button-primary" type="button" data-page="plus">Explore Vaultr Plus</button></div>`}
+        : `<div class="shelf-plus-intro"><p>${linkedVaultrPlusCopy(freeIntroduction)}</p></div>`}
       <header class="shelf-editorial-heading"><h2>${weekly ? 'This week’s finds' : 'Collector picks'}</h2></header>
       ${starters.length
         ? `<div class="shelf-grid shelf-editorial-grid" aria-label="General discovery picks">${starters.map((item) => shelfCardMarkup(item, { editorial: true })).join('')}</div>`

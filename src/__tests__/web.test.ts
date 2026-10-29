@@ -280,7 +280,11 @@ describe('web app static routes', () => {
     expect(onboardingArtResponse.headers?.['Content-Type']).toBe('image/webp');
     expect(onboardingArtResponse.body?.slice(0, 4)).toBe('RIFF');
     expect(cssResponse.body).not.toContain('@font-face');
-    expect(cssResponse.body).toContain('font-family: Roboto, "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
+    expect(cssResponse.body).toContain('font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
+    expect(jsResponse.body).toContain('class="desktop-header"');
+    expect(jsResponse.body).not.toContain('class="app-sidebar"');
+    expect(cssResponse.body).toContain('grid-template-columns: repeat(4, minmax(0, 1fr));');
+    expect(cssResponse.body).toContain('@media (max-width: 1040px)');
     expect(cssResponse.body).toContain('.environment-label');
     expect(jsResponse.body).toContain('state.authConfig?.environment?.label');
     expect(jsResponse.body).toContain('PICKUPS');
@@ -301,6 +305,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("navButton('vault', 'Watchlist')");
     expect(jsResponse.body).toContain("navButton('alerts', 'Inbox')");
     expect(jsResponse.body).toContain("navButton('shelf', 'Discover')");
+    expect(jsResponse.body).toContain("navButton('plus', 'Vaultr Plus')");
     expect(jsResponse.body).toContain('data-page="plus"');
     expect(jsResponse.body).toContain("plus: '<path");
     expect(jsResponse.body).toContain('function iconMarkup(name)');
@@ -414,10 +419,15 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("${feedback ? discoveryFeedbackMarkup(item, true) : ''}");
     expect(jsResponse.body).toContain('home-shelf-supporting-card');
     expect(jsResponse.body).toContain('aria-hidden="true"');
-    expect(jsResponse.body).toContain('<h1 id="shelf-title">Your Display Case</h1>');
+    expect(jsResponse.body).toContain("title: 'Your Display Case'");
     expect(jsResponse.body).toContain('Find the cards you didn’t know you loved.');
     expect(jsResponse.body).toContain('Explore three fresh finds each week. With Vaultr Plus');
-    expect(jsResponse.body).toContain('Explore Vaultr Plus');
+    const shelfEmptySource = (jsResponse.body ?? '').slice(
+      (jsResponse.body ?? '').indexOf('function shelfEmptyMarkup('),
+      (jsResponse.body ?? '').indexOf('function shelfCardMarkup(')
+    );
+    expect(shelfEmptySource).toContain('linkedVaultrPlusCopy(freeIntroduction)');
+    expect(shelfEmptySource).not.toContain('>Explore Vaultr Plus</button>');
     expect(jsResponse.body).toContain("weekly ? 'This week’s finds' : 'Collector picks'");
     expect(jsResponse.body).toContain('A few handpicked cards to explore.');
     expect(jsResponse.body).not.toContain('Try a Plus example');
@@ -440,7 +450,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-action="edit-collector-profile"');
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
-    expect(jsResponse.body).toContain('<h1 id="plus-title">Vaultr Plus</h1>');
+    expect(jsResponse.body).toContain("title: 'Vaultr Plus'");
     expect(jsResponse.body).toContain('Your Watchlist is full');
     expect(jsResponse.body).toContain('Manage Watchlist');
     expect(jsResponse.body).toContain('Preview mode is read-only. No plan changes can be made here.');
@@ -531,7 +541,7 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.app-footer-lockup .brand-mark');
     expect(cssResponse.body).toContain('flex: 0 0 44px;');
     expect(cssResponse.body).toContain('@media (max-width: 1100px)');
-    expect(cssResponse.body).toContain('@media (max-width: 820px)');
+    expect(cssResponse.body).toContain('@media (max-width: 1040px)');
     expect(cssResponse.body).toContain('@media (max-width: 640px)');
     expect(cssResponse.body).toContain('@media (max-width: 340px)');
     expect(cssResponse.body).not.toContain('@container app-footer');
@@ -558,13 +568,16 @@ describe('web app static routes', () => {
     const vault = between('function vaultHeaderMarkup()', 'function vaultSummaryMarkup(');
     const discover = between('function shelfHeaderMarkup()', 'function shelfMetaMarkup(');
 
-    const topHeader = (page: string) => page.slice(page.indexOf('<header class="page-header'), page.indexOf('</header>') + '</header>'.length);
-    for (const page of [settings, plus, alerts, vault, discover]) {
-      expect(topHeader(page)).not.toContain('<p class="eyebrow">');
-    }
-    expect(alerts).toContain('<h1 id="alerts-title">Your matches</h1>');
+    const headerHelper = between('function pageHeaderMarkup(', 'function planLabel(');
+    expect(headerHelper).not.toContain('eyebrow');
+    expect(settings).toContain("tagline: 'Set Vaultr up your way.'");
+    expect(plus).toContain("tagline: 'Make discovery feel more like you.'");
+    expect(alerts).toContain("title: 'Your matches'");
+    expect(alerts).toContain("tagline: 'The right card might have just turned up.'");
     expect(vault).toContain('<h1 id="vault-title">Your Watchlist</h1>');
-    expect(discover).toContain('<h1 id="shelf-title">Your Display Case</h1>');
+    expect(vault).toContain('<p class="page-tagline">Keep the cards you’re chasing close.</p>');
+    expect(discover).toContain("title: 'Your Display Case'");
+    expect(discover).toContain("tagline: 'Find the cards you didn’t know you loved.'");
   });
 
   it('keeps the Home Display Case fan bounded to distinct available artwork', async () => {
