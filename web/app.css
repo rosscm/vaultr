@@ -3206,15 +3206,14 @@ a {
 }
 
 .shelf-plus-intro {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px 32px;
-  padding-block: 18px 4px;
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  padding-block: 12px 4px;
 }
 
 .shelf-plus-intro > div {
-  max-width: 68ch;
+  max-width: 72ch;
 }
 
 .shelf-plus-intro h2,
@@ -3233,7 +3232,6 @@ a {
 }
 
 .shelf-plus-intro .button-primary {
-  flex: none;
   width: auto;
 }
 
@@ -4306,11 +4304,6 @@ a {
   }
 
   .shelf-editorial-note {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .shelf-plus-intro {
     align-items: flex-start;
     flex-direction: column;
   }

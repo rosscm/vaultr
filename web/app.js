@@ -431,7 +431,7 @@ function planComparisonMarkup() {
       <section class="vault-dialog plan-comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-comparison-title">
         <header><p class="eyebrow">PLANS</p><h2 id="plan-comparison-title">Compare plans</h2><p class="dialog-intro">Choose how much room and precision you need. Check intervals are targets, not guaranteed notification times.</p></header>
         <div class="plan-comparison-grid">
-          ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li></ul></article>`).join('')}
+          ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li><li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect.' : 'Three general finds each week, starting with collector picks.'}</li></ul></article>`).join('')}
         </div>
         ${currentTier === 'FREE' ? '<p class="plan-availability">Vaultr Plus is not available for self-service purchase yet.</p>' : ''}
         <footer class="dialog-actions"><button class="button-ghost" type="button" data-action="close-plan-comparison">Close</button><button class="button-primary" type="button" data-page="plus">Explore Plus</button></footer>
@@ -798,10 +798,10 @@ function settingsCurrencyConfirmationMarkup() {
 
 function settingsPageMarkup() {
   if (state.isSettingsLoading && !state.settingsLoaded) {
-    return `<section class="settings-page" aria-labelledby="settings-title"><header class="page-header"><p class="eyebrow">Account</p><h1 id="settings-title">Settings</h1></header><div class="settings-loading" role="status">Loading Settings…</div></section>`;
+    return `<section class="settings-page" aria-labelledby="settings-title"><header class="page-header"><h1 id="settings-title">Settings</h1><p>Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.</p></header><div class="settings-loading" role="status">Loading Settings…</div></section>`;
   }
   if (state.settingsError && !state.settingsLoaded) {
-    return `<section class="settings-page" aria-labelledby="settings-title"><header class="page-header"><p class="eyebrow">Account</p><h1 id="settings-title">Settings</h1></header><div class="state-panel"><h2>Couldn't load Settings.</h2><p>Try again when you are ready.</p><button class="retry-button" type="button" data-action="retry-settings">Try again</button></div></section>`;
+    return `<section class="settings-page" aria-labelledby="settings-title"><header class="page-header"><h1 id="settings-title">Settings</h1><p>Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.</p></header><div class="state-panel"><h2>Couldn't load Settings.</h2><p>Try again when you are ready.</p><button class="retry-button" type="button" data-action="retry-settings">Try again</button></div></section>`;
   }
   const draft = state.settingsDraft;
   const access = state.settings?.access || {};
@@ -821,9 +821,8 @@ function settingsPageMarkup() {
   return `
     <section class="settings-page" aria-labelledby="settings-title">
       <header class="page-header">
-        <p class="eyebrow">Account</p>
         <h1 id="settings-title">Settings</h1>
-        <p>Choose which matches you see and set your pricing and shipping preferences.</p>
+        <p>Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.</p>
       </header>
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
       <section class="settings-overview" aria-label="Account overview">
@@ -944,7 +943,7 @@ function plusPlanFeatureList(plan) {
       <li>${plan.monitoringPriority === 'PRIORITY' ? 'Priority monitoring with targeted checks' : 'Standard monitoring with targeted eBay checks'} every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li>
       <li>${plan.advancedFiltering ? 'Precision condition, listing, priority, note, and exclusion controls' : 'Core card, budget, and grading preferences'}</li>
       <li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops monitoring' : 'eBay monitoring'}</li>
-      <li>${plan.discoveryDepth === 'full' ? 'Your full personalized Display Case, shaped by your Watchlist, Pickups, and feedback' : 'Editorial picks to explore'}</li>
+      <li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect.' : 'Three general finds each week, starting with collector picks.'}</li>
     </ul>
   `;
 }
@@ -984,10 +983,10 @@ function plusNextStep({ isPlus, atLimit, billingAvailable, staging }) {
 
 function plusPageMarkup() {
   if (state.isVaultLoading && !state.vaultLoaded) {
-    return `<section class="plus-page" aria-labelledby="plus-title"><header class="page-header"><p class="eyebrow">PLANS</p><h1 id="plus-title">Vaultr Plus</h1></header><div class="settings-loading" role="status">Loading plan details…</div></section>`;
+    return `<section class="plus-page" aria-labelledby="plus-title"><header class="page-header"><h1 id="plus-title">Vaultr Plus</h1><p>Give your collection more room to grow, with more cards to watch and a personalized Display Case that gets to know what you love.</p></header><div class="settings-loading" role="status">Loading plan details…</div></section>`;
   }
   if (state.vaultError && !state.vaultLoaded) {
-    return `<section class="plus-page" aria-labelledby="plus-title"><header class="page-header"><p class="eyebrow">PLANS</p><h1 id="plus-title">Vaultr Plus</h1></header>${statePanelMarkup("Couldn't load plan details.", 'Try again when you are ready.', 'Try again', 'retry-vault')}</section>`;
+    return `<section class="plus-page" aria-labelledby="plus-title"><header class="page-header"><h1 id="plus-title">Vaultr Plus</h1><p>Give your collection more room to grow, with more cards to watch and a personalized Display Case that gets to know what you love.</p></header>${statePanelMarkup("Couldn't load plan details.", 'Try again when you are ready.', 'Try again', 'retry-vault')}</section>`;
   }
   const plans = state.vaultOptions?.plans || [];
   const currentTier = state.vaultPlan?.tier || 'FREE';
@@ -1003,9 +1002,8 @@ function plusPageMarkup() {
   return `
     <section class="plus-page" aria-labelledby="plus-title">
       <header class="page-header plus-header">
-        <p class="eyebrow">PLANS</p>
         <h1 id="plus-title">Vaultr Plus</h1>
-        <p>More room for the cards you want, finer control over matching, and personalized discovery shaped by your collection.</p>
+        <p>Give your collection more room to grow, with more cards to watch and a personalized Display Case that gets to know what you love.</p>
       </header>
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. No plan changes can be made here.</p>' : ''}
       <section class="plus-comparison" aria-labelledby="plus-comparison-title">
@@ -1013,7 +1011,7 @@ function plusPageMarkup() {
         <div class="plus-plan-grid">
           ${plans.map((plan) => `<article class="plus-plan${plan.tier === currentTier ? ' current' : ''}${plan.tier === 'PRO' ? ' featured' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : plan.tier === 'PRO' ? 'VAULTR PLUS' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3>${plusPlanFeatureList(plan)}</article>`).join('')}
         </div>
-        <p class="plus-discovery-note">Free Discover uses editorial starter picks. Personalized recommendations are part of Vaultr Plus and develop once Vaultr has enough collecting history to understand your taste.</p>
+        <p class="plus-discovery-note">Free starts with collector picks, then brings three general finds each week. Vaultr Plus adds a full personalized Display Case once Vaultr has enough collecting history to understand your taste.</p>
       </section>
       <section class="plus-next-step" aria-labelledby="plus-next-title">
         <div><p class="eyebrow">NEXT STEP</p><h2 id="plus-next-title">${escapeHtml(nextStep.heading)}</h2><p>${escapeHtml(nextStep.copy)}</p></div>
@@ -1119,7 +1117,7 @@ function onboardingPageMarkup() {
   if (step === 'PROFILE') content = `<p class="eyebrow">YOUR TASTE</p><h1 id="onboarding-title">What catches your eye?</h1><p>These choices stay separate from your Watchlist and Pickups.</p>${collectorProfileMarkup(revisit)}`;
   if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">Inspect the shared Watchlist form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Watchlist form</button></div>`;
   if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'You already have a card on your Watchlist. You’re ready to continue.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${!revisit && state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${!revisit && state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
-  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Your Watchlist and pickups shape your collecting profile; personalized recommendations require Vaultr Plus and enough distinct card history, and may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
+  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Your Watchlist and Pickups shape your collecting profile; personalized recommendations require Vaultr Plus and enough distinct card history, and may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
   return `<section class="onboarding-page${step === 'WELCOME' ? ' welcome' : ''}" aria-labelledby="onboarding-title">${onboardingStepIndicator(step)}${previewNotice}${vaultNoticeMarkup('onboarding')}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content${step === 'WELCOME' ? ' onboarding-welcome' : ''}">${content}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
 }
 
@@ -1127,9 +1125,8 @@ function alertsPageMarkup(inner) {
   return `
     <section aria-labelledby="alerts-title">
       <header class="page-header">
-        <p class="eyebrow">Inbox</p>
-        <h1 id="alerts-title">What Vaultr found for your Watchlist</h1>
-        <p>Matches worth a look, based on the cards and filters you saved.</p>
+        <h1 id="alerts-title">Your matches</h1>
+        <p>See what’s turned up for the cards you’re watching. Take a closer look, compare your options, and find the right one for your collection.</p>
       </header>
       ${state.alertChaseId ? `
         <div class="active-chase-filter" role="status">
@@ -1644,7 +1641,7 @@ function vaultPageMarkup() {
     : state.vaultFilter === 'ALL'
       ? vaultEmptyMarkup()
       : state.vaultFilter === 'COMPLETED'
-        ? '<div class="state-panel"><h2>No pickups yet.</h2><p>Cards you mark acquired will stay here as part of your collecting history.</p></div>'
+        ? '<div class="state-panel"><h2>No Pickups yet.</h2><p>Cards you mark acquired will stay here as part of your collecting history.</p></div>'
         : '<div class="state-panel"><h2>No cards in this view</h2><p>Choose another filter to see the rest of your Watchlist.</p></div>';
   return `
     <section aria-labelledby="vault-title">
@@ -1672,9 +1669,8 @@ function vaultHeaderMarkup() {
   return `
     <header class="page-header vault-page-header">
       <div>
-        <p class="eyebrow">WATCHLIST</p>
-        <h1 id="vault-title">The cards you’re watching</h1>
-        <p>Add cards you love. We’ll watch for matches that fit.</p>
+        <h1 id="vault-title">Your Watchlist</h1>
+        <p>From longtime grails to cards that just caught your eye, keep them here. Vaultr looks for listings that match what you’re after.</p>
       </div>
       <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Watchlist</button>
     </header>
@@ -1849,7 +1845,7 @@ function shelfPageMarkup() {
     <section class="shelf-page" aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
-      ${personalized && items.length ? '<p class="shelf-personalized-note">Picks shaped by your Watchlist, Pickups, and the cards you tell us you like.</p>' : ''}
+      ${personalized && items.length ? '<p class="shelf-personalized-note">There’s always another card to fall in love with. Explore discoveries shaped by your collection and what catches your eye, with familiar favourites and unexpected finds along the way.</p>' : ''}
       ${personalized && items.length ? shelfMetaMarkup(state.shelf) : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
@@ -1860,9 +1856,7 @@ function shelfPageMarkup() {
 function shelfHeaderMarkup() {
   return `
     <header class="page-header shelf-page-header">
-      <p class="eyebrow">DISCOVER</p>
       <h1 id="shelf-title">Your Display Case</h1>
-      <p>Explore standout cards and discover your next favourite.</p>
     </header>
   `;
 }
@@ -1888,10 +1882,10 @@ function shelfEmptyMarkup(shelf) {
   const weekly = shelf?.generalDiscovery?.mode === 'WEEKLY';
   const plusAccount = state.vaultPlan?.tier === 'PRO';
   const freeIntroduction = starter
-    ? 'Start with three collector picks, with fresh finds to explore each week. With Vaultr Plus, unlock a full personalized Display Case shaped by your Watchlist, Pickups, and feedback. More of what catches your eye, with a few unexpected favourites along the way.'
+    ? 'Start with three collector picks, with fresh finds each week. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.'
     : weekly
-    ? 'Free brings you three fresh finds each week. With Vaultr Plus, unlock a full personalized Display Case shaped by your Watchlist, Pickups, and feedback. More of what catches your eye, with a few unexpected favourites along the way.'
-    : 'Explore these collector picks while the weekly catalog is unavailable. With Vaultr Plus, unlock a full personalized Display Case shaped by your Watchlist, Pickups, and feedback.';
+    ? 'Explore three fresh finds each week. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.'
+    : 'Explore these collector picks while this week’s finds are unavailable. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.';
   return `
     <section class="shelf-editorial" aria-label="General discovery picks">
       ${plusAccount

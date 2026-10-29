@@ -353,7 +353,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Your preferences are still here; choose the card again to refresh it before saving.');
     expect(jsResponse.body).toContain('const requestId = ++state.vaultRequestId;');
     expect(jsResponse.body).toContain('if (requestId !== state.vaultRequestId) return null;');
-    expect(jsResponse.body).toContain('Choose which matches you see and set your pricing and shipping preferences.');
+    expect(jsResponse.body).toContain('Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.');
     expect(jsResponse.body).toContain('Email sign-in isn’t available here yet.');
     expect(jsResponse.body).toContain('You already have a card on your Watchlist. You’re ready to continue.');
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
@@ -414,8 +414,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('home-shelf-supporting-card');
     expect(jsResponse.body).toContain('aria-hidden="true"');
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Your Display Case</h1>');
-    expect(jsResponse.body).toContain('Explore standout cards and discover your next favourite.');
-    expect(jsResponse.body).toContain('Vaultr Plus adds ongoing personalized discovery shaped by your Watchlist, Pickups, and feedback.');
+    expect(jsResponse.body).toContain('Find the cards you didn’t know you loved.');
+    expect(jsResponse.body).toContain('Explore three fresh finds each week. With Vaultr Plus');
     expect(jsResponse.body).toContain('Explore Vaultr Plus');
     expect(jsResponse.body).toContain("weekly ? 'This week’s finds' : 'Collector picks'");
     expect(jsResponse.body).toContain('A few handpicked cards to explore.');
@@ -454,8 +454,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('View Pickup');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">YOUR PLAN</p>');
     expect(jsResponse.body).not.toContain('class="plus-current"');
-    expect(jsResponse.body).toContain('Your full personalized Display Case, shaped by your Watchlist, Pickups, and feedback');
-    expect(jsResponse.body).toContain('Editorial picks to explore');
+    expect(jsResponse.body).toContain('A full personalized Display Case shaped by what you collect.');
+    expect(jsResponse.body).toContain('Three general finds each week, starting with collector picks.');
     expect(jsResponse.body).not.toContain('Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks');
     expect(jsResponse.body).toContain('Priority monitoring with targeted checks');
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
@@ -547,6 +547,25 @@ describe('web app static routes', () => {
     expect(legalCssResponse.headers?.['Content-Type']).toBe('text/css; charset=utf-8');
   });
 
+  it('uses consistent collector-focused top-level page headers', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const between = (start: string, end: string) => source.slice(source.indexOf(start), source.indexOf(end));
+    const settings = between('function settingsPageMarkup()', 'function plusPlanFeatureList(');
+    const plus = between('function plusPageMarkup()', 'function onboardingStepIndicator(');
+    const alerts = between('function alertsPageMarkup(', 'function reviewStateButton(');
+    const vault = between('function vaultHeaderMarkup()', 'function vaultSummaryMarkup(');
+    const discover = between('function shelfHeaderMarkup()', 'function shelfMetaMarkup(');
+
+    const topHeader = (page: string) => page.slice(page.indexOf('<header class="page-header'), page.indexOf('</header>') + '</header>'.length);
+    for (const page of [settings, plus, alerts, vault, discover]) {
+      expect(topHeader(page)).not.toContain('<p class="eyebrow">');
+    }
+    expect(alerts).toContain('<h1 id="alerts-title">Your matches</h1>');
+    expect(vault).toContain('<h1 id="vault-title">Your Watchlist</h1>');
+    expect(discover).toContain('<h1 id="shelf-title">Your Display Case</h1>');
+  });
+
   it('keeps the Home Display Case fan bounded to distinct available artwork', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
@@ -634,8 +653,8 @@ describe('web app static routes', () => {
       copy: 'A few handpicked cards to explore.'
     });
     expect(source).toContain('Find the cards you didn’t know you loved.');
-    expect(source).toContain('Start with three collector picks, with fresh finds to explore each week.');
-    expect(source).toContain('Free brings you three fresh finds each week.');
+    expect(source).toContain('Start with three collector picks, with fresh finds each week.');
+    expect(source).toContain('Explore three fresh finds each week.');
     expect(source).not.toContain('Vaultr Plus adds ongoing personalized discovery');
   });
 
