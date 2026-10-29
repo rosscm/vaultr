@@ -250,7 +250,7 @@ function pageHeaderMarkup({ id, title, tagline, copy, className = '' }) {
     <header class="page-header${className ? ` ${className}` : ''}">
       <h1 id="${escapeHtml(id)}">${escapeHtml(title)}</h1>
       <p class="page-tagline">${escapeHtml(tagline)}</p>
-      <p class="page-support">${escapeHtml(copy)}</p>
+      ${copy ? `<p class="page-support">${escapeHtml(copy)}</p>` : ''}
     </header>
   `;
 }
@@ -1369,7 +1369,7 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
       </div>
       <div class="home-shelf-copy">
         <small class="home-shelf-kind">${escapeHtml(label || (editorial ? 'Collector pick' : 'Picked for you'))}</small>
-        <strong>${escapeHtml(item.displayName || item.name || 'Display Case pick')}</strong>
+        <h3>${escapeHtml(item.displayName || item.name || 'Display Case pick')}</h3>
         ${item.nativeName ? `<span class="home-shelf-details">Original name: ${escapeHtml(item.nativeName)}</span>` : ''}
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : ''}
@@ -1543,6 +1543,12 @@ function homePageMarkup() {
   const discoveryHeading = homeDiscoveryHeadingCopy(personalizedReady ? 'PERSONALIZED' : starterPicks ? 'STARTER' : weeklyFinds ? 'WEEKLY' : 'FALLBACK');
   const displayCaseItems = homeDisplayCaseItems();
   const watchlistPreview = state.vault.slice(0, 4);
+  const watchlistSummary = [
+    `${activeChases} Watching`,
+    userPausedChases ? `${userPausedChases} Paused` : '',
+    planLimitedChases ? `${planLimitedChases} Paused by plan` : '',
+    `${completedChases} ${completedChases === 1 ? 'Pickup' : 'Pickups'}`
+  ].filter(Boolean).join(' · ');
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
 
@@ -1579,7 +1585,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
         <div class="home-section-heading">
-          <div><h2 id="home-vault-title">Your Watchlist</h2><p>Vaultr is searching for these cards across eBay and supported shops.</p></div>
+          <div><h2 id="home-vault-title">Your Watchlist</h2><p class="home-watchlist-summary">${escapeHtml(watchlistSummary)}</p><p>Vaultr is searching for these cards across eBay and supported shops.</p></div>
           <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
         </div>
         ${watchlistPreview.length
@@ -1587,12 +1593,6 @@ function homePageMarkup() {
           : state.vaultLoaded
             ? '<div class="home-section-state home-empty-action"><p>Add your first card to start watching for matches.</p><button class="button-ghost" type="button" data-action="open-add-chase">Add to Watchlist</button></div>'
             : '<p class="home-section-state">Loading your Watchlist…</p>'}
-        <div class="home-vault-stats" aria-label="Watchlist summary">
-          <span><strong>${escapeHtml(activeChases)}</strong> Watching</span>
-          ${userPausedChases ? `<span><strong>${escapeHtml(userPausedChases)}</strong> Paused</span>` : ''}
-          ${planLimitedChases ? `<span><strong>${escapeHtml(planLimitedChases)}</strong> Paused by your plan</span>` : ''}
-          <span><strong>${escapeHtml(completedChases)}</strong> Pickups</span>
-        </div>
       </section>
 
       <section class="home-product-section home-attention-section" aria-labelledby="home-alerts-title">
@@ -1907,7 +1907,7 @@ function shelfHeaderMarkup() {
     id: 'shelf-title',
     title: 'Your Display Case',
     tagline: 'Find the cards you didn’t know you loved.',
-    copy: 'Explore standout cards and discover your next favourite.',
+    copy: '',
     className: 'shelf-page-header'
   });
 }

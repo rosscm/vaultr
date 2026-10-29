@@ -578,6 +578,8 @@ describe('web app static routes', () => {
     expect(vault).toContain('<p class="page-tagline">Keep the cards you’re chasing close.</p>');
     expect(discover).toContain("title: 'Your Display Case'");
     expect(discover).toContain("tagline: 'Find the cards you didn’t know you loved.'");
+    expect(discover).toContain("copy: ''");
+    expect(source).not.toContain('Explore standout cards and discover your next favourite.');
   });
 
   it('keeps the Home Display Case fan bounded to distinct available artwork', async () => {
@@ -643,6 +645,7 @@ describe('web app static routes', () => {
     );
 
     const withoutPrice = renderItem({ name: 'Mew', reason: 'Collector context.' });
+    expect(withoutPrice).toContain('<h3>Mew</h3>');
     expect(withoutPrice).not.toContain('Pricing unavailable');
     expect(withoutPrice).not.toContain('home-shelf-price unavailable');
     expect(withoutPrice).not.toContain('Add to Watchlist');
@@ -664,6 +667,8 @@ describe('web app static routes', () => {
     expect(previewSource).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
     expect(source).toContain('state.vault.slice(0, 4)');
     expect(source).toContain('data-page="vault">View Watchlist');
+    expect(source).toContain('class="home-watchlist-summary"');
+    expect(source).not.toContain('class="home-vault-stats"');
   });
 
   it('summarizes Watchlist criteria and preserves lifecycle action hierarchy', async () => {
