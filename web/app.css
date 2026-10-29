@@ -1686,7 +1686,7 @@ a {
 
 .home-header .home-intro-support {
   width: 100%;
-  max-width: 70ch;
+  max-width: 74ch;
   color: var(--muted);
 }
 
@@ -2018,17 +2018,6 @@ a {
   pointer-events: none;
 }
 
-.home-shelf-controls > span {
-  position: absolute;
-  left: 50%;
-  top: calc(min(515px, 36vw) / 2 + 100px);
-  min-width: 56px;
-  text-align: center;
-  color: var(--muted-strong);
-  font-variant-numeric: tabular-nums;
-  transform: translateX(-50%);
-}
-
 .home-shelf-controls .home-shelf-control {
   width: 46px;
   height: 46px;
@@ -2036,6 +2025,20 @@ a {
   background: rgba(15, 12, 35, 0.76);
   color: var(--text);
   pointer-events: auto;
+}
+
+.home-shelf-position {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 720;
+  line-height: 1;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.logout-dialog {
+  width: min(440px, calc(100vw - 28px));
 }
 
 .home-shelf-card-action {
@@ -2086,19 +2089,6 @@ a {
   color: var(--muted);
   font-size: 1rem;
   line-height: 1.52;
-}
-
-.home-section-heading .home-watchlist-summary {
-  margin-top: 7px;
-  color: var(--muted-strong);
-  font-size: 0.82rem;
-  font-weight: 760;
-  line-height: 1.35;
-  font-variant-numeric: tabular-nums;
-}
-
-.home-watchlist-summary + p {
-  margin-top: 5px !important;
 }
 
 .home-section-heading p strong {
@@ -4609,10 +4599,6 @@ a {
   .home-shelf-controls {
     grid-column: auto;
     inset: 155px 0 auto;
-  }
-
-  .home-shelf-controls > span {
-    top: 188px;
   }
 
   .home-shelf-artwork .artwork-trigger {

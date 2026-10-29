@@ -667,8 +667,18 @@ describe('web app static routes', () => {
     expect(previewSource).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
     expect(source).toContain('state.vault.slice(0, 4)');
     expect(source).toContain('data-page="vault">View Watchlist');
-    expect(source).toContain('class="home-watchlist-summary"');
+    expect(source).not.toContain('class="home-watchlist-summary"');
     expect(source).not.toContain('class="home-vault-stats"');
+  });
+
+  it('keeps Home carousel status separate from card metadata', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const featureSource = source.slice(source.indexOf('function homeShelfFeatureMarkup('), source.indexOf('function homeWatchlistPreviewMarkup('));
+    expect(featureSource).toContain('class="home-shelf-details"');
+    expect(featureSource).toContain('class="home-shelf-position" role="status" aria-live="polite"');
+    expect(featureSource.indexOf('class="home-shelf-position"')).toBeGreaterThan(featureSource.indexOf('class="home-shelf-copy"'));
+    expect(featureSource).not.toContain('home-shelf-controls > span');
   });
 
   it('summarizes Watchlist criteria and preserves lifecycle action hierarchy', async () => {
@@ -689,6 +699,33 @@ describe('web app static routes', () => {
     expect(cardSource).not.toContain('chase.negativeKeywords');
     const completedSource = source.slice(source.indexOf('function completedChaseMarkup('), source.indexOf('function completedChasesSectionMarkup('));
     expect(completedSource).toContain('data-action="reopen-chase"');
+  });
+
+  it('closes Watchlist More menus through normal contextual-menu interactions', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    expect(source).toContain("document.addEventListener('pointerdown'");
+    expect(source).toContain("document.querySelectorAll('.vault-more-actions[open]')");
+    expect(source).toContain('if (menu !== activeMenu) menu.removeAttribute(\'open\')');
+    expect(source).toContain("const menu = document.querySelector('.vault-more-actions[open]')");
+    expect(source).toContain("menu.querySelector('summary')?.focus()");
+    expect(source).toContain("const actionMenu = target.closest('.vault-more-actions')");
+    expect(source).toContain("if (action && actionMenu) actionMenu.removeAttribute('open')");
+  });
+
+  it('confirms logout before calling the existing endpoint', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const logoutOpen = source.slice(source.indexOf("if (action === 'logout')"), source.indexOf("if (action === 'cancel-logout')"));
+    const logoutConfirm = source.slice(source.indexOf("if (action === 'confirm-logout')"), source.indexOf("if (action === 'redeem-email-link')"));
+    expect(logoutOpen).toContain('state.logoutConfirmationOpen = true');
+    expect(logoutOpen).not.toContain("fetch('/auth/logout'");
+    expect(logoutConfirm).toContain("fetch('/auth/logout', { method: 'POST'");
+    expect(source).toContain('Log out of Vaultr?');
+    expect(source).toContain('data-action="cancel-logout"');
+    expect(source).toContain("if (event.key === 'Escape')");
+    expect(source).toContain("if (event.key === 'Tab' && dialog)");
+    expect(source).toContain('restoreLogoutTriggerFocus()');
   });
 
   it('keeps Home focused on the compact product promise and one Inbox action', async () => {

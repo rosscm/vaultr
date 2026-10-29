@@ -4,6 +4,7 @@ const appHomePath = isPreviewMode ? '/preview' : '/app';
 let artworkReturnFocus = null;
 let artworkPreviousBodyOverflow = '';
 let artworkKeydownHandler = null;
+let logoutReturnFocus = null;
 let newAlertPresenceRequest = null;
 let newAlertPresenceTimer = null;
 
@@ -95,6 +96,7 @@ const state = {
   collectorProfileLoading: false,
   collectorProfileError: '',
   planComparisonOpen: false,
+  logoutConfirmationOpen: false,
   vaultAutocompleteTimer: null,
   vaultAutocompleteRequestId: 0,
   vaultAutocompleteItems: [],
@@ -457,6 +459,32 @@ function planComparisonMarkup() {
     </div>`;
 }
 
+function logoutConfirmationMarkup() {
+  if (!state.logoutConfirmationOpen) return '';
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="vault-dialog logout-dialog" role="dialog" aria-modal="true" aria-labelledby="logout-confirmation-title" aria-describedby="logout-confirmation-copy">
+        <header>
+          <h2 id="logout-confirmation-title">Log out of Vaultr?</h2>
+          <p id="logout-confirmation-copy" class="dialog-intro">You’ll need to sign in again to access your collection.</p>
+        </header>
+        <footer class="dialog-actions">
+          <button class="button-ghost" type="button" data-action="cancel-logout">Cancel</button>
+          <button class="button-primary" type="button" data-action="confirm-logout">Log out</button>
+        </footer>
+      </section>
+    </div>
+  `;
+}
+
+function restoreLogoutTriggerFocus() {
+  const target = logoutReturnFocus instanceof HTMLElement && logoutReturnFocus.isConnected
+    ? logoutReturnFocus
+    : document.querySelector('[data-action="logout"]');
+  target?.focus();
+  logoutReturnFocus = null;
+}
+
 function optionMarkup(options, selected) {
   return (options || []).map((option) => `<option value="${escapeHtml(option.value)}"${option.value === selected ? ' selected' : ''}>${escapeHtml(option.name)}</option>`).join('');
 }
@@ -682,6 +710,7 @@ function shellMarkup(content) {
       </div>
       ${appFooterMarkup()}
       ${planComparisonMarkup()}
+      ${logoutConfirmationMarkup()}
     </div>
   `;
 }
@@ -1379,9 +1408,9 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
       ${total > 1 ? `
         <div class="home-shelf-controls" aria-label="Display Case preview controls">
           <button class="home-shelf-control" type="button" data-action="previous-home-shelf" aria-label="Previous recommendation" title="Previous recommendation" ${featuredIndex === 0 ? 'disabled' : ''}>&larr;</button>
-          <span>${escapeHtml(featuredIndex + 1)} of ${escapeHtml(total)}</span>
           <button class="home-shelf-control" type="button" data-action="next-home-shelf" aria-label="Next recommendation" title="Next recommendation" ${featuredIndex === total - 1 ? 'disabled' : ''}>&rarr;</button>
         </div>
+        <p class="home-shelf-position" role="status" aria-live="polite">${escapeHtml(featuredIndex + 1)} of ${escapeHtml(total)}</p>
       ` : ''}
     </div>
   `;
@@ -1533,9 +1562,6 @@ function homeAttentionEmptyMarkup() {
 
 function homePageMarkup() {
   const activeChases = state.vaultPlan?.activeCount ?? state.vault.length;
-  const userPausedChases = state.vault.filter((item) => item.monitoringState === 'PAUSED_USER').length;
-  const planLimitedChases = state.vault.filter((item) => item.monitoringState === 'PAUSED_PLAN_LIMIT').length;
-  const completedChases = state.completedChases?.length ?? 0;
   const alertPreview = state.homeAttentionAlerts.slice(0, 4);
   const personalizedReady = hasPersonalizedDiscoveryAccess();
   const starterPicks = !personalizedReady && state.shelf?.generalDiscovery?.mode === 'STARTER';
@@ -1543,12 +1569,6 @@ function homePageMarkup() {
   const discoveryHeading = homeDiscoveryHeadingCopy(personalizedReady ? 'PERSONALIZED' : starterPicks ? 'STARTER' : weeklyFinds ? 'WEEKLY' : 'FALLBACK');
   const displayCaseItems = homeDisplayCaseItems();
   const watchlistPreview = state.vault.slice(0, 4);
-  const watchlistSummary = [
-    `${activeChases} Watching`,
-    userPausedChases ? `${userPausedChases} Paused` : '',
-    planLimitedChases ? `${planLimitedChases} Paused by plan` : '',
-    `${completedChases} ${completedChases === 1 ? 'Pickup' : 'Pickups'}`
-  ].filter(Boolean).join(' · ');
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
 
@@ -1585,7 +1605,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
         <div class="home-section-heading">
-          <div><h2 id="home-vault-title">Your Watchlist</h2><p class="home-watchlist-summary">${escapeHtml(watchlistSummary)}</p><p>Vaultr is searching for these cards across eBay and supported shops.</p></div>
+          <div><h2 id="home-vault-title">Your Watchlist</h2><p>Vaultr is searching for these cards across eBay and supported shops.</p></div>
           <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
         </div>
         ${watchlistPreview.length
@@ -3243,6 +3263,8 @@ app.addEventListener('click', async (event) => {
   }
 
   const action = target.getAttribute('data-action');
+  const actionMenu = target.closest('.vault-more-actions');
+  if (action && actionMenu) actionMenu.removeAttribute('open');
   if (action === 'revisit-onboarding') {
     if (!state.onboardingLoaded) await loadOnboarding();
     if (state.onboarding?.status === 'IN_PROGRESS') {
@@ -3600,6 +3622,21 @@ app.addEventListener('click', async (event) => {
   if (action === 'logout') {
     if (isPreviewMode) return;
     if (state.activePage === 'settings' && state.settingsDirty && !window.confirm('Discard your unsaved Settings changes?')) return;
+    logoutReturnFocus = target;
+    state.logoutConfirmationOpen = true;
+    renderCurrentPage();
+    document.querySelector('[data-action="cancel-logout"]')?.focus();
+    return;
+  }
+  if (action === 'cancel-logout') {
+    state.logoutConfirmationOpen = false;
+    renderCurrentPage();
+    restoreLogoutTriggerFocus();
+    return;
+  }
+  if (action === 'confirm-logout') {
+    state.logoutConfirmationOpen = false;
+    logoutReturnFocus = null;
     await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => undefined);
     renderSignedOut();
     return;
@@ -3611,6 +3648,45 @@ app.addEventListener('click', async (event) => {
   if (action === 'reload') {
     window.location.reload();
   }
+});
+
+document.addEventListener('pointerdown', (event) => {
+  const activeMenu = event.target instanceof Element ? event.target.closest('.vault-more-actions') : null;
+  document.querySelectorAll('.vault-more-actions[open]').forEach((menu) => {
+    if (menu !== activeMenu) menu.removeAttribute('open');
+  });
+});
+
+document.addEventListener('keydown', (event) => {
+  if (state.logoutConfirmationOpen) {
+    const dialog = document.querySelector('.logout-dialog');
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      state.logoutConfirmationOpen = false;
+      renderCurrentPage();
+      restoreLogoutTriggerFocus();
+      return;
+    }
+    if (event.key === 'Tab' && dialog) {
+      const controls = [...dialog.querySelectorAll('button:not(:disabled), a[href]')];
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    return;
+  }
+  if (event.key !== 'Escape') return;
+  const menu = document.querySelector('.vault-more-actions[open]');
+  if (!menu) return;
+  event.preventDefault();
+  menu.removeAttribute('open');
+  menu.querySelector('summary')?.focus();
 });
 
 app.addEventListener('change', async (event) => {
