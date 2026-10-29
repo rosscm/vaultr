@@ -345,7 +345,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Maximum (${escapeHtml(state.vaultCurrency)})');
     expect(jsResponse.body).toContain('Known shipping is included when available.');
     expect(jsResponse.body).toContain('A number requests that exact listed grade.');
-    expect(jsResponse.body).toContain('Advanced filters and Trusted Shops monitoring are included with Vaultr Plus.');
+    expect(jsResponse.body).toContain('Advanced filters and Trusted Shops monitoring are included with <strong class="inline-vaultr-plus">Vaultr Plus</strong>.');
     expect(jsResponse.body).toContain("state.vaultCardSelection = item.selection");
     expect(jsResponse.body).toContain('body.cardSelectionToken = state.vaultCardSelection.token;');
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
@@ -383,7 +383,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial, label } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
     expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
-    expect(jsResponse.body).toContain('With Vaultr Plus, your Watchlist, Pickups, and feedback also shape a personalized Display Case');
+    expect(jsResponse.body).toContain('With <strong class="inline-vaultr-plus">Vaultr Plus</strong>, your Watchlist, Pickups, and feedback also shape a personalized Display Case');
     expect(jsResponse.body).toContain('Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit.');
     expect(jsResponse.body).not.toContain('function homeHowMarkup()');
     expect(jsResponse.body).not.toContain('home-how-steps');
@@ -468,7 +468,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('<h2 id="home-vault-title">Your Watchlist</h2>');
     expect(jsResponse.body).toContain('Keep track of the cards you’re watching, manage searches, and celebrate your Pickups.');
     expect(jsResponse.body).not.toContain('Automatic filtering is always on');
-    expect(jsResponse.body).not.toContain('<details class="vault-more-actions">');
+    expect(jsResponse.body).toContain('<details class="vault-more-actions">');
     expect(jsResponse.body).toContain('data-action="open-acquire-chase"');
     expect(jsResponse.body).toContain('data-action="open-edit-chase"');
     expect(jsResponse.body).toContain('data-action="pause-chase"');
@@ -605,6 +605,60 @@ describe('web app static routes', () => {
     ], 0).supporting.map((item) => item.name)).toEqual(['Distinct']);
     expect(utilities.homeShelfPresentation([{ name: 'Only', imageUrl: '/only.png' }], 0).supporting).toEqual([]);
     expect(utilities.homeShelfPresentation([], 4).featured).toBeUndefined();
+  });
+
+  it('keeps the Home recommendation action attached and omits unavailable pricing', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function homeShelfFeatureMarkup('), source.indexOf('function starterDiscoveryItems('));
+    const render = new Function(
+      'item',
+      'homeShelfPresentation',
+      'escapeHtml',
+      'formatMoney',
+      'artworkTriggerMarkup',
+      'discoveryCardActionMarkup',
+      'discoveryFeedbackMarkup',
+      `${functionSource}\nreturn homeShelfFeatureMarkup([item], 0, { editorial: true, feedback: false });`
+    ) as (...args: any[]) => string;
+    const renderItem = (item: Record<string, unknown>) => render(
+      item,
+      () => ({ featured: item, featuredIndex: 0, supporting: [] }),
+      String,
+      (amount: number, currency: string) => `${currency} ${amount.toFixed(2)}`,
+      () => '<button class="artwork-trigger">Artwork</button>',
+      () => '<button class="home-shelf-card-action">Add to Watchlist</button>',
+      () => ''
+    );
+
+    const withoutPrice = renderItem({ name: 'Mew', reason: 'Collector context.' });
+    expect(withoutPrice).not.toContain('Pricing unavailable');
+    expect(withoutPrice).not.toContain('home-shelf-price unavailable');
+    expect(withoutPrice.indexOf('Collector context.')).toBeLessThan(withoutPrice.indexOf('Add to Watchlist'));
+
+    const withPrice = renderItem({ name: 'Mew', reason: 'Collector context.', market: { askingTotal: 42, currency: 'CAD' } });
+    expect(withPrice).toContain('CAD 42.00');
+    expect(withPrice.indexOf('Add to Watchlist')).toBeLessThan(withPrice.indexOf('CAD 42.00'));
+  });
+
+  it('summarizes Watchlist criteria and preserves lifecycle action hierarchy', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const cardSource = source.slice(source.indexOf('function vaultCardMarkup('), source.indexOf('function completedChaseMarkup('));
+    expect(cardSource).toContain("'No max set'");
+    expect(cardSource).toContain('<dl class="vault-search-criteria">');
+    expect(cardSource).toContain('class="button-primary vault-view-matches"');
+    expect(cardSource).toContain('class="vault-action-link vault-action-secondary"');
+    expect(cardSource).toContain('<details class="vault-more-actions">');
+    expect(cardSource).toContain('data-action="pause-chase"');
+    expect(cardSource).toContain('data-action="resume-chase"');
+    expect(cardSource).toContain('data-action="open-acquire-chase"');
+    expect(cardSource).toContain('data-action="open-edit-chase"');
+    expect(cardSource).toContain('data-action="open-remove-chase"');
+    expect(cardSource).not.toContain('chase.targetNote');
+    expect(cardSource).not.toContain('chase.negativeKeywords');
+    const completedSource = source.slice(source.indexOf('function completedChaseMarkup('), source.indexOf('function completedChasesSectionMarkup('));
+    expect(completedSource).toContain('data-action="reopen-chase"');
   });
 
   it('keeps Home focused on the compact product promise and one Inbox action', async () => {

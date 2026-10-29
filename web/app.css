@@ -1976,7 +1976,12 @@ a {
 
 .home-shelf-card-action {
   width: fit-content;
-  margin-top: 2px;
+  margin-top: 4px;
+}
+
+.inline-vaultr-plus {
+  color: var(--pink);
+  font-weight: 760;
 }
 
 .home-shelf-control:disabled {
@@ -3113,11 +3118,105 @@ a {
 }
 
 .vault-actions {
+  align-items: center;
   justify-content: flex-start;
-  gap: 4px 14px;
+  gap: 8px 14px;
   margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+}
+
+.vault-actions .vault-view-matches {
+  width: auto;
+  min-height: 36px;
+  padding-inline: 14px;
+}
+
+.vault-action-secondary {
+  color: var(--muted-strong);
+}
+
+.vault-search-criteria {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 20px;
+  margin: 14px 0 0;
+  padding: 12px 0;
+  border-block: 1px solid rgba(211, 196, 255, 0.1);
+}
+
+.vault-search-criteria div {
+  min-width: 0;
+}
+
+.vault-search-criteria dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.vault-search-criteria dd {
+  margin: 4px 0 0;
+  color: var(--muted-strong);
+  font-size: 0.88rem;
+  font-weight: 720;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.vault-more-actions {
+  position: relative;
+}
+
+.vault-more-actions summary {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  padding: 0 7px;
+  color: var(--muted-strong);
+  font-size: 0.86rem;
+  font-weight: 760;
+  cursor: pointer;
+  list-style: none;
+}
+
+.vault-more-actions summary::-webkit-details-marker {
+  display: none;
+}
+
+.vault-more-actions summary::after {
+  content: "\2026";
+  margin-left: 6px;
+}
+
+.vault-more-actions summary:hover,
+.vault-more-actions summary:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.vault-more-actions > div {
+  position: absolute;
+  z-index: 8;
+  right: 0;
+  bottom: calc(100% + 6px);
+  min-width: 154px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.vault-more-actions > div .vault-action-link {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .vault-view-matches {
@@ -3214,11 +3313,6 @@ a {
   padding-block: 12px 4px;
 }
 
-.shelf-plus-intro > div {
-  max-width: var(--page-copy-width);
-}
-
-.shelf-plus-intro h2,
 .shelf-editorial-heading h2 {
   margin: 0;
   font-size: 1.2rem;
@@ -3227,6 +3321,7 @@ a {
 
 .shelf-plus-intro p,
 .shelf-editorial-heading p {
+  max-width: var(--page-copy-width);
   margin: 6px 0 0;
   color: var(--muted);
   font-size: 0.95rem;
@@ -3755,11 +3850,11 @@ a {
 }
 
 .plus-discovery-note {
-  max-width: 78ch;
-  margin: 0;
+  max-width: var(--page-copy-width);
+  margin: 8px 0 0;
   color: var(--muted);
-  font-size: 0.86rem;
-  line-height: 1.5;
+  font-size: 0.94rem;
+  line-height: 1.6;
   text-wrap: pretty;
 }
 
@@ -3909,6 +4004,10 @@ a {
 }
 
 @media (max-width: 820px) {
+  .vault-search-criteria {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .app-footer-region {
     padding-bottom: 70px;
   }
@@ -4106,6 +4205,10 @@ a {
 }
 
 @media (max-width: 560px) {
+  .vault-search-criteria {
+    grid-template-columns: 1fr;
+  }
+
   .vault-limit-warning {
     align-items: flex-start;
     flex-direction: column;
