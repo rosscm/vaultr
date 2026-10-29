@@ -15,6 +15,7 @@ import { __chaseCardCatalogTestHooks, clearChaseCardAutocompleteCache } from '..
 import { getOrCreateOnboardingState } from '../services/onboarding.js';
 import { replaceCardCatalogSourceRecords } from '../services/card-catalog-db.js';
 import { weeklyGeneralDiscoveryPeriodKey } from '../services/weekly-general-discovery.js';
+import { listTrustedShopifyShopNames } from '../services/shopify.js';
 import {
   deleteScheduledDiscoveryDrop,
   scheduledDiscoveryAvailability,
@@ -304,7 +305,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("const appHomePath = isPreviewMode ? '/preview' : '/app';");
     expect(jsResponse.body).toContain("navButton('vault', 'Watchlist')");
     expect(jsResponse.body).toContain("navButton('alerts', 'Inbox')");
-    expect(jsResponse.body).toContain("navButton('shelf', 'Discover')");
+    expect(jsResponse.body).toContain("navButton('shelf', 'Display Case')");
     expect(jsResponse.body).toContain("navButton('plus', 'Vaultr Plus')");
     expect(jsResponse.body).toContain('data-page="plus"');
     expect(jsResponse.body).toContain("plus: '<path");
@@ -465,8 +466,12 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('View Pickup');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">YOUR PLAN</p>');
     expect(jsResponse.body).not.toContain('class="plus-current"');
-    expect(jsResponse.body).toContain('A full personalized Display Case shaped by what you collect, with market context when reliable data is available.');
-    expect(jsResponse.body).toContain('Three general finds each week, starting with collector picks.');
+    expect(jsResponse.body).toContain('A full personalized Display Case shaped by what you collect, with market context when reliable data is available');
+    expect(jsResponse.body).toContain('Three general finds each week, starting with collector picks');
+    expect(jsResponse.body).not.toContain('A full personalized Display Case shaped by what you collect, with market context when reliable data is available.');
+    expect(jsResponse.body).not.toContain('Three general finds each week, starting with collector picks.');
+    expect(jsResponse.body).toContain('Where Vaultr searches');
+    expect(jsResponse.body).toContain('state.vaultOptions?.supportedShopNames');
     expect(jsResponse.body).not.toContain('Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks');
     expect(jsResponse.body).toContain('Priority monitoring with targeted checks');
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
@@ -476,9 +481,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Exact card selected');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">WATCHLIST</p>');
     expect(jsResponse.body).toContain('<h2 id="home-vault-title">Your Watchlist</h2>');
-    expect(jsResponse.body).toContain('Vaultr is searching for these cards across eBay and supported shops.');
+    expect(jsResponse.body).toContain('Vaultr is searching for matching listings for these cards');
     expect(jsResponse.body).not.toContain('Automatic filtering is always on');
-    expect(jsResponse.body).toContain('<details class="vault-more-actions">');
+    expect(jsResponse.body).toContain('<details class="vault-more-actions vault-mobile-actions">');
     expect(jsResponse.body).toContain('data-action="open-acquire-chase"');
     expect(jsResponse.body).toContain('data-action="open-edit-chase"');
     expect(jsResponse.body).toContain('data-action="pause-chase"');
@@ -688,8 +693,10 @@ describe('web app static routes', () => {
     expect(cardSource).toContain("'No max set'");
     expect(cardSource).toContain('<dl class="vault-search-criteria">');
     expect(cardSource).toContain('class="button-primary vault-view-matches"');
-    expect(cardSource).toContain('class="vault-action-link vault-action-secondary"');
-    expect(cardSource).toContain('<details class="vault-more-actions">');
+    expect(cardSource).toContain('class="vault-action-link vault-action-secondary vault-desktop-action"');
+    expect(cardSource).toContain('vault-desktop-action" type="button" data-action="open-edit-chase"');
+    expect(cardSource).toContain('danger vault-desktop-action" type="button" data-action="open-remove-chase"');
+    expect(cardSource).toContain('<details class="vault-more-actions vault-mobile-actions">');
     expect(cardSource).toContain('data-action="pause-chase"');
     expect(cardSource).toContain('data-action="resume-chase"');
     expect(cardSource).toContain('data-action="open-acquire-chase"');
@@ -2477,6 +2484,7 @@ describe('authenticated chase API', () => {
       expect.objectContaining({ tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited' }),
       expect.objectContaining({ tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full' })
     ]);
+    expect(body.options.supportedShopNames).toEqual(listTrustedShopifyShopNames());
     expect(body.options.billing).toEqual({ selfServiceAvailable: false });
     expect(body.items[0].chase).not.toHaveProperty('guildId');
 

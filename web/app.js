@@ -451,7 +451,7 @@ function planComparisonMarkup() {
       <section class="vault-dialog plan-comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-comparison-title">
         <header><p class="eyebrow">PLANS</p><h2 id="plan-comparison-title">Compare plans</h2><p class="dialog-intro">Choose how much room and precision you need. Vaultr checks regularly for new matches. Timing can vary depending on the source and when new listings become available.</p></header>
         <div class="plan-comparison-grid">
-          ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li><li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect, with market context when reliable data is available.' : 'Three general finds each week, starting with collector picks.'}</li></ul></article>`).join('')}
+          ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li><li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect, with market context when reliable data is available' : 'Three general finds each week, starting with collector picks'}</li></ul></article>`).join('')}
         </div>
         ${currentTier === 'FREE' ? '<p class="plan-availability"><strong class="inline-vaultr-plus">Vaultr Plus</strong> is not available for self-service purchase yet.</p>' : ''}
         <footer class="dialog-actions"><button class="button-ghost" type="button" data-action="close-plan-comparison">Close</button><button class="button-primary" type="button" data-page="plus">Explore Plus</button></footer>
@@ -673,7 +673,7 @@ function shellMarkup(content) {
               ${navButton('home', 'Home')}
               ${navButton('vault', 'Watchlist')}
               ${navButton('alerts', 'Inbox')}
-              ${navButton('shelf', 'Discover')}
+              ${navButton('shelf', 'Display Case')}
               ${navButton('plus', 'Vaultr Plus')}
               ${navButton('settings', 'Settings')}
             </nav>
@@ -705,7 +705,7 @@ function shellMarkup(content) {
           ${navButton('home', 'Home')}
           ${navButton('vault', 'Watchlist')}
           ${navButton('alerts', 'Inbox')}
-          ${navButton('shelf', 'Discover')}
+          ${navButton('shelf', 'Display Case')}
         </nav>
       </div>
       ${appFooterMarkup()}
@@ -995,7 +995,7 @@ function plusPlanFeatureList(plan) {
       <li>${plan.monitoringPriority === 'PRIORITY' ? 'Priority monitoring with targeted checks' : 'Standard monitoring with targeted eBay checks'} every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li>
       <li>${plan.advancedFiltering ? 'Precision condition, listing, priority, note, and exclusion controls' : 'Core card, budget, and grading preferences'}</li>
       <li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops monitoring' : 'eBay monitoring'}</li>
-      <li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect, with market context when reliable data is available.' : 'Three general finds each week, starting with collector picks.'}</li>
+      <li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect, with market context when reliable data is available' : 'Three general finds each week, starting with collector picks'}</li>
     </ul>
   `;
 }
@@ -1057,6 +1057,7 @@ function plusPageMarkup() {
   const environmentLabel = state.authConfig?.environment?.label || '';
   const staging = environmentLabel.toLowerCase() === 'staging';
   const billingAvailable = Boolean(state.vaultOptions?.billing?.selfServiceAvailable);
+  const supportedShopNames = state.vaultOptions?.supportedShopNames || [];
   const nextStep = plusNextStep({ isPlus, atLimit, billingAvailable, staging });
   return `
     <section class="plus-page" aria-labelledby="plus-title">
@@ -1068,6 +1069,10 @@ function plusPageMarkup() {
           ${plans.map((plan) => `<article class="plus-plan${plan.tier === currentTier ? ' current' : ''}${plan.tier === 'PRO' ? ' featured' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : plan.tier === 'PRO' ? 'VAULTR PLUS' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3>${plusPlanFeatureList(plan)}</article>`).join('')}
         </div>
         <p class="plus-discovery-note">Free starts with collector picks, then brings three general finds each week. <strong class="inline-vaultr-plus">Vaultr Plus</strong> adds a full personalized Display Case once Vaultr has enough collecting history to understand your taste.</p>
+      </section>
+      <section class="plus-source-note" aria-labelledby="plus-source-title">
+        <div><p class="eyebrow">LISTING SOURCES</p><h2 id="plus-source-title">Where Vaultr searches</h2><p>eBay is available to everyone. <strong class="inline-vaultr-plus">Vaultr Plus</strong> can also search supported card shops when available. We’ll continue expanding supported sources over time.</p></div>
+        ${supportedShopNames.length ? `<ul aria-label="Supported card shops">${supportedShopNames.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul>` : ''}
       </section>
       <section class="plus-next-step" aria-labelledby="plus-next-title">
         <div><p class="eyebrow">NEXT STEP</p><h2 id="plus-next-title">${escapeHtml(nextStep.heading)}</h2><p>${inlineVaultrPlusCopy(nextStep.copy)}</p></div>
@@ -1605,7 +1610,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
         <div class="home-section-heading">
-          <div><h2 id="home-vault-title">Your Watchlist</h2><p>Vaultr is searching for these cards across eBay and supported shops.</p></div>
+          <div><h2 id="home-vault-title">Your Watchlist</h2><p>Vaultr is searching for matching listings for these cards</p></div>
           <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
         </div>
         ${watchlistPreview.length
@@ -1830,9 +1835,11 @@ function vaultCardMarkup(item) {
         <dl class="vault-search-criteria">${criteria.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>
         <div class="vault-actions">
           <button class="button-primary vault-view-matches" type="button" data-action="view-chase-matches" data-chase-id="${escapeHtml(chase.id)}" data-card-name="${escapeHtml(chase.cardName)}">View matches <span aria-hidden="true">→</span></button>
-          <button class="vault-action-link vault-action-secondary" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>
-          ${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link vault-action-secondary" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link vault-action-secondary" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}
-          <details class="vault-more-actions"><summary>More</summary><div><button class="vault-action-link" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button><button class="vault-action-link danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button></div></details>
+          <button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button>
+          <button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>
+          ${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}
+          <button class="vault-action-link danger vault-desktop-action" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button>
+          <details class="vault-more-actions vault-mobile-actions"><summary>More</summary><div><button class="vault-action-link" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button><button class="vault-action-link" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}<button class="vault-action-link danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button></div></details>
         </div>
       </div>
     </article>

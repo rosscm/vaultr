@@ -3336,6 +3336,20 @@ a {
   line-height: 1;
 }
 
+.vault-actions .vault-desktop-action {
+  min-height: 38px;
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.vault-actions .vault-desktop-action.danger {
+  padding-inline: 10px;
+}
+
+.vault-mobile-actions {
+  display: none;
+}
+
 .vault-search-criteria {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3368,6 +3382,48 @@ a {
 
 .vault-more-actions {
   position: relative;
+}
+
+.plus-source-note {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 18px 32px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.plus-source-note h2 {
+  margin: 3px 0 6px;
+  font-size: 1.05rem;
+}
+
+.plus-source-note p:not(.eyebrow) {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.plus-source-note ul {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plus-source-note li {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: var(--muted-strong);
+  font-size: 0.76rem;
+  font-weight: 720;
 }
 
 .vault-more-actions summary {
@@ -4406,6 +4462,23 @@ a {
   .source-select {
     width: 100%;
     max-width: none;
+  }
+
+  .vault-actions .vault-desktop-action {
+    display: none;
+  }
+
+  .vault-mobile-actions {
+    display: block;
+  }
+
+  .plus-source-note {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .plus-source-note ul {
+    justify-content: flex-start;
   }
 }
 

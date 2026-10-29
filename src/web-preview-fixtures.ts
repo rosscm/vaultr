@@ -6,6 +6,7 @@ import {
   PRIORITY_CHOICES
 } from './services/chase-options.js';
 import { getEntitlementsForTier } from './services/entitlements.js';
+import { listTrustedShopifyShopNames } from './services/shopify.js';
 import type { PlanTier } from './types.js';
 
 const images = {
@@ -139,6 +140,7 @@ export const WEB_PREVIEW_CHASES = {
     listingTypes: LISTING_TYPE_CHOICES,
     priorities: PRIORITY_CHOICES,
     plans: [previewPlanOption('FREE'), previewPlanOption('PRO')],
+    supportedShopNames: listTrustedShopifyShopNames(),
     billing: { selfServiceAvailable: false }
   }
 };

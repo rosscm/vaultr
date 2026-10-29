@@ -61,6 +61,7 @@ import { tasteOnboardingEnabled } from './services/features.js';
 import { weeklyGeneralDiscoveryForUser, weeklyGeneralDiscoveryPeriodKey } from './services/weekly-general-discovery.js';
 import { APPROVED_STARTER_DISCOVERY } from './services/starter-discovery.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
+import { listTrustedShopifyShopNames } from './services/shopify.js';
 import {
   createWebSession,
   resolveWebSession,
@@ -379,6 +380,7 @@ function vaultOptions() {
     listingTypes: LISTING_TYPE_CHOICES,
     priorities: PRIORITY_CHOICES,
     plans,
+    supportedShopNames: listTrustedShopifyShopNames(),
     billing: { selfServiceAvailable: false }
   };
 }
