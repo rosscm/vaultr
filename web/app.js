@@ -431,7 +431,7 @@ function planComparisonMarkup() {
       <section class="vault-dialog plan-comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-comparison-title">
         <header><p class="eyebrow">PLANS</p><h2 id="plan-comparison-title">Compare plans</h2><p class="dialog-intro">Choose how much room and precision you need. Check intervals are targets, not guaranteed notification times.</p></header>
         <div class="plan-comparison-grid">
-          ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li><li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect.' : 'Three general finds each week, starting with collector picks.'}</li></ul></article>`).join('')}
+          ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li><li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect, with market context when reliable data is available.' : 'Three general finds each week, starting with collector picks.'}</li></ul></article>`).join('')}
         </div>
         ${currentTier === 'FREE' ? '<p class="plan-availability">Vaultr Plus is not available for self-service purchase yet.</p>' : ''}
         <footer class="dialog-actions"><button class="button-ghost" type="button" data-action="close-plan-comparison">Close</button><button class="button-primary" type="button" data-page="plus">Explore Plus</button></footer>
@@ -943,7 +943,7 @@ function plusPlanFeatureList(plan) {
       <li>${plan.monitoringPriority === 'PRIORITY' ? 'Priority monitoring with targeted checks' : 'Standard monitoring with targeted eBay checks'} every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li>
       <li>${plan.advancedFiltering ? 'Precision condition, listing, priority, note, and exclusion controls' : 'Core card, budget, and grading preferences'}</li>
       <li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops monitoring' : 'eBay monitoring'}</li>
-      <li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect.' : 'Three general finds each week, starting with collector picks.'}</li>
+      <li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect, with market context when reliable data is available.' : 'Three general finds each week, starting with collector picks.'}</li>
     </ul>
   `;
 }
@@ -1499,7 +1499,7 @@ function homePageMarkup() {
         <div class="home-intro-primary">
           <p class="home-greeting">Welcome back, ${escapeHtml(userDisplayName(state.user))}</p>
           <h1 id="home-title">Less searching. <span>More collecting.</span></h1>
-          <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit. As you watch, pick up, and rate cards, Vaultr learns your taste and helps surface your next favourite.</p>
+          <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit. With Vaultr Plus, your Watchlist, Pickups, and feedback also shape a personalized Display Case to help surface your next favourite.</p>
           <div class="home-intro-actions">
             <button class="button-primary home-add-chase" type="button" data-action="open-add-chase" ${state.vaultLoaded ? '' : 'disabled'}>Add to Watchlist</button>
           </div>
@@ -1549,7 +1549,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
         <div class="home-section-heading">
-          <div><p class="eyebrow">WATCHLIST</p><h2 id="home-vault-title">Current chases</h2><p>Keep track of your chases, manage searches, and celebrate your Pickups.</p></div>
+          <div><p class="eyebrow">WATCHLIST</p><h2 id="home-vault-title">Your Watchlist</h2><p>Keep track of the cards you’re watching, manage searches, and celebrate your Pickups.</p></div>
           <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
         </div>
         <div class="home-vault-strip">
@@ -1910,6 +1910,7 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
   const marketUnavailable = item.market?.status === 'EMPTY' || item.market?.status === 'NO_ACCEPTED_SAMPLES'
     ? 'No reliable market estimate yet'
     : 'Pricing unavailable';
+  const showMarket = Boolean(price) || !editorial;
   return `
     <article class="shelf-card">
       ${item.imageUrl ? artworkTriggerMarkup({
@@ -1927,10 +1928,10 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
         ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
         ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
-        <div class="shelf-card-footer">
-          <div class="shelf-market-status">
+        <div class="shelf-card-footer${showMarket ? '' : ' no-market'}">
+          ${showMarket ? `<div class="shelf-market-status">
             ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
-          </div>
+          </div>` : ''}
           <div class="shelf-card-actions">
             ${discoveryCardPrimaryActionMarkup(item)}
             ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}

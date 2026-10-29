@@ -383,6 +383,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial, label } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
     expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
+    expect(jsResponse.body).toContain('With Vaultr Plus, your Watchlist, Pickups, and feedback also shape a personalized Display Case');
     expect(jsResponse.body).toContain('Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit.');
     expect(jsResponse.body).not.toContain('function homeHowMarkup()');
     expect(jsResponse.body).not.toContain('home-how-steps');
@@ -454,7 +455,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('View Pickup');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">YOUR PLAN</p>');
     expect(jsResponse.body).not.toContain('class="plus-current"');
-    expect(jsResponse.body).toContain('A full personalized Display Case shaped by what you collect.');
+    expect(jsResponse.body).toContain('A full personalized Display Case shaped by what you collect, with market context when reliable data is available.');
     expect(jsResponse.body).toContain('Three general finds each week, starting with collector picks.');
     expect(jsResponse.body).not.toContain('Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks');
     expect(jsResponse.body).toContain('Priority monitoring with targeted checks');
@@ -464,8 +465,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('discovery-saved-action');
     expect(jsResponse.body).toContain('Exact card selected');
     expect(jsResponse.body).toContain('<p class="eyebrow">WATCHLIST</p>');
-    expect(jsResponse.body).toContain('<h2 id="home-vault-title">Current chases</h2>');
-    expect(jsResponse.body).toContain('Keep track of your chases, manage searches, and celebrate your Pickups.');
+    expect(jsResponse.body).toContain('<h2 id="home-vault-title">Your Watchlist</h2>');
+    expect(jsResponse.body).toContain('Keep track of the cards you’re watching, manage searches, and celebrate your Pickups.');
     expect(jsResponse.body).not.toContain('Automatic filtering is always on');
     expect(jsResponse.body).not.toContain('<details class="vault-more-actions">');
     expect(jsResponse.body).toContain('data-action="open-acquire-chase"');
@@ -719,6 +720,8 @@ describe('web app static routes', () => {
     expect(actionRow).toContain('discoveryCardPrimaryActionMarkup(item)');
     expect(actionRow).toContain('View on eBay');
     expect(cardSource.match(/class="shelf-card-actions"/g)).toHaveLength(1);
+    expect(cardSource).toContain('const showMarket = Boolean(price) || !editorial;');
+    expect(cardSource).toContain("shelf-card-footer${showMarket ? '' : ' no-market'}");
     expect(cardSource.indexOf('shelf-market-status')).toBeLessThan(cardSource.indexOf('shelf-card-actions'));
     expect(cardSource.indexOf('shelf-card-actions')).toBeLessThan(cardSource.indexOf('discoveryFeedbackMarkup(item)'));
   });

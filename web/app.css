@@ -23,6 +23,7 @@
   --shadow-md: 0 20px 55px rgba(2, 1, 8, 0.28);
   --focus: 0 0 0 3px rgba(121, 185, 255, 0.42);
   --ease: 180ms ease;
+  --page-copy-width: 56rem;
 }
 
 * {
@@ -603,7 +604,7 @@ a {
 .page-header {
   display: grid;
   gap: 10px;
-  max-width: 720px;
+  max-width: var(--page-copy-width);
 }
 
 .page-header > div {
@@ -611,12 +612,9 @@ a {
   gap: 10px;
 }
 
-.shelf-page-header {
-  max-width: min(920px, 100%);
-}
-
-.shelf-page-header p:not(.eyebrow) {
-  max-width: 780px;
+.page-header > p,
+.vault-page-header > div > p {
+  max-width: var(--page-copy-width);
 }
 
 .eyebrow {
@@ -2452,6 +2450,10 @@ a {
   padding-top: 10px;
 }
 
+.shelf-card-footer.no-market {
+  grid-template-rows: minmax(38px, auto);
+}
+
 .shelf-price {
   display: flex;
   gap: 8px;
@@ -3208,12 +3210,12 @@ a {
 .shelf-plus-intro {
   display: grid;
   justify-items: start;
-  gap: 14px;
+  gap: 18px;
   padding-block: 12px 4px;
 }
 
 .shelf-plus-intro > div {
-  max-width: 72ch;
+  max-width: var(--page-copy-width);
 }
 
 .shelf-plus-intro h2,
@@ -3236,7 +3238,7 @@ a {
 }
 
 .shelf-editorial-heading {
-  padding-top: 10px;
+  padding-top: 14px;
 }
 
 .shelf-personalized-note {
