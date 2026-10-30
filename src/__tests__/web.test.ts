@@ -628,6 +628,18 @@ describe('web app static routes', () => {
     expect(render(false, 'READY')).toContain('Step 4 of 4');
   });
 
+  it('separates onboarding concepts from progress and keeps CoroCoro Mew in front', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const welcome = source.slice(source.indexOf('function onboardingWelcomeMarkup('), source.indexOf('function onboardingPageMarkup('));
+    const page = source.slice(source.indexOf('function onboardingPageMarkup('), source.indexOf('function alertsPageMarkup('));
+
+    expect(welcome).toContain('<h2 id="onboarding-primer-title">How KeepSeek works</h2>');
+    expect(welcome).not.toContain('<span aria-hidden="true">1</span>');
+    expect(welcome).toContain('class="onboarding-art-card art-card-three" src="/onboarding-art/mew-corocoro-promo-151.webp"');
+    expect(page).toContain('${content}${onboardingStepIndicator(step)}</div>');
+  });
+
   it('keeps the Home Display Case fan bounded to distinct available artwork', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';

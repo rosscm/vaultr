@@ -824,6 +824,10 @@ a {
   font-weight: 650;
 }
 
+.onboarding-content > .onboarding-steps {
+  margin-top: 8px;
+}
+
 .onboarding-progress-track {
   width: 100%;
   height: 4px;
@@ -993,30 +997,26 @@ a {
 
 .onboarding-primer {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   margin: 2px 0 0;
+}
+
+.onboarding-primer h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.onboarding-primer ul {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .onboarding-primer li {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-}
-
-.onboarding-primer li > span {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255, 211, 135, 0.34);
-  border-radius: 50%;
-  color: var(--gold);
-  background: rgba(255, 211, 135, 0.08);
-  font-size: 0.76rem;
-  font-weight: 850;
+  min-width: 0;
 }
 
 .onboarding-primer strong {
@@ -1033,7 +1033,7 @@ a {
 
 .onboarding-art-stack {
   position: relative;
-  width: min(100%, 350px);
+  width: min(100%, 410px);
   aspect-ratio: 0.83;
   justify-self: center;
 }
@@ -1049,7 +1049,7 @@ a {
 
 .onboarding-art-card {
   position: absolute;
-  width: 58%;
+  width: 54%;
   aspect-ratio: 600 / 825;
   object-fit: cover;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1059,24 +1059,28 @@ a {
 }
 
 .onboarding-art-card.art-card-one {
-  left: 1%;
-  top: 13%;
-  transform: rotate(-7deg);
+  left: 0;
+  top: 15%;
+  transform: rotate(-10deg);
   filter: brightness(0.78);
 }
 
 .onboarding-art-card.art-card-two {
-  right: 1%;
-  top: 10%;
-  transform: rotate(8deg);
+  right: 0;
+  top: 13%;
+  transform: rotate(10deg);
   filter: brightness(0.82);
 }
 
 .onboarding-art-card.art-card-three {
-  left: 21%;
-  top: 2%;
-  z-index: 2;
-  transform: rotate(1deg);
+  left: 23%;
+  top: 4%;
+  z-index: 3;
+  transform: rotate(0);
+}
+
+.onboarding-content.onboarding-welcome > .onboarding-steps {
+  grid-column: 1 / -1;
 }
 
 .onboarding-art-stack small {
@@ -4634,6 +4638,11 @@ a {
 
   .onboarding-welcome-copy h1 {
     font-size: clamp(2rem, 10vw, 2.65rem);
+  }
+
+  .onboarding-primer ul {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .onboarding-art-stack {

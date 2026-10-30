@@ -1133,17 +1133,20 @@ function onboardingWelcomeMarkup(revisit = false) {
       <p class="eyebrow">WELCOME TO KEEPSEEK</p>
       <h1 id="onboarding-title">Keep what you love. Seek what comes next.</h1>
       <p class="onboarding-intro">Tell KeepSeek what you’re looking for and what matters to you. It’ll look for matching listings and help you discover more of what you love.</p>
-      <ol class="onboarding-primer" aria-label="How KeepSeek works">
-        <li><span aria-hidden="true">1</span><div><strong>Chase</strong><p>Choose what you want and the preferences that matter to you.</p></div></li>
-        <li><span aria-hidden="true">2</span><div><strong>Watch</strong><p>Review matching listings in your Inbox.</p></div></li>
-        <li><span aria-hidden="true">3</span><div><strong>Discover</strong><p>Explore recommendations shaped by your collection as your Collector Profile grows.</p></div></li>
-      </ol>
+      <section class="onboarding-primer" aria-labelledby="onboarding-primer-title">
+        <h2 id="onboarding-primer-title">How KeepSeek works</h2>
+        <ul>
+          <li><div><strong>Chase</strong><p>Choose what you want and the preferences that matter to you.</p></div></li>
+          <li><div><strong>Watch</strong><p>Review matching listings in your Inbox.</p></div></li>
+          <li><div><strong>Discover</strong><p>Explore recommendations shaped by your collection as your Collector Profile grows.</p></div></li>
+        </ul>
+      </section>
       <div class="onboarding-actions onboarding-welcome-actions"><button class="button-primary" type="button" data-action="onboarding-continue">Get started</button><button class="onboarding-skip" type="button" data-action="${revisit ? 'exit-onboarding-revisit' : 'skip-onboarding'}">${revisit ? 'Back to Settings' : 'Skip setup'}</button></div>
     </div>
     <div class="onboarding-art-stack" aria-hidden="true">
-      <img class="onboarding-art-card art-card-one" src="/onboarding-art/mew-corocoro-promo-151.webp" alt="">
-      <img class="onboarding-art-card art-card-two" src="/onboarding-art/pichu-expedition-022.webp" alt="">
-      <img class="onboarding-art-card art-card-three" src="/onboarding-art/sylveon-ex-212.webp" alt="">
+      <img class="onboarding-art-card art-card-three" src="/onboarding-art/mew-corocoro-promo-151.webp" alt="">
+      <img class="onboarding-art-card art-card-one" src="/onboarding-art/pichu-expedition-022.webp" alt="">
+      <img class="onboarding-art-card art-card-two" src="/onboarding-art/sylveon-ex-212.webp" alt="">
       <small>Illustrative card artwork</small>
     </div>
   `;
@@ -1164,7 +1167,7 @@ function onboardingPageMarkup() {
   if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">Inspect the shared Watchlist form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Watchlist form</button></div>`;
   if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'You already have a card on your Watchlist. You’re ready to continue.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${!revisit && state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${!revisit && state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
   if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Matching listings will appear in your Inbox as KeepSeek finds them. Your Watchlist and Pickups also shape your Collector Profile. With <strong class="inline-vaultr-plus">KeepSeek Plus</strong>, that profile can power a personalized Display Case once KeepSeek has enough to work with.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
-  return `<section class="onboarding-page${step === 'WELCOME' ? ' welcome' : ''}" aria-labelledby="onboarding-title">${onboardingStepIndicator(step)}${previewNotice}${vaultNoticeMarkup('onboarding')}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content${step === 'WELCOME' ? ' onboarding-welcome' : ''}">${content}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
+  return `<section class="onboarding-page${step === 'WELCOME' ? ' welcome' : ''}" aria-labelledby="onboarding-title">${previewNotice}${vaultNoticeMarkup('onboarding')}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content${step === 'WELCOME' ? ' onboarding-welcome' : ''}">${content}${onboardingStepIndicator(step)}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
 }
 
 function alertsPageMarkup(inner) {
