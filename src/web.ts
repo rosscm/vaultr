@@ -109,6 +109,8 @@ const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/app/': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
   '/app.css': { file: 'app.css', contentType: 'text/css; charset=utf-8' },
   '/app.js': { file: 'app.js', contentType: 'text/javascript; charset=utf-8' },
+  '/vaultr-icon.svg': { file: 'assets/brand/vaultr-icon.svg', contentType: 'image/svg+xml' },
+  '/vaultr-lockup-dark.svg': { file: 'assets/brand/vaultr-lockup-dark.svg', contentType: 'image/svg+xml' },
   '/onboarding-art/mew-corocoro-promo-151.webp': { file: 'assets/onboarding/mew-corocoro-promo-151.webp', contentType: 'image/webp' },
   '/onboarding-art/pichu-expedition-022.webp': { file: 'assets/onboarding/pichu-expedition-022.webp', contentType: 'image/webp' },
   '/onboarding-art/sylveon-ex-212.webp': { file: 'assets/onboarding/sylveon-ex-212.webp', contentType: 'image/webp' },

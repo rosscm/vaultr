@@ -628,7 +628,7 @@ function signedOutMarkup() {
     <main id="app-main" class="signed-out">
       <section class="signed-out-card" aria-labelledby="signed-out-title">
         ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
-        <div class="boot-mark" aria-hidden="true"><span>V</span></div>
+        <img class="boot-logo" src="/vaultr-icon.svg" alt="" aria-hidden="true">
         <h1 id="signed-out-title">Your collection, watched.</h1>
         <p>Track the cards you're chasing, review matches, and discover cards picked around your collection.</p>
         ${confirmationReady ? `
@@ -665,8 +665,7 @@ function shellMarkup(content) {
         <header class="desktop-header">
           <div class="desktop-header-inner">
             <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
-              <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-              <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
+              <img class="brand-lockup" src="/vaultr-lockup-dark.svg" alt="" aria-hidden="true">
               ${environmentBadgeMarkup()}
             </a>
             <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
@@ -686,8 +685,7 @@ function shellMarkup(content) {
         </header>
         <header class="mobile-header">
         <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
-          <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-          <span class="brand-copy"><strong>Vaultr</strong><small>For collectors</small></span>
+          <img class="brand-icon" src="/vaultr-icon.svg" alt="" aria-hidden="true">
           ${environmentBadgeMarkup()}
         </a>
         <div class="user-area">
@@ -721,7 +719,7 @@ function appFooterMarkup() {
       <div class="app-footer">
         <div class="app-footer-brand">
           <a class="app-footer-lockup" href="#home" data-page="home" aria-label="Vaultr home">
-            <span class="brand-mark" aria-hidden="true"><span>V</span></span>
+            <img class="brand-icon" src="/vaultr-icon.svg" alt="" aria-hidden="true">
             <div><strong>Vaultr</strong><p>Build your Vault. Chase your grails. Discover what you love next.</p></div>
           </a>
           <p class="app-footer-credit">Built with <span aria-label="love">♥</span> by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
@@ -3215,7 +3213,7 @@ async function bootstrap() {
     app.innerHTML = `
       <main id="app-main" class="signed-out">
         <section class="signed-out-card">
-          <div class="boot-mark" aria-hidden="true"><span>V</span></div>
+          <img class="boot-logo" src="/vaultr-icon.svg" alt="" aria-hidden="true">
           <h1>Vaultr could not open.</h1>
           <p>Refresh the page and try again.</p>
           <button class="button-primary" type="button" data-action="reload">Try again</button>

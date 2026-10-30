@@ -265,6 +265,8 @@ describe('web app static routes', () => {
     const jsResponse = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const fontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/roboto-latin-variable.woff2' }, { config });
     const onboardingArtResponse = await handleWebRequest({ method: 'GET', url: '/onboarding-art/mew-corocoro-promo-151.webp' }, { config });
+    const iconResponse = await handleWebRequest({ method: 'GET', url: '/vaultr-icon.svg' }, { config });
+    const lockupResponse = await handleWebRequest({ method: 'GET', url: '/vaultr-lockup-dark.svg' }, { config });
 
     expect(appResponse.status).toBe(200);
     expect(appResponse.headers?.['Content-Type']).toBe('text/html; charset=utf-8');
@@ -280,6 +282,11 @@ describe('web app static routes', () => {
     expect(onboardingArtResponse.status).toBe(200);
     expect(onboardingArtResponse.headers?.['Content-Type']).toBe('image/webp');
     expect(onboardingArtResponse.body?.slice(0, 4)).toBe('RIFF');
+    expect(iconResponse.status).toBe(200);
+    expect(iconResponse.headers?.['Content-Type']).toBe('image/svg+xml');
+    expect(lockupResponse.status).toBe(200);
+    expect(lockupResponse.headers?.['Content-Type']).toBe('image/svg+xml');
+    expect(appResponse.body).toContain('<link rel="icon" href="/vaultr-icon.svg" type="image/svg+xml">');
     expect(cssResponse.body).not.toContain('@font-face');
     expect(cssResponse.body).toContain('font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
     expect(jsResponse.body).toContain('class="desktop-header"');
@@ -543,7 +550,9 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('font-family: "Roboto", "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
     expect(cssResponse.body).toContain('.app-footer-links h2');
     expect(cssResponse.body).toContain('.app-footer-links a');
-    expect(cssResponse.body).toContain('.app-footer-lockup .brand-mark');
+    expect(cssResponse.body).toContain('.app-footer-lockup .brand-icon');
+    expect(jsResponse.body).toContain('class="brand-lockup" src="/vaultr-lockup-dark.svg"');
+    expect(jsResponse.body).toContain('class="brand-icon" src="/vaultr-icon.svg"');
     expect(cssResponse.body).toContain('flex: 0 0 44px;');
     expect(cssResponse.body).toContain('@media (max-width: 1100px)');
     expect(cssResponse.body).toContain('@media (max-width: 1040px)');
