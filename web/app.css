@@ -456,6 +456,18 @@ a {
   display: none;
 }
 
+.desktop-nav .nav-button[data-page="plus"] {
+  color: var(--gold);
+}
+
+.desktop-nav .nav-button[data-page="plus"]:hover {
+  color: #ffe6a3;
+}
+
+.desktop-nav .nav-button[data-page="plus"][aria-selected="true"]::before {
+  background: var(--gold);
+}
+
 .nav-icon {
   width: 18px;
   height: 18px;

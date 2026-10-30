@@ -673,7 +673,7 @@ function shellMarkup(content) {
               ${navButton('vault', 'Watchlist')}
               ${navButton('alerts', 'Inbox')}
               ${navButton('shelf', 'Display Case')}
-              ${navButton('plus', 'KeepSeek Plus')}
+              ${navButton('plus', 'Plus')}
               ${navButton('settings', 'Settings')}
             </nav>
             <div class="user-area">

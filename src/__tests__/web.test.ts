@@ -322,7 +322,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("navButton('vault', 'Watchlist')");
     expect(jsResponse.body).toContain("navButton('alerts', 'Inbox')");
     expect(jsResponse.body).toContain("navButton('shelf', 'Display Case')");
-    expect(jsResponse.body).toContain("navButton('plus', 'KeepSeek Plus')");
+    expect(jsResponse.body).toContain("navButton('plus', 'Plus')");
     expect(jsResponse.body).toContain('data-page="plus"');
     expect(jsResponse.body).toContain("plus: '<path");
     expect(jsResponse.body).toContain('function iconMarkup(name)');
