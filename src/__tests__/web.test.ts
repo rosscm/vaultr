@@ -484,6 +484,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('A full personalized Display Case shaped by what you collect, with market context when reliable data is available.');
     expect(jsResponse.body).not.toContain('Three general finds each week, starting with collector picks.');
     expect(jsResponse.body).toContain('Where Vaultr searches');
+    expect(jsResponse.body).toContain('Choose what fits your collection');
+    expect(jsResponse.body).toContain('How discovery changes with Plus');
     expect(jsResponse.body).toContain('state.vaultOptions?.supportedShopNames');
     expect(jsResponse.body).not.toContain('Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks');
     expect(jsResponse.body).toContain('Priority monitoring with targeted checks');

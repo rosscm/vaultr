@@ -4120,8 +4120,24 @@ a {
 }
 
 .plus-discovery-note {
+  display: grid;
+  gap: 6px;
   max-width: var(--page-copy-width);
-  margin: 8px 0 0;
+  margin: 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.plus-discovery-note h2,
+.plus-discovery-note p {
+  margin: 0;
+}
+
+.plus-discovery-note h2 {
+  font-size: 1.2rem;
+}
+
+.plus-discovery-note > p:last-child {
   color: var(--muted);
   font-size: 0.94rem;
   line-height: 1.6;

@@ -1062,11 +1062,15 @@ function plusPageMarkup() {
       ${header}
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. No plan changes can be made here.</p>' : ''}
       <section class="plus-comparison" aria-labelledby="plus-comparison-title">
-        <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">Choose the room and precision that fit your collection</h2><p>Vaultr checks regularly for new matches. Timing can vary depending on the source and when new listings become available.</p></div>
+        <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">Choose what fits your collection</h2></div>
         <div class="plus-plan-grid">
           ${plans.map((plan) => `<article class="plus-plan${plan.tier === currentTier ? ' current' : ''}${plan.tier === 'PRO' ? ' featured' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : plan.tier === 'PRO' ? 'VAULTR PLUS' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3>${plusPlanFeatureList(plan)}</article>`).join('')}
         </div>
-        <p class="plus-discovery-note">Free starts with collector picks, then brings three general finds each week. <strong class="inline-vaultr-plus">Vaultr Plus</strong> adds a full personalized Display Case once Vaultr has enough collecting history to understand your taste.</p>
+      </section>
+      <section class="plus-discovery-note" aria-labelledby="plus-discovery-title">
+        <p class="eyebrow">DISCOVERY</p>
+        <h2 id="plus-discovery-title">How discovery changes with Plus</h2>
+        <p>Free starts with collector picks, then brings three general finds each week. <strong class="inline-vaultr-plus">Vaultr Plus</strong> adds a full personalized Display Case once Vaultr has enough collecting history to understand your taste.</p>
       </section>
       <section class="plus-source-note" aria-labelledby="plus-source-title">
         <div><p class="eyebrow">LISTING SOURCES</p><h2 id="plus-source-title">Where Vaultr searches</h2><p>eBay is available to everyone. <strong class="inline-vaultr-plus">Vaultr Plus</strong> can also search supported card shops when available. We’ll continue expanding supported sources over time.</p></div>
