@@ -558,10 +558,10 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('font-family: "Roboto", "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
     expect(cssResponse.body).toContain('.app-footer-links h2');
     expect(cssResponse.body).toContain('.app-footer-links a');
-    expect(cssResponse.body).toContain('.app-footer-lockup .brand-icon');
+    expect(cssResponse.body).toContain('.app-footer-lockup .brand-lockup');
     expect(jsResponse.body).toContain('class="brand-lockup" src="/keepseek-lockup-dark.svg"');
     expect(jsResponse.body).toContain('class="brand-icon" src="/keepseek-icon.svg"');
-    expect(cssResponse.body).toContain('flex: 0 0 44px;');
+    expect(cssResponse.body).toContain('width: 142px;');
     expect(cssResponse.body).toContain('@media (max-width: 1100px)');
     expect(cssResponse.body).toContain('@media (max-width: 1040px)');
     expect(cssResponse.body).toContain('@media (max-width: 640px)');

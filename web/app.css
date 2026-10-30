@@ -1932,10 +1932,9 @@ a {
   text-decoration: none;
 }
 
-.app-footer-lockup .brand-icon {
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
+.app-footer-lockup .brand-lockup {
+  width: 142px;
+  height: 32px;
 }
 
 .app-footer-lockup p,
@@ -1987,16 +1986,8 @@ a {
   box-shadow: var(--focus);
 }
 
-.app-footer-credit a,
-.app-footer-lockup strong {
+.app-footer-credit a {
   color: inherit;
-}
-
-.app-footer-lockup strong {
-  font-size: 1rem;
-  font-weight: 700;
-  line-height: normal;
-  letter-spacing: 0;
 }
 
 .home-shelf-copy .home-shelf-details {

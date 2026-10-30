@@ -719,8 +719,7 @@ function appFooterMarkup() {
       <div class="app-footer">
         <div class="app-footer-brand">
           <a class="app-footer-lockup" href="#home" data-page="home" aria-label="KeepSeek home">
-            <img class="brand-icon" src="/keepseek-icon.svg" alt="">
-            <div><strong>KeepSeek</strong><p>Keep what you love. Seek what comes next.</p></div>
+            <div><img class="brand-lockup" src="/keepseek-lockup-dark.svg" alt=""><p>Keep what you love. Seek what comes next.</p></div>
           </a>
           <p class="app-footer-credit">Built with <span aria-label="love">♥</span> by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
         </div>
