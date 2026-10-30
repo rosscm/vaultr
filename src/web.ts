@@ -120,7 +120,8 @@ const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/onboarding-art/pichu-expedition-022.webp': { file: 'assets/onboarding/pichu-expedition-022.webp', contentType: 'image/webp' },
   '/onboarding-art/sylveon-ex-212.webp': { file: 'assets/onboarding/sylveon-ex-212.webp', contentType: 'image/webp' },
   '/fonts/roboto-latin-variable.woff2': { file: 'fonts/roboto-latin-variable.woff2', contentType: 'font/woff2' },
-  '/fonts/sora-latin-600-800.woff2': { file: 'fonts/sora-latin-600-800.woff2', contentType: 'font/woff2' }
+  '/fonts/sora-latin-600-800.woff2': { file: 'fonts/sora-latin-600-800.woff2', contentType: 'font/woff2' },
+  '/fonts/manrope-latin-400-800.woff2': { file: 'fonts/manrope-latin-400-800.woff2', contentType: 'font/woff2' }
 };
 const LEGAL_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/privacy': { file: 'privacy.html', contentType: 'text/html; charset=utf-8' },
@@ -128,7 +129,9 @@ const LEGAL_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/terms': { file: 'terms.html', contentType: 'text/html; charset=utf-8' },
   '/terms/': { file: 'terms.html', contentType: 'text/html; charset=utf-8' },
   '/legal.css': { file: 'styles.css', contentType: 'text/css; charset=utf-8' },
-  '/legal-favicon.svg': { file: 'assets/favicon.svg', contentType: 'image/svg+xml' }
+  '/legal-favicon.svg': { file: 'assets/favicon.svg', contentType: 'image/svg+xml' },
+  '/assets/manrope-latin-400-800.woff2': { file: 'assets/manrope-latin-400-800.woff2', contentType: 'font/woff2' },
+  '/assets/sora-latin-600-800.woff2': { file: 'assets/sora-latin-600-800.woff2', contentType: 'font/woff2' }
 };
 
 type FetchLike = typeof fetch;

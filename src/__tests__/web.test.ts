@@ -265,6 +265,7 @@ describe('web app static routes', () => {
     const jsResponse = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const fontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/roboto-latin-variable.woff2' }, { config });
     const displayFontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/sora-latin-600-800.woff2' }, { config });
+    const bodyFontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/manrope-latin-400-800.woff2' }, { config });
     const onboardingArtResponse = await handleWebRequest({ method: 'GET', url: '/onboarding-art/mew-corocoro-promo-151.webp' }, { config });
     const iconResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-icon.svg' }, { config });
     const lockupResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-lockup-dark.svg' }, { config });
@@ -284,6 +285,9 @@ describe('web app static routes', () => {
     expect(displayFontResponse.status).toBe(200);
     expect(displayFontResponse.headers?.['Content-Type']).toBe('font/woff2');
     expect(displayFontResponse.body?.slice(0, 4)).toBe('wOF2');
+    expect(bodyFontResponse.status).toBe(200);
+    expect(bodyFontResponse.headers?.['Content-Type']).toBe('font/woff2');
+    expect(bodyFontResponse.body?.slice(0, 4)).toBe('wOF2');
     expect(onboardingArtResponse.status).toBe(200);
     expect(onboardingArtResponse.headers?.['Content-Type']).toBe('image/webp');
     expect(onboardingArtResponse.body?.slice(0, 4)).toBe('RIFF');
@@ -296,6 +300,7 @@ describe('web app static routes', () => {
     expect(appResponse.body).toContain('<link rel="icon" href="/keepseek-icon.svg" type="image/svg+xml">');
     expect(cssResponse.body).toContain('@font-face');
     expect(cssResponse.body).toContain('--font-display: "Sora"');
+    expect(cssResponse.body).toContain('--font-body: "Manrope"');
     expect(cssResponse.body).toContain('font-family: var(--font-body);');
     expect(cssResponse.body).toContain('font-family: var(--font-display);');
     expect(jsResponse.body).toContain('class="desktop-header"');
@@ -541,8 +546,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('<a href="#onboarding" data-action="revisit-onboarding">How KeepSeek works</a>');
     expect(jsResponse.body).toContain('<footer class="app-footer-region">');
     expect(jsResponse.body).toContain('<nav class="app-footer-link-grid" aria-label="Footer">');
-    expect(jsResponse.body).toContain('<h2>Trust &amp; Support</h2>');
-    expect(jsResponse.body).toContain('<h2>Community</h2>');
+    expect(jsResponse.body).toContain('<h2>Resources</h2>');
+    expect(jsResponse.body).toContain('<h2>Legal</h2>');
+    expect(jsResponse.body).toContain('Created by <a href="https://linktr.ee/pokaccini"');
+    expect(jsResponse.body).not.toContain('Built with');
     expect(jsResponse.body).not.toContain('Help &amp; account');
     const jsSource = jsResponse.body ?? '';
     const shellSource = jsSource.slice(
@@ -555,29 +562,32 @@ describe('web app static routes', () => {
     expect(shellSource).toContain('</div>\n      ${appFooterMarkup()}');
     expect(cssResponse.body).toContain('width: min(1240px, calc(100vw - 32px));');
     expect(cssResponse.body).toContain('grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);');
-    expect(cssResponse.body).toContain('font-family: "Roboto", "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
+    expect(cssResponse.body).toContain('font-family: var(--font-body);');
     expect(cssResponse.body).toContain('.app-footer-links h2');
     expect(cssResponse.body).toContain('.app-footer-links a');
     expect(cssResponse.body).toContain('.app-footer-lockup .brand-lockup');
     expect(jsResponse.body).toContain('class="brand-lockup" src="/keepseek-lockup-dark.svg"');
     expect(jsResponse.body).toContain('class="brand-icon" src="/keepseek-icon.svg"');
     expect(cssResponse.body).toContain('width: 142px;');
-    expect(cssResponse.body).toContain('@media (max-width: 1100px)');
+    expect(cssResponse.body).toContain('@container app-footer (max-width: 1100px)');
     expect(cssResponse.body).toContain('@media (max-width: 1040px)');
-    expect(cssResponse.body).toContain('@media (max-width: 640px)');
-    expect(cssResponse.body).toContain('@media (max-width: 340px)');
-    expect(cssResponse.body).not.toContain('@container app-footer');
+    expect(cssResponse.body).toContain('@container app-footer (max-width: 720px)');
+    expect(cssResponse.body).toContain('@container app-footer (max-width: 340px)');
     expect(cssResponse.body).not.toContain('@media (max-width: 620px)');
 
     const privacyResponse = await handleWebRequest({ method: 'GET', url: '/privacy' }, { config });
     const termsResponse = await handleWebRequest({ method: 'GET', url: '/terms' }, { config });
     const legalCssResponse = await handleWebRequest({ method: 'GET', url: '/legal.css' }, { config });
+    const legalBodyFontResponse = await handleWebRequest({ method: 'GET', url: '/assets/manrope-latin-400-800.woff2' }, { config });
+    const legalDisplayFontResponse = await handleWebRequest({ method: 'GET', url: '/assets/sora-latin-600-800.woff2' }, { config });
     expect(privacyResponse.status).toBe(200);
     expect(privacyResponse.body).toContain('Privacy Policy');
     expect(privacyResponse.body).toContain('href="/legal.css"');
     expect(termsResponse.status).toBe(200);
     expect(termsResponse.body).toContain('Terms of Service');
     expect(legalCssResponse.headers?.['Content-Type']).toBe('text/css; charset=utf-8');
+    expect(legalBodyFontResponse.headers?.['Content-Type']).toBe('font/woff2');
+    expect(legalDisplayFontResponse.headers?.['Content-Type']).toBe('font/woff2');
   });
 
   it('uses consistent collector-focused top-level page headers', async () => {

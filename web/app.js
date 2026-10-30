@@ -721,7 +721,7 @@ function appFooterMarkup() {
           <a class="app-footer-lockup" href="#home" data-page="home" aria-label="KeepSeek home">
             <div><img class="brand-lockup" src="/keepseek-lockup-dark.svg" alt=""><p>Keep what you love. Seek what comes next.</p></div>
           </a>
-          <p class="app-footer-credit">Built with <span aria-label="love">♥</span> by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
+          <p class="app-footer-credit">Created by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
         </div>
         <nav class="app-footer-link-grid" aria-label="Footer">
           <div class="app-footer-links">
@@ -732,14 +732,13 @@ function appFooterMarkup() {
             <a href="#plus" data-page="plus">KeepSeek Plus</a>
           </div>
           <div class="app-footer-links">
-            <h2>Trust &amp; Support</h2>
+            <h2>Resources</h2>
             <a href="#onboarding" data-action="revisit-onboarding">How KeepSeek works</a>
-            <a href="/privacy">Privacy Policy</a>
-            <a href="/terms">Terms of Service</a>
           </div>
           <div class="app-footer-links">
-            <h2>Community</h2>
-            <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a>
+            <h2>Legal</h2>
+            <a href="/privacy">Privacy Policy</a>
+            <a href="/terms">Terms of Service</a>
           </div>
         </nav>
       </div>

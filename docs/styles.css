@@ -1,3 +1,19 @@
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 600 800;
+  font-display: swap;
+  src: url("assets/sora-latin-600-800.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("assets/manrope-latin-400-800.woff2") format("woff2");
+}
+
 :root {
   color-scheme: dark;
   --bg: #080713;
@@ -32,6 +48,8 @@
   --card-gap: 16px;
   --anchor-offset: 104px;
   --ease: 180ms ease;
+  --font-body: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
 }
 
 * {
@@ -50,7 +68,7 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-family: var(--font-body);
   background:
     radial-gradient(circle at 14% 4%, rgba(255, 131, 201, 0.18), transparent 28%),
     radial-gradient(circle at 88% 10%, rgba(121, 185, 255, 0.18), transparent 28%),
@@ -88,6 +106,19 @@ a {
 
 button {
   font: inherit;
+}
+
+h1,
+h2,
+h3,
+.brand,
+.site-nav,
+.button,
+.eyebrow,
+.step-number,
+.plan-kicker,
+.panel-label {
+  font-family: var(--font-display);
 }
 
 :focus-visible {
