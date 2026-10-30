@@ -986,30 +986,31 @@ function settingsPageMarkup() {
   `;
 }
 
-function plusComparisonMatrixMarkup(plans, currentTier) {
+function plusComparisonCardsMarkup(plans, currentTier) {
   const free = plans.find((plan) => plan.tier === 'FREE');
   const plus = plans.find((plan) => plan.tier === 'PRO');
   if (!free || !plus) return '<div class="state-panel"><p>Plan comparison is unavailable right now.</p></div>';
-  const precisionControls = 'Refine by condition, listing type, priority, target notes and exclusions';
-  const rows = [
-    ['Watchlist size', `Watch up to ${free.maxActiveChases} cards`, `Watch up to ${plus.maxActiveChases} cards`],
-    ['Monitoring', `eBay monitoring, about every ${free.checkIntervalMinutes} minutes`, `${plus.monitoringPriority === 'PRIORITY' ? 'Priority monitoring' : 'Monitoring'}, about every ${plus.checkIntervalMinutes} minutes`],
-    ['Core matching', 'Card, budget and grading preferences', 'Everything in Free'],
-    ['Precision controls', free.advancedFiltering ? precisionControls : 'Core matching controls', plus.advancedFiltering ? precisionControls : 'Core matching controls'],
-    ['Listing sources', free.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay', plus.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay'],
-    ['Display Case', free.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect' : '3 general finds each week', plus.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect' : '3 general finds each week'],
-    ['Discovery learning', free.discoveryDepth === 'full' ? 'Learns from your Watchlist, Pickups and feedback' : 'General weekly discovery', plus.discoveryDepth === 'full' ? 'Learns from your Watchlist, Pickups and feedback' : 'General weekly discovery'],
-    ['Market context', free.discoveryDepth === 'full' ? 'Market context when reliable data is available' : 'Not included', plus.discoveryDepth === 'full' ? 'Market context when reliable data is available' : 'Not included']
+  const freeFeatures = [
+    `Watch up to ${free.maxActiveChases} cards at once`,
+    `eBay monitoring about every ${free.checkIntervalMinutes} minutes`,
+    'Card, budget and grading preferences',
+    free.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay monitoring',
+    free.discoveryDepth === 'full' ? 'A personalized Display Case shaped by your Watchlist, Pickups and feedback' : 'Three general finds each week'
   ];
-  const planHeading = (plan, plusColumn = false) => `<span>${escapeHtml(plusColumn ? 'VAULTR PLUS' : plan.label.toUpperCase())}</span>${plan.tier === currentTier ? '<small>Current plan</small>' : ''}`;
-  return `
-    <div class="plus-comparison-table-wrap">
-      <table class="plus-comparison-table">
-        <caption class="visually-hidden">Free and Vaultr Plus feature comparison</caption>
-        <thead><tr><th scope="col"><span class="visually-hidden">Feature</span></th><th scope="col" class="free-column">${planHeading(free)}</th><th scope="col" class="plus-column">${planHeading(plus, true)}</th></tr></thead>
-        <tbody>${rows.map(([feature, freeValue, plusValue]) => `<tr><th scope="row">${escapeHtml(feature)}</th><td class="free-column">${escapeHtml(freeValue)}</td><td class="plus-column">${escapeHtml(plusValue)}</td></tr>`).join('')}</tbody>
-      </table>
-    </div>`;
+  const plusFeatures = [
+    `Watch up to ${plus.maxActiveChases} cards at once`,
+    `${plus.monitoringPriority === 'PRIORITY' ? 'Priority monitoring' : 'Monitoring'} about every ${plus.checkIntervalMinutes} minutes`,
+    plus.advancedFiltering ? 'Everything in Free, plus condition, listing type, priority, target notes and exclusions' : 'Everything in Free',
+    plus.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay monitoring',
+    plus.discoveryDepth === 'full' ? 'A personalized Display Case shaped by your Watchlist, Pickups and feedback' : 'Three general finds each week',
+    plus.discoveryDepth === 'full' ? 'Market context when reliable data is available' : 'Market context not included'
+  ];
+  const card = (plan, features, featured = false) => `
+    <article class="plus-plan${featured ? ' featured' : ''}${plan.tier === currentTier ? ' current' : ''}">
+      <header><h3>${escapeHtml(featured ? 'Vaultr Plus' : plan.label)}</h3>${plan.tier === currentTier ? '<small>Current plan</small>' : ''}</header>
+      <ul>${features.map((feature) => `<li><span class="plus-feature-marker" aria-hidden="true"></span><span>${escapeHtml(feature)}</span></li>`).join('')}</ul>
+    </article>`;
+  return `<div class="plus-plan-grid">${card(free, freeFeatures)}${card(plus, plusFeatures, true)}</div>`;
 }
 
 function plusPageMarkup() {
@@ -1035,7 +1036,7 @@ function plusPageMarkup() {
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. No plan changes can be made here.</p>' : ''}
       <section class="plus-comparison" aria-labelledby="plus-comparison-title">
         <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">More room, more control, more ways to discover</h2><p>Free gives you the essentials. <strong class="inline-vaultr-plus">Vaultr Plus</strong> expands how much you can watch, how precisely Vaultr searches, where it looks, and how discovery adapts to your collection.</p></div>
-        ${plusComparisonMatrixMarkup(plans, currentTier)}
+        ${plusComparisonCardsMarkup(plans, currentTier)}
       </section>
       <section class="plus-detail-section plus-discovery-note" aria-labelledby="plus-discovery-title">
         <p class="eyebrow">DISCOVERY</p>

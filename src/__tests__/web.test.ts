@@ -583,7 +583,7 @@ describe('web app static routes', () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const between = (start: string, end: string) => source.slice(source.indexOf(start), source.indexOf(end));
-    const settings = between('function settingsPageMarkup()', 'function plusComparisonMatrixMarkup(');
+    const settings = between('function settingsPageMarkup()', 'function plusComparisonCardsMarkup(');
     const plus = between('function plusPageMarkup()', 'function onboardingStepIndicator(');
     const alerts = between('function alertsPageMarkup(', 'function reviewStateButton(');
     const vault = between('function vaultHeaderMarkup()', 'function vaultSummaryMarkup(');
@@ -828,32 +828,34 @@ describe('web app static routes', () => {
     expect(headingFor('FALLBACK')).toEqual({ heading: 'Collector picks', copy: 'A few handpicked cards to explore.' });
   });
 
-  it('renders the Plus comparison as an accessible benefit matrix from plan data', async () => {
+  it('renders the Free and Plus comparison as plan cards from entitlement data', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
-    const functionSource = source.slice(source.indexOf('function plusComparisonMatrixMarkup('), source.indexOf('function plusPageMarkup('));
-    const render = new Function('plans', 'escapeHtml', `${functionSource}\nreturn plusComparisonMatrixMarkup(plans, 'FREE');`) as (plans: unknown[], escape: (value: unknown) => string) => string;
+    const functionSource = source.slice(source.indexOf('function plusComparisonCardsMarkup('), source.indexOf('function plusPageMarkup('));
+    const render = new Function('plans', 'escapeHtml', `${functionSource}\nreturn plusComparisonCardsMarkup(plans, 'FREE');`) as (plans: unknown[], escape: (value: unknown) => string) => string;
     const markup = render([
       { tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited' },
       { tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full' }
     ], String);
 
-    expect(markup).toContain('<table class="plus-comparison-table">');
-    expect(markup).toContain('<caption class="visually-hidden">Free and Vaultr Plus feature comparison</caption>');
-    expect(markup).toContain('<th scope="row">Watchlist size</th>');
-    expect(markup).toContain('Watch up to 3 cards');
-    expect(markup).toContain('Watch up to 50 cards');
-    expect(markup).toContain('eBay monitoring, about every 30 minutes');
-    expect(markup).toContain('Priority monitoring, about every 15 minutes');
-    expect(markup).toContain('Refine by condition, listing type, priority, target notes and exclusions');
-    expect(markup).toContain('<td class="free-column">eBay</td>');
+    expect(markup).toContain('<div class="plus-plan-grid">');
+    expect(markup.match(/<article class="plus-plan/g)).toHaveLength(2);
+    expect(markup).toContain('<h3>Free</h3><small>Current plan</small>');
+    expect(markup).toContain('<h3>Vaultr Plus</h3>');
+    expect(markup).toContain('Watch up to 3 cards at once');
+    expect(markup).toContain('Watch up to 50 cards at once');
+    expect(markup).toContain('eBay monitoring about every 30 minutes');
+    expect(markup).toContain('Priority monitoring about every 15 minutes');
+    expect(markup).toContain('Everything in Free, plus condition, listing type, priority, target notes and exclusions');
+    expect(markup).toContain('Card, budget and grading preferences');
+    expect(markup).toContain('eBay monitoring');
     expect(markup).toContain('eBay + supported card shops');
-    expect(markup).toContain('Learns from your Watchlist, Pickups and feedback');
+    expect(markup).toContain('Three general finds each week');
+    expect(markup).toContain('A personalized Display Case shaped by your Watchlist, Pickups and feedback');
     expect(markup).toContain('Market context when reliable data is available');
-    expect(markup).toContain('Current plan');
+    expect(markup).not.toContain('plus-comparison-table');
     const plusPageSource = source.slice(source.indexOf('function plusPageMarkup('), source.indexOf('function onboardingStepIndicator('));
-    expect(plusPageSource).not.toContain('plus-plan-grid');
-    expect(plusPageSource).not.toContain('class="plus-plan');
+    expect(plusPageSource).toContain('plusComparisonCardsMarkup(plans, currentTier)');
     expect(plusPageSource).not.toContain('class="plus-next-step"');
   });
 
