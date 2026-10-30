@@ -58,8 +58,8 @@ export function buildChaseListEmbed(userId: string, page: number) {
         'Open `/chase add`, start typing your card, and pick the match if it looks right.',
         'If it does not show up, you can still enter it yourself.',
         '',
-        'Then use `/alerts status` to confirm Vaultr is watching for you.',
-        'Quiet days are normal. Vaultr only sends alerts when a listing clears your match settings.'
+        'Then use `/alerts status` to confirm KeepSeek is watching for you.',
+        'Quiet days are normal. KeepSeek only sends alerts when a listing clears your match settings.'
       ].join('\n'))],
       components: []
     };

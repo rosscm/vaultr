@@ -74,7 +74,7 @@ function writeAlertState(state: AlertState): void {
 
 function alertBody(failures: CheckResult[], fingerprint: string): string {
   const lines = [
-    '**Vaultr ops check failed**',
+    '**KeepSeek ops check failed**',
     `Failure fingerprint: \`${fingerprint.slice(0, 12)}\``,
     ...failures.map((failure) => `- ${failure.name}: ${failure.details}`)
   ];
@@ -137,7 +137,7 @@ async function alertOnFailures(failures: CheckResult[]): Promise<void> {
 
 function weeklyRecoveryBody(periodKey: string, weekly: ReturnType<typeof getWeeklyDiscoveryPreparationHealth>, recoveredUserIds: string[]): string {
   return [
-    '**Vaultr Weekly Discovery recovered**',
+    '**KeepSeek Display Case recovered**',
     `Period: \`${periodKey}\``,
     `Prepared: ${weekly.prepared}/${weekly.proUsers}`,
     `Delivered: ${weekly.delivered}/${weekly.proUsers}`,

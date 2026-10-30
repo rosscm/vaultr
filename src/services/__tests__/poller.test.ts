@@ -369,7 +369,7 @@ describe('alert eBay search options', () => {
     expect(text).toContain('tighten the chase name');
     expect(text).toContain('lower the max price');
     expect(text).toContain('/upgrade');
-    expect(text).toContain('opens the Full Vault');
+    expect(text).toContain('explains KeepSeek Plus');
     expect(text).not.toContain(['negative', 'keywords'].join(' '));
     expect(text).not.toContain('condition or grade');
   });
@@ -774,20 +774,20 @@ describe('buildDailyPulseEmbed', () => {
       hiddenDiscovery: 'Umbreon VMAX Alt Art PSA 10'
     }).toJSON();
 
-    expect(data.title).toBe('💓 Vault Pulse');
-    expect(data.description).toContain('2 new Vaults opened');
+    expect(data.title).toBe('💓 Community Pulse');
+    expect(data.description).toContain('2 new collectors joined');
     expect(data.description).toContain('5 chase alerts reached 3 collectors');
     expect(data.description).toContain('1 grail surfaced');
     expect(data.description).toContain("The day's sharpest movement centered on moonlit alt art");
     expect(data.fields?.[0]).toMatchObject({ name: 'Today’s Movement' });
-    expect(data.fields?.[0].value).toContain('• New Vaults: 2 collectors joined');
+    expect(data.fields?.[0].value).toContain('• New collectors: 2 collectors joined');
     expect(data.fields?.[0].value).toContain('• 5 listings reached 3 collectors');
     expect(data.fields?.[0].value).toContain('• Grail watch: 1 grail surfaced');
-    expect(data.fields?.[0].value).toContain('• 18 chases stayed active across 4 Vaults');
+    expect(data.fields?.[0].value).toContain('• 18 chases stayed active across 4 collections');
     expect(data.fields?.[1]).toMatchObject({ name: 'Collector Signal' });
     expect(data.fields?.[1].value).toContain("Today's alerts leaned moonlit alt art in Umbreon line, while the wider board still sits around Eeveelution cards.");
     expect(data.fields?.[2]).toMatchObject({ name: 'Spotlight', value: 'Umbreon VMAX Alt Art PSA 10' });
-    expect(data.footer?.text).toBe('Vaultr • Pulse');
+    expect(data.footer?.text).toBe('KeepSeek • Pulse');
     expect(JSON.stringify(data)).not.toContain('📡');
     expect(JSON.stringify(data)).not.toContain('received a match');
     expect(JSON.stringify(data)).not.toContain('peeked out');
@@ -810,13 +810,13 @@ describe('buildDailyPulseEmbed', () => {
       hiddenDiscovery: 'No standout listing today'
     }).toJSON();
 
-    expect(data.description).toContain('Quiet day in the Vault');
+    expect(data.description).toContain('Quiet day in the collector community');
     expect(data.description).toContain('No new alerts or joins today');
-    expect(data.fields?.[0].value).toContain('• 11 chases stayed active across 3 Vaults');
-    expect(data.fields?.[1].value).toContain('11 chases are still spread across 3 Vaults; no single collector lane took over today.');
+    expect(data.fields?.[0].value).toContain('• 11 chases stayed active across 3 collections');
+    expect(data.fields?.[1].value).toContain('11 chases are still spread across 3 collections; no single collector lane took over today.');
     expect(data.fields?.[2]).toMatchObject({
       name: 'Spotlight',
-      value: '11 chases stayed active across 3 Vaults, even without a single standout listing today.'
+      value: '11 chases stayed active across 3 collections, even without a single standout listing today.'
     });
   });
 
@@ -838,7 +838,7 @@ describe('buildDailyPulseEmbed', () => {
 
     expect(data.description).toContain('1 chase alert reached 1 collector');
     expect(data.description).toContain('Fresh listings crossed the feed today');
-    expect(data.fields?.[0].value).toContain('• 4 chases stayed active across 1 Vault');
+    expect(data.fields?.[0].value).toContain('• 4 chases stayed active across 1 collection');
     expect(data.fields?.[1].value).toContain('Fresh movement came through Base Set / starter-era cards in Blastoise line; the watchlist behind it is still steady around Mew line.');
     expect(JSON.stringify(data)).not.toContain('starter-era nostalgia across Mew line');
     expect(JSON.stringify(data)).not.toContain('Mew line collectors had something to inspect today.');

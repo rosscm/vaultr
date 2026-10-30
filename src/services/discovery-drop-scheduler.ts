@@ -149,15 +149,15 @@ export function shouldPrepareWeeklyDrop(
 function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x8b5cf6)
-    .setTitle('Vaultr Weekly Discovery')
+    .setTitle('KeepSeek Display Case')
     .setDescription([
-      '💫 **Vaultr Weekly Discovery**',
+      '💫 **KeepSeek Display Case**',
       '',
       'Collector picks are freshly brewed and ready to browse!',
       '',
-      'Full Vault gets a deeper Weekly Shelf shaped by your Vault and taste profile memory, while Free gets a tasty appetizer 🫰'
+      'KeepSeek Plus adds a deeper Display Case shaped by your Watchlist, Pickups, and feedback, while Free gets three general finds each week'
     ].join('\n'))
-    .setFooter({ text: 'Vaultr • Weekly Shelf' })
+    .setFooter({ text: 'KeepSeek • Display Case' })
     .setTimestamp();
 }
 

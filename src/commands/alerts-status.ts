@@ -42,9 +42,9 @@ function nextSweepSeconds(activeChases: Chase[], intervalSeconds: number, nowMs:
 function watchSummary(activeCount: number, alerts24h: number, alerts7d: number, pausedCount: number): string {
   if (activeCount === 0) return 'Add your first chase to start your Vault watch';
   if (alerts24h > 0) return 'Fresh matches surfaced today';
-  if (alerts7d > 0) return 'Quiet today, but Vaultr is still watching';
+  if (alerts7d > 0) return 'Quiet today, but KeepSeek is still watching';
   if (pausedCount > 0) return 'Extra saved chases are paused by plan limit';
-  return 'Quiet so far. Vaultr only pings you when a listing clears your filters';
+  return 'Quiet so far. KeepSeek only pings you when a listing clears your filters';
 }
 
 export function buildAlertsStatusEmbed(userId: string, now = new Date()) {
@@ -62,8 +62,8 @@ export function buildAlertsStatusEmbed(userId: string, now = new Date()) {
   const alerts7d = countUserAlertsSince(userId, new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString());
 
   const embed = activeChases.length > 0
-    ? infoEmbed('🟢 Vaultr Watch Status', watchSummary(activeChases.length, alerts24h, alerts7d, pausedChases.length))
-    : warningEmbed('Vaultr Watch Status', watchSummary(activeChases.length, alerts24h, alerts7d, pausedChases.length));
+    ? infoEmbed('🟢 KeepSeek Watch Status', watchSummary(activeChases.length, alerts24h, alerts7d, pausedChases.length))
+    : warningEmbed('KeepSeek Watch Status', watchSummary(activeChases.length, alerts24h, alerts7d, pausedChases.length));
 
   embed.addFields(
     {
@@ -90,7 +90,7 @@ export function buildAlertsStatusEmbed(userId: string, now = new Date()) {
     }
   );
 
-  embed.setFooter({ text: 'Vaultr • Alerts' });
+  embed.setFooter({ text: 'KeepSeek • Alerts' });
   return embed;
 }
 

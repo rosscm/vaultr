@@ -27,25 +27,25 @@ export function missingSetupChannelPermissions(channel: any, botMember: any): st
 
 function communityVaultPulseSetupLine(mode: CommunityFeedMode): string {
   if (mode === 'OFF') {
-    return 'Community Vault Pulse: Off — use `/feed toggle:On` to enable community posts.';
+    return 'Community Pulse: Off. Use `/feed toggle:On` to enable community posts.';
   }
 
-  return 'Community Vault Pulse: On — use `/feed toggle:Off` to disable community posts.';
+  return 'Community Pulse: On. Use `/feed toggle:Off` to disable community posts.';
 }
 
 export const setupChannelSet = {
   data: new SlashCommandBuilder()
     .setName('setup')
-    .setDescription('Admin: choose the Vaultr server channel')
+    .setDescription('Admin: choose the KeepSeek server channel')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub
         .setName('channel')
-        .setDescription('Set the Vaultr command channel')
+        .setDescription('Set the KeepSeek command channel')
         .addChannelOption((opt) =>
           opt
             .setName('channel')
-            .setDescription('Channel for commands and Vault Pulse')
+            .setDescription('Channel for commands and Community Pulse')
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(true)
         )
@@ -73,10 +73,10 @@ export const setupChannelSet = {
           warningEmbed(
             'Channel Permissions Required',
             [
-              `Vaultr cannot use <#${channel.id}> yet.`,
+              `KeepSeek cannot use <#${channel.id}> yet.`,
               '',
               `**Missing:** ${missingPermissions.join(', ')}`,
-              'Update Vaultr channel or role permissions, then retry `/setup channel`.'
+              'Update KeepSeek channel or role permissions, then retry `/setup channel`.'
             ].join('\n')
           )
         ],

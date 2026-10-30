@@ -99,7 +99,7 @@ describe('alert feedback tune-outs', () => {
     await handleAlertFeedback(reasonInteraction);
 
     expect(reasonInteraction.update).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.stringContaining('Vaultr noticed 2 recent tune-outs for Korean variants'),
+      content: expect.stringContaining('KeepSeek noticed 2 recent tune-outs for Korean variants'),
       components: expect.any(Array)
     }));
     const reasonUpdate = reasonInteraction.update.mock.calls[0]?.[0] as { components?: unknown[] } | undefined;
@@ -109,7 +109,7 @@ describe('alert feedback tune-outs', () => {
     await handleAlertFeedback(applyInteraction);
 
     expect(applyInteraction.update).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.stringContaining('Applied. Vaultr will now exclude Korean variants')
+      content: expect.stringContaining('Applied. KeepSeek will now exclude Korean variants')
     }));
     expect(getChase(userId, chase.id)?.negativeKeywords).toEqual(['proxy', 'korean']);
   });

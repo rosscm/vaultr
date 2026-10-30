@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 286 64" role="img" aria-labelledby="title">
+  <title id="title">KeepSeek</title>
+  <defs>
+    <linearGradient id="sweep" x1="7" y1="47" x2="46" y2="15" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff7ab6"/>
+      <stop offset=".58" stop-color="#9b8cff"/>
+      <stop offset="1" stop-color="#ffd66b"/>
+    </linearGradient>
+  </defs>
+  <path d="M133 19c13-9 28-13 45-12" fill="none" stroke="url(#sweep)" stroke-width="4" stroke-linecap="round"/>
+  <path d="m187 1.5 2.8 6.7 6.7 2.8-6.7 2.8-2.8 6.7-2.8-6.7-6.7-2.8 6.7-2.8 2.8-6.7Z" fill="#ffd66b"/>
+  <text x="2" y="52" fill="#f8f6f3" font-family="Sora,Segoe UI,Arial,sans-serif" font-size="45" font-weight="750">Keep</text>
+  <text x="126" y="52" fill="#ff7ab6" font-family="Sora,Segoe UI,Arial,sans-serif" font-size="45" font-weight="750">Seek</text>
+</svg>

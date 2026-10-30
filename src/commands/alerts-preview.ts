@@ -73,7 +73,7 @@ export const previewAlert = {
     }
 
     embed
-      .setFooter({ text: 'Vaultr • Priority Alert' })
+      .setFooter({ text: 'KeepSeek • Priority Alert' })
       .setTimestamp();
 
     await interaction.reply({

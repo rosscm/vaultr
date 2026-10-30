@@ -36,7 +36,7 @@ export function parseCollectorProfileInspectArgs(argv: string[]): CollectorProfi
   userId = userId.trim();
   discordUserId = discordUserId.trim();
   if (userId && discordUserId) throw new Error('Use either --user or --discord-user, not both.');
-  if (userId && !userId.startsWith('usr_')) throw new Error('--user expects a Vaultr account ID beginning with usr_. Use --discord-user for a Discord ID.');
+  if (userId && !userId.startsWith('usr_')) throw new Error('--user expects a KeepSeek account ID beginning with usr_. Use --discord-user for a Discord ID.');
   if (json && (ranker || rankerReserve)) throw new Error('--ranker and --ranker-reserve are human-readable inspection only. Use them without --json.');
   if (!userId && !discordUserId) throw new Error('Usage: npm run profile:inspect -- --user usr_<ID> [--json] [--evidence] [--ranker] [--ranker-reserve]\n       npm run profile:inspect -- --discord-user <DISCORD_ID> [--json] [--evidence] [--ranker] [--ranker-reserve]');
   return { userId, discordUserId: discordUserId || undefined, json, evidence, ranker, rankerReserve };
@@ -117,7 +117,7 @@ function printRankerReserveComparison(userId: string, rankerProfile: ReturnType<
 export function runCollectorProfileInspectCli(argv: string[]): void {
   const args = parseCollectorProfileInspectArgs(argv);
   const userId = args.discordUserId ? getIdentity('DISCORD', args.discordUserId)?.userId : args.userId;
-  if (!userId) throw new Error(`No Vaultr account is linked to Discord user ${args.discordUserId}.`);
+  if (!userId) throw new Error(`No KeepSeek account is linked to Discord user ${args.discordUserId}.`);
   const profile = getCollectorInterestProfile(userId);
   if (args.json) {
     console.log(JSON.stringify(profile, null, 2));

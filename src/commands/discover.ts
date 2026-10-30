@@ -3761,16 +3761,16 @@ function formatMarketRead(candidate: DiscoveryCandidate, currencyHint: Supported
   }
   if (candidate.sourceStatus === 'EMPTY') return 'No reliable market estimate yet. No current listings were found for this exact printing';
   if (candidate.sourceStatus === 'NO_ACCEPTED_SAMPLES') return 'No reliable market estimate yet. Current results did not provide enough exact-printing evidence';
-  if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay. Vaultr will retry automatically';
-  if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time. Vaultr will retry automatically';
+  if (candidate.sourceStatus === 'RATE_LIMITED') return 'Market data is temporarily limited by eBay. KeepSeek will retry automatically';
+  if (candidate.sourceStatus === 'TIMEOUT') return 'Market data did not respond in time. KeepSeek will retry automatically';
   if (!hasSoldComps && !hasAskComps) {
-    return 'Market data is still being gathered. Vaultr will keep checking';
+    return 'Market data is still being gathered. KeepSeek will keep looking';
   }
   if (hasSoldComps && hasAskComps) {
     return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps); ${formatMoney(candidate.typicalRawAskingTotal, currency)} raw ask`;
   }
   if (hasSoldComps) return `${formatMoney(candidate.typicalRawSoldTotal, currency)} recent raw sold (${candidate.soldSampleSize} comps)`;
-  if (!hasReliableAskOnlyComps) return `Low recent comps data: only ${candidate.marketSampleSize ?? 0} active ask comps found, so Vaultr is not showing a price yet`;
+  if (!hasReliableAskOnlyComps) return `Low recent comps data: only ${candidate.marketSampleSize ?? 0} active ask comps found, so KeepSeek is not showing a price yet`;
   return `${formatMoney(candidate.typicalRawAskingTotal, currency)} active raw ask`;
 }
 
@@ -5520,7 +5520,7 @@ export function discoveryProfileConfidence(chases: Chase[]): DiscoveryProfileCon
 }
 
 export function discoveryShelfTighteningNote(): string {
-  return '🔮 **Reading:** Vaultr is still learning from your chases, feedback, and collector patterns';
+  return '🔮 **Reading:** KeepSeek is still learning from your chases, feedback, and collector patterns';
 }
 
 export function discoveryShelfMarketCheckNote(shelfSize: number): string {
@@ -5891,7 +5891,7 @@ function fallbackSuggestionFromCardName(name: string): DiscoverySuggestion {
     name,
     lane: 'Collector Compass',
     laneWhy: 'previously surfaced card from this collector profile',
-    why: 'A concrete card Vaultr has already connected to this profile, kept as a fallback while fresh sources resolve',
+    why: 'A concrete card KeepSeek has already connected to this profile, kept as a fallback while fresh sources resolve',
     nearby: [],
     evidenceSearchTerm: `${name} Pokemon card`,
     evidenceAliases: [name],
@@ -5930,7 +5930,7 @@ function marketCacheSuggestionFromCardName(name: string): DiscoverySuggestion {
     ...fallbackSuggestionFromCardName(name),
     lane,
     laneWhy: 'market-ready profile expansion',
-    why: 'A market-ready adjacent card Vaultr connected to this collector profile from prepared pricing data',
+    why: 'A market-ready adjacent card KeepSeek connected to this Collector Profile from prepared pricing data',
     referenceSourceName
   };
 }
@@ -6856,7 +6856,7 @@ function selectDeficitAwareTopOffCandidates(
 
 function localCatalogReferenceSourceName(choice: LocalCardCatalogChoice): string {
   const setName = choice.translatedSetName ?? choice.setName ?? 'Card';
-  if (choice.source === 'CURATED') return `Vaultr Curated (${setName})`;
+  if (choice.source === 'CURATED') return `KeepSeek Curated (${setName})`;
   if (choice.source === 'TCGDEX') return `TCGdex Japanese (${setName})`;
   return `Pokemon TCG (${setName})`;
 }
@@ -7869,7 +7869,7 @@ function discoveryShelfHeaderEmbed(title: string, lines: string[]): EmbedBuilder
     .setTitle(title)
     .setDescription(lines.join('\n'))
     .setColor(DISCOVERY_OVERVIEW_COLOR)
-    .setFooter({ text: 'Vaultr • Weekly Shelf' });
+    .setFooter({ text: 'KeepSeek • Display Case' });
 }
 
 function recordDiscoveryShelfTrainingExamples(
@@ -8667,7 +8667,7 @@ function isTrustedVerifiedCuratedCandidateReference(candidate: DiscoveryCandidat
     && !!imageUrl
     && imageUrl === reference.imageUrl
     && /^https:\/\//i.test(imageUrl)
-    && /^Vaultr Curated(?:\s*\(|$)/i.test(sourceName ?? '')
+    && /^(?:Vaultr|KeepSeek) Curated(?:\s*\(|$)/i.test(sourceName ?? '')
     && !isMarketplaceLikeImageUrl(imageUrl)
     && !hasKnownNonFrontCatalogueReferenceImage(imageUrl, sourceName);
 }
@@ -8691,7 +8691,7 @@ function isAllowlistedCatalogueReferenceSource(sourceName: string | undefined): 
   return !!sourceName && (
     /^Pokemon TCG(?:\s*\(|$)/i.test(sourceName)
     || /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName)
-    || /^Vaultr Curated(?:\s*\(|$)/i.test(sourceName)
+    || /^(?:Vaultr|KeepSeek) Curated(?:\s*\(|$)/i.test(sourceName)
   );
 }
 
@@ -9114,7 +9114,7 @@ function rebalanceWeeklySubjectDiversity(candidates: DiscoveryCandidate[], chase
 }
 
 function truncateDiscordFieldValue(value: string, maxLength = 1024): string {
-  const normalized = value.replace(/\s+/g, ' ').trim() || '—';
+  const normalized = value.replace(/\s+/g, ' ').trim() || 'Not available';
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
@@ -9136,7 +9136,7 @@ export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: Supp
   embed
     .setDescription(threadLabel)
     .addFields(...fields)
-    .setFooter({ text: 'Vaultr • Discovery' })
+    .setFooter({ text: 'KeepSeek • Discovery' })
     .setTimestamp();
   return embed;
 }
@@ -13617,14 +13617,14 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     const lines = discovery.hasFullDiscovery
       ? [
           '🔮 Your Weekly Shelf is taking longer than expected to prepare.',
-          'Vaultr is retrying automatically, and you do not need to do anything.'
+          'KeepSeek is retrying automatically, and you do not need to do anything.'
         ]
       : [
           '🎬 Your preview needs a few Vault signals',
-          'Add a chase or two so Vaultr has a trail to follow'
+          'Add a chase or two so KeepSeek has a trail to follow'
         ];
     return {
-      embeds: [infoEmbed('Weekly Shelf', lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Weekly Shelf' })],
+      embeds: [infoEmbed('Weekly Shelf', lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'KeepSeek • Display Case' })],
       components: [],
       candidateNames: [],
       hasFullDiscovery: discovery.hasFullDiscovery
@@ -13644,7 +13644,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
       });
   if (shelfCandidates.length === 0) {
     return {
-      embeds: [infoEmbed('Weekly Shelf', '🔮 Your Weekly Shelf is taking longer than expected to prepare.\nVaultr is retrying automatically, and you do not need to do anything.').setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Weekly Shelf' })],
+      embeds: [infoEmbed('Weekly Shelf', '🔮 Your Weekly Shelf is taking longer than expected to prepare.\nKeepSeek is retrying automatically, and you do not need to do anything.').setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'KeepSeek • Display Case' })],
       components: [],
       candidateNames: [],
       hasFullDiscovery: discovery.hasFullDiscovery
@@ -13654,7 +13654,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
   const pageState = clampDiscoveryShelfPage(requestedPage, shelfCandidates.length);
   const visibleCandidates = shelfCandidates.slice(pageState.start, pageState.end);
   const visiblePaths = uniqueValuesPreservingOrder(visibleCandidates.map((candidate) => discoveryCandidateTrailLabel(candidate)));
-  const title = discovery.hasFullDiscovery ? '💫 Vaultr Weekly Discovery Shelf' : '✨ Weekly Shelf Preview';
+  const title = discovery.hasFullDiscovery ? '💫 KeepSeek Display Case' : '✨ Display Case Preview';
   const shelfPickLabel = shelfCandidates.length === 1 ? 'pick' : 'picks';
   const pathSummary = compactDiscoveryPathSummary(visiblePaths);
   const profileSummary = learningSignal(
@@ -13680,7 +13680,7 @@ function discoveryShelfPayload(userId: string, discovery: Awaited<ReturnType<typ
     lines.push(discoveryShelfTighteningNote());
   }
   if (!discovery.hasFullDiscovery) {
-    lines.push('A quick peek: Full Vault gets the deeper Weekly Shelf with feedback-powered taste profile memory, live market reads on every card, and custom exclusion controls for future drops');
+    lines.push('A quick peek: KeepSeek Plus adds a deeper Display Case shaped by feedback, market context when reliable data is available, and custom exclusion controls');
   }
   const actionRows = discoveryActionRows(userId, visibleCandidates, discovery.hasFullDiscovery, pageState.start);
   const headerEmbed = discoveryShelfHeaderEmbed(title, lines);
@@ -13705,7 +13705,7 @@ function thinProfileWeeklyShelfPayload(eligibility: WeeklyDiscoveryEligibility):
     `Add ${eligibility.signalsNeeded} more ${cardLabel} to your Chase list, then your personalized weekly shelves can begin.`
   ];
   return {
-    embeds: [infoEmbed('Weekly Shelf', lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'Vaultr • Weekly Shelf' })],
+    embeds: [infoEmbed('Weekly Shelf', lines.join('\n')).setColor(DISCOVERY_OVERVIEW_COLOR).setFooter({ text: 'KeepSeek • Display Case' })],
     components: [],
     candidateNames: [],
     hasFullDiscovery: true
@@ -14120,7 +14120,7 @@ export async function handleDiscoveryDropOpen(interaction: any): Promise<boolean
     }
   } catch (error) {
     console.error('[DiscoveryDropOpen] Failed to render Weekly Shelf', error);
-    await interaction.editReply({ embeds: [warningEmbed('Shelf Unavailable', 'Vaultr could not open that Weekly Shelf. Please try again in a moment.')], components: [] });
+    await interaction.editReply({ embeds: [warningEmbed('Shelf Unavailable', 'KeepSeek could not open that Display Case. Please try again in a moment.')], components: [] });
   }
   return true;
 }
@@ -14143,7 +14143,7 @@ export async function handleDiscoveryDropPage(interaction: any): Promise<boolean
     await interaction.editReply(discoveryReplyPayload(payload));
   } catch (error) {
     console.error('[DiscoveryDropPage] Failed to render Weekly Shelf page', error);
-    await interaction.editReply({ embeds: [warningEmbed('Shelf Unavailable', 'Vaultr could not open that Weekly Shelf page. Please try again in a moment.')], components: [] });
+    await interaction.editReply({ embeds: [warningEmbed('Shelf Unavailable', 'KeepSeek could not open that Display Case page. Please try again in a moment.')], components: [] });
   }
   return true;
 }
@@ -14223,7 +14223,7 @@ async function replyToDiscoveryVaultAdd(interaction: any, pick: DiscoveryPick | 
   recordDiscoveryAddTaste(interaction.user.id, chase.cardName, chase.maxPrice);
 
   const lines = [
-    'Nice find. Added to your Vault, and Vaultr will keep watch',
+    'Nice find. Added to your Watchlist, and KeepSeek will keep looking',
     'It will shape future Weekly Shelves once the next drop is packed',
     '',
     `**Card:** ${chase.cardName}`,
@@ -14278,7 +14278,7 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
   });
   if (!savedFeedback.ok) {
     await interaction.reply({
-      embeds: [warningEmbed('Vaultr Plus Required', 'Personalized Display Case feedback is available with Vaultr Plus')],
+      embeds: [warningEmbed('KeepSeek Plus Required', 'Personalized Display Case feedback is available with KeepSeek Plus')],
       flags: MessageFlags.Ephemeral
     });
     return;
@@ -14287,8 +14287,8 @@ async function replyToDiscoveryFeedback(interaction: any, pick: DiscoveryPick | 
   const title = feedback === 'MORE_LIKE_THIS' ? 'Taste Saved' : 'Discovery Tuned';
   const message =
     feedback === 'MORE_LIKE_THIS'
-      ? `Noted. Vaultr will use **${pick.cardName}** to shape future discoveries`
-      : `Noted. Vaultr will keep **${pick.cardName}** in mind when shaping future discoveries`;
+      ? `Noted. KeepSeek will use **${pick.cardName}** to shape future discoveries`
+      : `Noted. KeepSeek will keep **${pick.cardName}** in mind when shaping future discoveries`;
   const undoRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${DISCOVERY_FEEDBACK_UNDO_PREFIX}:${interaction.user.id}:${pick.token}:${savedFeedback.feedback!.version}`)

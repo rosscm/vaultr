@@ -380,7 +380,7 @@ function buildRecentObservationLines(chase: Chase, limit = 8): string[] {
 export const health = {
   data: new SlashCommandBuilder()
     .setName('health')
-    .setDescription('Owner: inspect Vaultr runtime health')
+    .setDescription('Owner: inspect KeepSeek runtime health')
     .addStringOption((opt) =>
       opt.setName('chase_id').setDescription('Owner debug: chase ID to inspect').setMaxLength(80)
     )
@@ -394,7 +394,7 @@ export const health = {
     const ownerId = process.env.OWNER_USER_ID;
     if (!ownerId || interaction.user.id !== ownerId) {
       await interaction.reply({
-        embeds: [warningEmbed('Owner Only', 'This command is reserved for the Vaultr owner')],
+        embeds: [warningEmbed('Owner Only', 'This command is reserved for the KeepSeek owner')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -539,7 +539,7 @@ export const health = {
     lines.push('', ...buildEligibilityLines(chases, nowMs));
 
     await interaction.reply({
-      embeds: [infoEmbed('🩺 Vaultr Health', lines.join('\n'))],
+      embeds: [infoEmbed('🩺 KeepSeek Health', lines.join('\n'))],
       flags: MessageFlags.Ephemeral
     });
   }

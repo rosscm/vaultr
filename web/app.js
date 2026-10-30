@@ -219,7 +219,7 @@ function avatarHtml(user) {
   if (user?.avatarUrl) {
     return `<img class="avatar" src="${escapeHtml(user.avatarUrl)}" alt="">`;
   }
-  return `<span class="avatar-fallback" aria-hidden="true">${escapeHtml(name.trim().charAt(0).toUpperCase() || 'V')}</span>`;
+  return `<span class="avatar-fallback" aria-hidden="true">${escapeHtml(name.trim().charAt(0).toUpperCase() || 'K')}</span>`;
 }
 
 function currencySymbol(currency) {
@@ -239,12 +239,12 @@ function formatDate(value) {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function inlineVaultrPlusCopy(value) {
-  return escapeHtml(value).replaceAll('Vaultr Plus', '<strong class="inline-vaultr-plus">Vaultr Plus</strong>');
+function inlineKeepSeekPlusCopy(value) {
+  return escapeHtml(value).replaceAll('KeepSeek Plus', '<strong class="inline-vaultr-plus">KeepSeek Plus</strong>');
 }
 
-function linkedVaultrPlusCopy(value) {
-  return escapeHtml(value).replaceAll('Vaultr Plus', '<a class="inline-vaultr-plus" href="#plus" data-page="plus">Vaultr Plus</a>');
+function linkedKeepSeekPlusCopy(value) {
+  return escapeHtml(value).replaceAll('KeepSeek Plus', '<a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>');
 }
 
 function pageHeaderMarkup({ id, title, tagline, copy, className = '' }) {
@@ -258,7 +258,7 @@ function pageHeaderMarkup({ id, title, tagline, copy, className = '' }) {
 }
 
 function planLabel(tier) {
-  return tier === 'PRO' ? 'Vaultr Plus' : 'Free';
+  return tier === 'PRO' ? 'KeepSeek Plus' : 'Free';
 }
 
 function priorityLabel(priority) {
@@ -449,12 +449,12 @@ function planComparisonMarkup() {
   return `
     <div class="modal-backdrop" role="presentation">
       <section class="vault-dialog plan-comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-comparison-title">
-        <header><p class="eyebrow">PLANS</p><h2 id="plan-comparison-title">Compare plans</h2><p class="dialog-intro">Choose how much room and precision you need. Vaultr checks regularly for new matches. Timing can vary depending on the source and when new listings become available.</p></header>
+        <header><p class="eyebrow">PLANS</p><h2 id="plan-comparison-title">Compare plans</h2><p class="dialog-intro">Choose how much room and precision you need. KeepSeek looks regularly for new matches. Timing can vary by source and when new listings become available.</p></header>
         <div class="plan-comparison-grid">
-          ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(plan.label)}</h3><ul><li>Watch up to ${escapeHtml(plan.maxActiveChases)} cards</li><li>Checks every ${escapeHtml(plan.checkIntervalMinutes)} minutes</li><li>${plan.advancedFiltering ? 'Advanced filters included' : 'Core matching controls'}</li><li>${plan.storefrontMonitoring ? 'eBay and Trusted Shops' : 'eBay monitoring'}</li><li>${plan.discoveryDepth === 'full' ? 'A full personalized Display Case shaped by what you collect, with market context when reliable data is available' : 'Three general finds each week, starting with collector picks'}</li></ul></article>`).join('')}
+          ${plans.map((plan) => `<article class="plan-comparison-item${plan.tier === currentTier ? ' current' : ''}"><span>${plan.tier === currentTier ? 'Your plan' : 'Plan'}</span><h3>${escapeHtml(planLabel(plan.tier))}</h3><ul>${planFeatureRows(plan).map(([, feature]) => `<li>${escapeHtml(feature)}</li>`).join('')}</ul></article>`).join('')}
         </div>
-        ${currentTier === 'FREE' ? '<p class="plan-availability"><strong class="inline-vaultr-plus">Vaultr Plus</strong> is not available for self-service purchase yet.</p>' : ''}
-        <footer class="dialog-actions"><button class="button-ghost" type="button" data-action="close-plan-comparison">Close</button><button class="button-primary" type="button" data-page="plus">Explore Plus</button></footer>
+        ${currentTier === 'FREE' ? '<p class="plan-availability"><strong class="inline-vaultr-plus">KeepSeek Plus</strong> is not available for self-service purchase yet.</p>' : ''}
+        <footer class="dialog-actions"><button class="button-ghost" type="button" data-action="close-plan-comparison">Close</button><button class="button-primary" type="button" data-page="plus">Explore KeepSeek Plus</button></footer>
       </section>
     </div>`;
 }
@@ -465,7 +465,7 @@ function logoutConfirmationMarkup() {
     <div class="modal-backdrop" role="presentation">
       <section class="vault-dialog logout-dialog" role="dialog" aria-modal="true" aria-labelledby="logout-confirmation-title" aria-describedby="logout-confirmation-copy">
         <header>
-          <h2 id="logout-confirmation-title">Log out of Vaultr?</h2>
+          <h2 id="logout-confirmation-title">Log out of KeepSeek?</h2>
           <p id="logout-confirmation-copy" class="dialog-intro">You’ll need to sign in again to access your collection.</p>
         </header>
         <footer class="dialog-actions">
@@ -567,7 +567,7 @@ function apiErrorMessage(error) {
   if (body.message) return body.message;
   if (body.error === 'VAULT_LIMIT_REACHED') return 'Your Watchlist has reached its active card limit.';
   if (body.error === 'DUPLICATE_CHASE') return 'That card is already in your Watchlist.';
-  if (body.error === 'NO_APPLICABLE_CHANGES') return 'Those changes use Vaultr Plus controls.';
+  if (body.error === 'NO_APPLICABLE_CHANGES') return 'Those changes use KeepSeek Plus controls.';
   if (body.error === 'NO_CHANGES_REQUESTED') return 'Choose at least one change.';
   if (body.error === 'INVALID_GRADE_PREFERENCE') return 'Choose a valid grade preference.';
   if (body.error === 'invalid_card_selection') return 'That exact card selection expired or changed. Your preferences are still here; choose the card again to refresh it before saving.';
@@ -628,14 +628,14 @@ function signedOutMarkup() {
     <main id="app-main" class="signed-out">
       <section class="signed-out-card" aria-labelledby="signed-out-title">
         ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
-        <img class="boot-logo" src="/vaultr-icon.svg" alt="" aria-hidden="true">
+        <img class="boot-logo" src="/keepseek-icon.svg" alt="KeepSeek">
         <h1 id="signed-out-title">Your collection, watched.</h1>
-        <p>Track the cards you're chasing, review matches, and discover cards picked around your collection.</p>
+        <p>Build your Watchlist, review matching listings, and discover more of what you love.</p>
         ${confirmationReady ? `
           <div class="auth-confirmation" role="status">
             <strong>${state.emailConfirmation.purpose === 'LINK_EMAIL' ? 'Verify this email login' : 'Your secure sign-in link is ready'}</strong>
-            <p>${state.emailConfirmation.purpose === 'LINK_EMAIL' ? 'Sign in to the existing Vaultr account that requested this link, then return here to finish.' : `Continue as ${escapeHtml(state.emailConfirmation.email)}.`}</p>
-            ${state.emailConfirmation.purpose === 'SIGN_IN' ? '<button class="button-primary" type="button" data-action="redeem-email-link">Continue to Vaultr</button>' : ''}
+            <p>${state.emailConfirmation.purpose === 'LINK_EMAIL' ? 'Sign in to the existing KeepSeek account that requested this link, then return here to finish.' : `Continue as ${escapeHtml(state.emailConfirmation.email)}.`}</p>
+            ${state.emailConfirmation.purpose === 'SIGN_IN' ? '<button class="button-primary" type="button" data-action="redeem-email-link">Continue to KeepSeek</button>' : ''}
           </div>
           ${state.emailConfirmation.purpose === 'LINK_EMAIL' && discordAvailable ? '<a class="button-primary auth-discord-button" href="/auth/discord">Sign in with Discord</a>' : ''}
         ` : `
@@ -644,7 +644,7 @@ function signedOutMarkup() {
               <label class="field"><span>Email</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" required></label>
               <button class="button-primary" type="submit"${state.authBusy ? ' disabled' : ''}>${state.authBusy ? 'Sending…' : 'Send sign-in link'}</button>
             </form>
-            <p class="auth-fine-print">If this email is new to Vaultr, your account will be created after verification.</p>
+            <p class="auth-fine-print">If this email is new to KeepSeek, your account will be created after verification.</p>
           ` : '<p class="auth-unavailable">Email sign-in isn’t available here yet.</p>'}
           ${discordAvailable ? '<div class="auth-divider"><span>or</span></div><a class="button-ghost auth-discord-button" href="/auth/discord">Sign in with Discord</a>' : ''}
         `}
@@ -664,16 +664,16 @@ function shellMarkup(content) {
       <div class="app-shell">
         <header class="desktop-header">
           <div class="desktop-header-inner">
-            <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
-              <img class="brand-lockup" src="/vaultr-lockup-dark.svg" alt="" aria-hidden="true">
+            <a class="brand" href="${appHomePath}" aria-label="KeepSeek app">
+            <img class="brand-lockup" src="/keepseek-lockup-dark.svg" alt="KeepSeek">
               ${environmentBadgeMarkup()}
             </a>
-            <nav class="app-nav desktop-nav" aria-label="Vaultr app navigation">
+            <nav class="app-nav desktop-nav" aria-label="KeepSeek app navigation">
               ${navButton('home', 'Home')}
               ${navButton('vault', 'Watchlist')}
               ${navButton('alerts', 'Inbox')}
               ${navButton('shelf', 'Display Case')}
-              ${navButton('plus', 'Vaultr Plus')}
+              ${navButton('plus', 'KeepSeek Plus')}
               ${navButton('settings', 'Settings')}
             </nav>
             <div class="user-area">
@@ -684,8 +684,8 @@ function shellMarkup(content) {
           </div>
         </header>
         <header class="mobile-header">
-        <a class="brand" href="${appHomePath}" aria-label="Vaultr app">
-          <img class="brand-icon" src="/vaultr-icon.svg" alt="" aria-hidden="true">
+        <a class="brand" href="${appHomePath}" aria-label="KeepSeek app">
+          <img class="brand-icon" src="/keepseek-icon.svg" alt="KeepSeek">
           ${environmentBadgeMarkup()}
         </a>
         <div class="user-area">
@@ -699,7 +699,7 @@ function shellMarkup(content) {
           ${onboardingResumePromptMarkup()}
           ${content}
         </main>
-        <nav class="mobile-nav" aria-label="Vaultr mobile navigation">
+        <nav class="mobile-nav" aria-label="KeepSeek mobile navigation">
           ${navButton('home', 'Home')}
           ${navButton('vault', 'Watchlist')}
           ${navButton('alerts', 'Inbox')}
@@ -718,9 +718,9 @@ function appFooterMarkup() {
     <footer class="app-footer-region">
       <div class="app-footer">
         <div class="app-footer-brand">
-          <a class="app-footer-lockup" href="#home" data-page="home" aria-label="Vaultr home">
-            <img class="brand-icon" src="/vaultr-icon.svg" alt="" aria-hidden="true">
-            <div><strong>Vaultr</strong><p>Build your Vault. Chase your grails. Discover what you love next.</p></div>
+          <a class="app-footer-lockup" href="#home" data-page="home" aria-label="KeepSeek home">
+            <img class="brand-icon" src="/keepseek-icon.svg" alt="">
+            <div><strong>KeepSeek</strong><p>Keep what you love. Seek what comes next.</p></div>
           </a>
           <p class="app-footer-credit">Built with <span aria-label="love">♥</span> by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
         </div>
@@ -729,12 +729,12 @@ function appFooterMarkup() {
             <h2>Product</h2>
             <a href="#vault" data-page="vault">Watchlist</a>
             <a href="#alerts" data-page="alerts">Inbox</a>
-            <a href="#shelf" data-page="shelf">Discover</a>
-            <a href="#plus" data-page="plus">Vaultr Plus</a>
+            <a href="#shelf" data-page="shelf">Display Case</a>
+            <a href="#plus" data-page="plus">KeepSeek Plus</a>
           </div>
           <div class="app-footer-links">
             <h2>Trust &amp; Support</h2>
-            <a href="#onboarding" data-action="revisit-onboarding">How Vaultr works</a>
+            <a href="#onboarding" data-action="revisit-onboarding">How KeepSeek works</a>
             <a href="/privacy">Privacy Policy</a>
             <a href="/terms">Terms of Service</a>
           </div>
@@ -751,8 +751,8 @@ function appFooterMarkup() {
 function onboardingResumePromptMarkup() {
   if (state.activePage === 'onboarding' || state.onboarding?.status !== 'IN_PROGRESS') return '';
   return `
-    <aside class="onboarding-resume-prompt" aria-label="Incomplete Vaultr setup">
-      <span><strong>Finish setting up Vaultr</strong><small>Your progress is saved.</small></span>
+    <aside class="onboarding-resume-prompt" aria-label="Incomplete KeepSeek setup">
+      <span><strong>Finish setting up KeepSeek</strong><small>Your progress is saved.</small></span>
       <button class="button-ghost" type="button" data-action="resume-onboarding">Resume setup</button>
     </aside>
   `;
@@ -852,8 +852,8 @@ function settingsPageMarkup() {
   const header = pageHeaderMarkup({
     id: 'settings-title',
     title: 'Settings',
-    tagline: 'Set Vaultr up your way.',
-    copy: 'Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.'
+    tagline: 'Set KeepSeek up your way.',
+    copy: 'Make KeepSeek feel right for you. Manage your account and adjust how KeepSeek finds matches for what you collect.'
   });
   if (state.isSettingsLoading && !state.settingsLoaded) {
     return `<section class="settings-page" aria-labelledby="settings-title">${header}<div class="settings-loading" role="status">Loading Settings…</div></section>`;
@@ -882,7 +882,7 @@ function settingsPageMarkup() {
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
       <section class="settings-overview" aria-label="Account overview">
         <div class="settings-overview-row"><span><small>Current plan</small><strong>${escapeHtml(currentPlan)}</strong></span><button class="button-ghost settings-plan-link" type="button" data-action="open-plan-comparison">Compare plans</button></div>
-        ${tasteOnboardingEnabled() ? '<div class="settings-overview-row"><span><strong>Collecting profile</strong><small>Update favourite Pokémon and artwork without changing your Watchlist.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="edit-collector-profile">Edit profile</button></div>' : ''}
+        ${tasteOnboardingEnabled() ? '<div class="settings-overview-row"><span><strong>Collector Profile</strong><small>Update your favourites and artwork preferences without changing your Watchlist.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="edit-collector-profile">Edit profile</button></div>' : ''}
         <div class="settings-overview-row"><span><strong>Getting started</strong><small>Review your market preferences or the first-card walkthrough.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="revisit-onboarding">Revisit setup</button></div>
       </section>
       <section class="settings-group account-methods" aria-labelledby="settings-login-title">
@@ -894,7 +894,7 @@ function settingsPageMarkup() {
               ${emailIdentity.connected || !emailLinkAvailable ? '' : `<form class="email-link-form" data-email-link-form novalidate><label class="field"><span class="visually-hidden">Email address</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" placeholder="you@example.com" required${isPreviewMode ? ' disabled' : ''}></label><button class="button-ghost" type="submit"${isPreviewMode || state.authBusy ? ' disabled' : ''}>Send verification link</button></form>`}
             </div>
             <div class="account-method-row">
-              <span><strong>Discord</strong><small>${discordIdentity.connected ? escapeHtml(discordIdentity.displayName || discordIdentity.username || 'Connected') : 'Not connected'}</small><small>${discordIdentity.connected ? 'Connected for sign-in and supported Discord features.' : 'Optional. Connect Discord as another way to access Vaultr.'}</small></span>
+              <span><strong>Discord</strong><small>${discordIdentity.connected ? escapeHtml(discordIdentity.displayName || discordIdentity.username || 'Connected') : 'Not connected'}</small><small>${discordIdentity.connected ? 'Connected for sign-in and supported Discord features.' : 'Optional. Connect Discord as another way to access KeepSeek.'}</small></span>
               ${discordIdentity.connected || !discordAvailable || isPreviewMode ? '' : '<a class="button-ghost account-method-action" href="/auth/discord">Connect Discord</a>'}
             </div>
           </div>
@@ -920,7 +920,7 @@ function settingsPageMarkup() {
           <div class="settings-group-heading">
             <p class="eyebrow">Match volume</p>
             <h2 id="settings-volume-title">How many matches to surface</h2>
-            <p>Limits matches surfaced in your Inbox and Discord. It does not change how often Vaultr checks.</p>
+            <p>Limits matches surfaced in your Inbox and Discord. It does not change how often KeepSeek checks.</p>
           </div>
           <fieldset class="settings-segments" aria-describedby="settings-volume-help">
             <legend class="sr-only">Match volume</legend>
@@ -937,17 +937,17 @@ function settingsPageMarkup() {
         <section class="settings-group" aria-labelledby="settings-sources-title">
           <div class="settings-group-heading">
             <p class="eyebrow">Sources</p>
-            <h2 id="settings-sources-title">Where Vaultr watches</h2>
+            <h2 id="settings-sources-title">Where KeepSeek searches</h2>
           </div>
           <label class="field">
             <span>Listing sources</span>
             <select name="listingSourceMode" aria-describedby="${describedBy('listingSourceMode', 'settings-source-help')}"${controlsDisabled ? ' disabled' : ''}>
               ${(options.sources || []).map((option) => {
                 const locked = option.requiresPro && !access.trustedShops;
-                return `<option value="${escapeHtml(option.value)}"${draft.listingSourceMode === option.value ? ' selected' : ''}${locked ? ' disabled' : ''}>${escapeHtml(option.label)}${locked ? ' (Vaultr Plus)' : ''}</option>`;
+                return `<option value="${escapeHtml(option.value)}"${draft.listingSourceMode === option.value ? ' selected' : ''}${locked ? ' disabled' : ''}>${escapeHtml(option.label)}${locked ? ' (KeepSeek Plus)' : ''}</option>`;
               }).join('')}
             </select>
-            <small class="field-hint" id="settings-source-help">Trusted Shops require <strong class="inline-vaultr-plus">Vaultr Plus</strong>.${sourceMismatch ? ` Your saved preference is retained, but Vaultr currently watches ${escapeHtml(draft.effectiveListingSourceMode === 'EBAY' ? 'eBay' : draft.effectiveListingSourceMode)}.` : ''}</small>
+            <small class="field-hint" id="settings-source-help">Supported shops require <strong class="inline-vaultr-plus">KeepSeek Plus</strong>.${sourceMismatch ? ` Your saved preference is retained, but KeepSeek is currently using ${escapeHtml(draft.effectiveListingSourceMode === 'EBAY' ? 'eBay' : draft.effectiveListingSourceMode)}.` : ''}</small>
             ${settingsFieldError('listingSourceMode')}
           </label>
         </section>
@@ -991,31 +991,34 @@ function settingsPageMarkup() {
   `;
 }
 
+function planFeatureRows(plan) {
+  if (plan.tier === 'FREE') return [
+    ['watch', `Watch up to ${plan.maxActiveChases} cards at once`],
+    ['clock', `eBay monitoring about every ${plan.checkIntervalMinutes} minutes`],
+    ['sliders', 'Card, budget, and grading preferences'],
+    ['shop', 'eBay monitoring'],
+    ['plus', 'Three general finds each week']
+  ];
+  return [
+    ['watch', `Watch up to ${plan.maxActiveChases} cards at once`],
+    ['clock', `${plan.monitoringPriority === 'PRIORITY' ? 'Priority monitoring' : 'Monitoring'} about every ${plan.checkIntervalMinutes} minutes`],
+    ['sliders', plan.advancedFiltering ? 'Everything in Free, plus condition, listing type, priority, target notes, and exclusions' : 'Everything in Free'],
+    ['shop', plan.storefrontMonitoring ? 'eBay + supported shops' : 'eBay monitoring'],
+    ['plus', plan.discoveryDepth === 'full' ? 'A personalized Display Case shaped by your Watchlist, Pickups, and feedback' : 'Three general finds each week'],
+    ['market', plan.discoveryDepth === 'full' ? 'Market context when reliable data is available' : 'Market context not included']
+  ];
+}
+
 function plusComparisonCardsMarkup(plans, currentTier) {
   const free = plans.find((plan) => plan.tier === 'FREE');
   const plus = plans.find((plan) => plan.tier === 'PRO');
   if (!free || !plus) return '<div class="state-panel"><p>Plan comparison is unavailable right now.</p></div>';
-  const freeFeatures = [
-    ['watch', `Watch up to ${free.maxActiveChases} cards at once`],
-    ['clock', `eBay monitoring about every ${free.checkIntervalMinutes} minutes`],
-    ['sliders', 'Card, budget and grading preferences'],
-    ['shop', free.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay monitoring'],
-    ['plus', free.discoveryDepth === 'full' ? 'A personalized Display Case shaped by your Watchlist, Pickups and feedback' : 'Three general finds each week']
-  ];
-  const plusFeatures = [
-    ['watch', `Watch up to ${plus.maxActiveChases} cards at once`],
-    ['clock', `${plus.monitoringPriority === 'PRIORITY' ? 'Priority monitoring' : 'Monitoring'} about every ${plus.checkIntervalMinutes} minutes`],
-    ['sliders', plus.advancedFiltering ? 'Everything in Free, plus condition, listing type, priority, target notes and exclusions' : 'Everything in Free'],
-    ['shop', plus.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay monitoring'],
-    ['plus', plus.discoveryDepth === 'full' ? 'A personalized Display Case shaped by your Watchlist, Pickups and feedback' : 'Three general finds each week'],
-    ['market', plus.discoveryDepth === 'full' ? 'Market context when reliable data is available' : 'Market context not included']
-  ];
   const card = (plan, features, featured = false) => `
     <article class="plus-plan${featured ? ' featured' : ''}${plan.tier === currentTier ? ' current' : ''}">
-      <header><h3>${escapeHtml(featured ? 'Vaultr Plus' : plan.label)}</h3>${plan.tier === currentTier ? '<small>Current plan</small>' : ''}</header>
+      <header><h3>${escapeHtml(featured ? 'KeepSeek Plus' : plan.label)}</h3>${plan.tier === currentTier ? '<small>Current plan</small>' : ''}</header>
       <ul>${features.map(([icon, feature]) => `<li><span class="plus-feature-icon" aria-hidden="true">${iconMarkup(icon)}</span><span>${escapeHtml(feature)}</span></li>`).join('')}</ul>
     </article>`;
-  return `<div class="plus-plan-grid">${card(free, freeFeatures)}${card(plus, plusFeatures, true)}</div>`;
+  return `<div class="plus-plan-grid">${card(free, planFeatureRows(free))}${card(plus, planFeatureRows(plus), true)}</div>`;
 }
 
 function supportedShopMarkup(name) {
@@ -1031,7 +1034,7 @@ function supportedShopMarkup(name) {
 function plusPageMarkup() {
   const header = pageHeaderMarkup({
     id: 'plus-title',
-    title: 'Vaultr Plus',
+    title: 'KeepSeek Plus',
     tagline: 'Make discovery feel more like you.',
     copy: 'Give your collection more room to grow, with more cards to watch and a personalized Display Case that gets to know what you love.',
     className: 'plus-header'
@@ -1050,16 +1053,16 @@ function plusPageMarkup() {
       ${header}
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. No plan changes can be made here.</p>' : ''}
       <section class="plus-comparison" aria-labelledby="plus-comparison-title">
-        <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">More room, more control, more ways to discover</h2><p>Free gives you the essentials. <strong class="inline-vaultr-plus">Vaultr Plus</strong> expands how much you can watch, how precisely Vaultr searches, where it looks, and how discovery adapts to your collection.</p></div>
+        <div class="plus-section-heading"><p class="eyebrow">COMPARE</p><h2 id="plus-comparison-title">More room, more control, more ways to discover</h2><p>Free gives you the essentials. <strong class="inline-vaultr-plus">KeepSeek Plus</strong> expands how much you can watch, how precisely KeepSeek searches, where it looks, and how discovery adapts to your collection.</p></div>
         ${plusComparisonCardsMarkup(plans, currentTier)}
       </section>
       <section class="plus-detail-section plus-discovery-note" aria-labelledby="plus-discovery-title">
         <p class="eyebrow">DISCOVERY</p>
         <h2 id="plus-discovery-title">A Display Case that gets to know your collection</h2>
-        <p>Free brings three general finds each week. With <strong class="inline-vaultr-plus">Vaultr Plus</strong>, discovery becomes personal, shaped by your Watchlist, Pickups and the feedback you give along the way.</p>
+        <p>Free brings three general finds each week. With <strong class="inline-vaultr-plus">KeepSeek Plus</strong>, discovery becomes personal, shaped by your Watchlist, Pickups, and the feedback you give along the way.</p>
       </section>
       <section class="plus-detail-section plus-source-note" aria-labelledby="plus-source-title">
-        <div><p class="eyebrow">LISTING SOURCES</p><h2 id="plus-source-title">Where Vaultr searches</h2><p>eBay is available to everyone. <strong class="inline-vaultr-plus">Vaultr Plus</strong> can also search supported card shops, giving Vaultr more places to look for the cards you want. We’ll continue expanding supported sources over time.</p></div>
+        <div><p class="eyebrow">LISTING SOURCES</p><h2 id="plus-source-title">Where KeepSeek searches</h2><p>eBay is available to everyone. <strong class="inline-vaultr-plus">KeepSeek Plus</strong> can also search supported card shops, giving KeepSeek more places to look for the cards you want. We’ll continue expanding supported sources over time.</p></div>
         ${supportedShopNames.length ? `<ul aria-label="Supported card shops">${supportedShopNames.map(supportedShopMarkup).join('')}</ul>` : ''}
       </section>
     </section>
@@ -1068,14 +1071,14 @@ function plusPageMarkup() {
 
 function onboardingStepIndicator(step) {
   const steps = tasteOnboardingEnabled() ? ['WELCOME', 'MARKET', 'PROFILE', 'CHASE', 'READY'] : ['WELCOME', 'MARKET', 'CHASE', 'READY'];
-  const labels = tasteOnboardingEnabled() ? ['Welcome', 'Market', 'Your taste', 'First card', 'Ready'] : ['Welcome', 'Market', 'First card', 'Ready'];
   const active = Math.max(0, steps.indexOf(step));
-  return `<ol class="onboarding-steps" aria-label="Setup progress">${steps.map((item, index) => `<li${index === active ? ' aria-current="step"' : ''}><span>${index + 1}</span><small>${labels[index]}</small></li>`).join('')}</ol>`;
+  const current = active + 1;
+  return `<div class="onboarding-steps" role="progressbar" aria-label="Setup progress: step ${current} of ${steps.length}" aria-valuemin="1" aria-valuemax="${steps.length}" aria-valuenow="${current}"><span>Step ${current} of ${steps.length}</span><span class="onboarding-progress-track" aria-hidden="true"><span style="width: ${(current / steps.length) * 100}%"></span></span></div>`;
 }
 
 function collectorProfileMarkup(revisit = false) {
-  if (state.collectorProfileLoading && !state.collectorProfileDraft) return '<div class="state-panel" role="status">Loading collecting-profile choices…</div>';
-  if (!state.collectorProfileDraft || !state.collectorProfileOptions) return `<div class="state-panel"><p>Collecting-profile choices are unavailable right now.</p><button class="button-ghost" type="button" data-action="retry-collector-profile">Try again</button></div>`;
+  if (state.collectorProfileLoading && !state.collectorProfileDraft) return '<div class="state-panel" role="status">Loading Collector Profile choices…</div>';
+  if (!state.collectorProfileDraft || !state.collectorProfileOptions) return `<div class="state-panel"><p>Collector Profile choices are unavailable right now.</p><button class="button-ghost" type="button" data-action="retry-collector-profile">Try again</button></div>`;
   const selectedSubjects = new Set(state.collectorProfileDraft.subjects);
   const selectedArtwork = new Set(state.collectorProfileDraft.artwork.map((item) => `${item.source}:${item.sourceCardId}`));
   const subjectCount = selectedSubjects.size;
@@ -1102,7 +1105,7 @@ function collectorProfileMarkup(revisit = false) {
           }).join('')}
         </div>
       </div>
-      <p class="collector-profile-progress" role="status">${ready ? 'Ready to find your first picks.' : `Choose ${needed} more artwork ${subjectCount ? '' : 'or add a favourite Pokémon'} to prepare a sample.`}</p>
+      <p class="collector-profile-progress" role="status">${ready ? 'Your Collector Profile is ready.' : `Choose ${needed} more artwork ${needed === 1 ? 'pick' : 'picks'}${subjectCount ? '' : ' or add a favourite Pokémon'} to complete your profile.`}</p>
       ${state.collectorProfileError ? `<p class="form-error" role="alert">${escapeHtml(state.collectorProfileError)}</p>` : ''}
       <footer class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="onboarding-exit" type="button" data-action="skip-collector-profile">Skip for now</button><button class="button-primary" type="button" data-action="save-collector-profile">Save and continue</button></footer>
     </div>`;
@@ -1129,13 +1132,13 @@ function onboardingMarketMarkup(revisit = false) {
 function onboardingWelcomeMarkup(revisit = false) {
   return `
     <div class="onboarding-welcome-copy">
-      <p class="eyebrow">WELCOME TO VAULTR</p>
-      <h1 id="onboarding-title">Build your Vault. Chase your grails. Discover what you love next.</h1>
-      <p class="onboarding-intro">Tell Vaultr which Pokémon cards you're looking for and what matters to you. We watch supported marketplaces for matching listings and help you discover cards around your collecting interests.</p>
-      <ol class="onboarding-primer" aria-label="How Vaultr works">
-        <li><span aria-hidden="true">1</span><div><strong>Chase</strong><p>Choose a card and the criteria that matter to you.</p></div></li>
-        <li><span aria-hidden="true">2</span><div><strong>Watch</strong><p>Review qualifying marketplace listings in your Inbox.</p></div></li>
-        <li><span aria-hidden="true">3</span><div><strong>Discover</strong><p>Explore personalized recommendations as your collector profile develops.</p></div></li>
+      <p class="eyebrow">WELCOME TO KEEPSEEK</p>
+      <h1 id="onboarding-title">Keep what you love. Seek what comes next.</h1>
+      <p class="onboarding-intro">Tell KeepSeek what you’re looking for and what matters to you. It’ll look for matching listings and help you discover more of what you love.</p>
+      <ol class="onboarding-primer" aria-label="How KeepSeek works">
+        <li><span aria-hidden="true">1</span><div><strong>Chase</strong><p>Choose what you want and the preferences that matter to you.</p></div></li>
+        <li><span aria-hidden="true">2</span><div><strong>Watch</strong><p>Review matching listings in your Inbox.</p></div></li>
+        <li><span aria-hidden="true">3</span><div><strong>Discover</strong><p>Explore recommendations shaped by your collection as your Collector Profile grows.</p></div></li>
       </ol>
       <div class="onboarding-actions onboarding-welcome-actions"><button class="button-primary" type="button" data-action="onboarding-continue">Get started</button><button class="onboarding-skip" type="button" data-action="${revisit ? 'exit-onboarding-revisit' : 'skip-onboarding'}">${revisit ? 'Back to Settings' : 'Skip setup'}</button></div>
     </div>
@@ -1162,7 +1165,7 @@ function onboardingPageMarkup() {
   if (step === 'PROFILE') content = `<p class="eyebrow">YOUR TASTE</p><h1 id="onboarding-title">What catches your eye?</h1><p>These choices stay separate from your Watchlist and Pickups.</p>${collectorProfileMarkup(revisit)}`;
   if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">Inspect the shared Watchlist form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Watchlist form</button></div>`;
   if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'You already have a card on your Watchlist. You’re ready to continue.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${!revisit && state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${!revisit && state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
-  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Qualifying matches appear in Inbox after Vaultr checks find them. Your Watchlist and Pickups shape your collecting profile; personalized recommendations require <strong class="inline-vaultr-plus">Vaultr Plus</strong> and enough distinct card history, and may not appear immediately.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
+  if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Matching listings will appear in your Inbox as KeepSeek finds them. Your Watchlist and Pickups also shape your Collector Profile. With <strong class="inline-vaultr-plus">KeepSeek Plus</strong>, that profile can power a personalized Display Case once KeepSeek has enough to work with.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
   return `<section class="onboarding-page${step === 'WELCOME' ? ' welcome' : ''}" aria-labelledby="onboarding-title">${onboardingStepIndicator(step)}${previewNotice}${vaultNoticeMarkup('onboarding')}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content${step === 'WELCOME' ? ' onboarding-welcome' : ''}">${content}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
 }
 
@@ -1206,7 +1209,7 @@ function alertsPageMarkup(inner) {
             <select class="source-select" data-action="source-filter">
               <option value="ALL"${state.source === 'ALL' ? ' selected' : ''}>All sources</option>
               <option value="EBAY"${state.source === 'EBAY' ? ' selected' : ''}>eBay</option>
-              <option value="SHOPIFY"${state.source === 'SHOPIFY' ? ' selected' : ''}>Trusted shops</option>
+              <option value="SHOPIFY"${state.source === 'SHOPIFY' ? ' selected' : ''}>Supported shops</option>
             </select>
           </label>
         </div>
@@ -1276,13 +1279,13 @@ function alertsMarkup() {
       return alertsPageMarkup(statePanelMarkup('No reviewed matches yet.', 'Matches you review will stay available here.'));
     }
     if (state.priority === 'ALL' && state.source === 'ALL' && !state.hasCheckedAllAlerts) {
-      return alertsPageMarkup(statePanelMarkup('Nothing here yet.', "When Vaultr finds a match for a card on your Watchlist, it'll show up here."));
+      return alertsPageMarkup(statePanelMarkup('Nothing here yet.', "When KeepSeek finds a match for a card on your Watchlist, it'll show up here."));
     }
     if (state.priority !== 'ALL') {
       const filteredPriority = state.priority === 'GRAIL' ? 'Grail' : state.priority === 'NORMAL' ? 'Casual' : 'High';
-      return alertsPageMarkup(statePanelMarkup(`No ${filteredPriority} matches yet.`, 'Try another priority or check back after Vaultr finds a new match.'));
+      return alertsPageMarkup(statePanelMarkup(`No ${filteredPriority} matches yet.`, 'Try another priority or check back after KeepSeek finds a new match.'));
     }
-    return alertsPageMarkup(statePanelMarkup('No matches for this source yet.', 'Try another source or check back after Vaultr finds a new match.'));
+    return alertsPageMarkup(statePanelMarkup('No matches for this source yet.', 'Try another source or check back after KeepSeek finds a new match.'));
   }
 
   const list = state.alerts.map(alertCardMarkup).join('');
@@ -1318,7 +1321,7 @@ function homeAlertPreviewMarkup(alert) {
               imageClass: 'home-preview-image',
               imageDataAttribute: 'data-home-alert-image'
             })
-          : '<span class="home-preview-image-placeholder" aria-hidden="true">V</span>'}
+          : '<span class="home-preview-image-placeholder" aria-hidden="true">K</span>'}
       </div>
       <div class="home-preview-copy">
         <strong>${escapeHtml(alert.chaseName || 'Watchlist card')}</strong>
@@ -1424,12 +1427,12 @@ function homeWatchlistPreviewMarkup(item) {
               imageClass: 'home-watchlist-image',
               imageDataAttribute: 'data-home-watchlist-image'
             })
-          : '<span class="home-watchlist-placeholder" aria-hidden="true">V</span>'}
+          : '<span class="home-watchlist-placeholder" aria-hidden="true">K</span>'}
       </div>
       <div class="home-watchlist-copy">
         <span class="home-watchlist-status">${escapeHtml(status)}</span>
         <strong>${escapeHtml(chase.cardName || 'Watchlist card')}</strong>
-        <span>${chase.maxPrice !== undefined ? `Up to ${escapeHtml(formatMoney(chase.maxPrice, state.vaultCurrency))} ${escapeHtml(state.vaultCurrency)}` : 'No maximum price'}</span>
+        <span>${chase.maxPrice !== undefined ? `Up to ${escapeHtml(formatMoney(chase.maxPrice, state.vaultCurrency))} ${escapeHtml(state.vaultCurrency)}` : 'No max set'}</span>
       </div>
       <button class="home-watchlist-action" type="button" data-action="view-chase-matches" data-chase-id="${escapeHtml(chase.id)}" data-card-name="${escapeHtml(chase.cardName)}" aria-label="View matches for ${escapeHtml(chase.cardName || 'Watchlist card')}">&rarr;</button>
     </article>
@@ -1462,7 +1465,7 @@ function editorialDiscoveryCopy() {
 function homeDiscoveryHeadingCopy(mode) {
   if (mode === 'PERSONALIZED') return {
     heading: 'Picked for you',
-    copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.'
+    copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell KeepSeek you like.'
   };
   if (mode === 'STARTER') return {
     heading: 'Your next favourite could be here.',
@@ -1523,21 +1526,19 @@ function discoveryCardPrimaryActionMarkup(item) {
 
 function discoveryStateCopy(discovery, compact = false) {
   if (discovery?.state === 'PLAN_RESTRICTED') {
-    return 'Your Watchlist and Pickups help shape your collecting profile. With Vaultr Plus, that profile guides your personalized Display Case.';
+    return 'Your Watchlist and Pickups already help KeepSeek understand what you collect. With KeepSeek Plus, they also shape your personalized Display Case.';
   }
   if (discovery?.state === 'INSUFFICIENT_SIGNALS') {
-    const count = Number(discovery.uniqueSignalCount || 0);
-    const minimum = Number(discovery.minimumSignalCount || 0);
     const needed = Number(discovery.signalsNeeded || 0);
-    return `Your Display Case starts with what you love collecting. Your profile has ${count} of ${minimum} distinct card signals and needs ${needed} more. Watchlist cards and Pickups both help build it.`;
+    return `Your personalized Display Case is taking shape. Add ${needed} more distinct ${needed === 1 ? 'card' : 'cards'} to your Watchlist or Pickups to give KeepSeek enough to work with.`;
   }
   if (discovery?.state === 'AWAITING_PREPARATION') {
-    return 'Your collecting profile is ready. We’re putting together your first personalized Display Case.';
+    return 'Your Collector Profile is ready. KeepSeek is preparing your first personalized Display Case.';
   }
   if (discovery?.state === 'PREPARATION_UNAVAILABLE') {
-    return 'Your collecting profile is ready, but personalized Display Case updates are unavailable in this environment.';
+    return 'Your Collector Profile is ready, but personalized Display Case updates are unavailable in this environment.';
   }
-  return compact ? 'A few collector favourites to get you started.' : 'Your Watchlist and Pickups help shape your collecting profile.';
+  return compact ? 'A few collector favourites to get you started.' : 'Your Watchlist and Pickups help KeepSeek understand what you collect.';
 }
 
 function homeAttentionEmptyMarkup() {
@@ -1567,7 +1568,7 @@ function homePageMarkup() {
         <div class="home-intro-primary">
           <p class="home-greeting">Welcome back, ${escapeHtml(userDisplayName(state.user))}</p>
           <h1 id="home-title">Less searching. <span>More collecting.</span></h1>
-          <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit. With <a class="inline-vaultr-plus" href="#plus" data-page="plus">Vaultr Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case to help surface your next favourite.</p>
+          <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell KeepSeek what you’re chasing and it’ll look for listings that fit. With <a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case to help surface your next favourite.</p>
         </div>
         <button class="button-primary home-watchlist-cta" type="button" data-page="vault">View Watchlist <span aria-hidden="true">&rarr;</span></button>
       </header>
@@ -1586,7 +1587,7 @@ function homePageMarkup() {
             : state.shelfLoaded
                 ? displayCaseItems.length
                   ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: !personalizedReady, feedback: personalizedReady, label: personalizedReady ? 'Picked for you' : weeklyFinds ? 'Weekly find' : 'Collector pick' })
-                  : `<div class="home-discovery-state"><p>${inlineVaultrPlusCopy(discoveryStateCopy(discovery, true))}</p></div>`
+                  : `<div class="home-discovery-state"><p>${inlineKeepSeekPlusCopy(discoveryStateCopy(discovery, true))}</p></div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
           </div>
         </div>
@@ -1594,7 +1595,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
         <div class="home-section-heading">
-          <div><h2 id="home-vault-title">Your Watchlist</h2><p>Vaultr is searching for matching listings for these cards</p></div>
+          <div><h2 id="home-vault-title">Your Watchlist</h2><p>KeepSeek is keeping an eye out for listings that match your preferences.</p></div>
           <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
         </div>
         ${watchlistPreview.length
@@ -1606,7 +1607,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-attention-section" aria-labelledby="home-alerts-title">
         <div class="home-section-heading">
-          <div><h2 id="home-alerts-title">Latest matches</h2><p>New listings for the cards you’re watching, ready to look through.</p></div>
+          <div><h2 id="home-alerts-title">Latest matches</h2><p>New listings for the cards you’re watching, ready when you are.</p></div>
           <button class="home-text-link" type="button" data-action="view-new-alerts">Open Inbox</button>
           ${alertPreview.length ? '<span class="home-plan-label">New</span>' : ''}
         </div>
@@ -1641,7 +1642,7 @@ function alertCardMarkup(alert) {
               imageClass: 'alert-image',
               imageDataAttribute: 'data-alert-image'
             })
-          : '<span class="alert-image-placeholder" aria-hidden="true">V</span>'}
+          : '<span class="alert-image-placeholder" aria-hidden="true">K</span>'}
       </div>
       <div class="alert-content">
         <div class="alert-main">
@@ -1730,7 +1731,7 @@ function vaultHeaderMarkup() {
       <div>
         <h1 id="vault-title">Your Watchlist</h1>
         <p class="page-tagline">Keep the cards you’re chasing close.</p>
-        <p class="page-support">From longtime grails to cards that just caught your eye, keep them here. Vaultr looks for listings that match what you’re after.</p>
+        <p class="page-support">From longtime grails to cards that just caught your eye, keep them here. KeepSeek looks for listings that match what you’re after.</p>
       </div>
       <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Watchlist</button>
     </header>
@@ -1772,7 +1773,7 @@ function vaultLimitWarningMarkup() {
   const isPlus = plan.tier === 'PRO';
   return `
     <aside class="vault-limit-warning" aria-labelledby="vault-limit-warning-title">
-      <div><h2 id="vault-limit-warning-title">Watchlist full</h2><p>Remove a card or mark one acquired to make room${isPlus ? '.' : ', or explore <strong class="inline-vaultr-plus">Vaultr Plus</strong> for a larger Watchlist.'}</p></div>
+      <div><h2 id="vault-limit-warning-title">Watchlist full</h2><p>Remove a card or mark one acquired to make room${isPlus ? '.' : ', or explore <strong class="inline-vaultr-plus">KeepSeek Plus</strong> for a larger Watchlist.'}</p></div>
       ${isPlus ? '' : '<button class="button-ghost" type="button" data-page="plus">Explore Plus</button>'}
     </aside>
   `;
@@ -1781,8 +1782,8 @@ function vaultLimitWarningMarkup() {
 function vaultEmptyMarkup() {
   return `
     <div class="state-panel vault-empty">
-      <h2>Your Watchlist is ready</h2>
-      <p>Add a specific card and Vaultr will start watching for listings that match your preferences.</p>
+      <h2>Start your Watchlist</h2>
+      <p>Add a card and KeepSeek will start looking for listings that match your preferences.</p>
       <button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>
     </div>
   `;
@@ -1808,7 +1809,7 @@ function vaultCardMarkup(item) {
         imageKind: 'Card artwork',
         imageClass: 'vault-card-image',
         imageDataAttribute: 'data-vault-card-image'
-      }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
+      }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">K</div>`}
       <div class="vault-card-body">
         <div class="vault-card-meta">
           <span class="status-pill ${paused ? 'paused' : 'active'}">${statusLabel}</span>
@@ -1848,7 +1849,7 @@ function completedChaseMarkup(chase) {
         imageKind: 'Card artwork',
         imageClass: 'vault-card-image',
         imageDataAttribute: 'data-vault-card-image'
-      }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">V</div>`}
+      }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">K</div>`}
       <div class="vault-card-body">
         <div class="vault-card-meta">
           <span class="status-pill completed">Pickup</span>
@@ -1944,15 +1945,15 @@ function shelfEmptyMarkup(shelf) {
   const weekly = shelf?.generalDiscovery?.mode === 'WEEKLY';
   const plusAccount = state.vaultPlan?.tier === 'PRO';
   const freeIntroduction = starter
-    ? 'Start with three collector picks, with fresh finds each week. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.'
+    ? 'Start with three collector picks, with fresh finds each week. With KeepSeek Plus, your Watchlist, Pickups, and feedback shape a personalized Display Case with familiar favourites and unexpected finds.'
     : weekly
-    ? 'Explore three fresh finds each week. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.'
-    : 'Explore these collector picks while this week’s finds are unavailable. With Vaultr Plus, discover a full personalized Display Case that learns from your Watchlist, Pickups, and feedback, bringing you familiar favourites and unexpected finds.';
+    ? 'Explore three fresh finds each week. With KeepSeek Plus, your Watchlist, Pickups, and feedback shape a personalized Display Case with familiar favourites and unexpected finds.'
+    : 'Explore these collector picks while this week’s finds are unavailable. With KeepSeek Plus, your Watchlist, Pickups, and feedback shape a personalized Display Case with familiar favourites and unexpected finds.';
   return `
     <section class="shelf-editorial" aria-label="General discovery picks">
       ${plusAccount
-        ? `<p class="shelf-personalized-note">${inlineVaultrPlusCopy(discoveryStateCopy(shelf?.discovery))}</p>`
-        : `<div class="shelf-plus-intro"><p>${linkedVaultrPlusCopy(freeIntroduction)}</p></div>`}
+        ? `<p class="shelf-personalized-note">${inlineKeepSeekPlusCopy(discoveryStateCopy(shelf?.discovery))}</p>`
+        : `<div class="shelf-plus-intro"><p>${linkedKeepSeekPlusCopy(freeIntroduction)}</p></div>`}
       <header class="shelf-editorial-heading"><h2>${weekly ? 'This week’s finds' : 'Collector picks'}</h2></header>
       ${starters.length
         ? `<div class="shelf-grid shelf-editorial-grid" aria-label="General discovery picks">${starters.map((item) => shelfCardMarkup(item, { editorial: true })).join('')}</div>`
@@ -2049,7 +2050,7 @@ function vaultDialogMarkup() {
         </header>
         ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect this form, but changes will not be saved.</p>' : ''}
         ${state.vaultFormError ? `<div class="form-error" role="alert"><span>${escapeHtml(state.vaultFormError)}</span>${state.vaultCreateRecovery?.uncertain ? '<button class="vault-action-link" type="button" data-action="reconcile-vault-create">Check saved card</button>' : ''}</div>` : ''}
-        ${!editing && atLimit ? `<aside class="plan-limit-note"><strong>Your Watchlist has ${escapeHtml(savedCount)} cards, the limit on your ${escapeHtml(planLabel(state.vaultPlan.tier))} plan.</strong><span>${hasPlus ? 'Remove a card or mark one acquired before adding another.' : `<strong class="inline-vaultr-plus">Vaultr Plus</strong> gives you room to watch up to ${escapeHtml(state.vaultOptions?.plans?.find((plan) => plan.tier === 'PRO')?.maxActiveChases || 50)}.`}</span>${hasPlus ? '' : '<button class="vault-action-link" type="button" data-page="plus">Explore Plus</button>'}</aside>` : ''}
+        ${!editing && atLimit ? `<aside class="plan-limit-note"><strong>Your Watchlist has ${escapeHtml(savedCount)} cards, the limit on your ${escapeHtml(planLabel(state.vaultPlan.tier))} plan.</strong><span>${hasPlus ? 'Remove a card or mark one acquired before adding another.' : `<strong class="inline-vaultr-plus">KeepSeek Plus</strong> gives you room to watch up to ${escapeHtml(state.vaultOptions?.plans?.find((plan) => plan.tier === 'PRO')?.maxActiveChases || 50)}.`}</span>${hasPlus ? '' : '<button class="vault-action-link" type="button" data-page="plus">Explore Plus</button>'}</aside>` : ''}
         <label class="field">
           <span>Card <span class="required-marker">Required</span></span>
           <div class="card-autocomplete">
@@ -2096,9 +2097,9 @@ function vaultDialogMarkup() {
           </div>
         </fieldset>
         <details class="advanced-section${hasPlus ? ' has-plus' : ' plus-locked'}" ${hasPlus ? 'open' : ''}>
-          <summary>${hasPlus ? 'Vaultr Plus controls' : 'See Vaultr Plus controls'}</summary>
+          <summary>${hasPlus ? 'KeepSeek Plus controls' : 'See KeepSeek Plus controls'}</summary>
           <div class="advanced-section-heading">
-            <div><h3 id="advanced-fields-title">Vaultr Plus controls</h3><p>${hasPlus ? 'Optional controls for a more precise search.' : 'Advanced filters and Trusted Shops monitoring are included with <strong class="inline-vaultr-plus">Vaultr Plus</strong>. Saved locked values stay intact.'}</p></div>
+            <div><h3 id="advanced-fields-title">KeepSeek Plus controls</h3><p>${hasPlus ? 'Optional controls for a more precise search.' : 'Condition, listing type, priority, target notes, exclusions, and supported-shop monitoring are included with <strong class="inline-vaultr-plus">KeepSeek Plus</strong>. Saved locked values stay intact.'}</p></div>
             ${hasPlus ? '' : '<button class="vault-action-link" type="button" data-page="plus">Explore Plus</button>'}
           </div>
         <fieldset class="advanced-fields" aria-describedby="advanced-fields-title" ${hasPlus ? '' : 'disabled'}>
@@ -2127,8 +2128,8 @@ function vaultDialogMarkup() {
           <label class="field">
             <span>Custom exclusions</span>
             <input name="customExclusions" type="text" maxlength="240" aria-describedby="custom-exclusions-hint custom-exclusions-auto-note" value="${escapeHtml(draft.customExclusions)}">
-            <small id="custom-exclusions-hint" class="field-hint">Fine-tune what Vaultr should skip for this card. Examples: Korean, Chinese, damaged, played, creased, altered.</small>
-            <small id="custom-exclusions-auto-note" class="field-hint field-hint-secondary">* Vaultr already filters common proxies, reprints, replicas, code cards, accessories, and multi-card lots automatically.</small>
+            <small id="custom-exclusions-hint" class="field-hint">Fine-tune what KeepSeek should skip for this card. Examples: Korean, Chinese, damaged, played, creased, altered.</small>
+            <small id="custom-exclusions-auto-note" class="field-hint field-hint-secondary">* KeepSeek already filters common proxies, reprints, replicas, code cards, accessories, and multi-card lots automatically.</small>
           </label>
         </fieldset>
         </details>
@@ -2183,7 +2184,7 @@ function acquireDialogMarkup() {
           <p class="eyebrow">MARK ACQUIRED</p>
           <h2 id="acquire-title">Mark ${escapeHtml(item.chase.cardName)} as acquired?</h2>
         </header>
-        <p>Vaultr will stop watching this card and keep it in Pickups.</p>
+        <p>KeepSeek will stop watching this card and keep it in Pickups.</p>
         ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. This card will not be changed.</p>' : ''}
         ${state.lifecycleError ? `<p class="form-error" role="alert">${escapeHtml(state.lifecycleError)}</p>` : ''}
         <footer class="dialog-actions">
@@ -2317,9 +2318,9 @@ async function requestAuthEmail(form, endpoint) {
     });
     const body = await response.json().catch(() => null);
     if (!response.ok) throw Object.assign(new Error(body?.error || 'request_failed'), { status: response.status });
-    state.authNotice = 'Check your email for a secure Vaultr link. It expires in 15 minutes.';
+    state.authNotice = 'Check your email for a secure KeepSeek link. It expires in 15 minutes.';
   } catch (error) {
-    state.authError = error?.message === 'invalid_email' ? 'Enter a valid email address.' : 'Vaultr could not send that link. Please try again.';
+    state.authError = error?.message === 'invalid_email' ? 'Enter a valid email address.' : 'KeepSeek could not send that link. Please try again.';
   } finally {
     state.authBusy = false;
     renderCurrentPage();
@@ -2339,8 +2340,8 @@ async function redeemEmailLink() {
   } catch (error) {
     state.authBusy = false;
     if (error?.message === 'auth_required') state.authError = 'Sign in to the existing account that requested this email link, then try again.';
-    else if (error?.message === 'account_mismatch') state.authError = 'This email link belongs to a different Vaultr account.';
-    else if (error?.message === 'identity_conflict') state.authError = 'That email is already linked to another Vaultr account.';
+    else if (error?.message === 'account_mismatch') state.authError = 'This email link belongs to a different KeepSeek account.';
+    else if (error?.message === 'identity_conflict') state.authError = 'That email is already linked to another KeepSeek account.';
     else state.authError = 'This link is invalid, expired, or already used. Request a new one.';
     renderCurrentPage();
   }
@@ -2600,7 +2601,7 @@ async function mutateDiscoveryFeedback(target, action) {
       await loadShelf({ force: true });
       state.discoveryFeedbackErrors[key] = 'Feedback changed elsewhere. The latest choice is shown.';
     } else if (error?.status === 403) {
-      state.discoveryFeedbackErrors[key] = 'Vaultr Plus is required to add new Display Case feedback.';
+      state.discoveryFeedbackErrors[key] = 'KeepSeek Plus is required to add new Display Case feedback.';
     } else {
       state.discoveryFeedbackErrors[key] = 'Couldn’t save feedback. Try again.';
     }
@@ -2681,7 +2682,7 @@ async function saveCollectorProfile({ advance = true } = {}) {
     state.collectorProfileDraft = { subjects: [...body.preferences.subjects], artwork: [...body.preferences.artwork] };
     if (advance) await updateOnboarding('PROFILE_SAVED');
   } catch (error) {
-    state.collectorProfileError = 'Your collecting profile could not be saved. Your choices are still here.';
+    state.collectorProfileError = 'Your Collector Profile could not be saved. Your choices are still here.';
   } finally {
     state.onboardingBusy = false;
     renderCurrentPage();
@@ -2974,7 +2975,7 @@ async function finishConfirmedVaultSave({ response, editing }) {
     else state.vault.unshift(response.item);
   }
   const notice = response.blockedControls?.length
-    ? `Saved to your Watchlist. Vaultr Plus controls were not applied: ${response.blockedControls.join(', ')}.`
+    ? `Saved to your Watchlist. KeepSeek Plus controls were not applied: ${response.blockedControls.join(', ')}.`
     : editing ? 'Watchlist preferences updated.' : 'Added to your Watchlist.';
   const onboardingStep = state.onboardingRevisitMode ? state.onboardingRevisitStep : state.onboarding?.step;
   const onboardingSave = !editing && state.activePage === 'onboarding' && onboardingStep === 'CHASE';
@@ -3199,8 +3200,8 @@ async function bootstrap() {
     app.innerHTML = `
       <main id="app-main" class="signed-out">
         <section class="signed-out-card">
-          <img class="boot-logo" src="/vaultr-icon.svg" alt="" aria-hidden="true">
-          <h1>Vaultr could not open.</h1>
+          <img class="boot-logo" src="/keepseek-icon.svg" alt="" aria-hidden="true">
+          <h1>KeepSeek could not open.</h1>
           <p>Refresh the page and try again.</p>
           <button class="button-primary" type="button" data-action="reload">Try again</button>
         </section>
@@ -3820,13 +3821,13 @@ app.addEventListener(
       const placeholder = document.createElement('span');
       placeholder.className = 'alert-image-placeholder';
       placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.textContent = 'V';
+      placeholder.textContent = 'K';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-alert-image]')) {
       const placeholder = document.createElement('span');
       placeholder.className = 'home-preview-image-placeholder';
       placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.textContent = 'V';
+      placeholder.textContent = 'K';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-shelf-image]')) {
       const placeholder = document.createElement('p');
@@ -3839,13 +3840,13 @@ app.addEventListener(
       const placeholder = document.createElement('span');
       placeholder.className = 'home-watchlist-placeholder';
       placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.textContent = 'V';
+      placeholder.textContent = 'K';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-vault-card-image], [data-shelf-card-image]')) {
       const placeholder = document.createElement('div');
       placeholder.className = `${target.matches('[data-shelf-card-image]') ? 'shelf-card-image' : 'vault-card-image'} placeholder-image`;
       placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.textContent = target.matches('[data-shelf-card-image]') ? 'Image unavailable' : 'V';
+      placeholder.textContent = target.matches('[data-shelf-card-image]') ? 'Image unavailable' : 'K';
       if (target.matches('[data-shelf-card-image]')) placeholder.classList.add('shelf-image-unavailable');
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     }

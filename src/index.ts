@@ -100,7 +100,7 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
 
     if (!interaction.guildId) {
       await safeReply(interaction, {
-        embeds: [warningEmbed('Server Command Channel Required', 'Vaultr commands must be used in your server command channel')],
+        embeds: [warningEmbed('Server Command Channel Required', 'KeepSeek commands must be used in your server command channel')],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -112,7 +112,7 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
       const configuredChannelId = getGuildCommandChannel(interaction.guildId);
       if (!configuredChannelId) {
         await safeReply(interaction, {
-          embeds: [warningEmbed('Setup Required', `An admin must run \`/${setupCommandName} channel\` first to set the Vaultr command channel`)],
+          embeds: [warningEmbed('Setup Required', `An admin must run \`/${setupCommandName} channel\` first to set the KeepSeek command channel`)],
           flags: MessageFlags.Ephemeral
         });
         return;
@@ -120,7 +120,7 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
 
       if (interaction.channelId !== configuredChannelId) {
         await safeReply(interaction, {
-          embeds: [warningEmbed('Wrong Channel', `Please use Vaultr commands in <#${configuredChannelId}>`)],
+          embeds: [warningEmbed('Wrong Channel', `Please use KeepSeek commands in <#${configuredChannelId}>`)],
           flags: MessageFlags.Ephemeral
         });
         return;

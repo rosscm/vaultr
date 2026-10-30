@@ -28,8 +28,8 @@ export const ALERT_SHIPPING_COUNTRY_OPTIONS = [
 
 export const ALERT_SOURCE_OPTIONS = [
   { label: 'eBay', value: 'EBAY', requiresPro: false },
-  { label: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY', requiresPro: true },
-  { label: 'Trusted Shops Only', value: 'SHOPIFY', requiresPro: true }
+  { label: 'eBay + Supported Shops', value: 'EBAY_SHOPIFY', requiresPro: true },
+  { label: 'Supported Shops Only', value: 'SHOPIFY', requiresPro: true }
 ] as const;
 
 const ALLOWED_PATCH_FIELDS = new Set([
@@ -166,7 +166,7 @@ export function updateAlertSettings(
       return { ok: false, code: 'INVALID_SETTINGS', field: 'listingSourceMode', message: 'Choose a supported listing source.' };
     }
     if (isStorefrontSourceMode(source) && activePlanTier(getUserPlan(userId)) !== 'PRO') {
-      return { ok: false, code: 'PRO_REQUIRED', field: 'listingSourceMode', message: 'Trusted Shops require Full Vault.' };
+      return { ok: false, code: 'PRO_REQUIRED', field: 'listingSourceMode', message: 'Supported shops require KeepSeek Plus.' };
     }
     next.listingSourceMode = source;
   }

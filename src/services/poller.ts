@@ -734,7 +734,7 @@ async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAle
         embeds: [
           warningEmbed(
             'Alerts Temporarily Throttled',
-            `Vaultr sent ${maxAlertsPerHour} alerts in the last hour. To reduce volume, add card details, raise \`min_score\`, or tighten available chase filters.`
+            `KeepSeek sent ${maxAlertsPerHour} alerts in the last hour. To reduce volume, add card details, raise \`min_score\`, or tighten available chase filters.`
           )
         ]
       }),
@@ -757,7 +757,7 @@ export function chaseTuningNoticeLines(
   sentForChaseThisPoll: number,
   eligibleCandidates: number
 ): string[] {
-  const intro = `**${truncateTitle(chase.cardName, 80)}** surfaced ${eligibleCandidates} eligible listings, so Vaultr sent the strongest ${sentForChaseThisPoll} this pass.`;
+  const intro = `**${truncateTitle(chase.cardName, 80)}** surfaced ${eligibleCandidates} eligible listings, so KeepSeek sent the strongest ${sentForChaseThisPoll} this pass.`;
   if (activeTier === 'PRO') {
     return [
       intro,
@@ -768,8 +768,8 @@ export function chaseTuningNoticeLines(
 
   return [
     intro,
-    'If that feels noisy, tighten the chase name or lower the max price so Vaultr has a clearer target.',
-    'For precision controls and custom exclusions, `/upgrade` opens the Full Vault.'
+    'If that feels noisy, tighten the chase name or lower the max price so KeepSeek has a clearer target.',
+    'For precision controls and custom exclusions, `/upgrade` explains KeepSeek Plus.'
   ];
 }
 
@@ -848,7 +848,7 @@ function buildStoredAlertEmbed(event: NonNullable<ReturnType<typeof getAlertEven
     inline: false
   });
 
-  embed.setTimestamp(new Date(event.updatedAt)).setFooter({ text: `Vaultr • ${label}` });
+  embed.setTimestamp(new Date(event.updatedAt)).setFooter({ text: `KeepSeek • ${label}` });
   return embed;
 }
 
@@ -1263,7 +1263,7 @@ async function runPoll(client: Client): Promise<void> {
         );
       }
 
-      embed.setTimestamp().setFooter({ text: `Vaultr • ${sightingLabel}` });
+      embed.setTimestamp().setFooter({ text: `KeepSeek • ${sightingLabel}` });
 
       const alertImageUrl = listing.imageUrl && /^https?:\/\//i.test(listing.imageUrl)
         ? listing.imageUrl
@@ -1372,17 +1372,17 @@ function truncateForEmbed(value: string, maxLength = 200): string {
 
 function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   const parts: string[] = [];
-  if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'new Vault')} opened`);
+  if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'new collector')} joined`);
   if (stats.matches > 0) parts.push(`${pluralize(stats.matches, 'chase alert')} reached ${pluralize(stats.usersAlerted, 'collector')}`);
   else if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received chase alerts`);
   if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  if (parts.length === 0) return 'Quiet day in the Vault';
+  if (parts.length === 0) return 'Quiet day in the collector community';
   return parts.join(' • ');
 }
 
 function dailyPulseMood(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
   if (stats.grailsSurfaced > 0) return `The day's sharpest movement centered on ${stats.topTrackedTheme.toLowerCase()}`;
-  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'New Vaults joined while active chases found fresh listings';
+  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'New collectors joined while active chases found fresh listings';
   if (stats.usersAlerted > 0) return 'Fresh listings crossed the feed today';
   if (stats.newVaultrs > 0) return 'New collectors joined the chase board today';
   return 'No new alerts or joins today';
@@ -1390,13 +1390,13 @@ function dailyPulseMood(stats: ReturnType<typeof getGuildCommunityStatsToday>): 
 
 function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStatsToday>): string[] {
   const lines: string[] = [];
-  if (stats.newVaultrs > 0) lines.push(`• New Vaults: ${pluralize(stats.newVaultrs, 'collector')} joined`);
+  if (stats.newVaultrs > 0) lines.push(`• New collectors: ${pluralize(stats.newVaultrs, 'collector')} joined`);
   if (stats.usersAlerted > 0) {
     const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} reached ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')} received a chase alert`;
     lines.push(`• ${sightingDetail}`);
   }
   if (stats.grailsSurfaced > 0) lines.push(`• Grail watch: ${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  if (stats.activeVaults > 0 || stats.activeChases > 0) lines.push(`• ${pluralize(stats.activeChases, 'chase', 'chases')} stayed active across ${pluralize(stats.activeVaults, 'Vault')}`);
+  if (stats.activeVaults > 0 || stats.activeChases > 0) lines.push(`• ${pluralize(stats.activeChases, 'chase', 'chases')} stayed active across ${pluralize(stats.activeVaults, 'collection')}`);
   return lines.length > 0 ? lines : ['• No active watchlist yet'];
 }
 
@@ -1446,7 +1446,7 @@ function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunitySt
 
   if (themeIsMixed) {
     if (stats.activeVaults > 0 && stats.activeChases > 0) {
-      return `${pluralize(stats.activeChases, 'chase', 'chases')} are still spread across ${pluralize(stats.activeVaults, 'Vault')}; no single collector lane took over today.`;
+      return `${pluralize(stats.activeChases, 'chase', 'chases')} are still spread across ${pluralize(stats.activeVaults, 'collection')}; no single collector lane took over today.`;
     }
     return 'The board stayed mixed; no single path led today.';
   }
@@ -1472,7 +1472,7 @@ function dailyPulseSpotlight(stats: ReturnType<typeof getGuildCommunityStatsToda
   }
 
   if (stats.activeVaults > 0 && stats.activeChases > 0) {
-    return `${pluralize(stats.activeChases, 'chase', 'chases')} stayed active across ${pluralize(stats.activeVaults, 'Vault')}, even without a single standout listing today.`;
+    return `${pluralize(stats.activeChases, 'chase', 'chases')} stayed active across ${pluralize(stats.activeVaults, 'collection')}, even without a single standout listing today.`;
   }
 
   return spotlight;
@@ -1481,14 +1481,14 @@ function dailyPulseSpotlight(stats: ReturnType<typeof getGuildCommunityStatsToda
 export function buildDailyPulseEmbed(stats: ReturnType<typeof getGuildCommunityStatsToday>): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0xe11d48)
-    .setTitle('💓 Vault Pulse')
+    .setTitle('💓 Community Pulse')
     .setDescription([dailyPulseLine(stats), dailyPulseMood(stats)].join('\n'))
     .addFields(
       keyValue('Today’s Movement', dailyPulseActivityLines(stats).join('\n')),
       keyValue('Collector Signal', dailyPulseCollectorCurrent(stats)),
       keyValue('Spotlight', dailyPulseSpotlight(stats))
     )
-    .setFooter({ text: 'Vaultr • Pulse' })
+    .setFooter({ text: 'KeepSeek • Pulse' })
     .setTimestamp();
 }
 

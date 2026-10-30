@@ -64,7 +64,7 @@ describe('setup channel command', () => {
     const payload = interaction.reply.mock.calls[0]?.[0];
     const description = payload.embeds[0].toJSON().description ?? '';
     expect(description).toContain(`**Channel:** <#${interaction.channel.id}>`);
-    expect(description).toContain('Community Vault Pulse: On');
+    expect(description).toContain('Community Pulse: On');
   });
 
   it('shows the current stored Vault Pulse mode in setup confirmation', async () => {
@@ -79,7 +79,7 @@ describe('setup channel command', () => {
     await setupChannelSet.execute(interaction);
 
     const description = interaction.reply.mock.calls[0]?.[0].embeds[0].toJSON().description ?? '';
-    expect(description).toContain('Community Vault Pulse: Off');
+    expect(description).toContain('Community Pulse: Off');
   });
 
   it.each([

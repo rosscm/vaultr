@@ -8,21 +8,21 @@
 
 :root {
   color-scheme: dark;
-  --bg: #080713;
-  --bg-deep: #05040d;
-  --sidebar: rgba(10, 8, 23, 0.94);
-  --surface: rgba(20, 16, 39, 0.86);
-  --surface-raised: rgba(25, 20, 47, 0.96);
-  --surface-strong: rgba(30, 24, 54, 0.98);
+  --bg: #0b1023;
+  --bg-deep: #070a18;
+  --sidebar: rgba(11, 16, 35, 0.94);
+  --surface: rgba(30, 27, 58, 0.72);
+  --surface-raised: rgba(30, 27, 58, 0.9);
+  --surface-strong: rgba(38, 33, 72, 0.96);
   --line: rgba(211, 196, 255, 0.13);
   --line-strong: rgba(255, 255, 255, 0.2);
-  --text: #fbf7ff;
+  --text: #f8f6f3;
   --muted: #c8bedf;
   --muted-strong: #eee7ff;
-  --purple: #b894ff;
-  --pink: #ff94bb;
+  --purple: #9b8cff;
+  --pink: #ff7ab6;
   --blue: #79b9ff;
-  --gold: #ffd387;
+  --gold: #ffd66b;
   --green: #8ef2ca;
   --radius-sm: 9px;
   --radius-md: 12px;
@@ -797,38 +797,27 @@ a {
 
 .onboarding-steps {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  color: var(--muted-strong);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 650;
 }
 
-.onboarding-steps li {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
+.onboarding-progress-track {
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(211, 196, 255, 0.12);
 }
 
-.onboarding-steps li span {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-}
-
-.onboarding-steps li[aria-current="step"] {
-  color: var(--text);
-}
-
-.onboarding-steps li[aria-current="step"] span {
-  border-color: var(--pink);
-  background: rgba(255, 148, 187, 0.12);
+.onboarding-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--pink), var(--purple));
+  transition: width var(--ease);
 }
 
 .onboarding-content {
@@ -4636,10 +4625,6 @@ a {
   .onboarding-art-stack {
     width: min(72vw, 280px);
     order: -1;
-  }
-
-  .onboarding-steps small {
-    display: none;
   }
 
   .onboarding-actions {

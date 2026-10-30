@@ -333,7 +333,7 @@ function isAllowlistedProviderSourceName(sourceName: string | undefined): boolea
   return !!sourceName && (
     /^Pokemon TCG(?:\s*\(|$)/i.test(sourceName)
     || /^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName)
-    || /^Vaultr Curated(?:\s*\(|$)/i.test(sourceName)
+    || /^(?:Vaultr|KeepSeek) Curated(?:\s*\(|$)/i.test(sourceName)
   );
 }
 
@@ -342,7 +342,7 @@ function providerDisplayName(record: CanonicalProviderRecord): string {
 }
 
 function providerReferenceSourceName(record: CanonicalProviderRecord): string {
-  const label = record.provider === 'CURATED' ? 'Vaultr Curated' : record.provider;
+  const label = record.provider === 'CURATED' ? 'KeepSeek Curated' : record.provider;
   return `${label}${record.setName ? ` (${record.setName})` : ''}`;
 }
 
@@ -432,7 +432,7 @@ function trustedCanonicalBindingFromCandidate(candidate: DiscoveryCandidate): Ca
     existingReference?.provider === 'CURATED'
     && candidate.catalogFacts?.source === 'CURATED'
     && candidate.catalogFacts.verificationStatus === 'VERIFIED'
-    && /^Vaultr Curated(?:\s*\(|$)/i.test(sourceName)
+    && /^(?:Vaultr|KeepSeek) Curated(?:\s*\(|$)/i.test(sourceName)
     && existingReference.imageSourceKind === 'CARD_REFERENCE'
     && existingReference.sourceCardId === sourceCardId
     && existingReference.imageUrl === imageUrl

@@ -247,7 +247,7 @@ async function fetchShopifyJson<T>(url: URL, outerSignal?: AbortSignal): Promise
       signal: controller.signal,
       headers: {
         accept: 'application/json',
-        'user-agent': 'Vaultr trusted shop monitor'
+        'user-agent': 'KeepSeek supported shop monitor'
       }
     });
     if (!response.ok) throw new ShopifyHttpError(response.status);

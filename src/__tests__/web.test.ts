@@ -191,7 +191,7 @@ function seedGeneralDiscoveryFallback(date: Date): void {
 }
 
 describe('web sessions', () => {
-  it('stores session tokens hashed, not raw, and resolves the Vaultr account ID', () => {
+  it('stores session tokens hashed, not raw, and resolves the KeepSeek account ID', () => {
     const userId = 'web-session-user';
     clearUser(userId);
 
@@ -266,14 +266,14 @@ describe('web app static routes', () => {
     const fontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/roboto-latin-variable.woff2' }, { config });
     const displayFontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/sora-latin-600-800.woff2' }, { config });
     const onboardingArtResponse = await handleWebRequest({ method: 'GET', url: '/onboarding-art/mew-corocoro-promo-151.webp' }, { config });
-    const iconResponse = await handleWebRequest({ method: 'GET', url: '/vaultr-icon.svg' }, { config });
-    const lockupResponse = await handleWebRequest({ method: 'GET', url: '/vaultr-lockup-dark.svg' }, { config });
+    const iconResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-icon.svg' }, { config });
+    const lockupResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-lockup-dark.svg' }, { config });
     const shopMarkResponse = await handleWebRequest({ method: 'GET', url: '/shop-marks/hobbiesville.png' }, { config });
 
     expect(appResponse.status).toBe(200);
     expect(appResponse.headers?.['Content-Type']).toBe('text/html; charset=utf-8');
     expect(appResponse.headers?.['Cache-Control']).toBe('no-cache');
-    expect(appResponse.body).toContain('Vaultr | Your Collection, Watched');
+    expect(appResponse.body).toContain('KeepSeek | Less searching. More collecting.');
     expect(cssResponse.status).toBe(200);
     expect(cssResponse.headers?.['Content-Type']).toBe('text/css; charset=utf-8');
     expect(jsResponse.status).toBe(200);
@@ -293,7 +293,7 @@ describe('web app static routes', () => {
     expect(lockupResponse.headers?.['Content-Type']).toBe('image/svg+xml');
     expect(shopMarkResponse.status).toBe(200);
     expect(shopMarkResponse.headers?.['Content-Type']).toBe('image/png');
-    expect(appResponse.body).toContain('<link rel="icon" href="/vaultr-icon.svg" type="image/svg+xml">');
+    expect(appResponse.body).toContain('<link rel="icon" href="/keepseek-icon.svg" type="image/svg+xml">');
     expect(cssResponse.body).toContain('@font-face');
     expect(cssResponse.body).toContain('--font-display: "Sora"');
     expect(cssResponse.body).toContain('font-family: var(--font-body);');
@@ -313,7 +313,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("return 'home';");
     expect(jsResponse.body).toContain("activePage: 'home'");
     expect(jsResponse.body).toContain('Welcome back, ${escapeHtml(userDisplayName(state.user))}');
-    expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
+    expect(jsResponse.body).toContain('Keep what you love. Seek what comes next.');
     expect(jsResponse.body).toContain('Your collection, watched.');
     expect(jsResponse.body).toContain("const isPreviewMode = window.location.pathname === '/preview'");
     expect(jsResponse.body).toContain("return `/api/preview/${url.slice('/api/'.length)}`;");
@@ -322,7 +322,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("navButton('vault', 'Watchlist')");
     expect(jsResponse.body).toContain("navButton('alerts', 'Inbox')");
     expect(jsResponse.body).toContain("navButton('shelf', 'Display Case')");
-    expect(jsResponse.body).toContain("navButton('plus', 'Vaultr Plus')");
+    expect(jsResponse.body).toContain("navButton('plus', 'KeepSeek Plus')");
     expect(jsResponse.body).toContain('data-page="plus"');
     expect(jsResponse.body).toContain("plus: '<path");
     expect(jsResponse.body).toContain('function iconMarkup(name)');
@@ -330,14 +330,14 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-page="settings"');
     expect(jsResponse.body).toContain('data-settings-form');
     expect(jsResponse.body).toContain('data-onboarding-market-form');
-    expect(jsResponse.body).toContain('Finish setting up Vaultr');
+    expect(jsResponse.body).toContain('Finish setting up KeepSeek');
     expect(jsResponse.body).toContain('Your progress is saved.');
     expect(jsResponse.body).toContain("state.onboarding?.status !== 'IN_PROGRESS'");
     expect(jsResponse.body).toContain('data-action="revisit-onboarding">Revisit setup');
     expect(jsResponse.body).toContain('onboardingRevisitMode');
     expect(jsResponse.body).toContain("state.onboarding?.status === 'IN_PROGRESS'");
     expect(jsResponse.body).toContain("const hasExplicitRoute = /^#(home|vault|alerts|shelf|plus|settings|onboarding)$/i.test(window.location.hash);");
-    expect(jsResponse.body).toContain('Tell Vaultr which Pokémon cards you\'re looking for and what matters to you.');
+    expect(jsResponse.body).toContain('Tell KeepSeek what you’re looking for and what matters to you.');
     expect(jsResponse.body).toContain('Get started');
     expect(jsResponse.body).toContain('const hasLoadedChase = !isPreviewMode');
     expect(jsResponse.body).toContain('Continue simulation without saving');
@@ -345,7 +345,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain("${hasLoadedChase ? '<button class=\"button-primary\" type=\"button\" data-action=\"onboarding-chase-saved\">Continue</button>' : '<button class=\"button-primary\" type=\"button\" data-action=\"onboarding-add-chase\">Add your first Chase</button>'}${isPreviewMode ?");
     const navigationSource = jsResponse.body?.slice(jsResponse.body.indexOf('async function navigateToPage'), jsResponse.body.indexOf('function resetViewportForPage')) ?? '';
     expect(navigationSource).not.toContain("updateOnboarding('SKIP')");
-    expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
+    expect(jsResponse.body).toContain('Keep what you love. Seek what comes next.');
     expect(jsResponse.body).toContain('${vaultDialogMarkup()}');
     expect(jsResponse.body).toContain("fetchJson('/api/settings'");
     expect(jsResponse.body).toContain("window.addEventListener('beforeunload'");
@@ -367,7 +367,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Maximum (${escapeHtml(state.vaultCurrency)})');
     expect(jsResponse.body).toContain('Known shipping is included when available.');
     expect(jsResponse.body).toContain('A number requests that exact listed grade.');
-    expect(jsResponse.body).toContain('Advanced filters and Trusted Shops monitoring are included with <strong class="inline-vaultr-plus">Vaultr Plus</strong>.');
+    expect(jsResponse.body).toContain('Condition, listing type, priority, target notes, exclusions, and supported-shop monitoring are included with <strong class="inline-vaultr-plus">KeepSeek Plus</strong>.');
     expect(jsResponse.body).toContain("state.vaultCardSelection = item.selection");
     expect(jsResponse.body).toContain('body.cardSelectionToken = state.vaultCardSelection.token;');
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
@@ -375,7 +375,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Your preferences are still here; choose the card again to refresh it before saving.');
     expect(jsResponse.body).toContain('const requestId = ++state.vaultRequestId;');
     expect(jsResponse.body).toContain('if (requestId !== state.vaultRequestId) return null;');
-    expect(jsResponse.body).toContain('Make Vaultr feel right for you. Manage your account and adjust how we find matches for the cards you love.');
+    expect(jsResponse.body).toContain('Make KeepSeek feel right for you. Manage your account and adjust how KeepSeek finds matches for what you collect.');
     expect(jsResponse.body).toContain('Email sign-in isn’t available here yet.');
     expect(jsResponse.body).toContain('You already have a card on your Watchlist. You’re ready to continue.');
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
@@ -405,8 +405,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial, label } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
     expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
-    expect(jsResponse.body).toContain('With <a class="inline-vaultr-plus" href="#plus" data-page="plus">Vaultr Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case');
-    expect(jsResponse.body).toContain('Tell Vaultr what you’re chasing and it’ll search eBay and supported shops for listings that fit.');
+    expect(jsResponse.body).toContain('With <a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case');
+    expect(jsResponse.body).toContain('Tell KeepSeek what you’re chasing and it’ll look for listings that fit.');
     expect(jsResponse.body).not.toContain('function homeHowMarkup()');
     expect(jsResponse.body).not.toContain('home-how-steps');
     expect(jsResponse.body).not.toContain("['01', 'Watch it'");
@@ -427,7 +427,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("total > 1 ?");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
-    expect(jsResponse.body).toContain('Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.');
+    expect(jsResponse.body).toContain('Picks shaped by your Watchlist, Pickups, and the cards you tell KeepSeek you like.');
     expect(jsResponse.body).toContain('Three cards to explore. New picks every week.');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">INBOX</p>');
@@ -438,13 +438,13 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('aria-hidden="true"');
     expect(jsResponse.body).toContain("title: 'Your Display Case'");
     expect(jsResponse.body).toContain('Find the cards you didn’t know you loved.');
-    expect(jsResponse.body).toContain('Explore three fresh finds each week. With Vaultr Plus');
+    expect(jsResponse.body).toContain('Explore three fresh finds each week. With KeepSeek Plus');
     const shelfEmptySource = (jsResponse.body ?? '').slice(
       (jsResponse.body ?? '').indexOf('function shelfEmptyMarkup('),
       (jsResponse.body ?? '').indexOf('function shelfCardMarkup(')
     );
-    expect(shelfEmptySource).toContain('linkedVaultrPlusCopy(freeIntroduction)');
-    expect(shelfEmptySource).not.toContain('>Explore Vaultr Plus</button>');
+    expect(shelfEmptySource).toContain('linkedKeepSeekPlusCopy(freeIntroduction)');
+    expect(shelfEmptySource).not.toContain('>Explore KeepSeek Plus</button>');
     expect(jsResponse.body).toContain("weekly ? 'This week’s finds' : 'Collector picks'");
     expect(jsResponse.body).toContain('A few handpicked cards to explore.');
     expect(jsResponse.body).not.toContain('Try a Plus example');
@@ -457,7 +457,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Your feedback helps shape future discoveries.');
     expect(jsResponse.body).toContain('Taste feedback is read-only in preview.');
     expect(jsResponse.body).toContain('Add to Watchlist');
-    expect(jsResponse.body).toContain('With Vaultr Plus, that profile guides your personalized Display Case.');
+    expect(jsResponse.body).toContain('With KeepSeek Plus, they also shape your personalized Display Case.');
     expect(jsResponse.body).not.toContain('A little inspiration');
     expect(jsResponse.body).toContain('item.roleLabel ? `<span class="status-pill active">');
     expect(jsResponse.body).toContain("feedback ? discoveryFeedbackMarkup(item) : ''");
@@ -466,8 +466,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('What catches your eye?');
     expect(jsResponse.body).toContain('data-action="edit-collector-profile"');
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
-    expect(jsResponse.body).toContain('See Vaultr Plus controls');
-    expect(jsResponse.body).toContain("title: 'Vaultr Plus'");
+    expect(jsResponse.body).toContain('See KeepSeek Plus controls');
+    expect(jsResponse.body).toContain("title: 'KeepSeek Plus'");
     expect(jsResponse.body).not.toContain('class="plus-next-step"');
     expect(jsResponse.body).not.toContain('Keep building your Watchlist');
     expect(jsResponse.body).toContain('Preview mode is read-only. No plan changes can be made here.');
@@ -482,11 +482,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('View Pickup');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">YOUR PLAN</p>');
     expect(jsResponse.body).not.toContain('class="plus-current"');
-    expect(jsResponse.body).toContain('A full personalized Display Case shaped by what you collect, with market context when reliable data is available');
-    expect(jsResponse.body).toContain('Three general finds each week, starting with collector picks');
-    expect(jsResponse.body).not.toContain('A full personalized Display Case shaped by what you collect, with market context when reliable data is available.');
-    expect(jsResponse.body).not.toContain('Three general finds each week, starting with collector picks.');
-    expect(jsResponse.body).toContain('Where Vaultr searches');
+    expect(jsResponse.body).toContain('A personalized Display Case shaped by your Watchlist, Pickups, and feedback');
+    expect(jsResponse.body).toContain('Three general finds each week');
+    expect(jsResponse.body).toContain('Where KeepSeek searches');
     expect(jsResponse.body).toContain('More room, more control, more ways to discover');
     expect(jsResponse.body).toContain('A Display Case that gets to know your collection');
     expect(jsResponse.body).toContain('state.vaultOptions?.supportedShopNames');
@@ -498,7 +496,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Exact card selected');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">WATCHLIST</p>');
     expect(jsResponse.body).toContain('<h2 id="home-vault-title">Your Watchlist</h2>');
-    expect(jsResponse.body).toContain('Vaultr is searching for matching listings for these cards');
+    expect(jsResponse.body).toContain('KeepSeek is keeping an eye out for listings that match your preferences.');
     expect(jsResponse.body).not.toContain('Automatic filtering is always on');
     expect(jsResponse.body).toContain('<details class="vault-more-actions vault-mobile-actions">');
     expect(jsResponse.body).toContain('data-action="open-acquire-chase"');
@@ -509,8 +507,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('View matches <span aria-hidden="true">→</span>');
     expect(jsResponse.body).not.toContain('<span aria-hidden="true">•••</span>');
     expect(jsResponse.body).not.toContain("openDisclosure.removeAttribute('open')");
-    expect(jsResponse.body).toContain('Fine-tune what Vaultr should skip for this card. Examples: Korean, Chinese, damaged, played, creased, altered.');
-    expect(jsResponse.body).toContain('* Vaultr already filters common proxies, reprints, replicas, code cards, accessories, and multi-card lots automatically.');
+    expect(jsResponse.body).toContain('Fine-tune what KeepSeek should skip for this card. Examples: Korean, Chinese, damaged, played, creased, altered.');
+    expect(jsResponse.body).toContain('* KeepSeek already filters common proxies, reprints, replicas, code cards, accessories, and multi-card lots automatically.');
     expect(jsResponse.body).toContain('function vaultLimitWarningMarkup()');
     expect(jsResponse.body).toContain('Watchlist full');
     expect(jsResponse.body).toContain('vaultNotice');
@@ -538,9 +536,9 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.shelf-card-actions .shelf-ebay-link');
     expect(cssResponse.body).not.toContain('.shelf-card-meta > .status-pill.active {\n  display: none;');
     expect(cssResponse.body).not.toContain('-webkit-line-clamp: 4');
-    expect(jsResponse.body).toContain('Build your Vault. Chase your grails. Discover what you love next.');
+    expect(jsResponse.body).toContain('Keep what you love. Seek what comes next.');
     expect(jsResponse.body).toContain('https://linktr.ee/pokaccini');
-    expect(jsResponse.body).toContain('<a href="#onboarding" data-action="revisit-onboarding">How Vaultr works</a>');
+    expect(jsResponse.body).toContain('<a href="#onboarding" data-action="revisit-onboarding">How KeepSeek works</a>');
     expect(jsResponse.body).toContain('<footer class="app-footer-region">');
     expect(jsResponse.body).toContain('<nav class="app-footer-link-grid" aria-label="Footer">');
     expect(jsResponse.body).toContain('<h2>Trust &amp; Support</h2>');
@@ -561,8 +559,8 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.app-footer-links h2');
     expect(cssResponse.body).toContain('.app-footer-links a');
     expect(cssResponse.body).toContain('.app-footer-lockup .brand-icon');
-    expect(jsResponse.body).toContain('class="brand-lockup" src="/vaultr-lockup-dark.svg"');
-    expect(jsResponse.body).toContain('class="brand-icon" src="/vaultr-icon.svg"');
+    expect(jsResponse.body).toContain('class="brand-lockup" src="/keepseek-lockup-dark.svg"');
+    expect(jsResponse.body).toContain('class="brand-icon" src="/keepseek-icon.svg"');
     expect(cssResponse.body).toContain('flex: 0 0 44px;');
     expect(cssResponse.body).toContain('@media (max-width: 1100px)');
     expect(cssResponse.body).toContain('@media (max-width: 1040px)');
@@ -594,7 +592,7 @@ describe('web app static routes', () => {
 
     const headerHelper = between('function pageHeaderMarkup(', 'function planLabel(');
     expect(headerHelper).not.toContain('eyebrow');
-    expect(settings).toContain("tagline: 'Set Vaultr up your way.'");
+    expect(settings).toContain("tagline: 'Set KeepSeek up your way.'");
     expect(plus).toContain("tagline: 'Make discovery feel more like you.'");
     expect(alerts).toContain("title: 'Your matches'");
     expect(alerts).toContain("tagline: 'The right card might have just turned up.'");
@@ -604,6 +602,20 @@ describe('web app static routes', () => {
     expect(discover).toContain("tagline: 'Find the cards you didn’t know you loved.'");
     expect(discover).toContain("copy: ''");
     expect(source).not.toContain('Explore standout cards and discover your next favourite.');
+  });
+
+  it('renders accessible onboarding progress from the enabled step count', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const helper = source.slice(source.indexOf('function onboardingStepIndicator('), source.indexOf('function collectorProfileMarkup('));
+    const render = (tasteEnabled: boolean, step: string) => new Function(
+      'tasteOnboardingEnabled',
+      `${helper}\nreturn onboardingStepIndicator(${JSON.stringify(step)});`
+    )(() => tasteEnabled) as string;
+
+    expect(render(false, 'CHASE')).toContain('role="progressbar" aria-label="Setup progress: step 3 of 4" aria-valuemin="1" aria-valuemax="4" aria-valuenow="3"');
+    expect(render(true, 'PROFILE')).toContain('role="progressbar" aria-label="Setup progress: step 3 of 5" aria-valuemin="1" aria-valuemax="5" aria-valuenow="3"');
+    expect(render(false, 'READY')).toContain('Step 4 of 4');
   });
 
   it('keeps the Home Display Case fan bounded to distinct available artwork', async () => {
@@ -747,7 +759,7 @@ describe('web app static routes', () => {
     expect(logoutOpen).toContain('state.logoutConfirmationOpen = true');
     expect(logoutOpen).not.toContain("fetch('/auth/logout'");
     expect(logoutConfirm).toContain("fetch('/auth/logout', { method: 'POST'");
-    expect(source).toContain('Log out of Vaultr?');
+    expect(source).toContain('Log out of KeepSeek?');
     expect(source).toContain('data-action="cancel-logout"');
     expect(source).toContain("if (event.key === 'Escape')");
     expect(source).toContain("if (event.key === 'Tab' && dialog)");
@@ -804,7 +816,7 @@ describe('web app static routes', () => {
     expect(source).toContain('Find the cards you didn’t know you loved.');
     expect(source).toContain('Start with three collector picks, with fresh finds each week.');
     expect(source).toContain('Explore three fresh finds each week.');
-    expect(source).not.toContain('Vaultr Plus adds ongoing personalized discovery');
+    expect(source).not.toContain('KeepSeek Plus adds ongoing personalized discovery');
   });
 
   it('keeps Home discovery headings accurate across starter, weekly, personalized, and fallback states', async () => {
@@ -826,7 +838,7 @@ describe('web app static routes', () => {
     });
     expect(headingFor('PERSONALIZED')).toEqual({
       heading: 'Picked for you',
-      copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.'
+      copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell KeepSeek you like.'
     });
     expect(headingFor('FALLBACK')).toEqual({ heading: 'Collector picks', copy: 'A few handpicked cards to explore.' });
   });
@@ -834,27 +846,27 @@ describe('web app static routes', () => {
   it('renders the Free and Plus comparison as plan cards from entitlement data', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
-    const functionSource = source.slice(source.indexOf('function plusComparisonCardsMarkup('), source.indexOf('function plusPageMarkup('));
+    const functionSource = source.slice(source.indexOf('function planFeatureRows('), source.indexOf('function plusPageMarkup('));
     const render = new Function('plans', 'escapeHtml', 'iconMarkup', `${functionSource}\nreturn plusComparisonCardsMarkup(plans, 'FREE');`) as (plans: unknown[], escape: (value: unknown) => string, icon: (name: string) => string) => string;
     const markup = render([
       { tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited' },
-      { tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full' }
+      { tier: 'PRO', label: 'KeepSeek Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full' }
     ], String, (name) => `<svg data-icon="${name}"></svg>`);
 
     expect(markup).toContain('<div class="plus-plan-grid">');
     expect(markup.match(/<article class="plus-plan/g)).toHaveLength(2);
     expect(markup).toContain('<h3>Free</h3><small>Current plan</small>');
-    expect(markup).toContain('<h3>Vaultr Plus</h3>');
+    expect(markup).toContain('<h3>KeepSeek Plus</h3>');
     expect(markup).toContain('Watch up to 3 cards at once');
     expect(markup).toContain('Watch up to 50 cards at once');
     expect(markup).toContain('eBay monitoring about every 30 minutes');
     expect(markup).toContain('Priority monitoring about every 15 minutes');
-    expect(markup).toContain('Everything in Free, plus condition, listing type, priority, target notes and exclusions');
-    expect(markup).toContain('Card, budget and grading preferences');
+    expect(markup).toContain('Everything in Free, plus condition, listing type, priority, target notes, and exclusions');
+    expect(markup).toContain('Card, budget, and grading preferences');
     expect(markup).toContain('eBay monitoring');
-    expect(markup).toContain('eBay + supported card shops');
+    expect(markup).toContain('eBay + supported shops');
     expect(markup).toContain('Three general finds each week');
-    expect(markup).toContain('A personalized Display Case shaped by your Watchlist, Pickups and feedback');
+    expect(markup).toContain('A personalized Display Case shaped by your Watchlist, Pickups, and feedback');
     expect(markup).toContain('Market context when reliable data is available');
     expect(markup).toContain('data-icon="clock"');
     expect(markup).toContain('data-icon="market"');
@@ -942,13 +954,13 @@ describe('web app static routes', () => {
       'escapeHtml',
       'planLabel',
       `${functionSource}\nreturn vaultLimitWarningMarkup();`
-    )({ vaultPlan: plan, vault: [] }, String, (tier: string) => tier === 'PRO' ? 'Vaultr Plus' : 'Free') as string;
+    )({ vaultPlan: plan, vault: [] }, String, (tier: string) => tier === 'PRO' ? 'KeepSeek Plus' : 'Free') as string;
 
     expect(renderWarning({ tier: 'FREE', activeCount: 2, maxActiveChases: 3 })).toBe('');
     expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).toContain('Explore Plus');
     expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).not.toContain('3 of 3');
     expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).not.toContain('cards on Free');
-    expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).toContain('Remove a card or mark one acquired to make room, or explore <strong class="inline-vaultr-plus">Vaultr Plus</strong> for a larger Watchlist.');
+    expect(renderWarning({ tier: 'FREE', activeCount: 3, maxActiveChases: 3 })).toContain('Remove a card or mark one acquired to make room, or explore <strong class="inline-vaultr-plus">KeepSeek Plus</strong> for a larger Watchlist.');
     expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).toContain('Watchlist full');
     expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).not.toContain('Explore Plus');
     expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).toContain('Remove a card or mark one acquired to make room.');
@@ -2513,7 +2525,7 @@ describe('authenticated chase API', () => {
     expect(body.options.gradingTypes.some((option: any) => option.value === 'PSA')).toBe(true);
     expect(body.options.plans).toEqual([
       expect.objectContaining({ tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited' }),
-      expect.objectContaining({ tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full' })
+      expect.objectContaining({ tier: 'PRO', label: 'KeepSeek Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full' })
     ]);
     expect(body.options.supportedShopNames).toEqual(listTrustedShopifyShopNames());
     expect(body.options.billing).toEqual({ selfServiceAvailable: false });

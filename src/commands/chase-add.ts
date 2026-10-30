@@ -49,7 +49,7 @@ function buildChaseAddedEmbed(
   });
   const customExclusions = customExclusionTerms(chase.negativeKeywords);
   const lines = [
-    'Nice pick! Vaultr is on it 🫡',
+    'Nice pick! KeepSeek is on it 🫡',
     noFiltersApplied ? broadChaseNudge(chase.cardName) : chaseNameQualityLine(chase.cardName),
     ...(noFiltersApplied
       ? [

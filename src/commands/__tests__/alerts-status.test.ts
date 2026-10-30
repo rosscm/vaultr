@@ -26,7 +26,7 @@ describe('buildAlertsStatusEmbed', () => {
 
     const embed = buildAlertsStatusEmbed(userId, new Date('2026-06-12T19:00:00.000Z'));
 
-    expect(embed.toJSON().title).toBe('🟢 Vaultr Watch Status');
+    expect(embed.toJSON().title).toBe('🟢 KeepSeek Watch Status');
     expect(embed.toJSON().description).toBe('Fresh matches surfaced today');
     expect(embed.toJSON().description).not.toContain(';');
     expect(embedFieldValue(embed, 'Watching')).toContain('**Active:** 1/50');
@@ -66,7 +66,7 @@ describe('buildAlertsStatusEmbed', () => {
 
     const embed = buildAlertsStatusEmbed(userId, new Date('2026-06-12T19:00:00.000Z'));
 
-    expect(embed.toJSON().description).toBe('Quiet so far. Vaultr only pings you when a listing clears your filters');
+    expect(embed.toJSON().description).toBe('Quiet so far. KeepSeek only pings you when a listing clears your filters');
     expect(embedFieldValue(embed, 'Sweeps')).toContain('**Next:** about 10m');
   });
 });

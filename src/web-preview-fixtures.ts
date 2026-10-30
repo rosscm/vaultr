@@ -84,8 +84,8 @@ export const WEB_PREVIEW_SETTINGS = {
     ],
     sources: [
       { label: 'eBay', value: 'EBAY', requiresPro: false },
-      { label: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY', requiresPro: true },
-      { label: 'Trusted Shops Only', value: 'SHOPIFY', requiresPro: true }
+      { label: 'eBay + Supported Shops', value: 'EBAY_SHOPIFY', requiresPro: true },
+      { label: 'Supported Shops Only', value: 'SHOPIFY', requiresPro: true }
     ]
   }
 };
@@ -108,7 +108,7 @@ function previewPlanOption(tier: PlanTier) {
   const entitlements = getEntitlementsForTier(tier);
   return {
     tier,
-    label: tier === 'PRO' ? 'Vaultr Plus' : 'Free',
+    label: tier === 'PRO' ? 'KeepSeek Plus' : 'Free',
     maxActiveChases: entitlements.maxActiveChases,
     checkIntervalMinutes: Math.round(entitlements.pollIntervalSeconds / 60),
     monitoringPriority: entitlements.monitoringPriority,
@@ -203,7 +203,7 @@ export const WEB_PREVIEW_SHELF = {
     setName,
     language,
     roleLabel: discoveryRole === 'CORE_MATCH' ? 'Right up your alley' : discoveryRole === 'ADJACENT_DISCOVERY' ? 'Worth exploring' : 'Something different',
-    cardIdentity: { value: name, sourceName: 'VAULTR_EDITORIAL', sourceCardId: `preview-editorial-${index + 1}` }
+    cardIdentity: { value: name, sourceName: 'KEEPSEEK_EDITORIAL', sourceCardId: `preview-editorial-${index + 1}` }
   })),
   items: shelfCards.map(([name, imageUrl, setName, language, signalLabel, discoveryRole, reason, price, status], index) => ({
     position: index + 1,

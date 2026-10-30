@@ -703,7 +703,7 @@ function isKnownNonFrontCardImageUrl(url: string | undefined): boolean {
 function isTrustedCuratedReference(entry: DiscoveryReferenceCacheEntry, suggestion: DiscoverySuggestion): boolean {
   const reference = suggestion.canonicalReference;
   if (reference?.provider !== 'CURATED' || reference.imageSourceKind !== 'CARD_REFERENCE') return false;
-  if (!entry.imageUrl || !entry.sourceCardId?.trim() || !/^Vaultr Curated(?:\s*\(|$)/i.test(entry.sourceName ?? '')) return false;
+  if (!entry.imageUrl || !entry.sourceCardId?.trim() || !/^(?:Vaultr|KeepSeek) Curated(?:\s*\(|$)/i.test(entry.sourceName ?? '')) return false;
   if (entry.sourceCardId !== reference.sourceCardId || entry.imageUrl !== reference.imageUrl) return false;
   if (!/^https:\/\//i.test(entry.imageUrl) || isMarketplaceLikeImageUrl(entry.imageUrl) || isKnownNonFrontCardImageUrl(entry.imageUrl)) return false;
   return !!reference.canonicalName.trim() && !!reference.setName.trim() && !!reference.cardNumber.trim();

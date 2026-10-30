@@ -1,26 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Vaultr social preview">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="KeepSeek social preview">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
       <stop stop-color="#080713"/>
       <stop offset=".55" stop-color="#120f24"/>
       <stop offset="1" stop-color="#1b1230"/>
     </linearGradient>
-    <linearGradient id="brand" x1="420" y1="130" x2="780" y2="500" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ff83c9"/>
-      <stop offset=".5" stop-color="#b894ff"/>
-      <stop offset="1" stop-color="#76b7ff"/>
+    <linearGradient id="brand" x1="142" y1="240" x2="260" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff7ab6"/>
+      <stop offset=".58" stop-color="#9b8cff"/>
+      <stop offset="1" stop-color="#ffd66b"/>
     </linearGradient>
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <circle cx="250" cy="92" r="180" fill="#ff83c9" opacity=".14"/>
   <circle cx="980" cy="520" r="240" fill="#76b7ff" opacity=".12"/>
   <rect x="92" y="86" width="1016" height="458" rx="42" fill="#15122a" opacity=".82" stroke="#c6a9ff" stroke-opacity=".24"/>
-  <rect x="142" y="142" width="116" height="116" rx="30" fill="url(#brand)"/>
-  <path d="M178 168h52l-26 68z" fill="#120d20"/>
-  <text x="290" y="202" fill="#fbf7ff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="72" font-weight="800">Vaultr</text>
-  <text x="146" y="338" fill="#fbf7ff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="52" font-weight="800">Keep an eye on the cards</text>
-  <text x="146" y="406" fill="#fbf7ff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="52" font-weight="800">you're actually looking for.</text>
-  <text x="146" y="474" fill="#cabedf" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="600">Private sightings and a Weekly Shelf shaped around what you collect.</text>
+  <path d="M144 211c28 2 51-6 70-23 13-12 23-27 31-47" fill="none" stroke="url(#brand)" stroke-width="12" stroke-linecap="round"/>
+  <path d="m264 118 8 19 19 8-19 8-8 19-8-19-19-8 19-8 8-19Z" fill="#ffd66b"/>
+  <text x="310" y="202" fill="#f8f6f3" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="72" font-weight="800">Keep</text>
+  <text x="493" y="202" fill="#ff7ab6" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="72" font-weight="800">Seek</text>
+  <text x="146" y="338" fill="#fbf7ff" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="52" font-weight="800">Less searching.</text>
+  <text x="146" y="406" fill="#fbf7ff" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="52" font-weight="800">More collecting.</text>
+  <text x="146" y="474" fill="#cabedf" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="600">Keep what you love. Seek what comes next.</text>
   <rect x="760" y="150" width="180" height="254" rx="24" fill="#21183a" stroke="#ffffff" stroke-opacity=".16" transform="rotate(-9 760 150)"/>
   <rect x="850" y="136" width="180" height="254" rx="24" fill="#2d2050" stroke="#ffffff" stroke-opacity=".16"/>
   <rect x="928" y="160" width="180" height="254" rx="24" fill="#1a3150" stroke="#ffffff" stroke-opacity=".16" transform="rotate(10 928 160)"/>

@@ -17,11 +17,11 @@ export const alerts = {
         .addStringOption((opt) =>
           opt
             .setName('source')
-            .setDescription('Where Vaultr watches for listings (default: eBay, shops are Pro)')
+            .setDescription('Where KeepSeek watches for listings (default: eBay, shops are Pro)')
             .addChoices(
               { name: 'eBay', value: 'EBAY' },
-              { name: 'eBay + Trusted Shops', value: 'EBAY_SHOPIFY' },
-              { name: 'Trusted Shops Only', value: 'SHOPIFY' }
+              { name: 'eBay + Supported Shops', value: 'EBAY_SHOPIFY' },
+              { name: 'Supported Shops Only', value: 'SHOPIFY' }
             )
         )
         .addIntegerOption((opt) =>
@@ -34,7 +34,7 @@ export const alerts = {
         .addStringOption((opt) =>
           opt
             .setName('alert_volume')
-            .setDescription('How many matches Vaultr may surface (default: Balanced, 10/hr)')
+            .setDescription('How many matches KeepSeek may surface (default: Balanced, 10/hr)')
             .addChoices(
               { name: 'Quiet (3/hr)', value: 'QUIET' },
               { name: 'Balanced (10/hr)', value: 'BALANCED' },

@@ -5,7 +5,7 @@ import { errorEmbed, successEmbed } from '../ui/embeds.js';
 export const communityFeed = {
   data: new SlashCommandBuilder()
     .setName('feed')
-    .setDescription('Community Vault Pulse settings')
+    .setDescription('Community Pulse settings')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((opt) =>
       opt

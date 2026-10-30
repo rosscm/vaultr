@@ -363,9 +363,9 @@ export function createPostmarkMagicLinkTransport(input: {
         body: JSON.stringify({
           From: input.fromEmail,
           To: message.to,
-          Subject: message.purpose === 'LINK_EMAIL' ? 'Verify your Vaultr email' : 'Sign in to Vaultr',
-          TextBody: `Use this secure link to continue with Vaultr:\n\n${message.signInUrl}\n\nThis link expires in 15 minutes and can be used once.`,
-          HtmlBody: `<p>Use this secure link to continue with Vaultr:</p><p><a href="${message.signInUrl}">Continue to Vaultr</a></p><p>This link expires in 15 minutes and can be used once.</p>`,
+          Subject: message.purpose === 'LINK_EMAIL' ? 'Verify your KeepSeek email' : 'Sign in to KeepSeek',
+          TextBody: `Use this secure link to continue with KeepSeek:\n\n${message.signInUrl}\n\nThis link expires in 15 minutes and can be used once.`,
+          HtmlBody: `<p>Use this secure link to continue with KeepSeek:</p><p><a href="${message.signInUrl}">Continue to KeepSeek</a></p><p>This link expires in 15 minutes and can be used once.</p>`,
           MessageStream: 'outbound',
           TrackOpens: false,
           TrackLinks: 'None'

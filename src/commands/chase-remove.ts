@@ -32,7 +32,7 @@ function chaseChoiceName(chase: Chase): string {
     chase.grade ? displayGrade(chase.grade) : undefined,
     chase.priority && chase.priority !== 'NORMAL' ? chase.priority : undefined
   ].filter(Boolean);
-  const suffix = details.length > 0 ? ` — ${details.join(' · ')}` : '';
+  const suffix = details.length > 0 ? `: ${details.join(' · ')}` : '';
   return `${chase.cardName}${suffix}`.slice(0, 100);
 }
 

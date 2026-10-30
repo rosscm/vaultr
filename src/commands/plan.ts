@@ -12,18 +12,18 @@ function displayPlanAccess(userPlan: ReturnType<typeof getUserPlan>): string {
   return access.replaceAll('FREE', 'Free').replaceAll('PRO', 'Pro');
 }
 
-export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan') {
+export function buildPlanViewPayload(userId: string, title = '🧾 KeepSeek Plan') {
   const userPlan = getUserPlan(userId);
   const activeTier = activePlanTier(userPlan);
   const activeAccessLine = displayPlanAccess(userPlan);
-  const vaultName = activeTier === 'PRO' ? 'Full Vault' : 'Free Vault';
+  const vaultName = activeTier === 'PRO' ? 'KeepSeek Plus' : 'Free';
   const freeChaseLimit = PLAN_LIMITS.FREE.maxActiveChases;
   const proChaseLimit = PLAN_LIMITS.PRO.maxActiveChases;
   const freePollInterval = formatPollInterval(PLAN_LIMITS.FREE.pollIntervalSeconds);
   const proPollInterval = formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds);
   const accessSummary = activeTier === 'PRO'
-    ? `Full Vault is active: ${proChaseLimit} active chases, faster checks, trusted shops, precision controls, and a richer Weekly Shelf that learns from taste profile memory`
-    : `Free Vault is active: ${freeChaseLimit} active chases, DM alerts, and a starter Weekly Shelf preview`;
+    ? `KeepSeek Plus is active: ${proChaseLimit} active chases, faster checks, supported shops, precision controls, and a personalized Display Case shaped by your collection and feedback`
+    : `Free is active: ${freeChaseLimit} active chases, DM alerts, and three general Display Case finds each week`;
   const embed = infoEmbed(title, accessSummary);
   embed.addFields(
     {
@@ -38,14 +38,14 @@ export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan')
       value: activeTier === 'PRO'
         ? [
             `- ${proChaseLimit} active chases with checks every ${proPollInterval}`,
-            '- trusted shops alongside eBay for shop-only restock signals',
+            '- supported shops alongside eBay for shop-only restock signals',
             '- precision controls for conditions, listing types, custom exclusions, priority, and notes',
-            '- richer Weekly Shelf recommendations powered by taste profile memory'
+            '- a personalized Display Case shaped by your collection and feedback'
           ].join('\n')
         : [
             `- ${freeChaseLimit} active chases with eBay checks every ${freePollInterval}`,
             '- DM alerts with core tuning controls',
-            '- starter Weekly Shelf preview based on active chases'
+            '- three general Display Case finds each week'
           ].join('\n'),
       inline: false
     }
@@ -56,10 +56,10 @@ export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan')
       name: 'Pro Features',
       value: [
         `- ${proChaseLimit} active chases with checks every ${proPollInterval}`,
-        '- trusted shops alongside eBay for shop-only restock signals',
+        '- supported shops alongside eBay for shop-only restock signals',
         '- precision controls for conditions, listing types, custom exclusions, priority, and notes',
-        '- a deeper Weekly Shelf that learns from taste profile memory',
-        '- use `/upgrade` to open your Full Vault'
+        '- a personalized Display Case shaped by your collection and feedback',
+        '- use `/upgrade` to open your KeepSeek Plus'
       ].join('\n'),
       inline: false
     });
@@ -81,8 +81,8 @@ export function buildPlanViewPayload(userId: string, title = '🧾 Vaultr Plan')
 export const plan = {
   data: new SlashCommandBuilder()
     .setName('plan')
-    .setDescription('View your Vaultr plan')
-    .addSubcommand((sub) => sub.setName('view').setDescription('View your current Vaultr plan'))
+    .setDescription('View your KeepSeek plan')
+    .addSubcommand((sub) => sub.setName('view').setDescription('View your current KeepSeek plan'))
     .addSubcommand((sub) =>
       sub
         .setName('set')
@@ -115,7 +115,7 @@ export const plan = {
       const ownerId = process.env.OWNER_USER_ID;
       if (!ownerId || (interaction.discordUserId ?? interaction.user.id) !== ownerId) {
         await interaction.reply({
-          embeds: [warningEmbed('Owner Only', 'This subcommand is reserved for the Vaultr owner')],
+          embeds: [warningEmbed('Owner Only', 'This subcommand is reserved for the KeepSeek owner')],
           flags: MessageFlags.Ephemeral
         });
         return;

@@ -17,5 +17,5 @@ const port = Number(process.env.VAULTR_WEB_PORT);
 const host = process.env.VAULTR_WEB_HOST!;
 const server = createVaultrWebServer({ config, logger: console });
 server.listen(port, host, () => {
-  console.log(`Vaultr staging web listening on http://${host}:${port}`);
+  console.log(`KeepSeek staging web listening on http://${host}:${port}`);
 });

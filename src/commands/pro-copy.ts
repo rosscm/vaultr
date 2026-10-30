@@ -1,14 +1,14 @@
 import { formatPollInterval, PLAN_LIMITS } from '../services/plans.js';
 
-export const FULL_VAULT_SUMMARY = 'More room for grails, faster checks, trusted shops, precision controls, and the full Weekly Shelf';
-export const FULL_VAULT_CTA = '`/upgrade` opens the Full Vault';
+export const FULL_VAULT_SUMMARY = 'More room for cards, faster checks, supported shops, precision controls, and a personalized Display Case';
+export const FULL_VAULT_CTA = '`/upgrade` explains KeepSeek Plus';
 
 export function fullVaultLines(): string[] {
   return [FULL_VAULT_SUMMARY, FULL_VAULT_CTA];
 }
 
 export function freeVaultLimitMessage(action = 'Remove one with `/chase remove` or run `/upgrade`'): string {
-  return `Free Vaults can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. Full Vault opens more room for the cards you love: ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, trusted shops, precision controls, and the full Weekly Shelf. ${action}`;
+  return `Free accounts can keep ${PLAN_LIMITS.FREE.maxActiveChases} active chases. KeepSeek Plus opens more room for the cards you love: ${PLAN_LIMITS.PRO.maxActiveChases} active chases, faster checks, supported shops, precision controls, and a personalized Display Case. ${action}`;
 }
 
 export function proControlsNextLine(): string {
@@ -26,8 +26,8 @@ export function upgradeFreeVaultLines(): string[] {
 export function upgradeFullVaultLines(): string[] {
   return [
     `- ${PLAN_LIMITS.PRO.maxActiveChases} active chases with faster checks every ${formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds)}`,
-    '- trusted shops alongside eBay, including shop-only restock signals',
-    '- a deeper Weekly Shelf with taste profile memory',
+    '- supported shops alongside eBay, including shop-only restock signals',
+    '- a personalized Display Case shaped by your collection and feedback',
     '- precision controls for condition, listing type, custom exclusions, priority, and chase notes',
     '- feedback-powered custom exclusions that keep your watchlist cleaner over time'
   ];

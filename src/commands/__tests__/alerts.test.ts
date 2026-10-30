@@ -69,7 +69,7 @@ describe('alerts command', () => {
     await alerts.execute(interaction);
 
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0]?.[0]?.embeds?.[0]?.toJSON?.().title).toBe('🧪 Vaultr DM Test');
+    expect(send.mock.calls[0]?.[0]?.embeds?.[0]?.toJSON?.().title).toBe('🧪 KeepSeek DM Test');
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({
       flags: expect.any(Number),
       embeds: expect.arrayContaining([expect.objectContaining({

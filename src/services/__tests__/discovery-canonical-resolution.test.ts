@@ -184,7 +184,7 @@ describe('resolveWeeklyDiscoveryCanonicalReferences', () => {
 
     expect(afterStats.providerRequests).toBe(beforeStats.providerRequests);
     expect(third.suggestion.name).toBe(first.suggestion.name);
-    expect(third.suggestion.referenceSourceName).toBe('Vaultr Curated (CoroCoro Promo)');
+    expect(third.suggestion.referenceSourceName).toBe('KeepSeek Curated (CoroCoro Promo)');
     expect(third.suggestion.canonicalReference).toEqual(first.suggestion.canonicalReference);
     expect(third.suggestion.canonicalReference).toMatchObject({
       provider: 'CURATED',

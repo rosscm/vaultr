@@ -17,8 +17,8 @@ const ALERTS_SOURCE_PREFIX = 'alerts-source';
 
 function displaySourceMode(value: ListingSourceModePreference): string {
   if (value === 'EBAY') return 'eBay';
-  if (value === 'EBAY_SHOPIFY') return 'eBay + Trusted Shops';
-  if (value === 'SHOPIFY') return 'Trusted Shops Only';
+  if (value === 'EBAY_SHOPIFY') return 'eBay + Supported Shops';
+  if (value === 'SHOPIFY') return 'Supported Shops Only';
   return 'eBay';
 }
 
@@ -30,12 +30,12 @@ function displayListingSourceSetting(value: ListingSourceModePreference, activeT
 function displayTrustedShopAccess(value: ListingSourceModePreference, activeTier: 'FREE' | 'PRO'): string {
   if (activeTier === 'FREE') {
     return isStorefrontSourceMode(value)
-        ? `Paused until Pro (${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops)`
-        : `Pro opens the Full Vault with ${PLAN_LIMITS.PRO.maxActiveChases} active chases + trusted shops`;
+        ? `Paused until Pro (${PLAN_LIMITS.PRO.maxActiveChases} active chases + supported shops)`
+        : `KeepSeek Plus includes ${PLAN_LIMITS.PRO.maxActiveChases} active chases + supported shops`;
   }
   if (value === 'EBAY_SHOPIFY') return 'Enabled with eBay';
-  if (value === 'SHOPIFY') return 'Enabled, trusted shops only';
-  return 'Available. Choose eBay + Trusted Shops or Trusted Shops Only';
+  if (value === 'SHOPIFY') return 'Enabled, supported shops only';
+  return 'Available. Choose eBay + Supported Shops or Supported Shops Only';
 }
 
 function sourceButton(
@@ -61,11 +61,11 @@ function sourceRows(userId: string, activeTier: 'FREE' | 'PRO', currentSource: L
       sourceButton(
         userId,
         'EBAY_SHOPIFY',
-        currentSource === 'EBAY_SHOPIFY' ? 'eBay + Trusted Shops Active' : 'Use eBay + Trusted Shops',
+        currentSource === 'EBAY_SHOPIFY' ? 'eBay + Supported Shops Active' : 'Use eBay + Supported Shops',
         ButtonStyle.Primary,
         currentSource === 'EBAY_SHOPIFY'
       ),
-      sourceButton(userId, 'SHOPIFY', currentSource === 'SHOPIFY' ? 'Trusted Shops Active' : 'Use Trusted Shops Only', ButtonStyle.Secondary, currentSource === 'SHOPIFY')
+      sourceButton(userId, 'SHOPIFY', currentSource === 'SHOPIFY' ? 'Supported Shops Active' : 'Use Supported Shops Only', ButtonStyle.Secondary, currentSource === 'SHOPIFY')
     )
   ];
 }
@@ -85,7 +85,7 @@ function settingsFields(plan: ReturnType<typeof getUserPlan>, settings: ReturnTy
       name: 'Sources',
       value: [
         `**Watching:** ${displayListingSourceSetting(settings.listingSourceMode, activeTier)}`,
-        `**Trusted Shops:** ${displayTrustedShopAccess(settings.listingSourceMode, activeTier)}`,
+        `**Supported Shops:** ${displayTrustedShopAccess(settings.listingSourceMode, activeTier)}`,
         ...(activeTier === 'PRO' ? ['**Source Controls:** pick a watch mode with the buttons below'] : [])
       ].join('\n'),
       inline: false
@@ -136,8 +136,8 @@ export const alertsSettings = {
       await interaction.reply({
         embeds: [
           warningEmbed(
-            'Trusted Shops Are Pro',
-            `trusted shops are a Pro control inside the Full Vault, useful for raw singles, promos, and restocks.\n\n**Free Vault:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**Full Vault:** ${FULL_VAULT_SUMMARY}\n${proControlsNextLine()}`
+            'Supported Shops Are Pro',
+            `Supported-shop source controls are included with KeepSeek Plus and can help with raw singles, promos, and restocks.\n\n**Free:** eBay monitoring with ${PLAN_LIMITS.FREE.maxActiveChases} active chases\n**KeepSeek Plus:** ${FULL_VAULT_SUMMARY}\n${proControlsNextLine()}`
           )
         ],
         flags: MessageFlags.Ephemeral
@@ -161,8 +161,8 @@ export const alertsSettings = {
     const settings = update?.ok ? update.settings : currentSettings;
 
     const embed = noChanges
-      ? infoEmbed('🔔 Vaultr Settings', 'Your alert rules and source settings')
-      : successEmbed('Vaultr Settings Updated', 'Your alert rules are updated').setTitle('✅ Vaultr Settings Updated');
+      ? infoEmbed('🔔 KeepSeek Settings', 'Your alert rules and source settings')
+      : successEmbed('KeepSeek Settings Updated', 'Your alert rules are updated').setTitle('✅ KeepSeek Settings Updated');
 
     embed.addFields(...settingsFields(plan, settings));
 
@@ -194,7 +194,7 @@ export async function handleAlertSourceButtons(interaction: any): Promise<boolea
   const activeTier = activePlanTier(plan);
   if (activeTier !== 'PRO') {
     await interaction.reply({
-      embeds: [warningEmbed('Trusted Shops Are Pro', `trusted shops source controls are Pro controls inside the Full Vault.\n\n${proControlsNextLine()}`)],
+      embeds: [warningEmbed('Supported Shops Are Plus', `Supported-shop source controls are included with KeepSeek Plus.\n\n${proControlsNextLine()}`)],
       flags: MessageFlags.Ephemeral
     });
     return true;
@@ -203,7 +203,7 @@ export async function handleAlertSourceButtons(interaction: any): Promise<boolea
   const update = updateAlertSettings(interaction.user.id, { listingSourceMode: source });
   if (!update.ok) return true;
   const settings = update.settings;
-  const embed = successEmbed('Vaultr Settings Updated', 'Watch mode updated').setTitle('✅ Vaultr Settings Updated');
+  const embed = successEmbed('KeepSeek Settings Updated', 'Watch mode updated').setTitle('✅ KeepSeek Settings Updated');
   embed.addFields(...settingsFields(plan, settings));
   await interaction.update({ embeds: [embed], components: sourceRows(interaction.user.id, activeTier, settings.listingSourceMode) });
   return true;

@@ -111,6 +111,8 @@ const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/app.js': { file: 'app.js', contentType: 'text/javascript; charset=utf-8' },
   '/vaultr-icon.svg': { file: 'assets/brand/vaultr-icon.svg', contentType: 'image/svg+xml' },
   '/vaultr-lockup-dark.svg': { file: 'assets/brand/vaultr-lockup-dark.svg', contentType: 'image/svg+xml' },
+  '/keepseek-icon.svg': { file: 'assets/brand/keepseek-icon.svg', contentType: 'image/svg+xml' },
+  '/keepseek-lockup-dark.svg': { file: 'assets/brand/keepseek-lockup-dark.svg', contentType: 'image/svg+xml' },
   '/shop-marks/hobbiesville.png': { file: 'assets/shops/hobbiesville.png', contentType: 'image/png' },
   '/shop-marks/derpycards.png': { file: 'assets/shops/derpycards.png', contentType: 'image/png' },
   '/shop-marks/theghostgames.png': { file: 'assets/shops/theghostgames.png', contentType: 'image/png' },
@@ -370,7 +372,7 @@ function vaultOptions() {
     const entitlements = getEntitlementsForTier(tier);
     return {
       tier,
-      label: tier === 'PRO' ? 'Vaultr Plus' : 'Free',
+      label: tier === 'PRO' ? 'KeepSeek Plus' : 'Free',
       maxActiveChases: entitlements.maxActiveChases,
       checkIntervalMinutes: Math.round(entitlements.pollIntervalSeconds / 60),
       monitoringPriority: entitlements.monitoringPriority,
@@ -1528,6 +1530,6 @@ if (isDirectRun) {
     timer.unref();
   }
   server.listen(port, host, () => {
-    console.log(`Vaultr web API listening on http://${host}:${port}`);
+    console.log(`KeepSeek web API listening on http://${host}:${port}`);
   });
 }

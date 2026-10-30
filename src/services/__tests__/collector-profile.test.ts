@@ -595,7 +595,7 @@ describe('collector interest profile', () => {
     runCollectorProfileInspectCli(['--discord-user', discordUserId]);
 
     expect(logSpy.mock.calls.map((call) => String(call[0]))).toContain(`User: ${user.id}`);
-    expect(() => runCollectorProfileInspectCli(['--discord-user', '000000000000000000'])).toThrow('No Vaultr account is linked');
+    expect(() => runCollectorProfileInspectCli(['--discord-user', '000000000000000000'])).toThrow('No KeepSeek account is linked');
     logSpy.mockRestore();
   });
 

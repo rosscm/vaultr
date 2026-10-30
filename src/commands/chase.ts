@@ -8,7 +8,7 @@ import { CONDITION_CHOICES, GRADE_VALUE_CHOICES, GRADING_TYPE_CHOICES } from './
 export const chase = {
   data: new SlashCommandBuilder()
     .setName('chase')
-    .setDescription('Build your Vault chase list')
+    .setDescription('Build your KeepSeek Watchlist')
     .addSubcommand((sub) =>
       sub
         .setName('add')

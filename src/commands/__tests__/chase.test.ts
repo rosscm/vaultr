@@ -391,8 +391,8 @@ describe('chase command', () => {
 
     expect(autocompleteEmbed.title).toBe('✅ Chase Added');
     expect(manualEmbed.title).toBe('✅ Chase Added');
-    expect(autocompleteEmbed.description).toContain('Nice pick! Vaultr is on it');
-    expect(manualEmbed.description).toContain('Nice pick! Vaultr is on it');
+    expect(autocompleteEmbed.description).toContain('Nice pick! KeepSeek is on it');
+    expect(manualEmbed.description).toContain('Nice pick! KeepSeek is on it');
     expect(autocompleteEmbed.description).toContain('**Next:** Use `/chase list` to review active chases');
     expect(manualEmbed.description).toContain('**Next:** Use `/chase list` to review active chases');
     expect(listChases(autocompleteUserId)[0]?.cardImageUrl).toBe('https://images.pokemontcg.io/sv4pt5/232_hires.png');
@@ -2582,7 +2582,7 @@ describe('chase command', () => {
     expect(data.description).toContain('Add one specific card to start shaping your Vault.');
     expect(data.description).toContain('Open `/chase add`, start typing your card, and pick the match if it looks right.');
     expect(data.description).toContain('If it does not show up, you can still enter it yourself.');
-    expect(data.description).toContain('Quiet days are normal. Vaultr only sends alerts when a listing clears your match settings.');
+    expect(data.description).toContain('Quiet days are normal. KeepSeek only sends alerts when a listing clears your match settings.');
   });
 
   it('keeps paused chase rows compact without active alert filters', () => {

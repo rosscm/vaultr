@@ -30,7 +30,7 @@ function chaseChoiceName(chase: Chase, entry: number): string {
     chase.grade ? displayGrade(chase.grade) : undefined,
     chase.priority && chase.priority !== 'NORMAL' ? chase.priority : undefined
   ].filter(Boolean);
-  const suffix = details.length > 0 ? ` — ${details.join(' · ')}` : '';
+  const suffix = details.length > 0 ? `: ${details.join(' · ')}` : '';
   return `#${entry} ${chase.cardName}${suffix}`.slice(0, 100);
 }
 
@@ -167,7 +167,7 @@ export const chaseEdit = {
           embeds: [
             warningEmbed(
               'Pro Controls Not Applied',
-              `Free Vaults cannot change ${result.blockedControls?.join(', ') ?? 'those controls'}.\n\n${proControlsNextLine()}`
+              `Free accounts cannot change ${result.blockedControls?.join(', ') ?? 'those controls'}.\n\n${proControlsNextLine()}`
             )
           ],
           flags: MessageFlags.Ephemeral

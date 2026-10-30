@@ -35,21 +35,21 @@ describe('buildPlanViewPayload', () => {
     const data = payload.embeds[0].toJSON();
     const text = [data.description, ...(data.fields ?? []).map((field) => `${field.name}\n${field.value}`)].join('\n');
 
-    expect(text).toContain('Free Vault is active');
-    expect(text).toContain('Current Access\n**Plan:** Free Vault');
+    expect(text).toContain('Free is active');
+    expect(text).toContain('Current Access\n**Plan:** Free');
     expect(text).not.toContain('**Access:** Free');
-    expect(text).not.toContain('**Vault:** Free Vault');
-    expect(text).toContain(`Free Vault is active: ${freeChaseLimit} active chases, DM alerts, and a starter Weekly Shelf preview`);
+    expect(text).not.toContain('**Vault:** Free');
+    expect(text).toContain(`Free is active: ${freeChaseLimit} active chases, DM alerts, and three general Display Case finds each week`);
     expect(text).toContain(`Included\n- ${freeChaseLimit} active chases with eBay checks every ${freePollInterval}`);
     expect(text).toContain('- DM alerts with core tuning controls');
-    expect(text).toContain('- starter Weekly Shelf preview based on active chases');
+    expect(text).toContain('- three general Display Case finds each week');
     expect(data.fields?.at(-1)?.name).toBe('Updated');
     expect(data.fields?.some((field) => field.name === 'Updated' && !field.value.includes('Updated:'))).toBe(true);
     expect(text).toContain(`Pro Features\n- ${proChaseLimit} active chases with checks every ${proPollInterval}`);
-    expect(text).toContain('- trusted shops alongside eBay for shop-only restock signals');
+    expect(text).toContain('- supported shops alongside eBay for shop-only restock signals');
     expect(text).toContain('- precision controls for conditions, listing types, custom exclusions, priority, and notes');
-    expect(text).toContain('- a deeper Weekly Shelf that learns from taste profile memory');
-    expect(text).toContain('- use `/upgrade` to open your Full Vault');
+    expect(text).toContain('- a personalized Display Case shaped by your collection and feedback');
+    expect(text).toContain('- use `/upgrade` to open your KeepSeek Plus');
     expect(text).not.toContain('Weekly Shelf preview shaped by your Vault');
     expect(text).not.toContain('**Active Chases:**');
     expect(text).not.toContain('**Watch Cadence:**');
@@ -59,7 +59,7 @@ describe('buildPlanViewPayload', () => {
     expect(text).not.toContain('Free access is active');
   });
 
-  it('shows active Full Vault access without duplicating alert configuration', () => {
+  it('shows active KeepSeek Plus access without duplicating alert configuration', () => {
     const proChaseLimit = PLAN_LIMITS.PRO.maxActiveChases;
     const proPollInterval = formatPollInterval(PLAN_LIMITS.PRO.pollIntervalSeconds);
     const userId = `plan-pro-${Date.now()}`;
@@ -70,16 +70,16 @@ describe('buildPlanViewPayload', () => {
     const data = payload.embeds[0].toJSON();
     const text = [data.description, ...(data.fields ?? []).map((field) => `${field.name}\n${field.value}`)].join('\n');
 
-    expect(text).toContain('Full Vault is active');
-    expect(text).toContain('Current Access\n**Plan:** Full Vault');
+    expect(text).toContain('KeepSeek Plus is active');
+    expect(text).toContain('Current Access\n**Plan:** KeepSeek Plus');
     expect(text).not.toContain('**Access:** Pro');
-    expect(text).not.toContain('**Vault:** Full Vault');
-    expect(text).toContain(`Full Vault is active: ${proChaseLimit} active chases, faster checks, trusted shops, precision controls, and a richer Weekly Shelf that learns from taste profile memory`);
+    expect(text).not.toContain('**Vault:** KeepSeek Plus');
+    expect(text).toContain(`KeepSeek Plus is active: ${proChaseLimit} active chases, faster checks, supported shops, precision controls, and a personalized Display Case shaped by your collection and feedback`);
     expect(text).toContain(`Included\n- ${proChaseLimit} active chases with checks every ${proPollInterval}`);
-    expect(text).toContain('- trusted shops alongside eBay for shop-only restock signals');
+    expect(text).toContain('- supported shops alongside eBay for shop-only restock signals');
     expect(text).toContain('- precision controls for conditions, listing types, custom exclusions, priority, and notes');
-    expect(text).toContain('- richer Weekly Shelf recommendations powered by taste profile memory');
-    expect(text).not.toContain('Trusted Shops, and precision controls');
+    expect(text).toContain('- a personalized Display Case shaped by your collection and feedback');
+    expect(text).not.toContain('Supported Shops, and precision controls');
     expect(data.fields?.at(-1)?.name).toBe('Updated');
     expect(data.fields?.some((field) => field.name === 'Updated' && !field.value.includes('Updated:'))).toBe(true);
     expect(text).not.toContain('**Watch Cadence:**');
@@ -106,7 +106,7 @@ describe('plan command', () => {
     };
   }
 
-  it('keeps plan set reserved for the Vaultr owner', async () => {
+  it('keeps plan set reserved for the KeepSeek owner', async () => {
     process.env.OWNER_USER_ID = 'owner-user';
     const targetId = `plan-set-target-${Date.now()}`;
     setUserPlan(targetId, 'FREE');
@@ -120,7 +120,7 @@ describe('plan command', () => {
     expect(getUserPlan(targetId).tier).toBe('FREE');
   });
 
-  it('allows the Vaultr owner to update member access', async () => {
+  it('allows the KeepSeek owner to update member access', async () => {
     process.env.OWNER_USER_ID = 'owner-user';
     const targetId = `plan-set-owner-target-${Date.now()}`;
     setUserPlan(targetId, 'FREE');

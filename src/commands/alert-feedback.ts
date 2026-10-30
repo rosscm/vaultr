@@ -37,7 +37,7 @@ function tuneOutReasonMenu(chaseId: string, feedbackToken: string): ActionRowBui
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId(`${REASON_PREFIX}:${chaseId}:${feedbackToken}`)
-      .setPlaceholder('What should Vaultr learn from this?')
+      .setPlaceholder('What should KeepSeek learn from this?')
       .addOptions(...tuneOutReasons)
   );
 }
@@ -108,7 +108,7 @@ function tuningApplyRow(chaseId: string, feedbackToken: string, suggestion: Aler
 }
 
 function formatTuningSuggestion(suggestion: AlertTuningSuggestion): string {
-  return `Vaultr noticed ${suggestion.count} recent tune-outs for ${suggestion.label} on this chase`;
+  return `KeepSeek noticed ${suggestion.count} recent tune-outs for ${suggestion.label} on this chase`;
 }
 
 function suggestionForChase(userId: string, chaseId: string): AlertTuningSuggestion | null {
@@ -131,7 +131,7 @@ async function handleApplyTuning(interaction: any): Promise<boolean> {
 
   if (activePlanTier(getUserPlan(interaction.user.id)) !== 'PRO') {
     await interaction.update({
-      content: `Vaultr can spot this pattern, but persistent custom exclusions are part of the Full Vault.\n\n${proControlsNextLine()}`,
+      content: `KeepSeek can spot this pattern, but persistent custom exclusions are part of the KeepSeek Plus.\n\n${proControlsNextLine()}`,
       components: []
     });
     return true;
@@ -148,7 +148,7 @@ async function handleApplyTuning(interaction: any): Promise<boolean> {
   updateChase(interaction.user.id, chaseId, { negativeKeywords: nextKeywords });
 
   await interaction.update({
-    content: `Applied. Vaultr will now exclude ${suggestion.label} for **${chase.cardName}**`,
+    content: `Applied. KeepSeek will now exclude ${suggestion.label} for **${chase.cardName}**`,
     components: []
   });
   return true;
@@ -174,7 +174,7 @@ async function handleTuneOutReason(interaction: any): Promise<boolean> {
     const fingerprint = alert?.listingTitle ? makeListingFingerprint(alert.listingTitle) : '';
     if (fingerprint) {
       addIgnoredListingFingerprint(interaction.user.id, chaseId, fingerprint);
-      followUp = 'Noted. Vaultr will suppress similar title repeats for this chase';
+      followUp = 'Noted. KeepSeek will suppress similar title repeats for this chase';
     }
   }
 
@@ -220,7 +220,7 @@ export async function handleAlertFeedback(interaction: any): Promise<boolean> {
   }
 
   await interaction.reply({
-    content: 'What should Vaultr learn from this alert?',
+    content: 'What should KeepSeek learn from this alert?',
     components: [tuneOutReasonMenu(chaseId, feedbackToken)],
     flags: MessageFlags.Ephemeral
   });

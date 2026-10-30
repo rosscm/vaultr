@@ -6,14 +6,14 @@ const ALERTS_TEST_DM_TIMEOUT_MS = 10_000;
 export function buildAlertsTestDmEmbed(): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x8b5cf6)
-    .setTitle('🧪 Vaultr DM Test')
+    .setTitle('🧪 KeepSeek DM Test')
     .setDescription(
       [
-        'This is a delivery test from Vaultr.',
-        'It is not a real listing and will not affect your alerts, Vault, or Weekly Shelf.'
+        'This is a delivery test from KeepSeek.',
+        'It is not a real listing and will not affect your alerts, Watchlist, or Display Case.'
       ].join('\n')
     )
-    .setFooter({ text: 'Vaultr • Alerts Test' })
+    .setFooter({ text: 'KeepSeek • Alerts Test' })
     .setTimestamp();
 }
 
@@ -34,7 +34,7 @@ async function sendAlertsTestDm(user: { send: (payload: any) => Promise<unknown>
 }
 
 function blockedDmMessage(): string {
-  return 'Vaultr could not deliver a test DM. Enable direct messages for this server or allow Vaultr to DM you, then retry `/alerts test`.';
+  return 'KeepSeek could not deliver a test DM. Enable direct messages for this server or allow KeepSeek to DM you, then retry `/alerts test`.';
 }
 
 export const alertsTest = {
@@ -43,7 +43,7 @@ export const alertsTest = {
       await sendAlertsTestDm(interaction.user);
       await interaction.reply({
         embeds: [
-          successEmbed('DM Test Sent', 'Vaultr can reach you by DM. This was only a delivery test, not a real listing.')
+          successEmbed('DM Test Sent', 'KeepSeek can reach you by DM. This was only a delivery test, not a real listing.')
             .setTitle('✅ DM Test Sent')
         ],
         flags: MessageFlags.Ephemeral
