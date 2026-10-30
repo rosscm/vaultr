@@ -264,6 +264,7 @@ describe('web app static routes', () => {
     const cssResponse = await handleWebRequest({ method: 'GET', url: '/app.css' }, { config });
     const jsResponse = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const fontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/roboto-latin-variable.woff2' }, { config });
+    const displayFontResponse = await handleWebRequest({ method: 'GET', url: '/fonts/sora-latin-600-800.woff2' }, { config });
     const onboardingArtResponse = await handleWebRequest({ method: 'GET', url: '/onboarding-art/mew-corocoro-promo-151.webp' }, { config });
     const iconResponse = await handleWebRequest({ method: 'GET', url: '/vaultr-icon.svg' }, { config });
     const lockupResponse = await handleWebRequest({ method: 'GET', url: '/vaultr-lockup-dark.svg' }, { config });
@@ -279,6 +280,9 @@ describe('web app static routes', () => {
     expect(fontResponse.status).toBe(200);
     expect(fontResponse.headers?.['Content-Type']).toBe('font/woff2');
     expect(fontResponse.body?.slice(0, 4)).toBe('wOF2');
+    expect(displayFontResponse.status).toBe(200);
+    expect(displayFontResponse.headers?.['Content-Type']).toBe('font/woff2');
+    expect(displayFontResponse.body?.slice(0, 4)).toBe('wOF2');
     expect(onboardingArtResponse.status).toBe(200);
     expect(onboardingArtResponse.headers?.['Content-Type']).toBe('image/webp');
     expect(onboardingArtResponse.body?.slice(0, 4)).toBe('RIFF');
@@ -287,8 +291,10 @@ describe('web app static routes', () => {
     expect(lockupResponse.status).toBe(200);
     expect(lockupResponse.headers?.['Content-Type']).toBe('image/svg+xml');
     expect(appResponse.body).toContain('<link rel="icon" href="/vaultr-icon.svg" type="image/svg+xml">');
-    expect(cssResponse.body).not.toContain('@font-face');
-    expect(cssResponse.body).toContain('font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Helvetica Neue", Arial, sans-serif;');
+    expect(cssResponse.body).toContain('@font-face');
+    expect(cssResponse.body).toContain('--font-display: "Sora"');
+    expect(cssResponse.body).toContain('font-family: var(--font-body);');
+    expect(cssResponse.body).toContain('font-family: var(--font-display);');
     expect(jsResponse.body).toContain('class="desktop-header"');
     expect(jsResponse.body).not.toContain('class="app-sidebar"');
     expect(cssResponse.body).toContain('grid-template-columns: repeat(4, minmax(0, 1fr));');

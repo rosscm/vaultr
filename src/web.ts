@@ -114,7 +114,8 @@ const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/onboarding-art/mew-corocoro-promo-151.webp': { file: 'assets/onboarding/mew-corocoro-promo-151.webp', contentType: 'image/webp' },
   '/onboarding-art/pichu-expedition-022.webp': { file: 'assets/onboarding/pichu-expedition-022.webp', contentType: 'image/webp' },
   '/onboarding-art/sylveon-ex-212.webp': { file: 'assets/onboarding/sylveon-ex-212.webp', contentType: 'image/webp' },
-  '/fonts/roboto-latin-variable.woff2': { file: 'fonts/roboto-latin-variable.woff2', contentType: 'font/woff2' }
+  '/fonts/roboto-latin-variable.woff2': { file: 'fonts/roboto-latin-variable.woff2', contentType: 'font/woff2' },
+  '/fonts/sora-latin-600-800.woff2': { file: 'fonts/sora-latin-600-800.woff2', contentType: 'font/woff2' }
 };
 const LEGAL_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/privacy': { file: 'privacy.html', contentType: 'text/html; charset=utf-8' },

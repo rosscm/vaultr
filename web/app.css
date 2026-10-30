@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 600 800;
+  font-display: swap;
+  src: url("/fonts/sora-latin-600-800.woff2") format("woff2");
+}
+
 :root {
   color-scheme: dark;
   --bg: #080713;
@@ -24,6 +32,8 @@
   --focus: 0 0 0 3px rgba(121, 185, 255, 0.42);
   --ease: 180ms ease;
   --page-copy-width: 56rem;
+  --font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Sora", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
@@ -38,7 +48,7 @@ body {
   min-height: 100vh;
   margin: 0;
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-body);
   background: linear-gradient(180deg, var(--bg-deep), var(--bg) 36%, #0c0918);
 }
 
@@ -60,6 +70,46 @@ textarea {
 
 button {
   cursor: pointer;
+}
+
+h1,
+h2,
+h3,
+button,
+.nav-button,
+.page-tagline,
+.home-greeting,
+.home-shelf-copy h3,
+.home-watchlist-copy strong,
+.vault-card h2,
+.shelf-card h2,
+.alert-card h2,
+.plus-plan h3,
+.plan-comparison-item h3,
+.vault-summary strong,
+.home-plan-label {
+  font-family: var(--font-display);
+}
+
+h1 {
+  font-weight: 800;
+}
+
+h2 {
+  font-weight: 700;
+}
+
+h3 {
+  font-weight: 650;
+}
+
+button,
+.nav-button {
+  font-weight: 650;
+}
+
+.page-tagline {
+  font-weight: 600;
 }
 
 button:disabled {
