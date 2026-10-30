@@ -4117,7 +4117,7 @@ a {
 .plus-plan li {
   min-width: 0;
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr);
+  grid-template-columns: 26px minmax(0, 1fr);
   align-items: start;
   gap: 12px;
   color: var(--muted-strong);
@@ -4125,24 +4125,29 @@ a {
   line-height: 1.5;
 }
 
-.plus-feature-marker {
-  width: 8px;
-  height: 8px;
-  margin-top: 0.42em;
-  border: 2px solid var(--purple);
-  border-radius: 50%;
-  box-shadow: 0 0 0 3px rgba(184, 148, 255, 0.08);
+.plus-feature-icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  color: var(--purple);
 }
 
-.plus-plan.featured .plus-feature-marker {
-  border-color: var(--pink);
-  box-shadow: 0 0 0 3px rgba(255, 148, 187, 0.08);
+.plus-feature-icon .nav-icon {
+  width: 23px;
+  height: 23px;
+  stroke-width: 1.75;
+}
+
+.plus-plan.featured .plus-feature-icon {
+  color: var(--pink);
 }
 
 .plus-detail-section {
   display: grid;
   gap: 6px;
-  max-width: var(--page-copy-width);
+  width: 100%;
+  max-width: none;
   margin: 0;
   padding-top: 18px;
   border-top: 1px solid var(--line);
@@ -4158,7 +4163,7 @@ a {
 }
 
 .plus-detail-section p:not(.eyebrow) {
-  max-width: 68ch;
+  max-width: 92ch;
   color: var(--muted);
   font-size: 0.94rem;
   line-height: 1.6;
@@ -4168,6 +4173,12 @@ a {
 .plus-source-note > div {
   display: grid;
   gap: 6px;
+}
+
+.plus-source-note {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 24px;
 }
 
 .plus-source-note ul {
@@ -4180,12 +4191,22 @@ a {
 }
 
 .plus-source-note li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 5px 9px;
   color: var(--muted-strong);
   font-size: 0.76rem;
   font-weight: 720;
+}
+
+.plus-source-note li img {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  object-fit: contain;
 }
 
 .plus-benefit-grid {
@@ -4307,6 +4328,12 @@ a {
   .plus-plan-grid,
   .form-grid.grading-grid {
     grid-template-columns: 1fr;
+  }
+
+  .plus-source-note {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 12px;
   }
 
   .plus-benefit-grid {

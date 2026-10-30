@@ -772,6 +772,11 @@ function iconMarkup(name) {
     alerts: '<path d="M4 5h16v14H4z"/><path d="m4 14 4-4h8l4 4"/><path d="M8 14h8"/>',
     shelf: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.1 4.9-4.9 2.1 2.1-4.9 4.9-2.1Z"/>',
     plus: '<path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z"/>',
+    watch: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 5V3h8v2"/><circle cx="12" cy="12.5" r="3"/><path d="M12 10.5v2l1.5 1"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    sliders: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/>',
+    shop: '<path d="M3 9h18l-2-5H5L3 9Z"/><path d="M5 9v11h14V9M9 20v-6h6v6"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/>',
+    market: '<path d="M5 20v-6h3v6M10.5 20V9h3v11M16 20V4h3v16"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.4v-.1A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-1.5-1H2V10h.1A1.7 1.7 0 0 0 3.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.06 4.2l.06.06A1.7 1.7 0 0 0 8 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 18.4 9a1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
     logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h7v18h-7"/>'
   };
@@ -991,26 +996,36 @@ function plusComparisonCardsMarkup(plans, currentTier) {
   const plus = plans.find((plan) => plan.tier === 'PRO');
   if (!free || !plus) return '<div class="state-panel"><p>Plan comparison is unavailable right now.</p></div>';
   const freeFeatures = [
-    `Watch up to ${free.maxActiveChases} cards at once`,
-    `eBay monitoring about every ${free.checkIntervalMinutes} minutes`,
-    'Card, budget and grading preferences',
-    free.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay monitoring',
-    free.discoveryDepth === 'full' ? 'A personalized Display Case shaped by your Watchlist, Pickups and feedback' : 'Three general finds each week'
+    ['watch', `Watch up to ${free.maxActiveChases} cards at once`],
+    ['clock', `eBay monitoring about every ${free.checkIntervalMinutes} minutes`],
+    ['sliders', 'Card, budget and grading preferences'],
+    ['shop', free.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay monitoring'],
+    ['plus', free.discoveryDepth === 'full' ? 'A personalized Display Case shaped by your Watchlist, Pickups and feedback' : 'Three general finds each week']
   ];
   const plusFeatures = [
-    `Watch up to ${plus.maxActiveChases} cards at once`,
-    `${plus.monitoringPriority === 'PRIORITY' ? 'Priority monitoring' : 'Monitoring'} about every ${plus.checkIntervalMinutes} minutes`,
-    plus.advancedFiltering ? 'Everything in Free, plus condition, listing type, priority, target notes and exclusions' : 'Everything in Free',
-    plus.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay monitoring',
-    plus.discoveryDepth === 'full' ? 'A personalized Display Case shaped by your Watchlist, Pickups and feedback' : 'Three general finds each week',
-    plus.discoveryDepth === 'full' ? 'Market context when reliable data is available' : 'Market context not included'
+    ['watch', `Watch up to ${plus.maxActiveChases} cards at once`],
+    ['clock', `${plus.monitoringPriority === 'PRIORITY' ? 'Priority monitoring' : 'Monitoring'} about every ${plus.checkIntervalMinutes} minutes`],
+    ['sliders', plus.advancedFiltering ? 'Everything in Free, plus condition, listing type, priority, target notes and exclusions' : 'Everything in Free'],
+    ['shop', plus.storefrontMonitoring ? 'eBay + supported card shops' : 'eBay monitoring'],
+    ['plus', plus.discoveryDepth === 'full' ? 'A personalized Display Case shaped by your Watchlist, Pickups and feedback' : 'Three general finds each week'],
+    ['market', plus.discoveryDepth === 'full' ? 'Market context when reliable data is available' : 'Market context not included']
   ];
   const card = (plan, features, featured = false) => `
     <article class="plus-plan${featured ? ' featured' : ''}${plan.tier === currentTier ? ' current' : ''}">
       <header><h3>${escapeHtml(featured ? 'Vaultr Plus' : plan.label)}</h3>${plan.tier === currentTier ? '<small>Current plan</small>' : ''}</header>
-      <ul>${features.map((feature) => `<li><span class="plus-feature-marker" aria-hidden="true"></span><span>${escapeHtml(feature)}</span></li>`).join('')}</ul>
+      <ul>${features.map(([icon, feature]) => `<li><span class="plus-feature-icon" aria-hidden="true">${iconMarkup(icon)}</span><span>${escapeHtml(feature)}</span></li>`).join('')}</ul>
     </article>`;
   return `<div class="plus-plan-grid">${card(free, freeFeatures)}${card(plus, plusFeatures, true)}</div>`;
+}
+
+function supportedShopMarkup(name) {
+  const marks = {
+    Hobbiesville: '/shop-marks/hobbiesville.png',
+    DerpyCards: '/shop-marks/derpycards.png',
+    'The Ghost Games': '/shop-marks/theghostgames.png'
+  };
+  const mark = marks[name];
+  return `<li>${mark ? `<img src="${mark}" alt="" aria-hidden="true">` : ''}<span>${escapeHtml(name)}</span></li>`;
 }
 
 function plusPageMarkup() {
@@ -1045,7 +1060,7 @@ function plusPageMarkup() {
       </section>
       <section class="plus-detail-section plus-source-note" aria-labelledby="plus-source-title">
         <div><p class="eyebrow">LISTING SOURCES</p><h2 id="plus-source-title">Where Vaultr searches</h2><p>eBay is available to everyone. <strong class="inline-vaultr-plus">Vaultr Plus</strong> can also search supported card shops, giving Vaultr more places to look for the cards you want. We’ll continue expanding supported sources over time.</p></div>
-        ${supportedShopNames.length ? `<ul aria-label="Supported card shops">${supportedShopNames.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul>` : ''}
+        ${supportedShopNames.length ? `<ul aria-label="Supported card shops">${supportedShopNames.map(supportedShopMarkup).join('')}</ul>` : ''}
       </section>
     </section>
   `;

@@ -268,6 +268,7 @@ describe('web app static routes', () => {
     const onboardingArtResponse = await handleWebRequest({ method: 'GET', url: '/onboarding-art/mew-corocoro-promo-151.webp' }, { config });
     const iconResponse = await handleWebRequest({ method: 'GET', url: '/vaultr-icon.svg' }, { config });
     const lockupResponse = await handleWebRequest({ method: 'GET', url: '/vaultr-lockup-dark.svg' }, { config });
+    const shopMarkResponse = await handleWebRequest({ method: 'GET', url: '/shop-marks/hobbiesville.png' }, { config });
 
     expect(appResponse.status).toBe(200);
     expect(appResponse.headers?.['Content-Type']).toBe('text/html; charset=utf-8');
@@ -290,6 +291,8 @@ describe('web app static routes', () => {
     expect(iconResponse.headers?.['Content-Type']).toBe('image/svg+xml');
     expect(lockupResponse.status).toBe(200);
     expect(lockupResponse.headers?.['Content-Type']).toBe('image/svg+xml');
+    expect(shopMarkResponse.status).toBe(200);
+    expect(shopMarkResponse.headers?.['Content-Type']).toBe('image/png');
     expect(appResponse.body).toContain('<link rel="icon" href="/vaultr-icon.svg" type="image/svg+xml">');
     expect(cssResponse.body).toContain('@font-face');
     expect(cssResponse.body).toContain('--font-display: "Sora"');
@@ -832,11 +835,11 @@ describe('web app static routes', () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const functionSource = source.slice(source.indexOf('function plusComparisonCardsMarkup('), source.indexOf('function plusPageMarkup('));
-    const render = new Function('plans', 'escapeHtml', `${functionSource}\nreturn plusComparisonCardsMarkup(plans, 'FREE');`) as (plans: unknown[], escape: (value: unknown) => string) => string;
+    const render = new Function('plans', 'escapeHtml', 'iconMarkup', `${functionSource}\nreturn plusComparisonCardsMarkup(plans, 'FREE');`) as (plans: unknown[], escape: (value: unknown) => string, icon: (name: string) => string) => string;
     const markup = render([
       { tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited' },
       { tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full' }
-    ], String);
+    ], String, (name) => `<svg data-icon="${name}"></svg>`);
 
     expect(markup).toContain('<div class="plus-plan-grid">');
     expect(markup.match(/<article class="plus-plan/g)).toHaveLength(2);
@@ -853,9 +856,15 @@ describe('web app static routes', () => {
     expect(markup).toContain('Three general finds each week');
     expect(markup).toContain('A personalized Display Case shaped by your Watchlist, Pickups and feedback');
     expect(markup).toContain('Market context when reliable data is available');
+    expect(markup).toContain('data-icon="clock"');
+    expect(markup).toContain('data-icon="market"');
     expect(markup).not.toContain('plus-comparison-table');
     const plusPageSource = source.slice(source.indexOf('function plusPageMarkup('), source.indexOf('function onboardingStepIndicator('));
     expect(plusPageSource).toContain('plusComparisonCardsMarkup(plans, currentTier)');
+    expect(plusPageSource).toContain('supportedShopNames.map(supportedShopMarkup)');
+    expect(source).toContain("Hobbiesville: '/shop-marks/hobbiesville.png'");
+    expect(source).toContain("DerpyCards: '/shop-marks/derpycards.png'");
+    expect(source).toContain("'The Ghost Games': '/shop-marks/theghostgames.png'");
     expect(plusPageSource).not.toContain('class="plus-next-step"');
   });
 
