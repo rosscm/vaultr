@@ -998,39 +998,6 @@ function plusPlanFeatureList(plan) {
   `;
 }
 
-function plusNextStep({ isPlus, atLimit, billingAvailable, staging }) {
-  if (isPlus) {
-    return {
-      heading: 'Make the most of Plus',
-      copy: 'Your Plus access is active. Add or refine the cards you want Vaultr to watch.',
-      action: 'Open Watchlist',
-      page: 'vault'
-    };
-  }
-  if (!atLimit) {
-    return {
-      heading: 'Keep building your Watchlist',
-      copy: 'Add another card when you are ready. Your Free Watchlist remains fully usable.',
-      action: 'Build your Watchlist',
-      page: 'vault'
-    };
-  }
-  if (billingAvailable && !staging) {
-    return {
-      heading: 'Ready for more room?',
-      copy: 'Upgrade to add more chases and unlock priority monitoring, Trusted Shops, precision controls, and personalized discovery.',
-      action: 'Upgrade to Vaultr Plus',
-      page: 'settings'
-    };
-  }
-  return {
-    heading: 'Your Watchlist is full',
-    copy: 'Manage your current chases, or compare what Vaultr Plus adds when upgrades become available.',
-    action: 'Manage Watchlist',
-    page: 'vault'
-  };
-}
-
 function plusPageMarkup() {
   const header = pageHeaderMarkup({
     id: 'plus-title',
@@ -1047,16 +1014,7 @@ function plusPageMarkup() {
   }
   const plans = state.vaultOptions?.plans || [];
   const currentTier = state.vaultPlan?.tier || 'FREE';
-  const currentPlan = plans.find((plan) => plan.tier === currentTier);
-  const isPlus = currentTier === 'PRO';
-  const activeCount = state.vaultPlan?.activeCount ?? 0;
-  const maxActiveChases = currentPlan?.maxActiveChases ?? state.vaultPlan?.maxActiveChases ?? 0;
-  const atLimit = maxActiveChases > 0 && activeCount >= maxActiveChases;
-  const environmentLabel = state.authConfig?.environment?.label || '';
-  const staging = environmentLabel.toLowerCase() === 'staging';
-  const billingAvailable = Boolean(state.vaultOptions?.billing?.selfServiceAvailable);
   const supportedShopNames = state.vaultOptions?.supportedShopNames || [];
-  const nextStep = plusNextStep({ isPlus, atLimit, billingAvailable, staging });
   return `
     <section class="plus-page" aria-labelledby="plus-title">
       ${header}
@@ -1075,10 +1033,6 @@ function plusPageMarkup() {
       <section class="plus-source-note" aria-labelledby="plus-source-title">
         <div><p class="eyebrow">LISTING SOURCES</p><h2 id="plus-source-title">Where Vaultr searches</h2><p>eBay is available to everyone. <strong class="inline-vaultr-plus">Vaultr Plus</strong> can also search supported card shops when available. We’ll continue expanding supported sources over time.</p></div>
         ${supportedShopNames.length ? `<ul aria-label="Supported card shops">${supportedShopNames.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul>` : ''}
-      </section>
-      <section class="plus-next-step" aria-labelledby="plus-next-title">
-        <div><p class="eyebrow">NEXT STEP</p><h2 id="plus-next-title">${escapeHtml(nextStep.heading)}</h2><p>${inlineVaultrPlusCopy(nextStep.copy)}</p></div>
-        <button class="button-primary" type="button" data-page="${escapeHtml(nextStep.page)}">${escapeHtml(nextStep.action)}</button>
       </section>
     </section>
   `;

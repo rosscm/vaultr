@@ -465,8 +465,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('<strong>0</strong> Plan limit');
     expect(jsResponse.body).toContain('See Vaultr Plus controls');
     expect(jsResponse.body).toContain("title: 'Vaultr Plus'");
-    expect(jsResponse.body).toContain('Your Watchlist is full');
-    expect(jsResponse.body).toContain('Manage Watchlist');
+    expect(jsResponse.body).not.toContain('class="plus-next-step"');
+    expect(jsResponse.body).not.toContain('Keep building your Watchlist');
     expect(jsResponse.body).toContain('Preview mode is read-only. No plan changes can be made here.');
     expect(jsResponse.body).not.toContain('data-action="grant-plus"');
     expect(cssResponse.body).toContain('border-radius: 999px;');
@@ -827,31 +827,6 @@ describe('web app static routes', () => {
       copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.'
     });
     expect(headingFor('FALLBACK')).toEqual({ heading: 'Collector picks', copy: 'A few handpicked cards to explore.' });
-  });
-
-  it('uses a state-aware Plus next step when a Free Watchlist is full', async () => {
-    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
-    const source = response.body ?? '';
-    const functionSource = source.slice(source.indexOf('function plusNextStep('), source.indexOf('function plusPageMarkup('));
-    const nextStep = new Function(`${functionSource}\nreturn plusNextStep;`)() as (input: {
-      isPlus: boolean;
-      atLimit: boolean;
-      billingAvailable: boolean;
-      staging: boolean;
-    }) => { heading: string; action: string };
-
-    expect(nextStep({ isPlus: false, atLimit: true, billingAvailable: false, staging: true })).toMatchObject({
-      heading: 'Your Watchlist is full',
-      action: 'Manage Watchlist'
-    });
-    expect(nextStep({ isPlus: false, atLimit: false, billingAvailable: false, staging: false })).toMatchObject({
-      heading: 'Keep building your Watchlist',
-      action: 'Build your Watchlist'
-    });
-    expect(nextStep({ isPlus: true, atLimit: true, billingAvailable: false, staging: false })).toMatchObject({
-      heading: 'Make the most of Plus',
-      action: 'Open Watchlist'
-    });
   });
 
   it('keeps every Discover card on one shared market, action, and feedback footer structure', async () => {

@@ -4082,32 +4082,16 @@ a {
   max-width: 880px;
 }
 
-.plus-next-step {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 22px 24px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-sm);
-}
-
-.plus-next-step > div,
 .plus-section-heading {
   display: grid;
   gap: 6px;
 }
 
-.plus-next-step h2,
-.plus-next-step p,
 .plus-section-heading h2,
 .plus-section-heading p {
   margin: 0;
 }
 
-.plus-next-step p,
 .plus-section-heading p {
   color: var(--muted);
   line-height: 1.5;
@@ -4210,11 +4194,6 @@ a {
   color: var(--muted);
   font-size: 0.88rem;
   line-height: 1.5;
-}
-
-.plus-next-step .button-primary {
-  flex: none;
-  margin-top: 0;
 }
 
 .dialog-actions {
@@ -4554,16 +4533,6 @@ a {
     grid-template-columns: 1fr;
     gap: 15px;
     padding: 22px 0;
-  }
-
-  .plus-next-step {
-    align-items: flex-start;
-    flex-direction: column;
-    padding: 18px;
-  }
-
-  .plus-next-step .button-primary {
-    width: 100%;
   }
 
   .settings-field-grid {
