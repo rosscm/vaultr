@@ -484,11 +484,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('A full personalized Display Case shaped by what you collect, with market context when reliable data is available.');
     expect(jsResponse.body).not.toContain('Three general finds each week, starting with collector picks.');
     expect(jsResponse.body).toContain('Where Vaultr searches');
-    expect(jsResponse.body).toContain('Choose what fits your collection');
-    expect(jsResponse.body).toContain('How discovery changes with Plus');
+    expect(jsResponse.body).toContain('More room, more control, more ways to discover');
+    expect(jsResponse.body).toContain('A Display Case that gets to know your collection');
     expect(jsResponse.body).toContain('state.vaultOptions?.supportedShopNames');
     expect(jsResponse.body).not.toContain('Up to ${escapeHtml(plan.discoveryVisibleCards)} personalized Display Case picks');
-    expect(jsResponse.body).toContain('Priority monitoring with targeted checks');
     expect(jsResponse.body).toContain('async function ensureVaultLoaded()');
     expect(jsResponse.body).toContain('state.vaultPrefillCardName = selectedCardName;');
     expect(jsResponse.body).toContain("data-action=\"view-discovery-card\"");
@@ -584,7 +583,7 @@ describe('web app static routes', () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const between = (start: string, end: string) => source.slice(source.indexOf(start), source.indexOf(end));
-    const settings = between('function settingsPageMarkup()', 'function plusPlanFeatureList(');
+    const settings = between('function settingsPageMarkup()', 'function plusComparisonMatrixMarkup(');
     const plus = between('function plusPageMarkup()', 'function onboardingStepIndicator(');
     const alerts = between('function alertsPageMarkup(', 'function reviewStateButton(');
     const vault = between('function vaultHeaderMarkup()', 'function vaultSummaryMarkup(');
@@ -827,6 +826,35 @@ describe('web app static routes', () => {
       copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell Vaultr you like.'
     });
     expect(headingFor('FALLBACK')).toEqual({ heading: 'Collector picks', copy: 'A few handpicked cards to explore.' });
+  });
+
+  it('renders the Plus comparison as an accessible benefit matrix from plan data', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function plusComparisonMatrixMarkup('), source.indexOf('function plusPageMarkup('));
+    const render = new Function('plans', 'escapeHtml', `${functionSource}\nreturn plusComparisonMatrixMarkup(plans, 'FREE');`) as (plans: unknown[], escape: (value: unknown) => string) => string;
+    const markup = render([
+      { tier: 'FREE', label: 'Free', maxActiveChases: 3, checkIntervalMinutes: 30, monitoringPriority: 'STANDARD', advancedFiltering: false, storefrontMonitoring: false, discoveryDepth: 'limited' },
+      { tier: 'PRO', label: 'Vaultr Plus', maxActiveChases: 50, checkIntervalMinutes: 15, monitoringPriority: 'PRIORITY', advancedFiltering: true, storefrontMonitoring: true, discoveryDepth: 'full' }
+    ], String);
+
+    expect(markup).toContain('<table class="plus-comparison-table">');
+    expect(markup).toContain('<caption class="visually-hidden">Free and Vaultr Plus feature comparison</caption>');
+    expect(markup).toContain('<th scope="row">Watchlist size</th>');
+    expect(markup).toContain('Watch up to 3 cards');
+    expect(markup).toContain('Watch up to 50 cards');
+    expect(markup).toContain('eBay monitoring, about every 30 minutes');
+    expect(markup).toContain('Priority monitoring, about every 15 minutes');
+    expect(markup).toContain('Refine by condition, listing type, priority, target notes and exclusions');
+    expect(markup).toContain('<td class="free-column">eBay</td>');
+    expect(markup).toContain('eBay + supported card shops');
+    expect(markup).toContain('Learns from your Watchlist, Pickups and feedback');
+    expect(markup).toContain('Market context when reliable data is available');
+    expect(markup).toContain('Current plan');
+    const plusPageSource = source.slice(source.indexOf('function plusPageMarkup('), source.indexOf('function onboardingStepIndicator('));
+    expect(plusPageSource).not.toContain('plus-plan-grid');
+    expect(plusPageSource).not.toContain('class="plus-plan');
+    expect(plusPageSource).not.toContain('class="plus-next-step"');
   });
 
   it('keeps every Discover card on one shared market, action, and feedback footer structure', async () => {
