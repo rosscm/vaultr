@@ -1376,6 +1376,15 @@ h3 {
   margin-top: 12px;
 }
 
+.site-footer-brand .site-footer-credit {
+  margin-top: 8px;
+  font-size: 0.9rem;
+}
+
+.site-footer-credit a {
+  color: inherit;
+}
+
 .lightbox[hidden] {
   display: none;
 }

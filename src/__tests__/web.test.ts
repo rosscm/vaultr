@@ -541,15 +541,14 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.shelf-card-actions .shelf-ebay-link');
     expect(cssResponse.body).not.toContain('.shelf-card-meta > .status-pill.active {\n  display: none;');
     expect(cssResponse.body).not.toContain('-webkit-line-clamp: 4');
-    expect(jsResponse.body).toContain('Keep what you love. Seek what comes next.');
+    expect(jsResponse.body).toContain('A better way to keep track of what you love and find what comes next.');
     expect(jsResponse.body).toContain('https://linktr.ee/pokaccini');
-    expect(jsResponse.body).toContain('<a href="#onboarding" data-action="revisit-onboarding">How KeepSeek works</a>');
     expect(jsResponse.body).toContain('<footer class="app-footer-region">');
-    expect(jsResponse.body).toContain('<nav class="app-footer-link-grid" aria-label="Footer">');
-    expect(jsResponse.body).toContain('<h2>Resources</h2>');
-    expect(jsResponse.body).toContain('<h2>Legal</h2>');
-    expect(jsResponse.body).toContain('Created by <a href="https://linktr.ee/pokaccini"');
-    expect(jsResponse.body).not.toContain('Built with');
+    expect(jsResponse.body).toContain('<nav class="app-footer-links" aria-label="Footer navigation">');
+    expect(jsResponse.body).not.toContain('<h2>Resources</h2>');
+    expect(jsResponse.body).not.toContain('<h2>Legal</h2>');
+    expect(jsResponse.body).toContain('Built with <span aria-label="love">❤️</span> by <a href="https://linktr.ee/pokaccini"');
+    expect(jsResponse.body).toContain('© 2026 KeepSeek. Operator details pending before public launch.');
     expect(jsResponse.body).not.toContain('Help &amp; account');
     const jsSource = jsResponse.body ?? '';
     const shellSource = jsSource.slice(
@@ -561,9 +560,8 @@ describe('web app static routes', () => {
     expect(shellSource.indexOf('${appFooterMarkup()}')).toBeGreaterThan(shellSource.indexOf('</main>'));
     expect(shellSource).toContain('</div>\n      ${appFooterMarkup()}');
     expect(cssResponse.body).toContain('width: min(1240px, calc(100vw - 32px));');
-    expect(cssResponse.body).toContain('grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);');
+    expect(cssResponse.body).toContain('grid-template-columns: minmax(0, 1fr) auto;');
     expect(cssResponse.body).toContain('font-family: var(--font-body);');
-    expect(cssResponse.body).toContain('.app-footer-links h2');
     expect(cssResponse.body).toContain('.app-footer-links a');
     expect(cssResponse.body).toContain('.app-footer-lockup .brand-lockup');
     expect(jsResponse.body).toContain('class="brand-lockup" src="/keepseek-lockup-dark.svg"');
@@ -572,7 +570,6 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('@container app-footer (max-width: 1100px)');
     expect(cssResponse.body).toContain('@media (max-width: 1040px)');
     expect(cssResponse.body).toContain('@container app-footer (max-width: 720px)');
-    expect(cssResponse.body).toContain('@container app-footer (max-width: 340px)');
     expect(cssResponse.body).not.toContain('@media (max-width: 620px)');
 
     const privacyResponse = await handleWebRequest({ method: 'GET', url: '/privacy' }, { config });
@@ -625,7 +622,8 @@ describe('web app static routes', () => {
 
     expect(render(false, 'CHASE')).toContain('role="progressbar" aria-label="Setup progress: step 3 of 4" aria-valuemin="1" aria-valuemax="4" aria-valuenow="3"');
     expect(render(true, 'PROFILE')).toContain('role="progressbar" aria-label="Setup progress: step 3 of 5" aria-valuemin="1" aria-valuemax="5" aria-valuenow="3"');
-    expect(render(false, 'READY')).toContain('Step 4 of 4');
+    expect(render(false, 'READY')).not.toContain('<span>Step 4 of 4</span>');
+    expect(render(false, 'READY')).toContain('style="width: 100%"');
   });
 
   it('separates onboarding concepts from progress and keeps CoroCoro Mew in front', async () => {
@@ -635,9 +633,12 @@ describe('web app static routes', () => {
     const page = source.slice(source.indexOf('function onboardingPageMarkup('), source.indexOf('function alertsPageMarkup('));
 
     expect(welcome).toContain('<h2 id="onboarding-primer-title">How KeepSeek works</h2>');
-    expect(welcome).not.toContain('<span aria-hidden="true">1</span>');
+    expect(welcome).toContain('<span aria-hidden="true">1</span>');
+    expect(welcome).toContain('<span aria-hidden="true">2</span>');
+    expect(welcome).toContain('<span aria-hidden="true">3</span>');
     expect(welcome).toContain('class="onboarding-art-card art-card-three" src="/onboarding-art/mew-corocoro-promo-151.webp"');
-    expect(page).toContain('${content}${onboardingStepIndicator(step)}</div>');
+    expect(welcome).toContain('${progressMarkup}');
+    expect(page).toContain("${step === 'WELCOME' ? '' : onboardingStepIndicator(step)}</div>");
   });
 
   it('keeps the Home Display Case fan bounded to distinct available artwork', async () => {

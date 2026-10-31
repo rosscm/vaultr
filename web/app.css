@@ -817,11 +817,6 @@ a {
 
 .onboarding-steps {
   display: grid;
-  gap: 8px;
-  color: var(--muted-strong);
-  font-family: var(--font-display);
-  font-size: 0.82rem;
-  font-weight: 650;
 }
 
 .onboarding-content > .onboarding-steps {
@@ -1008,15 +1003,42 @@ a {
 
 .onboarding-primer ul {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: 1fr;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .onboarding-primer li {
+  position: relative;
   min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.onboarding-primer li > span {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  color: #140d1f;
+  background: rgba(255, 122, 182, 0.88);
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.onboarding-primer li:nth-child(2) > span {
+  background: rgba(155, 140, 255, 0.88);
+}
+
+.onboarding-primer li:nth-child(3) > span {
+  background: rgba(255, 214, 107, 0.9);
 }
 
 .onboarding-primer strong {
@@ -1033,7 +1055,7 @@ a {
 
 .onboarding-art-stack {
   position: relative;
-  width: min(100%, 410px);
+  width: min(100%, 450px);
   aspect-ratio: 0.83;
   justify-self: center;
 }
@@ -1059,14 +1081,14 @@ a {
 }
 
 .onboarding-art-card.art-card-one {
-  left: 0;
+  left: -4%;
   top: 15%;
   transform: rotate(-10deg);
   filter: brightness(0.78);
 }
 
 .onboarding-art-card.art-card-two {
-  right: 0;
+  right: -4%;
   top: 13%;
   transform: rotate(10deg);
   filter: brightness(0.82);
@@ -1077,10 +1099,6 @@ a {
   top: 4%;
   z-index: 3;
   transform: rotate(0);
-}
-
-.onboarding-content.onboarding-welcome > .onboarding-steps {
-  grid-column: 1 / -1;
 }
 
 .onboarding-art-stack small {
@@ -1934,7 +1952,8 @@ a {
   width: min(1240px, calc(100vw - 32px));
   margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: clamp(28px, 5vw, 72px);
   padding: 30px 0 38px;
   font-family: var(--font-body);
@@ -1947,7 +1966,8 @@ a {
 .app-footer-brand {
   display: grid;
   align-content: start;
-  gap: 14px;
+  max-width: 580px;
+  gap: 0;
 }
 
 .app-footer-lockup {
@@ -1963,9 +1983,10 @@ a {
   height: 32px;
 }
 
-.app-footer-lockup p,
-.app-footer-credit {
-  margin: 6px 0 0;
+.app-footer-tagline,
+.app-footer-credit,
+.app-footer-copyright {
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 1rem;
   font-weight: 400;
@@ -1973,28 +1994,15 @@ a {
   letter-spacing: 0;
 }
 
-.app-footer-link-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(22px, 4vw, 48px);
-}
-
 .app-footer-links {
-  display: grid;
-  align-content: start;
-  gap: 10px;
-}
-
-.app-footer-links h2 {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 700;
-  font-family: var(--font-display);
-  line-height: normal;
-  letter-spacing: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .app-footer-links a {
+  padding: 10px 12px;
   color: var(--muted);
   font-size: 1rem;
   font-weight: 400;
@@ -2015,6 +2023,14 @@ a {
 
 .app-footer-credit a {
   color: inherit;
+}
+
+.app-footer-credit {
+  font-size: 0.9rem;
+}
+
+.app-footer-copyright {
+  font-size: 0.78rem;
 }
 
 .home-shelf-copy .home-shelf-details {
@@ -2962,18 +2978,12 @@ a {
 
 @container app-footer (max-width: 1100px) {
   .app-footer {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    column-gap: 0.75rem;
+    grid-template-columns: 1fr;
     row-gap: 1.25rem;
   }
 
-  .app-footer-brand,
-  .app-footer-link-grid {
-    grid-column: 1 / -1;
-  }
-
-  .app-footer-link-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .app-footer-links {
+    justify-content: flex-start;
   }
 }
 
@@ -4865,21 +4875,6 @@ a {
   .app-footer {
     width: min(1240px, calc(100vw - 20px));
     gap: 14px;
-  }
-}
-
-@container app-footer (max-width: 340px) {
-  .app-footer {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .app-footer-brand,
-  .app-footer-link-grid {
-    grid-column: 1 / -1;
-  }
-
-  .app-footer-link-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

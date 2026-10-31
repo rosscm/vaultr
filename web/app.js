@@ -719,27 +719,17 @@ function appFooterMarkup() {
       <div class="app-footer">
         <div class="app-footer-brand">
           <a class="app-footer-lockup" href="#home" data-page="home" aria-label="KeepSeek home">
-            <div><img class="brand-lockup" src="/keepseek-lockup-dark.svg" alt=""><p>Keep what you love. Seek what comes next.</p></div>
+            <img class="brand-lockup" src="/keepseek-lockup-dark.svg" alt="">
           </a>
-          <p class="app-footer-credit">Created by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
+          <p class="app-footer-tagline">A better way to keep track of what you love and find what comes next.</p>
+          <p class="app-footer-credit">Built with <span aria-label="love">❤️</span> by <a href="https://linktr.ee/pokaccini" target="_blank" rel="noreferrer">Pokaccini</a></p>
+          <p class="app-footer-copyright">© 2026 KeepSeek. Operator details pending before public launch.</p>
         </div>
-        <nav class="app-footer-link-grid" aria-label="Footer">
-          <div class="app-footer-links">
-            <h2>Product</h2>
-            <a href="#vault" data-page="vault">Watchlist</a>
-            <a href="#alerts" data-page="alerts">Inbox</a>
-            <a href="#shelf" data-page="shelf">Display Case</a>
-            <a href="#plus" data-page="plus">KeepSeek Plus</a>
-          </div>
-          <div class="app-footer-links">
-            <h2>Resources</h2>
-            <a href="#onboarding" data-action="revisit-onboarding">How KeepSeek works</a>
-          </div>
-          <div class="app-footer-links">
-            <h2>Legal</h2>
-            <a href="/privacy">Privacy Policy</a>
-            <a href="/terms">Terms of Service</a>
-          </div>
+        <nav class="app-footer-links" aria-label="Footer navigation">
+          <a href="#home" data-page="home">Home</a>
+          <a href="https://discord.gg/vaultf" target="_blank" rel="noreferrer">Join Discord</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
         </nav>
       </div>
     </footer>
@@ -1071,7 +1061,7 @@ function onboardingStepIndicator(step) {
   const steps = tasteOnboardingEnabled() ? ['WELCOME', 'MARKET', 'PROFILE', 'CHASE', 'READY'] : ['WELCOME', 'MARKET', 'CHASE', 'READY'];
   const active = Math.max(0, steps.indexOf(step));
   const current = active + 1;
-  return `<div class="onboarding-steps" role="progressbar" aria-label="Setup progress: step ${current} of ${steps.length}" aria-valuemin="1" aria-valuemax="${steps.length}" aria-valuenow="${current}"><span>Step ${current} of ${steps.length}</span><span class="onboarding-progress-track" aria-hidden="true"><span style="width: ${(current / steps.length) * 100}%"></span></span></div>`;
+  return `<div class="onboarding-steps" role="progressbar" aria-label="Setup progress: step ${current} of ${steps.length}" aria-valuemin="1" aria-valuemax="${steps.length}" aria-valuenow="${current}"><span class="onboarding-progress-track" aria-hidden="true"><span style="width: ${(current / steps.length) * 100}%"></span></span></div>`;
 }
 
 function collectorProfileMarkup(revisit = false) {
@@ -1127,7 +1117,7 @@ function onboardingMarketMarkup(revisit = false) {
     </form>`;
 }
 
-function onboardingWelcomeMarkup(revisit = false) {
+function onboardingWelcomeMarkup(revisit = false, progressMarkup = '') {
   return `
     <div class="onboarding-welcome-copy">
       <p class="eyebrow">WELCOME TO KEEPSEEK</p>
@@ -1136,12 +1126,13 @@ function onboardingWelcomeMarkup(revisit = false) {
       <section class="onboarding-primer" aria-labelledby="onboarding-primer-title">
         <h2 id="onboarding-primer-title">How KeepSeek works</h2>
         <ul>
-          <li><div><strong>Chase</strong><p>Choose what you want and the preferences that matter to you.</p></div></li>
-          <li><div><strong>Watch</strong><p>Review matching listings in your Inbox.</p></div></li>
-          <li><div><strong>Discover</strong><p>Explore recommendations shaped by your collection as your Collector Profile grows.</p></div></li>
+          <li><span aria-hidden="true">1</span><div><strong>Chase</strong><p>Choose what you want and the preferences that matter to you.</p></div></li>
+          <li><span aria-hidden="true">2</span><div><strong>Watch</strong><p>Review matching listings in your Inbox.</p></div></li>
+          <li><span aria-hidden="true">3</span><div><strong>Discover</strong><p>Explore recommendations shaped by your collection as your Collector Profile grows.</p></div></li>
         </ul>
       </section>
       <div class="onboarding-actions onboarding-welcome-actions"><button class="button-primary" type="button" data-action="onboarding-continue">Get started</button><button class="onboarding-skip" type="button" data-action="${revisit ? 'exit-onboarding-revisit' : 'skip-onboarding'}">${revisit ? 'Back to Settings' : 'Skip setup'}</button></div>
+      ${progressMarkup}
     </div>
     <div class="onboarding-art-stack" aria-hidden="true">
       <img class="onboarding-art-card art-card-three" src="/onboarding-art/mew-corocoro-promo-151.webp" alt="">
@@ -1161,13 +1152,13 @@ function onboardingPageMarkup() {
     : '<button class="onboarding-exit" type="button" data-action="skip-onboarding">Skip setup</button>';
   const previewNotice = isPreviewMode ? '<p class="preview-read-only" role="status">Preview simulation is read-only. No settings or Watchlist cards will be saved.</p>' : '';
   let content = '';
-  if (step === 'WELCOME') content = onboardingWelcomeMarkup(revisit);
+  if (step === 'WELCOME') content = onboardingWelcomeMarkup(revisit, onboardingStepIndicator(step));
   if (step === 'MARKET') content = `<p class="eyebrow">PRICING & SHIPPING</p><h1 id="onboarding-title">Set your market context</h1><p>Choose how prices are shown and where listings need to ship.</p>${onboardingMarketMarkup(revisit)}`;
   if (step === 'PROFILE') content = `<p class="eyebrow">YOUR TASTE</p><h1 id="onboarding-title">What catches your eye?</h1><p>These choices stay separate from your Watchlist and Pickups.</p>${collectorProfileMarkup(revisit)}`;
   if (step === 'CHASE' && isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">Inspect the shared Watchlist form</h1><p>Try the same form used in the writable app. Preview entries remain local to this screen and are never saved.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}<button class="button-ghost" type="button" data-action="onboarding-preview-ready">Continue simulation without saving</button><button class="button-primary" type="button" data-action="onboarding-add-chase">Inspect Watchlist form</button></div>`;
   if (step === 'CHASE' && !isPreviewMode) content = `<p class="eyebrow">YOUR FIRST CARD</p><h1 id="onboarding-title">${hasLoadedChase ? 'Your card is saved' : 'What card are you looking for?'}</h1><p>${hasLoadedChase ? 'You already have a card on your Watchlist. You’re ready to continue.' : 'Search for an exact printing or enter a clear card name. You can refine your preferences later.'}</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button>${leaveAction}${hasLoadedChase ? `<button class="button-primary" type="button" data-action="${!revisit && state.onboardingSavedChasePending ? 'retry-onboarding-after-save' : 'onboarding-chase-saved'}">${!revisit && state.onboardingSavedChasePending ? 'Retry setup' : 'Continue'}</button>` : '<button class="button-primary" type="button" data-action="onboarding-add-chase">Add your first card</button>'}</div>`;
   if (step === 'READY') content = `<p class="eyebrow">READY</p><h1 id="onboarding-title">Your Watchlist is ready</h1><p>${isPreviewMode ? state.onboardingPreviewChaseCreated ? 'The simulation advanced without saving a card. ' : 'This preview did not save a card. ' : state.onboarding?.hasChase || hasLoadedChase ? 'Your existing card is safe. ' : ''}Matching listings will appear in your Inbox as KeepSeek finds them. Your Watchlist and Pickups also shape your Collector Profile. With <strong class="inline-vaultr-plus">KeepSeek Plus</strong>, that profile can power a personalized Display Case once KeepSeek has enough to work with.</p><div class="onboarding-actions"><button class="button-ghost" type="button" data-action="onboarding-back">Back</button><button class="button-primary" type="button" data-action="finish-onboarding">${revisit ? 'Back to Settings' : 'Open Home'}</button></div>`;
-  return `<section class="onboarding-page${step === 'WELCOME' ? ' welcome' : ''}" aria-labelledby="onboarding-title">${previewNotice}${vaultNoticeMarkup('onboarding')}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content${step === 'WELCOME' ? ' onboarding-welcome' : ''}">${content}${onboardingStepIndicator(step)}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
+  return `<section class="onboarding-page${step === 'WELCOME' ? ' welcome' : ''}" aria-labelledby="onboarding-title">${previewNotice}${vaultNoticeMarkup('onboarding')}${state.onboardingError ? `<p class="form-error" role="alert">${escapeHtml(state.onboardingError)}</p>` : ''}<div class="onboarding-content${step === 'WELCOME' ? ' onboarding-welcome' : ''}">${content}${step === 'WELCOME' ? '' : onboardingStepIndicator(step)}</div>${vaultDialogMarkup()}${settingsCurrencyConfirmationMarkup()}</section>`;
 }
 
 function alertsPageMarkup(inner) {
