@@ -328,11 +328,14 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("navButton('alerts', 'Inbox')");
     expect(jsResponse.body).toContain("navButton('shelf', 'Display Case')");
     expect(jsResponse.body).toContain("navButton('plus', 'Plus')");
+    expect(jsResponse.body).toContain('<nav class="app-nav mobile-primary-nav" aria-label="KeepSeek app navigation">');
+    expect(jsResponse.body).not.toContain('class="mobile-nav"');
+    expect(jsResponse.body).toContain("selected ? ' aria-current=\"page\"' : ''");
     expect(jsResponse.body).toContain('data-page="plus"');
     expect(jsResponse.body).toContain("plus: '<path");
     expect(jsResponse.body).toContain('function iconMarkup(name)');
     expect(jsResponse.body).toContain('class="nav-icon" aria-hidden="true" focusable="false"');
-    expect(jsResponse.body).toContain('data-page="settings"');
+    expect(jsResponse.body).toContain("navButton('settings', 'Settings')");
     expect(jsResponse.body).toContain('data-settings-form');
     expect(jsResponse.body).toContain('data-onboarding-market-form');
     expect(jsResponse.body).toContain('Finish setting up KeepSeek');
@@ -565,7 +568,7 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.app-footer-links a');
     expect(cssResponse.body).toContain('.app-footer-lockup .brand-lockup');
     expect(jsResponse.body).toContain('class="brand-lockup" src="/keepseek-lockup-dark.svg"');
-    expect(jsResponse.body).toContain('class="brand-icon" src="/keepseek-icon.svg"');
+    expect(jsResponse.body).toContain('<div class="mobile-header-primary">');
     expect(cssResponse.body).toContain('width: 142px;');
     expect(cssResponse.body).toContain('@container app-footer (max-width: 1100px)');
     expect(cssResponse.body).toContain('@media (max-width: 1040px)');
@@ -650,19 +653,26 @@ describe('web app static routes', () => {
       return match![0];
     };
     const utilities = new Function(
-      `${functionSource('boundedHomeShelfIndex')}\n${functionSource('homeShelfPresentation')}\nreturn { boundedHomeShelfIndex, homeShelfPresentation };`
+      `${functionSource('boundedHomeShelfIndex')}\n${functionSource('homeShelfIndexAfterGesture')}\n${functionSource('homeShelfPresentation')}\nreturn { boundedHomeShelfIndex, homeShelfIndexAfterGesture, homeShelfPresentation };`
     )() as {
       boundedHomeShelfIndex: (index: number, itemCount: number) => number;
+      homeShelfIndexAfterGesture: (index: number, itemCount: number, deltaX: number, deltaY: number) => number;
       homeShelfPresentation: (items: Array<{ name: string; imageUrl?: string }>, index: number) => {
         featuredIndex: number;
         featured?: { name: string; imageUrl?: string };
-        supporting: Array<{ name: string; imageUrl?: string }>;
+        supporting: Array<{ item: { name: string; imageUrl?: string }; index: number }>;
       };
     };
 
     expect(utilities.boundedHomeShelfIndex(-1, 3)).toBe(0);
     expect(utilities.boundedHomeShelfIndex(9, 3)).toBe(2);
     expect(utilities.boundedHomeShelfIndex(1, 0)).toBe(0);
+    expect(utilities.homeShelfIndexAfterGesture(1, 3, -80, 8)).toBe(2);
+    expect(utilities.homeShelfIndexAfterGesture(1, 3, 80, 8)).toBe(0);
+    expect(utilities.homeShelfIndexAfterGesture(1, 3, 30, 2)).toBe(1);
+    expect(utilities.homeShelfIndexAfterGesture(1, 3, 50, 80)).toBe(1);
+    expect(utilities.homeShelfIndexAfterGesture(0, 3, 80, 3)).toBe(0);
+    expect(utilities.homeShelfIndexAfterGesture(2, 3, -80, 3)).toBe(2);
 
     const presentation = utilities.homeShelfPresentation([
       { name: 'First', imageUrl: '/first.png' },
@@ -671,12 +681,13 @@ describe('web app static routes', () => {
       { name: 'Third artwork', imageUrl: '/third.png' }
     ], 1);
     expect(presentation.featured?.name).toBe('Featured');
-    expect(presentation.supporting.map((item) => item.name)).toEqual(['Second artwork', 'Third artwork']);
+    expect(presentation.supporting.map(({ item }) => item.name)).toEqual(['Second artwork', 'Third artwork']);
+    expect(presentation.supporting.map(({ index }) => index)).toEqual([2, 3]);
     expect(utilities.homeShelfPresentation([
       { name: 'Featured', imageUrl: '/same.png' },
       { name: 'Duplicate', imageUrl: '/same.png' },
       { name: 'Distinct', imageUrl: '/distinct.png' }
-    ], 0).supporting.map((item) => item.name)).toEqual(['Distinct']);
+    ], 0).supporting.map(({ item }) => item.name)).toEqual(['Distinct']);
     expect(utilities.homeShelfPresentation([{ name: 'Only', imageUrl: '/only.png' }], 0).supporting).toEqual([]);
     expect(utilities.homeShelfPresentation([], 4).featured).toBeUndefined();
   });
@@ -744,13 +755,15 @@ describe('web app static routes', () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const cardSource = source.slice(source.indexOf('function vaultCardMarkup('), source.indexOf('function completedChaseMarkup('));
-    expect(cardSource).toContain("'No max set'");
-    expect(cardSource).toContain('<dl class="vault-search-criteria">');
+    expect(source).toContain("function watchlistCriteriaSummary(chase)");
+    expect(source).toContain("'No max'");
+    expect(cardSource).toContain('<p class="vault-search-summary">');
+    expect(cardSource).not.toContain('<dl class="vault-search-criteria">');
     expect(cardSource).toContain('class="button-primary vault-view-matches"');
     expect(cardSource).toContain('class="vault-action-link vault-action-secondary vault-desktop-action"');
     expect(cardSource).toContain('vault-desktop-action" type="button" data-action="open-edit-chase"');
     expect(cardSource).toContain('danger vault-desktop-action" type="button" data-action="open-remove-chase"');
-    expect(cardSource).toContain('<details class="vault-more-actions vault-mobile-actions">');
+    expect(cardSource).toContain('<details class="vault-more-actions vault-mobile-actions"><summary aria-label="More actions">More</summary>');
     expect(cardSource).toContain('data-action="pause-chase"');
     expect(cardSource).toContain('data-action="resume-chase"');
     expect(cardSource).toContain('data-action="open-acquire-chase"');
@@ -760,6 +773,38 @@ describe('web app static routes', () => {
     expect(cardSource).not.toContain('chase.negativeKeywords');
     const completedSource = source.slice(source.indexOf('function completedChaseMarkup('), source.indexOf('function completedChasesSectionMarkup('));
     expect(completedSource).toContain('data-action="reopen-chase"');
+
+    const helperMatch = source.match(/function watchlistCriteriaSummary\([^]*?\n\}/);
+    expect(helperMatch?.[0]).toBeTruthy();
+    const summarize = new Function(
+      'state', 'formatMoney', 'displayConditionValue', 'displayGradeValue', 'listingTypeLabel', 'priorityLabel',
+      `${helperMatch![0]}\nreturn watchlistCriteriaSummary;`
+    )(
+      { vaultCurrency: 'CAD' },
+      (amount: number, currency: string) => `${currency} $${amount}`,
+      (value: string) => value === 'NM,LP' ? 'LP or better' : 'Any condition',
+      (value: string) => value === 'UNGRADED' ? 'Raw' : value,
+      (value: string) => value === 'BUY_IT_NOW' ? 'Buy Now' : 'Any listing',
+      (value: string) => value === 'GRAIL' ? 'Grail' : 'Casual'
+    );
+    expect(summarize({ maxPrice: 180, condition: 'NM,LP', grade: 'UNGRADED', listingType: 'ANY', priority: 'NORMAL' }))
+      .toEqual(['Under CAD $180', 'LP or better', 'Raw']);
+    expect(summarize({ condition: null, grade: 'PSA 9', listingType: 'BUY_IT_NOW', priority: 'GRAIL' }))
+      .toEqual(['No max', 'Any condition', 'PSA 9', 'Buy Now', 'Grail']);
+  });
+
+  it('supports direct, touch, arrow, and keyboard Home Display Case browsing', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    expect(source).toContain('data-home-shelf-feature tabindex="0"');
+    expect(source).toContain('data-action="select-home-shelf"');
+    expect(source).toContain('data-home-shelf-index="${supportingIndex}"');
+    expect(source).toContain("action === 'previous-home-shelf' || action === 'next-home-shelf'");
+    expect(source).toContain("event.pointerType === 'mouse'");
+    expect(source).toContain('function homeShelfIndexAfterGesture(');
+    expect(source).toContain("deltaX < 0 ? 1 : -1");
+    expect(source).toContain("event.key === 'ArrowLeft' || event.key === 'ArrowRight'");
+    expect(source).toContain('boundedHomeShelfIndex(currentIndex +');
   });
 
   it('closes Watchlist More menus through normal contextual-menu interactions', async () => {

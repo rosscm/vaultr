@@ -684,27 +684,29 @@ function shellMarkup(content) {
           </div>
         </header>
         <header class="mobile-header">
-        <a class="brand" href="${appHomePath}" aria-label="KeepSeek app">
-          <img class="brand-icon" src="/keepseek-icon.svg" alt="KeepSeek">
-          ${environmentBadgeMarkup()}
-        </a>
-        <div class="user-area">
-          ${avatarHtml(state.user)}
-          <button class="button-ghost account-plus-button" type="button" data-page="plus" aria-current="${state.activePage === 'plus' ? 'page' : 'false'}">${iconMarkup('plus')}<span>Plus</span></button>
-          <button class="button-ghost account-settings-button" type="button" data-page="settings" aria-current="${state.activePage === 'settings' ? 'page' : 'false'}">${iconMarkup('settings')}<span>Settings</span></button>
-          ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
-        </div>
+          <div class="mobile-header-primary">
+            <a class="brand" href="${appHomePath}" aria-label="KeepSeek app">
+              <img class="brand-lockup" src="/keepseek-lockup-dark.svg" alt="KeepSeek">
+              ${environmentBadgeMarkup()}
+            </a>
+            <div class="user-area">
+              ${avatarHtml(state.user)}
+              ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
+            </div>
+          </div>
+          <nav class="app-nav mobile-primary-nav" aria-label="KeepSeek app navigation">
+            ${navButton('home', 'Home')}
+            ${navButton('vault', 'Watchlist')}
+            ${navButton('alerts', 'Inbox')}
+            ${navButton('shelf', 'Display Case')}
+            ${navButton('plus', 'Plus')}
+            ${navButton('settings', 'Settings')}
+          </nav>
         </header>
         <main id="app-main" class="app-main">
           ${onboardingResumePromptMarkup()}
           ${content}
         </main>
-        <nav class="mobile-nav" aria-label="KeepSeek mobile navigation">
-          ${navButton('home', 'Home')}
-          ${navButton('vault', 'Watchlist')}
-          ${navButton('alerts', 'Inbox')}
-          ${navButton('shelf', 'Display Case')}
-        </nav>
       </div>
       ${appFooterMarkup()}
       ${planComparisonMarkup()}
@@ -750,7 +752,7 @@ function navButton(page, label) {
   const selected = state.activePage === page;
   const hasNewMatches = page === 'alerts' && state.hasNewAlerts;
   const accessibleLabel = hasNewMatches ? `${label}, new matches available` : label;
-  return `<button class="nav-button" type="button" data-page="${page}" aria-label="${accessibleLabel}" aria-selected="${selected ? 'true' : 'false'}">${iconMarkup(page)}<span class="nav-label">${label}${hasNewMatches ? '<span class="nav-notification-dot" aria-hidden="true"></span>' : ''}</span></button>`;
+  return `<button class="nav-button" type="button" data-page="${page}" aria-label="${accessibleLabel}" aria-selected="${selected ? 'true' : 'false'}"${selected ? ' aria-current="page"' : ''}>${iconMarkup(page)}<span class="nav-label">${label}${hasNewMatches ? '<span class="nav-notification-dot" aria-hidden="true"></span>' : ''}</span></button>`;
 }
 
 function iconMarkup(name) {
@@ -1336,6 +1338,12 @@ function boundedHomeShelfIndex(index, itemCount) {
   return Math.min(Math.max(numericIndex, 0), itemCount - 1);
 }
 
+function homeShelfIndexAfterGesture(index, itemCount, deltaX, deltaY) {
+  const currentIndex = boundedHomeShelfIndex(index, itemCount);
+  if (Math.abs(deltaX) < 42 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return currentIndex;
+  return boundedHomeShelfIndex(currentIndex + (deltaX < 0 ? 1 : -1), itemCount);
+}
+
 function homeShelfPresentation(items, index) {
   const shelfItems = Array.isArray(items) ? items : [];
   const featuredIndex = boundedHomeShelfIndex(index, shelfItems.length);
@@ -1346,7 +1354,7 @@ function homeShelfPresentation(items, index) {
     const candidate = shelfItems[(featuredIndex + offset) % shelfItems.length];
     if (!candidate?.imageUrl || seenImages.has(candidate.imageUrl)) continue;
     seenImages.add(candidate.imageUrl);
-    supporting.push(candidate);
+    supporting.push({ item: candidate, index: (featuredIndex + offset) % shelfItems.length });
   }
   return {
     featuredIndex,
@@ -1367,9 +1375,9 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
       : '';
   const priceLabel = item.market?.askingTotal !== undefined ? 'Asking price' : item.market?.soldTotal !== undefined ? 'Recent sold' : '';
   return `
-    <div class="home-shelf-feature">
+    <div class="home-shelf-feature" data-home-shelf-feature tabindex="0" aria-label="Display Case recommendation browser">
       <div class="home-shelf-artwork${item.imageUrl ? '' : ' empty'}${supporting.length ? ` has-${supporting.length + 1}-cards` : ''}">
-        ${supporting.map((supportingItem, supportingIndex) => `<img class="home-shelf-supporting-card supporting-${supportingIndex + 1}" src="${escapeHtml(supportingItem.imageUrl)}" alt="" aria-hidden="true" loading="lazy" data-home-shelf-background-image>`).join('')}
+        ${supporting.map(({ item: supportingItem, index: supportingIndex }, position) => `<button class="home-shelf-supporting-card supporting-${position + 1}" type="button" data-action="select-home-shelf" data-home-shelf-index="${supportingIndex}" aria-label="Feature ${escapeHtml(supportingItem.displayName || supportingItem.name || 'recommendation')}"><img src="${escapeHtml(supportingItem.imageUrl)}" alt="" aria-hidden="true" loading="lazy" data-home-shelf-background-image></button>`).join('')}
         ${item.imageUrl
           ? artworkTriggerMarkup({
               imageUrl: item.imageUrl,
@@ -1781,18 +1789,23 @@ function vaultEmptyMarkup() {
   `;
 }
 
+function watchlistCriteriaSummary(chase) {
+  const price = chase.maxPrice !== undefined
+    ? `Under ${formatMoney(chase.maxPrice, state.vaultCurrency)}`
+    : 'No max';
+  const summary = [price, displayConditionValue(chase.condition), displayGradeValue(chase.grade)];
+  const listingType = listingTypeLabel(chase.listingType);
+  if (listingType !== 'Any listing') summary.push(listingType);
+  if (chase.priority === 'GRAIL' || chase.priority === 'HIGH') summary.push(priorityLabel(chase.priority));
+  return summary;
+}
+
 function vaultCardMarkup(item) {
   const chase = item.chase || {};
   const paused = item.monitoringState !== 'ACTIVE';
   const userPaused = item.monitoringState === 'PAUSED_USER';
   const statusLabel = userPaused ? 'Paused' : item.monitoringState === 'PAUSED_PLAN_LIMIT' ? 'Plan limit' : 'Watching';
-  const criteria = [
-    ['Max price', chase.maxPrice !== undefined ? `${formatMoney(chase.maxPrice, state.vaultCurrency)} ${state.vaultCurrency}` : 'No max set'],
-    ['Condition', displayConditionValue(chase.condition)],
-    ['Grade', displayGradeValue(chase.grade)],
-    ['Listing type', listingTypeLabel(chase.listingType)]
-  ];
-  if (chase.priority === 'GRAIL' || chase.priority === 'HIGH') criteria.push(['Priority', priorityLabel(chase.priority)]);
+  const criteria = watchlistCriteriaSummary(chase);
   return `
     <article class="vault-card ${paused ? 'paused' : ''}" data-vault-chase-id="${escapeHtml(chase.id)}" tabindex="-1">
       ${chase.cardImageUrl ? artworkTriggerMarkup({
@@ -1809,14 +1822,14 @@ function vaultCardMarkup(item) {
         </div>
         <h2>${escapeHtml(chase.cardName || 'Watchlist card')}</h2>
         ${item.monitoringState === 'PAUSED_PLAN_LIMIT' ? '<p class="paused-copy">Saved in your Watchlist, but not monitored under the current plan limit.</p>' : userPaused ? '<p class="paused-copy">Search is paused. Your preferences are preserved.</p>' : ''}
-        <dl class="vault-search-criteria">${criteria.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>
+        <p class="vault-search-summary">${criteria.map(escapeHtml).join(' <span aria-hidden="true">·</span> ')}</p>
         <div class="vault-actions">
           <button class="button-primary vault-view-matches" type="button" data-action="view-chase-matches" data-chase-id="${escapeHtml(chase.id)}" data-card-name="${escapeHtml(chase.cardName)}">View matches <span aria-hidden="true">→</span></button>
           <button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button>
           <button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>
           ${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}
           <button class="vault-action-link danger vault-desktop-action" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button>
-          <details class="vault-more-actions vault-mobile-actions"><summary>More</summary><div><button class="vault-action-link" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button><button class="vault-action-link" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}<button class="vault-action-link danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button></div></details>
+          <details class="vault-more-actions vault-mobile-actions"><summary aria-label="More actions">More</summary><div><button class="vault-action-link" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button><button class="vault-action-link" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}<button class="vault-action-link danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button></div></details>
         </div>
       </div>
     </article>
@@ -2195,6 +2208,10 @@ function renderSignedOut() {
 
 function renderShell(content) {
   app.innerHTML = shellMarkup(content);
+  requestAnimationFrame(() => {
+    const activeMobileNavItem = document.querySelector('.mobile-primary-nav [aria-current="page"]');
+    activeMobileNavItem?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+  });
 }
 
 function renderCurrentPage() {
@@ -3205,6 +3222,11 @@ async function bootstrap() {
 app.addEventListener('click', async (event) => {
   const target = event.target.closest('button, a');
   if (!target) return;
+  if (homeShelfSuppressClick && target.closest('[data-home-shelf-feature]')) {
+    event.preventDefault();
+    homeShelfSuppressClick = false;
+    return;
+  }
 
   const page = target.getAttribute('data-page');
   if (page) {
@@ -3401,6 +3423,16 @@ app.addEventListener('click', async (event) => {
       const currentIndex = boundedHomeShelfIndex(state.homeShelfIndex, itemCount);
       state.homeShelfIndex = boundedHomeShelfIndex(currentIndex + direction, itemCount);
       renderCurrentPage();
+    }
+    return;
+  }
+  if (action === 'select-home-shelf') {
+    const itemCount = homeDisplayCaseItems().length;
+    const selectedIndex = Number(target.getAttribute('data-home-shelf-index'));
+    if (itemCount > 1 && Number.isInteger(selectedIndex)) {
+      state.homeShelfIndex = boundedHomeShelfIndex(selectedIndex, itemCount);
+      renderCurrentPage();
+      document.querySelector('[data-home-shelf-feature]')?.focus({ preventScroll: true });
     }
     return;
   }
@@ -3641,6 +3673,36 @@ document.addEventListener('pointerdown', (event) => {
   });
 });
 
+let homeShelfGesture = null;
+let homeShelfSuppressClick = false;
+
+app.addEventListener('pointerdown', (event) => {
+  const feature = event.target instanceof Element ? event.target.closest('[data-home-shelf-feature]') : null;
+  if (!feature || event.pointerType === 'mouse' || !event.target.closest('.home-shelf-artwork')) return;
+  homeShelfGesture = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+});
+
+app.addEventListener('pointerup', (event) => {
+  if (!homeShelfGesture || homeShelfGesture.pointerId !== event.pointerId) return;
+  const gesture = homeShelfGesture;
+  homeShelfGesture = null;
+  const deltaX = event.clientX - gesture.x;
+  const deltaY = event.clientY - gesture.y;
+  const itemCount = homeDisplayCaseItems().length;
+  const currentIndex = boundedHomeShelfIndex(state.homeShelfIndex, itemCount);
+  const nextIndex = homeShelfIndexAfterGesture(currentIndex, itemCount, deltaX, deltaY);
+  if (nextIndex === currentIndex && (Math.abs(deltaX) < 42 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2)) return;
+  homeShelfSuppressClick = true;
+  window.setTimeout(() => { homeShelfSuppressClick = false; }, 400);
+  if (nextIndex === currentIndex) return;
+  state.homeShelfIndex = nextIndex;
+  renderCurrentPage();
+});
+
+app.addEventListener('pointercancel', () => {
+  homeShelfGesture = null;
+});
+
 document.addEventListener('keydown', (event) => {
   if (state.logoutConfirmationOpen) {
     const dialog = document.querySelector('.logout-dialog');
@@ -3785,6 +3847,18 @@ app.addEventListener('input', (event) => {
 
 app.addEventListener('keydown', (event) => {
   const target = event.target;
+  if (target instanceof Element && target.closest('[data-home-shelf-feature]') && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+    event.preventDefault();
+    const itemCount = homeDisplayCaseItems().length;
+    const currentIndex = boundedHomeShelfIndex(state.homeShelfIndex, itemCount);
+    const nextIndex = boundedHomeShelfIndex(currentIndex + (event.key === 'ArrowLeft' ? -1 : 1), itemCount);
+    if (nextIndex !== currentIndex) {
+      state.homeShelfIndex = nextIndex;
+      renderCurrentPage();
+      document.querySelector('[data-home-shelf-feature]')?.focus({ preventScroll: true });
+    }
+    return;
+  }
   if (!(target instanceof HTMLInputElement)) return;
   if (target.name !== 'cardName' || !target.closest('[data-vault-form]')) return;
   if (event.key === 'ArrowDown') {
@@ -3827,7 +3901,7 @@ app.addEventListener(
       placeholder.textContent = 'Artwork unavailable';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-shelf-background-image]')) {
-      target.remove();
+      (target.closest('.home-shelf-supporting-card') || target).remove();
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-watchlist-image]')) {
       const placeholder = document.createElement('span');
       placeholder.className = 'home-watchlist-placeholder';

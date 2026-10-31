@@ -405,8 +405,7 @@ a {
   padding: 0 clamp(24px, 4vw, 58px);
 }
 
-.mobile-header,
-.mobile-nav {
+.mobile-header {
   display: none;
 }
 
@@ -943,6 +942,10 @@ a {
 
 @media (max-width: 760px) {
   .collector-artwork-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .vault-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .onboarding-content h1,
@@ -1822,6 +1825,13 @@ a {
   justify-items: center;
   row-gap: 12px;
   animation: home-feature-in 180ms ease both;
+  touch-action: pan-y;
+}
+
+.home-shelf-feature:focus-visible {
+  border-radius: var(--radius-md);
+  outline: none;
+  box-shadow: var(--focus);
 }
 
 @keyframes home-feature-in {
@@ -1886,20 +1896,50 @@ a {
   left: 50%;
   width: min(240px, 26%);
   max-height: 375px;
+  border: 0;
+  padding: 0;
   border-radius: var(--radius-md);
-  object-fit: contain;
+  background: transparent;
   box-shadow: 0 18px 38px rgba(2, 1, 8, 0.34);
   opacity: 0.78;
   filter: saturate(0.88) brightness(0.72);
+  cursor: pointer;
+  transition: opacity var(--ease), filter var(--ease), transform var(--ease), box-shadow var(--ease);
+}
+
+.home-shelf-supporting-card img {
+  display: block;
+  width: 100%;
+  max-height: 375px;
+  border-radius: inherit;
+  object-fit: contain;
+}
+
+.home-shelf-supporting-card:hover,
+.home-shelf-supporting-card:focus-visible {
+  opacity: 0.96;
+  filter: saturate(1) brightness(0.9);
+  outline: none;
+  box-shadow: 0 24px 48px rgba(2, 1, 8, 0.48), 0 0 0 2px rgba(255, 122, 198, 0.34);
 }
 
 .home-shelf-supporting-card.supporting-1 {
   transform: translate(-112%, -50%) rotate(-10deg);
 }
 
+.home-shelf-supporting-card.supporting-1:hover,
+.home-shelf-supporting-card.supporting-1:focus-visible {
+  transform: translate(-112%, calc(-50% - 6px)) rotate(-9deg) scale(1.02);
+}
+
 .home-shelf-supporting-card.supporting-2 {
   z-index: 2;
   transform: translate(12%, -50%) rotate(10deg);
+}
+
+.home-shelf-supporting-card.supporting-2:hover,
+.home-shelf-supporting-card.supporting-2:focus-visible {
+  transform: translate(12%, calc(-50% - 6px)) rotate(9deg) scale(1.02);
 }
 
 .home-shelf-artwork-unavailable {
@@ -3188,12 +3228,13 @@ a {
 
 .vault-grid {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .vault-card {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
   align-items: start;
   gap: 16px;
   padding: 15px;
@@ -3227,8 +3268,8 @@ a {
 }
 
 .vault-card-image {
-  width: 96px;
-  height: 122px;
+  width: 88px;
+  height: 118px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.035);
@@ -3364,6 +3405,7 @@ a {
 }
 
 .vault-actions .vault-desktop-action {
+  display: none;
   min-height: 38px;
   font-size: 0.82rem;
   line-height: 1;
@@ -3374,37 +3416,22 @@ a {
 }
 
 .vault-mobile-actions {
-  display: none;
+  display: block;
 }
 
-.vault-search-criteria {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px 20px;
-  margin: 14px 0 0;
-  padding: 12px 0;
-  border-block: 1px solid rgba(211, 196, 255, 0.1);
-}
-
-.vault-search-criteria div {
-  min-width: 0;
-}
-
-.vault-search-criteria dt {
-  color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.vault-search-criteria dd {
-  margin: 4px 0 0;
+.vault-search-summary {
+  margin: 6px 0 0;
   color: var(--muted-strong);
-  font-size: 0.88rem;
-  font-weight: 720;
-  line-height: 1.35;
+  font-family: var(--font-body);
+  font-size: 0.84rem;
+  font-weight: 580;
+  line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.vault-search-summary span {
+  margin-inline: 2px;
+  color: var(--muted);
 }
 
 .vault-more-actions {
@@ -4317,14 +4344,6 @@ a {
 }
 
 @media (max-width: 1040px) {
-  .vault-search-criteria {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .app-footer-region {
-    padding-bottom: 70px;
-  }
-
   .app-footer-links {
     min-width: 0;
     gap: 0.45rem;
@@ -4364,7 +4383,6 @@ a {
   .app-shell {
     display: block;
     min-height: 100vh;
-    padding-bottom: 72px;
   }
 
   .desktop-header {
@@ -4375,14 +4393,27 @@ a {
     position: sticky;
     top: 0;
     z-index: 12;
+    display: grid;
+    gap: 0;
+    padding: 0;
+    border-bottom: 1px solid var(--line);
+    background: rgba(10, 8, 24, 0.94);
+    backdrop-filter: blur(18px);
+  }
+
+  .mobile-header-primary {
+    min-width: 0;
+    min-height: 58px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--line);
-    background: rgba(10, 8, 24, 0.94);
-    backdrop-filter: blur(18px);
+    padding: 9px 14px 8px;
+  }
+
+  .mobile-header .brand-lockup {
+    width: 116px;
+    height: 34px;
   }
 
   .mobile-header .user-area {
@@ -4392,7 +4423,8 @@ a {
 
   .mobile-header .avatar,
   .mobile-header .avatar-fallback {
-    display: none;
+    width: 34px;
+    height: 34px;
   }
 
   .mobile-header .button-ghost {
@@ -4401,55 +4433,54 @@ a {
     padding: 0 10px;
   }
 
-  .mobile-header .account-settings-button {
-    min-width: 0;
-  }
-
-  .mobile-header .account-plus-button span,
-  .mobile-header .account-settings-button span,
   .mobile-header [data-action="logout"] span {
     display: none;
   }
 
-  .mobile-nav {
-    position: fixed;
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
-    z-index: 15;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .mobile-primary-nav {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: stretch;
     gap: 4px;
-    padding: 6px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-    background: rgba(10, 8, 24, 0.94);
-    backdrop-filter: blur(18px);
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 10px;
+    border-top: 1px solid rgba(211, 196, 255, 0.08);
   }
 
-  .mobile-nav .nav-button {
-    flex-direction: column;
-    gap: 3px;
+  .mobile-primary-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-primary-nav .nav-button {
+    flex: 0 0 auto;
     justify-content: center;
-    min-height: 50px;
-    padding: 5px 8px 4px;
-    font-size: 0.74rem;
+    min-height: 46px;
+    padding: 0 12px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    scroll-margin-inline: 12px;
   }
 
-  .mobile-nav .nav-icon {
-    width: 17px;
-    height: 17px;
+  .mobile-primary-nav .nav-icon {
+    display: none;
   }
 
-  .mobile-nav .nav-button[aria-selected="true"]::before {
-    left: 50%;
-    right: auto;
-    top: 3px;
-    bottom: auto;
-    width: 20px;
+  .mobile-primary-nav .nav-button[aria-selected="true"]::before {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 0;
+    width: auto;
     height: 2px;
-    transform: translateX(-50%);
+    transform: none;
+  }
+
+  .mobile-primary-nav .nav-button[data-page="plus"] {
+    color: var(--gold);
   }
 
   .app-main {
@@ -4535,10 +4566,6 @@ a {
 }
 
 @media (max-width: 560px) {
-  .vault-search-criteria {
-    grid-template-columns: 1fr;
-  }
-
   .vault-limit-warning {
     align-items: flex-start;
     flex-direction: column;
@@ -4555,11 +4582,6 @@ a {
   .page-header h1,
   .placeholder h1 {
     font-size: 1.8rem;
-  }
-
-  .mobile-nav .nav-button {
-    padding: 0 4px;
-    font-size: 0.7rem;
   }
 
   .home-panel {
@@ -4879,10 +4901,6 @@ a {
 }
 
 @media (max-width: 390px) {
-  .mobile-header {
-    flex-wrap: wrap;
-  }
-
   .mobile-header .user-area {
     margin-left: auto;
   }
@@ -4922,7 +4940,22 @@ a {
   }
 
   .home-shelf-artwork .artwork-trigger,
-  .home-shelf-artwork .artwork-trigger:hover {
+  .home-shelf-artwork .artwork-trigger:hover,
+  .home-shelf-supporting-card,
+  .home-shelf-supporting-card:hover,
+  .home-shelf-supporting-card:focus-visible {
     transform: translate(-50%, -50%);
+  }
+
+  .home-shelf-supporting-card.supporting-1,
+  .home-shelf-supporting-card.supporting-1:hover,
+  .home-shelf-supporting-card.supporting-1:focus-visible {
+    transform: translate(-112%, -50%) rotate(-10deg);
+  }
+
+  .home-shelf-supporting-card.supporting-2,
+  .home-shelf-supporting-card.supporting-2:hover,
+  .home-shelf-supporting-card.supporting-2:focus-visible {
+    transform: translate(12%, -50%) rotate(10deg);
   }
 }
