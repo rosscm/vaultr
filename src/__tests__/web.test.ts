@@ -309,9 +309,10 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('@media (max-width: 1040px)');
     expect(cssResponse.body).toContain('.environment-label');
     expect(jsResponse.body).toContain('state.authConfig?.environment?.label');
-    expect(jsResponse.body).toContain('<h2 id="completed-vault-title">Pickups</h2>');
+    expect(jsResponse.body).toContain("eyebrow: 'PICKUPS'");
+    expect(jsResponse.body).toContain("title: 'Cards you’ve acquired'");
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
-    expect(jsResponse.body).toContain('const hasVisibleRows = items.length > 0 || completed.length > 0;');
+    expect(jsResponse.body).toContain('const hasVisibleRows = watchingItems.length > 0 || pausedItems.length > 0 || completed.length > 0;');
     expect(jsResponse.body).toContain("hasVisibleRows\n    ? ''\n    : state.vaultFilter === 'ALL'");
     expect(jsResponse.body).toContain("function pageFromHash(hash = window.location.hash)");
     expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'plus' || value === 'settings' || value === 'onboarding') return value;");
@@ -767,7 +768,7 @@ describe('web app static routes', () => {
     expect(cardSource).toContain('class="vault-action-link vault-action-secondary vault-desktop-action"');
     expect(cardSource).toContain('vault-desktop-action" type="button" data-action="open-edit-chase"');
     expect(cardSource).toContain('danger vault-desktop-action" type="button" data-action="open-remove-chase"');
-    expect(cardSource).toContain('<details class="vault-more-actions vault-mobile-actions"><summary aria-label="More actions">${iconMarkup(\'more\')}More</summary>');
+    expect(cardSource).toContain('<details class="vault-more-actions vault-mobile-actions"><summary aria-label="Manage Watchlist card">${iconMarkup(\'settings\')}Manage</summary>');
     expect(cardSource).toContain('data-action="pause-chase"');
     expect(cardSource).toContain('data-action="resume-chase"');
     expect(cardSource).toContain('data-action="open-acquire-chase"');
@@ -783,10 +784,10 @@ describe('web app static routes', () => {
     expect(source).toContain("iconMarkup('crown')");
     expect(source).toContain("iconMarkup('box')");
     expect(source).toContain("iconMarkup('layers')");
-    expect(css).toContain('grid-template-columns: repeat(4, minmax(0, 1fr));');
+    expect(css).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));');
     expect(css).toContain('.vault-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);');
     expect(css).toContain('grid-template-columns: minmax(0, 1fr) auto;');
-    expect(css).toContain('.vault-summary-item.capacity {\n    display: none;');
+    expect(css).not.toContain('.vault-summary-item.capacity {\n    display: none;');
     expect(css).toContain('.vault-actions {\n    justify-content: flex-start;');
 
     const helperMatch = source.match(/function watchlistCriteriaSummary\([^]*?\n\}/);
@@ -1063,7 +1064,7 @@ describe('web app static routes', () => {
     expect(summarySource).not.toContain('View Plus');
   });
 
-  it('labels user-paused and plan-limited Watchlist counts separately', async () => {
+  it('keeps the Watchlist summary focused on plan, pickups, and available slots', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const functionSource = source.slice(source.indexOf('function vaultSummaryMarkup()'), source.indexOf('function vaultLimitWarningMarkup()'));
@@ -1079,14 +1080,23 @@ describe('web app static routes', () => {
       completedChases: []
     }, String, () => 'Free', (name: string) => `<svg data-icon="${name}"></svg>`) as string;
 
-    const mixed = renderSummary([{ monitoringState: 'ACTIVE' }, { monitoringState: 'PAUSED_USER' }, { monitoringState: 'PAUSED_PLAN_LIMIT' }]);
-    expect(mixed).toContain('1 user-paused card.');
-    expect(mixed).toContain("1 card is outside your plan's monitoring limit.");
-    expect(mixed).not.toContain('paused or outside');
+    const summary = renderSummary([{ monitoringState: 'ACTIVE' }, { monitoringState: 'PAUSED_USER' }, { monitoringState: 'PAUSED_PLAN_LIMIT' }]);
+    expect(summary).toContain('Plan');
+    expect(summary).toContain('Pickups');
+    expect(summary).toContain('Slots');
+    expect(summary).toContain('2 slots left');
+    expect(summary).toContain('1 of 3 used');
+    expect(summary).toContain('Explore Plus for more');
+    expect(summary).not.toContain('Watching');
+    expect(summary).not.toContain('user-paused');
+    expect(summary).not.toContain('monitoring limit');
 
-    const activeOnly = renderSummary([{ monitoringState: 'ACTIVE' }]);
-    expect(activeOnly).not.toContain('user-paused');
-    expect(activeOnly).not.toContain('monitoring limit');
+    expect(source).toContain("vaultChaseSectionMarkup('WATCHING', watchingItems)");
+    expect(source).toContain("vaultChaseSectionMarkup('PAUSED', pausedItems)");
+    expect(source).toContain("if (!items.length) return '';");
+    expect(source.indexOf("vaultChaseSectionMarkup('WATCHING', watchingItems)")).toBeLessThan(
+      source.indexOf("vaultChaseSectionMarkup('PAUSED', pausedItems)")
+    );
   });
 
   it('normalizes and updates grading controls without touching unsaved fields', async () => {

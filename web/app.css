@@ -3128,6 +3128,24 @@ a {
   align-items: end;
 }
 
+.vault-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.vault-page::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -54px;
+  right: -6vw;
+  width: min(68vw, 980px);
+  height: 330px;
+  pointer-events: none;
+  background: conic-gradient(from 218deg at 100% 0%, transparent 0 34%, rgba(184, 148, 255, 0.035) 39%, rgba(255, 122, 198, 0.09) 46%, rgba(139, 92, 246, 0.045) 52%, transparent 59%);
+  filter: blur(2px);
+}
+
 .vault-add-button {
   margin-top: 0;
 }
@@ -3159,7 +3177,7 @@ a {
 
 .vault-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 22px 0 14px;
   padding: 16px 18px;
   background: linear-gradient(110deg, rgba(24, 19, 47, 0.9), rgba(19, 15, 38, 0.82));
@@ -3186,10 +3204,6 @@ a {
   display: grid;
   place-items: center;
   color: var(--purple);
-}
-
-.vault-summary-item.watching .vault-summary-icon {
-  color: var(--pink);
 }
 
 .vault-summary-item.plan .vault-summary-icon {
@@ -3220,19 +3234,6 @@ a {
   color: var(--muted);
   font-size: 0.76rem;
   line-height: 1.35;
-}
-
-.vault-summary p,
-.vault-summary-secondary {
-  margin: 0;
-  color: var(--muted);
-}
-
-.vault-summary-secondary {
-  grid-column: 1 / -1;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-  font-size: 0.8rem;
 }
 
 .vault-limit-warning {
@@ -3304,39 +3305,41 @@ a {
 }
 
 .completed-vault-section {
-  margin-top: 28px;
+  margin-top: 24px;
 }
 
-.completed-vault-heading {
-  display: flex;
-  align-items: center;
+.vault-chase-section,
+.completed-vault-section {
+  display: grid;
   gap: 12px;
-  margin-bottom: 14px;
 }
 
-.completed-vault-heading h2,
-.completed-vault-heading p {
+.vault-chase-section + .vault-chase-section,
+.vault-chase-section + .completed-vault-section {
+  margin-top: 24px;
+}
+
+.vault-section-heading {
+  display: grid;
+  gap: 3px;
+  margin: 0 4px 2px;
+}
+
+.vault-section-heading .eyebrow,
+.vault-section-heading h2,
+.vault-section-heading > p:last-child {
   margin: 0;
 }
 
-.completed-vault-heading h2 {
-  font-size: 1.35rem;
+.vault-section-heading h2 {
+  font-size: 1.28rem;
+  line-height: 1.25;
 }
 
-.completed-vault-heading p {
-  margin-top: 2px;
+.vault-section-heading > p:last-child {
   color: var(--muted);
   font-size: 0.88rem;
-}
-
-.completed-vault-icon {
-  color: var(--purple);
-}
-
-.completed-vault-icon .nav-icon {
-  width: 32px;
-  height: 32px;
-  flex-basis: 32px;
+  line-height: 1.45;
 }
 
 .vault-card-image {
@@ -3577,8 +3580,8 @@ a {
   display: inline-flex;
   align-items: center;
   border-radius: 6px;
-  border: 1px solid transparent;
-  padding: 0 10px;
+  border: 1px solid rgba(211, 196, 255, 0.3);
+  padding: 0 13px;
   color: var(--muted-strong);
   font-size: 0.82rem;
   font-weight: 760;
@@ -3588,13 +3591,6 @@ a {
 
 .vault-more-actions summary::-webkit-details-marker {
   display: none;
-}
-
-.vault-more-actions summary::after {
-  content: "\2304";
-  margin-left: 6px;
-  font-size: 0.72rem;
-  transform: rotate(180deg);
 }
 
 .vault-more-actions summary:hover,
@@ -3608,10 +3604,11 @@ a {
   z-index: 8;
   right: 0;
   bottom: calc(100% + 6px);
-  min-width: 154px;
+  min-width: 164px;
+  max-width: calc(100vw - 32px);
   display: grid;
   gap: 2px;
-  padding: 6px;
+  padding: 5px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: var(--surface-strong);
@@ -3620,8 +3617,19 @@ a {
 
 .vault-more-actions > div .vault-action-link {
   width: 100%;
+  min-height: 32px;
   justify-content: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 0.76rem;
+  line-height: 1.2;
   text-align: left;
+}
+
+.vault-more-actions > div .nav-icon {
+  width: 15px;
+  height: 15px;
+  flex-basis: 15px;
 }
 
 .vault-view-matches {
@@ -4479,17 +4487,7 @@ a {
 
 @media (max-width: 1040px) {
   .vault-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .vault-summary-item:nth-child(3) {
-    padding-left: 0;
-    border-left: 0;
-  }
-
-  .vault-summary-item:nth-child(n + 3) {
-    padding-top: 14px;
-    border-top: 1px solid var(--line);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .app-footer-links {
@@ -4732,10 +4730,6 @@ a {
   .vault-summary-item:first-child {
     padding-left: 0;
     border-left: 0;
-  }
-
-  .vault-summary-item.capacity {
-    display: none;
   }
 
   .vault-summary-icon {

@@ -777,6 +777,10 @@ function iconMarkup(name) {
     grade: '<path d="m12 3 2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5-3.6-3.5 5-.7L12 3Z"/>',
     repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
     more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4L16.5 3.5Z"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>',
+    pause: '<path d="M8 5v14M16 5v14"/>',
+    trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.4v-.1A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-1.5-1H2V10h.1A1.7 1.7 0 0 0 3.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.06 4.2l.06.06A1.7 1.7 0 0 0 8 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 18.4 9a1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
     logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h7v18h-7"/>'
   };
@@ -1698,14 +1702,14 @@ function vaultPageMarkup() {
       </section>
     `;
   }
-  const items = (state.vault || []).filter((item) => {
-    if (state.vaultFilter === 'WATCHING') return item.monitoringState === 'ACTIVE';
-    if (state.vaultFilter === 'PAUSED') return item.monitoringState !== 'ACTIVE';
-    if (state.vaultFilter === 'COMPLETED') return false;
-    return true;
-  });
+  const watchingItems = state.vaultFilter === 'ALL' || state.vaultFilter === 'WATCHING'
+    ? (state.vault || []).filter((item) => item.monitoringState === 'ACTIVE')
+    : [];
+  const pausedItems = state.vaultFilter === 'ALL' || state.vaultFilter === 'PAUSED'
+    ? (state.vault || []).filter((item) => item.monitoringState !== 'ACTIVE')
+    : [];
   const completed = state.vaultFilter === 'ALL' || state.vaultFilter === 'COMPLETED' ? state.completedChases || [] : [];
-  const hasVisibleRows = items.length > 0 || completed.length > 0;
+  const hasVisibleRows = watchingItems.length > 0 || pausedItems.length > 0 || completed.length > 0;
   const emptyState = hasVisibleRows
     ? ''
     : state.vaultFilter === 'ALL'
@@ -1714,13 +1718,14 @@ function vaultPageMarkup() {
         ? '<div class="state-panel"><h2>No Pickups yet.</h2><p>Cards you mark acquired will stay here as part of your collecting history.</p></div>'
         : '<div class="state-panel"><h2>No cards in this view</h2><p>Choose another filter to see the rest of your Watchlist.</p></div>';
   return `
-    <section aria-labelledby="vault-title">
+    <section class="vault-page" aria-labelledby="vault-title">
       ${vaultHeaderMarkup()}
       ${vaultNoticeMarkup('vault')}
       ${vaultSummaryMarkup()}
       ${vaultLimitWarningMarkup()}
       ${vaultLifecycleFiltersMarkup()}
-      ${items.length ? `<div class="vault-grid" aria-label="Watchlist cards">${items.map(vaultCardMarkup).join('')}</div>` : ''}
+      ${vaultChaseSectionMarkup('WATCHING', watchingItems)}
+      ${vaultChaseSectionMarkup('PAUSED', pausedItems)}
       ${emptyState}
       ${completedChasesSectionMarkup(completed)}
       ${vaultDialogMarkup()}
@@ -1728,6 +1733,23 @@ function vaultPageMarkup() {
       ${acquireDialogMarkup()}
     </section>
   `;
+}
+
+function vaultSectionHeadingMarkup({ eyebrow, id, title, copy }) {
+  return `<header class="vault-section-heading"><p class="eyebrow">${escapeHtml(eyebrow)}</p><h2 id="${escapeHtml(id)}">${escapeHtml(title)}</h2><p>${escapeHtml(copy)}</p></header>`;
+}
+
+function vaultChaseSectionMarkup(kind, items) {
+  if (!items.length) return '';
+  const watching = kind === 'WATCHING';
+  const id = watching ? 'watching-vault-title' : 'paused-vault-title';
+  return `
+    <section class="vault-chase-section ${watching ? 'watching' : 'paused'}" aria-labelledby="${id}">
+      ${vaultSectionHeadingMarkup(watching
+        ? { eyebrow: 'WATCHING', id, title: 'Cards you’re chasing', copy: 'KeepSeek is keeping an eye out for listings that match your preferences.' }
+        : { eyebrow: 'PAUSED', id, title: 'On hold for now', copy: 'These cards are still in your Watchlist, but KeepSeek isn’t looking for new matches right now.' })}
+      <div class="vault-grid" aria-label="${watching ? 'Watching cards' : 'Paused cards'}">${items.map(vaultCardMarkup).join('')}</div>
+    </section>`;
 }
 
 function vaultLifecycleFiltersMarkup() {
@@ -1752,17 +1774,11 @@ function vaultSummaryMarkup() {
   const plan = state.vaultPlan || {};
   const watching = plan.activeCount ?? state.vault.filter((item) => item.monitoringState === 'ACTIVE').length;
   const max = plan.maxActiveChases ?? 0;
-  const userPaused = state.vault.filter((item) => item.monitoringState === 'PAUSED_USER').length;
-  const planLimited = state.vault.filter((item) => item.monitoringState === 'PAUSED_PLAN_LIMIT').length;
   const completed = state.completedChases?.length ?? 0;
   const slotsLeft = Math.max(0, max - watching);
   const capacityLabel = max ? `${slotsLeft} ${slotsLeft === 1 ? 'slot' : 'slots'} left` : 'No limit available';
   return `
     <div class="vault-summary" aria-label="Watchlist plan summary">
-      <div class="vault-summary-item watching">
-        <span class="vault-summary-icon">${iconMarkup('binoculars')}</span>
-        <span><span class="summary-label">Watching</span><strong>${escapeHtml(watching)} of ${escapeHtml(max)}</strong><small>${escapeHtml(watching)} active${slotsLeft ? ` · ${escapeHtml(slotsLeft)} ${slotsLeft === 1 ? 'slot' : 'slots'} left` : ''}</small></span>
-      </div>
       <div class="vault-summary-item plan">
         <span class="vault-summary-icon">${iconMarkup('crown')}</span>
         <span><span class="summary-label">Plan</span><strong class="${plan.tier === 'PRO' ? 'plan-plus' : ''}">${escapeHtml(planLabel(plan.tier))}</strong><small>Up to ${escapeHtml(max)} Watchlist ${max === 1 ? 'card' : 'cards'}</small></span>
@@ -1773,9 +1789,8 @@ function vaultSummaryMarkup() {
       </div>
       <div class="vault-summary-item capacity">
         <span class="vault-summary-icon">${iconMarkup('layers')}</span>
-        <span><span class="summary-label">Capacity</span><strong>${escapeHtml(capacityLabel)}</strong><small>${escapeHtml(watching)} of ${escapeHtml(max)} used${plan.tier === 'FREE' ? ' · Explore Plus for more' : ''}</small></span>
+        <span><span class="summary-label">Slots</span><strong>${escapeHtml(capacityLabel)}</strong><small>${escapeHtml(watching)} of ${escapeHtml(max)} used${plan.tier === 'FREE' ? ' · Explore Plus for more' : ''}</small></span>
       </div>
-      ${userPaused > 0 || planLimited > 0 ? `<p class="vault-summary-secondary">${userPaused > 0 ? `${escapeHtml(userPaused)} user-paused ${userPaused === 1 ? 'card' : 'cards'}.` : ''}${userPaused > 0 && planLimited > 0 ? ' ' : ''}${planLimited > 0 ? `${escapeHtml(planLimited)} ${planLimited === 1 ? 'card is' : 'cards are'} outside your plan's monitoring limit.` : ''}</p>` : ''}
     </div>
   `;
 }
@@ -1850,7 +1865,7 @@ function vaultCardMarkup(item) {
           <button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>
           ${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}
           <button class="vault-action-link danger vault-desktop-action" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button>
-          <details class="vault-more-actions vault-mobile-actions"><summary aria-label="More actions">${iconMarkup('more')}More</summary><div><button class="vault-action-link" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button><button class="vault-action-link" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}<button class="vault-action-link danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button></div></details>
+          <details class="vault-more-actions vault-mobile-actions"><summary aria-label="Manage Watchlist card">${iconMarkup('settings')}Manage</summary><div><button class="vault-action-link" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">${iconMarkup('edit')}Edit preferences</button><button class="vault-action-link" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">${iconMarkup('check')}Mark acquired</button>${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">${iconMarkup('pause')}Pause search</button>` : userPaused ? `<button class="vault-action-link" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">${iconMarkup('repeat')}Resume search</button>` : ''}<button class="vault-action-link danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">${iconMarkup('trash')}Remove</button></div></details>
         </div>
       </div>
     </article>
@@ -1896,10 +1911,7 @@ function completedChasesSectionMarkup(completed = state.completedChases || []) {
   if (!completed.length) return '';
   return `
     <section class="completed-vault-section" aria-labelledby="completed-vault-title">
-      <div class="section-heading completed-vault-heading">
-        <span class="completed-vault-icon">${iconMarkup('box')}</span>
-        <span><h2 id="completed-vault-title">Pickups</h2><p>Cards you’ve acquired from your Watchlist.</p></span>
-      </div>
+      ${vaultSectionHeadingMarkup({ eyebrow: 'PICKUPS', id: 'completed-vault-title', title: 'Cards you’ve acquired', copy: 'Cards you’ve added to your collection from your Watchlist.' })}
       <div class="vault-grid completed-grid" aria-label="Pickups">
         ${completed.map(completedChaseMarkup).join('')}
       </div>
