@@ -309,7 +309,7 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('@media (max-width: 1040px)');
     expect(cssResponse.body).toContain('.environment-label');
     expect(jsResponse.body).toContain('state.authConfig?.environment?.label');
-    expect(jsResponse.body).toContain('PICKUPS');
+    expect(jsResponse.body).toContain('<h2 id="completed-vault-title">Pickups</h2>');
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
     expect(jsResponse.body).toContain('const hasVisibleRows = items.length > 0 || completed.length > 0;');
     expect(jsResponse.body).toContain("hasVisibleRows\n    ? ''\n    : state.vaultFilter === 'ALL'");
@@ -752,8 +752,12 @@ describe('web app static routes', () => {
   });
 
   it('summarizes Watchlist criteria and preserves lifecycle action hierarchy', async () => {
-    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const [response, cssResponse] = await Promise.all([
+      handleWebRequest({ method: 'GET', url: '/app.js' }, { config }),
+      handleWebRequest({ method: 'GET', url: '/app.css' }, { config })
+    ]);
     const source = response.body ?? '';
+    const css = cssResponse.body ?? '';
     const cardSource = source.slice(source.indexOf('function vaultCardMarkup('), source.indexOf('function completedChaseMarkup('));
     expect(source).toContain("function watchlistCriteriaSummary(chase)");
     expect(source).toContain("'No max'");
@@ -763,7 +767,7 @@ describe('web app static routes', () => {
     expect(cardSource).toContain('class="vault-action-link vault-action-secondary vault-desktop-action"');
     expect(cardSource).toContain('vault-desktop-action" type="button" data-action="open-edit-chase"');
     expect(cardSource).toContain('danger vault-desktop-action" type="button" data-action="open-remove-chase"');
-    expect(cardSource).toContain('<details class="vault-more-actions vault-mobile-actions"><summary aria-label="More actions">More</summary>');
+    expect(cardSource).toContain('<details class="vault-more-actions vault-mobile-actions"><summary aria-label="More actions">${iconMarkup(\'more\')}More</summary>');
     expect(cardSource).toContain('data-action="pause-chase"');
     expect(cardSource).toContain('data-action="resume-chase"');
     expect(cardSource).toContain('data-action="open-acquire-chase"');
@@ -773,6 +777,17 @@ describe('web app static routes', () => {
     expect(cardSource).not.toContain('chase.negativeKeywords');
     const completedSource = source.slice(source.indexOf('function completedChaseMarkup('), source.indexOf('function completedChasesSectionMarkup('));
     expect(completedSource).toContain('data-action="reopen-chase"');
+    expect(completedSource).toContain("{ icon: 'calendar'");
+    expect(completedSource).toContain("iconMarkup('repeat')");
+    expect(source).toContain("iconMarkup('binoculars')");
+    expect(source).toContain("iconMarkup('crown')");
+    expect(source).toContain("iconMarkup('box')");
+    expect(source).toContain("iconMarkup('layers')");
+    expect(css).toContain('grid-template-columns: repeat(4, minmax(0, 1fr));');
+    expect(css).toContain('.vault-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);');
+    expect(css).toContain('grid-template-columns: minmax(0, 1fr) auto;');
+    expect(css).toContain('.vault-summary-item.capacity {\n    display: none;');
+    expect(css).toContain('.vault-actions {\n    justify-content: flex-start;');
 
     const helperMatch = source.match(/function watchlistCriteriaSummary\([^]*?\n\}/);
     expect(helperMatch?.[0]).toBeTruthy();
@@ -788,9 +803,19 @@ describe('web app static routes', () => {
       (value: string) => value === 'GRAIL' ? 'Grail' : 'Casual'
     );
     expect(summarize({ maxPrice: 180, condition: 'NM,LP', grade: 'UNGRADED', listingType: 'ANY', priority: 'NORMAL' }))
-      .toEqual(['Under CAD $180', 'LP or better', 'Raw']);
+      .toEqual([
+        { icon: 'tag', text: 'Under CAD $180' },
+        { icon: 'layers', text: 'LP or better' },
+        { icon: 'grade', text: 'Raw' }
+      ]);
     expect(summarize({ condition: null, grade: 'PSA 9', listingType: 'BUY_IT_NOW', priority: 'GRAIL' }))
-      .toEqual(['No max', 'Any condition', 'PSA 9', 'Buy Now', 'Grail']);
+      .toEqual([
+        { icon: 'tag', text: 'No max' },
+        { icon: 'layers', text: 'Any condition' },
+        { icon: 'grade', text: 'PSA 9' },
+        { icon: 'shop', text: 'Buy Now' },
+        { icon: 'plus', text: 'Grail' }
+      ]);
   });
 
   it('supports direct, touch, arrow, and keyboard Home Display Case browsing', async () => {
@@ -1034,7 +1059,7 @@ describe('web app static routes', () => {
     expect(renderWarning({ tier: 'PRO', activeCount: 50, maxActiveChases: 50 })).toContain('Remove a card or mark one acquired to make room.');
 
     const summarySource = source.slice(source.indexOf('function vaultSummaryMarkup()'), source.indexOf('function vaultLimitWarningMarkup()'));
-    expect(summarySource).not.toContain('Explore Plus');
+    expect(summarySource).toContain('Explore Plus for more');
     expect(summarySource).not.toContain('View Plus');
   });
 
@@ -1046,12 +1071,13 @@ describe('web app static routes', () => {
       'state',
       'escapeHtml',
       'planLabel',
+      'iconMarkup',
       `${functionSource}\nreturn vaultSummaryMarkup();`
     )({
       vault,
       vaultPlan: { tier: 'FREE', activeCount: 1, maxActiveChases: 3 },
       completedChases: []
-    }, String, () => 'Free') as string;
+    }, String, () => 'Free', (name: string) => `<svg data-icon="${name}"></svg>`) as string;
 
     const mixed = renderSummary([{ monitoringState: 'ACTIVE' }, { monitoringState: 'PAUSED_USER' }, { monitoringState: 'PAUSED_PLAN_LIMIT' }]);
     expect(mixed).toContain('1 user-paused card.');

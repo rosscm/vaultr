@@ -767,6 +767,16 @@ function iconMarkup(name) {
     sliders: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/>',
     shop: '<path d="M3 9h18l-2-5H5L3 9Z"/><path d="M5 9v11h14V9M9 20v-6h6v6"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/>',
     market: '<path d="M5 20v-6h3v6M10.5 20V9h3v11M16 20V4h3v16"/>',
+    binoculars: '<path d="M4 9V6.5a2.5 2.5 0 0 1 5 0V9M15 9V6.5a2.5 2.5 0 0 1 5 0V9"/><path d="m9 8 1.5 8h3L15 8"/><circle cx="5" cy="15" r="4"/><circle cx="19" cy="15" r="4"/>',
+    crown: '<path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 12H5L3 7Z"/><path d="M6 15h12"/>',
+    box: '<path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="M4 7v10l8 4 8-4V7M12 11v10"/>',
+    layers: '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/>',
+    tag: '<path d="M20 13 13 20 4 11V4h7l9 9Z"/><circle cx="8.5" cy="8.5" r="1.5"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+    grade: '<path d="m12 3 2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5-3.6-3.5 5-.7L12 3Z"/>',
+    repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
+    more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.4v-.1A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-1.5-1H2V10h.1A1.7 1.7 0 0 0 3.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.06 4.2l.06.06A1.7 1.7 0 0 0 8 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 18.4 9a1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
     logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h7v18h-7"/>'
   };
@@ -1745,22 +1755,27 @@ function vaultSummaryMarkup() {
   const userPaused = state.vault.filter((item) => item.monitoringState === 'PAUSED_USER').length;
   const planLimited = state.vault.filter((item) => item.monitoringState === 'PAUSED_PLAN_LIMIT').length;
   const completed = state.completedChases?.length ?? 0;
+  const slotsLeft = Math.max(0, max - watching);
+  const capacityLabel = max ? `${slotsLeft} ${slotsLeft === 1 ? 'slot' : 'slots'} left` : 'No limit available';
   return `
     <div class="vault-summary" aria-label="Watchlist plan summary">
-      <div>
-        <span class="summary-label">Watching</span>
-        <strong>${escapeHtml(watching)} of ${escapeHtml(max)}</strong>
+      <div class="vault-summary-item watching">
+        <span class="vault-summary-icon">${iconMarkup('binoculars')}</span>
+        <span><span class="summary-label">Watching</span><strong>${escapeHtml(watching)} of ${escapeHtml(max)}</strong><small>${escapeHtml(watching)} active${slotsLeft ? ` · ${escapeHtml(slotsLeft)} ${slotsLeft === 1 ? 'slot' : 'slots'} left` : ''}</small></span>
       </div>
-      <div>
-        <span class="summary-label">Plan</span>
-        <strong class="${plan.tier === 'PRO' ? 'plan-plus' : ''}">${escapeHtml(planLabel(plan.tier))}</strong>
+      <div class="vault-summary-item plan">
+        <span class="vault-summary-icon">${iconMarkup('crown')}</span>
+        <span><span class="summary-label">Plan</span><strong class="${plan.tier === 'PRO' ? 'plan-plus' : ''}">${escapeHtml(planLabel(plan.tier))}</strong><small>Up to ${escapeHtml(max)} Watchlist ${max === 1 ? 'card' : 'cards'}</small></span>
       </div>
-      <div>
-        <span class="summary-label">Pickups</span>
-        <strong>${escapeHtml(completed)}</strong>
+      <div class="vault-summary-item pickups">
+        <span class="vault-summary-icon">${iconMarkup('box')}</span>
+        <span><span class="summary-label">Pickups</span><strong>${escapeHtml(completed)}</strong><small>Cards acquired from your Watchlist</small></span>
       </div>
-      ${userPaused > 0 ? `<p>${escapeHtml(userPaused)} user-paused ${userPaused === 1 ? 'card' : 'cards'}.</p>` : ''}
-      ${planLimited > 0 ? `<p>${escapeHtml(planLimited)} ${planLimited === 1 ? 'card is' : 'cards are'} outside your plan's monitoring limit.</p>` : ''}
+      <div class="vault-summary-item capacity">
+        <span class="vault-summary-icon">${iconMarkup('layers')}</span>
+        <span><span class="summary-label">Capacity</span><strong>${escapeHtml(capacityLabel)}</strong><small>${escapeHtml(watching)} of ${escapeHtml(max)} used${plan.tier === 'FREE' ? ' · Explore Plus for more' : ''}</small></span>
+      </div>
+      ${userPaused > 0 || planLimited > 0 ? `<p class="vault-summary-secondary">${userPaused > 0 ? `${escapeHtml(userPaused)} user-paused ${userPaused === 1 ? 'card' : 'cards'}.` : ''}${userPaused > 0 && planLimited > 0 ? ' ' : ''}${planLimited > 0 ? `${escapeHtml(planLimited)} ${planLimited === 1 ? 'card is' : 'cards are'} outside your plan's monitoring limit.` : ''}</p>` : ''}
     </div>
   `;
 }
@@ -1793,10 +1808,14 @@ function watchlistCriteriaSummary(chase) {
   const price = chase.maxPrice !== undefined
     ? `Under ${formatMoney(chase.maxPrice, state.vaultCurrency)}`
     : 'No max';
-  const summary = [price, displayConditionValue(chase.condition), displayGradeValue(chase.grade)];
+  const summary = [
+    { icon: 'tag', text: price },
+    { icon: 'layers', text: displayConditionValue(chase.condition) },
+    { icon: 'grade', text: displayGradeValue(chase.grade) }
+  ];
   const listingType = listingTypeLabel(chase.listingType);
-  if (listingType !== 'Any listing') summary.push(listingType);
-  if (chase.priority === 'GRAIL' || chase.priority === 'HIGH') summary.push(priorityLabel(chase.priority));
+  if (listingType !== 'Any listing') summary.push({ icon: 'shop', text: listingType });
+  if (chase.priority === 'GRAIL' || chase.priority === 'HIGH') summary.push({ icon: 'plus', text: priorityLabel(chase.priority) });
   return summary;
 }
 
@@ -1816,20 +1835,22 @@ function vaultCardMarkup(item) {
         imageDataAttribute: 'data-vault-card-image'
       }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">K</div>`}
       <div class="vault-card-body">
+        <div class="vault-card-content">
         <div class="vault-card-meta">
-          <span class="status-pill ${paused ? 'paused' : 'active'}">${statusLabel}</span>
+          <span class="status-pill ${paused ? 'paused' : 'active'}">${iconMarkup('binoculars')}${statusLabel}</span>
           ${chase.priority === 'GRAIL' || chase.priority === 'HIGH' ? `<span class="priority-pill ${chase.priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priorityLabel(chase.priority))}</span>` : ''}
         </div>
         <h2>${escapeHtml(chase.cardName || 'Watchlist card')}</h2>
         ${item.monitoringState === 'PAUSED_PLAN_LIMIT' ? '<p class="paused-copy">Saved in your Watchlist, but not monitored under the current plan limit.</p>' : userPaused ? '<p class="paused-copy">Search is paused. Your preferences are preserved.</p>' : ''}
-        <p class="vault-search-summary">${criteria.map(escapeHtml).join(' <span aria-hidden="true">·</span> ')}</p>
+        <p class="vault-search-summary">${criteria.map((criterion) => `<span>${iconMarkup(criterion.icon)}${escapeHtml(criterion.text)}</span>`).join('')}</p>
+        </div>
         <div class="vault-actions">
-          <button class="button-primary vault-view-matches" type="button" data-action="view-chase-matches" data-chase-id="${escapeHtml(chase.id)}" data-card-name="${escapeHtml(chase.cardName)}">View matches <span aria-hidden="true">→</span></button>
+          <button class="button-primary vault-view-matches" type="button" data-action="view-chase-matches" data-chase-id="${escapeHtml(chase.id)}" data-card-name="${escapeHtml(chase.cardName)}">${iconMarkup('search')}View matches <span aria-hidden="true">→</span></button>
           <button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button>
           <button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>
           ${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link vault-action-secondary vault-desktop-action" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}
           <button class="vault-action-link danger vault-desktop-action" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button>
-          <details class="vault-more-actions vault-mobile-actions"><summary aria-label="More actions">More</summary><div><button class="vault-action-link" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button><button class="vault-action-link" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}<button class="vault-action-link danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button></div></details>
+          <details class="vault-more-actions vault-mobile-actions"><summary aria-label="More actions">${iconMarkup('more')}More</summary><div><button class="vault-action-link" type="button" data-action="open-edit-chase" data-chase-id="${escapeHtml(chase.id)}">Edit preferences</button><button class="vault-action-link" type="button" data-action="open-acquire-chase" data-chase-id="${escapeHtml(chase.id)}">Mark acquired</button>${item.monitoringState === 'ACTIVE' ? `<button class="vault-action-link" type="button" data-action="pause-chase" data-chase-id="${escapeHtml(chase.id)}">Pause search</button>` : userPaused ? `<button class="vault-action-link" type="button" data-action="resume-chase" data-chase-id="${escapeHtml(chase.id)}">Resume search</button>` : ''}<button class="vault-action-link danger" type="button" data-action="open-remove-chase" data-chase-id="${escapeHtml(chase.id)}">Remove</button></div></details>
         </div>
       </div>
     </article>
@@ -1839,12 +1860,12 @@ function vaultCardMarkup(item) {
 function completedChaseMarkup(chase) {
   const completedDate = chase.completedAt ? formatDate(chase.completedAt) : '';
   const details = [
-    completedDate ? `Acquired ${completedDate}` : 'Acquired',
-    chase.maxPrice !== undefined ? `Max ${formatMoney(chase.maxPrice, state.vaultCurrency)}` : undefined,
-    chase.grade ? displayGradeValue(chase.grade) : undefined,
-    chase.condition ? displayConditionValue(chase.condition) : undefined,
-    chase.listingType && chase.listingType !== 'ANY' ? listingTypeLabel(chase.listingType) : undefined,
-    chase.priority ? priorityLabel(chase.priority) : undefined
+    { icon: 'calendar', text: completedDate ? `Acquired ${completedDate}` : 'Acquired' },
+    chase.maxPrice !== undefined ? { icon: 'tag', text: `Max ${formatMoney(chase.maxPrice, state.vaultCurrency)}` } : undefined,
+    chase.grade ? { icon: 'grade', text: displayGradeValue(chase.grade) } : undefined,
+    chase.condition ? { icon: 'layers', text: displayConditionValue(chase.condition) } : undefined,
+    chase.listingType && chase.listingType !== 'ANY' ? { icon: 'shop', text: listingTypeLabel(chase.listingType) } : undefined,
+    chase.priority ? { icon: 'plus', text: priorityLabel(chase.priority) } : undefined
   ].filter(Boolean);
   return `
     <article class="vault-card completed" data-vault-chase-id="${escapeHtml(chase.id)}" tabindex="-1">
@@ -1856,13 +1877,15 @@ function completedChaseMarkup(chase) {
         imageDataAttribute: 'data-vault-card-image'
       }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">K</div>`}
       <div class="vault-card-body">
+        <div class="vault-card-content">
         <div class="vault-card-meta">
-          <span class="status-pill completed">Pickup</span>
+          <span class="status-pill completed">${iconMarkup('box')}Pickup</span>
         </div>
         <h2>${escapeHtml(chase.cardName || 'Pickup')}</h2>
-        ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
+        ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${iconMarkup(detail.icon)}${escapeHtml(detail.text)}</span>`).join('')}</div>` : ''}
+        </div>
         <div class="vault-actions">
-          <button class="vault-action-link" type="button" data-action="reopen-chase" data-chase-id="${escapeHtml(chase.id)}">Watch again</button>
+          <button class="vault-action-link vault-watch-again" type="button" data-action="reopen-chase" data-chase-id="${escapeHtml(chase.id)}">${iconMarkup('repeat')}Watch again</button>
         </div>
       </div>
     </article>
@@ -1873,9 +1896,9 @@ function completedChasesSectionMarkup(completed = state.completedChases || []) {
   if (!completed.length) return '';
   return `
     <section class="completed-vault-section" aria-labelledby="completed-vault-title">
-      <div class="section-heading">
-        <p class="eyebrow">PICKUPS</p>
-        <h2 id="completed-vault-title">Cards you’ve acquired</h2>
+      <div class="section-heading completed-vault-heading">
+        <span class="completed-vault-icon">${iconMarkup('box')}</span>
+        <span><h2 id="completed-vault-title">Pickups</h2><p>Cards you’ve acquired from your Watchlist.</p></span>
       </div>
       <div class="vault-grid completed-grid" aria-label="Pickups">
         ${completed.map(completedChaseMarkup).join('')}
