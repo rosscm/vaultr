@@ -1735,8 +1735,8 @@ function vaultPageMarkup() {
   `;
 }
 
-function vaultSectionHeadingMarkup({ eyebrow, id, title, copy }) {
-  return `<header class="vault-section-heading"><p class="eyebrow">${escapeHtml(eyebrow)}</p><h2 id="${escapeHtml(id)}">${escapeHtml(title)}</h2><p>${escapeHtml(copy)}</p></header>`;
+function vaultSectionHeadingMarkup({ eyebrow, id, copy }) {
+  return `<header class="vault-section-heading"><h2 class="eyebrow" id="${escapeHtml(id)}">${escapeHtml(eyebrow)}</h2><p>${escapeHtml(copy)}</p></header>`;
 }
 
 function vaultChaseSectionMarkup(kind, items) {
@@ -1746,8 +1746,8 @@ function vaultChaseSectionMarkup(kind, items) {
   return `
     <section class="vault-chase-section ${watching ? 'watching' : 'paused'}" aria-labelledby="${id}">
       ${vaultSectionHeadingMarkup(watching
-        ? { eyebrow: 'WATCHING', id, title: 'Cards you’re chasing', copy: 'KeepSeek is keeping an eye out for listings that match your preferences.' }
-        : { eyebrow: 'PAUSED', id, title: 'On hold for now', copy: 'These cards are still in your Watchlist, but KeepSeek isn’t looking for new matches right now.' })}
+        ? { eyebrow: 'WATCHING', id, copy: 'KeepSeek is keeping an eye out for listings that match your preferences.' }
+        : { eyebrow: 'PAUSED', id, copy: 'These cards are still in your Watchlist, but KeepSeek isn’t looking for new matches right now.' })}
       <div class="vault-grid" aria-label="${watching ? 'Watching cards' : 'Paused cards'}">${items.map(vaultCardMarkup).join('')}</div>
     </section>`;
 }
@@ -1911,7 +1911,7 @@ function completedChasesSectionMarkup(completed = state.completedChases || []) {
   if (!completed.length) return '';
   return `
     <section class="completed-vault-section" aria-labelledby="completed-vault-title">
-      ${vaultSectionHeadingMarkup({ eyebrow: 'PICKUPS', id: 'completed-vault-title', title: 'Cards you’ve acquired', copy: 'Cards you’ve added to your collection from your Watchlist.' })}
+      ${vaultSectionHeadingMarkup({ eyebrow: 'PICKUPS', id: 'completed-vault-title', copy: 'Cards you’ve added to your collection from your Watchlist.' })}
       <div class="vault-grid completed-grid" aria-label="Pickups">
         ${completed.map(completedChaseMarkup).join('')}
       </div>

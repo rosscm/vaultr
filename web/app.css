@@ -3142,8 +3142,23 @@ a {
   width: min(68vw, 980px);
   height: 330px;
   pointer-events: none;
-  background: conic-gradient(from 218deg at 100% 0%, transparent 0 34%, rgba(184, 148, 255, 0.035) 39%, rgba(255, 122, 198, 0.09) 46%, rgba(139, 92, 246, 0.045) 52%, transparent 59%);
-  filter: blur(2px);
+  background: conic-gradient(from 218deg at 100% 0%, transparent 0 32%, rgba(184, 148, 255, 0.055) 39%, rgba(255, 122, 198, 0.12) 46%, rgba(139, 92, 246, 0.06) 53%, transparent 61%);
+  filter: blur(10px);
+}
+
+.vault-page::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 410px;
+  left: -8vw;
+  width: min(86vw, 1180px);
+  height: 520px;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 18% 52%, rgba(139, 92, 246, 0.075), transparent 48%),
+    linear-gradient(132deg, transparent 18%, rgba(255, 122, 198, 0.035) 48%, rgba(184, 148, 255, 0.045) 62%, transparent 82%);
+  filter: blur(24px);
 }
 
 .vault-add-button {
@@ -3326,17 +3341,16 @@ a {
 }
 
 .vault-section-heading .eyebrow,
-.vault-section-heading h2,
-.vault-section-heading > p:last-child {
+.vault-section-heading > p {
   margin: 0;
 }
 
-.vault-section-heading h2 {
-  font-size: 1.28rem;
-  line-height: 1.25;
+.vault-section-heading .eyebrow {
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
-.vault-section-heading > p:last-child {
+.vault-section-heading > p {
   color: var(--muted);
   font-size: 0.88rem;
   line-height: 1.45;
@@ -3617,10 +3631,12 @@ a {
 
 .vault-more-actions > div .vault-action-link {
   width: 100%;
-  min-height: 32px;
-  justify-content: flex-start;
-  gap: 8px;
-  padding: 5px 8px;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 9px;
+  padding: 6px 9px;
   font-size: 0.76rem;
   line-height: 1.2;
   text-align: left;
@@ -3630,6 +3646,7 @@ a {
   width: 15px;
   height: 15px;
   flex-basis: 15px;
+  justify-self: center;
 }
 
 .vault-view-matches {

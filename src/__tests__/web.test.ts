@@ -310,7 +310,8 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.environment-label');
     expect(jsResponse.body).toContain('state.authConfig?.environment?.label');
     expect(jsResponse.body).toContain("eyebrow: 'PICKUPS'");
-    expect(jsResponse.body).toContain("title: 'Cards you’ve acquired'");
+    expect(jsResponse.body).not.toContain("title: 'Cards you’ve acquired'");
+    expect(jsResponse.body).toContain('<h2 class="eyebrow" id="${escapeHtml(id)}">${escapeHtml(eyebrow)}</h2>');
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
     expect(jsResponse.body).toContain('const hasVisibleRows = watchingItems.length > 0 || pausedItems.length > 0 || completed.length > 0;');
     expect(jsResponse.body).toContain("hasVisibleRows\n    ? ''\n    : state.vaultFilter === 'ALL'");
@@ -787,6 +788,8 @@ describe('web app static routes', () => {
     expect(css).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));');
     expect(css).toContain('.vault-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);');
     expect(css).toContain('grid-template-columns: minmax(0, 1fr) auto;');
+    expect(css).toContain('grid-template-columns: 16px minmax(0, 1fr);');
+    expect(css).toContain('.vault-page::after {');
     expect(css).not.toContain('.vault-summary-item.capacity {\n    display: none;');
     expect(css).toContain('.vault-actions {\n    justify-content: flex-start;');
 
