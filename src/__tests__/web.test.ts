@@ -790,8 +790,8 @@ describe('web app static routes', () => {
     expect(css).toContain('.vault-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);');
     expect(css).toContain('grid-template-columns: minmax(0, 1fr) auto;');
     expect(css).toContain('grid-template-columns: 16px minmax(0, 1fr);');
-    expect(source).toContain('<div class="vault-atmosphere" aria-hidden="true"></div>');
-    expect(css).toContain('.vault-atmosphere::after {');
+    expect(source).toContain('<div class="app-atmosphere" aria-hidden="true"></div>');
+    expect(css).toContain('.app-atmosphere::after {');
     expect(css).toContain('pointer-events: none;');
     expect(css).not.toContain('.vault-summary-item.capacity {\n    display: none;');
     expect(css).toContain('.vault-actions {\n    justify-content: flex-start;');

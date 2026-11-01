@@ -664,6 +664,7 @@ function shellMarkup(content) {
   const accountPlanClass = state.vaultPlan?.tier === 'PRO' ? 'plan-plus' : '';
   return `
     <div class="app-page">
+      <div class="app-atmosphere" aria-hidden="true"></div>
       <div class="app-shell">
         <header class="desktop-header">
           <div class="desktop-header-inner">
@@ -1722,7 +1723,6 @@ function vaultPageMarkup() {
         : '<div class="state-panel"><h2>No cards in this view</h2><p>Choose another filter to see the rest of your Watchlist.</p></div>';
   return `
     <section class="vault-page" aria-labelledby="vault-title">
-      <div class="vault-atmosphere" aria-hidden="true"></div>
       ${vaultHeaderMarkup()}
       ${vaultNoticeMarkup('vault')}
       ${vaultSummaryMarkup()}

@@ -384,6 +384,62 @@ a {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.app-page {
+  min-height: 100vh;
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+}
+
+.app-shell,
+.app-footer-region {
+  position: relative;
+  z-index: 1;
+}
+
+.app-atmosphere {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at -8% 82%, rgba(139, 92, 246, 0.095), transparent 38%),
+    linear-gradient(142deg, transparent 52%, rgba(255, 122, 198, 0.035) 72%, rgba(184, 148, 255, 0.045) 84%, transparent 96%);
+}
+
+.app-atmosphere::before,
+.app-atmosphere::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.app-atmosphere::before {
+  top: 40px;
+  right: -9%;
+  width: min(79vw, 1160px);
+  height: 480px;
+  border-radius: 52% 0 0 66%;
+  background:
+    radial-gradient(ellipse at 78% 18%, rgba(255, 122, 198, 0.2), transparent 45%),
+    conic-gradient(from 222deg at 100% 0%, transparent 0 30%, rgba(184, 148, 255, 0.12) 38%, rgba(255, 122, 198, 0.19) 47%, rgba(139, 92, 246, 0.11) 55%, transparent 64%);
+  filter: blur(11px);
+  transform: rotate(-3deg);
+}
+
+.app-atmosphere::after {
+  top: min(58vh, 620px);
+  left: -14%;
+  width: min(96vw, 1380px);
+  height: 680px;
+  background:
+    radial-gradient(ellipse at 14% 54%, rgba(139, 92, 246, 0.105), transparent 45%),
+    linear-gradient(137deg, transparent 15%, rgba(255, 122, 198, 0.08) 46%, rgba(184, 148, 255, 0.09) 61%, transparent 83%);
+  filter: blur(16px);
+  transform: rotate(4deg);
+}
+
 .desktop-header {
   position: sticky;
   top: 0;
@@ -3129,52 +3185,6 @@ a {
 
 .vault-page {
   position: relative;
-  isolation: isolate;
-}
-
-.vault-page > :not(.vault-atmosphere) {
-  position: relative;
-  z-index: 1;
-}
-
-.vault-atmosphere {
-  position: absolute;
-  z-index: 0;
-  inset: -58px -4vw -40px;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.vault-atmosphere::before,
-.vault-atmosphere::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-}
-
-.vault-atmosphere::before {
-  top: -60px;
-  right: -11%;
-  width: min(78vw, 1080px);
-  height: 410px;
-  border-radius: 48% 0 0 62%;
-  background:
-    radial-gradient(ellipse at 78% 20%, rgba(255, 122, 198, 0.19), transparent 46%),
-    conic-gradient(from 220deg at 100% 0%, transparent 0 31%, rgba(184, 148, 255, 0.11) 38%, rgba(255, 122, 198, 0.18) 47%, rgba(139, 92, 246, 0.1) 55%, transparent 63%);
-  filter: blur(12px);
-  transform: rotate(-3deg);
-}
-
-.vault-atmosphere::after {
-  top: 470px;
-  left: -13%;
-  width: min(92vw, 1260px);
-  height: 560px;
-  background:
-    radial-gradient(ellipse at 16% 55%, rgba(139, 92, 246, 0.1), transparent 46%),
-    linear-gradient(138deg, transparent 16%, rgba(255, 122, 198, 0.075) 46%, rgba(184, 148, 255, 0.085) 61%, transparent 82%);
-  filter: blur(16px);
-  transform: rotate(4deg);
 }
 
 .vault-add-button {
@@ -4519,19 +4529,16 @@ a {
 }
 
 @media (max-width: 1040px) {
-  .vault-atmosphere {
-    inset: -34px -14px -24px;
-  }
-
-  .vault-atmosphere::before {
-    right: -24%;
+  .app-atmosphere::before {
+    top: 72px;
+    right: -26%;
     width: 92vw;
-    height: 330px;
+    height: 390px;
     opacity: 0.78;
   }
 
-  .vault-atmosphere::after {
-    top: 520px;
+  .app-atmosphere::after {
+    top: 610px;
     left: -28%;
     width: 110vw;
     opacity: 0.7;
@@ -4763,21 +4770,21 @@ a {
 }
 
 @media (max-width: 560px) {
-  .vault-atmosphere {
-    inset-inline: -14px;
+  .app-atmosphere {
+    background: radial-gradient(ellipse at -12% 72%, rgba(139, 92, 246, 0.075), transparent 38%);
   }
 
-  .vault-atmosphere::before {
-    top: -20px;
+  .app-atmosphere::before {
+    top: 96px;
     right: -48%;
     width: 130vw;
-    height: 260px;
+    height: 300px;
     opacity: 0.52;
     filter: blur(10px);
   }
 
-  .vault-atmosphere::after {
-    top: 620px;
+  .app-atmosphere::after {
+    top: 720px;
     left: -60%;
     width: 145vw;
     height: 420px;
