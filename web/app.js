@@ -247,12 +247,15 @@ function linkedKeepSeekPlusCopy(value) {
   return escapeHtml(value).replaceAll('KeepSeek Plus', '<a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>');
 }
 
-function pageHeaderMarkup({ id, title, tagline, copy, className = '' }) {
+function pageHeaderMarkup({ id, title, tagline, copy, className = '', action = '' }) {
   return `
     <header class="page-header${className ? ` ${className}` : ''}">
-      <h1 id="${escapeHtml(id)}">${escapeHtml(title)}</h1>
-      <p class="page-tagline">${escapeHtml(tagline)}</p>
-      ${copy ? `<p class="page-support">${escapeHtml(copy)}</p>` : ''}
+      <div>
+        <h1 id="${escapeHtml(id)}">${escapeHtml(title)}</h1>
+        <p class="page-tagline">${escapeHtml(tagline)}</p>
+        ${copy ? `<p class="page-support">${escapeHtml(copy)}</p>` : ''}
+      </div>
+      ${action}
     </header>
   `;
 }
@@ -1719,6 +1722,7 @@ function vaultPageMarkup() {
         : '<div class="state-panel"><h2>No cards in this view</h2><p>Choose another filter to see the rest of your Watchlist.</p></div>';
   return `
     <section class="vault-page" aria-labelledby="vault-title">
+      <div class="vault-atmosphere" aria-hidden="true"></div>
       ${vaultHeaderMarkup()}
       ${vaultNoticeMarkup('vault')}
       ${vaultSummaryMarkup()}
@@ -1758,16 +1762,14 @@ function vaultLifecycleFiltersMarkup() {
 }
 
 function vaultHeaderMarkup() {
-  return `
-    <header class="page-header vault-page-header">
-      <div>
-        <h1 id="vault-title">Your Watchlist</h1>
-        <p class="page-tagline">Keep the cards you’re chasing close.</p>
-        <p class="page-support">From longtime grails to cards that just caught your eye, keep them here. KeepSeek looks for listings that match what you’re after.</p>
-      </div>
-      <button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Watchlist</button>
-    </header>
-  `;
+  return pageHeaderMarkup({
+    id: 'vault-title',
+    title: 'Your Watchlist',
+    tagline: 'Keep the cards you’re chasing close.',
+    copy: 'From longtime grails to cards that just caught your eye, keep them here. KeepSeek looks for listings that match what you’re after.',
+    className: 'vault-page-header',
+    action: '<button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Watchlist</button>'
+  });
 }
 
 function vaultSummaryMarkup() {

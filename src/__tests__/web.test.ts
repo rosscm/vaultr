@@ -608,8 +608,9 @@ describe('web app static routes', () => {
     expect(plus).toContain("tagline: 'Make discovery feel more like you.'");
     expect(alerts).toContain("title: 'Your matches'");
     expect(alerts).toContain("tagline: 'The right card might have just turned up.'");
-    expect(vault).toContain('<h1 id="vault-title">Your Watchlist</h1>');
-    expect(vault).toContain('<p class="page-tagline">Keep the cards you’re chasing close.</p>');
+    expect(vault).toContain("title: 'Your Watchlist'");
+    expect(vault).toContain("tagline: 'Keep the cards you’re chasing close.'");
+    expect(vault).toContain("className: 'vault-page-header'");
     expect(discover).toContain("title: 'Your Display Case'");
     expect(discover).toContain("tagline: 'Find the cards you didn’t know you loved.'");
     expect(discover).toContain("copy: ''");
@@ -789,7 +790,9 @@ describe('web app static routes', () => {
     expect(css).toContain('.vault-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);');
     expect(css).toContain('grid-template-columns: minmax(0, 1fr) auto;');
     expect(css).toContain('grid-template-columns: 16px minmax(0, 1fr);');
-    expect(css).toContain('.vault-page::after {');
+    expect(source).toContain('<div class="vault-atmosphere" aria-hidden="true"></div>');
+    expect(css).toContain('.vault-atmosphere::after {');
+    expect(css).toContain('pointer-events: none;');
     expect(css).not.toContain('.vault-summary-item.capacity {\n    display: none;');
     expect(css).toContain('.vault-actions {\n    justify-content: flex-start;');
 

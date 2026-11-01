@@ -673,8 +673,7 @@ a {
   gap: 10px;
 }
 
-.page-header > p,
-.vault-page-header > div > p {
+.page-header > div > p {
   max-width: var(--page-copy-width);
 }
 
@@ -3133,32 +3132,49 @@ a {
   isolation: isolate;
 }
 
-.vault-page::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  top: -54px;
-  right: -6vw;
-  width: min(68vw, 980px);
-  height: 330px;
-  pointer-events: none;
-  background: conic-gradient(from 218deg at 100% 0%, transparent 0 32%, rgba(184, 148, 255, 0.055) 39%, rgba(255, 122, 198, 0.12) 46%, rgba(139, 92, 246, 0.06) 53%, transparent 61%);
-  filter: blur(10px);
+.vault-page > :not(.vault-atmosphere) {
+  position: relative;
+  z-index: 1;
 }
 
-.vault-page::after {
+.vault-atmosphere {
+  position: absolute;
+  z-index: 0;
+  inset: -58px -4vw -40px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.vault-atmosphere::before,
+.vault-atmosphere::after {
   content: "";
   position: absolute;
-  z-index: -1;
-  top: 410px;
-  left: -8vw;
-  width: min(86vw, 1180px);
-  height: 520px;
   pointer-events: none;
+}
+
+.vault-atmosphere::before {
+  top: -60px;
+  right: -11%;
+  width: min(78vw, 1080px);
+  height: 410px;
+  border-radius: 48% 0 0 62%;
   background:
-    radial-gradient(ellipse at 18% 52%, rgba(139, 92, 246, 0.075), transparent 48%),
-    linear-gradient(132deg, transparent 18%, rgba(255, 122, 198, 0.035) 48%, rgba(184, 148, 255, 0.045) 62%, transparent 82%);
-  filter: blur(24px);
+    radial-gradient(ellipse at 78% 20%, rgba(255, 122, 198, 0.19), transparent 46%),
+    conic-gradient(from 220deg at 100% 0%, transparent 0 31%, rgba(184, 148, 255, 0.11) 38%, rgba(255, 122, 198, 0.18) 47%, rgba(139, 92, 246, 0.1) 55%, transparent 63%);
+  filter: blur(12px);
+  transform: rotate(-3deg);
+}
+
+.vault-atmosphere::after {
+  top: 470px;
+  left: -13%;
+  width: min(92vw, 1260px);
+  height: 560px;
+  background:
+    radial-gradient(ellipse at 16% 55%, rgba(139, 92, 246, 0.1), transparent 46%),
+    linear-gradient(138deg, transparent 16%, rgba(255, 122, 198, 0.075) 46%, rgba(184, 148, 255, 0.085) 61%, transparent 82%);
+  filter: blur(16px);
+  transform: rotate(4deg);
 }
 
 .vault-add-button {
@@ -4503,6 +4519,24 @@ a {
 }
 
 @media (max-width: 1040px) {
+  .vault-atmosphere {
+    inset: -34px -14px -24px;
+  }
+
+  .vault-atmosphere::before {
+    right: -24%;
+    width: 92vw;
+    height: 330px;
+    opacity: 0.78;
+  }
+
+  .vault-atmosphere::after {
+    top: 520px;
+    left: -28%;
+    width: 110vw;
+    opacity: 0.7;
+  }
+
   .vault-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -4729,6 +4763,28 @@ a {
 }
 
 @media (max-width: 560px) {
+  .vault-atmosphere {
+    inset-inline: -14px;
+  }
+
+  .vault-atmosphere::before {
+    top: -20px;
+    right: -48%;
+    width: 130vw;
+    height: 260px;
+    opacity: 0.52;
+    filter: blur(10px);
+  }
+
+  .vault-atmosphere::after {
+    top: 620px;
+    left: -60%;
+    width: 145vw;
+    height: 420px;
+    opacity: 0.42;
+    filter: blur(16px);
+  }
+
   .vault-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     padding: 14px 10px;
