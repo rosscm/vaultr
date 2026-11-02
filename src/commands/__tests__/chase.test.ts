@@ -2742,6 +2742,9 @@ describe('chase command', () => {
     expect(summary.termWeights.vmax).toBeLessThan(0);
     expect(summary.termEdgeWeights['japanese|promo']).toBeGreaterThan(0);
     expect(summary.termEdgeWeights['promo|trainer gallery']).toBeGreaterThan(0);
+    expect(summary.typedTraitWeights?.['region:japanese']).toBeGreaterThan(0);
+    expect(summary.typedTraitWeights?.['artShape:trainer gallery']).toBeGreaterThan(0);
+    expect(summary.typedTraitWeights?.['format:vmax']).toBeLessThan(0);
     expect(summary.typedTraitEdgeWeights['region:japanese|releaseShape:promo']).toBeGreaterThan(0);
     expect(summary.typedTraitEdgeWeights['artShape:trainer gallery|releaseShape:promo']).toBeGreaterThan(0);
   });

@@ -53,7 +53,7 @@ const ERA_TRANSLATIONS: Record<string, string | undefined> = {
   SM: 'SM',
   XY: 'XY',
   BW: undefined,
-  'WOTC e-Reader': 'WOTC'
+  'WOTC e-Reader': 'e-reader-period'
 };
 
 const RARITY_TIER_TRANSLATIONS: Record<string, string | undefined> = {
@@ -114,16 +114,42 @@ function addWeighted(target: Record<string, number>, key: string | undefined, we
   target[key] = Number(((target[key] ?? 0) + weight).toFixed(3));
 }
 
+export type CollectorTraitSignalStrength = {
+  strength: number;
+  distinctEvidenceCount: number;
+  explicitEvidenceCount: number;
+  direct: true;
+};
+
+export function collectorTraitSignalStrength(trait: CollectorInterestTrait): CollectorTraitSignalStrength {
+  const distinctEvidenceCount = new Set(trait.evidenceIds).size;
+  const explicitEvidenceCount = trait.evidenceIds.filter((id) => id.startsWith('explicit-')).length;
+  const weightedEvidence = 1 - Math.exp(-trait.score / 2.8);
+  const independentBreadth = 1 - Math.exp(-distinctEvidenceCount / 2.5);
+  const confidenceFactor = trait.confidence === 'HIGH' ? 1 : trait.confidence === 'MEDIUM' ? 0.92 : 0.8;
+  const completedReinforcement = Math.min(0.08, trait.completedEvidenceCount * 0.025);
+  const legacyShare = distinctEvidenceCount > 0 ? trait.legacyEvidenceCount / distinctEvidenceCount : 0;
+  const legacyAttenuation = Math.max(0.75, 1 - legacyShare * 0.25);
+  const inferredStrength = ((weightedEvidence * 0.62) + (independentBreadth * 0.38) + completedReinforcement)
+    * confidenceFactor
+    * legacyAttenuation;
+  const strength = explicitEvidenceCount > 0 ? Math.max(0.72, inferredStrength) : inferredStrength;
+  return {
+    strength: Number(clamp01(strength).toFixed(6)),
+    distinctEvidenceCount,
+    explicitEvidenceCount,
+    direct: true
+  };
+}
+
 function scaleTraitsForRanker(
   traits: CollectorInterestTrait[],
   maxWeight: number,
   translate: (trait: CollectorInterestTrait) => string | undefined = (trait) => trait.label
 ): Record<string, number> {
-  const strongest = Math.max(...traits.map((trait) => trait.score), 0);
-  if (strongest <= 0) return {};
   const scaled: Record<string, number> = {};
   for (const trait of [...traits].sort((a, b) => b.score - a.score || b.evidenceCount - a.evidenceCount || a.key.localeCompare(b.key))) {
-    addWeighted(scaled, translate(trait), Math.max(0.5, (trait.score / strongest) * maxWeight));
+    addWeighted(scaled, translate(trait), collectorTraitSignalStrength(trait).strength * maxWeight);
   }
   return scaled;
 }
@@ -133,8 +159,6 @@ function mergeScaled(target: Record<string, number>, values: Record<string, numb
 }
 
 function familyWeightsFromSubjectTraits(traits: CollectorInterestTrait[]): Record<string, number> {
-  const strongest = Math.max(...traits.map((trait) => trait.score), 0);
-  if (strongest <= 0) return {};
   const seenSubjects = new Set<string>();
   const weights: Record<string, number> = {};
   for (const trait of [...traits].sort((a, b) => b.score - a.score || b.evidenceCount - a.evidenceCount || a.key.localeCompare(b.key))) {
@@ -143,7 +167,7 @@ function familyWeightsFromSubjectTraits(traits: CollectorInterestTrait[]): Recor
     seenSubjects.add(subjectKey);
     const familyKey = collectorFamilyKeyForSubject(trait.label);
     if (!familyKey) continue;
-    const contribution = Math.max(0.5, (trait.score / strongest) * RANKER_SINGLE_FAMILY_MEMBER_WEIGHT);
+    const contribution = collectorTraitSignalStrength(trait).strength * RANKER_SINGLE_FAMILY_MEMBER_WEIGHT;
     weights[familyKey] = Number(Math.min(RANKER_FAMILY_MAX_WEIGHT, (weights[familyKey] ?? 0) + contribution).toFixed(3));
   }
   return weights;
@@ -159,6 +183,9 @@ export function collectorInterestProfileToTasteProfile(
   mergeScaled(rankerProfile.languages, scaleTraitsForRanker(profile.traits.languages, RANKER_MAX_WEIGHTS.languages!));
   mergeScaled(rankerProfile.sets, scaleTraitsForRanker(profile.traits.sets, RANKER_MAX_WEIGHTS.sets!));
   mergeScaled(rankerProfile.eras, scaleTraitsForRanker(profile.traits.eras, RANKER_MAX_WEIGHTS.eras!, (trait) => ERA_TRANSLATIONS[trait.label]));
+  for (const trait of profile.traits.eras.filter((entry) => entry.label === 'WOTC e-Reader')) {
+    addWeighted(rankerProfile.eras, 'WOTC', collectorTraitSignalStrength(trait).strength * RANKER_MAX_WEIGHTS.eras! * 0.35);
+  }
   mergeScaled(rankerProfile.formats, scaleTraitsForRanker(profile.traits.formats, RANKER_MAX_WEIGHTS.formats!));
   mergeScaled(rankerProfile.artists, scaleTraitsForRanker(profile.traits.artists, RANKER_MAX_WEIGHTS.artists!));
   mergeScaled(rankerProfile.rarityTiers, scaleTraitsForRanker(profile.traits.rarities, RANKER_MAX_WEIGHTS.rarities!, (trait) => RARITY_TIER_TRANSLATIONS[trait.label]));
@@ -173,6 +200,53 @@ export function collectorInterestProfileToTasteProfile(
     addWeighted(rankerProfile.setFamilies, rankerSetFamily(setName), 2);
   }
   return rankerProfile;
+}
+
+type LearnedTraitSummary = {
+  typedTraitWeights?: Record<string, number>;
+};
+
+function learnedTraitTarget(profile: CollectorTasteProfile, type: string, value: string): [Record<string, number>, string] | null {
+  const existingKey = (values: Record<string, number>, fallback: string): string =>
+    Object.keys(values).find((key) => normalizedAscii(key) === normalizedAscii(value)) ?? fallback;
+  if (type === 'subject') return [profile.subjects, existingKey(profile.subjects, value.replace(/\b\w/g, (letter) => letter.toUpperCase()))];
+  if (type === 'region' && value === 'japanese') return [profile.languages, 'JAPANESE'];
+  if (type === 'era') {
+    if (value === 'e-reader') return [profile.eras, 'e-reader-period'];
+    return [profile.eras, existingKey(profile.eras, value.toUpperCase())];
+  }
+  if (type === 'format') {
+    const canonical = ['gx', 'vmax', 'vstar', 'tag team'].includes(value) ? value.replace('tag team', 'TAG_TEAM').toUpperCase() : value;
+    return [profile.formats, existingKey(profile.formats, canonical)];
+  }
+  if (type === 'artShape') {
+    const illustration = ['illustration rare', 'art rare', 'trainer gallery', 'galarian gallery'].includes(value);
+    return [profile.artTiers, illustration ? 'illustration' : 'premium'];
+  }
+  if (type === 'releaseShape') {
+    const promo = value === 'black star' ? 'black-star' : value.includes('promo') ? value.replace(/\s+promo$/, '') || 'promo' : value;
+    return [profile.promoTypes, existingKey(profile.promoTypes, promo)];
+  }
+  if (type === 'channel') return [profile.promoTypes, existingKey(profile.promoTypes, value)];
+  if (type === 'setFamily') return [profile.setFamilies, existingKey(profile.setFamilies, value)];
+  return null;
+}
+
+export function applyLearnedFeedbackToTasteProfile(profile: CollectorTasteProfile, summary: LearnedTraitSummary): CollectorTasteProfile {
+  const merged = Object.fromEntries(Object.entries(profile).map(([key, value]) => [
+    key,
+    value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : value
+  ])) as CollectorTasteProfile;
+  for (const [token, rawWeight] of Object.entries(summary.typedTraitWeights ?? {})) {
+    const separator = token.indexOf(':');
+    if (separator <= 0) continue;
+    const target = learnedTraitTarget(merged, token.slice(0, separator), token.slice(separator + 1));
+    if (!target) continue;
+    const [weights, key] = target;
+    const delta = Math.max(-2.4, Math.min(2.4, rawWeight / 10));
+    weights[key] = Number(((weights[key] ?? 0) + delta).toFixed(3));
+  }
+  return merged;
 }
 
 function addUnique(target: string[], ...values: Array<string | undefined>): void {
@@ -253,6 +327,25 @@ function shadowSubjectsFromText(text: string): string[] {
     }
   }
   return subjects;
+}
+
+function canonicalSubjectLabel(value: string | undefined): string | undefined {
+  const cleaned = value
+    ?.replace(/\s*(?:-|\s)\s*(?:EX|ex|GX|V|VMAX|VSTAR|LV\.?X)\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || undefined;
+}
+
+function shadowSubjectsFromCandidate(candidate: DiscoveryCandidate, cardName: string): string[] {
+  const known = shadowSubjectsFromText(cardName);
+  if (known.length > 0) return known;
+  const canonical = canonicalSubjectLabel(
+    candidate.catalogFacts?.canonicalName
+      ?? candidate.weeklyDiscovery?.canonicalReference?.canonicalName
+      ?? candidate.suggestion.canonicalReference?.canonicalName
+  );
+  return canonical ? [canonical] : [];
 }
 
 function shadowFormatTokens(text: string): string[] {
@@ -432,7 +525,8 @@ export const COLLECTOR_PROFILE_SCORING_STRATEGY: WeeklyDiscoveryScoringStrategy 
 function shadowEras(text: string, setName: string | undefined): string[] {
   const source = `${text} ${setName ?? ''}`;
   const eras: string[] = [];
-  if (/\b(base set|jungle|fossil|neo|gym heroes|gym challenge|skyridge|aquapolis|expedition)\b/i.test(source)) addUnique(eras, 'WOTC');
+  if (/\b(skyridge|aquapolis|expedition)\b/i.test(source)) addUnique(eras, 'e-reader-period', 'WOTC');
+  else if (/\b(base set|jungle|fossil|neo|gym heroes|gym challenge)\b/i.test(source)) addUnique(eras, 'WOTC');
   if (/\b(ex deoxys|ex team magma|hidden legends)\b/i.test(source)) addUnique(eras, 'EX');
   if (/\b(sun\s*&\s*moon|sm black star|tag team)\b/i.test(source)) addUnique(eras, 'SM');
   if (/\b(sword\s*&\s*shield|swsh|evolving skies|vstar universe)\b/i.test(source)) addUnique(eras, 'SWSH');
@@ -461,7 +555,7 @@ export function extractCollectorProfileDiscoveryFeatures(candidate: DiscoveryCan
   const sets: string[] = [];
   addUnique(sets, setName);
   const rarityTiers = shadowCatalogRarityTokens(candidate, cardName);
-  const subjects = shadowSubjectsFromText(cardName);
+  const subjects = shadowSubjectsFromCandidate(candidate, cardName);
   return {
     subjects,
     evolutionFamilies: collectorFamilyKeysForSubjects(subjects),

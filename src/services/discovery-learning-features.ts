@@ -41,7 +41,11 @@ function termsOfType(terms: string[], allowed: string[]): string[] {
 }
 
 function subjectTerms(suggestion: DiscoverySuggestion, collectorTerms: string[]): string[] {
-  const name = normalize(suggestion.canonicalReference?.canonicalName ?? suggestion.name);
+  const canonicalName = suggestion.canonicalReference?.canonicalName
+    ?.replace(/\s*(?:-|\s)\s*(?:EX|ex|GX|V|VMAX|VSTAR|LV\.?X)\s*$/i, '')
+    .trim();
+  if (canonicalName) return [normalize(canonicalName)];
+  const name = normalize(suggestion.name);
   const anchoredIdentity = (suggestion.requiredEvidenceTokens ?? [])
     .map(normalize)
     .find((term) => term.length >= 3 && !/^\d+$/.test(term) && (name === term || name.startsWith(`${term} `)));

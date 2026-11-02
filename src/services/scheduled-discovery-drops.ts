@@ -1,6 +1,7 @@
 import { db } from './db.js';
 import type { SupportedCurrency } from './currency.js';
 import type { DiscoverySuggestion } from './discovery-catalog.js';
+import { isStructurallyValidTrustedCardImageUrl } from './card-image-url.js';
 
 export type ScheduledDiscoveryDropType = 'WEEKLY_DISCOVERY' | 'MARKET_RADAR' | 'RELEASE_WATCH';
 export type ScheduledDiscoveryDropStatus = 'PREPARING' | 'READY' | 'PARTIAL' | 'STALE' | 'FAILED';
@@ -404,7 +405,7 @@ export function scheduledDiscoveryAvailability(dropType: ScheduledDiscoveryDropT
 
 export function upsertScheduledDiscoveryDrop(input: UpsertScheduledDiscoveryDropInput, now = new Date().toISOString()): ScheduledDiscoveryDrop {
   const marketReadyCount = input.items.filter((item) => item.market.status === 'READY').length;
-  const imageReadyCount = input.items.filter((item) => !!item.imageUrl && item.imageSourceKind === 'CARD_REFERENCE').length;
+  const imageReadyCount = input.items.filter((item) => item.imageSourceKind === 'CARD_REFERENCE' && isStructurallyValidTrustedCardImageUrl(item.imageUrl, item.imageSourceName)).length;
   const itemCount = input.items.length;
   const write = db.transaction(() => {
     upsertScheduledDiscoveryDropStmt.run({

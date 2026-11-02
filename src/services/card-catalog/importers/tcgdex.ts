@@ -3,18 +3,13 @@ import path from 'node:path';
 import type { CardCatalogLanguage, CardCatalogRecord } from '../types.js';
 import { catalogDisplayValue, cleanCatalogIllustrator, isPromoRecord, normalizeCatalogCardNumber, normalizeCatalogPrintedTotal, normalizeCatalogText, uniqueCatalogAliases } from '../normalize.js';
 import { asRecord } from './common.js';
+import { tcgDexCanonicalImageUrl } from '../../card-image-url.js';
 
 function tcgDexLanguageFromPath(filePath: string): CardCatalogLanguage | undefined {
   if (/(^|[/\\])data-asia([/\\]|$)/i.test(filePath) || /(^|[/\\])ja([/\\]|$)/i.test(filePath) || /[/\\]jp[/\\]/i.test(filePath)) return 'ja';
   if (/(^|[/\\])en([/\\]|$)/i.test(filePath)) return 'en';
   if (/(^|[/\\])data([/\\]|$)/i.test(filePath)) return 'en';
   return undefined;
-}
-
-function tcgDexImageUrl(card: Record<string, any>): string | undefined {
-  const image = typeof card.image === 'string' ? card.image : undefined;
-  if (!image) return undefined;
-  return image.endsWith('/high.png') ? image : `${image.replace(/\/+$/, '')}/high.png`;
 }
 
 function tcgDexImageUrlFromPath(filePath: string | undefined, language: CardCatalogLanguage): string | undefined {
@@ -25,7 +20,7 @@ function tcgDexImageUrlFromPath(filePath: string | undefined, language: CardCata
   const setId = match[3];
   const number = match[4];
   const locale = language === 'ja' ? 'ja' : 'en';
-  return `https://assets.tcgdex.net/${locale}/${era}/${setId}/${number}/high.png`;
+  return tcgDexCanonicalImageUrl({ locale, eraId: era, setId, localId: number });
 }
 
 function localizedString(value: unknown, preferred: string): string | undefined {
@@ -163,7 +158,13 @@ export function tcgDexRecordFromCard(card: unknown, options: { filePath?: string
     printedTotal,
     rarity,
     illustrator,
-    imageUrl: tcgDexImageUrl(row) ?? tcgDexImageUrlFromPath(options.filePath, language),
+    imageUrl: tcgDexImageUrlFromPath(options.filePath, language) ?? tcgDexCanonicalImageUrl({
+      locale: language === 'ja' ? 'ja' : 'en',
+      setId,
+      localId: cardNumber,
+      sourceCardId,
+      image: typeof row.image === 'string' ? row.image : undefined
+    }),
     releaseDate: localizedDate(set?.releaseDate, preferredLocale),
     isPromo,
     promoContext: isPromo ? setName : undefined,

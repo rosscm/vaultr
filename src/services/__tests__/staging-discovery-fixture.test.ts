@@ -75,6 +75,28 @@ describe('staging personalized Display Case fixture', () => {
     });
   });
 
+  it('learns one stable canonical subject instead of residual display-title words', () => {
+    const features = discoveryLearningFeatures({
+      name: 'Iron Valiant ex Future Flash 089/066 English',
+      why: 'Trusted exact-printing recommendation.',
+      lane: 'Collector Trail',
+      laneWhy: 'Canonical source identity.',
+      nearby: [],
+      canonicalReference: {
+        provider: 'POKEMONTCG',
+        sourceCardId: 'sv4m-89',
+        canonicalCardId: 'sv4m-89',
+        canonicalName: 'Iron Valiant ex',
+        setName: 'Future Flash',
+        cardNumber: '89/66',
+        language: 'ENGLISH',
+        imageUrl: 'https://example.test/iron-valiant.png',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    });
+    expect(features.collectorTraits).toMatchObject({ subject: ['iron valiant'] });
+  });
+
   it('requires an explicit account and parses cleanup deliberately', () => {
     expect(parseStagingDiscoveryFixtureArgs(['--user', 'usr_fixture', '--cleanup'])).toEqual({ userId: 'usr_fixture', cleanup: true });
     expect(() => parseStagingDiscoveryFixtureArgs([])).toThrow('explicit --user');

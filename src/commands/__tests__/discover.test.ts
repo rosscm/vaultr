@@ -113,7 +113,11 @@ afterEach(() => {
 
 function trustedReferenceImageUrl(sourceName: string, sourceCardId: string): string {
   if (/^TCGdex Japanese(?:\s*\(|$)/i.test(sourceName)) {
-    return `https://assets.tcgdex.net/ja/${sourceCardId}/high.webp`;
+    const separator = sourceCardId.lastIndexOf('-');
+    const setId = separator > 0 ? sourceCardId.slice(0, separator) : sourceCardId;
+    const localId = separator > 0 ? sourceCardId.slice(separator + 1) : sourceCardId;
+    const eraId = /^(SWSH|HGSS|SV|SM|XY|BW|DP|S)(?=\d|P|-|$)/i.exec(setId)?.[1]?.toUpperCase() ?? setId.replace(/[^a-z]/gi, '').toUpperCase();
+    return `https://assets.tcgdex.net/ja/${eraId}/${setId}/${localId}/high.png`;
   }
   const dashIndex = sourceCardId.indexOf('-');
   const setId = dashIndex > 0 ? sourceCardId.slice(0, dashIndex) : 'test';
@@ -2546,7 +2550,7 @@ describe('selectVisibleCandidates', () => {
     expect(visible.map((item) => item.suggestion.name)).toEqual(['Totodile McDonalds Promo']);
   });
 
-  it('reserves weekly slots for supported Japanese promo and e-reader taste lanes', () => {
+  it('bounds isolated e-reader and promo signals to controlled exploration', () => {
     const baseSelection = Array.from({ length: 20 }, (_, index) => candidate(`Reliable Modern Pick ${index + 1}`, 'Value Watch', index, 4));
     const pool = [
       ...baseSelection,
@@ -2573,8 +2577,26 @@ describe('selectVisibleCandidates', () => {
 
     expect(names).not.toContain('Mew Expedition Base Set 55');
     expect(names.filter((name) => /japanese/i.test(name)).length).toBeGreaterThanOrEqual(1);
-    expect(names.filter((name) => /promo|black star/i.test(name)).length).toBeGreaterThanOrEqual(3);
-    expect(names.filter((name) => /aquapolis|skyridge|expedition/i.test(name)).length).toBeGreaterThanOrEqual(3);
+    expect(names.filter((name) => /promo|black star/i.test(name))).toHaveLength(1);
+    expect(names.filter((name) => /aquapolis|skyridge|expedition/i.test(name))).toHaveLength(1);
+  });
+
+  it('strengthens e-reader lane representation from repeated independent evidence', () => {
+    const baseSelection = Array.from({ length: 20 }, (_, index) => candidate(`Reliable Modern Pick ${index + 1}`, 'Value Watch', index, 4));
+    const pool = [
+      ...baseSelection,
+      candidate('Zapdos Aquapolis 44', 'E-Reader Era Trail', 24, 4),
+      candidate('Articuno Skyridge 4', 'E-Reader Era Trail', 25, 4),
+      candidate('Squirtle Expedition Base Set 132', 'E-Reader Era Trail', 26, 4),
+      candidate('Pichu Expedition Base Set 22', 'E-Reader Era Trail', 27, 4)
+    ];
+    const blended = blendWeeklyTasteLaneCandidates(
+      baseSelection,
+      pool,
+      ['Mew Expedition Base Set 55', 'Pichu Aquapolis 58', 'Dragonite Skyridge 9'].map(chase),
+      20
+    );
+    expect(blended.filter((item) => /aquapolis|skyridge|expedition/i.test(item.suggestion.name)).length).toBeGreaterThanOrEqual(3);
   });
 
   it('surfaces market-backed retail e-reader promo variants for matching profiles', () => {
@@ -4702,6 +4724,32 @@ describe('discoveryEmbed', () => {
   };
 
   afterEach(restoreAffiliateEnv);
+
+  it('omits a malformed thumbnail without failing a later Display Case page', () => {
+    const malformed = {
+      ...candidate('Zapdos SVP Black Star Promos 157/225', 'promo discovery', 14, 2),
+      image: {
+        name: 'Zapdos',
+        url: 'https://assets.tcgdex.net/en/Scarlet & Violet/SVP Black Star Promos/157/high.png',
+        sourceName: 'TCGdex',
+        sourceCardId: 'SVP-157',
+        sourceKind: 'CARD_REFERENCE' as const
+      }
+    };
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const embeds = discoveryCardEmbeds([
+      candidate('Mew Southern Islands Promo', 'mythical display cards', 13, 2),
+      malformed,
+      candidate('Pichu Expedition 22/165', 'adjacent discovery', 15, 2)
+    ], 'CAD', true, 13).map((embed) => embed.toJSON());
+
+    expect(embeds).toHaveLength(3);
+    expect(embeds[1]?.thumbnail).toBeUndefined();
+    expect(embeds[2]?.title).toContain('Pichu Expedition');
+    expect(warning).toHaveBeenCalledWith('[discovery-image] omitted invalid thumbnail', expect.objectContaining({ sourceCardId: 'SVP-157' }));
+    warning.mockRestore();
+  });
 
   it('hides market read for limited Discovery', () => {
     const embed = discoveryEmbed(candidate('Mew Southern Islands Promo', 'mythical display cards', 0, 2), 'CAD', false).toJSON();
@@ -6873,7 +6921,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteDiscoveryMarketCache(cacheKey);
   });
 
-  it('reconciles reliable below-floor READY cache before market target allocation', () => {
+  it('retains reliable inexpensive READY cache as collector-eligible supply', () => {
     const candidate = {
       ...publishableSourceCandidate('Dark Vaporeon Team Rocket 45', 'base5-45', 'Pokemon TCG (Team Rocket)', 0),
       sourceStatus: 'ERROR' as const,
@@ -6912,8 +6960,8 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     );
 
     expect(reconciled.adoptedCount).toBe(1);
-    expect(reconciled.pruneDiagnostics.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(1);
-    expect(reconciled.reserve).toHaveLength(0);
+    expect(reconciled.pruneDiagnostics.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(0);
+    expect(reconciled.reserve).toHaveLength(1);
     expect(targets.targets).toHaveLength(0);
     deleteDiscoveryMarketCache(cacheKey);
   });
@@ -7466,6 +7514,20 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     ];
 
     const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf(items, 1);
+    expect(failures.some((failure) => failure.code === 'BAD_IMAGE_PROVENANCE')).toBe(true);
+  });
+
+  it('rejects malformed TCGdex URLs that are labelled as trusted references', () => {
+    const [item] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([
+      publishableCandidate('Zapdos SVP Black Star Promos 157/225', 'SVP-157', 0)
+    ], 'CAD');
+    const failures = __discoveryPersistenceTestHooks.validatePublishableDiscoveryShelf([{
+      ...item!,
+      imageUrl: 'https://assets.tcgdex.net/en/Scarlet & Violet/SVP Black Star Promos/157/high.png',
+      imageSourceName: 'TCGdex',
+      imageSourceKind: 'CARD_REFERENCE'
+    }], 1);
+
     expect(failures.some((failure) => failure.code === 'BAD_IMAGE_PROVENANCE')).toBe(true);
   });
 
@@ -9226,7 +9288,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       setName: 'SVLN',
       cardNumber: '2',
       language: 'JAPANESE' as const,
-      imageUrl: trustedReferenceImageUrl('TCGdex Japanese (SVLN)', 'svln-2'),
+      imageUrl: 'https://assets.tcgdex.net/ja/SV/SVLN/2/high.png',
       imageSourceKind: 'CARD_REFERENCE' as const
     };
     const japaneseMalformed = {
@@ -10923,21 +10985,22 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'paf-232')).toBe(false);
   });
 
-  it('excludes reliably priced cards below the weekly CAD floor', () => {
+  it('keeps a collector-worthy inexpensive card eligible', () => {
     const lowValue = {
-      ...publishableCandidate('Low Value Card', 'low-value', 0),
+      ...publishableCandidate('Low Value CoroCoro Promo', 'low-value', 0),
       typicalRawSoldTotal: 25,
       soldSampleSize: 3,
       displayCurrency: 'CAD' as const
     };
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([lowValue, ...publishableShelfCandidates(20)], 'CAD', 20);
-    expect(result.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(1);
+    expect(result.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(0);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'low-value')).toBe(true);
   });
 
-  it('applies currency conversion before evaluating the weekly chase value floor', () => {
+  it('keeps currency conversion as market context without making it a hard relevance floor', () => {
     const usdLowValue = {
-      ...publishableCandidate('USD Low Card', 'usd-low', 0),
+      ...publishableCandidate('USD Low e-Reader Promo', 'usd-low', 0),
       typicalRawSoldTotal: 20,
       soldSampleSize: 3,
       displayCurrency: 'USD' as const
@@ -10946,7 +11009,8 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const estimate = __discoveryPersistenceTestHooks.reliableWeeklyDiscoveryMarketEstimate(usdLowValue, 'CAD');
     expect(estimate?.amount).toBeGreaterThan(20);
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([usdLowValue, ...publishableShelfCandidates(20)], 'CAD', 20);
-    expect(result.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(1);
+    expect(result.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(0);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'usd-low')).toBe(true);
   });
 
   it('keeps distinct canonical printings separate in Discovery market cache identity', () => {
@@ -10989,9 +11053,9 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       .not.toBe(discoveryMarketCacheKeyForSuggestion(otherPrinting, 'CAD', 'CA'));
   });
 
-  it('does not let a high outlier listing bypass the weekly value floor when the reliable estimate stays low', () => {
+  it('uses the reliable estimate without treating an inexpensive card as irrelevant', () => {
     const outlier = {
-      ...publishableCandidate('Outlier Card', 'outlier-card', 0),
+      ...publishableCandidate('Outlier Japanese Promo', 'outlier-card', 0),
       typicalRawSoldTotal: 24,
       soldSampleSize: 3,
       displayCurrency: 'CAD' as const,
@@ -10999,7 +11063,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     };
 
     const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf([outlier, ...publishableShelfCandidates(20)], 'CAD', 20);
-    expect(result.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(1);
+    expect(result.rejectionCounts.BELOW_CHASE_VALUE_FLOOR).toBe(0);
   });
 
   it('does not let direct subject affinity or high market value rescue ordinary modern catalog printings', () => {

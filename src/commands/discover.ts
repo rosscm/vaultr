@@ -34,6 +34,7 @@ import {
 } from '../services/chase-store.js';
 import { applyResolvedDiscoveryFeedback } from '../services/discovery-feedback.js';
 import { discoveryLearningFeatures } from '../services/discovery-learning-features.js';
+import { isAbsoluteHttpImageUrl, isStructurallyValidTrustedCardImageUrl } from '../services/card-image-url.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice, type SupportedCurrency } from '../services/currency.js';
 import { buildEbaySearchKeywords, searchEbayListings, searchEbaySoldListings, snapshotEbayRuntimeStats, type EbayRuntimeStats } from '../services/ebay.js';
 import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
@@ -73,6 +74,7 @@ import {
 import { WEEKLY_DISCOVERY_MARKET_POLICY } from '../services/weekly-discovery-policy.js';
 import {
   COLLECTOR_PROFILE_SCORING_STRATEGY,
+  applyLearnedFeedbackToTasteProfile,
   collectorInterestProfileToTasteProfile,
   extractCollectorProfileDiscoveryFeatures,
   weeklyDiscoveryRankingModeForCollectorProfile
@@ -541,7 +543,10 @@ function selectWeeklyDiscoveryRankingProfile(
     const interestProfile = loadInterestProfile(userId);
     const rankingMode = weeklyDiscoveryRankingModeForCollectorProfile(interestProfile);
     const collectorProfile = rankingMode === 'COLLECTOR_PROFILE_V1'
-      ? collectorInterestProfileToTasteProfile(interestProfile, feedbackPreferences)
+      ? applyLearnedFeedbackToTasteProfile(
+          collectorInterestProfileToTasteProfile(interestProfile, feedbackPreferences),
+          getDiscoveryLearnedSignalSummary(userId)
+        )
       : legacyCollectorProfile;
     console.warn(`[DiscoveryShelf] ranking mode=${rankingMode} confidence=${interestProfile.confidence.tier} score=${interestProfile.confidence.score.toFixed(2)} user=${userId}`);
     return { collectorProfile, rankingMode };
@@ -5087,13 +5092,22 @@ function blendJapaneseSignalCandidates(candidates: DiscoveryCandidate[], japanes
 type WeeklyTasteLane = 'japanese' | 'promo' | 'e-reader' | 'retail-e-reader' | 'niche-japanese';
 
 function hasRetailEReaderPromoProfileSignal(chases: Chase[]): boolean {
-  return distinctProfileKeys(chases, profileReleaseTypeKeys).has('promo') && distinctProfileKeys(chases, profileEraKeys).has('e-reader');
+  return chases.filter((chase) => {
+    const text = [chase.cardName, chase.targetNote].filter(Boolean).join(' ');
+    return profileReleaseTypeKeys(text).includes('promo') && profileEraKeys(text).includes('e-reader');
+  }).length >= 2;
 }
 
 function hasNicheJapaneseExclusiveProfileSignal(chases: Chase[]): boolean {
   const releaseTypes = distinctProfileKeys(chases, profileReleaseTypeKeys);
   const eras = distinctProfileKeys(chases, profileEraKeys);
-  return hasJapaneseWeightedProfile(chases) && (releaseTypes.has('promo') || eras.has('vintage') || eras.has('e-reader'));
+  const distinctiveEvidenceCount = chases.filter((chase) => {
+    const text = [chase.cardName, chase.targetNote].filter(Boolean).join(' ');
+    const release = profileReleaseTypeKeys(text);
+    const era = profileEraKeys(text);
+    return release.includes('promo') || era.includes('vintage') || era.includes('e-reader');
+  }).length;
+  return hasJapaneseWeightedProfile(chases) && distinctiveEvidenceCount >= 2 && (releaseTypes.has('promo') || eras.has('vintage') || eras.has('e-reader'));
 }
 
 function weeklyTasteLaneTargets(chases: Chase[], targetCount: number): Array<{ lane: WeeklyTasteLane; target: number }> {
@@ -5101,11 +5115,13 @@ function weeklyTasteLaneTargets(chases: Chase[], targetCount: number): Array<{ l
   const releaseTypes = distinctProfileKeys(chases, profileReleaseTypeKeys);
   const eras = distinctProfileKeys(chases, profileEraKeys);
   const japaneseTarget = weeklyJapaneseSignalTargetCount(chases, targetCount);
+  const promoEvidenceCount = profileTraitEvidenceCount(chases, profileReleaseTypeKeys, 'promo');
+  const eReaderEvidenceCount = profileTraitEvidenceCount(chases, profileEraKeys, 'e-reader');
   if (japaneseTarget > 0) targets.push({ lane: 'japanese', target: japaneseTarget });
   if (hasNicheJapaneseExclusiveProfileSignal(chases)) targets.push({ lane: 'niche-japanese', target: 1 });
   if (hasRetailEReaderPromoProfileSignal(chases)) targets.push({ lane: 'retail-e-reader', target: 1 });
-  if (releaseTypes.has('promo')) targets.push({ lane: 'promo', target: Math.max(3, Math.ceil(targetCount * 0.2)) });
-  if (eras.has('e-reader')) targets.push({ lane: 'e-reader', target: Math.max(3, Math.ceil(targetCount * 0.2)) });
+  if (releaseTypes.has('promo')) targets.push({ lane: 'promo', target: promoEvidenceCount >= 3 ? Math.max(3, Math.ceil(targetCount * 0.2)) : promoEvidenceCount });
+  if (eras.has('e-reader')) targets.push({ lane: 'e-reader', target: eReaderEvidenceCount >= 3 ? Math.max(3, Math.ceil(targetCount * 0.2)) : eReaderEvidenceCount });
   return targets;
 }
 
@@ -5445,6 +5461,10 @@ function distinctProfileKeys(chases: Chase[], keyFn: (value: string) => string[]
     for (const key of keyFn(text)) keys.add(key);
   }
   return keys;
+}
+
+function profileTraitEvidenceCount(chases: Chase[], keyFn: (value: string) => string[], trait: string): number {
+  return chases.filter((chase) => keyFn([chase.cardName, chase.targetNote].filter(Boolean).join(' ')).includes(trait)).length;
 }
 
 function profileTraitKeys(value: string): string[] {
@@ -6413,7 +6433,7 @@ function weeklyDiscoveryReservePruneReason(
   const repeat = canonicalId ? repeatHistory.get(canonicalId) : undefined;
   if (repeat && repeat.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return 'EXACT_REPEAT_COOLDOWN';
   const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
-  if (estimate && estimate.amount < weeklyDiscoveryValueFloor(currency)) return 'BELOW_CHASE_VALUE_FLOOR';
+  if (estimate && estimate.amount < weeklyDiscoveryValueFloor(currency) && !hasCollectorShapedScheduledSignal(candidate)) return 'BELOW_CHASE_VALUE_FLOOR';
   return undefined;
 }
 
@@ -6741,7 +6761,7 @@ function boundedTopOffCandidateRejectionReason(
     if (repeat && repeat.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return 'EXACT_REPEAT_COOLDOWN';
   }
   const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
-  if (estimate && estimate.amount < weeklyDiscoveryValueFloor(currency)) return 'BELOW_CHASE_VALUE_FLOOR';
+  if (estimate && estimate.amount < weeklyDiscoveryValueFloor(currency) && !hasCollectorShapedScheduledSignal(candidate)) return 'BELOW_CHASE_VALUE_FLOOR';
   return undefined;
 }
 
@@ -9130,7 +9150,18 @@ export function discoveryEmbed(candidate: DiscoveryCandidate, currencyHint: Supp
     ...(includeMarketRead ? [{ name: 'Market Snapshot', value: truncateDiscordFieldValue(formatMarketRead(candidate, currencyHint)), inline: true }] : [])
   ];
 
-  if (candidate.image) embed.setThumbnail(candidate.image.url);
+  const expectedImageLocalId = candidate.image?.sourceCardId?.split('-').at(-1);
+  if (candidate.image
+    && isAbsoluteHttpImageUrl(candidate.image.url)
+    && isStructurallyValidTrustedCardImageUrl(candidate.image.url, candidate.image.sourceName, expectedImageLocalId)) {
+    embed.setThumbnail(candidate.image.url);
+  } else if (candidate.image?.url) {
+    console.warn('[discovery-image] omitted invalid thumbnail', {
+      candidate: candidate.suggestion.name,
+      sourceName: candidate.image.sourceName,
+      sourceCardId: candidate.image.sourceCardId
+    });
+  }
   embed.setURL(discoveryCardClickUrl(candidate, currencyHint, displayIndex));
 
   embed
@@ -10018,6 +10049,7 @@ function hasTrustedReferenceImage(item: ScheduledDiscoveryDropItem): boolean {
     && isAllowlistedCatalogueReferenceSource(item.imageSourceName)
     && !isMarketplaceLikeSourceName(item.imageSourceName)
     && !isMarketplaceLikeImageUrl(item.imageUrl)
+    && isStructurallyValidTrustedCardImageUrl(item.imageUrl, item.imageSourceName)
     && !hasKnownNonFrontCatalogueReferenceImage(item.imageUrl, item.imageSourceName);
 }
 
@@ -10404,7 +10436,7 @@ function candidateItemSelectionRejection(
   const repeatHistory = recentRepeatHistory.get(canonicalId);
   if (repeatHistory && repeatHistory.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return { code: 'EXACT_REPEAT_COOLDOWN' };
   const reliableEstimate = reliableWeeklyDiscoveryMarketEstimate(candidate, targetCurrency);
-  if (reliableEstimate && reliableEstimate.amount < weeklyDiscoveryValueFloor(targetCurrency)) return { code: 'BELOW_CHASE_VALUE_FLOOR' };
+  if (reliableEstimate && reliableEstimate.amount < weeklyDiscoveryValueFloor(targetCurrency) && !hasCollectorShapedScheduledSignal(candidate)) return { code: 'BELOW_CHASE_VALUE_FLOOR' };
   if (!hasTrustedReferenceImage(item)) return { code: 'BAD_IMAGE' };
   if (isGenericDiscoveryCardTitle(item.suggestion.name) || (isMarketplaceStyleDiscoveryName(item.suggestion.name) && !providerBackedDisplayName)) return { code: 'BAD_DISPLAY_NAME' };
   if (!item.suggestion.why?.trim() || !item.suggestion.laneWhy?.trim()) return { code: 'MISSING_RATIONALE' };
@@ -11321,7 +11353,7 @@ function buildWeeklyDiscoverySupplyReadiness(
     const repeat = repeatHistory.get(canonicalId);
     if (repeat && repeat.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return false;
     const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
-    return !estimate || estimate.amount >= weeklyDiscoveryValueFloor(currency);
+    return !estimate || estimate.amount >= weeklyDiscoveryValueFloor(currency) || hasCollectorShapedScheduledSignal(candidate);
   });
   const marketResolvedEligibleCandidates = hardEligibleCandidates.filter((candidate) => candidateMarketStatus(candidate, currency) === 'READY');
   const diversityEligibleCandidates = selectDiversityEligibleWeeklyCandidates(rerankedReserve, currency, recentDrops, activeVaultChases, anchorProfileSignals, selectionMode);
@@ -11365,7 +11397,7 @@ function buildWeeklyDiscoverySupplyReadiness(
     const repeat = repeatHistory.get(canonicalId);
     if (repeat && repeat.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return false;
     const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, currency);
-    return !estimate || estimate.amount >= weeklyDiscoveryValueFloor(currency);
+    return !estimate || estimate.amount >= weeklyDiscoveryValueFloor(currency) || hasCollectorShapedScheduledSignal(candidate);
   });
   const provisionalSelectedMarketResolvedCount = provisionalSelectedCandidates.filter((candidate) => candidateMarketStatus(candidate, currency) === 'READY').length;
   const selectedSubjectCounts: Record<string, number> = {};
@@ -11511,12 +11543,12 @@ function weeklyDiscoveryCandidateOutcome(
     };
   }
   const estimate = reliableWeeklyDiscoveryMarketEstimate(preparedCandidate, targetCurrency);
-  if (estimate && estimate.amount < weeklyDiscoveryValueFloor(targetCurrency)) {
+  if (estimate && estimate.amount < weeklyDiscoveryValueFloor(targetCurrency) && !hasCollectorShapedScheduledSignal(preparedCandidate)) {
     return {
       suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'REJECTED_VALUE',
-      detail: `below configured floor ${weeklyDiscoveryValueFloor(targetCurrency)}`,
+      detail: `below configured floor ${weeklyDiscoveryValueFloor(targetCurrency)} without collector-shape evidence`,
       discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }

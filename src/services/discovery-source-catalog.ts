@@ -1,6 +1,7 @@
 import type { Chase } from '../types.js';
 import type { DiscoverySuggestion } from './discovery-catalog.js';
 import { discoveryImageOverrideForSuggestion } from './discovery-image-overrides.js';
+import { tcgDexCanonicalImageUrl } from './card-image-url.js';
 
 export type SourceCatalogStatus = 'UNSUPPORTED' | 'NOT_FOUND' | 'TIMEOUT' | 'ERROR';
 
@@ -928,7 +929,13 @@ function sourceSuggestionFromPokemonCard(parent: DiscoverySuggestion, card: Poke
 }
 
 function tcgDexImageUrl(card: TcgDexCard): string | undefined {
-  return card.image ? `${card.image}/high.png` : undefined;
+  return tcgDexCanonicalImageUrl({
+    locale: 'ja',
+    setId: card.set?.id,
+    localId: card.localId,
+    sourceCardId: card.id,
+    image: card.image
+  });
 }
 
 function hasJapaneseScript(value: string | undefined): boolean {

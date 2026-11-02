@@ -3,6 +3,7 @@ import type { DiscoveryCandidate } from '../commands/discover.js';
 import type { Chase } from '../types.js';
 import type { SupportedCurrency } from './currency.js';
 import type { ScheduledDiscoveryDrop, ScheduledDiscoveryDropItem } from './scheduled-discovery-drops.js';
+import { isStructurallyValidTrustedCardImageUrl } from './card-image-url.js';
 import { WEEKLY_DISCOVERY_MARKET_POLICY } from './weekly-discovery-policy.js';
 
 export type WeeklyDiscoveryRole =
@@ -865,6 +866,7 @@ export function weeklyDiscoveryStructuralGate(
   if (items.some((item) => !item.suggestion.referenceSourceCardId?.trim())) failures.push('selected card missing canonical id');
   if (new Set(items.map((item) => item.suggestion.referenceSourceCardId)).size !== items.length) failures.push('duplicate canonical ids');
   if (items.some((item) => item.imageSourceKind !== 'CARD_REFERENCE')) failures.push('non-reference image in selected shelf');
+  if (items.some((item) => !isStructurallyValidTrustedCardImageUrl(item.imageUrl, item.imageSourceName))) failures.push('invalid trusted reference image url');
   if (marketplaceUrlLabelledAsReference(items)) failures.push('marketplace url labelled as CARD_REFERENCE');
   return { status: failures.length === 0 ? 'PASS' : 'FAIL', failures };
 }

@@ -1,6 +1,7 @@
 import { db } from './db.js';
 import type { DiscoverySuggestion } from './discovery-catalog.js';
 import { discoveryImageOverrideForSuggestion } from './discovery-image-overrides.js';
+import { tcgDexCanonicalImageUrl } from './card-image-url.js';
 
 export type DiscoveryReferenceStatus = 'NOT_FOUND' | 'UNSUPPORTED' | 'TIMEOUT' | 'ERROR';
 
@@ -500,7 +501,12 @@ function swallowJapaneseSummaryFailure(error: unknown): TcgDexCardSummary[] {
 }
 
 function tcgDexImageUrl(summary: TcgDexCardSummary): string | undefined {
-  return summary.image ? `${summary.image}/high.png` : undefined;
+  return tcgDexCanonicalImageUrl({
+    locale: 'ja',
+    localId: summary.localId,
+    sourceCardId: summary.id,
+    image: summary.image
+  });
 }
 
 function referenceFromTcgDexSummary(summary: TcgDexCardSummary, suggestionName: string): DiscoveryReferenceCacheEntry | null {

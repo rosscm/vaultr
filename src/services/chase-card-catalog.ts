@@ -9,6 +9,7 @@ import type { PokemonReleaseAlias } from './collector-card-aliases.js';
 import { recordCardCatalogMiss } from './card-catalog-db.js';
 import { hasHighConfidenceLocalCatalogMatch, searchLocalCardCatalog } from './card-catalog/search.js';
 import type { LocalCardCatalogChoice } from './card-catalog/types.js';
+import { tcgDexCanonicalImageUrl } from './card-image-url.js';
 
 export { normalizeChaseCardName } from './collector-card-aliases.js';
 
@@ -587,8 +588,14 @@ function tcgDexPrintedTotal(card: TcgDexCard): number | undefined {
   return card.set?.cardCount?.official ?? card.set?.cardCount?.total;
 }
 
-function tcgDexImageUrl(card: TcgDexCard): string | undefined {
-  return card.image ? `${card.image}/high.png` : undefined;
+function tcgDexImageUrl(card: TcgDexCard, locale: 'en' | 'ja'): string | undefined {
+  return tcgDexCanonicalImageUrl({
+    locale,
+    setId: card.set?.id,
+    localId: card.localId,
+    sourceCardId: card.id,
+    image: card.image
+  });
 }
 
 function hasTcgDexAutocompleteSignal(query: string): boolean {
@@ -1022,7 +1029,7 @@ async function tcgDexEnglishAutocompleteChoices(query: string, limit: number): P
         ? [{
             name: truncateChoice(`${(card as TcgDexCard).name} — ${(card as TcgDexCard).set?.name ?? (card as TcgDexCard).set?.id ?? 'TCGdex'} #${(card as TcgDexCard).localId}`),
             value: truncateChoice(name),
-            imageUrl: tcgDexImageUrl(card as TcgDexCard),
+            imageUrl: tcgDexImageUrl(card as TcgDexCard, 'en'),
             imageIdentity: normalizeChaseCardName(name),
             imageSourceName: 'TCGDEX_EN',
             imageSourceKind: 'CARD_REFERENCE' as const,
@@ -1080,7 +1087,7 @@ async function tcgDexAutocompleteChoices(query: string, limit: number): Promise<
       return name
         ? [{
             name,
-            imageUrl: tcgDexImageUrl(card as TcgDexCard),
+            imageUrl: tcgDexImageUrl(card as TcgDexCard, 'ja'),
             imageIdentity: normalizeChaseCardName(name),
             imageSourceName: 'TCGDEX',
             imageSourceKind: 'CARD_REFERENCE' as const,

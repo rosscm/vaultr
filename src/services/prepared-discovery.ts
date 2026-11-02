@@ -3,6 +3,7 @@ import type { SupportedCurrency } from './currency.js';
 import { discoveryMarketCacheKey, getDiscoveryMarketCache, type DiscoveryMarketCacheEntry } from './discovery-market-cache.js';
 import { discoveryReferenceCacheKey, getDiscoveryReferenceCache } from './discovery-reference-cache.js';
 import { getEntitlementsForTier } from './entitlements.js';
+import { isStructurallyValidTrustedCardImageUrl } from './card-image-url.js';
 import { activePlanChases, activePlanTier } from './plans.js';
 import type { Chase, PlanTier } from '../types.js';
 
@@ -94,7 +95,7 @@ function itemFromPreparedCaches(input: {
     name: input.name,
     imageUrl: reference?.imageUrl,
     imageSourceName: reference?.sourceName,
-    imageSourceKind: reference?.imageUrl ? 'CARD_REFERENCE' : undefined,
+    imageSourceKind: isStructurallyValidTrustedCardImageUrl(reference?.imageUrl, reference?.sourceName) ? 'CARD_REFERENCE' : undefined,
     market: {
       status: marketStatusFromCache(market),
       currency: market?.displayCurrency ?? input.currency,
@@ -152,6 +153,6 @@ export function getPreparedDiscoveryShelf(userId: string, requestedCount?: numbe
     activeChaseCount: activeChases.length,
     items,
     marketReadyCount: items.filter((item) => item.market.status === 'READY').length,
-    imageReadyCount: items.filter((item) => !!item.imageUrl && item.imageSourceKind === 'CARD_REFERENCE').length
+    imageReadyCount: items.filter((item) => item.imageSourceKind === 'CARD_REFERENCE' && isStructurallyValidTrustedCardImageUrl(item.imageUrl, item.imageSourceName)).length
   };
 }

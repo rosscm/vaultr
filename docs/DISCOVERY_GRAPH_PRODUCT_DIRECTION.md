@@ -132,6 +132,40 @@ The user-facing copy should expose only the meaningful collector reasons, not th
 
 ## Near-Term Implementation Plan
 
+## Current Personalization Pipeline
+
+The production path is now explicitly:
+
+```text
+Watchlist, Pickups, explicit preferences, and retained taste memory
+-> CollectorInterestProfile evidence and typed traits
+-> confidence-aware trait strength and attenuated parent traits
+-> source-backed/global/local candidate neighborhood generation
+-> exact canonical resolution and trusted image validation
+-> collector feature extraction and learned feedback traits
+-> Collector Profile candidate scoring
+-> market context and publication hard gates
+-> slate reranking, diversity caps, and recommendation roles
+-> prepared/scheduled shelf persistence
+-> training context and More Like This / Not For Me outcomes
+-> typed learned-trait adjustments on the next final rank
+```
+
+Signal ownership is intentionally split by responsibility rather than by competing taste models:
+
+- `collector-profile.ts` owns durable evidence and extraction confidence.
+- `collector-profile-ranking-adapter.ts` owns absolute trait strength, inherited-trait attenuation, and the taste profile consumed by finalization.
+- `discovery-learning-features.ts` owns stable training taxonomy from canonical recommendation context.
+- `chase-store.ts` owns bounded learned summaries; one action cannot broadly define a preference.
+- `discover.ts` owns candidate neighborhood construction, exact rejection, market context, and publication selection.
+- `weekly-discovery-ranking.ts` owns candidate score components and portfolio reranking.
+
+Legacy candidate-ordering helpers remain in `discover.ts`, but learned typed traits are merged into the Collector Profile taste profile before final shelf scoring. They are no longer only a pre-finalization ordering nudge. The raw market value floor is diagnostic context rather than a collector-relevance gate; cheap source-backed cards still must pass all identity, provenance, quality, history, and diversity checks.
+
+Generation is also confidence-aware. A single inferred promo, language, era, or format can open one controlled exploration path, while repeated independent evidence is required before that trait receives material lane representation. Narrow traits inherit upward at reduced strength, for example e-reader period to WOTC, and never in reverse.
+
+`npm run discovery:inspect -- --user ...` reports profile confidence, evidence breadth/source counts, direct signal strength, learned typed-trait weights, and persisted recommendation score traces. Rejected-candidate traces still live primarily in preparation logs and are a remaining observability consolidation item.
+
 ### Current First Step
 
 The first ML-ready layer now lives in `src/commands/discover.ts`:

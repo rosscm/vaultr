@@ -104,6 +104,7 @@ export type DiscoveryLearnedSignalSummary = {
   featureWeights: Record<string, number>;
   termWeights: Record<string, number>;
   termEdgeWeights: Record<string, number>;
+  typedTraitWeights?: Record<string, number>;
   typedTraitEdgeWeights: Record<string, number>;
 };
 
@@ -1722,6 +1723,7 @@ export function getDiscoveryLearnedSignalSummary(userId: string, limit = 200): D
   const stats = new Map<string, { liked: number; rejected: number }>();
   const termStats = new Map<string, { liked: number; rejected: number }>();
   const termEdgeStats = new Map<string, { liked: number; rejected: number }>();
+  const typedTraitStats = new Map<string, { liked: number; rejected: number }>();
   const typedTraitEdgeStats = new Map<string, { liked: number; rejected: number }>();
   let likedCount = 0;
   let rejectedCount = 0;
@@ -1751,6 +1753,10 @@ export function getDiscoveryLearnedSignalSummary(userId: string, limit = 200): D
       }
     }
     const typedTraitTokens = discoveryTypedTraitTokens(features);
+    for (const trait of typedTraitTokens) {
+      const current = typedTraitStats.get(trait) ?? { liked: 0, rejected: 0 };
+      typedTraitStats.set(trait, incrementLearnedCounts(current, row.outcome));
+    }
     for (let outerIndex = 0; outerIndex < typedTraitTokens.length; outerIndex += 1) {
       for (let innerIndex = outerIndex + 1; innerIndex < typedTraitTokens.length; innerIndex += 1) {
         const edge = discoveryTermEdgeKey(typedTraitTokens[outerIndex], typedTraitTokens[innerIndex]);
@@ -1783,7 +1789,13 @@ export function getDiscoveryLearnedSignalSummary(userId: string, limit = 200): D
     if (total < 2) continue;
     typedTraitEdgeWeights[edge] = clampLearnedWeight(((counts.liked - counts.rejected) / total) * 16);
   }
-  return { exampleCount: rows.length, likedCount, rejectedCount, featureWeights, termWeights, termEdgeWeights, typedTraitEdgeWeights };
+  const typedTraitWeights: Record<string, number> = {};
+  for (const [trait, counts] of typedTraitStats.entries()) {
+    const total = counts.liked + counts.rejected;
+    if (total < 2) continue;
+    typedTraitWeights[trait] = clampLearnedWeight(((counts.liked - counts.rejected) / total) * 20);
+  }
+  return { exampleCount: rows.length, likedCount, rejectedCount, featureWeights, termWeights, termEdgeWeights, typedTraitWeights, typedTraitEdgeWeights };
 }
 
 export function getDiscoveryGlobalCollectorGrammarSummary(options: { limit?: number; minDistinctUsers?: number; minExamples?: number } = {}): DiscoveryGlobalCollectorGrammarSummary {

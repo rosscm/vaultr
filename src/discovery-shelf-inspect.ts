@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import { prepareWeeklyDiscoveryDropForUser } from './commands/discover.js';
+import { getDiscoveryLearnedSignalSummary } from './services/chase-store.js';
+import { getCollectorInterestProfile } from './services/collector-profile.js';
+import { collectorTraitSignalStrength } from './services/collector-profile-ranking-adapter.js';
 import { getWeeklyDiscoveryPreparedReserve } from './services/weekly-discovery-prepared-reserve.js';
 import { getWeeklyDiscoveryPreparationState } from './services/weekly-discovery-preparation-state.js';
 import { getLatestAvailableScheduledDiscoveryDrop, getScheduledDiscoveryDrop, scheduledDiscoveryPeriodKey } from './services/scheduled-discovery-drops.js';
@@ -131,6 +134,8 @@ const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', options.date);
 const preparationState = getWeeklyDiscoveryPreparationState(options.userId, periodKey);
 const preparedReserve = getWeeklyDiscoveryPreparedReserve(options.userId, periodKey);
 const retainedDrop = getLatestAvailableScheduledDiscoveryDrop(options.userId, 'WEEKLY_DISCOVERY', options.date.toISOString());
+const collectorProfile = getCollectorInterestProfile(options.userId);
+const learnedSignals = getDiscoveryLearnedSignalSummary(options.userId);
 
 if (options.refresh) {
   const result = await prepareWeeklyDiscoveryDropForUser(options.userId, options.date, {
@@ -158,6 +163,17 @@ if (!drop) {
 
 const names = drop.items.map((item) => item.suggestion.name);
 const blockedPresent = options.blockedNames.filter((name) => names.includes(name));
+const strongestTraits = Object.entries(collectorProfile.traits).flatMap(([group, traits]) => traits.map((trait) => ({
+  group,
+  label: trait.label,
+  ...collectorTraitSignalStrength(trait),
+  evidenceCount: trait.evidenceCount,
+  sources: {
+    active: trait.activeEvidenceCount,
+    completed: trait.completedEvidenceCount,
+    legacy: trait.legacyEvidenceCount
+  }
+}))).sort((left, right) => right.strength - left.strength || right.evidenceCount - left.evidenceCount).slice(0, 20);
 console.log(JSON.stringify({
   userId: options.userId,
   periodKey,
@@ -195,6 +211,26 @@ console.log(JSON.stringify({
   marketReadyCount: drop.marketReadyCount,
   imageReadyCount: drop.imageReadyCount,
   retainedShelfPeriod: retainedDrop?.periodKey,
+  collectorProfile: {
+    confidence: collectorProfile.confidence,
+    sourceSummary: collectorProfile.sourceSummary,
+    strongestTraits
+  },
+  learnedFeedback: {
+    exampleCount: learnedSignals.exampleCount,
+    likedCount: learnedSignals.likedCount,
+    rejectedCount: learnedSignals.rejectedCount,
+    typedTraitWeights: learnedSignals.typedTraitWeights
+  },
+  recommendationTrace: drop.items.map((item) => ({
+    position: item.position,
+    name: item.suggestion.name,
+    canonicalId: item.suggestion.referenceSourceCardId,
+    role: item.suggestion.discoveryRole,
+    strongestSignals: item.suggestion.rankExplanation?.strongestSignals,
+    noveltyReason: item.suggestion.rankExplanation?.noveltyReason,
+    scoreComponents: item.suggestion.rankExplanation?.scoreComponents
+  })),
   page0: names.slice(0, 10),
   page1: names.slice(10, 20),
   blockedPresent

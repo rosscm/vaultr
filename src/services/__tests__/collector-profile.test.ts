@@ -9,7 +9,7 @@ import { importVerifiedCuratedRecords } from '../card-catalog/importers/curated.
 import type { CardCatalogRecord } from '../card-catalog/types.js';
 import { addChase, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, resolveChaseRemoval } from '../chase-store.js';
 import { buildCollectorInterestProfile, getCollectorInterestProfile, type CollectorInterestProfile } from '../collector-profile.js';
-import { analyzeCollectorProfileShadowReserve, collectorInterestProfileToTasteProfile, extractCollectorProfileDiscoveryFeatures, weeklyDiscoveryRankingModeForCollectorProfile } from '../collector-profile-ranking-adapter.js';
+import { analyzeCollectorProfileShadowReserve, applyLearnedFeedbackToTasteProfile, collectorInterestProfileToTasteProfile, collectorTraitSignalStrength, extractCollectorProfileDiscoveryFeatures, weeklyDiscoveryRankingModeForCollectorProfile } from '../collector-profile-ranking-adapter.js';
 import { db } from '../db.js';
 import { parseCollectorProfileInspectArgs, runCollectorProfileInspectCli } from '../../collector-profile-inspect.js';
 import { createUser, linkIdentity } from '../accounts.js';
@@ -616,6 +616,62 @@ describe('collector interest profile', () => {
     expect(collectorInterestProfileToTasteProfile(second)).toEqual(adapted);
   });
 
+  it('keeps isolated inferred traits weak and strengthens repeated independent evidence', () => {
+    const isolated = buildCollectorInterestProfile({
+      activeChases: [{ id: 'single', userId: 'u1', cardName: 'Pichu VMAX Expedition Base Set 22/165 Japanese', createdAt: '2026-01-01T00:00:00.000Z' }],
+      completedChases: []
+    });
+    const repeated = buildCollectorInterestProfile({
+      activeChases: [
+        'Pichu VMAX Expedition Base Set 22/165 Japanese',
+        'Mew VMAX Expedition Base Set 55/165 Japanese',
+        'Dragonite VMAX Expedition Base Set 43/165 Japanese',
+        'Gengar VMAX Expedition Base Set 48/165 Japanese'
+      ].map((cardName, index) => ({ id: `repeat-${index}`, userId: 'u1', cardName, createdAt: `2026-01-0${index + 1}T00:00:00.000Z` })),
+      completedChases: []
+    });
+
+    const isolatedRanker = collectorInterestProfileToTasteProfile(isolated);
+    const repeatedRanker = collectorInterestProfileToTasteProfile(repeated);
+    expect(isolatedRanker.eras['e-reader-period']).toBeLessThan(1.5);
+    expect(isolatedRanker.eras.WOTC).toBeLessThan(isolatedRanker.eras['e-reader-period'] ?? 0);
+    expect(isolatedRanker.languages.JAPANESE).toBeLessThan(1.5);
+    expect(isolatedRanker.formats.VMAX).toBeLessThan(1.75);
+    expect(repeatedRanker.eras['e-reader-period']).toBeGreaterThan((isolatedRanker.eras['e-reader-period'] ?? 0) * 2);
+    expect(repeatedRanker.languages.JAPANESE).toBeGreaterThan((isolatedRanker.languages.JAPANESE ?? 0) * 2);
+    expect(repeatedRanker.formats.VMAX).toBeGreaterThan((isolatedRanker.formats.VMAX ?? 0) * 2);
+  });
+
+  it('reports inspectable confidence-aware trait strength', () => {
+    const profile = buildCollectorInterestProfile({
+      activeChases: [
+        { id: 'a1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', userId: 'u1', cardName: 'Mew XY192', createdAt: '2026-01-02T00:00:00.000Z' }
+      ],
+      completedChases: []
+    });
+    const subject = profile.traits.subjects.find((trait) => trait.label === 'Mew');
+    expect(subject).toBeDefined();
+    expect(collectorTraitSignalStrength(subject!)).toMatchObject({ distinctEvidenceCount: 2, explicitEvidenceCount: 0, direct: true });
+    expect(collectorTraitSignalStrength(subject!).strength).toBeGreaterThan(collectorTraitSignalStrength({ ...subject!, score: 1, evidenceCount: 1, activeEvidenceCount: 1, evidenceIds: ['single'] }).strength);
+  });
+
+  it('merges repeated typed feedback into the final taste profile without conflating format and art treatment', () => {
+    const base = tasteProfile({ formats: { VMAX: 2 }, artTiers: { illustration: 1 } });
+    const learned = applyLearnedFeedbackToTasteProfile(base, {
+      typedTraitWeights: {
+        'format:vmax': -20,
+        'artShape:illustration rare': 20,
+        'region:japanese': 10
+      }
+    });
+
+    expect(learned.formats.VMAX).toBe(0);
+    expect(learned.artTiers.illustration).toBe(3);
+    expect(learned.languages.JAPANESE).toBe(1);
+    expect(base).toMatchObject({ formats: { VMAX: 2 }, artTiers: { illustration: 1 }, languages: {} });
+  });
+
   it('selects live weekly ranking mode from collector profile confidence tier', () => {
     const base = buildCollectorInterestProfile({
       activeChases: [{ id: 'a1', userId: 'u1', cardName: 'Mew RC24', createdAt: '2026-01-01T00:00:00.000Z' }],
@@ -731,6 +787,21 @@ describe('collector interest profile', () => {
     expect(features.eras).toContain('SV');
     expect(features.rarityTiers).toContain('premium');
     expect(features.releaseTypes).toEqual(expect.arrayContaining(['japanese-release', 'special-release']));
+  });
+
+  it('uses arbitrary trusted canonical card subjects without a developer-maintained subject entry', () => {
+    const features = extractCollectorProfileDiscoveryFeatures(candidate('Decorated search label with metadata', {
+      catalogFacts: {
+        source: 'POKEMONTCG',
+        sourceCardId: 'sv-test-1',
+        canonicalName: 'Iron Valiant ex',
+        setName: 'Future Flash',
+        cardNumber: '1',
+        language: 'en',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    }));
+    expect(features.subjects).toEqual(['Iron Valiant']);
   });
 
   it('uses illustrator affinity as adjacent support without overtaking a direct subject match', () => {
