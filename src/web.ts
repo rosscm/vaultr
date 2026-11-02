@@ -6,6 +6,7 @@ import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import {
+  countChaseAlertsWithinMinutes,
   dismissAlert,
   getUserPlan,
   getUserDiscoveryFeedback,
@@ -54,6 +55,7 @@ import {
   type ScheduledDiscoveryDropItem
 } from './services/scheduled-discovery-drops.js';
 import { weeklyPreparationTargetDate } from './services/discovery-drop-scheduler.js';
+import { hasViewedDisplayCasePeriod, markDisplayCasePeriodViewed } from './services/display-case-views.js';
 import { alertSettingsResponse, updateAlertSettings } from './services/alert-settings.js';
 import { getOrCreateOnboardingState, transitionOnboarding, type OnboardingAction, type OnboardingStep } from './services/onboarding.js';
 import { collectorPreferenceOptions, getCollectorPreferences, saveCollectorPreferences } from './services/collector-preferences.js';
@@ -366,7 +368,8 @@ function publicCompletedChase(chase: ReturnType<typeof getVaultChases>['complete
 function publicVaultItem(view: ReturnType<typeof getVaultChases>['chases'][number]) {
   return {
     chase: publicChase(view.chase),
-    monitoringState: view.monitoringState
+    monitoringState: view.monitoringState,
+    highVolume: view.monitoringState === 'ACTIVE' && countChaseAlertsWithinMinutes(view.chase.userId, view.chase.id, 60) >= 3
   };
 }
 
@@ -738,7 +741,8 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
       items: [],
       discovery: webDiscoveryState(userId, config, false),
       starterItems: generalDiscovery.items,
-      generalDiscovery: { periodKey: generalDiscovery.periodKey, status: generalDiscovery.status, mode: generalDiscovery.mode, catalogItemCount: generalDiscovery.catalogItemCount }
+      generalDiscovery: { periodKey: generalDiscovery.periodKey, status: generalDiscovery.status, mode: generalDiscovery.mode, catalogItemCount: generalDiscovery.catalogItemCount },
+      isNew: false
     });
   }
 
@@ -759,6 +763,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     currency: drop.currency,
     items: personalized ? drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey)) : [],
     discovery,
+    isNew: !hasViewedDisplayCasePeriod(userId, drop.periodKey),
     ...(personalized ? {} : {
       starterItems: generalDiscovery!.items,
       generalDiscovery: { periodKey: generalDiscovery!.periodKey, status: generalDiscovery!.status, mode: generalDiscovery!.mode, catalogItemCount: generalDiscovery!.catalogItemCount }
@@ -1299,6 +1304,20 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');
     return shelfResponse(session.userId, options.config, options.now?.() ?? new Date());
+  }
+
+  if (method === 'POST' && url.pathname === '/api/shelf/view') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    const parsed = requireJsonBody(request);
+    if ('status' in parsed) return parsed;
+    if (Object.keys(parsed.body).some((field) => field !== 'periodKey')) return errorResponse(400, 'invalid_shelf_view');
+    const periodKey = parsed.body.periodKey;
+    if (typeof periodKey !== 'string' || !/^\d{4}-W\d{2}(?:-[A-Z]+)?$/.test(periodKey)) return errorResponse(400, 'invalid_shelf_view');
+    const visible = listScheduledDiscoveryDropsForUser(session.userId, 'WEEKLY_DISCOVERY').some((drop) => drop.periodKey === periodKey && validDashboardShelf(drop));
+    if (!visible) return errorResponse(404, 'not_found');
+    markDisplayCasePeriodViewed(session.userId, periodKey, options.now?.().toISOString());
+    return jsonResponse(200, { periodKey, viewed: true });
   }
 
   const alertMatch = url.pathname.match(/^\/api\/alerts\/([^/]+)$/);

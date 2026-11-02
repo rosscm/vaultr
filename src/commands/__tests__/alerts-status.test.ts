@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildAlertsStatusEmbed } from '../alerts-status.js';
-import { addChase, markAlertSentWithDetails, markChasesPollChecked, removeAllChases, resetUserAlertSettings, setUserAlertSettings, setUserPlan } from '../../services/chase-store.js';
+import { addChase, markChasesPollChecked, removeAllChases, resetUserAlertSettings, setUserAlertSettings, setUserPlan, upsertAlertEvent } from '../../services/chase-store.js';
 
 function embedFieldValue(embed: ReturnType<typeof buildAlertsStatusEmbed>, name: string): string {
   const json = embed.toJSON();
@@ -17,11 +17,16 @@ describe('buildAlertsStatusEmbed', () => {
     setUserAlertSettings(userId, { alertCurrency: 'CAD', shippingCountry: 'CA', shippingPostalCode: 'M5V', listingSourceMode: 'EBAY_SHOPIFY' });
     const chase = addChase({ userId, cardName: 'Squirtle 007/018', priority: 'GRAIL', maxPrice: 1200 });
     markChasesPollChecked([chase.id], '2026-06-12T18:55:00.000Z');
-    markAlertSentWithDetails(chase.id, userId, 'v1|123|0', 'EBAY', {
+    upsertAlertEvent({
+      userId,
+      chaseId: chase.id,
+      listingId: 'v1|123|0',
+      source: 'EBAY',
       listingTitle: 'Squirtle 007/018',
       listingPrice: 100,
       listingCurrency: 'CAD',
-      matchScore: 97
+      matchScore: 97,
+      now: '2026-06-12T18:58:00.000Z'
     });
 
     const embed = buildAlertsStatusEmbed(userId, new Date('2026-06-12T19:00:00.000Z'));

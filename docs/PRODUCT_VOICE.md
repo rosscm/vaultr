@@ -46,7 +46,7 @@ Use warmer Discovery copy:
 Avoid flavor in high-stakes or corrective copy:
 
 - Billing, access, validation, privacy, and health messages should not be cute
-- Keep coffee/Pokaccini flavor in announcements and Discovery moments
+- Keep coffee/Pokaccini flavor in web Discovery moments
 
 ## Punctuation
 

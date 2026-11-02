@@ -33,6 +33,7 @@ import {
   upsertAlertEvent
 } from '../chase-store.js';
 import { createUser, linkIdentity } from '../accounts.js';
+import { setDiscordCardAlertsEnabled } from '../notification-settings.js';
 import { db } from '../db.js';
 import { matchChaseToListing } from '../matcher.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
@@ -389,6 +390,7 @@ describe('pending Discord alert deliveries', () => {
     db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM sent_alerts WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_notification_settings WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
     db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   }
@@ -404,6 +406,7 @@ describe('pending Discord alert deliveries', () => {
       providerUserId: discordUserId,
       username: 'pending-collector'
     });
+    setDiscordCardAlertsEnabled(userId, true);
     const send = vi.fn(async () => ({ id: 'discord-message-1' }));
     const client = {
       users: {
@@ -447,6 +450,30 @@ describe('pending Discord alert deliveries', () => {
       matchScore: 94
     });
 
+    clearAlertRows(userId);
+    clearAlertRows(discordUserId);
+  });
+
+  it('suppresses pending Discord delivery when card alerts are not opted in while preserving the Inbox event', async () => {
+    const account = createUser({ displayName: 'Inbox Only Collector' });
+    const userId = account.id;
+    const discordUserId = `discord-inbox-only-${Date.now()}`;
+    linkIdentity({ userId, provider: 'DISCORD', providerUserId: discordUserId });
+    const { alertId, deliveryId } = enqueueAlertEventDelivery({
+      userId,
+      chaseId: 'chase-opt-out',
+      listingId: 'listing-opt-out',
+      source: 'EBAY',
+      channel: 'DISCORD_DM',
+      listingTitle: 'Mew RC24 raw',
+      listingUrl: 'https://example.test/opt-out'
+    });
+    const client = { users: { fetch: vi.fn() } };
+
+    expect(await processPendingDiscordAlertDeliveries(client as never, 5)).toEqual({ sent: 0, failed: 0, skipped: 1 });
+    expect(client.users.fetch).not.toHaveBeenCalled();
+    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'SUPPRESSED', attempts: 0 });
+    expect(getAlertEventById(alertId)).toMatchObject({ userId, listingTitle: 'Mew RC24 raw' });
     clearAlertRows(userId);
     clearAlertRows(discordUserId);
   });

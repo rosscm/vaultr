@@ -5238,3 +5238,12 @@ a {
     transform: translate(12%, -50%) rotate(10deg);
   }
 }
+.vault-tuning-copy {
+  color: var(--muted);
+  font-size: 0.84rem;
+  margin: 0.45rem 0 0;
+}
+
+.vault-tuning-copy strong {
+  color: var(--text);
+}

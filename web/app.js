@@ -754,9 +754,9 @@ function onboardingResumePromptMarkup() {
 
 function navButton(page, label) {
   const selected = state.activePage === page;
-  const hasNewMatches = page === 'alerts' && state.hasNewAlerts;
-  const accessibleLabel = hasNewMatches ? `${label}, new matches available` : label;
-  return `<button class="nav-button" type="button" data-page="${page}" aria-label="${accessibleLabel}" aria-selected="${selected ? 'true' : 'false'}"${selected ? ' aria-current="page"' : ''}>${iconMarkup(page)}<span class="nav-label">${label}${hasNewMatches ? '<span class="nav-notification-dot" aria-hidden="true"></span>' : ''}</span></button>`;
+  const hasNewState = (page === 'alerts' && state.hasNewAlerts) || (page === 'shelf' && state.shelf?.isNew);
+  const accessibleLabel = hasNewState ? `${label}, new content available` : label;
+  return `<button class="nav-button" type="button" data-page="${page}" aria-label="${accessibleLabel}" aria-selected="${selected ? 'true' : 'false'}"${selected ? ' aria-current="page"' : ''}>${iconMarkup(page)}<span class="nav-label">${label}${hasNewState ? '<span class="nav-notification-dot" aria-hidden="true"></span>' : ''}</span></button>`;
 }
 
 function iconMarkup(name) {
@@ -799,7 +799,8 @@ function settingsComparable(value) {
     alertCurrency: value.alertCurrency,
     shippingCountry: value.shippingCountry ?? null,
     shippingPostalCode: value.shippingPostalCode ?? null,
-    listingSourceMode: value.listingSourceMode
+    listingSourceMode: value.listingSourceMode,
+    discordCardAlertsEnabled: Boolean(value.discordCardAlertsEnabled)
   };
 }
 
@@ -940,7 +941,21 @@ function settingsPageMarkup() {
             `).join('')}
           </fieldset>
           <small class="field-hint" id="settings-volume-help">The limit applies across active Watchlist searches.</small>
+          ${state.settings?.status?.alertVolumeReached ? '<p class="form-notice" role="status"><strong>Alert volume reached.</strong> KeepSeek has reached your current hourly match limit. New matches will resume as the rolling hour clears.</p>' : ''}
           ${settingsFieldError('alertVolume')}
+        </section>
+        <section class="settings-group" aria-labelledby="settings-delivery-title">
+          <div class="settings-group-heading">
+            <p class="eyebrow">Delivery</p>
+            <h2 id="settings-delivery-title">Discord alerts</h2>
+            <p>Get matching card alerts by Discord DM. Your KeepSeek Inbox keeps every match whether this is on or off.</p>
+          </div>
+          <label class="field settings-toggle-field">
+            <span>Discord DM alerts</span>
+            <input name="discordCardAlertsEnabled" type="checkbox"${draft.discordCardAlertsEnabled ? ' checked' : ''}${controlsDisabled || !access.discordLinked ? ' disabled' : ''} aria-describedby="${describedBy('discordCardAlertsEnabled', 'settings-discord-alerts-help')}">
+            <small class="field-hint" id="settings-discord-alerts-help">${access.discordLinked ? 'Optional delivery for card and listing matches only.' : 'Connect Discord in Login methods before enabling DM alerts.'}</small>
+            ${settingsFieldError('discordCardAlertsEnabled')}
+          </label>
         </section>
         <section class="settings-group" aria-labelledby="settings-sources-title">
           <div class="settings-group-heading">
@@ -1859,6 +1874,7 @@ function vaultCardMarkup(item) {
         </div>
         <h2>${escapeHtml(chase.cardName || 'Watchlist card')}</h2>
         ${item.monitoringState === 'PAUSED_PLAN_LIMIT' ? '<p class="paused-copy">Saved in your Watchlist, but not monitored under the current plan limit.</p>' : userPaused ? '<p class="paused-copy">Search is paused. Your preferences are preserved.</p>' : ''}
+        ${item.highVolume ? '<p class="vault-tuning-copy"><strong>Lots of recent matches.</strong> Tightening the card details or filters may improve precision.</p>' : ''}
         <p class="vault-search-summary">${criteria.map((criterion) => `<span>${iconMarkup(criterion.icon)}${escapeHtml(criterion.text)}</span>`).join('')}</p>
         </div>
         <div class="vault-actions">
@@ -2584,7 +2600,7 @@ async function ensureVaultLoaded() {
 }
 
 async function loadShelf({ force = false } = {}) {
-  if (state.shelfLoaded && !force) {
+  if (state.shelfLoaded && !force && !(state.activePage === 'shelf' && state.shelf?.isNew)) {
     renderCurrentPage();
     return;
   }
@@ -2597,6 +2613,19 @@ async function loadShelf({ force = false } = {}) {
     state.shelfLoaded = true;
     state.isShelfLoading = false;
     renderCurrentPage();
+    if (!isPreviewMode && state.activePage === 'shelf' && state.shelf?.isNew && state.shelf.periodKey) {
+      try {
+        await fetchJson('/api/shelf/view', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ periodKey: state.shelf.periodKey })
+        });
+        state.shelf.isNew = false;
+        renderCurrentPage();
+      } catch (error) {
+        if (String(error?.message) === 'unauthorized') return;
+      }
+    }
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
     state.shelfError = 'load_failed';
@@ -3778,6 +3807,13 @@ app.addEventListener('change', async (event) => {
     state.settingsDraft.alertVolume = target.value;
     state.settingsSaveStatus = '';
     clearSettingsFieldError('alertVolume');
+    syncSettingsFormState();
+    return;
+  }
+  if (target instanceof HTMLInputElement && target.closest('[data-settings-form]') && target.name === 'discordCardAlertsEnabled') {
+    state.settingsDraft.discordCardAlertsEnabled = target.checked;
+    state.settingsSaveStatus = '';
+    clearSettingsFieldError('discordCardAlertsEnabled');
     syncSettingsFormState();
     return;
   }

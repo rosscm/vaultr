@@ -329,6 +329,18 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS user_notification_settings (
+    user_id TEXT PRIMARY KEY,
+    discord_card_alerts_enabled INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS user_display_case_views (
+    user_id TEXT PRIMARY KEY,
+    period_key TEXT NOT NULL,
+    viewed_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS user_discovery_preferences (
     user_id TEXT NOT NULL,
     focus TEXT NOT NULL,
@@ -690,6 +702,8 @@ const USER_ID_OWNED_TABLES = [
   'source_observations',
   'user_plans',
   'user_alert_settings',
+  'user_notification_settings',
+  'user_display_case_views',
   'user_discovery_preferences',
   'user_collector_subject_preferences',
   'user_collector_artwork_preferences',

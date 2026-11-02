@@ -1,4 +1,4 @@
-import { ChannelType, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import {
   countChaseAlertsWithinMinutes,
   countUserAlertsInLastHour,
@@ -19,7 +19,7 @@ import { alertEbaySearchOptions } from '../services/poller.js';
 import { activePlanTier, PLAN_LIMITS } from '../services/plans.js';
 import { CHASE_ALERT_COOLDOWN_MINUTES } from '../services/alert-policy.js';
 import { getPollerState } from '../services/poller-state.js';
-import { getWeeklyDiscoveryPreparationHealth, sendWeeklyDropTestAnnouncement } from '../services/discovery-drop-scheduler.js';
+import { getWeeklyDiscoveryPreparationHealth } from '../services/discovery-drop-scheduler.js';
 import { getDiscoveryMarketRefreshQueueStats } from '../services/discovery-market-jobs.js';
 import { getDiscoveryMarketRefreshThrottleState } from './discover.js';
 import { infoEmbed, warningEmbed } from '../ui/embeds.js';
@@ -386,9 +386,6 @@ export const health = {
     )
     .addStringOption((opt) =>
       opt.setName('item_id').setDescription('Owner debug: eBay item/listing ID to inspect').setMaxLength(120)
-    )
-    .addBooleanOption((opt) =>
-      opt.setName('test_weekly_drop').setDescription('Owner debug: post a Weekly Shelf announcement in this channel')
     ),
   async execute(interaction: any) {
     const ownerId = process.env.OWNER_USER_ID;
@@ -396,28 +393,6 @@ export const health = {
       await interaction.reply({
         embeds: [warningEmbed('Owner Only', 'This command is reserved for the KeepSeek owner')],
         flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
-    const testWeeklyDrop = interaction.options.getBoolean('test_weekly_drop') === true;
-    if (testWeeklyDrop) {
-      if (!interaction.channel || interaction.channel.type !== ChannelType.GuildText) {
-        await interaction.reply({
-          embeds: [warningEmbed('Text Channel Required', 'Run this from the server text channel where the test drop should appear')],
-          flags: MessageFlags.Ephemeral
-        });
-        return;
-      }
-
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const result = await sendWeeklyDropTestAnnouncement(interaction.channel);
-      await interaction.editReply({
-        embeds: [infoEmbed('Weekly Shelf Posted', [
-          `**Drop:** ${result.periodKey}`,
-          `**Prepared Shelves:** ${result.preparedCount}`,
-          `**Message ID:** ${result.messageId}`
-        ].join('\n'))]
       });
       return;
     }
@@ -520,13 +495,12 @@ export const health = {
 
     lines.push(
       '',
-      '**Weekly Shelf Delivery:**',
+      '**Display Case Preparation:**',
       `**Target Drop:** ${weeklyDiscovery.periodKey} (${formatTimeWithAge(weeklyDiscovery.availableAt)})`,
       `**Prepared Coverage:** ${weeklyDiscovery.prepared}/${weeklyDiscovery.proUsers} Pro collector${weeklyDiscovery.proUsers === 1 ? '' : 's'}`,
       `**Thin Profiles:** ${weeklyDiscovery.ineligible} excluded for insufficient collector signal`,
-      `**Delivery:** ${weeklyDiscovery.delivered} delivered, ${weeklyDiscovery.deliveryPending} pending`,
       `**Preparation:** ${weeklyDiscovery.preparing} preparing, ${weeklyDiscovery.retryScheduled} retry scheduled, ${weeklyDiscovery.failedFinal} final failure, ${weeklyDiscovery.missing} missing`,
-      `**Overdue Unresolved:** ${weeklyDiscovery.overdueUnresolved}`,
+      `**Overdue Unprepared:** ${weeklyDiscovery.overdueUnprepared}`,
       `**Stale Leases:** ${weeklyDiscovery.staleLeases}`,
       `**Late Recoveries:** ${weeklyDiscovery.lateRecoveries}`,
       `**Owner Alerts:** ${weeklyDiscovery.ownerAlertSent}`,

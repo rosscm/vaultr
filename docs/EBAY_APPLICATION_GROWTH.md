@@ -4,7 +4,7 @@ Use this as the working copy for an eBay Developer support ticket or App Check /
 
 ## Short Summary
 
-Vaultr is a Discord-native collector companion that helps users monitor personally saved trading-card chases and receive relevant listing sightings by DM. eBay Browse is used for user-requested chase monitoring and optional cached market context. Vaultr does not scrape eBay pages, does not automate purchasing, and does not expose eBay data as a public search engine.
+KeepSeek is a web-first collector app that helps users monitor personally saved trading-card chases and review relevant listing matches in their Inbox, with optional opted-in Discord card-alert delivery. eBay Browse is used for user-requested chase monitoring and optional cached market context. KeepSeek does not scrape eBay pages, automate purchasing, or expose eBay data as a public search engine.
 
 ## Suggested Request
 

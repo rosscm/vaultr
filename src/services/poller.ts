@@ -22,6 +22,7 @@ import {
   getAlertEventById,
   listPendingAlertDeliveries,
   markAlertDeliveryFailed,
+  markAlertDeliverySuppressed,
   markAlertDeliverySent,
   markAlertSentWithDetails,
   releaseIncompleteAlertSendClaim,
@@ -56,9 +57,10 @@ import {
   setPollerCoverageSnapshot,
   setSourceCallsLastMinute
 } from './poller-state.js';
-import { alertFeedbackButtons, keyValue, listingLinkButton, warningEmbed } from '../ui/embeds.js';
+import { alertFeedbackButtons, keyValue, listingLinkButton } from '../ui/embeds.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
 import { resolveDiscordUserId } from './accounts.js';
+import { getUserNotificationSettings } from './notification-settings.js';
 import type { Chase, Listing, ListingSourceModePreference } from '../types.js';
 
 function formatReasons(reasons: string[]): string {
@@ -353,8 +355,6 @@ async function sleep(ms: number): Promise<void> {
 }
 
 const sourceCallTimestamps: number[] = [];
-const throttleNoticeTimestampsByUser = new Map<string, number>();
-const chaseTuningNoticeTimestamps = new Map<string, number>();
 const recentFingerprintTimestamps = new Map<string, number>();
 const lastSourceFetchAtMsByQueryKey = new Map<string, number>();
 let backoffUntilMs = 0;
@@ -719,34 +719,6 @@ async function fetchListingsWithRetry(
   return sourceResult([...ebayListings, ...shopifyListings], providers);
 }
 
-async function sendThrottleNoticeIfNeeded(client: Client, userId: string, maxAlertsPerHour: number): Promise<void> {
-  const nowMs = Date.now();
-  const lastNotifiedAt = throttleNoticeTimestampsByUser.get(userId) ?? 0;
-  const throttleNoticeCooldownMs = 60 * 60 * 1000;
-  if (nowMs - lastNotifiedAt < throttleNoticeCooldownMs) return;
-  const discordUserId = resolveDiscordUserId(userId);
-  if (!discordUserId) return;
-
-  try {
-    const user = await client.users.fetch(discordUserId);
-    await withTimeout(
-      user.send({
-        embeds: [
-          warningEmbed(
-            'Alerts Temporarily Throttled',
-            `KeepSeek sent ${maxAlertsPerHour} alerts in the last hour. To reduce volume, add card details, raise \`min_score\`, or tighten available chase filters.`
-          )
-        ]
-      }),
-      10000,
-      'Throttle DM send timeout'
-    );
-    throttleNoticeTimestampsByUser.set(userId, nowMs);
-  } catch (error) {
-    console.error(`Failed to send throttle notice to Vaultr user ${userId}`, error);
-  }
-}
-
 export function shouldSendChaseTuningNotice(sentForChaseThisPoll: number, eligibleCandidates: number, maxForChaseThisPoll: number): boolean {
   return sentForChaseThisPoll >= maxForChaseThisPoll && eligibleCandidates > sentForChaseThisPoll;
 }
@@ -771,44 +743,6 @@ export function chaseTuningNoticeLines(
     'If that feels noisy, tighten the chase name or lower the max price so KeepSeek has a clearer target.',
     'For precision controls and custom exclusions, `/upgrade` explains KeepSeek Plus.'
   ];
-}
-
-async function sendChaseTuningNoticeIfNeeded(
-  client: Client,
-  chase: Chase,
-  sentForChaseThisPoll: number,
-  eligibleCandidates: number,
-  maxForChaseThisPoll: number
-): Promise<void> {
-  if (!shouldSendChaseTuningNotice(sentForChaseThisPoll, eligibleCandidates, maxForChaseThisPoll)) return;
-
-  const nowMs = Date.now();
-  const key = `${chase.userId}:${chase.id}`;
-  const lastNotifiedAt = chaseTuningNoticeTimestamps.get(key) ?? 0;
-  const tuningNoticeCooldownMs = 24 * 60 * 60 * 1000;
-  if (nowMs - lastNotifiedAt < tuningNoticeCooldownMs) return;
-  const activeTier = activePlanTier(getUserPlan(chase.userId));
-  const discordUserId = resolveDiscordUserId(chase.userId);
-  if (!discordUserId) return;
-
-  try {
-    const user = await client.users.fetch(discordUserId);
-    await withTimeout(
-      user.send({
-        embeds: [
-          warningEmbed(
-            'High-Volume Chase',
-            chaseTuningNoticeLines(chase, activeTier, sentForChaseThisPoll, eligibleCandidates).join('\n')
-          )
-        ]
-      }),
-      10000,
-      'Chase tuning DM send timeout'
-    );
-    chaseTuningNoticeTimestamps.set(key, nowMs);
-  } catch (error) {
-    console.error(`Failed to send chase tuning notice to Vaultr user ${chase.userId}`, error);
-  }
 }
 
 function alertEventDeliveryDetails(event: NonNullable<ReturnType<typeof getAlertEventById>>): Parameters<typeof markAlertSentWithDetails>[4] {
@@ -868,6 +802,13 @@ export async function processPendingDiscordAlertDeliveries(client: Client, limit
     if (!event.listingUrl) {
       markAlertDeliveryFailed(delivery.id, new Error('Missing listing URL for pending delivery'));
       failed += 1;
+      continue;
+    }
+
+    const notificationSettings = getUserNotificationSettings(event.userId);
+    if (!notificationSettings.discordCardAlertsEnabled || !notificationSettings.discordLinked) {
+      markAlertDeliverySuppressed(delivery.id, notificationSettings.discordCardAlertsEnabled ? 'Discord identity not linked' : 'Discord card alerts disabled');
+      skipped += 1;
       continue;
     }
 
@@ -1135,7 +1076,6 @@ async function runPoll(client: Client): Promise<void> {
 
       const maxAlertsPerHour = settings.maxAlertsPerHour;
       if (countUserAlertsInLastHour(chase.userId) >= maxAlertsPerHour) {
-        await sendThrottleNoticeIfNeeded(client, chase.userId, maxAlertsPerHour);
         break;
       }
 
@@ -1312,7 +1252,8 @@ async function runPoll(client: Client): Promise<void> {
           matchReasons: match.reasons
         }
       });
-      const discordUserId = resolveDiscordUserId(chase.userId);
+      const notificationSettings = getUserNotificationSettings(chase.userId);
+      const discordUserId = notificationSettings.discordCardAlertsEnabled ? resolveDiscordUserId(chase.userId) : null;
       if (!discordUserId) {
         sentForChaseThisPoll += 1;
         markPollerMatchSent();
@@ -1347,7 +1288,6 @@ async function runPoll(client: Client): Promise<void> {
         console.error(`Failed to send DM alert to Vaultr user ${chase.userId}`, error);
       }
     }
-      await sendChaseTuningNoticeIfNeeded(client, chase, sentForChaseThisPoll, orderedCandidates.length, maxForChaseThisPoll);
     }
   }
 

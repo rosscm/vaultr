@@ -2,7 +2,7 @@
   "name": "vaultr",
   "version": "0.1.0",
   "private": true,
-  "description": "Discord-native collector chase assistant",
+  "description": "Web-first collector Watchlist, Inbox, and discovery app",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

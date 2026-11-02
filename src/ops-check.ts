@@ -140,7 +140,6 @@ function weeklyRecoveryBody(periodKey: string, weekly: ReturnType<typeof getWeek
     '**KeepSeek Display Case recovered**',
     `Period: \`${periodKey}\``,
     `Prepared: ${weekly.prepared}/${weekly.proUsers}`,
-    `Delivered: ${weekly.delivered}/${weekly.proUsers}`,
     `Recovered users: ${recoveredUserIds.join(', ')}`,
     'Automatic recovery completed.'
   ].join('\n').slice(0, 1900);
@@ -296,18 +295,18 @@ function checkDiscoveryHealth(): CheckResult {
     };
   }
 
-  if (weekly.proUsers > 0 && weekly.overdueUnresolved > 0 && nowMs >= Date.parse(weekly.availableAt) + ownerAlertGraceMs()) {
+  if (weekly.proUsers > 0 && weekly.overdueUnprepared > 0 && nowMs >= Date.parse(weekly.availableAt) + ownerAlertGraceMs()) {
     return {
       name: 'discovery-health',
       ok: false,
-      details: `weekly ${weekly.periodKey}: prepared ${weekly.prepared}/${weekly.proUsers}, delivered ${weekly.delivered}/${weekly.proUsers}, overdue ${weekly.overdueUnresolved}, next retry ${weekly.nextRetryAt ?? 'none'}, recovery ${weekly.automaticRecoveryActive ? 'active' : 'inactive'}`
+      details: `weekly ${weekly.periodKey}: prepared ${weekly.prepared}/${weekly.proUsers}, overdue unprepared ${weekly.overdueUnprepared}, next retry ${weekly.nextRetryAt ?? 'none'}, recovery ${weekly.automaticRecoveryActive ? 'active' : 'inactive'}`
     };
   }
 
   return {
     name: 'discovery-health',
     ok: true,
-    details: `weekly ${weekly.periodKey}: ${weekly.prepared}/${weekly.proUsers} prepared, ${weekly.delivered} delivered, ${weekly.retryScheduled} retry scheduled, queue ready ${readyBacklog}, running ${queue.running}`
+    details: `weekly ${weekly.periodKey}: ${weekly.prepared}/${weekly.proUsers} prepared, ${weekly.retryScheduled} retry scheduled, queue ready ${readyBacklog}, running ${queue.running}`
   };
 }
 
@@ -352,9 +351,9 @@ if (failures.some((failure) => failure.name === 'discovery-health')) {
 } else {
   const recoveredStates = listWeeklyDiscoveryPreparationStates(weekly.periodKey)
     .filter((state) => state.ownerAlertSent && !state.recoveredAfterRelease)
-    .filter((state) => state.state === 'READY' && state.deliveryState === 'DELIVERED')
+    .filter((state) => state.state === 'READY')
     .map((state) => state.userId);
-  if (recoveredStates.length > 0 && weekly.overdueUnresolved === 0 && priorAlertState.lastFailureFingerprint) {
+  if (recoveredStates.length > 0 && weekly.overdueUnprepared === 0 && priorAlertState.lastFailureFingerprint) {
     try {
       const delivered = await sendDiscordAlert(weeklyRecoveryBody(weekly.periodKey, weekly, recoveredStates));
       if (delivered) {

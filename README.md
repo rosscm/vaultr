@@ -1,17 +1,16 @@
-# Vaultr
+# KeepSeek
 
-Build your Vault. Chase your grails. Discover what you love next.
+Keep what you love. Seek what comes next.
 
-Vaultr is a Discord-native collector companion for card chases, grail sightings, and ambient discovery. It keeps the command surface small, sends chase alerts privately, and lets a collector's active chases shape what Vaultr surfaces over time.
+KeepSeek is a web-first collector workspace for Watchlists, listing matches, Pickups, and personalized discovery. Discord is an optional delivery channel for opted-in card and listing alerts.
 
 ## Product Focus
 
-- Discord slash commands for building a personal Vault
+- Web Watchlist and Inbox backed by durable account data
 - Persistent chase criteria and collector context per user
 - Source adapters for eBay and trusted shops
-- DM-first grail sightings with dedupe and fit scoring
-- Prepared Discovery shelves shaped by the user's active chases and taste profile memory
-- Scheduled Discovery drop announcements that open personalized private shelves from the channel instead of spamming DMs
+- Durable Inbox alerts with optional, explicit Discord DM delivery
+- Prepared Display Cases shaped by Watchlist, Pickup, and feedback signals
 - Optional community heartbeat for shared collector activity
 
 Product copy and terminology conventions live in [docs/PRODUCT_VOICE.md](docs/PRODUCT_VOICE.md).
@@ -261,8 +260,8 @@ sudo journalctl -u vaultr-ops-check.service -n 50
    - `systemctl list-timers vaultr-backup.timer`
    - `systemctl is-enabled vaultr-ops-check.timer`
    - `systemctl list-timers vaultr-ops-check.timer`
-- Optional Discovery drops are tuned:
-   - `DISCOVERY_DROP_SCHEDULER_ENABLED`, `DISCOVERY_DROP_ANNOUNCEMENTS_ENABLED`, `DISCOVERY_DROP_PREPARE_BATCH_SIZE`
+- Optional Display Case preparation is tuned:
+   - `DISCOVERY_DROP_SCHEDULER_ENABLED`, `DISCOVERY_DROP_PREPARE_BATCH_SIZE`
    - `DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_SECONDS`, `DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS`
    - `DISCOVERY_MARKET_WORKER_BATCH_SIZE`, `DISCOVERY_MARKET_WORKER_POLL_MS`, `DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS`
 - Commands are registered:
@@ -290,29 +289,23 @@ sudo journalctl -u vaultr-ops-check.service -n 50
 - Set `LISTING_SOURCE=EBAY` for live eBay polling
 - Set `LISTING_SOURCE=MOCK` to run with local mock listings
 - Optional: set `MOCK_LISTINGS_PATH` (defaults to `./data/mock-listings.example.json`)
-- Sighting moments are delivered by DM to each user
+- Listing matches are always stored in the web Inbox. Linked Discord users may explicitly opt in to card-alert DMs.
 - Similar active chases share source queries so eBay requests do not scale one-to-one with users
 - Successful eBay search results are cached briefly and rate-limit responses are never cached
 - `MAX_ALERTS_PER_CHASE_PER_POLL` caps how many distinct sightings one chase can send from a single source check (default `3`)
 
-## Scheduled Discovery Drops
+## Scheduled Display Cases
 
-- The bot prepares Pro Weekly Discovery shelves in the background and stores them in SQLite.
-- Pro Weekly Shelves prepare up to 20 cards by default and open privately from the channel in 10-card pages.
-- A Pro shelf is only published when it passes the current publication gates, including a complete 20-card shelf.
-- If preparation fails validation, Vaultr keeps the last valid shelf available while durable retries continue in the background.
-- Free users can open the same announcement button for a three-card Weekly Shelf preview based on active Vault signals.
-- Each configured server command channel gets at most one public Weekly Discovery announcement per period.
-- The announcement button opens the clicker's own shelf or preview as a private channel interaction, so Discovery drops avoid DM spam and public shelf clutter.
-- Scheduled preparation and delivery are durable: failed attempts are retried without sending duplicate announcements.
-- Shelf feedback trains the next Discovery release; it does not reshuffle the current release on demand.
-- Feedback confirmations include Undo so accidental More Like / Not For Me taps can be reverted.
-- Discovery is opened from scheduled drop announcements; the slash command is intentionally not registered for users.
+- The scheduler prepares personalized Display Cases in the background and stores them in SQLite as durable recommendation artifacts.
+- The web app reads the current prepared Display Case directly; preparation does not require Discord, a guild, or an announcement message.
+- A personalized Display Case is only published when it passes the current product gates, including the configured 20-card depth.
+- If preparation fails validation, KeepSeek keeps the last valid Display Case available while durable retries continue in the background.
+- Web feedback trains the next Display Case; it does not reshuffle the current release on demand, and Undo can revert accidental feedback.
+- Free users receive the current editorial collector picks/general finds through the same web surface.
 - Runtime controls:
    - `DISCOVERY_DROP_SCHEDULER_ENABLED=true` enables background preparation.
-   - `DISCOVERY_DROP_ANNOUNCEMENTS_ENABLED=true` enables configured-channel announcements.
-   - `DISCOVERY_WEEKLY_DROP_SIZE=20` controls Pro shelf depth, capped at 20 for Discord.
-   - `DISCOVERY_DROP_PREPARE_BATCH_SIZE=3` limits how many user shelves one scheduler tick prepares.
+   - `DISCOVERY_WEEKLY_DROP_SIZE=20` controls personalized Display Case depth.
+   - `DISCOVERY_DROP_PREPARE_BATCH_SIZE=3` limits how many user Display Cases one scheduler tick prepares.
    - `DISCOVERY_DROP_SCHEDULER_INTERVAL_SECONDS=900` controls how often the scheduler wakes up.
    - `DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_SECONDS=300` limits repeated refresh enqueue bursts per user.
    - `DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS=250` caps queued/running Discovery market refresh work.
@@ -497,7 +490,6 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 - When enabled, Vaultr posts:
   - One-time first-chase unlock message per user
   - Daily `Vault Pulse` collector bulletin in the setup channel
-  - Weekly personal `Vault Reflection` journal DM to active users
 
 ### Digest Schedule Config
 
@@ -516,8 +508,8 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 - Register commands intentionally:
   - `DISCORD_COMMAND_SCOPE=GUILD` for a dev/test server
   - `DISCORD_COMMAND_SCOPE=GLOBAL` for closed beta or production rollout
-- Confirm the bot can DM users for chase sightings and weekly reflections; Discovery shelves open privately from the server channel and do not require DMs.
-- Ask collectors to run `/alerts test` once after install so DM delivery is confirmed before they wait for a real hit.
+- Confirm opted-in card-alert DMs work without treating Discord delivery as the source of Inbox history.
+- Ask collectors who opt in to run `/alerts test` once so DM delivery is confirmed before they wait for a real hit.
 - Require admins to run `/setup channel` after install so command usage stays in one visible server channel.
 - Add support and privacy links in the Discord Developer Portal before broad invites; keep the same links in public docs or the invite page.
 - Test the invite in a throwaway server with a non-owner user before sharing publicly.

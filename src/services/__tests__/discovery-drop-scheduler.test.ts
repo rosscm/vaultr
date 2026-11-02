@@ -1,25 +1,17 @@
-import { ChannelType } from 'discord.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as discover from '../../commands/discover.js';
-import { addChase, removeAllChases, setGuildCommandChannel, setUserPlan } from '../chase-store.js';
+import { addChase, removeAllChases, setUserPlan } from '../chase-store.js';
 import { db } from '../db.js';
 import { getWeeklyDiscoveryPreparationHealth, runDiscoveryDropSchedulerOnce, runWeeklyDiscoveryPreparationAttempt, shouldPrepareWeeklyDrop, weeklyPreparationTargetDate } from '../discovery-drop-scheduler.js';
-import { deleteScheduledDiscoveryDrop, deleteScheduledDiscoveryDropAnnouncement, hasScheduledDiscoveryDropAnnouncement, scheduledDiscoveryAvailability, scheduledDiscoveryPeriodKey, upsertScheduledDiscoveryDrop } from '../scheduled-discovery-drops.js';
+import { deleteScheduledDiscoveryDrop, scheduledDiscoveryAvailability, scheduledDiscoveryPeriodKey, upsertScheduledDiscoveryDrop } from '../scheduled-discovery-drops.js';
 import { deleteWeeklyDiscoveryPreparationStatesForPeriod, listWeeklyDiscoveryPreparationStates } from '../weekly-discovery-preparation-state.js';
 
 const userIds: string[] = [];
 const drops: Array<{ userId: string; periodKey: string }> = [];
-const announcements: Array<{ guildId: string; periodKey: string }> = [];
-const guildIds = new Set<string>();
-const deleteGuildAlertChannelStmt = db.prepare('DELETE FROM guild_alert_channels WHERE guild_id = ?');
-
 afterEach(() => {
-  const periods = new Set(drops.map((drop) => drop.periodKey).concat(announcements.map((announcement) => announcement.periodKey)));
+  const periods = new Set(drops.map((drop) => drop.periodKey));
   for (const { userId, periodKey } of drops.splice(0)) deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
-  for (const { guildId, periodKey } of announcements.splice(0)) deleteScheduledDiscoveryDropAnnouncement(guildId, 'WEEKLY_DISCOVERY', periodKey);
   for (const periodKey of periods) deleteWeeklyDiscoveryPreparationStatesForPeriod(periodKey);
-  for (const guildId of guildIds) deleteGuildAlertChannelStmt.run(guildId);
-  guildIds.clear();
   for (const userId of userIds.splice(0)) removeAllChases(userId);
 });
 
@@ -91,7 +83,7 @@ describe('discovery drop scheduler', () => {
     });
 
     try {
-      await runDiscoveryDropSchedulerOnce({ channels: { fetch: vi.fn() } } as any, now);
+      await runDiscoveryDropSchedulerOnce(now);
       expect(prepareSpy).toHaveBeenCalledTimes(1);
       expect(prepareSpy).toHaveBeenCalledWith(
         userId,
@@ -123,7 +115,7 @@ describe('discovery drop scheduler', () => {
     });
 
     try {
-      await runDiscoveryDropSchedulerOnce({ channels: { fetch: vi.fn() } } as any, now);
+      await runDiscoveryDropSchedulerOnce(now);
       expect(prepareSpy).not.toHaveBeenCalled();
     } finally {
       prepareSpy.mockRestore();
@@ -147,7 +139,7 @@ describe('discovery drop scheduler', () => {
     });
 
     try {
-      await runDiscoveryDropSchedulerOnce({ channels: { fetch: vi.fn() } } as any, now);
+      await runDiscoveryDropSchedulerOnce(now);
       expect(prepareSpy).not.toHaveBeenCalled();
     } finally {
       prepareSpy.mockRestore();
@@ -300,18 +292,14 @@ describe('discovery drop scheduler', () => {
     expect(health.oldestPendingUpdatedAt).toBe('2026-06-22T09:00:00.000Z');
   });
 
-  it('delivers a ready weekly shelf announcement exactly once and marks delivery durable', async () => {
+  it('treats a persisted Display Case as ready without Discord announcement delivery', async () => {
     const now = new Date('2026-06-22T13:00:00.000Z');
     const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', weeklyPreparationTargetDate(now, 3));
     const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', weeklyPreparationTargetDate(now, 3));
     const userId = `weekly-delivery-${Date.now()}`;
-    const guildId = `guild-${Date.now()}`;
-    announcements.push({ guildId, periodKey });
     drops.push({ userId, periodKey });
 
     proCollector(userId);
-    guildIds.add(guildId);
-    setGuildCommandChannel(guildId, `channel-${Date.now()}`);
     upsertScheduledDiscoveryDrop({
       userId,
       dropType: 'WEEKLY_DISCOVERY',
@@ -330,26 +318,12 @@ describe('discovery drop scheduler', () => {
       }))
     }, '2026-06-22T10:00:00.000Z');
 
-    let sendCount = 0;
-    const client = {
-      channels: {
-        fetch: async () => ({
-          type: ChannelType.GuildText,
-          send: async () => {
-            sendCount += 1;
-            return { id: `message-${sendCount}` };
-          }
-        })
-      }
-    } as any;
-
-    await runDiscoveryDropSchedulerOnce(client, now);
-    await runDiscoveryDropSchedulerOnce(client, now);
+    await runDiscoveryDropSchedulerOnce(now);
 
     const state = listWeeklyDiscoveryPreparationStates(periodKey).find((entry) => entry.userId === userId);
-    expect(sendCount).toBe(1);
-    expect(hasScheduledDiscoveryDropAnnouncement(guildId, 'WEEKLY_DISCOVERY', periodKey)).toBe(true);
-    expect(state?.deliveryState).toBe('DELIVERED');
+    expect(state?.state).toBe('READY');
+    expect(state?.deliveryState).toBe('NONE');
+    expect(db.prepare('SELECT COUNT(*) AS count FROM discovery_scheduled_drop_announcements WHERE period_key = ?').get(periodKey)).toMatchObject({ count: 0 });
   });
 
   it('records retryable preparation failure instead of treating it as a skip', async () => {
@@ -390,62 +364,4 @@ describe('discovery drop scheduler', () => {
     }
   });
 
-  it('retries failed weekly announcement delivery and does not duplicate success', async () => {
-    const now = new Date('2026-07-27T13:00:00.000Z');
-    const periodKey = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', weeklyPreparationTargetDate(now, 3));
-    const { availableAt, expiresAt } = scheduledDiscoveryAvailability('WEEKLY_DISCOVERY', weeklyPreparationTargetDate(now, 3));
-    const userId = `weekly-delivery-retry-${Date.now()}`;
-    const guildId = `guild-retry-${Date.now()}`;
-    announcements.push({ guildId, periodKey });
-    drops.push({ userId, periodKey });
-
-    proCollector(userId);
-    guildIds.add(guildId);
-    setGuildCommandChannel(guildId, `channel-retry-${Date.now()}`);
-    upsertScheduledDiscoveryDrop({
-      userId,
-      dropType: 'WEEKLY_DISCOVERY',
-      periodKey,
-      status: 'READY',
-      title: 'Weekly Shelf',
-      currency: 'CAD',
-      availableAt,
-      expiresAt,
-      items: Array.from({ length: 5 }, (_, index) => ({
-        position: index + 1,
-        suggestion: { name: `Retry Card ${index + 1}`, lane: 'Collector Compass', laneWhy: 'profile fit', why: 'profile fit', nearby: [] },
-        imageUrl: `https://example.com/retry-${index + 1}.png`,
-        imageSourceKind: 'CARD_REFERENCE' as const,
-        market: { status: 'READY', currency: 'CAD', askingTotal: 120 + index, updatedAt: '2026-07-27T10:00:00.000Z' }
-      }))
-    }, '2026-07-27T10:00:00.000Z');
-
-    let sendCount = 0;
-    const client = {
-      channels: {
-        fetch: async () => ({
-          type: ChannelType.GuildText,
-          send: async () => {
-            sendCount += 1;
-            if (sendCount === 1) throw new Error('discord send failed');
-            return { id: `message-${sendCount}` };
-          }
-        })
-      }
-    } as any;
-
-    await runDiscoveryDropSchedulerOnce(client, now);
-    let state = listWeeklyDiscoveryPreparationStates(periodKey).find((entry) => entry.userId === userId);
-    expect(state?.deliveryState).toBe('PENDING');
-    expect(state?.deliveryAttemptCount).toBe(1);
-    expect(state?.deliveryError).toContain('discord send failed');
-    expect(hasScheduledDiscoveryDropAnnouncement(guildId, 'WEEKLY_DISCOVERY', periodKey)).toBe(false);
-
-    await runDiscoveryDropSchedulerOnce(client, now);
-    state = listWeeklyDiscoveryPreparationStates(periodKey).find((entry) => entry.userId === userId);
-    expect(sendCount).toBe(2);
-    expect(hasScheduledDiscoveryDropAnnouncement(guildId, 'WEEKLY_DISCOVERY', periodKey)).toBe(true);
-    expect(state?.deliveryState).toBe('DELIVERED');
-    expect(state?.deliveryAttemptCount).toBe(2);
-  });
 });

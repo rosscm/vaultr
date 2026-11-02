@@ -1,5 +1,7 @@
 import type { ListingSourceModePreference, UserAlertSettings } from '../types.js';
-import { getUserAlertSettings, getUserPlan, setUserAlertSettings } from './chase-store.js';
+import { countUserAlertsInLastHour, getUserAlertSettings, getUserPlan, setUserAlertSettings } from './chase-store.js';
+import { db } from './db.js';
+import { getUserNotificationSettings, setDiscordCardAlertsEnabled } from './notification-settings.js';
 import { activePlanTier } from './plans.js';
 
 export type AlertVolume = 'QUIET' | 'BALANCED' | 'MORE';
@@ -38,7 +40,8 @@ const ALLOWED_PATCH_FIELDS = new Set([
   'alertCurrency',
   'shippingCountry',
   'shippingPostalCode',
-  'listingSourceMode'
+  'listingSourceMode',
+  'discordCardAlertsEnabled'
 ]);
 
 export type AlertSettingsError = {
@@ -102,6 +105,8 @@ export function alertSettingsResponse(userId: string) {
   const settings = getUserAlertSettings(userId);
   const plan = getUserPlan(userId);
   const tier = activePlanTier(plan);
+  const notifications = getUserNotificationSettings(userId);
+  const recentAlertCount = countUserAlertsInLastHour(userId);
   return {
     settings: {
       minScore: settings.minScore,
@@ -112,12 +117,18 @@ export function alertSettingsResponse(userId: string) {
       shippingPostalCode: settings.shippingPostalCode ?? null,
       listingSourceMode: settings.listingSourceMode,
       effectiveListingSourceMode: effectiveAlertSourceMode(settings.listingSourceMode, tier),
+      discordCardAlertsEnabled: notifications.discordCardAlertsEnabled,
       updatedAt: settings.updatedAt
     },
     access: {
       tier,
       planStatus: plan.status,
-      trustedShops: tier === 'PRO'
+      trustedShops: tier === 'PRO',
+      discordLinked: notifications.discordLinked
+    },
+    status: {
+      alertVolumeReached: recentAlertCount >= settings.maxAlertsPerHour,
+      recentAlertCount
     },
     options: {
       confidence: { min: 0, max: 100 },
@@ -138,6 +149,17 @@ export function updateAlertSettings(
   if (Object.keys(patch).length === 0) return { ok: false, code: 'NO_CHANGES_REQUESTED', message: 'No settings changes were submitted.' };
   const current = getUserAlertSettings(userId);
   const next: Parameters<typeof setUserAlertSettings>[1] = {};
+  let discordCardAlertsEnabled: boolean | undefined;
+
+  if ('discordCardAlertsEnabled' in patch) {
+    if (typeof patch.discordCardAlertsEnabled !== 'boolean') {
+      return { ok: false, code: 'INVALID_SETTINGS', field: 'discordCardAlertsEnabled', message: 'Choose On or Off for Discord DM alerts.' };
+    }
+    if (patch.discordCardAlertsEnabled && !getUserNotificationSettings(userId).discordLinked) {
+      return { ok: false, code: 'INVALID_SETTINGS', field: 'discordCardAlertsEnabled', message: 'Connect Discord before enabling Discord DM alerts.' };
+    }
+    discordCardAlertsEnabled = patch.discordCardAlertsEnabled;
+  }
 
   if ('minScore' in patch) {
     if (typeof patch.minScore !== 'number' || !Number.isInteger(patch.minScore) || patch.minScore < 0 || patch.minScore > 100) {
@@ -193,5 +215,10 @@ export function updateAlertSettings(
     next.shippingPostalCode = retainedPostal && retainedPostal !== null ? retainedPostal : null;
   }
 
-  return { ok: true, settings: setUserAlertSettings(userId, next) };
+  const persist = db.transaction(() => {
+    const settings = Object.keys(next).length > 0 ? setUserAlertSettings(userId, next) : getUserAlertSettings(userId);
+    if (discordCardAlertsEnabled !== undefined) setDiscordCardAlertsEnabled(userId, discordCardAlertsEnabled);
+    return settings;
+  });
+  return { ok: true, settings: persist() };
 }

@@ -1058,14 +1058,14 @@ function normalizeListingSourceModePreference(value: string | null | undefined):
 
 const countRecentAlertsByUserStmt = db.prepare(`
   SELECT COUNT(*) AS count
-  FROM sent_alerts
-  WHERE user_id = ? AND sent_at >= ?
+  FROM alert_events
+  WHERE user_id = ? AND created_at >= ?
 `);
 
 const countRecentAlertsByChaseStmt = db.prepare(`
   SELECT COUNT(*) AS count
-  FROM sent_alerts
-  WHERE user_id = ? AND chase_id = ? AND sent_at >= ?
+  FROM alert_events
+  WHERE user_id = ? AND chase_id = ? AND created_at >= ?
 `);
 
 const listRecentAlertsByUserStmt = db.prepare(`
@@ -1179,15 +1179,15 @@ const listUsersWithDiscoverySignalsStmt = db.prepare(`
 
 const countUserAlertsSinceStmt = db.prepare(`
   SELECT COUNT(*) AS count
-  FROM sent_alerts
-  WHERE user_id = ? AND sent_at >= ?
+  FROM alert_events
+  WHERE user_id = ? AND created_at >= ?
 `);
 
 const countUserGrailAlertsSinceStmt = db.prepare(`
   SELECT COUNT(*) AS count
-  FROM sent_alerts s
-  INNER JOIN chases c ON c.id = s.chase_id
-  WHERE s.user_id = ? AND s.sent_at >= ? AND c.priority = 'GRAIL'
+  FROM alert_events a
+  INNER JOIN chases c ON c.id = a.chase_id
+  WHERE a.user_id = ? AND a.created_at >= ? AND c.priority = 'GRAIL'
 `);
 
 const countUserNewChasesSinceStmt = db.prepare(`
@@ -2533,6 +2533,21 @@ export function markAlertDeliveryFailed(deliveryId: string, error: unknown, now 
     });
   });
   persist();
+  return true;
+}
+
+export function markAlertDeliverySuppressed(deliveryId: string, reason: string, now = new Date().toISOString()): boolean {
+  const delivery = getAlertDeliveryById(deliveryId);
+  if (!delivery) return false;
+  updateAlertDeliveryStatusStmt.run({
+    id: deliveryId,
+    status: 'SUPPRESSED',
+    attempt_increment: 0,
+    external_message_id: null,
+    last_error: reason.slice(0, 500),
+    sent_at: null,
+    updated_at: now
+  });
   return true;
 }
 

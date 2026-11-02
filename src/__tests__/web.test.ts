@@ -50,6 +50,8 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM user_discovery_feedback WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_training_examples WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_alert_settings WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_notification_settings WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_display_case_views WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_scheduled_drop_items WHERE user_id = ?').run(userId);
@@ -391,7 +393,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
     expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=4')");
     expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=1')");
-    expect(jsResponse.body).toContain('new matches available');
+    expect(jsResponse.body).toContain('new content available');
+    expect(jsResponse.body).toContain('Alert volume reached.');
+    expect(jsResponse.body).toContain('Lots of recent matches.');
     expect(jsResponse.body).toContain('60_000');
     expect(jsResponse.body).toContain("document.addEventListener('visibilitychange'");
     expect(jsResponse.body).toContain("imageKind: 'Listing image'");
@@ -1039,7 +1043,7 @@ describe('web app static routes', () => {
       `${functionSource}\nreturn navButton('alerts', 'Inbox');`
     )({ activePage: 'home', hasNewAlerts }, () => '<svg></svg>') as string;
 
-    expect(renderNav(true)).toContain('aria-label="Inbox, new matches available"');
+    expect(renderNav(true)).toContain('aria-label="Inbox, new content available"');
     expect(renderNav(true)).toContain('class="nav-notification-dot"');
     expect(renderNav(false)).toContain('aria-label="Inbox"');
     expect(renderNav(false)).not.toContain('nav-notification-dot');
@@ -1712,6 +1716,48 @@ describe('authenticated settings API', () => {
     clearUser(otherUserId);
   });
 
+  it('exposes and updates explicit Discord card-alert delivery only for a linked account', async () => {
+    const account = createUser({ displayName: 'Web Discord Delivery' });
+    const userId = account.id;
+    const token = 'settings-discord-delivery-token';
+    createWebSession({ userId }, { token });
+    const headers = { cookie: sessionCookie(token), 'content-type': 'application/json' };
+
+    const initial = await handleWebRequest({ method: 'GET', url: '/api/settings', headers }, { config });
+    const unavailable = await handleWebRequest({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers,
+      body: JSON.stringify({ discordCardAlertsEnabled: true })
+    }, { config });
+    linkIdentity({ userId, provider: 'DISCORD', providerUserId: `discord-${userId}` });
+    const enabled = await handleWebRequest({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers,
+      body: JSON.stringify({ discordCardAlertsEnabled: true })
+    }, { config });
+    const invalid = await handleWebRequest({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers,
+      body: JSON.stringify({ discordCardAlertsEnabled: 'yes' })
+    }, { config });
+
+    expect(JSON.parse(initial.body ?? '{}')).toMatchObject({
+      settings: { discordCardAlertsEnabled: false },
+      access: { discordLinked: false }
+    });
+    expect(unavailable.status).toBe(400);
+    expect(enabled.status).toBe(200);
+    expect(JSON.parse(enabled.body ?? '{}')).toMatchObject({
+      settings: { discordCardAlertsEnabled: true },
+      access: { discordLinked: true }
+    });
+    expect(invalid.status).toBe(400);
+    clearUser(userId);
+  });
+
   it('applies partial updates without erasing an inactive Pro source preference', async () => {
     const userId = 'web-settings-partial';
     const headers = auth(userId, 'settings-partial-token');
@@ -1789,6 +1835,26 @@ describe('authenticated settings API', () => {
     expect(JSON.parse(british.body ?? '{}').settings).toMatchObject({ shippingCountry: 'GB', shippingPostalCode: null });
     expect(getUserAlertSettings(userId).shippingPostalCode).toBeUndefined();
 
+    clearUser(userId);
+  });
+
+  it('exposes transient high-volume guidance from recent Inbox matches on an active Watchlist item', async () => {
+    const userId = 'web-high-volume-chase';
+    const headers = auth(userId, 'high-volume-chase-token');
+    const chase = addChase({ userId, cardName: 'Busy Mew Chase' });
+    const now = new Date().toISOString();
+    for (let index = 0; index < 3; index += 1) {
+      seedAlert(userId, index, { chaseId: chase.id, now });
+    }
+
+    const response = await handleWebRequest({ method: 'GET', url: '/api/chases', headers }, { config });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body ?? '{}').items[0]).toMatchObject({
+      chase: { id: chase.id },
+      monitoringState: 'ACTIVE',
+      highVolume: true
+    });
     clearUser(userId);
   });
 });
@@ -1993,6 +2059,7 @@ describe('authenticated Weekly Shelf API', () => {
     expect(body).toMatchObject({
       status: 'READY',
       title: 'Display Case',
+      isNew: true,
       itemCount: 2,
       marketReadyCount: 1,
       imageReadyCount: 1,
@@ -2026,6 +2093,22 @@ describe('authenticated Weekly Shelf API', () => {
     expect(JSON.stringify(body)).not.toContain('multi-card discovery');
     expect(JSON.stringify(body)).not.toContain('javascript:alert');
     expect(JSON.stringify(body)).not.toContain('internal-score-should-not-leak');
+
+    const prefetchedAgain = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => new Date('2026-08-30T13:00:00.000Z') }
+    );
+    expect(JSON.parse(prefetchedAgain.body ?? '{}').isNew).toBe(true);
+    const viewed = await handleWebRequest(
+      { method: 'POST', url: '/api/shelf/view', headers: { cookie: sessionCookie(token), 'content-type': 'application/json' }, body: JSON.stringify({ periodKey: body.periodKey }) },
+      { config, now: () => new Date('2026-08-30T13:05:00.000Z') }
+    );
+    expect(viewed.status).toBe(200);
+    const afterView = await handleWebRequest(
+      { method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } },
+      { config, now: () => new Date('2026-08-30T13:05:00.000Z') }
+    );
+    expect(JSON.parse(afterView.body ?? '{}').isNew).toBe(false);
 
     clearUser(userId);
     clearUser(otherUserId);

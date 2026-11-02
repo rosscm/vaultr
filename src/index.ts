@@ -7,7 +7,6 @@ import { handleChaseAddAutocomplete } from './commands/chase-add.js';
 import { handleChaseEditAutocomplete } from './commands/chase-edit.js';
 import { handleChaseListPagination } from './commands/chase-list.js';
 import { handleChaseRemoveAutocomplete, handleChaseRemoveButtons } from './commands/chase-remove.js';
-import { handleDiscoveryActionSelect, handleDiscoveryDropOpen, handleDiscoveryDropPage, handleDiscoveryFeedback, handleDiscoveryFeedbackUndo, handleDiscoveryVaultAdd } from './commands/discover.js';
 import { initializeCurrencyRates } from './services/currency.js';
 import { backfillChaseQueryNames } from './services/chase-store.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
@@ -66,7 +65,7 @@ backfillChaseQueryNames();
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}`);
   startPoller(client);
-  startDiscoveryDropScheduler(client);
+  startDiscoveryDropScheduler();
 });
 
 client.on(Events.Error, (error) => {
@@ -87,12 +86,6 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
     if (await handleChaseListPagination(scopedInteraction)) return;
     if (await handleAlertFeedback(scopedInteraction)) return;
     if (await handleAlertSourceButtons(scopedInteraction)) return;
-    if (await handleDiscoveryDropOpen(scopedInteraction)) return;
-    if (await handleDiscoveryDropPage(scopedInteraction)) return;
-    if (await handleDiscoveryActionSelect(scopedInteraction)) return;
-    if (await handleDiscoveryFeedbackUndo(scopedInteraction)) return;
-    if (await handleDiscoveryFeedback(scopedInteraction)) return;
-    if (await handleDiscoveryVaultAdd(scopedInteraction)) return;
     if (!interaction.isChatInputCommand()) return;
 
     const command = commandMap.get(interaction.commandName);

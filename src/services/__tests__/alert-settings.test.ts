@@ -7,8 +7,12 @@ import {
   getUserAlertSettings,
   resetUserAlertSettings,
   setUserAlertSettings,
-  setUserPlan
+  setUserPlan,
+  upsertAlertEvent
 } from '../chase-store.js';
+import { createUser, linkIdentity } from '../accounts.js';
+import { db } from '../db.js';
+import { getUserNotificationSettings } from '../notification-settings.js';
 
 const users = new Set<string>();
 
@@ -20,11 +24,53 @@ function user(label: string): string {
 }
 
 afterEach(() => {
-  for (const userId of users) resetUserAlertSettings(userId);
+  for (const userId of users) {
+    resetUserAlertSettings(userId);
+    db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_notification_settings WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_identities WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  }
   users.clear();
 });
 
 describe('shared alert settings', () => {
+  it('defaults Discord card delivery off and requires a linked identity before opt-in', () => {
+    const account = createUser({ displayName: 'Discord Collector' });
+    const userId = account.id;
+    users.add(userId);
+    resetUserAlertSettings(userId);
+    expect(alertSettingsResponse(userId)).toMatchObject({
+      settings: { discordCardAlertsEnabled: false },
+      access: { discordLinked: false }
+    });
+    expect(updateAlertSettings(userId, { discordCardAlertsEnabled: true })).toMatchObject({ ok: false, field: 'discordCardAlertsEnabled' });
+
+    linkIdentity({ userId: account.id, provider: 'DISCORD', providerUserId: `discord-${userId}` });
+    expect(updateAlertSettings(userId, { discordCardAlertsEnabled: true }).ok).toBe(true);
+    expect(getUserNotificationSettings(userId)).toMatchObject({ discordCardAlertsEnabled: true, discordLinked: true });
+  });
+
+  it('reports hourly volume from persisted Inbox events rather than Discord deliveries', () => {
+    const account = createUser({ displayName: 'Inbox Volume Collector' });
+    const userId = account.id;
+    users.add(userId);
+    setUserAlertSettings(userId, { maxAlertsPerHour: 3 });
+    for (let index = 0; index < 3; index += 1) {
+      upsertAlertEvent({
+        userId,
+        chaseId: `volume-chase-${index}`,
+        listingId: `volume-listing-${index}`,
+        source: 'EBAY',
+        now: new Date(Date.now() - index * 1000).toISOString()
+      });
+    }
+
+    expect(alertSettingsResponse(userId)).toMatchObject({
+      status: { alertVolumeReached: true, recentAlertCount: 3 }
+    });
+  });
   it('normalizes the supported matching, volume, and shipping values', () => {
     const userId = user('normalize');
 

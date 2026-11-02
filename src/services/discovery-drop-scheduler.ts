@@ -1,14 +1,9 @@
-import { ChannelType, Client, EmbedBuilder } from 'discord.js';
 import {
-  discoveryDropOpenButton,
   prepareWeeklyDiscoveryDropForUser,
   type WeeklyPreparationStructuredResult
 } from '../commands/discover.js';
-import { listGuildCommandChannels } from './chase-store.js';
 import {
   getScheduledDiscoveryDrop,
-  listScheduledDiscoveryDropAnnouncements,
-  markScheduledDiscoveryDropAnnouncement,
   scheduledDiscoveryAvailability,
   scheduledDiscoveryPeriodKey,
   type ScheduledDiscoveryDrop
@@ -17,11 +12,7 @@ import {
   claimWeeklyDiscoveryPreparationLease,
   completeWeeklyDiscoveryPreparationState,
   getWeeklyDiscoveryPreparationState,
-  listWeeklyDiscoveryPreparationStates,
-  markWeeklyDiscoveryDeliveryAttempt,
-  markWeeklyDiscoveryDeliveredForPeriod,
   upsertWeeklyDiscoveryPreparationState,
-  type WeeklyDiscoveryDeliveryState,
   type WeeklyDiscoveryPreparationState,
   type WeeklyDiscoveryPreparationStateStatus
 } from './weekly-discovery-preparation-state.js';
@@ -41,14 +32,11 @@ export type WeeklyDiscoveryPreparationHealth = {
   prepared: number;
   ready: number;
   partial: number;
-  delivered: number;
-  deliveryPending: number;
   preparing: number;
   retryScheduled: number;
   failedFinal: number;
   failed: number;
   missing: number;
-  overdueUnresolved: number;
   overdueUnprepared: number;
   staleLeases: number;
   lateRecoveries: number;
@@ -78,10 +66,6 @@ function envNumber(name: string, fallback: number, min: number, max: number): nu
   const value = Number(process.env[name] ?? fallback);
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, Math.floor(value)));
-}
-
-function minMarketReadyItemsForAnnouncement(): number {
-  return envNumber('DISCOVERY_DROP_ANNOUNCE_MIN_READY_ITEMS', 5, 1, 20);
 }
 
 function preparationLeaseMs(): number {
@@ -146,21 +130,6 @@ export function shouldPrepareWeeklyDrop(
   return now.getTime() - updatedAtMs >= refreshHours * 60 * 60 * 1000;
 }
 
-function weeklyDropAnnouncementEmbed(_periodKey: string, _preparedCount: number): EmbedBuilder {
-  return new EmbedBuilder()
-    .setColor(0x8b5cf6)
-    .setTitle('KeepSeek Display Case')
-    .setDescription([
-      '💫 **KeepSeek Display Case**',
-      '',
-      'Collector picks are freshly brewed and ready to browse!',
-      '',
-      'KeepSeek Plus adds a deeper Display Case shaped by your Watchlist, Pickups, and feedback, while Free gets three general finds each week'
-    ].join('\n'))
-    .setFooter({ text: 'KeepSeek • Display Case' })
-    .setTimestamp();
-}
-
 function stateFromDrop(
   userId: string,
   periodKey: string,
@@ -169,12 +138,8 @@ function stateFromDrop(
   current: WeeklyDiscoveryPreparationState | null
 ): WeeklyDiscoveryPreparationState {
   const drop = getScheduledDiscoveryDrop(userId, WEEKLY_DROP_TYPE, periodKey);
-  const hasAnnouncement = listScheduledDiscoveryDropAnnouncements(WEEKLY_DROP_TYPE, periodKey).length > 0;
   const isReleased = releasePassed(availableAt, now);
   if (validScheduledDrop(drop)) {
-    const deliveryState: WeeklyDiscoveryDeliveryState = isReleased
-      ? (hasAnnouncement ? 'DELIVERED' : 'PENDING')
-      : 'NONE';
     return upsertWeeklyDiscoveryPreparationState({
       userId,
       periodKey,
@@ -191,11 +156,11 @@ function stateFromDrop(
       releasePassed: isReleased,
       ownerAlertSent: current?.ownerAlertSent ?? false,
       recoveredAfterRelease: current?.recoveredAfterRelease ?? false,
-      deliveryState,
+      deliveryState: 'NONE',
       deliveryAttemptCount: current?.deliveryAttemptCount ?? 0,
       lastDeliveryAttemptAt: current?.lastDeliveryAttemptAt,
-      deliveryError: deliveryState === 'DELIVERED' ? undefined : current?.deliveryError,
-      deliveredAt: deliveryState === 'DELIVERED' ? current?.deliveredAt ?? now.toISOString() : current?.deliveredAt,
+      deliveryError: undefined,
+      deliveredAt: undefined,
       announcementGuildId: current?.announcementGuildId,
       announcementMessageId: current?.announcementMessageId
     });
@@ -282,7 +247,6 @@ export async function runWeeklyDiscoveryPreparationAttempt(
     isCurrentGeneration: () => getWeeklyDiscoveryPreparationState(userId, periodKey)?.preparationGeneration === lease.preparationGeneration
   });
 
-  const deliveredAlready = listScheduledDiscoveryDropAnnouncements(WEEKLY_DROP_TYPE, periodKey).length > 0;
   const nextState = completeWeeklyDiscoveryPreparationState({
     userId,
     periodKey,
@@ -311,10 +275,7 @@ export async function runWeeklyDiscoveryPreparationAttempt(
         : undefined,
     nextRetryAt: result.outcome === 'RETRYABLE_FAILURE' ? nextRetryAtForAttempt(lease.attemptCount, now) : undefined,
     releasePassed: releasePassed(availability.availableAt, now),
-    deliveryState:
-      result.outcome === 'PREPARED' || result.outcome === 'NOT_REQUIRED'
-        ? (releasePassed(availability.availableAt, now) ? (deliveredAlready ? 'DELIVERED' : 'PENDING') : 'NONE')
-        : 'NONE',
+    deliveryState: 'NONE',
     now: now.toISOString()
   });
 
@@ -358,87 +319,6 @@ async function prepareWeeklyDrops(now: Date): Promise<{ periodKey: string; prepa
   return { periodKey, prepared, scheduled, failed };
 }
 
-async function announceWeeklyDrop(client: Client, now: Date): Promise<{ periodKey: string; announced: number; skipped: number }> {
-  if (!envFlag('DISCOVERY_DROP_ANNOUNCEMENTS_ENABLED', true)) {
-    return { periodKey: scheduledDiscoveryPeriodKey(WEEKLY_DROP_TYPE, now), announced: 0, skipped: 0 };
-  }
-
-  const periodKey = scheduledDiscoveryPeriodKey(WEEKLY_DROP_TYPE, now);
-  const availability = scheduledDiscoveryAvailability(WEEKLY_DROP_TYPE, now);
-  if (Date.parse(availability.availableAt) > now.getTime()) return { periodKey, announced: 0, skipped: 0 };
-
-  const preparedStates = listWeeklyDiscoveryPreparationStates(periodKey)
-    .filter((state) => state.state === 'READY' && state.deliveryState !== 'DELIVERED');
-  if (preparedStates.length === 0) return { periodKey, announced: 0, skipped: 0 };
-
-  const announceableUsers = preparedStates.filter((state) => {
-    const drop = getScheduledDiscoveryDrop(state.userId, WEEKLY_DROP_TYPE, periodKey);
-    return !!drop && drop.marketReadyCount >= minMarketReadyItemsForAnnouncement();
-  });
-  if (announceableUsers.length === 0) return { periodKey, announced: 0, skipped: 0 };
-
-  const existingAnnouncements = listScheduledDiscoveryDropAnnouncements(WEEKLY_DROP_TYPE, periodKey);
-  if (existingAnnouncements.length > 0) {
-    markWeeklyDiscoveryDeliveredForPeriod({ periodKey, userIds: preparedStates.map((state) => state.userId), now: now.toISOString() });
-    return { periodKey, announced: 0, skipped: existingAnnouncements.length };
-  }
-
-  let announced = 0;
-  let skipped = 0;
-  const userIds = preparedStates.map((state) => state.userId);
-  for (const { guildId, channelId } of listGuildCommandChannels()) {
-    if (listScheduledDiscoveryDropAnnouncements(WEEKLY_DROP_TYPE, periodKey).some((row) => row.guildId === guildId)) {
-      skipped += 1;
-      continue;
-    }
-
-    try {
-      const channel = await client.channels.fetch(channelId);
-      if (!channel || channel.type !== ChannelType.GuildText) {
-        skipped += 1;
-        continue;
-      }
-      const message = await channel.send({
-        embeds: [weeklyDropAnnouncementEmbed(periodKey, announceableUsers.length)],
-        components: [discoveryDropOpenButton(WEEKLY_DROP_TYPE, periodKey)]
-      });
-      for (const state of preparedStates) {
-        markWeeklyDiscoveryDeliveryAttempt({
-          userId: state.userId,
-          periodKey,
-          state: 'PENDING',
-          now: now.toISOString()
-        });
-      }
-      if (markScheduledDiscoveryDropAnnouncement({ guildId, dropType: WEEKLY_DROP_TYPE, periodKey, channelId, messageId: message.id })) {
-        announced += 1;
-        markWeeklyDiscoveryDeliveredForPeriod({
-          periodKey,
-          userIds,
-          guildId,
-          messageId: message.id,
-          now: now.toISOString()
-        });
-      }
-    } catch (error) {
-      skipped += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      for (const state of preparedStates) {
-        markWeeklyDiscoveryDeliveryAttempt({
-          userId: state.userId,
-          periodKey,
-          state: 'PENDING',
-          error: message.slice(0, 280),
-          now: now.toISOString()
-        });
-      }
-      console.warn(`[DiscoveryDrops] Failed to announce weekly drop for guild ${guildId}`, error);
-    }
-  }
-
-  return { periodKey, announced, skipped };
-}
-
 export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDiscoveryPreparationHealth {
   const targetDate = weeklyPreparationTargetDate(now);
   const periodKey = scheduledDiscoveryPeriodKey(WEEKLY_DROP_TYPE, targetDate);
@@ -451,13 +331,10 @@ export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDis
   let prepared = 0;
   let ready = 0;
   let partial = 0;
-  let delivered = 0;
-  let deliveryPending = 0;
   let preparing = 0;
   let retryScheduled = 0;
   let failedFinal = 0;
   let missing = 0;
-  let overdueUnresolved = 0;
   let overdueUnprepared = 0;
   let staleLeases = 0;
   let lateRecoveries = 0;
@@ -485,8 +362,6 @@ export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDis
         if (drop?.updatedAt && (!oldestPreparedUpdatedAt || Date.parse(drop.updatedAt) < Date.parse(oldestPreparedUpdatedAt))) {
           oldestPreparedUpdatedAt = drop.updatedAt;
         }
-        if (state.deliveryState === 'DELIVERED') delivered += 1;
-        else if (state.deliveryState === 'PENDING') deliveryPending += 1;
         break;
       case 'PREPARING':
         preparing += 1;
@@ -514,8 +389,6 @@ export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDis
         break;
     }
 
-    const unresolved = state.state !== 'READY' || state.deliveryState !== 'DELIVERED';
-    if (now.getTime() >= availableAtMs && unresolved) overdueUnresolved += 1;
     if (now.getTime() >= availableAtMs && state.state !== 'READY') overdueUnprepared += 1;
   }
 
@@ -528,14 +401,11 @@ export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDis
     prepared,
     ready,
     partial,
-    delivered,
-    deliveryPending,
     preparing,
     retryScheduled,
     failedFinal,
     failed: failedFinal,
     missing,
-    overdueUnresolved,
     overdueUnprepared,
     staleLeases,
     lateRecoveries,
@@ -550,32 +420,14 @@ export function getWeeklyDiscoveryPreparationHealth(now = new Date()): WeeklyDis
   };
 }
 
-export async function sendWeeklyDropTestAnnouncement(channel: { type: ChannelType; send: (options: { embeds: EmbedBuilder[]; components: ReturnType<typeof discoveryDropOpenButton>[] }) => Promise<{ id: string }> }, now = new Date()): Promise<{
-  periodKey: string;
-  preparedCount: number;
-  messageId: string;
-}> {
-  if (channel.type !== ChannelType.GuildText) {
-    throw new Error('Weekly Shelf test announcements can only be posted in text channels');
-  }
-  const periodKey = scheduledDiscoveryPeriodKey(WEEKLY_DROP_TYPE, now);
-  const preparedCount = getWeeklyDiscoveryPreparationHealth(now).prepared;
-  const message = await channel.send({
-    embeds: [weeklyDropAnnouncementEmbed(periodKey, preparedCount)],
-    components: [discoveryDropOpenButton(WEEKLY_DROP_TYPE, periodKey)]
-  });
-  return { periodKey, preparedCount, messageId: message.id };
-}
-
-export async function runDiscoveryDropSchedulerOnce(client: Client, now = new Date()): Promise<void> {
+export async function runDiscoveryDropSchedulerOnce(now = new Date()): Promise<void> {
   if (schedulerRunning) return;
   schedulerRunning = true;
   try {
     const prepared = await prepareWeeklyDrops(now);
-    const announced = await announceWeeklyDrop(client, now);
-    if (prepared.prepared > 0 || prepared.failed > 0 || announced.announced > 0) {
+    if (prepared.prepared > 0 || prepared.failed > 0) {
       console.log(
-        `[DiscoveryDrops] weekly=${prepared.periodKey} prepared=${prepared.prepared} scheduled=${prepared.scheduled} failed=${prepared.failed} announced=${announced.announced}`
+        `[DiscoveryDrops] weekly=${prepared.periodKey} prepared=${prepared.prepared} scheduled=${prepared.scheduled} failed=${prepared.failed}`
       );
     }
   } finally {
@@ -583,14 +435,14 @@ export async function runDiscoveryDropSchedulerOnce(client: Client, now = new Da
   }
 }
 
-export function startDiscoveryDropScheduler(client: Client): void {
+export function startDiscoveryDropScheduler(): void {
   if (!envFlag('DISCOVERY_DROP_SCHEDULER_ENABLED', true)) return;
   if (schedulerTimer) return;
 
   const intervalSeconds = envNumber('DISCOVERY_DROP_SCHEDULER_INTERVAL_SECONDS', 900, 60, 86_400);
-  void runDiscoveryDropSchedulerOnce(client);
+  void runDiscoveryDropSchedulerOnce();
   schedulerTimer = setInterval(() => {
-    void runDiscoveryDropSchedulerOnce(client);
+    void runDiscoveryDropSchedulerOnce();
   }, intervalSeconds * 1000);
 }
 

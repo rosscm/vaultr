@@ -1,20 +1,19 @@
 # Scalable App Direction
 
-Vaultr should move toward a prepared-data model: Discord and the future app interface should read stable shelves and market snapshots, while background workers do the slow market research.
+KeepSeek uses a prepared-data model: the web app reads stable Display Cases and market snapshots while background workers do slow market research. Discord is an optional listing-alert delivery channel.
 
 ## Current Baseline
 
-- Discord commands are the primary user interface.
+- The web app is the primary user interface.
 - SQLite is the local source of truth.
 - Discovery market cache and reference cache already separate expensive data from the response surface.
 - Discovery refresh requests now have a durable `discovery_market_refresh_jobs` table, so refresh work can survive restarts and be claimed by a worker process.
 - `src/discovery-market-worker.ts` can claim durable Discovery market jobs and run refreshes outside the Discord bot process.
 - `src/services/prepared-discovery.ts` exposes a network-free read model for existing persisted Discovery shelves, prepared market snapshots, and reference images.
-- `src/services/scheduled-discovery-drops.ts` stores weekly/radar/release-style Discovery drops as durable shelf releases, with normalized item rows for Discord and future app reads.
-- The Discovery renderer reads the current prepared Weekly Discovery drop for Pro users; Free users get a lightweight preview from active Vault signals.
-- `src/services/discovery-drop-scheduler.ts` prepares Pro Weekly Shelves in small batches, up to 20 cards per Discord release, and posts one configured-channel announcement per guild/period.
-- Scheduled drop buttons open the clicker's personalized shelf as a private channel interaction, avoiding DM spam and public shelf clutter.
-- Pro scheduled shelf opens and pagination render from persisted shelf rows only; market refresh work stays in background workers so Discord interactions stay quick.
+- `src/services/scheduled-discovery-drops.ts` stores scheduled Display Cases as durable releases with normalized item rows for web reads.
+- The web API reads the current prepared Display Case for Plus users; Free users receive editorial collector picks/general finds.
+- `src/services/discovery-drop-scheduler.ts` prepares personalized Display Cases in bounded batches without a Discord client or announcement dependency.
+- Display Case views and feedback operate through authenticated web endpoints; market refresh work stays in background workers.
 - Discovery market refresh enqueueing has per-user cooldowns and a global active-job cap so shelf opens cannot stampede eBay.
 - Discovery feedback is release-training input: More Like / Not For Me affects future shelves, and feedback confirmations support Undo.
 - eBay result windows and item-detail enrichment are capped in code, with smoke checks guarding unsafe env values.
@@ -26,7 +25,7 @@ Vaultr should move toward a prepared-data model: Discord and the future app inte
    - Returns prepared shelves quickly.
    - Enqueues refresh jobs when data is missing, stale, or thin.
    - Avoids doing full marketplace research inline except for limited beta/admin paths.
-   - Treats Discord as a ritual/open surface: scheduled channel posts announce drops, while buttons open personalized shelves privately from the channel.
+   - Treats the persisted web-readable Display Case as the scheduler's product output.
 
 2. **Worker layer**
    - Claims `discovery_market_refresh_jobs` rows.
