@@ -1,0 +1,24 @@
+[Unit]
+Description=KeepSeek Display Case scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Documents/GitHub/vaultr
+EnvironmentFile=/home/pi/Documents/GitHub/vaultr/.env
+Environment=VAULTR_ENVIRONMENT=production
+Environment=DISCOVERY_DROP_SCHEDULER_ENABLED=true
+ExecStartPre=/usr/bin/mkdir -p /home/pi/Documents/GitHub/vaultr/data/logs
+ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr/dist/discovery-scheduler.js
+Restart=on-failure
+RestartSec=5
+MemoryAccounting=yes
+MemoryHigh=250M
+MemoryMax=400M
+StandardOutput=append:/home/pi/Documents/GitHub/vaultr/data/logs/discovery-scheduler.log
+StandardError=append:/home/pi/Documents/GitHub/vaultr/data/logs/discovery-scheduler.log
+
+[Install]
+WantedBy=multi-user.target

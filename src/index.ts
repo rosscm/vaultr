@@ -10,7 +10,6 @@ import { handleChaseRemoveAutocomplete, handleChaseRemoveButtons } from './comma
 import { initializeCurrencyRates } from './services/currency.js';
 import { backfillChaseQueryNames } from './services/chase-store.js';
 import { getGuildCommandChannel } from './services/chase-store.js';
-import { startDiscoveryDropScheduler } from './services/discovery-drop-scheduler.js';
 import { startPoller } from './services/poller.js';
 import { productScopedInteraction } from './services/discord-account-adapter.js';
 import { errorEmbed, warningEmbed } from './ui/embeds.js';
@@ -65,7 +64,6 @@ backfillChaseQueryNames();
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}`);
   startPoller(client);
-  startDiscoveryDropScheduler();
 });
 
 client.on(Events.Error, (error) => {

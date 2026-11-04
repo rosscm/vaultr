@@ -427,6 +427,8 @@ The OAuth scope is `identify` only. The web session cookie is an opaque server-s
 
 Real Discord OAuth requires the matching callback URL to be registered in the Discord Developer Portal.
 
+Production service, routing, scheduler cutover, and verification steps are documented in [docs/production-web.md](docs/production-web.md).
+
 ### Persistence on Pi
 
 For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/vaultr-ebay-webhook.service):

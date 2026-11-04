@@ -446,4 +446,10 @@ export function startDiscoveryDropScheduler(): void {
   }, intervalSeconds * 1000);
 }
 
+export function stopDiscoveryDropScheduler(): void {
+  if (!schedulerTimer) return;
+  clearInterval(schedulerTimer);
+  schedulerTimer = undefined;
+}
+
 export { ownerAlertGraceMs };

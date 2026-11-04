@@ -1347,6 +1347,7 @@ describe('web auth routes', () => {
       cookieNamespace: 'staging'
     };
     const methods = await handleWebRequest({ method: 'GET', url: '/api/auth/config' }, { config: stagingConfig });
+    expect(methods.headers?.['Cache-Control']).toBe('no-store');
     expect(JSON.parse(methods.body ?? '{}')).toEqual({
       email: { available: false },
       discord: { available: true },
@@ -1356,6 +1357,7 @@ describe('web auth routes', () => {
 
     const authorize = await handleWebRequest({ method: 'GET', url: '/auth/discord' }, { config: stagingConfig });
     expect(authorize.status).toBe(302);
+    expect(authorize.headers?.['Cache-Control']).toBe('no-store');
     expect(authorize.headers?.['Set-Cookie']).toEqual(expect.stringContaining('vaultr_staging_oauth_state='));
     expect(authorize.headers?.Location).toEqual(expect.stringContaining(encodeURIComponent('https://staging.vaultr.example/auth/discord/callback')));
   });

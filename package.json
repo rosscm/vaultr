@@ -17,6 +17,7 @@
     "staging:plan": "tsx src/staging-plan.ts",
     "staging:plan:dist": "node dist/staging-plan.js",
     "start:discovery-worker": "node dist/discovery-market-worker.js",
+    "start:discovery-scheduler": "node dist/discovery-scheduler.js",
     "start:webhook": "node dist/ebay-webhook.js",
     "register:commands": "tsx src/register-commands.ts",
     "backup": "tsx src/backup.ts",

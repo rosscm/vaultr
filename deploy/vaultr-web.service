@@ -1,0 +1,23 @@
+[Unit]
+Description=KeepSeek web app and API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Documents/GitHub/vaultr
+EnvironmentFile=/home/pi/Documents/GitHub/vaultr/.env
+Environment=VAULTR_ENVIRONMENT=production
+ExecStartPre=/usr/bin/mkdir -p /home/pi/Documents/GitHub/vaultr/data/logs
+ExecStart=/usr/bin/node /home/pi/Documents/GitHub/vaultr/dist/web.js
+Restart=on-failure
+RestartSec=3
+MemoryAccounting=yes
+MemoryHigh=150M
+MemoryMax=250M
+StandardOutput=append:/home/pi/Documents/GitHub/vaultr/data/logs/web.log
+StandardError=append:/home/pi/Documents/GitHub/vaultr/data/logs/web.log
+
+[Install]
+WantedBy=multi-user.target

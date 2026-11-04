@@ -21,6 +21,8 @@ function cleanupUserIds(userIds: string[]): void {
     db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM user_alert_settings WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_notification_settings WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_display_case_views WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM chases WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
@@ -186,6 +188,36 @@ describe('accounts', () => {
     expect(db.prepare('SELECT user_id FROM chases WHERE id = ?').get('legacy-chase-43')).toMatchObject({ user_id: secondIdentity?.userId });
 
     cleanupUserIds([firstDiscordId, secondDiscordId, firstIdentity!.userId, secondIdentity!.userId]);
+  });
+
+  it('preserves canonical singleton account rows when legacy duplicates exist', () => {
+    const discordUserId = `legacy-collision-${Date.now()}`;
+    cleanupUserIds([discordUserId]);
+    const account = resolveOrCreateDiscordUser({ discordUserId, username: 'canonical-collector' });
+    db.prepare(`INSERT INTO user_plans (user_id, tier, status, updated_at) VALUES (?, 'PRO', 'ACTIVE', ?)`).run(
+      account.id,
+      '2026-08-21T10:00:00.000Z'
+    );
+    db.prepare(
+      `INSERT INTO user_alert_settings (user_id, min_score, max_alerts_per_hour, alert_currency, listing_source_mode, updated_at)
+       VALUES (?, 50, 20, 'CAD', 'EBAY_SHOPIFY', ?)`
+    ).run(account.id, '2026-08-21T10:00:00.000Z');
+    seedLegacyUser(discordUserId, '45');
+
+    migrateLegacyDiscordUserIdsToAccounts();
+
+    expect(db.prepare('SELECT tier, status FROM user_plans WHERE user_id = ?').get(account.id)).toEqual({ tier: 'PRO', status: 'ACTIVE' });
+    expect(db.prepare('SELECT min_score, alert_currency FROM user_alert_settings WHERE user_id = ?').get(account.id)).toEqual({
+      min_score: 50,
+      alert_currency: 'CAD'
+    });
+    expect(db.prepare('SELECT user_id FROM chases WHERE id = ?').get('legacy-chase-45')).toEqual({ user_id: account.id });
+    expect(db.prepare('SELECT 1 FROM user_plans WHERE user_id = ?').get(discordUserId)).toBeUndefined();
+
+    migrateLegacyDiscordUserIdsToAccounts();
+    expect(db.prepare('SELECT COUNT(*) AS count FROM user_plans WHERE user_id = ?').get(account.id)).toEqual({ count: 1 });
+
+    cleanupUserIds([discordUserId, account.id]);
   });
 
   it('rolls back ownership rewrites when final foreign key validation fails', () => {

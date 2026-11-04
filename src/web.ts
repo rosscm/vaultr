@@ -273,6 +273,7 @@ function jsonResponse(status: number, body: unknown, headers: Record<string, str
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'same-origin',
       ...headers
@@ -286,6 +287,7 @@ function redirectResponse(location: string, headers: Record<string, string | str
     status: 302,
     headers: {
       Location: location,
+      'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'same-origin',
       ...headers
@@ -1540,6 +1542,10 @@ export function createVaultrWebServer(options: WebHandlerOptions) {
 const isDirectRun = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
 
 if (isDirectRun) {
+  if (process.env.VAULTR_ENVIRONMENT === 'production') {
+    const { assertProductionWebEnvironment } = await import('./services/production-web-config.js');
+    assertProductionWebEnvironment();
+  }
   const config = webConfigFromEnv();
   const port = Number(process.env.VAULTR_WEB_PORT ?? '8790');
   const host = process.env.VAULTR_WEB_HOST ?? '127.0.0.1';

@@ -726,6 +726,13 @@ const USER_ID_OWNED_TABLES = [
   'user_taste_memory'
 ] as const;
 
+const USER_ID_SINGLETON_TABLES = [
+  'user_plans',
+  'user_alert_settings',
+  'user_notification_settings',
+  'user_display_case_views'
+] as const;
+
 function sqliteTableExists(tableName: string): boolean {
   const row = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(tableName) as { name: string } | undefined;
   return Boolean(row);
@@ -824,6 +831,15 @@ export function migrateLegacyDiscordUserIdsToAccounts(): void {
              updated_at = ?
          WHERE provider = 'DISCORD' AND provider_user_id = ?`
       ).run(profile.username ?? null, profile.displayName ?? null, profile.avatarUrl ?? null, now, discordUserId);
+
+      for (const tableName of USER_ID_SINGLETON_TABLES) {
+        if (!sqliteColumnExists(tableName, 'user_id')) continue;
+        db.prepare(
+          `DELETE FROM ${tableName}
+           WHERE user_id = ?
+             AND EXISTS (SELECT 1 FROM ${tableName} WHERE user_id = ?)`
+        ).run(discordUserId, vaultrUserId);
+      }
 
       for (const tableName of USER_ID_OWNED_TABLES) {
         if (!sqliteColumnExists(tableName, 'user_id')) continue;
