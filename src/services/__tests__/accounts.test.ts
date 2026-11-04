@@ -15,6 +15,11 @@ beforeEach(() => {
 
 function cleanupUserIds(userIds: string[]): void {
   for (const userId of userIds) {
+    db.prepare('DELETE FROM discovery_training_examples WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_discovery_feedback WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_discovery_seen WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_discovery_preferences WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM discovery_scheduled_drop_items WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM discovery_scheduled_drops WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
@@ -203,6 +208,42 @@ describe('accounts', () => {
        VALUES (?, 50, 20, 'CAD', 'EBAY_SHOPIFY', ?)`
     ).run(account.id, '2026-08-21T10:00:00.000Z');
     seedLegacyUser(discordUserId, '45');
+    db.prepare(`INSERT INTO user_discovery_seen VALUES (?, 'Mew', ?, ?, 2)`).run(
+      account.id, '2026-08-10T00:00:00.000Z', '2026-08-20T00:00:00.000Z'
+    );
+    db.prepare(`INSERT INTO user_discovery_seen VALUES (?, 'Mew', ?, ?, 3)`).run(
+      discordUserId, '2026-08-01T00:00:00.000Z', '2026-08-25T00:00:00.000Z'
+    );
+    db.prepare(`INSERT INTO user_discovery_preferences VALUES (?, 'PROMO', ?)`).run(account.id, '2026-08-20T00:00:00.000Z');
+    db.prepare(`INSERT INTO user_discovery_preferences VALUES (?, 'PROMO', ?)`).run(discordUserId, '2026-08-25T00:00:00.000Z');
+    db.prepare(`INSERT INTO user_discovery_feedback (
+      user_id, suggestion_name, lane, feedback, interaction_count, first_interacted_at, last_interacted_at, version, active
+    ) VALUES (?, 'Mew', 'CORE_MATCH', 'MORE_LIKE_THIS', 2, ?, ?, 2, 1)`).run(
+      account.id, '2026-08-10T00:00:00.000Z', '2026-08-20T00:00:00.000Z'
+    );
+    db.prepare(`INSERT INTO user_discovery_feedback (
+      user_id, suggestion_name, lane, feedback, interaction_count, first_interacted_at, last_interacted_at, version, active
+    ) VALUES (?, 'Mew', 'ADJACENT_DISCOVERY', 'NOT_FOR_ME', 3, ?, ?, 4, 1)`).run(
+      discordUserId, '2026-08-05T00:00:00.000Z', '2026-08-25T00:00:00.000Z'
+    );
+    db.prepare(`INSERT INTO user_taste_memory VALUES (?, 'mew', 'DISCOVERY', 'Mew', 100, 1, 2, ?, ?)`).run(
+      account.id, '2026-08-10T00:00:00.000Z', '2026-08-20T00:00:00.000Z'
+    );
+    db.prepare(`INSERT INTO user_taste_memory VALUES (?, 'mew', 'DISCOVERY', 'Mew promo', 120, -1, 3, ?, ?)`).run(
+      discordUserId, '2026-08-05T00:00:00.000Z', '2026-08-25T00:00:00.000Z'
+    );
+    db.prepare(`INSERT INTO discovery_training_examples (
+      user_id, surface, period_key, suggestion_name, lane, position, ranker_version, feature_json, score_json,
+      outcome, shown_at, updated_at, outcome_at
+    ) VALUES (?, 'WEB', '2026-W45', 'Mew', 'CORE_MATCH', 1, 'v1', '{}', '{}', NULL, ?, ?, NULL)`).run(
+      account.id, '2026-08-10T00:00:00.000Z', '2026-08-20T00:00:00.000Z'
+    );
+    db.prepare(`INSERT INTO discovery_training_examples (
+      user_id, surface, period_key, suggestion_name, lane, position, ranker_version, feature_json, score_json,
+      outcome, shown_at, updated_at, outcome_at
+    ) VALUES (?, 'WEB', '2026-W45', 'Mew', 'ADJACENT_DISCOVERY', 2, 'v2', '{"promo":true}', '{}', 'MORE_LIKE_THIS', ?, ?, ?)`).run(
+      discordUserId, '2026-08-05T00:00:00.000Z', '2026-08-25T00:00:00.000Z', '2026-08-25T00:00:00.000Z'
+    );
 
     migrateLegacyDiscordUserIdsToAccounts();
 
@@ -213,6 +254,22 @@ describe('accounts', () => {
     });
     expect(db.prepare('SELECT user_id FROM chases WHERE id = ?').get('legacy-chase-45')).toEqual({ user_id: account.id });
     expect(db.prepare('SELECT 1 FROM user_plans WHERE user_id = ?').get(discordUserId)).toBeUndefined();
+    expect(db.prepare(`SELECT first_seen_at, last_seen_at, times_seen FROM user_discovery_seen WHERE user_id = ? AND suggestion_name = 'Mew'`).get(account.id)).toEqual({
+      first_seen_at: '2026-08-01T00:00:00.000Z', last_seen_at: '2026-08-25T00:00:00.000Z', times_seen: 5
+    });
+    expect(db.prepare(`SELECT feedback, lane, interaction_count, version FROM user_discovery_feedback WHERE user_id = ? AND suggestion_name = 'Mew'`).get(account.id)).toEqual({
+      feedback: 'NOT_FOR_ME', lane: 'ADJACENT_DISCOVERY', interaction_count: 3, version: 4
+    });
+    expect(db.prepare(`SELECT card_name, weight, interaction_count FROM user_taste_memory WHERE user_id = ? AND signal_id = 'mew'`).get(account.id)).toEqual({
+      card_name: 'Mew promo', weight: -1, interaction_count: 3
+    });
+    expect(db.prepare(`SELECT lane, position, ranker_version, outcome, shown_at, updated_at FROM discovery_training_examples WHERE user_id = ?`).get(account.id)).toEqual({
+      lane: 'ADJACENT_DISCOVERY', position: 2, ranker_version: 'v2', outcome: 'MORE_LIKE_THIS',
+      shown_at: '2026-08-05T00:00:00.000Z', updated_at: '2026-08-25T00:00:00.000Z'
+    });
+    expect(db.prepare(`SELECT updated_at FROM user_discovery_preferences WHERE user_id = ? AND focus = 'PROMO'`).get(account.id)).toEqual({
+      updated_at: '2026-08-25T00:00:00.000Z'
+    });
 
     migrateLegacyDiscordUserIdsToAccounts();
     expect(db.prepare('SELECT COUNT(*) AS count FROM user_plans WHERE user_id = ?').get(account.id)).toEqual({ count: 1 });

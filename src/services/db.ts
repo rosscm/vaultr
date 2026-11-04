@@ -733,6 +733,94 @@ const USER_ID_SINGLETON_TABLES = [
   'user_display_case_views'
 ] as const;
 
+const USER_ID_COLLISION_KEYS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['discovery_scheduled_drop_items', ['drop_type', 'period_key', 'position']],
+  ['discovery_scheduled_drops', ['drop_type', 'period_key']],
+  ['user_discovery_preferences', ['focus']],
+  ['user_collector_subject_preferences', ['subject_key']],
+  ['user_collector_artwork_preferences', ['source', 'source_card_id']],
+  ['user_discovery_seen', ['suggestion_name']],
+  ['user_discovery_feedback', ['suggestion_name']],
+  ['discovery_training_examples', ['surface', 'period_key', 'suggestion_name']],
+  ['user_discovery_state', ['mode']],
+  ['discovery_user_universe', ['card_key']],
+  ['weekly_discovery_preparation_state', ['period_key']],
+  ['weekly_discovery_prepared_reserve', ['period_key']],
+  ['ignored_listing_fingerprints', ['chase_id', 'fingerprint']],
+  ['alert_fingerprint_claims', ['chase_id', 'fingerprint']],
+  ['guild_started_users', ['guild_id']],
+  ['user_weekly_reflection_posts', ['week_key']],
+  ['alert_feedback', ['chase_id', 'listing_id']],
+  ['user_taste_memory', ['signal_id', 'source']],
+  ['alert_events', ['chase_id', 'listing_id', 'source']]
+];
+
+type SqliteRow = Record<string, string | number | null> & { __rowid: number };
+
+function mergedLegacyAccountRow(tableName: string, legacy: SqliteRow, canonical: SqliteRow): SqliteRow {
+  const recencyColumns = ['updated_at', 'last_interacted_at', 'last_seen_at', 'posted_at', 'created_at'];
+  const recencyColumn = recencyColumns.find((column) => column in legacy && column in canonical);
+  const legacyIsNewer = recencyColumn ? String(legacy[recencyColumn] ?? '') > String(canonical[recencyColumn] ?? '') : false;
+  const merged = { ...(legacyIsNewer ? canonical : legacy), ...(legacyIsNewer ? legacy : canonical) } as SqliteRow;
+  const older = legacyIsNewer ? canonical : legacy;
+
+  for (const column of Object.keys(merged)) {
+    if ((merged[column] === null || merged[column] === '') && older[column] !== null && older[column] !== '') {
+      merged[column] = older[column];
+    }
+  }
+
+  for (const column of Object.keys(canonical)) {
+    if (column === '__rowid') continue;
+    if (/^(first_|created_at$|shown_at$|started_at$)/.test(column)) {
+      const values = [legacy[column], canonical[column]].filter((value): value is string | number => value !== null && value !== '');
+      if (values.length > 0) merged[column] = values.map(String).sort()[0];
+    } else if (/^(last_|updated_at$|viewed_at$|posted_at$|outcome_at$)/.test(column)) {
+      const values = [legacy[column], canonical[column]].filter((value): value is string | number => value !== null && value !== '');
+      if (values.length > 0) merged[column] = values.map(String).sort().at(-1)!;
+    }
+  }
+
+  if (tableName === 'user_discovery_seen') {
+    merged.times_seen = Number(legacy.times_seen ?? 0) + Number(canonical.times_seen ?? 0);
+  }
+  if (tableName === 'user_discovery_feedback' || tableName === 'user_taste_memory') {
+    merged.interaction_count = Math.max(Number(legacy.interaction_count ?? 0), Number(canonical.interaction_count ?? 0));
+  }
+  if (tableName === 'user_discovery_feedback') {
+    merged.version = Math.max(Number(legacy.version ?? 0), Number(canonical.version ?? 0));
+  }
+  return merged;
+}
+
+function mergeLegacyAccountScopedRows(legacyUserId: string, canonicalUserId: string): Set<string> {
+  const handled = new Set<string>();
+  for (const [tableName, conflictKeys] of USER_ID_COLLISION_KEYS) {
+    if (!sqliteColumnExists(tableName, 'user_id')) continue;
+    handled.add(tableName);
+    const legacyRows = db.prepare(`SELECT rowid AS __rowid, * FROM ${tableName} WHERE user_id = ?`).all(legacyUserId) as SqliteRow[];
+    for (const legacy of legacyRows) {
+      const where = conflictKeys.map((column) => `${column} = ?`).join(' AND ');
+      const canonical = db
+        .prepare(`SELECT rowid AS __rowid, * FROM ${tableName} WHERE user_id = ? AND ${where}`)
+        .get(canonicalUserId, ...conflictKeys.map((column) => legacy[column])) as SqliteRow | undefined;
+      if (!canonical) {
+        db.prepare(`UPDATE ${tableName} SET user_id = ? WHERE rowid = ?`).run(canonicalUserId, legacy.__rowid);
+        continue;
+      }
+
+      const merged = mergedLegacyAccountRow(tableName, legacy, canonical);
+      const columns = Object.keys(merged).filter((column) => column !== '__rowid' && column !== 'user_id' && !conflictKeys.includes(column));
+      db.prepare(`UPDATE ${tableName} SET ${columns.map((column) => `${column} = ?`).join(', ')} WHERE rowid = ?`).run(
+        ...columns.map((column) => merged[column]),
+        canonical.__rowid
+      );
+      db.prepare(`DELETE FROM ${tableName} WHERE rowid = ?`).run(legacy.__rowid);
+    }
+  }
+  return handled;
+}
+
 function sqliteTableExists(tableName: string): boolean {
   const row = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(tableName) as { name: string } | undefined;
   return Boolean(row);
@@ -841,8 +929,11 @@ export function migrateLegacyDiscordUserIdsToAccounts(): void {
         ).run(discordUserId, vaultrUserId);
       }
 
+      const collisionHandledTables = mergeLegacyAccountScopedRows(discordUserId, vaultrUserId);
+
       for (const tableName of USER_ID_OWNED_TABLES) {
         if (!sqliteColumnExists(tableName, 'user_id')) continue;
+        if (collisionHandledTables.has(tableName)) continue;
         db.prepare(`UPDATE ${tableName} SET user_id = ? WHERE user_id = ?`).run(vaultrUserId, discordUserId);
       }
     }
