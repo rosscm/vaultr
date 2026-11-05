@@ -33,6 +33,8 @@ const state = {
   alertsError: null,
   isAlertsLoading: false,
   nextCursor: null,
+  matchingNewAlertCount: 0,
+  bulkReviewBusy: false,
   requestId: 0,
   hasCheckedAllAlerts: false,
   isLoadingMore: false,
@@ -290,7 +292,12 @@ async function loadActivePageData() {
       state.shelfLoaded ? Promise.resolve() : loadShelf()
     ]);
   }
-  if (state.activePage === 'alerts' && !state.alertsLoaded) await loadAlerts();
+  if (state.activePage === 'alerts') {
+    await Promise.all([
+      state.alertsLoaded ? Promise.resolve() : loadAlerts(),
+      state.settingsLoaded ? Promise.resolve() : loadSettings()
+    ]);
+  }
   if (state.activePage === 'vault') await loadVault();
   if (state.activePage === 'shelf') {
     await Promise.all([
@@ -904,7 +911,7 @@ function settingsPageMarkup() {
             </div>
             <div class="account-method-row">
               <span><strong>Discord</strong><small>${discordIdentity.connected ? escapeHtml(discordIdentity.displayName || discordIdentity.username || 'Connected') : 'Not connected'}</small><small>${discordIdentity.connected ? 'Connected for sign-in and supported Discord features.' : 'Optional. Connect Discord as another way to access KeepSeek.'}</small></span>
-              ${discordIdentity.connected || !discordAvailable || isPreviewMode ? '' : '<a class="button-ghost account-method-action" href="/auth/discord">Connect Discord</a>'}
+              ${discordIdentity.connected || !discordAvailable || isPreviewMode ? '' : '<a class="button-ghost account-method-action" href="/auth/discord/link">Connect Discord</a>'}
             </div>
           </div>
           ${state.emailConfirmation?.ready && state.emailConfirmation.purpose === 'LINK_EMAIL' ? '<button class="button-primary" type="button" data-action="redeem-email-link">Finish adding email</button>' : ''}
@@ -947,11 +954,11 @@ function settingsPageMarkup() {
         <section class="settings-group" aria-labelledby="settings-delivery-title">
           <div class="settings-group-heading">
             <p class="eyebrow">Delivery</p>
-            <h2 id="settings-delivery-title">Discord alerts</h2>
-            <p>Get matching card alerts by Discord DM. Your KeepSeek Inbox keeps every match whether this is on or off.</p>
+            <h2 id="settings-delivery-title">Discord match alerts</h2>
+            <p>Your Inbox is the complete match history. Optionally receive a Discord DM when a new match appears.</p>
           </div>
           <label class="field settings-toggle-field">
-            <span>Discord DM alerts</span>
+            <span>${access.discordLinked ? 'Send new match alerts to Discord' : 'Connect Discord to enable match alerts'}</span>
             <input name="discordCardAlertsEnabled" type="checkbox"${draft.discordCardAlertsEnabled ? ' checked' : ''}${controlsDisabled || !access.discordLinked ? ' disabled' : ''} aria-describedby="${describedBy('discordCardAlertsEnabled', 'settings-discord-alerts-help')}">
             <small class="field-hint" id="settings-discord-alerts-help">${access.discordLinked ? 'Optional delivery for card and listing matches only.' : 'Connect Discord in Login methods before enabling DM alerts.'}</small>
             ${settingsFieldError('discordCardAlertsEnabled')}
@@ -1197,6 +1204,9 @@ function onboardingPageMarkup() {
 }
 
 function alertsPageMarkup(inner) {
+  const access = state.settings?.access || {};
+  const discordAlertsEnabled = Boolean(state.settings?.settings?.discordCardAlertsEnabled);
+  const showDiscordInvite = state.settingsLoaded && !discordAlertsEnabled && !access.discordAlertInviteDismissed;
   return `
     <section aria-labelledby="alerts-title">
       ${pageHeaderMarkup({
@@ -1212,6 +1222,7 @@ function alertsPageMarkup(inner) {
         </div>
       ` : ''}
       ${alertNoticeMarkup()}
+      ${showDiscordInvite ? `<aside class="discord-alert-invite" aria-labelledby="discord-alert-invite-title"><div><h2 id="discord-alert-invite-title">Want a heads-up when a match appears?</h2><p>${access.discordLinked ? 'Turn on optional Discord alerts in Settings. Your Inbox remains the full match history.' : 'Connect Discord in Settings, then choose whether KeepSeek should send match alerts there.'}</p></div><div><button class="button-primary" type="button" data-action="open-discord-alert-settings">${access.discordLinked ? 'Choose alert settings' : 'Connect Discord'}</button><button class="button-ghost" type="button" data-action="dismiss-discord-alert-invite">Not now</button></div></aside>` : ''}
       <div class="alert-control-stack">
         <div class="alert-control-group alert-inbox-control">
           <span class="alert-control-label">Inbox</span>
@@ -1220,6 +1231,7 @@ function alertsPageMarkup(inner) {
             ${reviewStateButton('REVIEWED', 'Reviewed')}
             ${reviewStateButton('ALL', 'All')}
           </div>
+          ${state.matchingNewAlertCount > 0 ? `<button class="button-ghost alert-review-all" type="button" data-action="mark-all-reviewed"${state.bulkReviewBusy ? ' disabled' : ''}>${state.bulkReviewBusy ? 'Updating…' : `Mark all reviewed (${state.matchingNewAlertCount})`}</button>` : ''}
         </div>
         <div class="toolbar" aria-label="Inbox filters">
           <div class="alert-control-group">
@@ -1328,8 +1340,7 @@ function alertActionMarkup(alert, { compact = false } = {}) {
     ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
     <span class="alert-secondary-actions">
       <button class="vault-action-link" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
-      ${compact ? '' : `<button class="vault-action-link" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button>`}
-      <button class="vault-action-link danger" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button>
+      ${compact ? '<button class="vault-action-link danger" type="button" data-action="dismiss-alert" data-alert-id="' + escapeHtml(alert.id) + '">Dismiss</button>' : `<details class="alert-more-actions"><summary>More</summary><div><button class="vault-action-link" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button><button class="vault-action-link danger" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button></div></details>`}
     </span>
   `;
 }
@@ -1603,7 +1614,7 @@ function homePageMarkup() {
           <h1 id="home-title">Less searching. <span>More collecting.</span></h1>
           <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell KeepSeek what you’re chasing and it’ll look for listings that fit. With <a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case to help surface your next favourite.</p>
         </div>
-        <button class="button-primary home-watchlist-cta" type="button" data-page="vault">View Watchlist <span aria-hidden="true">&rarr;</span></button>
+        <button class="button-primary home-watchlist-cta" type="button" data-action="open-add-chase">Add to Watchlist <span aria-hidden="true">&rarr;</span></button>
       </header>
       ${vaultNoticeMarkup('home')}
       ${alertNoticeMarkup()}
@@ -2356,6 +2367,12 @@ async function loadAuthSurface() {
     if (!state.emailConfirmation && new URLSearchParams(window.location.search).get('emailConfirm') === 'invalid') {
       state.authError = 'This link is invalid, expired, or already used. Request a new one.';
     }
+    const discordLink = new URLSearchParams(window.location.search).get('discordLink');
+    if (discordLink === 'linked') state.authNotice = 'Discord is now connected to this KeepSeek account.';
+    if (discordLink === 'cancelled') state.authNotice = 'Discord connection was cancelled. Nothing changed.';
+    if (discordLink === 'identity_conflict') state.authError = 'That Discord identity belongs to another KeepSeek account. Accounts are never merged automatically.';
+    if (discordLink === 'account_conflict') state.authError = 'This KeepSeek account already has a different Discord identity connected.';
+    if (discordLink === 'auth_required') state.authError = 'Sign in again before connecting Discord.';
   } catch {
     state.authConfig = { email: { available: false }, discord: { available: false } };
     state.emailConfirmation = null;
@@ -2513,6 +2530,50 @@ async function mutateAlert(alertId, action) {
   }
 }
 
+async function markAllVisibleAlertsReviewed() {
+  const count = state.matchingNewAlertCount;
+  if (!count || state.bulkReviewBusy) return;
+  if (isPreviewMode) {
+    state.alertNotice = 'Preview mode is read-only. No matches were changed.';
+    renderCurrentPage();
+    return;
+  }
+  if (count > 50 && !window.confirm(`Mark all ${count} matching alerts reviewed?`)) return;
+  state.bulkReviewBusy = true;
+  renderCurrentPage();
+  try {
+    const body = await fetchJson('/api/alerts/review-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(state.priority !== 'ALL' ? { priority: state.priority } : {}),
+        ...(state.source !== 'ALL' ? { source: state.source } : {}),
+        ...(state.alertChaseId ? { chaseId: state.alertChaseId } : {}),
+        cutoff: new Date().toISOString()
+      })
+    });
+    state.alertNotice = `${body.reviewedCount || 0} ${body.reviewedCount === 1 ? 'match' : 'matches'} marked reviewed.`;
+    await refreshAlertSurfaces();
+  } catch (error) {
+    if (String(error?.message) !== 'unauthorized') state.alertNotice = 'Those matches could not be updated. Please try again.';
+  } finally {
+    state.bulkReviewBusy = false;
+    renderCurrentPage();
+  }
+}
+
+async function dismissDiscordAlertInvite() {
+  if (isPreviewMode) return;
+  try {
+    const body = await fetchJson('/api/settings/discord-alert-invite/dismiss', { method: 'POST' });
+    state.settings = body;
+    state.settingsLoaded = true;
+  } catch (error) {
+    state.alertNotice = 'That preference could not be saved. Please try again.';
+  }
+  renderCurrentPage();
+}
+
 async function loadAlerts({ append = false } = {}) {
   const requestId = ++state.requestId;
   if (!append) {
@@ -2536,6 +2597,7 @@ async function loadAlerts({ append = false } = {}) {
     state.alertsError = null;
     state.isAlertsLoading = false;
     state.nextCursor = body.nextCursor || null;
+    state.matchingNewAlertCount = Number(body.matchingNewCount) || 0;
     state.isLoadingMore = false;
     if (state.priority !== 'ALL' || state.source !== 'ALL') {
       state.hasCheckedAllAlerts = true;
@@ -3465,6 +3527,19 @@ app.addEventListener('click', async (event) => {
   if (action === 'mark-alert-reviewed' || action === 'mark-alert-new' || action === 'dismiss-alert') {
     const operation = action === 'mark-alert-reviewed' ? 'review' : action === 'mark-alert-new' ? 'mark-new' : 'dismiss';
     await mutateAlert(target.getAttribute('data-alert-id'), operation);
+    return;
+  }
+  if (action === 'mark-all-reviewed') {
+    await markAllVisibleAlertsReviewed();
+    return;
+  }
+  if (action === 'dismiss-discord-alert-invite') {
+    await dismissDiscordAlertInvite();
+    return;
+  }
+  if (action === 'open-discord-alert-settings') {
+    await navigateToPage('settings');
+    requestAnimationFrame(() => document.querySelector('#settings-delivery-title')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
     return;
   }
   if (action === 'undo-dismiss') {

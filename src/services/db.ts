@@ -1245,6 +1245,9 @@ if (!sqliteColumnExists('trusted_shop_catalog_state', 'provider_page_limit')) {
 if (!sqliteColumnExists('trusted_shop_catalog_state', 'last_limited_sweep_at')) {
   db.exec(`ALTER TABLE trusted_shop_catalog_state ADD COLUMN last_limited_sweep_at TEXT;`);
 }
+if (!sqliteColumnExists('user_notification_settings', 'discord_alert_invite_dismissed_at')) {
+  db.exec(`ALTER TABLE user_notification_settings ADD COLUMN discord_alert_invite_dismissed_at TEXT;`);
+}
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_completed_chases_user_completed ON completed_chases(user_id, completed_at DESC);`);

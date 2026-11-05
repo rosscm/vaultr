@@ -8388,19 +8388,19 @@ function collectorProfileAnchoredWhy(
   const rationale = !anchor
     ? `${printing} is a broader exploration pick that adds a distinct printing to your Weekly Shelf.`
     : anchor.kind === 'SUBJECT'
-      ? `${subject} connects directly to a subject already represented in your collection, while this printing adds a different release angle.`
+      ? `${printing} follows your interest in ${anchor.label}, while adding a different release angle.`
       : anchor.kind === 'EVOLUTION_FAMILY'
         ? `${printing} extends the ${anchor.label} family already represented in your collection with a different print.`
         : anchor.kind === 'SET_RELATIONSHIP'
-          ? `${printing} extends a set or release family already represented in your collection.`
+          ? `${printing} continues your ${anchor.label} release thread with a different collector target.`
           : anchor.kind === 'PROMO_PREFERENCE'
-            ? `${printing} extends the promo and special-release side of your collection.`
+            ? `${printing} reflects your interest in ${anchor.label}.`
             : anchor.kind === 'REGIONAL_PRINT'
-              ? `${printing} extends your Japanese and regional-print interests with an exact printing.`
+              ? `${printing} follows your ${anchor.label} interest with an exact printing.`
               : anchor.kind === 'ART_STYLE'
-                ? `${printing} connects to the artwork and illustrator traits already represented in your collection.`
+                ? `${printing} connects to your ${anchor.label} artwork interest.`
                 : anchor.kind === 'FORMAT'
-                  ? `${printing} extends a card format already represented in your collection.`
+                  ? `${printing} extends your ${anchor.label} format interest.`
                   : `${anchor.label} is represented in your collection, so ${printing} works as a broader era exploration pick.`;
   return normalizeCollectorFacingCopy(rationale || `${printing} fits your ${role.toLowerCase().replace(/_/g, ' ')} interests.`);
 }

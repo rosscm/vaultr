@@ -1552,6 +1552,57 @@ describe('web auth routes', () => {
     if (session?.userId) clearUser(session.userId);
   });
 
+  it('links Discord only to the authenticated account and refuses an identity owned elsewhere', async () => {
+    const user = createUser({ displayName: 'Email collector' });
+    linkIdentity({ userId: user.id, provider: 'EMAIL', providerUserId: 'link-discord@example.test', email: 'link-discord@example.test' });
+    const owner = createUser({ displayName: 'Discord owner' });
+    linkIdentity({ userId: owner.id, provider: 'DISCORD', providerUserId: 'claimed-discord' });
+    const { token } = createWebSession({ userId: user.id }, { token: 'discord-link-session' });
+    const start = await handleWebRequest({ method: 'GET', url: '/auth/discord/link', headers: { cookie: sessionCookie(token) } }, { config });
+    const location = new URL(String(start.headers?.Location));
+    const state = location.searchParams.get('state');
+    const linkCookie = cookieValue(start.headers, 'vaultr_oauth_state_link');
+    expect(state).toBeTruthy();
+    expect(linkCookie).toBeTruthy();
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => String(url).includes('/oauth2/token')
+      ? new Response(JSON.stringify({ access_token: 'linked-token' }), { status: 200 })
+      : new Response(JSON.stringify({ id: 'claimed-discord', username: 'claimed' }), { status: 200 })) as typeof fetch;
+    const conflict = await handleWebRequest({
+      method: 'GET',
+      url: `/auth/discord/callback?code=abc&state=${state}`,
+      headers: { cookie: `${sessionCookie(token)}; vaultr_oauth_state_link=${linkCookie}` }
+    }, { config, fetchImpl });
+    expect(conflict.headers?.Location).toBe('/app?discordLink=identity_conflict#settings');
+    expect(getIdentity('DISCORD', 'claimed-discord')?.userId).toBe(owner.id);
+    expect(getIdentity('DISCORD', 'claimed-discord')?.userId).not.toBe(user.id);
+    clearUser(user.id);
+    clearUser(owner.id);
+  });
+
+  it('links a new Discord identity to an email-first account without replacing its session or data', async () => {
+    const user = createUser({ displayName: 'Email-first collector' });
+    linkIdentity({ userId: user.id, provider: 'EMAIL', providerUserId: 'email-first@example.test', email: 'email-first@example.test' });
+    setUserPlan(user.id, 'PRO');
+    addChase({ userId: user.id, cardName: 'CoroCoro Mew', priority: 'GRAIL' });
+    const { token } = createWebSession({ userId: user.id }, { token: 'discord-link-success-session' });
+    const start = await handleWebRequest({ method: 'GET', url: '/auth/discord/link', headers: { cookie: sessionCookie(token) } }, { config });
+    const state = new URL(String(start.headers?.Location)).searchParams.get('state');
+    const linkCookie = cookieValue(start.headers, 'vaultr_oauth_state_link');
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => String(url).includes('/oauth2/token')
+      ? new Response(JSON.stringify({ access_token: 'new-discord-token' }), { status: 200 })
+      : new Response(JSON.stringify({ id: 'new-linked-discord', username: 'collector' }), { status: 200 })) as typeof fetch;
+    const linked = await handleWebRequest({
+      method: 'GET', url: `/auth/discord/callback?code=abc&state=${state}`,
+      headers: { cookie: `${sessionCookie(token)}; vaultr_oauth_state_link=${linkCookie}` }
+    }, { config, fetchImpl });
+    expect(linked.headers?.Location).toBe('/app?discordLink=linked#settings');
+    expect(getIdentity('DISCORD', 'new-linked-discord')?.userId).toBe(user.id);
+    expect(resolveWebSession(token)?.userId).toBe(user.id);
+    expect(getUserAlertSettings(user.id)).toBeTruthy();
+    expect(listChases(user.id).map((chase) => chase.cardName)).toContain('CoroCoro Mew');
+    clearUser(user.id);
+  });
+
   it('does not create a session when Discord token or profile fetch fails', async () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 502 })) as typeof fetch;
     const response = await handleWebRequest(
@@ -1760,6 +1811,18 @@ describe('authenticated settings API', () => {
     clearUser(userId);
   });
 
+  it('persists dismissal of the contextual Discord alert invitation', async () => {
+    const userId = 'web-settings-discord-invite';
+    const headers = auth(userId, 'settings-discord-invite-token');
+    const initial = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/settings', headers }, { config })).body ?? '{}');
+    expect(initial.access.discordAlertInviteDismissed).toBe(false);
+    const dismissed = await handleWebRequest({ method: 'POST', url: '/api/settings/discord-alert-invite/dismiss', headers }, { config });
+    expect(dismissed.status).toBe(200);
+    expect(JSON.parse(dismissed.body ?? '{}').access.discordAlertInviteDismissed).toBe(true);
+    expect(JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/settings', headers }, { config })).body ?? '{}').access.discordAlertInviteDismissed).toBe(true);
+    clearUser(userId);
+  });
+
   it('applies partial updates without erasing an inactive Pro source preference', async () => {
     const userId = 'web-settings-partial';
     const headers = auth(userId, 'settings-partial-token');
@@ -1912,6 +1975,7 @@ describe('authenticated alert API', () => {
     const firstBody = JSON.parse(first.body ?? '{}');
     expect(first.status).toBe(200);
     expect(firstBody.items).toHaveLength(1);
+    expect(firstBody.matchingNewCount).toBe(2);
     expect(firstBody.nextCursor).toBeTruthy();
     expect(decodeAlertCursor(firstBody.nextCursor)).toMatchObject({
       createdAt: firstBody.items[0].createdAt,
@@ -1929,6 +1993,35 @@ describe('authenticated alert API', () => {
     expect(JSON.parse(second.body ?? '{}').items).toHaveLength(1);
 
     clearUser(userId);
+  });
+
+  it('marks all matching pre-cutoff alerts reviewed without touching new arrivals or other accounts', async () => {
+    const userId = 'web-alert-bulk-user';
+    const otherUserId = 'web-alert-bulk-other';
+    clearUser(userId);
+    clearUser(otherUserId);
+    const first = seedAlert(userId, 1, { chasePriority: 'HIGH', source: 'SHOPIFY', now: '2026-08-20T12:01:00.000Z' });
+    const second = seedAlert(userId, 2, { chasePriority: 'HIGH', source: 'SHOPIFY', now: '2026-08-20T12:02:00.000Z' });
+    const later = seedAlert(userId, 3, { chasePriority: 'HIGH', source: 'SHOPIFY', now: '2026-08-20T12:04:00.000Z' });
+    const other = seedAlert(otherUserId, 4, { chasePriority: 'HIGH', source: 'SHOPIFY', now: '2026-08-20T12:01:00.000Z' });
+    const { token } = createWebSession({ userId }, { token: 'alert-bulk-token' });
+    const response = await handleWebRequest({
+      method: 'POST',
+      url: '/api/alerts/review-all',
+      headers: { cookie: sessionCookie(token), 'content-type': 'application/json' },
+      body: JSON.stringify({ priority: 'HIGH', source: 'SHOPIFY', cutoff: '2026-08-20T12:03:00.000Z' })
+    }, { config });
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body ?? '{}').reviewedCount).toBe(2);
+    const rows = db.prepare('SELECT id, reviewed_at FROM alert_events WHERE id IN (?, ?, ?, ?) ORDER BY id').all(first.alertId, second.alertId, later.alertId, other.alertId) as Array<{ id: string; reviewed_at: string | null }>;
+    expect(rows.filter((row) => row.reviewed_at).map((row) => row.id).sort()).toEqual([first.alertId, second.alertId].sort());
+    const repeated = await handleWebRequest({
+      method: 'POST', url: '/api/alerts/review-all', headers: { cookie: sessionCookie(token), 'content-type': 'application/json' },
+      body: JSON.stringify({ priority: 'HIGH', source: 'SHOPIFY', cutoff: '2026-08-20T12:03:00.000Z' })
+    }, { config });
+    expect(JSON.parse(repeated.body ?? '{}').reviewedCount).toBe(0);
+    clearUser(userId);
+    clearUser(otherUserId);
   });
 
   it('returns 400 for invalid alert query values', async () => {

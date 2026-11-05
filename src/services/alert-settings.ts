@@ -124,7 +124,8 @@ export function alertSettingsResponse(userId: string) {
       tier,
       planStatus: plan.status,
       trustedShops: tier === 'PRO',
-      discordLinked: notifications.discordLinked
+      discordLinked: notifications.discordLinked,
+      discordAlertInviteDismissed: notifications.discordAlertInviteDismissed
     },
     status: {
       alertVolumeReached: recentAlertCount >= settings.maxAlertsPerHour,

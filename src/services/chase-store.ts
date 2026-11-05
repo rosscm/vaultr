@@ -264,6 +264,10 @@ export type ListAlertEventsForUserOptions = {
   reviewState?: 'NEW' | 'REVIEWED';
 };
 
+export type BulkReviewAlertOptions = Pick<ListAlertEventsForUserOptions, 'chaseId' | 'chasePriority' | 'source'> & {
+  createdAtOrBefore: string;
+};
+
 export type UserDiscoveryState = {
   userId: string;
   mode: string;
@@ -2619,6 +2623,41 @@ export function listAlertEventsForUser(userId: string, options: ListAlertEventsF
     items: pageRows.map(mapAlertHistoryItem),
     nextCursor: rows.length > limit && last ? { createdAt: last.created_at, id: last.id } : undefined
   };
+}
+
+function bulkReviewAlertWhere(options: BulkReviewAlertOptions): { where: string[]; params: Record<string, string> } {
+  const params: Record<string, string> = { cutoff: options.createdAtOrBefore };
+  const where = ['reviewed_at IS NULL', 'dismissed_at IS NULL', 'created_at <= @cutoff'];
+  if (options.chaseId) {
+    where.push('chase_id = @chase_id');
+    params.chase_id = options.chaseId;
+  }
+  if (options.chasePriority) {
+    where.push('chase_priority = @chase_priority');
+    params.chase_priority = options.chasePriority;
+  }
+  if (options.source) {
+    where.push('source = @source');
+    params.source = options.source;
+  }
+  return { where, params };
+}
+
+export function countNewAlertEventsForUser(userId: string, options: Omit<BulkReviewAlertOptions, 'createdAtOrBefore'> = {}): number {
+  const { where, params } = bulkReviewAlertWhere({ ...options, createdAtOrBefore: '9999-12-31T23:59:59.999Z' });
+  const row = db.prepare(`SELECT COUNT(*) AS count FROM alert_events WHERE user_id = @user_id AND ${where.join(' AND ')}`).get({
+    ...params,
+    user_id: userId
+  }) as { count: number };
+  return row.count;
+}
+
+export function markAllAlertEventsReviewed(userId: string, options: BulkReviewAlertOptions, reviewedAt = new Date().toISOString()): number {
+  const { where, params } = bulkReviewAlertWhere(options);
+  return db.transaction(() => db.prepare(
+    `UPDATE alert_events SET reviewed_at = @reviewed_at, updated_at = @reviewed_at
+     WHERE user_id = @user_id AND ${where.join(' AND ')}`
+  ).run({ ...params, user_id: userId, reviewed_at: reviewedAt }).changes)();
 }
 
 export function getAlertEventForUser(userId: string, alertId: string): AlertHistoryItem | null {

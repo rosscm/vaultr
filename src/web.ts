@@ -7,6 +7,7 @@ import path from 'node:path';
 import { pathToFileURL, URL } from 'node:url';
 import {
   countChaseAlertsWithinMinutes,
+  countNewAlertEventsForUser,
   dismissAlert,
   getUserPlan,
   getUserDiscoveryFeedback,
@@ -15,6 +16,7 @@ import {
   listAlertEventsForUser,
   markAlertNew,
   markAlertReviewed,
+  markAllAlertEventsReviewed,
   restoreAlert,
   type ListAlertEventsForUserOptions
 } from './services/chase-store.js';
@@ -72,10 +74,14 @@ import {
 } from './services/web-sessions.js';
 import {
   discordAvatarUrl,
+  getIdentity,
   getIdentityForUser,
   getUserById,
+  linkIdentity,
+  updateIdentityProfile,
   resolveOrCreateDiscordUser
 } from './services/accounts.js';
+import { dismissDiscordAlertInvite } from './services/notification-settings.js';
 import {
   createPostmarkMagicLinkTransport,
   magicLinkConfirmationState,
@@ -153,11 +159,12 @@ export type WebConfig = {
   };
 };
 
-function cookieNames(config: WebConfig): { oauthState: string; session: string; emailConfirm: string } {
+function cookieNames(config: WebConfig): { oauthState: string; oauthLinkState: string; session: string; emailConfirm: string } {
   const namespace = config.cookieNamespace?.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
-  if (!namespace) return { oauthState: OAUTH_STATE_COOKIE, session: SESSION_COOKIE, emailConfirm: EMAIL_CONFIRM_COOKIE };
+  if (!namespace) return { oauthState: OAUTH_STATE_COOKIE, oauthLinkState: `${OAUTH_STATE_COOKIE}_link`, session: SESSION_COOKIE, emailConfirm: EMAIL_CONFIRM_COOKIE };
   return {
     oauthState: `vaultr_${namespace}_oauth_state`,
+    oauthLinkState: `vaultr_${namespace}_oauth_link_state`,
     session: `vaultr_${namespace}_session`,
     emailConfirm: `vaultr_${namespace}_email_confirm`
   };
@@ -1086,16 +1093,46 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     });
   }
 
+  if (method === 'GET' && url.pathname === '/auth/discord/link') {
+    if (!options.config.discordClientId || !options.config.discordClientSecret) return errorResponse(503, 'discord_auth_unavailable');
+    const session = authenticatedSession(request, options);
+    if (!session) return redirectResponse('/app?discordLink=auth_required#settings');
+    const state = randomBytes(32).toString('base64url');
+    const authorizeUrl = new URL(DISCORD_AUTHORIZE_URL);
+    authorizeUrl.searchParams.set('client_id', options.config.discordClientId);
+    authorizeUrl.searchParams.set('redirect_uri', oauthCallbackUrl(options.config));
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('scope', 'identify');
+    authorizeUrl.searchParams.set('state', state);
+    const linkState = Buffer.from(JSON.stringify({ state, userId: session.userId })).toString('base64url');
+    return redirectResponse(authorizeUrl.toString(), {
+      'Set-Cookie': cookieHeaderParts(cookieNames(options.config).oauthLinkState, linkState, {
+        maxAgeSeconds: OAUTH_STATE_MAX_AGE_SECONDS,
+        secure: secureCookies
+      })
+    });
+  }
+
   if (method === 'GET' && url.pathname === '/auth/discord/callback') {
     if (!options.config.discordClientId || !options.config.discordClientSecret) return errorResponse(503, 'discord_auth_unavailable');
-    const clearStateCookie = clearCookieHeader(cookieNames(options.config).oauthState, secureCookies);
+    const cookies = parseCookies(getHeader(request.headers, 'cookie'));
+    const rawLinkState = cookies[cookieNames(options.config).oauthLinkState];
+    let linkState: { state: string; userId: string } | null = null;
+    try {
+      if (rawLinkState) linkState = JSON.parse(Buffer.from(rawLinkState, 'base64url').toString('utf8')) as { state: string; userId: string };
+    } catch {
+      linkState = null;
+    }
+    const linking = Boolean(linkState && url.searchParams.get('state') === linkState.state);
+    const clearStateCookie = clearCookieHeader(linking ? cookieNames(options.config).oauthLinkState : cookieNames(options.config).oauthState, secureCookies);
     if (url.searchParams.has('error')) {
-      return errorResponse(400, 'oauth_denied', { 'Set-Cookie': clearStateCookie });
+      return linking
+        ? redirectResponse('/app?discordLink=cancelled#settings', { 'Set-Cookie': clearStateCookie })
+        : errorResponse(400, 'oauth_denied', { 'Set-Cookie': clearStateCookie });
     }
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
-    const cookies = parseCookies(getHeader(request.headers, 'cookie'));
-    const expectedState = cookies[cookieNames(options.config).oauthState];
+    const expectedState = linking ? linkState?.state : cookies[cookieNames(options.config).oauthState];
     if (!code) return errorResponse(400, 'missing_code', { 'Set-Cookie': clearStateCookie });
     if (!state || !expectedState) return errorResponse(400, 'invalid_state', { 'Set-Cookie': clearStateCookie });
     if (state !== expectedState) return errorResponse(400, 'invalid_state', { 'Set-Cookie': clearStateCookie });
@@ -1105,6 +1142,26 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       if (!accessToken) return errorResponse(502, 'discord_oauth_failed', { 'Set-Cookie': clearStateCookie });
       const profile = await fetchDiscordUser(accessToken, options);
       if (!profile) return errorResponse(502, 'discord_profile_failed', { 'Set-Cookie': clearStateCookie });
+      if (linking && linkState) {
+        const session = authenticatedSession(request, options);
+        if (!session || session.userId !== linkState.userId) {
+          return redirectResponse('/app?discordLink=auth_required#settings', { 'Set-Cookie': clearStateCookie });
+        }
+        const claimed = getIdentity('DISCORD', profile.discordUserId);
+        const accountDiscord = getIdentityForUser(session.userId, 'DISCORD');
+        if (claimed && claimed.userId !== session.userId) {
+          return redirectResponse('/app?discordLink=identity_conflict#settings', { 'Set-Cookie': clearStateCookie });
+        }
+        if (accountDiscord && accountDiscord.providerUserId !== profile.discordUserId) {
+          return redirectResponse('/app?discordLink=account_conflict#settings', { 'Set-Cookie': clearStateCookie });
+        }
+        if (claimed) {
+          updateIdentityProfile({ provider: 'DISCORD', providerUserId: profile.discordUserId, ...profile });
+        } else {
+          linkIdentity({ userId: session.userId, provider: 'DISCORD', providerUserId: profile.discordUserId, ...profile });
+        }
+        return redirectResponse('/app?discordLink=linked#settings', { 'Set-Cookie': clearStateCookie });
+      }
       const user = resolveOrCreateDiscordUser(profile);
       const { token } = createWebSession({ userId: user.id }, { now: options.now?.() ?? new Date(), ttlDays: SESSION_TTL_DAYS });
       const sessionCookie = cookieHeaderParts(cookieNames(options.config).session, token, {
@@ -1200,6 +1257,13 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     return errorResponse(405, 'method_not_allowed', { Allow: 'GET, PATCH' });
   }
 
+  if (method === 'POST' && url.pathname === '/api/settings/discord-alert-invite/dismiss') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    dismissDiscordAlertInvite(session.userId);
+    return jsonResponse(200, alertSettingsResponse(session.userId));
+  }
+
   if (url.pathname === '/api/onboarding') {
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');
@@ -1246,10 +1310,35 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     const parsedOptions = parseAlertListOptions(url);
     if ('error' in parsedOptions) return errorResponse(400, parsedOptions.error);
     const page = listAlertEventsForUser(session.userId, parsedOptions.options);
+    const matchingNewCount = countNewAlertEventsForUser(session.userId, parsedOptions.options);
     return jsonResponse(200, {
       items: page.items.map(publicAlertItem),
-      nextCursor: encodeCursor(page.nextCursor)
+      nextCursor: encodeCursor(page.nextCursor),
+      matchingNewCount
     });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/alerts/review-all') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    const parsed = requireJsonBody(request);
+    if ('status' in parsed) return parsed;
+    const allowed = new Set(['priority', 'source', 'chaseId', 'cutoff']);
+    if (Object.keys(parsed.body).some((field) => !allowed.has(field))) return errorResponse(400, 'invalid_bulk_review');
+    const { priority, source, chaseId, cutoff } = parsed.body;
+    if (typeof cutoff !== 'string' || Number.isNaN(Date.parse(cutoff))) return errorResponse(400, 'invalid_cutoff');
+    if (priority !== undefined && !['GRAIL', 'HIGH', 'NORMAL'].includes(String(priority))) return errorResponse(400, 'invalid_priority');
+    if (source !== undefined && !['EBAY', 'SHOPIFY'].includes(String(source))) return errorResponse(400, 'invalid_source');
+    if (chaseId !== undefined && (typeof chaseId !== 'string' || !chaseId.trim())) return errorResponse(400, 'invalid_chase_id');
+    const reviewedAt = options.now?.().toISOString() ?? new Date().toISOString();
+    const effectiveCutoff = new Date(Math.min(Date.parse(cutoff), Date.parse(reviewedAt))).toISOString();
+    const reviewedCount = markAllAlertEventsReviewed(session.userId, {
+      createdAtOrBefore: effectiveCutoff,
+      chaseId: typeof chaseId === 'string' ? chaseId : undefined,
+      chasePriority: priority as ListAlertEventsForUserOptions['chasePriority'],
+      source: source as ListingSource | undefined
+    }, reviewedAt);
+    return jsonResponse(200, { reviewedCount, reviewedAt });
   }
 
   const alertActionMatch = url.pathname.match(/^\/api\/alerts\/([^/]+)\/(review|mark-new|dismiss|restore)$/);
