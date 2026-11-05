@@ -22,6 +22,8 @@
     "register:commands": "tsx src/register-commands.ts",
     "backup": "tsx src/backup.ts",
     "backup:dist": "node dist/backup.js",
+    "backup:dry-run": "tsx src/backup.ts --dry-run",
+    "backup:dry-run:dist": "node dist/backup.js --dry-run",
     "backfill:chase-images": "tsx src/backfill-chase-images.ts",
     "backfill:chase-images:dist": "node dist/backfill-chase-images.js",
     "catalog:init": "tsx src/catalog-init.ts",

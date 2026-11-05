@@ -202,6 +202,14 @@ npm run backup
 
 Backups are written to `VAULTR_BACKUP_DIR` (default `./data/backups`) and are ignored by git with the rest of `data/*`. The command uses SQLite's backup API, so the bot and worker do not need to be stopped for routine backups.
 
+Each successful scheduled backup is checked with SQLite integrity and foreign-key checks before it receives an `.automatic.json` management manifest. Retention applies only to backups carrying that verified manifest; historical files, manual exports, card-catalog backups, and files of unknown origin are never adopted automatically. Configure the number retained with `VAULTR_BACKUP_RETENTION_COUNT` (default `7`). Preview the managed deletion plan without creating or deleting a backup with:
+
+```bash
+npm run backup:dry-run:dist
+```
+
+Protect any managed automatic backup permanently by adding an adjacent marker, for example `touch data/backups/<backup>.db.protected`. Existing recovery checkpoints without automatic metadata, including the pre-web-migration checkpoint, are already outside automatic retention. Backup creation, validation, metadata publication, and pruning share an exclusive lock so overlapping timer/manual runs cannot race. A creation or validation failure leaves all existing backups untouched.
+
 On the Pi, install [deploy/vaultr-backup.service](deploy/vaultr-backup.service) and [deploy/vaultr-backup.timer](deploy/vaultr-backup.timer) so SQLite backups run automatically. The timer runs once after boot and then every 12 hours with a small randomized delay, keeping backup age comfortably under the default 24-hour ops threshold.
 
 For a restore drill on the Pi:
