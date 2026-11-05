@@ -341,6 +341,11 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('class="nav-icon" aria-hidden="true" focusable="false"');
     expect(jsResponse.body).toContain("navButton('settings', 'Settings')");
     expect(jsResponse.body).toContain('data-settings-form');
+    expect(jsResponse.body).toContain('class="settings-toggle-input" name="discordCardAlertsEnabled" type="checkbox"');
+    expect(jsResponse.body).toContain('class="settings-toggle-switch" aria-hidden="true"');
+    expect(cssResponse.body).toContain('.settings-toggle-input:focus-visible + .settings-toggle-switch');
+    expect(cssResponse.body).toContain('.settings-toggle-input:checked + .settings-toggle-switch');
+    expect(cssResponse.body).toContain('.settings-toggle-input:disabled + .settings-toggle-switch');
     expect(jsResponse.body).toContain('data-onboarding-market-form');
     expect(jsResponse.body).toContain('Finish setting up KeepSeek');
     expect(jsResponse.body).toContain('Your progress is saved.');
@@ -469,6 +474,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-action="discovery-feedback"');
     expect(jsResponse.body).toContain('data-action="undo-discovery-feedback"');
     expect(jsResponse.body).toContain('Your feedback helps shape future discoveries.');
+    expect(jsResponse.body).toContain('class="shelf-feedback-intro"');
+    expect(jsResponse.body).not.toContain('<span class="discovery-feedback-label">${isPreviewMode');
+    expect(jsResponse.body).toContain('class="home-shelf-actions"');
     expect(jsResponse.body).toContain('Taste feedback is read-only in preview.');
     expect(jsResponse.body).toContain('Add to Watchlist');
     expect(jsResponse.body).toContain('With KeepSeek Plus, they also shape your personalized Display Case.');
@@ -518,6 +526,14 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-action="pause-chase"');
     expect(jsResponse.body).toContain('data-action="resume-chase"');
     expect(jsResponse.body).toContain('data-action="open-remove-chase"');
+    expect(jsResponse.body).not.toContain('class="alert-more-actions"');
+    expect(jsResponse.body).toContain('class="vault-action-link alert-review-action"');
+    expect(jsResponse.body).toContain('class="vault-action-link alert-watchlist-action"');
+    expect(jsResponse.body).toContain('class="vault-action-link danger alert-dismiss-action"');
+    expect(jsResponse.body).toContain('const discordAlertsEnabled = Boolean(state.settings?.discordCardAlertsEnabled);');
+    expect(jsResponse.body).toContain('function setTransientAlertNotice(message)');
+    expect(jsResponse.body).toContain('clearTransientAlertNotice();');
+    expect(cssResponse.body).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));');
     expect(jsResponse.body).toContain('View matches <span aria-hidden="true">→</span>');
     expect(jsResponse.body).not.toContain('<span aria-hidden="true">•••</span>');
     expect(jsResponse.body).not.toContain("openDisclosure.removeAttribute('open')");

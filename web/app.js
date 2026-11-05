@@ -7,6 +7,7 @@ let artworkKeydownHandler = null;
 let logoutReturnFocus = null;
 let newAlertPresenceRequest = null;
 let newAlertPresenceTimer = null;
+let alertNoticeTimer = null;
 
 function apiUrl(url) {
   if (!isPreviewMode || !url.startsWith('/api/')) return url;
@@ -347,6 +348,7 @@ async function navigateToPage(page, { updateHash = true } = {}) {
     return true;
   }
   const pageChanged = state.activePage !== nextPage;
+  if (pageChanged) clearTransientAlertNotice();
   if (pageChanged && state.vaultNotice?.kind !== 'error' && nextPage !== state.vaultNotice?.scope) state.vaultNotice = null;
   state.activePage = nextPage;
   renderCurrentPage();
@@ -957,12 +959,17 @@ function settingsPageMarkup() {
             <h2 id="settings-delivery-title">Discord match alerts</h2>
             <p>Your Inbox is the complete match history. Optionally receive a Discord DM when a new match appears.</p>
           </div>
-          <label class="field settings-toggle-field">
-            <span>${access.discordLinked ? 'Send new match alerts to Discord' : 'Connect Discord to enable match alerts'}</span>
-            <input name="discordCardAlertsEnabled" type="checkbox"${draft.discordCardAlertsEnabled ? ' checked' : ''}${controlsDisabled || !access.discordLinked ? ' disabled' : ''} aria-describedby="${describedBy('discordCardAlertsEnabled', 'settings-discord-alerts-help')}">
-            <small class="field-hint" id="settings-discord-alerts-help">${access.discordLinked ? 'Optional delivery for card and listing matches only.' : 'Connect Discord in Login methods before enabling DM alerts.'}</small>
+          <div class="settings-toggle-field">
+            <label class="settings-toggle-control">
+              <span class="settings-toggle-copy">
+                <strong>${access.discordLinked ? 'Send new match alerts to Discord' : 'Connect Discord to enable match alerts'}</strong>
+                <small id="settings-discord-alerts-help">${access.discordLinked ? 'Optional delivery for card and listing matches only.' : 'Connect Discord in Login methods before enabling DM alerts.'}</small>
+              </span>
+              <input class="settings-toggle-input" name="discordCardAlertsEnabled" type="checkbox"${draft.discordCardAlertsEnabled ? ' checked' : ''}${controlsDisabled || !access.discordLinked ? ' disabled' : ''} aria-describedby="${describedBy('discordCardAlertsEnabled', 'settings-discord-alerts-help')}">
+              <span class="settings-toggle-switch" aria-hidden="true"><span></span></span>
+            </label>
             ${settingsFieldError('discordCardAlertsEnabled')}
-          </label>
+          </div>
         </section>
         <section class="settings-group" aria-labelledby="settings-sources-title">
           <div class="settings-group-heading">
@@ -1205,7 +1212,7 @@ function onboardingPageMarkup() {
 
 function alertsPageMarkup(inner) {
   const access = state.settings?.access || {};
-  const discordAlertsEnabled = Boolean(state.settings?.settings?.discordCardAlertsEnabled);
+  const discordAlertsEnabled = Boolean(state.settings?.discordCardAlertsEnabled);
   const showDiscordInvite = state.settingsLoaded && !discordAlertsEnabled && !access.discordAlertInviteDismissed;
   return `
     <section aria-labelledby="alerts-title">
@@ -1339,8 +1346,9 @@ function alertActionMarkup(alert, { compact = false } = {}) {
   return `
     ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
     <span class="alert-secondary-actions">
-      <button class="vault-action-link" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
-      ${compact ? '<button class="vault-action-link danger" type="button" data-action="dismiss-alert" data-alert-id="' + escapeHtml(alert.id) + '">Dismiss</button>' : `<details class="alert-more-actions"><summary>More</summary><div><button class="vault-action-link" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button><button class="vault-action-link danger" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button></div></details>`}
+      <button class="vault-action-link alert-review-action" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
+      ${compact ? '' : `<button class="vault-action-link alert-watchlist-action" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button>`}
+      <button class="vault-action-link danger alert-dismiss-action" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button>
     </span>
   `;
 }
@@ -1439,6 +1447,10 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : ''}
         ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : ''}
+        <div class="home-shelf-actions">
+          ${discoveryCardPrimaryActionMarkup(item)}
+          ${item.ebayUrl ? `<a class="listing-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
+        </div>
         ${feedback ? discoveryFeedbackMarkup(item, true) : ''}
       </div>
       ${total > 1 ? `
@@ -1975,7 +1987,7 @@ function shelfPageMarkup() {
     <section class="shelf-page" aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
-      ${personalized && items.length ? '<p class="shelf-personalized-note">There’s always another card to fall in love with. Explore discoveries shaped by your collection and what catches your eye, with familiar favourites and unexpected finds along the way.</p>' : ''}
+      ${personalized && items.length ? `<p class="shelf-personalized-note">There’s always another card to fall in love with. Explore discoveries shaped by your collection and what catches your eye, with familiar favourites and unexpected finds along the way.</p><p class="shelf-feedback-intro">${isPreviewMode ? 'Taste feedback is read-only in preview.' : 'Your feedback helps shape future discoveries.'}</p>` : ''}
       ${personalized && items.length ? shelfMetaMarkup(state.shelf) : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
@@ -2090,7 +2102,6 @@ function discoveryFeedbackMarkup(item, compact = false) {
   const context = `data-feedback-period="${escapeHtml(item.recommendation.periodKey)}" data-feedback-position="${escapeHtml(item.recommendation.position)}"`;
   return `
     <div class="discovery-feedback${compact ? ' compact' : ''}" aria-label="Taste feedback">
-      <span class="discovery-feedback-label">${isPreviewMode ? 'Taste feedback is read-only in preview.' : 'Your feedback helps shape future discoveries.'}</span>
       <div class="discovery-feedback-actions">
         <button class="discovery-feedback-button${saved === 'MORE_LIKE_THIS' ? ' selected' : ''}" type="button" data-action="discovery-feedback" data-feedback-action="MORE_LIKE_THIS" ${context} ${disabled ? 'disabled' : ''} aria-pressed="${saved === 'MORE_LIKE_THIS'}">More like this</button>
         <button class="discovery-feedback-button${saved === 'NOT_FOR_ME' ? ' selected' : ''}" type="button" data-action="discovery-feedback" data-feedback-action="NOT_FOR_ME" ${context} ${disabled ? 'disabled' : ''} aria-pressed="${saved === 'NOT_FOR_ME'}">Not for me</button>
@@ -2530,6 +2541,25 @@ async function mutateAlert(alertId, action) {
   }
 }
 
+function clearTransientAlertNotice() {
+  if (!alertNoticeTimer) return;
+  window.clearTimeout(alertNoticeTimer);
+  alertNoticeTimer = null;
+  state.alertNotice = '';
+}
+
+function setTransientAlertNotice(message) {
+  clearTransientAlertNotice();
+  state.alertNotice = message;
+  alertNoticeTimer = window.setTimeout(() => {
+    alertNoticeTimer = null;
+    if (state.alertNotice === message) {
+      state.alertNotice = '';
+      renderCurrentPage();
+    }
+  }, 5000);
+}
+
 async function markAllVisibleAlertsReviewed() {
   const count = state.matchingNewAlertCount;
   if (!count || state.bulkReviewBusy) return;
@@ -2552,7 +2582,7 @@ async function markAllVisibleAlertsReviewed() {
         cutoff: new Date().toISOString()
       })
     });
-    state.alertNotice = `${body.reviewedCount || 0} ${body.reviewedCount === 1 ? 'match' : 'matches'} marked reviewed.`;
+    setTransientAlertNotice(`${body.reviewedCount || 0} ${body.reviewedCount === 1 ? 'match' : 'matches'} marked reviewed.`);
     await refreshAlertSurfaces();
   } catch (error) {
     if (String(error?.message) !== 'unauthorized') state.alertNotice = 'Those matches could not be updated. Please try again.';
