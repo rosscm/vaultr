@@ -512,4 +512,30 @@ describe('user alert history read model', () => {
 
     clearAlertRows(userId);
   });
+
+  it('exposes only validated structured match details from the persisted payload', () => {
+    const userId = 'alert-history-details-user';
+    clearAlertRows(userId);
+    const alert = seedAlert(userId, 2, {
+      payload: {
+        internalOnly: 'secret',
+        details: {
+          chase: { maxPrice: 100, condition: 'NM' },
+          pricing: { itemPrice: 72, currency: 'CAD', comparisonBasis: 'ITEM_PRICE', amountUnderMax: 28 },
+          listing: { sourceLabel: 'eBay', seller: 'Card Shop', sellerFeedbackPercent: 99.8, region: 'CA' },
+          match: { score: 91, positiveSignals: ['exact card name'], warnings: [], explanation: 'Matched the exact card name.' },
+          ignored: 'not exposed'
+        }
+      }
+    });
+
+    expect(getAlertEventForUser(userId, alert.alertId)?.details).toEqual({
+      chase: { targetNote: undefined, maxPrice: 100, condition: 'NM', grade: undefined, listingType: undefined },
+      pricing: { itemPrice: 72, shipping: undefined, total: undefined, currency: 'CAD', comparisonBasis: 'ITEM_PRICE', amountUnderMax: 28 },
+      listing: { sourceLabel: 'eBay', seller: 'Card Shop', sellerFeedbackPercent: 99.8, sellerFeedbackScore: undefined, region: 'CA', listingType: undefined },
+      match: { score: 91, positiveSignals: ['exact card name'], warnings: [], explanation: 'Matched the exact card name.' }
+    });
+    expect(getAlertEventForUser(userId, alert.alertId)).not.toHaveProperty('payload');
+    clearAlertRows(userId);
+  });
 });

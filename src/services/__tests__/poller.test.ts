@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Listing } from '../../types.js';
 import {
-  buildDailyPulseEmbed,
   alertEbaySearchOptions,
   chaseTuningNoticeLines,
   didFetchRequiredListingSource,
@@ -18,7 +17,6 @@ import {
   sourceQueryKey,
   shippingDestinationFromSettings,
   shouldSuppressForDestinationShipping,
-  shouldPostDailyPulse,
   shouldApplyEbayBackoff
 } from '../poller.js';
 import { getEntitlementsForTier } from '../entitlements.js';
@@ -64,7 +62,6 @@ function baseChase(overrides: Partial<Chase> = {}): Chase {
 beforeEach(() => {
   process.env = { ...ORIGINAL_ENV };
 });
-
 afterEach(() => {
   vi.unstubAllGlobals();
   process.env = { ...ORIGINAL_ENV };
@@ -407,12 +404,9 @@ describe('pending Discord alert deliveries', () => {
       username: 'pending-collector'
     });
     setDiscordCardAlertsEnabled(userId, true);
-    const send = vi.fn(async () => ({ id: 'discord-message-1' }));
-    const client = {
-      users: {
-        fetch: vi.fn(async () => ({ send }))
-      }
-    };
+    process.env.DISCORD_TOKEN = 'test-token';
+    process.env.VAULTR_WEB_BASE_URL = 'https://keepseek.test';
+    const sender = vi.fn(async () => ({ messageId: 'discord-message-1' }));
 
     const { deliveryId } = enqueueAlertEventDelivery({
       userId,
@@ -430,11 +424,10 @@ describe('pending Discord alert deliveries', () => {
       now: '2026-08-19T12:00:00.000Z'
     });
 
-    const result = await processPendingDiscordAlertDeliveries(client as never, 5);
+    const result = await processPendingDiscordAlertDeliveries(5, sender);
 
     expect(result).toEqual({ sent: 1, failed: 0, skipped: 0 });
-    expect(client.users.fetch).toHaveBeenCalledWith(discordUserId);
-    expect(send).toHaveBeenCalledTimes(1);
+    expect(sender).toHaveBeenCalledWith(expect.objectContaining({ discordUserId, token: 'test-token' }));
     expect(getAlertDeliveryById(deliveryId)).toMatchObject({
       status: 'SENT',
       attempts: 1,
@@ -468,12 +461,37 @@ describe('pending Discord alert deliveries', () => {
       listingTitle: 'Mew RC24 raw',
       listingUrl: 'https://example.test/opt-out'
     });
-    const client = { users: { fetch: vi.fn() } };
+    const sender = vi.fn();
 
-    expect(await processPendingDiscordAlertDeliveries(client as never, 5)).toEqual({ sent: 0, failed: 0, skipped: 1 });
-    expect(client.users.fetch).not.toHaveBeenCalled();
+    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 0, skipped: 1 });
+    expect(sender).not.toHaveBeenCalled();
     expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'SUPPRESSED', attempts: 0 });
     expect(getAlertEventById(alertId)).toMatchObject({ userId, listingTitle: 'Mew RC24 raw' });
+    clearAlertRows(userId);
+    clearAlertRows(discordUserId);
+  });
+
+  it('retries a failed durable Discord delivery without removing the Inbox event', async () => {
+    process.env.DISCORD_TOKEN = 'test-token';
+    process.env.VAULTR_WEB_BASE_URL = 'https://keepseek.test';
+    const account = createUser({ displayName: 'Retry Collector' });
+    const userId = account.id;
+    const discordUserId = `discord-retry-${Date.now()}`;
+    linkIdentity({ userId, provider: 'DISCORD', providerUserId: discordUserId });
+    setDiscordCardAlertsEnabled(userId, true);
+    const { alertId, deliveryId } = enqueueAlertEventDelivery({
+      userId, chaseId: 'retry-chase', listingId: 'retry-listing', source: 'EBAY', channel: 'DISCORD_DM',
+      listingTitle: 'Retry listing', listingUrl: 'https://example.test/retry'
+    });
+    const sender = vi.fn()
+      .mockRejectedValueOnce(new Error('Discord rate limited'))
+      .mockResolvedValueOnce({ messageId: 'retry-message' });
+
+    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 1, skipped: 0 });
+    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'FAILED', attempts: 1 });
+    expect(getAlertEventById(alertId)).not.toBeNull();
+    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 1, failed: 0, skipped: 0 });
+    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'SENT', attempts: 2, externalMessageId: 'retry-message' });
     clearAlertRows(userId);
     clearAlertRows(discordUserId);
   });
@@ -730,144 +748,5 @@ describe('poller coverage state', () => {
       checkedGroups: 0,
       deferredGroups: 0
     });
-  });
-});
-
-describe('buildDailyPulseEmbed', () => {
-  it('posts when the daily pulse has movement or active watchlists', () => {
-    expect(
-      shouldPostDailyPulse({
-        newVaultrs: 0,
-        usersAlerted: 0,
-        matches: 0,
-        grailsSurfaced: 0,
-        activeVaults: 0,
-        activeChases: 0,
-        topTrackedFamily: 'Mixed collections',
-        topTrackedTheme: 'Varied styles',
-        activeTrackedFamily: 'Mixed collections',
-        todayAlertFamily: 'Mixed finds',
-        todayAlertTheme: 'Fresh listings',
-        hiddenDiscovery: 'No standout listing today'
-      })
-    ).toBe(false);
-    expect(
-      shouldPostDailyPulse({
-        newVaultrs: 0,
-        usersAlerted: 0,
-        matches: 0,
-        grailsSurfaced: 0,
-        activeVaults: 1,
-        activeChases: 3,
-        topTrackedFamily: 'Mixed collections',
-        topTrackedTheme: 'Varied styles',
-        activeTrackedFamily: 'Mixed collections',
-        todayAlertFamily: 'Mixed finds',
-        todayAlertTheme: 'Fresh listings',
-        hiddenDiscovery: 'No standout listing today'
-      })
-    ).toBe(true);
-    expect(
-      shouldPostDailyPulse({
-        newVaultrs: 0,
-        usersAlerted: 1,
-        matches: 1,
-        grailsSurfaced: 0,
-        activeVaults: 1,
-        activeChases: 3,
-        topTrackedFamily: 'Mixed collections',
-        topTrackedTheme: 'Varied styles',
-        activeTrackedFamily: 'Mixed collections',
-        todayAlertFamily: 'Mixed finds',
-        todayAlertTheme: 'Fresh listings',
-        hiddenDiscovery: 'A listing moved through the Vault'
-      })
-    ).toBe(true);
-  });
-
-  it('formats an active community day as a collector heartbeat', () => {
-    const data = buildDailyPulseEmbed({
-      newVaultrs: 2,
-      usersAlerted: 3,
-      matches: 5,
-      grailsSurfaced: 1,
-      activeVaults: 4,
-      activeChases: 18,
-      topTrackedFamily: 'Eeveelution cards',
-      topTrackedTheme: 'moonlit alt art',
-      activeTrackedFamily: 'Eeveelution cards',
-      todayAlertFamily: 'Umbreon line',
-      todayAlertTheme: 'moonlit alt art',
-      hiddenDiscovery: 'Umbreon VMAX Alt Art PSA 10'
-    }).toJSON();
-
-    expect(data.title).toBe('💓 Community Pulse');
-    expect(data.description).toContain('2 new collectors joined');
-    expect(data.description).toContain('5 chase alerts reached 3 collectors');
-    expect(data.description).toContain('1 grail surfaced');
-    expect(data.description).toContain("The day's sharpest movement centered on moonlit alt art");
-    expect(data.fields?.[0]).toMatchObject({ name: 'Today’s Movement' });
-    expect(data.fields?.[0].value).toContain('• New collectors: 2 collectors joined');
-    expect(data.fields?.[0].value).toContain('• 5 listings reached 3 collectors');
-    expect(data.fields?.[0].value).toContain('• Grail watch: 1 grail surfaced');
-    expect(data.fields?.[0].value).toContain('• 18 chases stayed active across 4 collections');
-    expect(data.fields?.[1]).toMatchObject({ name: 'Collector Signal' });
-    expect(data.fields?.[1].value).toContain("Today's alerts leaned moonlit alt art in Umbreon line, while the wider board still sits around Eeveelution cards.");
-    expect(data.fields?.[2]).toMatchObject({ name: 'Spotlight', value: 'Umbreon VMAX Alt Art PSA 10' });
-    expect(data.footer?.text).toBe('KeepSeek • Pulse');
-    expect(JSON.stringify(data)).not.toContain('📡');
-    expect(JSON.stringify(data)).not.toContain('received a match');
-    expect(JSON.stringify(data)).not.toContain('peeked out');
-    expect(JSON.stringify(data)).not.toContain('pings');
-  });
-
-  it('keeps quiet days calm and collector-first', () => {
-    const data = buildDailyPulseEmbed({
-      newVaultrs: 0,
-      usersAlerted: 0,
-      matches: 0,
-      grailsSurfaced: 0,
-      activeVaults: 3,
-      activeChases: 11,
-      topTrackedFamily: 'Mixed collections',
-      topTrackedTheme: 'Varied styles',
-      activeTrackedFamily: 'Mixed collections',
-      todayAlertFamily: 'Mixed finds',
-      todayAlertTheme: 'Fresh listings',
-      hiddenDiscovery: 'No standout listing today'
-    }).toJSON();
-
-    expect(data.description).toContain('Quiet day in the collector community');
-    expect(data.description).toContain('No new alerts or joins today');
-    expect(data.fields?.[0].value).toContain('• 11 chases stayed active across 3 collections');
-    expect(data.fields?.[1].value).toContain('11 chases are still spread across 3 collections; no single collector lane took over today.');
-    expect(data.fields?.[2]).toMatchObject({
-      name: 'Spotlight',
-      value: '11 chases stayed active across 3 collections, even without a single standout listing today.'
-    });
-  });
-
-  it('does not frame broad tracked families as today-specific alert activity', () => {
-    const data = buildDailyPulseEmbed({
-      newVaultrs: 0,
-      usersAlerted: 1,
-      matches: 1,
-      grailsSurfaced: 0,
-      activeVaults: 1,
-      activeChases: 4,
-      topTrackedFamily: 'Mew line',
-      topTrackedTheme: 'Japanese exclusives',
-      activeTrackedFamily: 'Mew line',
-      todayAlertFamily: 'Blastoise line',
-      todayAlertTheme: 'Base Set / starter-era cards',
-      hiddenDiscovery: 'A listing moved through the Vault'
-    }).toJSON();
-
-    expect(data.description).toContain('1 chase alert reached 1 collector');
-    expect(data.description).toContain('Fresh listings crossed the feed today');
-    expect(data.fields?.[0].value).toContain('• 4 chases stayed active across 1 collection');
-    expect(data.fields?.[1].value).toContain('Fresh movement came through Base Set / starter-era cards in Blastoise line; the watchlist behind it is still steady around Mew line.');
-    expect(JSON.stringify(data)).not.toContain('starter-era nostalgia across Mew line');
-    expect(JSON.stringify(data)).not.toContain('Mew line collectors had something to inspect today.');
   });
 });

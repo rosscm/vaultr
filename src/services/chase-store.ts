@@ -249,11 +249,58 @@ type AlertHistoryRow = Pick<
   | 'match_score'
   | 'listing_posted_at'
   | 'alert_latency_seconds'
+  | 'payload_json'
   | 'reviewed_at'
   | 'dismissed_at'
   | 'created_at'
   | 'updated_at'
 >;
+
+function alertMatchDetailsFromPayload(payload: Record<string, unknown> | undefined): AlertEvent['details'] {
+  const details = payload?.details;
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return undefined;
+  const source = details as Record<string, unknown>;
+  const object = (value: unknown): Record<string, unknown> | undefined =>
+    value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  const string = (value: unknown): string | undefined => typeof value === 'string' ? value : undefined;
+  const number = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  const strings = (value: unknown): string[] | undefined => Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : undefined;
+  const chase = object(source.chase);
+  const pricing = object(source.pricing);
+  const listing = object(source.listing);
+  const match = object(source.match);
+  return {
+    chase: chase ? {
+      targetNote: string(chase.targetNote),
+      maxPrice: number(chase.maxPrice),
+      condition: string(chase.condition),
+      grade: string(chase.grade),
+      listingType: string(chase.listingType) as Chase['listingType']
+    } : undefined,
+    pricing: pricing ? {
+      itemPrice: number(pricing.itemPrice),
+      shipping: number(pricing.shipping),
+      total: number(pricing.total),
+      currency: string(pricing.currency),
+      comparisonBasis: pricing.comparisonBasis === 'ITEM_PRICE' || pricing.comparisonBasis === 'VERIFIED_TOTAL' ? pricing.comparisonBasis : undefined,
+      amountUnderMax: number(pricing.amountUnderMax)
+    } : undefined,
+    listing: listing ? {
+      sourceLabel: string(listing.sourceLabel),
+      seller: string(listing.seller),
+      sellerFeedbackPercent: number(listing.sellerFeedbackPercent),
+      sellerFeedbackScore: number(listing.sellerFeedbackScore),
+      region: string(listing.region) as Listing['region'],
+      listingType: string(listing.listingType) as Listing['listingType']
+    } : undefined,
+    match: match ? {
+      score: number(match.score),
+      positiveSignals: strings(match.positiveSignals),
+      warnings: strings(match.warnings),
+      explanation: string(match.explanation)
+    } : undefined
+  };
+}
 
 export type ListAlertEventsForUserOptions = {
   limit?: number;
@@ -379,6 +426,7 @@ function mapAlertEvent(row: AlertEventRow): AlertEvent {
     sourceLastSeenAt: row.source_last_seen_at ?? undefined,
     sourceRank: row.source_rank ?? undefined,
     payload,
+    details: alertMatchDetailsFromPayload(payload),
     reviewedAt: row.reviewed_at ?? undefined,
     dismissedAt: row.dismissed_at ?? undefined,
     createdAt: row.created_at,
@@ -403,6 +451,15 @@ function mapAlertDelivery(row: AlertDeliveryRow): AlertDelivery {
 }
 
 function mapAlertHistoryItem(row: AlertHistoryRow): AlertHistoryItem {
+  let payload: Record<string, unknown> | undefined;
+  if (row.payload_json) {
+    try {
+      const parsed = JSON.parse(row.payload_json) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
+    } catch {
+      payload = undefined;
+    }
+  }
   return {
     id: row.id,
     chaseId: row.chase_id,
@@ -419,6 +476,7 @@ function mapAlertHistoryItem(row: AlertHistoryRow): AlertHistoryItem {
     matchScore: row.match_score ?? undefined,
     listingPostedAt: row.listing_posted_at ?? undefined,
     alertLatencySeconds: row.alert_latency_seconds ?? undefined,
+    details: alertMatchDetailsFromPayload(payload),
     reviewedAt: row.reviewed_at ?? undefined,
     dismissedAt: row.dismissed_at ?? undefined,
     createdAt: row.created_at,
@@ -733,7 +791,7 @@ const listAlertDeliveriesForEventStmt = db.prepare(`
 const listPendingAlertDeliveriesStmt = db.prepare(`
   SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, created_at, updated_at, sent_at
   FROM alert_deliveries
-  WHERE channel = ? AND status = 'PENDING'
+  WHERE channel = ? AND status IN ('PENDING', 'FAILED') AND attempts < 5
   ORDER BY created_at ASC
   LIMIT ?
 `);
@@ -2608,7 +2666,7 @@ export function listAlertEventsForUser(userId: string, options: ListAlertEventsF
     .prepare(
       `
         SELECT id, chase_id, chase_name, chase_priority, listing_id, source, listing_title, listing_price,
-          listing_currency, price_delta, listing_url, listing_image_url, match_score, listing_posted_at, alert_latency_seconds,
+          listing_currency, price_delta, listing_url, listing_image_url, match_score, listing_posted_at, alert_latency_seconds, payload_json,
           reviewed_at, dismissed_at, created_at, updated_at
         FROM alert_events
         WHERE ${where.join(' AND ')}
@@ -2665,7 +2723,7 @@ export function getAlertEventForUser(userId: string, alertId: string): AlertHist
     .prepare(
       `
         SELECT id, chase_id, chase_name, chase_priority, listing_id, source, listing_title, listing_price,
-          listing_currency, price_delta, listing_url, listing_image_url, match_score, listing_posted_at, alert_latency_seconds,
+          listing_currency, price_delta, listing_url, listing_image_url, match_score, listing_posted_at, alert_latency_seconds, payload_json,
           reviewed_at, dismissed_at, created_at, updated_at
         FROM alert_events
         WHERE user_id = ? AND id = ?

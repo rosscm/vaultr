@@ -18,22 +18,18 @@ Product copy and terminology conventions live in [docs/PRODUCT_VOICE.md](docs/PR
 ## Tech Stack
 
 - Node.js + TypeScript
-- discord.js
+- Discord OAuth and optional REST-delivered DM alerts
 - SQLite via `better-sqlite3`
 
 ## Quick Start
 
 1. Copy `.env.example` to `.env`
-2. Fill Discord bot credentials
+2. Configure the web app, listing providers, and optional Discord OAuth/DM credentials
 3. Install dependencies:
    - `npm install`
-4. Register slash commands:
-   - `npm run register:commands`
-   - default scope is `GUILD`
-   - set `DISCORD_COMMAND_SCOPE=GLOBAL` when you intentionally want multi-server/global registration
-5. Run smoke checks:
+4. Run smoke checks:
    - `npm run smoke`
-6. Run in dev mode:
+5. Run the monitoring worker in dev mode:
    - `npm run dev`
 
 ## Public Site
@@ -143,7 +139,7 @@ The importers expect local checkouts and do not clone or call provider APIs at r
 
 ## Run As Services (Raspberry Pi)
 
-Use the included bot, worker, backup, and ops unit files:
+Use the included monitoring, worker, backup, and ops unit files:
 
 - [deploy/vaultr.service](deploy/vaultr.service)
 - [deploy/vaultr-discovery-market-worker.service](deploy/vaultr-discovery-market-worker.service)
@@ -251,12 +247,12 @@ sudo journalctl -u vaultr-ops-check.service -n 50
 - Dependencies are installed:
   - `npm install`
 - Env is configured:
-  - `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_COMMAND_SCOPE`
-  - `DISCORD_GUILD_ID` when `DISCORD_COMMAND_SCOPE=GUILD`
+  - `DISCORD_CLIENT_ID` and OAuth callback settings
+  - `DISCORD_TOKEN` only when optional Discord DM alerts are enabled
    - `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET` (if `LISTING_SOURCE=EBAY`)
    - `EBAY_APP_ID` (optional; used for sold-comps market context)
   - `LISTING_SOURCE`, `POLL_INTERVAL_SECONDS`
-  - `OWNER_USER_ID` (optional, enables owner-only `/health`)
+  - `OWNER_USER_ID` (optional operator identity)
 - Runtime checks pass:
   - `npm run smoke`
 - A fresh SQLite backup exists:
@@ -272,8 +268,6 @@ sudo journalctl -u vaultr-ops-check.service -n 50
    - `DISCOVERY_DROP_SCHEDULER_ENABLED`, `DISCOVERY_DROP_PREPARE_BATCH_SIZE`
    - `DISCOVERY_MARKET_REFRESH_USER_COOLDOWN_SECONDS`, `DISCOVERY_MARKET_REFRESH_MAX_ACTIVE_JOBS`
    - `DISCOVERY_MARKET_WORKER_BATCH_SIZE`, `DISCOVERY_MARKET_WORKER_POLL_MS`, `DISCOVERY_MARKET_WORKER_LOCK_TIMEOUT_MS`
-- Commands are registered:
-  - `npm run register:commands`
 - Services are restarted:
   - `sudo systemctl restart vaultr`
    - `sudo systemctl restart vaultr-discovery-market-worker`
@@ -511,22 +505,15 @@ For persistent webhook runtime, use [deploy/vaultr-ebay-webhook.service](deploy/
 - `WEEKLY_REFLECTION_HOUR_LOCAL` (default `11`)
 - `WEEKLY_REFLECTION_MINUTE_LOCAL` (default `0`)
 
-## Public Beta Discord Checklist
+## Optional Discord Integration Checklist
 
-- Use Discord OAuth scopes `bot` and `applications.commands`.
-- Avoid `Administrator`; grant only the channel permissions Vaultr needs: View Channel, Send Messages, Embed Links, Read Message History, and Use External Emojis/Stickers if your server styling needs them.
-- Register commands intentionally:
-  - `DISCORD_COMMAND_SCOPE=GUILD` for a dev/test server
-  - `DISCORD_COMMAND_SCOPE=GLOBAL` for closed beta or production rollout
+- Keep Discord OAuth login and identity linking configured independently from optional DM delivery.
 - Confirm opted-in card-alert DMs work without treating Discord delivery as the source of Inbox history.
-- Ask collectors who opt in to run `/alerts test` once so DM delivery is confirmed before they wait for a real hit.
-- Require admins to run `/setup channel` after install so command usage stays in one visible server channel.
 - Add support and privacy links in the Discord Developer Portal before broad invites; keep the same links in public docs or the invite page.
-- Test the invite in a throwaway server with a non-owner user before sharing publicly.
 
 ## Production Notes
 
 - Consider Postgres once Vaultr outgrows a single Pi/host deployment
-- Discovery market refreshes already use a durable SQLite queue plus worker; source polling and sighting fanout still run in the bot process
-- Keep the bot, Discovery worker, and optional eBay webhook as separate systemd units so each can restart independently
+- Discovery market refreshes use a durable SQLite queue; source polling and Inbox persistence run in the independent monitoring worker.
+- Keep the monitoring worker, Discovery worker, web app, and optional eBay webhook as separate systemd units so each can restart independently.
 - Use `npm run ops:check` from cron, a systemd timer, or an external command monitor until structured metrics and alerts exist

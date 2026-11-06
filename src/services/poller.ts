@@ -1,21 +1,15 @@
-import { Client, EmbedBuilder } from 'discord.js';
 import {
-  getGuildCommunityStatsToday,
   countChaseAlertsWithinMinutes,
   countUserAlertsInLastHour,
   getChaseLastPollCheckAt,
   getUserPlan,
   getUserAlertSettings,
-  getGuildCommunityFeedMode,
   hasAlertBeenSent,
-  hasPostedGuildDailyStats,
-  listGuildCommandChannels,
   listAllChases,
   isListingFingerprintIgnored,
   getSourceObservationForItem,
   claimAlertForSending,
   claimUserAlertFingerprintForSending,
-  markPostedGuildDailyStats,
   markChasesPollAttempted,
   markChasesPollChecked,
   enqueueAlertDelivery,
@@ -26,8 +20,6 @@ import {
   markAlertDeliverySent,
   markAlertSentWithDetails,
   releaseIncompleteAlertSendClaim,
-  releaseUserAlertFingerprintSendClaim,
-  updateSentAlertDetails,
   upsertAlertEvent,
   pruneSourceObservations,
   recordSourceObservations
@@ -39,7 +31,7 @@ import { searchMockListings } from './mock-listings.js';
 import { convertCurrencyAmount, normalizeSupportedCurrency } from './currency.js';
 import { activePlanTier, getRuntimePollIntervalSeconds, monitoringPlanChases, PLAN_LIMITS } from './plans.js';
 import { getEntitlementsForTier, type PlanEntitlements } from './entitlements.js';
-import { CHASE_ALERT_COOLDOWN_MINUTES, SHOW_ALERT_IMAGES, USE_COMPACT_ALERT_LAYOUT } from './alert-policy.js';
+import { CHASE_ALERT_COOLDOWN_MINUTES } from './alert-policy.js';
 import {
   getPollerState,
   initializePollerState,
@@ -57,10 +49,10 @@ import {
   setPollerCoverageSnapshot,
   setSourceCallsLastMinute
 } from './poller-state.js';
-import { alertFeedbackButtons, keyValue, listingLinkButton } from '../ui/embeds.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
 import { resolveDiscordUserId } from './accounts.js';
 import { getUserNotificationSettings } from './notification-settings.js';
+import { sendDiscordDirectMessage } from './discord-rest-delivery.js';
 import type { Chase, Listing, ListingSourceModePreference } from '../types.js';
 
 function formatReasons(reasons: string[]): string {
@@ -98,40 +90,15 @@ function splitReasons(reasons: string[]): { positive: string; risk: string } {
   };
 }
 
-function sightingPresentation(priority: Chase['priority']): { icon: string; label: string } {
-  switch (priority ?? 'NORMAL') {
-    case 'GRAIL':
-      return { icon: '🏆', label: 'Grail Alert' };
-    case 'HIGH':
-      return { icon: '🔥', label: 'Priority Alert' };
-    case 'NORMAL':
-    default:
-      return { icon: '🚨', label: 'Chase Alert' };
-  }
-}
-
-function listingSourceLabel(source: Listing['source'], seller?: string): string {
-  return source === 'EBAY' ? 'eBay' : seller ?? 'Trusted shop';
-}
-
-function formatListingType(listingType: string | undefined): string {
-  if (!listingType) return 'Unknown';
-  if (listingType === 'AUCTION') return 'Auction';
-  if (listingType === 'BUY_IT_NOW') return 'Buy It Now';
-  return 'Other';
-}
-
-function formatPostedAge(postedAt: string | undefined): string {
-  if (!postedAt) return 'Unknown';
-  const then = new Date(postedAt).getTime();
-  if (Number.isNaN(then)) return 'Unknown';
-  const deltaSeconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  const minutes = Math.floor(deltaSeconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${days}d ago`;
+function structuredReasonEvidence(reasons: string[]): { positiveSignals: string[]; warnings: string[] } {
+  const warnings = reasons.filter(
+    (reason) => reason.includes('penalty') || reason.startsWith('suspicious_terms:') || reason.includes('miss') || reason.includes('block')
+  );
+  const positiveSignals = reasons.filter((reason) => !warnings.includes(reason) && reason !== 'price_within_max');
+  return {
+    positiveSignals: positiveSignals.map((reason) => formatReasons([reason])),
+    warnings: warnings.map((reason) => formatReasons([reason]))
+  };
 }
 
 function alertLatencySeconds(listingPostedAt: string | undefined, sentAtMs = Date.now()): number | undefined {
@@ -160,33 +127,6 @@ function comparablePrice(price: number, shippingCost: number | undefined): numbe
 function maxAlertsPerChasePerPoll(): number {
   const value = Number(process.env.MAX_ALERTS_PER_CHASE_PER_POLL ?? '3');
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 3;
-}
-
-function formatPriceVsMax(listingPrice: number, shippingCost: number | undefined, chaseMax: number | undefined, currency: string): string {
-  if (chaseMax === undefined) return 'No max set';
-  const diff = chaseMax - comparablePrice(listingPrice, shippingCost);
-  if (diff >= 0) return `${Math.abs(diff).toFixed(2)} ${currency} under max`;
-  return `${Math.abs(diff).toFixed(2)} ${currency} over max`;
-}
-
-function formatSellerFeedbackPercent(value: number | undefined): string {
-  if (value === undefined || Number.isNaN(value)) return 'Unknown';
-  return `${value.toFixed(1)}%`;
-}
-
-function formatShippingCost(cost: number | undefined, currency: string | undefined): string {
-  if (cost === undefined || Number.isNaN(cost)) return 'Unknown';
-  return `${cost.toFixed(2)} ${currency ?? ''}`.trim();
-}
-
-function formatTotalCost(price: number, shippingCost: number | undefined): number | undefined {
-  if (shippingCost === undefined || Number.isNaN(shippingCost)) return undefined;
-  return price + shippingCost;
-}
-
-function formatMoney(amount: number | undefined, currency: string): string {
-  if (amount === undefined || Number.isNaN(amount)) return 'Unknown';
-  return `${amount.toFixed(2)} ${currency}`;
 }
 
 function alertListingEnrichmentTimeoutMs(): number {
@@ -236,30 +176,12 @@ export function shouldSuppressForDestinationShipping(listing: Listing, destinati
   return listing.shippingEligibility === undefined || listing.shippingEligibility === 'UNKNOWN';
 }
 
-function formatDealQuality(score: number): string {
-  if (score >= 85) return 'strong';
-  if (score >= 60) return 'good';
-  return 'speculative';
-}
-
-function explainDealQuality(score: number): string {
-  if (score >= 85) return 'closely matches your chase criteria';
-  if (score >= 60) return 'meets the core chase criteria';
-  return 'some criteria line up; review details before acting';
-}
-
-function formatScoreWithQuality(score: number): string {
-  return `${formatDealQuality(score)} (${score})`;
-}
-
 function truncateTitle(title: string, maxLen = 110): string {
   if (title.length <= maxLen) return title;
   return `${title.slice(0, maxLen - 1)}…`;
 }
 
 
-
-const VAULTR_ALERT_COLOR = 0xf59e0b;
 
 type AlertCandidate = {
   listing: Listing;
@@ -327,27 +249,6 @@ export function orderAlertCandidatesForSending(candidates: AlertCandidate[]): Al
   });
 
   return [...sourceLeaders, ...candidates.filter((candidate) => !selected.has(candidate))];
-}
-
-function summarizeWhyMatched(
-  score: number,
-  listingPrice: number,
-  shippingCost: number | undefined,
-  chaseMax: number | undefined,
-  currency = 'USD',
-  postedAt?: string
-): string {
-  const fitQuality = formatDealQuality(score);
-  const matchLabel = `${fitQuality.charAt(0).toUpperCase()}${fitQuality.slice(1)} fit`;
-  const total = comparablePrice(listingPrice, shippingCost);
-  const pricePart =
-    chaseMax === undefined
-      ? 'No max set'
-      : total <= chaseMax
-        ? `Under max by ${(chaseMax - total).toFixed(2)} ${currency}`
-        : `Over max by ${(total - chaseMax).toFixed(2)} ${currency}`;
-  const postedPart = `Posted ${formatPostedAge(postedAt)}`;
-  return `${matchLabel} • ${pricePart} • ${postedPart}`;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -762,31 +663,17 @@ function alertEventDeliveryDetails(event: NonNullable<ReturnType<typeof getAlert
   };
 }
 
-function buildStoredAlertEmbed(event: NonNullable<ReturnType<typeof getAlertEventById>>): EmbedBuilder {
-  const { icon, label } = sightingPresentation(event.chasePriority);
-  const sourceLabel = listingSourceLabel(event.source);
-  const embed = new EmbedBuilder()
-    .setColor(VAULTR_ALERT_COLOR)
-    .setTitle(`${icon} ${label} · ${sourceLabel}`)
-    .setDescription(`**${truncateTitle(event.listingTitle ?? 'Matched listing')}**`);
+type DiscordAlertSender = (input: {
+  token: string;
+  discordUserId: string;
+  event: NonNullable<ReturnType<typeof getAlertEventById>>;
+  webBaseUrl: string;
+}) => Promise<{ messageId: string }>;
 
-  embed.addFields({
-    name: '📌 Summary',
-    value: [
-      `**Chase:** ${truncateTitle(event.chaseName ?? 'Saved chase', 60)}`,
-      `**Price:** ${formatMoney(event.listingPrice, event.listingCurrency ?? 'USD')}`,
-      `**Posted:** ${formatPostedAge(event.listingPostedAt)}`,
-      `**Source:** ${sourceLabel}`,
-      `**Confidence:** ${event.matchScore === undefined ? 'Unknown' : formatScoreWithQuality(event.matchScore)}`
-    ].join('\n'),
-    inline: false
-  });
-
-  embed.setTimestamp(new Date(event.updatedAt)).setFooter({ text: `KeepSeek • ${label}` });
-  return embed;
-}
-
-export async function processPendingDiscordAlertDeliveries(client: Client, limit = 10): Promise<{ sent: number; failed: number; skipped: number }> {
+export async function processPendingDiscordAlertDeliveries(
+  limit = 10,
+  sender: DiscordAlertSender = sendDiscordDirectMessage
+): Promise<{ sent: number; failed: number; skipped: number }> {
   const deliveries = listPendingAlertDeliveries('DISCORD_DM', limit);
   let sent = 0;
   let failed = 0;
@@ -813,23 +700,26 @@ export async function processPendingDiscordAlertDeliveries(client: Client, limit
     }
 
     try {
+      const token = process.env.DISCORD_TOKEN;
+      const webBaseUrl = process.env.VAULTR_WEB_BASE_URL;
+      if (!token || !webBaseUrl) {
+        markAlertDeliveryFailed(delivery.id, new Error('Discord REST delivery configuration is incomplete'));
+        failed += 1;
+        continue;
+      }
       const discordUserId = resolveDiscordUserId(event.userId);
       if (!discordUserId) {
         markAlertDeliveryFailed(delivery.id, new Error('Missing linked Discord identity for pending delivery'));
         failed += 1;
         continue;
       }
-      const user = await client.users.fetch(discordUserId);
       const message = await withTimeout(
-        user.send({
-          embeds: [buildStoredAlertEmbed(event)],
-          components: [listingLinkButton(event.listingUrl), alertFeedbackButtons(event.chaseId, event.listingId)]
-        }),
+        sender({ token, discordUserId, event, webBaseUrl }),
         10000,
         'Pending DM delivery timeout'
       );
       markAlertSentWithDetails(event.chaseId, event.userId, event.listingId, event.source, alertEventDeliveryDetails(event));
-      markAlertDeliverySent(delivery.id, { externalMessageId: message.id });
+      markAlertDeliverySent(delivery.id, { externalMessageId: message.messageId });
       sent += 1;
     } catch (error) {
       markAlertDeliveryFailed(delivery.id, error);
@@ -840,7 +730,7 @@ export async function processPendingDiscordAlertDeliveries(client: Client, limit
   return { sent, failed, skipped };
 }
 
-async function runPoll(client: Client): Promise<void> {
+export async function runPoll(): Promise<void> {
   const startedAt = Date.now();
   const nowMs = Date.now();
   markPollerRunStart();
@@ -1107,114 +997,14 @@ async function runPoll(client: Client): Promise<void> {
       if (listingFingerprint) markFingerprintSeen(chase.id, listingFingerprint, nowMs);
 
       const sourceLabel = listing.source === 'EBAY' ? 'eBay' : listing.seller ?? 'Trusted shop';
-      const { icon: sightingIcon, label: sightingLabel } = sightingPresentation(chase.priority);
       const reasonSummary = splitReasons(match.reasons);
-      const watchoutLines = reasonSummary.risk === 'None' ? [] : [`**Watchouts:** ${reasonSummary.risk}`];
-      const embed = new EmbedBuilder()
-        .setColor(VAULTR_ALERT_COLOR)
-        .setTitle(`${sightingIcon} ${sightingLabel} · ${sourceLabel}`)
-        .setDescription(
-          `**${truncateTitle(listing.title)}**\n${summarizeWhyMatched(
-            match.score,
-            normalizedListing.price,
-            normalizedListing.shippingCost,
-            chase.maxPrice,
-            targetCurrency,
-            listing.postedAt
-          )}`
-        );
-
-      if (USE_COMPACT_ALERT_LAYOUT) {
-        embed.addFields(
-          {
-            name: '📌 Summary',
-            value: [
-              `**Chase:** ${truncateTitle(chase.cardName, 60)}`,
-              `**Price:** ${formatMoney(normalizedListing.price, targetCurrency)}`,
-              `**Total:** ${
-                formatTotalCost(normalizedListing.price, normalizedListing.shippingCost) !== undefined
-                  ? formatMoney(formatTotalCost(normalizedListing.price, normalizedListing.shippingCost), targetCurrency)
-                  : 'Unknown'
-              }`,
-              `**Posted:** ${formatPostedAge(listing.postedAt)}`,
-              `**Source:** ${sourceLabel}`,
-              `**Confidence:** ${formatScoreWithQuality(match.score)}`,
-              `**Signals:** ${reasonSummary.positive}`,
-              ...watchoutLines,
-              `**Takeaway:** ${explainDealQuality(match.score)}`
-            ].join('\n'),
-            inline: false
-          }
-        );
-      } else {
-        embed.addFields(
-          {
-            name: '🎯 Chase Details',
-            value: [
-              `**Chase:** ${truncateTitle(chase.cardName, 60)}`,
-              `**Priority:** ${chase.priority ?? 'NORMAL'}`,
-              `**Note:** ${chase.targetNote ? truncateTitle(chase.targetNote, 80) : 'None'}`
-            ].join('\n'),
-            inline: false
-          },
-          {
-            name: '💰 Pricing Breakdown',
-            value: [
-              `**Price:** ${formatMoney(normalizedListing.price, targetCurrency)}`,
-              `**Shipping:** ${formatShippingCost(normalizedListing.shippingCost, targetCurrency)}`,
-              `**Total:** ${
-                formatTotalCost(normalizedListing.price, normalizedListing.shippingCost) !== undefined
-                  ? formatMoney(formatTotalCost(normalizedListing.price, normalizedListing.shippingCost), targetCurrency)
-                  : 'Unknown'
-              }`,
-              `**Total vs Max:** ${formatPriceVsMax(
-                normalizedListing.price,
-                normalizedListing.shippingCost,
-                chase.maxPrice,
-                targetCurrency
-              )}`,
-              `**Listing Type:** ${formatListingType(normalizedListing.listingType)}`
-            ].join('\n'),
-            inline: false
-          },
-          {
-            name: '📸 Listing Snapshot',
-            value: [
-              `**Posted:** ${formatPostedAge(listing.postedAt)}`,
-              `**Source:** ${sourceLabel}`,
-              `**Region:** ${listing.region}`,
-              `**Seller:** ${listing.seller ?? 'Unavailable from source'}`,
-              `**Seller Feedback:** ${formatSellerFeedbackPercent(listing.sellerFeedbackPercent)}${
-                listing.sellerFeedbackScore !== undefined ? ` (${listing.sellerFeedbackScore})` : ''
-              }`
-            ].join('\n'),
-            inline: false
-          },
-          {
-            name: '🧠 Match Insight',
-            value: [
-              `**Confidence:** ${formatScoreWithQuality(match.score)}`,
-              `**Signals:** ${reasonSummary.positive}`,
-              ...watchoutLines,
-              `**Takeaway:** ${explainDealQuality(match.score)}`
-            ].join('\n'),
-            inline: false
-          }
-        );
-      }
-
-      embed.setTimestamp().setFooter({ text: `KeepSeek • ${sightingLabel}` });
+      const reasonEvidence = structuredReasonEvidence(match.reasons);
 
       const alertImageUrl = listing.imageUrl && /^https?:\/\//i.test(listing.imageUrl)
         ? listing.imageUrl
         : listing.thumbnailUrl && /^https?:\/\//i.test(listing.thumbnailUrl)
           ? listing.thumbnailUrl
           : undefined;
-
-      if (SHOW_ALERT_IMAGES) {
-        if (alertImageUrl && alertImageUrl === listing.imageUrl) embed.setImage(alertImageUrl);
-        else if (alertImageUrl) embed.setThumbnail(alertImageUrl);
-      }
 
       const sourceObservation = getSourceObservationForItem(chase.id, listing.listingId);
       const sentAtMs = Date.now();
@@ -1223,6 +1013,10 @@ async function runPoll(client: Client): Promise<void> {
         comparablePrice(normalizedListing.price, normalizedListing.shippingCost) <= chase.maxPrice
           ? Number((chase.maxPrice - comparablePrice(normalizedListing.price, normalizedListing.shippingCost)).toFixed(2))
           : undefined;
+      const verifiedTotal = normalizedListing.shippingCost === undefined
+        ? undefined
+        : Number((normalizedListing.price + normalizedListing.shippingCost).toFixed(2));
+      const comparisonBasis = verifiedTotal === undefined ? 'ITEM_PRICE' : 'VERIFIED_TOTAL';
       const alertDetails = {
         guildId: chase.guildId,
         listingTitle: listing.title,
@@ -1249,7 +1043,40 @@ async function runPoll(client: Client): Promise<void> {
         payload: {
           sourceLabel,
           reasonSummary,
-          matchReasons: match.reasons
+          matchReasons: match.reasons,
+          details: {
+            chase: {
+              targetNote: chase.targetNote,
+              maxPrice: chase.maxPrice,
+              condition: chase.condition,
+              grade: chase.grade,
+              listingType: chase.listingType
+            },
+            pricing: {
+              itemPrice: normalizedListing.price,
+              shipping: normalizedListing.shippingCost,
+              total: verifiedTotal,
+              currency: targetCurrency,
+              comparisonBasis,
+              amountUnderMax: priceDelta
+            },
+            listing: {
+              sourceLabel,
+              seller: listing.seller,
+              sellerFeedbackPercent: listing.sellerFeedbackPercent,
+              sellerFeedbackScore: listing.sellerFeedbackScore,
+              region: listing.region,
+              listingType: listing.listingType
+            },
+            match: {
+              score: match.score,
+              positiveSignals: reasonEvidence.positiveSignals,
+              warnings: reasonEvidence.warnings,
+              explanation: reasonSummary.positive === 'None'
+                ? 'This listing cleared your saved Watchlist filters.'
+                : `Matched because of ${reasonSummary.positive}.`
+            }
+          }
         }
       });
       const notificationSettings = getUserNotificationSettings(chase.userId);
@@ -1259,34 +1086,13 @@ async function runPoll(client: Client): Promise<void> {
         markPollerMatchSent();
         continue;
       }
-      const delivery = enqueueAlertDelivery({
+      enqueueAlertDelivery({
         alertId,
         userId: chase.userId,
         channel: 'DISCORD_DM'
       });
-
-      try {
-        const user = await client.users.fetch(discordUserId);
-        const message = await withTimeout(
-          user.send({
-            embeds: [embed],
-            components: [listingLinkButton(listing.url), alertFeedbackButtons(chase.id, listing.listingId)]
-          }),
-          10000,
-          'DM send timeout'
-        );
-        updateSentAlertDetails(chase.id, listing.listingId, listing.source, alertDetails);
-        markAlertDeliverySent(delivery.deliveryId, { externalMessageId: message.id });
-        sentForChaseThisPoll += 1;
-        markPollerMatchSent();
-      } catch (error) {
-        markAlertDeliveryFailed(delivery.deliveryId, error);
-        releaseIncompleteAlertSendClaim(chase.id, listing.listingId, listing.source);
-        if (listingFingerprint) {
-          releaseUserAlertFingerprintSendClaim(chase.userId, listingFingerprint, listing.listingId, listing.source);
-        }
-        console.error(`Failed to send DM alert to Vaultr user ${chase.userId}`, error);
-      }
+      sentForChaseThisPoll += 1;
+      markPollerMatchSent();
     }
     }
   }
@@ -1295,176 +1101,7 @@ async function runPoll(client: Client): Promise<void> {
   pruneSourceObservations(sourceObservationRetentionDays());
 }
 
-function currentDayKeyLocal(now = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function pluralize(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function truncateForEmbed(value: string, maxLength = 200): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
-}
-
-function dailyPulseLine(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
-  const parts: string[] = [];
-  if (stats.newVaultrs > 0) parts.push(`${pluralize(stats.newVaultrs, 'new collector')} joined`);
-  if (stats.matches > 0) parts.push(`${pluralize(stats.matches, 'chase alert')} reached ${pluralize(stats.usersAlerted, 'collector')}`);
-  else if (stats.usersAlerted > 0) parts.push(`${pluralize(stats.usersAlerted, 'collector')} received chase alerts`);
-  if (stats.grailsSurfaced > 0) parts.push(`${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  if (parts.length === 0) return 'Quiet day in the collector community';
-  return parts.join(' • ');
-}
-
-function dailyPulseMood(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
-  if (stats.grailsSurfaced > 0) return `The day's sharpest movement centered on ${stats.topTrackedTheme.toLowerCase()}`;
-  if (stats.newVaultrs > 0 && stats.usersAlerted > 0) return 'New collectors joined while active chases found fresh listings';
-  if (stats.usersAlerted > 0) return 'Fresh listings crossed the feed today';
-  if (stats.newVaultrs > 0) return 'New collectors joined the chase board today';
-  return 'No new alerts or joins today';
-}
-
-function dailyPulseActivityLines(stats: ReturnType<typeof getGuildCommunityStatsToday>): string[] {
-  const lines: string[] = [];
-  if (stats.newVaultrs > 0) lines.push(`• New collectors: ${pluralize(stats.newVaultrs, 'collector')} joined`);
-  if (stats.usersAlerted > 0) {
-    const sightingDetail = stats.matches > 0 ? `${pluralize(stats.matches, 'listing')} reached ${pluralize(stats.usersAlerted, 'collector')}` : `${pluralize(stats.usersAlerted, 'collector')} received a chase alert`;
-    lines.push(`• ${sightingDetail}`);
-  }
-  if (stats.grailsSurfaced > 0) lines.push(`• Grail watch: ${pluralize(stats.grailsSurfaced, 'grail')} surfaced`);
-  if (stats.activeVaults > 0 || stats.activeChases > 0) lines.push(`• ${pluralize(stats.activeChases, 'chase', 'chases')} stayed active across ${pluralize(stats.activeVaults, 'collection')}`);
-  return lines.length > 0 ? lines : ['• No active watchlist yet'];
-}
-
-function dailyPulseWatchlistDensity(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
-  if (stats.activeVaults <= 0 || stats.activeChases <= 0) return 'light';
-  const density = stats.activeChases / Math.max(1, stats.activeVaults);
-  if (density >= 8) return 'stacked';
-  if (density >= 5) return 'busy';
-  if (density >= 3) return 'steady';
-  return 'light';
-}
-
-function dailyPulseCollectorBoardShape(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
-  if (stats.activeTrackedFamily !== 'Mixed collections') return stats.activeTrackedFamily;
-  if (stats.topTrackedFamily !== 'Mixed collections') return stats.topTrackedFamily;
-  return 'Mixed collections';
-}
-
-function dailyPulseCollectorCurrent(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
-  const hasAlertsToday = stats.matches > 0 || stats.usersAlerted > 0 || stats.grailsSurfaced > 0;
-  const boardShape = dailyPulseCollectorBoardShape(stats);
-  const density = dailyPulseWatchlistDensity(stats);
-  const boardIsMixed = boardShape === 'Mixed collections';
-  const themeIsMixed = stats.topTrackedTheme === 'Varied styles';
-  const alertSignal = stats.todayAlertFamily === 'Mixed finds'
-    ? stats.todayAlertTheme
-    : `${stats.todayAlertTheme} in ${stats.todayAlertFamily}`;
-
-  if (hasAlertsToday && !boardIsMixed) {
-    if (stats.grailsSurfaced > 0) {
-      return `Today's alerts leaned ${alertSignal}, while the wider board still sits around ${boardShape}.`;
-    }
-    return `Fresh movement came through ${alertSignal}; the watchlist behind it is still ${density} around ${boardShape}.`;
-  }
-
-  if (hasAlertsToday && boardIsMixed) {
-    if (themeIsMixed) return `Fresh movement came through ${alertSignal}, but the board still reads broad rather than locked onto one lane.`;
-    return `Fresh movement came through ${alertSignal}; the wider board still tilts toward ${stats.topTrackedTheme.toLowerCase()}.`;
-  }
-
-  if (!boardIsMixed) {
-    if (stats.activeVaults > 0 && stats.activeChases > 0) {
-      return `${pluralize(stats.activeChases, 'chase', 'chases')} are keeping the board ${density} around ${boardShape}, even on a quieter day.`;
-    }
-    return `The board is still centered on ${boardShape}.`;
-  }
-
-  if (themeIsMixed) {
-    if (stats.activeVaults > 0 && stats.activeChases > 0) {
-      return `${pluralize(stats.activeChases, 'chase', 'chases')} are still spread across ${pluralize(stats.activeVaults, 'collection')}; no single collector lane took over today.`;
-    }
-    return 'The board stayed mixed; no single path led today.';
-  }
-
-  return `The board stayed broad, with the strongest pull still landing around ${stats.topTrackedTheme.toLowerCase()}.`;
-}
-
-function dailyPulseSpotlight(stats: ReturnType<typeof getGuildCommunityStatsToday>): string {
-  const spotlight = truncateForEmbed(stats.hiddenDiscovery, 180).replace(/\.+$/, '');
-  if (spotlight !== 'No standout listing today') return spotlight;
-
-  const boardShape = dailyPulseCollectorBoardShape(stats);
-  const density = dailyPulseWatchlistDensity(stats);
-  const boardIsMixed = boardShape === 'Mixed collections';
-  const themeIsMixed = stats.topTrackedTheme === 'Varied styles';
-
-  if (!boardIsMixed && stats.activeChases > 0) {
-    return `Quiet alert-wise, but ${boardShape} still carries the board with a ${density} watchlist behind it.`;
-  }
-
-  if (!themeIsMixed && stats.activeChases > 0) {
-    return `Quiet alert-wise, but the board still leans ${stats.topTrackedTheme.toLowerCase()} across ${pluralize(stats.activeChases, 'chase', 'chases')}.`;
-  }
-
-  if (stats.activeVaults > 0 && stats.activeChases > 0) {
-    return `${pluralize(stats.activeChases, 'chase', 'chases')} stayed active across ${pluralize(stats.activeVaults, 'collection')}, even without a single standout listing today.`;
-  }
-
-  return spotlight;
-}
-
-export function buildDailyPulseEmbed(stats: ReturnType<typeof getGuildCommunityStatsToday>): EmbedBuilder {
-  return new EmbedBuilder()
-    .setColor(0xe11d48)
-    .setTitle('💓 Community Pulse')
-    .setDescription([dailyPulseLine(stats), dailyPulseMood(stats)].join('\n'))
-    .addFields(
-      keyValue('Today’s Movement', dailyPulseActivityLines(stats).join('\n')),
-      keyValue('Collector Signal', dailyPulseCollectorCurrent(stats)),
-      keyValue('Spotlight', dailyPulseSpotlight(stats))
-    )
-    .setFooter({ text: 'KeepSeek • Pulse' })
-    .setTimestamp();
-}
-
-export function shouldPostDailyPulse(stats: ReturnType<typeof getGuildCommunityStatsToday>): boolean {
-  return stats.newVaultrs > 0 || stats.usersAlerted > 0 || stats.matches > 0 || stats.grailsSurfaced > 0 || stats.activeVaults > 0 || stats.activeChases > 0;
-}
-
-async function maybePostDailyCommunityStats(client: Client): Promise<void> {
-  const enabled = (process.env.COMMUNITY_STATS_DAILY_ENABLED ?? 'true').toLowerCase() !== 'false';
-  if (!enabled) return;
-
-  const hour = Number(process.env.COMMUNITY_STATS_DAILY_HOUR_LOCAL ?? '20');
-  const minute = Number(process.env.COMMUNITY_STATS_DAILY_MINUTE_LOCAL ?? '0');
-  const now = new Date();
-
-  if (now.getHours() !== hour || now.getMinutes() !== minute) return;
-
-  const dayKey = currentDayKeyLocal(now);
-  const guildChannels = listGuildCommandChannels();
-
-  for (const { guildId, channelId } of guildChannels) {
-    if (getGuildCommunityFeedMode(guildId) === 'OFF') continue;
-    if (hasPostedGuildDailyStats(guildId, dayKey)) continue;
-
-    const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (!channel || !('send' in channel)) continue;
-
-    const stats = getGuildCommunityStatsToday(guildId);
-    if (!shouldPostDailyPulse(stats)) continue;
-    await channel.send({ embeds: [buildDailyPulseEmbed(stats)] });
-
-    markPostedGuildDailyStats(guildId, dayKey);
-  }
-}
-
-export function startPoller(client: Client): void {
+export function startPoller(): void {
   const pollIntervalSeconds = getRuntimePollIntervalSeconds();
   const intervalMs = pollIntervalSeconds * 1000;
   const sourceMode = (process.env.LISTING_SOURCE ?? 'EBAY').toUpperCase();
@@ -1478,8 +1115,8 @@ export function startPoller(client: Client): void {
       return;
     }
     try {
-      await processPendingDiscordAlertDeliveries(client);
-      await runPoll(client);
+      await runPoll();
+      await processPendingDiscordAlertDeliveries();
     } catch (error) {
       console.error('Poller run failed', error);
       markPollerError(error);
@@ -1489,10 +1126,6 @@ export function startPoller(client: Client): void {
   setInterval(() => {
     void runWithGuard();
   }, intervalMs);
-
-  setInterval(() => {
-    void maybePostDailyCommunityStats(client);
-  }, 60 * 1000);
 
   void runWithGuard();
 

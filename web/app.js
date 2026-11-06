@@ -1721,6 +1721,42 @@ function alertCardMarkup(alert) {
   const price = formatMoney(alert.listingPrice, alert.listingCurrency);
   const delta = formatPriceDelta(alert.priceDelta, alert.listingCurrency);
   const reviewed = Boolean(alert.reviewedAt);
+  const details = alert.details;
+  const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
+  const money = (value, currency) => value === undefined || value === null ? 'Unknown' : formatMoney(value, currency) || 'Unknown';
+  const pricingBasis = details?.pricing?.comparisonBasis === 'VERIFIED_TOTAL' ? 'Verified total' : 'Item price';
+  const detailsMarkup = details ? `
+    <details class="alert-listing-details">
+      <summary>Listing details</summary>
+      <div class="alert-detail-grid">
+        <section><h3>Your criteria</h3><dl>
+          <div><dt>Maximum</dt><dd>${money(details.chase?.maxPrice, details.pricing?.currency)}</dd></div>
+          <div><dt>Condition</dt><dd>${detailValue(details.chase?.condition)}</dd></div>
+          <div><dt>Grade</dt><dd>${detailValue(details.chase?.grade)}</dd></div>
+          <div><dt>Listing type</dt><dd>${detailValue(details.chase?.listingType)}</dd></div>
+        </dl>${details.chase?.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>
+        <section><h3>Price</h3><dl>
+          <div><dt>Item</dt><dd>${money(details.pricing?.itemPrice, details.pricing?.currency)}</dd></div>
+          <div><dt>Shipping</dt><dd>${money(details.pricing?.shipping, details.pricing?.currency)}</dd></div>
+          <div><dt>${pricingBasis}</dt><dd>${money(details.pricing?.total ?? details.pricing?.itemPrice, details.pricing?.currency)}</dd></div>
+        </dl></section>
+        <section><h3>Listing</h3><dl>
+          <div><dt>Source</dt><dd>${detailValue(details.listing?.sourceLabel)}</dd></div>
+          <div><dt>Seller</dt><dd>${detailValue(details.listing?.seller)}</dd></div>
+          <div><dt>Feedback</dt><dd>${details.listing?.sellerFeedbackPercent === undefined ? 'Unknown' : `${escapeHtml(String(details.listing.sellerFeedbackPercent))}%`}</dd></div>
+          <div><dt>Region</dt><dd>${detailValue(details.listing?.region)}</dd></div>
+          <div><dt>Posted</dt><dd>${alert.listingPostedAt ? escapeHtml(relativeTime(alert.listingPostedAt)) : 'Unknown'}</dd></div>
+        </dl></section>
+        <section><h3>Why it matched</h3><p>${escapeHtml(details.match?.explanation || 'This listing cleared your saved Watchlist filters.')}</p>
+          ${details.match?.positiveSignals?.length ? `<ul>${details.match.positiveSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}</ul>` : ''}
+          ${details.match?.warnings?.length ? `<p class="alert-detail-warning">Check: ${escapeHtml(details.match.warnings.join(', '))}</p>` : ''}
+        </section>
+      </div>
+    </details>` : `
+    <details class="alert-listing-details historical">
+      <summary>Listing details</summary>
+      <p>Additional match evidence was not stored for this historical alert.</p>
+    </details>`;
   return `
     <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${alert.imageUrl ? 'has-image' : 'no-image'}">
       <div class="alert-artwork">
@@ -1753,6 +1789,7 @@ function alertCardMarkup(alert) {
           ${delta ? `<span class="price-delta">${escapeHtml(delta)}</span>` : ''}
         </div>
         <div class="alert-actions">${alertActionMarkup(alert)}</div>
+        ${detailsMarkup}
       </div>
     </article>
   `;

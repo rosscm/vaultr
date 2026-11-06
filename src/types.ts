@@ -125,6 +125,7 @@ export type AlertEvent = {
   sourceLastSeenAt?: string;
   sourceRank?: number;
   payload?: Record<string, unknown>;
+  details?: AlertMatchDetails;
   reviewedAt?: string;
   dismissedAt?: string;
   createdAt: string;
@@ -166,10 +167,43 @@ export type AlertHistoryItem = {
   matchScore?: number;
   listingPostedAt?: string;
   alertLatencySeconds?: number;
+  details?: AlertMatchDetails;
   reviewedAt?: string;
   dismissedAt?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AlertMatchDetails = {
+  chase?: {
+    targetNote?: string;
+    maxPrice?: number;
+    condition?: string;
+    grade?: string;
+    listingType?: Chase['listingType'];
+  };
+  pricing?: {
+    itemPrice?: number;
+    shipping?: number;
+    total?: number;
+    currency?: string;
+    comparisonBasis?: 'ITEM_PRICE' | 'VERIFIED_TOTAL';
+    amountUnderMax?: number;
+  };
+  listing?: {
+    sourceLabel?: string;
+    seller?: string;
+    sellerFeedbackPercent?: number;
+    sellerFeedbackScore?: number;
+    region?: Listing['region'];
+    listingType?: Listing['listingType'];
+  };
+  match?: {
+    score?: number;
+    positiveSignals?: string[];
+    warnings?: string[];
+    explanation?: string;
+  };
 };
 
 export type AlertHistoryPage = {

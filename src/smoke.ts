@@ -1,6 +1,4 @@
 import 'dotenv/config';
-import { commands } from './commands/index.js';
-import { resolveDiscordCommandRegistrationConfig } from './services/discord-command-registration.js';
 import { getPollerState, initializePollerState } from './services/poller-state.js';
 import { listAllChases } from './services/chase-store.js';
 import { getRuntimePollIntervalSeconds } from './services/plans.js';
@@ -16,23 +14,6 @@ const LISTING_SOURCE_MODES = new Set(['EBAY', 'EBAY_SHOPIFY', 'SHOPIFY', 'MOCK']
 function envValue(key: string): string | undefined {
   const value = process.env[key]?.trim();
   return value ? value : undefined;
-}
-
-function checkEnv(): CheckResult {
-  try {
-    const config = resolveDiscordCommandRegistrationConfig(process.env);
-    return {
-      name: 'env',
-      ok: true,
-      details: `Core Discord env vars are present (scope=${config.scope}${config.guildId ? ` guildId=${config.guildId}` : ''})`
-    };
-  } catch (error) {
-    return {
-      name: 'env',
-      ok: false,
-      details: error instanceof Error ? error.message : String(error)
-    };
-  }
 }
 
 function checkListingSourceEnv(): CheckResult {
@@ -109,15 +90,6 @@ function checkNumericEnv(): CheckResult {
   return { name: 'numeric-env', ok: true, details: `${integerVars.length} numeric env defaults are valid when set` };
 }
 
-function checkCommands(): CheckResult {
-  const names = commands.map((c) => c.data.name);
-  const duplicates = names.filter((name, idx) => names.indexOf(name) !== idx);
-  if (duplicates.length > 0) {
-    return { name: 'commands', ok: false, details: `Duplicate commands: ${Array.from(new Set(duplicates)).join(', ')}` };
-  }
-  return { name: 'commands', ok: true, details: `${names.length} unique slash commands loaded` };
-}
-
 function checkDb(): CheckResult {
   try {
     const count = listAllChases().length;
@@ -138,10 +110,8 @@ function checkPollerDefaults(): CheckResult {
 }
 
 const checks = [
-  checkEnv(),
   checkListingSourceEnv(),
   checkNumericEnv(),
-  checkCommands(),
   checkDb(),
   checkPollerDefaults()
 ];

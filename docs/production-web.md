@@ -40,7 +40,7 @@ npm run build
 
 ## Install and cut over
 
-Install both units before moving scheduler ownership away from the bot:
+Install both units before moving scheduler ownership away from the monitoring worker:
 
 ```bash
 sudo install -m 0644 deploy/vaultr-web.service /etc/systemd/system/vaultr-web.service
@@ -51,9 +51,9 @@ sudo systemctl enable --now vaultr-discovery-scheduler.service
 sudo systemctl enable --now vaultr-web.service
 ```
 
-Restarting the updated bot before starting the scheduler prevents duplicate scheduler loops. Durable preparation leases remain the final concurrency fence.
+Restarting the updated monitoring worker before starting the scheduler prevents duplicate scheduler loops. Durable preparation leases remain the final concurrency fence.
 
-Do not stop the bot: it still owns listing polling and optional opted-in Discord card-alert delivery.
+Do not stop the monitoring worker: it owns listing polling, Inbox persistence, and queued optional Discord card-alert delivery.
 
 ## Bounded verification
 

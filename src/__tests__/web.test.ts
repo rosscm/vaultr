@@ -1992,7 +1992,16 @@ describe('authenticated alert API', () => {
     const otherUserId = 'web-alert-other';
     clearUser(userId);
     clearUser(otherUserId);
-    seedAlert(userId, 1, { listingImageUrl: 'https://example.test/alert-image.jpg' });
+    seedAlert(userId, 1, {
+      listingImageUrl: 'https://example.test/alert-image.jpg',
+      payload: {
+        internalOnly: true,
+        details: {
+          pricing: { itemPrice: 41, currency: 'CAD', comparisonBasis: 'ITEM_PRICE' },
+          match: { score: 90, positiveSignals: ['exact card name'], warnings: [], explanation: 'Matched the exact card name.' }
+        }
+      }
+    });
     seedAlert(otherUserId, 2);
     const { token } = createWebSession({ userId }, { token: 'alert-user-token' });
 
@@ -2004,7 +2013,11 @@ describe('authenticated alert API', () => {
     expect(body.items[0]).toMatchObject({
       chaseName: 'Mew 1',
       listingTitle: 'Mew listing 1',
-      imageUrl: 'https://example.test/alert-image.jpg'
+      imageUrl: 'https://example.test/alert-image.jpg',
+      details: {
+        pricing: expect.objectContaining({ itemPrice: 41, currency: 'CAD', comparisonBasis: 'ITEM_PRICE' }),
+        match: expect.objectContaining({ explanation: 'Matched the exact card name.' })
+      }
     });
     expect(body.items[0]).not.toHaveProperty('payload');
     expect(body.nextCursor).toBeNull();

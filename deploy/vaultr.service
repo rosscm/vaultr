@@ -1,5 +1,5 @@
 [Unit]
-Description=Vaultr Discord Bot
+Description=KeepSeek listing monitoring worker
 After=network-online.target
 Wants=network-online.target
 
