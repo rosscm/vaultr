@@ -191,6 +191,7 @@ db.exec(`
     attempts INTEGER NOT NULL DEFAULT 0,
     external_message_id TEXT,
     last_error TEXT,
+    next_attempt_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     sent_at TEXT,
@@ -1209,6 +1210,14 @@ export function migrateAlertInboxState(database: Database.Database): void {
   })();
 }
 
+export function migrateAlertDeliveryRetrySchedule(database: Database.Database): void {
+  try {
+    database.exec(`ALTER TABLE alert_deliveries ADD COLUMN next_attempt_at TEXT;`);
+  } catch {
+    // Column already exists on upgraded databases.
+  }
+}
+
 export function migrateWebOnboarding(database: Database.Database): void {
   database.transaction(() => {
     database.exec(`
@@ -1235,6 +1244,7 @@ export function migrateWebOnboarding(database: Database.Database): void {
 }
 
 migrateAlertInboxState(db);
+migrateAlertDeliveryRetrySchedule(db);
 
 migrateLegacyDiscordUserIdsToAccounts();
 migrateWebOnboarding(db);
@@ -1262,7 +1272,8 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_user_created ON alert_event
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_user_created_id ON alert_events(user_id, created_at DESC, id DESC);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_events_chase_created ON alert_events(chase_id, created_at);`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_deliveries_alert_channel ON alert_deliveries(alert_id, channel);`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_deliveries_status ON alert_deliveries(status, updated_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_deliveries_status ON alert_deliveries(status, next_attempt_at, updated_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_deliveries_retry ON alert_deliveries(channel, status, next_attempt_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_web_sessions_user ON web_sessions(user_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_web_sessions_expires ON web_sessions(expires_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_auth_magic_links_email_rate ON auth_magic_links(email_rate_key, created_at);`);

@@ -52,7 +52,7 @@ import {
 import { makeListingFingerprint } from './listing-fingerprint.js';
 import { resolveDiscordUserId } from './accounts.js';
 import { getUserNotificationSettings } from './notification-settings.js';
-import { sendDiscordDirectMessage } from './discord-rest-delivery.js';
+import { DiscordRestDeliveryError, sendDiscordDirectMessage } from './discord-rest-delivery.js';
 import type { Chase, Listing, ListingSourceModePreference } from '../types.js';
 
 function formatReasons(reasons: string[]): string {
@@ -670,11 +670,30 @@ type DiscordAlertSender = (input: {
   webBaseUrl: string;
 }) => Promise<{ messageId: string }>;
 
+export function discordDeliveryRetryPlan(
+  error: unknown,
+  attempts: number,
+  nowMs = Date.now()
+): { nextAttemptAt?: string; incrementAttempt: boolean } {
+  if (error instanceof DiscordRestDeliveryError && !error.retryable) {
+    return { incrementAttempt: true };
+  }
+  const rateLimited = error instanceof DiscordRestDeliveryError && error.statusCode === 429;
+  const incrementAttempt = !rateLimited;
+  if (incrementAttempt && attempts + 1 >= 5) return { incrementAttempt };
+  const exponentialDelayMs = Math.min(15 * 60_000, 30_000 * 2 ** Math.max(0, attempts));
+  const delayMs = rateLimited
+    ? Math.min(24 * 60 * 60_000, Math.max(1_000, error.retryAfterMs ?? 60_000))
+    : exponentialDelayMs;
+  return { incrementAttempt, nextAttemptAt: new Date(nowMs + delayMs).toISOString() };
+}
+
 export async function processPendingDiscordAlertDeliveries(
   limit = 10,
-  sender: DiscordAlertSender = sendDiscordDirectMessage
+  sender: DiscordAlertSender = sendDiscordDirectMessage,
+  now = new Date()
 ): Promise<{ sent: number; failed: number; skipped: number }> {
-  const deliveries = listPendingAlertDeliveries('DISCORD_DM', limit);
+  const deliveries = listPendingAlertDeliveries('DISCORD_DM', limit, now.toISOString());
   let sent = 0;
   let failed = 0;
   let skipped = 0;
@@ -722,7 +741,8 @@ export async function processPendingDiscordAlertDeliveries(
       markAlertDeliverySent(delivery.id, { externalMessageId: message.messageId });
       sent += 1;
     } catch (error) {
-      markAlertDeliveryFailed(delivery.id, error);
+      const retry = discordDeliveryRetryPlan(error, delivery.attempts, now.getTime());
+      markAlertDeliveryFailed(delivery.id, error, now.toISOString(), retry);
       failed += 1;
     }
   }

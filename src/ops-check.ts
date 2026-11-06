@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { Client, GatewayIntentBits } from 'discord.js';
 import { getChaseLastPollAttemptAt, getUserPlan, listAllChases } from './services/chase-store.js';
 import { getDiscoveryMarketRefreshQueueStats } from './services/discovery-market-jobs.js';
 import { getWeeklyDiscoveryPreparationHealth, ownerAlertGraceMs } from './services/discovery-drop-scheduler.js';
@@ -12,6 +11,7 @@ import { failureFingerprint, shouldSuppressDuplicateAlert } from './services/ops
 import { activePlanTier, monitoringPlanChases, PLAN_LIMITS } from './services/plans.js';
 import { readBuildInfo } from './services/build-info.js';
 import { classifyTrustedShopCatalogHealth, listTrustedShopCatalogStates } from './services/trusted-shop-catalog.js';
+import { sendDiscordTextDirectMessage } from './services/discord-rest-delivery.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -98,15 +98,8 @@ async function sendDiscordAlert(message: string): Promise<boolean> {
     return false;
   }
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-  try {
-    await client.login(token);
-    const user = await client.users.fetch(alertUserId);
-    await user.send(message);
-    return true;
-  } finally {
-    client.destroy();
-  }
+  await sendDiscordTextDirectMessage({ token, discordUserId: alertUserId, content: message });
+  return true;
 }
 
 async function alertOnFailures(failures: CheckResult[]): Promise<void> {

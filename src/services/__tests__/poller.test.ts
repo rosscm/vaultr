@@ -4,6 +4,7 @@ import {
   alertEbaySearchOptions,
   chaseTuningNoticeLines,
   didFetchRequiredListingSource,
+  discordDeliveryRetryPlan,
   enrichSelectedAlertListing,
   effectiveListingSourceMode,
   isDueForPollInterval,
@@ -32,6 +33,7 @@ import {
 } from '../chase-store.js';
 import { createUser, linkIdentity } from '../accounts.js';
 import { setDiscordCardAlertsEnabled } from '../notification-settings.js';
+import { DiscordRestDeliveryError } from '../discord-rest-delivery.js';
 import { db } from '../db.js';
 import { matchChaseToListing } from '../matcher.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
@@ -471,7 +473,7 @@ describe('pending Discord alert deliveries', () => {
     clearAlertRows(discordUserId);
   });
 
-  it('retries a failed durable Discord delivery without removing the Inbox event', async () => {
+  it('respects durable Discord rate-limit scheduling without consuming retry attempts', async () => {
     process.env.DISCORD_TOKEN = 'test-token';
     process.env.VAULTR_WEB_BASE_URL = 'https://keepseek.test';
     const account = createUser({ displayName: 'Retry Collector' });
@@ -484,16 +486,33 @@ describe('pending Discord alert deliveries', () => {
       listingTitle: 'Retry listing', listingUrl: 'https://example.test/retry'
     });
     const sender = vi.fn()
-      .mockRejectedValueOnce(new Error('Discord rate limited'))
+      .mockRejectedValueOnce(new DiscordRestDeliveryError('Discord rate limited', 429, 120_000))
       .mockResolvedValueOnce({ messageId: 'retry-message' });
+    const startedAt = new Date('2026-11-06T12:00:00.000Z');
 
-    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 1, skipped: 0 });
-    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'FAILED', attempts: 1 });
-    expect(getAlertEventById(alertId)).not.toBeNull();
-    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 1, failed: 0, skipped: 0 });
-    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'SENT', attempts: 2, externalMessageId: 'retry-message' });
+    expect(await processPendingDiscordAlertDeliveries(5, sender, startedAt)).toEqual({ sent: 0, failed: 1, skipped: 0 });
+    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'FAILED', attempts: 0, nextAttemptAt: '2026-11-06T12:02:00.000Z' });
+    expect(getAlertEventById(alertId)).toMatchObject({ status: 'DELIVERY_PENDING' });
+    expect(await processPendingDiscordAlertDeliveries(5, sender, new Date('2026-11-06T12:01:59.000Z'))).toEqual({ sent: 0, failed: 0, skipped: 0 });
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(await processPendingDiscordAlertDeliveries(5, sender, new Date('2026-11-06T12:02:00.000Z'))).toEqual({ sent: 1, failed: 0, skipped: 0 });
+    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'SENT', attempts: 1, externalMessageId: 'retry-message', nextAttemptAt: undefined });
     clearAlertRows(userId);
     clearAlertRows(discordUserId);
+  });
+
+  it('backs off transient DM failures and does not retry permanent Discord failures', () => {
+    expect(discordDeliveryRetryPlan(new Error('network timeout'), 1, Date.parse('2026-11-06T12:00:00.000Z'))).toEqual({
+      incrementAttempt: true,
+      nextAttemptAt: '2026-11-06T12:01:00.000Z'
+    });
+    expect(discordDeliveryRetryPlan(new DiscordRestDeliveryError('Forbidden', 403), 0, Date.parse('2026-11-06T12:00:00.000Z'))).toEqual({
+      incrementAttempt: true
+    });
+    expect(discordDeliveryRetryPlan(new DiscordRestDeliveryError('Rate limited', 429, 90_000), 4, Date.parse('2026-11-06T12:00:00.000Z'))).toEqual({
+      incrementAttempt: false,
+      nextAttemptAt: '2026-11-06T12:01:30.000Z'
+    });
   });
 
   it('allows an account without Discord to own an alert event without a delivery row', () => {

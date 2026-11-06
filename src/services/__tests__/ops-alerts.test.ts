@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { failureFingerprint, shouldSuppressDuplicateAlert } from '../ops-alerts.js';
 
 describe('ops alerts', () => {
+  it('uses REST-only Discord delivery without opening a Gateway client', () => {
+    const source = readFileSync('src/ops-check.ts', 'utf8');
+    expect(source).toContain("sendDiscordTextDirectMessage");
+    expect(source).not.toContain("from 'discord.js'");
+    expect(source).not.toContain('GatewayIntentBits');
+    expect(source).not.toContain('.login(token)');
+  });
+
   it('treats chase freshness drifts as the same incident fingerprint', () => {
     const left = failureFingerprint([
       {

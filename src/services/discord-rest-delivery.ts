@@ -10,7 +10,12 @@ type DiscordRestResponse = {
 export type DiscordRestFetch = (url: string, init: RequestInit) => Promise<DiscordRestResponse>;
 
 export class DiscordRestDeliveryError extends Error {
-  constructor(message: string, readonly retryAfterMs?: number) {
+  constructor(
+    message: string,
+    readonly statusCode?: number,
+    readonly retryAfterMs?: number,
+    readonly retryable = statusCode === 429 || statusCode === 408 || (statusCode !== undefined && statusCode >= 500)
+  ) {
     super(message);
   }
 }
@@ -56,6 +61,66 @@ export function discordAlertMessage(event: AlertEvent, webBaseUrl: string): Reco
   };
 }
 
+async function createDiscordDmChannel(input: {
+  token: string;
+  discordUserId: string;
+  fetchImpl: DiscordRestFetch;
+}): Promise<string> {
+  const response = await input.fetchImpl('https://discord.com/api/v10/users/@me/channels', {
+    method: 'POST',
+    headers: discordHeaders(input.token),
+    body: JSON.stringify({ recipient_id: input.discordUserId })
+  });
+  if (!response.ok) {
+    throw new DiscordRestDeliveryError(
+      `Discord DM channel request failed (${response.status})`,
+      response.status,
+      retryAfterMs(response)
+    );
+  }
+  const channel = await response.json() as { id?: unknown };
+  if (typeof channel.id !== 'string') throw new DiscordRestDeliveryError('Discord DM channel response had no channel ID');
+  return channel.id;
+}
+
+async function sendDiscordDmPayload(input: {
+  token: string;
+  discordUserId: string;
+  payload: Record<string, unknown>;
+  fetchImpl: DiscordRestFetch;
+}): Promise<{ messageId: string }> {
+  const channelId = await createDiscordDmChannel(input);
+  const response = await input.fetchImpl(`https://discord.com/api/v10/channels/${encodeURIComponent(channelId)}/messages`, {
+    method: 'POST',
+    headers: discordHeaders(input.token),
+    body: JSON.stringify(input.payload)
+  });
+  if (!response.ok) {
+    throw new DiscordRestDeliveryError(
+      `Discord DM send failed (${response.status})`,
+      response.status,
+      retryAfterMs(response)
+    );
+  }
+  const message = await response.json() as { id?: unknown };
+  if (typeof message.id !== 'string') throw new DiscordRestDeliveryError('Discord DM response had no message ID');
+  return { messageId: message.id };
+}
+
+export async function sendDiscordTextDirectMessage(input: {
+  token: string;
+  discordUserId: string;
+  content: string;
+  fetchImpl?: DiscordRestFetch;
+}): Promise<{ messageId: string }> {
+  return sendDiscordDmPayload({
+    token: input.token,
+    discordUserId: input.discordUserId,
+    payload: { content: input.content.slice(0, 2000) },
+    fetchImpl: input.fetchImpl ?? (fetch as unknown as DiscordRestFetch)
+  });
+}
+
 export async function sendDiscordDirectMessage(input: {
   token: string;
   discordUserId: string;
@@ -64,22 +129,10 @@ export async function sendDiscordDirectMessage(input: {
   fetchImpl?: DiscordRestFetch;
 }): Promise<{ messageId: string }> {
   const fetchImpl = input.fetchImpl ?? (fetch as unknown as DiscordRestFetch);
-  const channelResponse = await fetchImpl('https://discord.com/api/v10/users/@me/channels', {
-    method: 'POST',
-    headers: discordHeaders(input.token),
-    body: JSON.stringify({ recipient_id: input.discordUserId })
+  return sendDiscordDmPayload({
+    token: input.token,
+    discordUserId: input.discordUserId,
+    payload: discordAlertMessage(input.event, input.webBaseUrl),
+    fetchImpl
   });
-  if (!channelResponse.ok) throw new DiscordRestDeliveryError(`Discord DM channel request failed (${channelResponse.status})`, retryAfterMs(channelResponse));
-  const channel = await channelResponse.json() as { id?: unknown };
-  if (typeof channel.id !== 'string') throw new DiscordRestDeliveryError('Discord DM channel response had no channel ID');
-
-  const messageResponse = await fetchImpl(`https://discord.com/api/v10/channels/${encodeURIComponent(channel.id)}/messages`, {
-    method: 'POST',
-    headers: discordHeaders(input.token),
-    body: JSON.stringify(discordAlertMessage(input.event, input.webBaseUrl))
-  });
-  if (!messageResponse.ok) throw new DiscordRestDeliveryError(`Discord DM send failed (${messageResponse.status})`, retryAfterMs(messageResponse));
-  const message = await messageResponse.json() as { id?: unknown };
-  if (typeof message.id !== 'string') throw new DiscordRestDeliveryError('Discord DM response had no message ID');
-  return { messageId: message.id };
 }

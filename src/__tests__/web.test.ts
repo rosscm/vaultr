@@ -850,6 +850,57 @@ describe('web app static routes', () => {
       ]);
   });
 
+  it('distinguishes marketplace listing type and item-only versus verified-total pricing', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function alertCardMarkup('), source.indexOf('function vaultPageMarkup('));
+    const render = new Function(
+      'priorityLabel', 'formatMoney', 'formatPriceDelta', 'escapeHtml', 'listingTypeLabel', 'artworkTriggerMarkup',
+      'sourceLabel', 'matchLabel', 'relativeTime', 'alertActionMarkup',
+      `${functionSource}\nreturn alertCardMarkup;`
+    )(
+      () => 'Casual',
+      (amount: number, currency: string) => `${currency} $${amount.toFixed(2)}`,
+      (amount: number, currency: string) => `${currency} $${amount.toFixed(2)} under max`,
+      (value: unknown) => String(value),
+      (value: string) => value === 'AUCTION' ? 'Auction' : value === 'BUY_IT_NOW' ? 'Buy Now' : 'Any listing',
+      () => '',
+      () => 'eBay',
+      () => 'Strong match',
+      () => '2h ago',
+      () => ''
+    );
+    const base = {
+      chasePriority: 'NORMAL', chaseName: 'Mew ex', source: 'EBAY', listingPrice: 80, listingCurrency: 'CAD',
+      priceDelta: 20, matchScore: 90, createdAt: '2026-11-06T10:00:00.000Z', listingPostedAt: '2026-11-06T09:00:00.000Z'
+    };
+    const itemOnly = render({
+      ...base,
+      details: {
+        chase: { maxPrice: 100, listingType: 'BUY_IT_NOW' },
+        pricing: { itemPrice: 80, currency: 'CAD', comparisonBasis: 'ITEM_PRICE', amountUnderMax: 20 },
+        listing: { listingType: 'AUCTION' }, match: {}
+      }
+    });
+    expect(itemOnly).toContain('<dt>Preferred listing type</dt><dd>Buy Now</dd>');
+    expect(itemOnly).toContain('<dt>Listing type</dt><dd>Auction</dd>');
+    expect(itemOnly).toContain('<dt>Shipping</dt><dd>Unknown</dd>');
+    expect(itemOnly).toContain('<dt>Final total</dt><dd>Unknown</dd>');
+    expect(itemOnly).toContain('under max using item price only; shipping unknown');
+    expect(itemOnly).toContain('under max on item price; shipping unknown');
+
+    const verified = render({
+      ...base,
+      details: {
+        chase: { maxPrice: 100, listingType: 'ANY' },
+        pricing: { itemPrice: 80, shipping: 5, total: 85, currency: 'CAD', comparisonBasis: 'VERIFIED_TOTAL', amountUnderMax: 15 },
+        listing: { listingType: 'BUY_IT_NOW' }, match: {}
+      }
+    });
+    expect(verified).toContain('<dt>Final total</dt><dd>CAD $85.00</dd>');
+    expect(verified).toContain('CAD $15.00 under max using verified total');
+  });
+
   it('supports direct, touch, arrow, and keyboard Home Display Case browsing', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';

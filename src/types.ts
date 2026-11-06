@@ -141,6 +141,7 @@ export type AlertDelivery = {
   attempts: number;
   externalMessageId?: string;
   lastError?: string;
+  nextAttemptAt?: string;
   createdAt: string;
   updatedAt: string;
   sentAt?: string;

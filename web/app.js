@@ -283,6 +283,7 @@ function priorityLabel(priority) {
 function listingTypeLabel(value) {
   if (value === 'BUY_IT_NOW') return 'Buy Now';
   if (value === 'AUCTION') return 'Auction';
+  if (value === 'OTHER') return 'Other';
   return 'Any listing';
 }
 
@@ -1724,7 +1725,19 @@ function alertCardMarkup(alert) {
   const details = alert.details;
   const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
   const money = (value, currency) => value === undefined || value === null ? 'Unknown' : formatMoney(value, currency) || 'Unknown';
-  const pricingBasis = details?.pricing?.comparisonBasis === 'VERIFIED_TOTAL' ? 'Verified total' : 'Item price';
+  const shippingKnown = typeof details?.pricing?.shipping === 'number';
+  const verifiedTotal = details?.pricing?.comparisonBasis === 'VERIFIED_TOTAL' && typeof details?.pricing?.total === 'number';
+  const comparisonAmount = details?.pricing?.amountUnderMax;
+  const comparison = comparisonAmount === undefined
+    ? 'Not available'
+    : comparisonAmount === 0
+      ? verifiedTotal ? 'At max using verified total' : 'At max using item price only; shipping unknown'
+    : verifiedTotal
+      ? `${money(comparisonAmount, details.pricing.currency)} under max using verified total`
+      : `${money(comparisonAmount, details.pricing.currency)} under max using item price only; shipping unknown`;
+  const compactDelta = delta && details?.pricing?.comparisonBasis === 'ITEM_PRICE' && !shippingKnown
+    ? `${delta} on item price; shipping unknown`
+    : delta;
   const detailsMarkup = details ? `
     <details class="alert-listing-details">
       <summary>Listing details</summary>
@@ -1733,18 +1746,20 @@ function alertCardMarkup(alert) {
           <div><dt>Maximum</dt><dd>${money(details.chase?.maxPrice, details.pricing?.currency)}</dd></div>
           <div><dt>Condition</dt><dd>${detailValue(details.chase?.condition)}</dd></div>
           <div><dt>Grade</dt><dd>${detailValue(details.chase?.grade)}</dd></div>
-          <div><dt>Listing type</dt><dd>${detailValue(details.chase?.listingType)}</dd></div>
+          <div><dt>Preferred listing type</dt><dd>${details.chase?.listingType ? escapeHtml(listingTypeLabel(details.chase.listingType)) : 'Not specified'}</dd></div>
         </dl>${details.chase?.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>
         <section><h3>Price</h3><dl>
           <div><dt>Item</dt><dd>${money(details.pricing?.itemPrice, details.pricing?.currency)}</dd></div>
-          <div><dt>Shipping</dt><dd>${money(details.pricing?.shipping, details.pricing?.currency)}</dd></div>
-          <div><dt>${pricingBasis}</dt><dd>${money(details.pricing?.total ?? details.pricing?.itemPrice, details.pricing?.currency)}</dd></div>
+          <div><dt>Shipping</dt><dd>${shippingKnown ? money(details.pricing.shipping, details.pricing.currency) : 'Unknown'}</dd></div>
+          <div><dt>Final total</dt><dd>${verifiedTotal ? money(details.pricing.total, details.pricing.currency) : 'Unknown'}</dd></div>
+          <div><dt>Compared with max</dt><dd>${escapeHtml(comparison)}</dd></div>
         </dl></section>
         <section><h3>Listing</h3><dl>
           <div><dt>Source</dt><dd>${detailValue(details.listing?.sourceLabel)}</dd></div>
           <div><dt>Seller</dt><dd>${detailValue(details.listing?.seller)}</dd></div>
           <div><dt>Feedback</dt><dd>${details.listing?.sellerFeedbackPercent === undefined ? 'Unknown' : `${escapeHtml(String(details.listing.sellerFeedbackPercent))}%`}</dd></div>
           <div><dt>Region</dt><dd>${detailValue(details.listing?.region)}</dd></div>
+          <div><dt>Listing type</dt><dd>${details.listing?.listingType ? escapeHtml(listingTypeLabel(details.listing.listingType)) : 'Unknown'}</dd></div>
           <div><dt>Posted</dt><dd>${alert.listingPostedAt ? escapeHtml(relativeTime(alert.listingPostedAt)) : 'Unknown'}</dd></div>
         </dl></section>
         <section><h3>Why it matched</h3><p>${escapeHtml(details.match?.explanation || 'This listing cleared your saved Watchlist filters.')}</p>
@@ -1786,7 +1801,7 @@ function alertCardMarkup(alert) {
         </div>
         <div class="alert-price-column">
           ${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}
-          ${delta ? `<span class="price-delta">${escapeHtml(delta)}</span>` : ''}
+          ${compactDelta ? `<span class="price-delta">${escapeHtml(compactDelta)}</span>` : ''}
         </div>
         <div class="alert-actions">${alertActionMarkup(alert)}</div>
         ${detailsMarkup}

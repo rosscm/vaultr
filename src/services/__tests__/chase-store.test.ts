@@ -13,6 +13,7 @@ import {
   listCompletedChases,
   listAlertDeliveriesForEvent,
   listAlertEventsForUser,
+  listPendingAlertDeliveries,
   markAlertNew,
   markAlertReviewed,
   markAlertDeliveryFailed,
@@ -24,7 +25,7 @@ import {
   restoreAlert,
   upsertAlertEvent,
 } from '../chase-store.js';
-import { db, migrateAlertInboxState } from '../db.js';
+import { db, migrateAlertDeliveryRetrySchedule, migrateAlertInboxState } from '../db.js';
 
 describe('chase poll state', () => {
   it('records a poll attempt separately from the last successful check', () => {
@@ -201,6 +202,29 @@ describe('alert event delivery persistence', () => {
       attempts: 0
     });
 
+    clearAlertRows(userId);
+  });
+
+  it('migrates and persists restart-safe alert delivery retry eligibility', () => {
+    const legacy = new Database(':memory:');
+    legacy.exec(`CREATE TABLE alert_deliveries (id TEXT PRIMARY KEY);`);
+    migrateAlertDeliveryRetrySchedule(legacy);
+    expect((legacy.prepare('PRAGMA table_info(alert_deliveries)').all() as Array<{ name: string }>).map((column) => column.name)).toContain('next_attempt_at');
+    migrateAlertDeliveryRetrySchedule(legacy);
+    legacy.close();
+
+    const userId = 'alert-delivery-retry-schedule-user';
+    clearAlertRows(userId);
+    const delivery = enqueueAlertEventDelivery({
+      userId, chaseId: 'retry-chase', listingId: 'retry-listing', source: 'EBAY', channel: 'DISCORD_DM',
+      now: '2026-11-06T12:00:00.000Z'
+    });
+    markAlertDeliveryFailed(delivery.deliveryId, new Error('temporary'), '2026-11-06T12:01:00.000Z', {
+      nextAttemptAt: '2026-11-06T12:06:00.000Z'
+    });
+    expect(listPendingAlertDeliveries('DISCORD_DM', 10, '2026-11-06T12:05:59.000Z').map((item) => item.id)).not.toContain(delivery.deliveryId);
+    expect(listPendingAlertDeliveries('DISCORD_DM', 10, '2026-11-06T12:06:00.000Z').map((item) => item.id)).toContain(delivery.deliveryId);
+    expect(getAlertDeliveryById(delivery.deliveryId)?.nextAttemptAt).toBe('2026-11-06T12:06:00.000Z');
     clearAlertRows(userId);
   });
 

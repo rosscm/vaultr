@@ -227,6 +227,7 @@ type AlertDeliveryRow = {
   attempts: number;
   external_message_id: string | null;
   last_error: string | null;
+  next_attempt_at: string | null;
   created_at: string;
   updated_at: string;
   sent_at: string | null;
@@ -444,6 +445,7 @@ function mapAlertDelivery(row: AlertDeliveryRow): AlertDelivery {
     attempts: row.attempts,
     externalMessageId: row.external_message_id ?? undefined,
     lastError: row.last_error ?? undefined,
+    nextAttemptAt: row.next_attempt_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     sentAt: row.sent_at ?? undefined
@@ -737,9 +739,9 @@ const upsertAlertEventStmt = db.prepare(`
 
 const upsertAlertDeliveryStmt = db.prepare(`
   INSERT INTO alert_deliveries (
-    id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, created_at, updated_at, sent_at
+    id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, next_attempt_at, created_at, updated_at, sent_at
   )
-  VALUES (@id, @alert_id, @user_id, @channel, @status, 0, NULL, NULL, @created_at, @updated_at, NULL)
+  VALUES (@id, @alert_id, @user_id, @channel, @status, 0, NULL, NULL, NULL, @created_at, @updated_at, NULL)
   ON CONFLICT(alert_id, channel) DO UPDATE SET
     status = CASE
       WHEN alert_deliveries.status = 'SENT' THEN alert_deliveries.status
@@ -754,6 +756,7 @@ const updateAlertDeliveryStatusStmt = db.prepare(`
       attempts = attempts + @attempt_increment,
       external_message_id = @external_message_id,
       last_error = @last_error,
+      next_attempt_at = @next_attempt_at,
       sent_at = @sent_at,
       updated_at = @updated_at
   WHERE id = @id
@@ -776,24 +779,29 @@ const getAlertEventByIdStmt = db.prepare(`
 `);
 
 const getAlertDeliveryByIdStmt = db.prepare(`
-  SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, created_at, updated_at, sent_at
+  SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, next_attempt_at, created_at, updated_at, sent_at
   FROM alert_deliveries
   WHERE id = ?
 `);
 
 const listAlertDeliveriesForEventStmt = db.prepare(`
-  SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, created_at, updated_at, sent_at
+  SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, next_attempt_at, created_at, updated_at, sent_at
   FROM alert_deliveries
   WHERE alert_id = ?
   ORDER BY created_at ASC
 `);
 
 const listPendingAlertDeliveriesStmt = db.prepare(`
-  SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, created_at, updated_at, sent_at
+  SELECT id, alert_id, user_id, channel, status, attempts, external_message_id, last_error, next_attempt_at, created_at, updated_at, sent_at
   FROM alert_deliveries
-  WHERE channel = ? AND status IN ('PENDING', 'FAILED') AND attempts < 5
+  WHERE channel = @channel
+    AND attempts < 5
+    AND (
+      status = 'PENDING'
+      OR (status = 'FAILED' AND next_attempt_at IS NOT NULL AND next_attempt_at <= @now)
+    )
   ORDER BY created_at ASC
-  LIMIT ?
+  LIMIT @limit
 `);
 
 const hasSentAlertStmt = db.prepare(`
@@ -2561,6 +2569,7 @@ export function markAlertDeliverySent(deliveryId: string, options: { externalMes
       attempt_increment: 1,
       external_message_id: options.externalMessageId ?? null,
       last_error: null,
+      next_attempt_at: null,
       sent_at: now,
       updated_at: now
     });
@@ -2574,7 +2583,12 @@ export function markAlertDeliverySent(deliveryId: string, options: { externalMes
   return true;
 }
 
-export function markAlertDeliveryFailed(deliveryId: string, error: unknown, now = new Date().toISOString()): boolean {
+export function markAlertDeliveryFailed(
+  deliveryId: string,
+  error: unknown,
+  now = new Date().toISOString(),
+  options: { nextAttemptAt?: string; incrementAttempt?: boolean } = {}
+): boolean {
   const delivery = getAlertDeliveryById(deliveryId);
   if (!delivery) return false;
   const message = error instanceof Error ? error.message : String(error);
@@ -2582,15 +2596,16 @@ export function markAlertDeliveryFailed(deliveryId: string, error: unknown, now 
     updateAlertDeliveryStatusStmt.run({
       id: deliveryId,
       status: 'FAILED',
-      attempt_increment: 1,
+      attempt_increment: options.incrementAttempt === false ? 0 : 1,
       external_message_id: null,
       last_error: message.slice(0, 500),
+      next_attempt_at: options.nextAttemptAt ?? null,
       sent_at: null,
       updated_at: now
     });
     updateAlertEventStatusStmt.run({
       id: delivery.alertId,
-      status: 'DELIVERY_FAILED',
+      status: options.nextAttemptAt ? 'DELIVERY_PENDING' : 'DELIVERY_FAILED',
       updated_at: now
     });
   });
@@ -2607,6 +2622,7 @@ export function markAlertDeliverySuppressed(deliveryId: string, reason: string, 
     attempt_increment: 0,
     external_message_id: null,
     last_error: reason.slice(0, 500),
+    next_attempt_at: null,
     sent_at: null,
     updated_at: now
   });
@@ -2627,9 +2643,13 @@ export function listAlertDeliveriesForEvent(alertId: string): AlertDelivery[] {
   return (listAlertDeliveriesForEventStmt.all(alertId) as AlertDeliveryRow[]).map(mapAlertDelivery);
 }
 
-export function listPendingAlertDeliveries(channel: AlertDeliveryChannel, limit = 25): AlertDelivery[] {
+export function listPendingAlertDeliveries(
+  channel: AlertDeliveryChannel,
+  limit = 25,
+  now = new Date().toISOString()
+): AlertDelivery[] {
   const boundedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 25;
-  return (listPendingAlertDeliveriesStmt.all(channel, boundedLimit) as AlertDeliveryRow[]).map(mapAlertDelivery);
+  return (listPendingAlertDeliveriesStmt.all({ channel, limit: boundedLimit, now }) as AlertDeliveryRow[]).map(mapAlertDelivery);
 }
 
 export function listAlertEventsForUser(userId: string, options: ListAlertEventsForUserOptions = {}): AlertHistoryPage {
