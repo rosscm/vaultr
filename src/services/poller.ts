@@ -712,19 +712,11 @@ export async function processPendingDiscordAlertDeliveries(
   let skipped = 0;
   if (deliveries.length === 0) return { sent, failed, skipped };
 
-  const configuration = discordDeliveryConfiguration();
-  if ('issue' in configuration) {
-    if (lastDiscordDeliveryConfigurationIssue !== configuration.issue) {
-      console.warn(`[discord-delivery] Pausing queued DMs: ${configuration.issue}`);
-      lastDiscordDeliveryConfigurationIssue = configuration.issue;
-    }
-    return { sent, failed, skipped };
-  }
-  if (lastDiscordDeliveryConfigurationIssue) {
-    console.info('[discord-delivery] Discord DM configuration restored; queued delivery resumed');
-    lastDiscordDeliveryConfigurationIssue = undefined;
-  }
-
+  const deliverable: Array<{
+    delivery: (typeof deliveries)[number];
+    event: NonNullable<ReturnType<typeof getAlertEventById>>;
+    discordUserId: string;
+  }> = [];
   for (const delivery of deliveries) {
     const event = getAlertEventById(delivery.alertId);
     if (!event) {
@@ -745,13 +737,31 @@ export async function processPendingDiscordAlertDeliveries(
       continue;
     }
 
+    const discordUserId = resolveDiscordUserId(event.userId);
+    if (!discordUserId) {
+      markAlertDeliveryFailed(delivery.id, new Error('Missing linked Discord identity for pending delivery'));
+      failed += 1;
+      continue;
+    }
+    deliverable.push({ delivery, event, discordUserId });
+  }
+  if (deliverable.length === 0) return { sent, failed, skipped };
+
+  const configuration = discordDeliveryConfiguration();
+  if ('issue' in configuration) {
+    if (lastDiscordDeliveryConfigurationIssue !== configuration.issue) {
+      console.warn(`[discord-delivery] Pausing queued DMs: ${configuration.issue}`);
+      lastDiscordDeliveryConfigurationIssue = configuration.issue;
+    }
+    return { sent, failed, skipped };
+  }
+  if (lastDiscordDeliveryConfigurationIssue) {
+    console.info('[discord-delivery] Discord DM configuration restored; queued delivery resumed');
+    lastDiscordDeliveryConfigurationIssue = undefined;
+  }
+
+  for (const { delivery, event, discordUserId } of deliverable) {
     try {
-      const discordUserId = resolveDiscordUserId(event.userId);
-      if (!discordUserId) {
-        markAlertDeliveryFailed(delivery.id, new Error('Missing linked Discord identity for pending delivery'));
-        failed += 1;
-        continue;
-      }
       const message = await withTimeout(
         sender({ token: configuration.token, discordUserId, event, webBaseUrl: configuration.webBaseUrl }),
         10000,
