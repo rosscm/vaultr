@@ -315,7 +315,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain("title: 'Cards you’ve acquired'");
     expect(jsResponse.body).toContain('<h2 class="eyebrow" id="${escapeHtml(id)}">${escapeHtml(eyebrow)}</h2>');
     expect(jsResponse.body).toContain('completedChasesSectionMarkup');
-    expect(jsResponse.body).toContain('const hasVisibleRows = watchingItems.length > 0 || pausedItems.length > 0 || completed.length > 0;');
+    expect(jsResponse.body).toContain('const hasVisibleRows = rows.length > 0;');
     expect(jsResponse.body).toContain("hasVisibleRows\n    ? ''\n    : state.vaultFilter === 'ALL'");
     expect(jsResponse.body).toContain("function pageFromHash(hash = window.location.hash)");
     expect(jsResponse.body).toContain("if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'plus' || value === 'settings' || value === 'onboarding') return value;");
@@ -353,7 +353,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-action="revisit-onboarding">Revisit setup');
     expect(jsResponse.body).toContain('onboardingRevisitMode');
     expect(jsResponse.body).toContain("state.onboarding?.status === 'IN_PROGRESS'");
-    expect(jsResponse.body).toContain("const hasExplicitRoute = /^#(home|vault|alerts|shelf|plus|settings|onboarding)$/i.test(window.location.hash);");
+    expect(jsResponse.body).toContain("const hasExplicitRoute = /^#(home|vault|alerts|shelf|plus|settings|onboarding)(?:\\?.*)?$/i.test(window.location.hash);");
     expect(jsResponse.body).toContain('Tell KeepSeek what you’re looking for and what matters to you.');
     expect(jsResponse.body).toContain('Get started');
     expect(jsResponse.body).toContain('const hasLoadedChase = !isPreviewMode');
@@ -413,7 +413,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('data-action="undo-dismiss"');
     expect(jsResponse.body).toContain('data-action="view-alert-chase"');
     expect(jsResponse.body).toContain("target.getAttribute('data-reviewed') !== 'true' && !isPreviewMode");
-    expect(jsResponse.body).toContain("alertPreview.length ? '<span class=\"home-plan-label\">New</span>' : ''");
+    expect(jsResponse.body).not.toContain("alertPreview.length ? '<span class=\"home-plan-label\">New</span>' : ''");
     expect(jsResponse.body).toContain('if (state.vaultLoaded && !state.isVaultLoading) state.pendingVaultFocusId = null;');
     expect(jsResponse.body).not.toContain('${escapeHtml(alertPreview.length)} New');
     const homeEmptySource = (jsResponse.body ?? '').slice(
@@ -724,6 +724,7 @@ describe('web app static routes', () => {
       'homeShelfPresentation',
       'escapeHtml',
       'formatMoney',
+      'formatRoundedMoney',
       'artworkTriggerMarkup',
       'discoveryCardPrimaryActionMarkup',
       'discoveryFeedbackMarkup',
@@ -734,6 +735,7 @@ describe('web app static routes', () => {
       () => ({ featured: item, featuredIndex: 0, supporting: [] }),
       String,
       (amount: number, currency: string) => `${currency} ${amount.toFixed(2)}`,
+      (amount: number, currency: string) => `${currency} ${Math.round(amount)}`,
       () => '<button class="artwork-trigger">Artwork</button>',
       () => '',
       () => ''
@@ -746,7 +748,8 @@ describe('web app static routes', () => {
     expect(withoutPrice).not.toContain('Add to Watchlist');
 
     const withPrice = renderItem({ name: 'Mew', reason: 'Collector context.', market: { askingTotal: 42, currency: 'CAD' } });
-    expect(withPrice).toContain('CAD 42.00');
+    expect(withPrice).toContain('Around');
+    expect(withPrice).toContain('CAD 42');
     expect(withPrice).not.toContain('Add to Watchlist');
   });
 
@@ -873,6 +876,28 @@ describe('web app static routes', () => {
     expect(source).toContain("state.alertReviewState !== 'REVIEWED' && state.matchingNewAlertCount > 0");
     expect(css).toMatch(/\.shelf-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/);
     expect(css.match(/\.shelf-personalized-note\s*\{/g)).toHaveLength(1);
+  });
+
+  it('keeps filtered Inbox routes, bounded pagination, and editorial price presentation explicit', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    expect(source).toContain("params.set('limit', '15')");
+    expect(source).toContain('alertPageCursors: [null]');
+    expect(source).toContain('data-action="previous-${scope}-page"');
+    expect(source).toContain('data-action="next-${scope}-page"');
+    expect(source).toContain('const pageSize = 12;');
+    expect(source).toContain('alerts?chaseId=${encodeURIComponent(state.alertChaseId');
+    expect(source).toContain('No matches for ${cardName} in this view.');
+    expect(source).toContain("/^#(home|vault|alerts|shelf|plus|settings|onboarding)(?:\\?.*)?$/i");
+    expect(source).toContain("editorial ? 'Around' : 'Asking price'");
+
+    const helperMatch = source.match(/function formatRoundedMoney\([^]*?\n\}/);
+    expect(helperMatch?.[0]).toBeTruthy();
+    const formatRoundedMoney = new Function(
+      'currencySymbol',
+      `${helperMatch![0]}\nreturn formatRoundedMoney;`
+    )((currency: string) => currency === 'CAD' ? 'C$' : '$');
+    expect(formatRoundedMoney(87.83, 'CAD')).toBe('C$88');
   });
 
   it('closes Watchlist More menus through normal contextual-menu interactions', async () => {
@@ -1133,11 +1158,11 @@ describe('web app static routes', () => {
     expect(summary).not.toContain('user-paused');
     expect(summary).not.toContain('monitoring limit');
 
-    expect(source).toContain("vaultChaseSectionMarkup('WATCHING', watchingItems)");
-    expect(source).toContain("vaultChaseSectionMarkup('PAUSED', pausedItems)");
+    expect(source).toContain("vaultChaseSectionMarkup('WATCHING', visibleWatching)");
+    expect(source).toContain("vaultChaseSectionMarkup('PAUSED', visiblePaused)");
     expect(source).toContain("if (!items.length) return '';");
-    expect(source.indexOf("vaultChaseSectionMarkup('WATCHING', watchingItems)")).toBeLessThan(
-      source.indexOf("vaultChaseSectionMarkup('PAUSED', pausedItems)")
+    expect(source.indexOf("vaultChaseSectionMarkup('WATCHING', visibleWatching)")).toBeLessThan(
+      source.indexOf("vaultChaseSectionMarkup('PAUSED', visiblePaused)")
     );
   });
 

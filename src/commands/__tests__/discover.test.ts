@@ -11271,6 +11271,57 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
   });
 
+  it('previews an in-place shelf metadata refresh without changing identity, order, or market evidence', () => {
+    const userId = `weekly-metadata-preview-${Date.now()}`;
+    const periodKey = '2026-W29';
+    const candidate = publishableCanonicalCandidate(
+      'Squirtle 151 170 151 170',
+      'sv3pt5-170',
+      'Squirtle',
+      '151',
+      '170',
+      0
+    );
+    const [generated] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD');
+    const item = {
+      ...generated!,
+      suggestion: { ...generated!.suggestion, name: 'Squirtle 151 170 151 170' },
+      market: {
+        ...generated!.market,
+        status: 'READY' as const,
+        askingTotal: 87.83,
+        askingSampleSize: 4,
+        listing: { id: 'listing-1', title: 'Exact Squirtle listing', url: 'https://example.test/listing-1' }
+      }
+    };
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey,
+      status: 'READY',
+      title: 'Display Case',
+      currency: 'CAD',
+      availableAt: '2026-07-13T12:00:00.000Z',
+      items: [item]
+    });
+    const existing = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey)!;
+
+    const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(existing, [candidate], {
+      tasteProfileChases: [],
+      rankingMode: 'LEGACY'
+    });
+
+    expect(preview.reports[0]).toMatchObject({ status: 'RESOLVED', canonicalId: 'sv3pt5-170' });
+    expect(preview.items[0]?.position).toBe(existing.items[0]?.position);
+    expect(preview.items[0]?.suggestion.referenceSourceCardId).toBe('sv3pt5-170');
+    expect(preview.items[0]?.suggestion.name).toBe('Squirtle 151 170');
+    expect(preview.items[0]?.market).toEqual(existing.items[0]?.market);
+    expect(getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey)?.items[0]?.suggestion.name)
+      .toBe('Squirtle 151 170 151 170');
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+  });
+
   it('persists a qualified smaller shelf without repeat filler', () => {
     const userId = `weekly-result-${Date.now()}`;
     const date = new Date('2026-07-14T12:00:00.000Z');

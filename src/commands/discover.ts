@@ -4476,6 +4476,8 @@ export const __discoveryPersistenceTestHooks = {
   applyExactCardRepeatFreshnessOrdering,
   reliableWeeklyDiscoveryMarketEstimate,
   repairExistingScheduledWeeklyDropReferences,
+  refreshScheduledWeeklyDropMetadata,
+  scheduledWeeklyDropMetadataProposal,
   collectorProfileSelectionRecommendation,
   finalizeWeeklyDiscoveryShelf,
   isCollectorWorthyWeeklyCandidate,
@@ -9479,6 +9481,142 @@ async function repairExistingScheduledWeeklyDropReferences(existing: ScheduledDi
   }
 
   return repairedDrop;
+}
+
+export type ScheduledDiscoveryMetadataRefreshItem = {
+  position: number;
+  canonicalId?: string;
+  existingName: string;
+  proposedName: string;
+  existingImageSource?: string;
+  proposedImageSource?: string;
+  existingWhy: string;
+  proposedWhy: string;
+  status: 'RESOLVED' | 'UNCHANGED' | 'UNRESOLVED';
+  reason?: string;
+};
+
+export type ScheduledDiscoveryMetadataRefreshResult = {
+  userId: string;
+  periodKey: string;
+  applied: boolean;
+  resolved: number;
+  unchanged: number;
+  unresolved: number;
+  items: ScheduledDiscoveryMetadataRefreshItem[];
+  drop: ScheduledDiscoveryDrop;
+};
+
+function scheduledWeeklyDropMetadataProposal(
+  existing: ScheduledDiscoveryDrop,
+  repairedCandidates: DiscoveryCandidate[],
+  profile: { tasteProfileChases: Chase[]; rankingMode: WeeklyDiscoverySelectionMode }
+): { items: ScheduledDiscoveryDropItem[]; reports: ScheduledDiscoveryMetadataRefreshItem[] } {
+  const repairedByPosition = new Map(repairedCandidates.map((candidate) => [candidate.selectionIndex ?? -1, candidate]));
+  const collectorProfile = buildWeeklyCollectorAnchorProfile(profile.tasteProfileChases);
+  const reports: ScheduledDiscoveryMetadataRefreshItem[] = [];
+  const items = existing.items.map((item) => {
+    const candidate = repairedByPosition.get(item.position - 1);
+    const canonicalId = item.suggestion.referenceSourceCardId?.trim();
+    if (!candidate || !canonicalId) {
+      reports.push({
+        position: item.position,
+        canonicalId,
+        existingName: item.suggestion.name,
+        proposedName: item.suggestion.name,
+        existingImageSource: item.imageSourceName,
+        proposedImageSource: item.imageSourceName,
+        existingWhy: item.suggestion.why,
+        proposedWhy: item.suggestion.why,
+        status: 'UNRESOLVED',
+        reason: canonicalId ? 'Stored recommendation could not be reconstructed safely' : 'Stored recommendation has no stable canonical identity'
+      });
+      return item;
+    }
+
+    const repairedItem = repairableScheduledReferenceUpdate(item, candidate) ?? item;
+    const rationaleCandidate = candidateWithCollectorAnchoredRationale({
+      ...candidate,
+      suggestion: repairedItem.suggestion
+    }, collectorProfile, profile.rankingMode);
+    const proposedSuggestion = canonicalScheduledSuggestion(rationaleCandidate);
+    const proposedCanonicalId = proposedSuggestion.referenceSourceCardId?.trim();
+    if (proposedCanonicalId !== canonicalId) {
+      reports.push({
+        position: item.position,
+        canonicalId,
+        existingName: item.suggestion.name,
+        proposedName: item.suggestion.name,
+        existingImageSource: item.imageSourceName,
+        proposedImageSource: item.imageSourceName,
+        existingWhy: item.suggestion.why,
+        proposedWhy: item.suggestion.why,
+        status: 'UNRESOLVED',
+        reason: 'Proposed metadata did not preserve exact-printing identity'
+      });
+      return item;
+    }
+
+    const proposed = { ...repairedItem, suggestion: proposedSuggestion };
+    const changed = JSON.stringify(proposed) !== JSON.stringify(item);
+    reports.push({
+      position: item.position,
+      canonicalId,
+      existingName: item.suggestion.name,
+      proposedName: proposed.suggestion.name,
+      existingImageSource: item.imageSourceName,
+      proposedImageSource: proposed.imageSourceName,
+      existingWhy: item.suggestion.why,
+      proposedWhy: proposed.suggestion.why,
+      status: changed ? 'RESOLVED' : 'UNCHANGED'
+    });
+    return proposed;
+  });
+  return { items, reports };
+}
+
+export async function refreshScheduledWeeklyDropMetadata(input: {
+  userId: string;
+  periodKey: string;
+  apply?: boolean;
+}): Promise<ScheduledDiscoveryMetadataRefreshResult> {
+  const existing = getScheduledDiscoveryDrop(input.userId, 'WEEKLY_DISCOVERY', input.periodKey);
+  if (!existing) throw new Error(`No Weekly Display Case found for ${input.userId} in ${input.periodKey}`);
+
+  const candidates = candidatesFromScheduledDiscoveryDrop(existing);
+  const repairedCandidates = await repairScheduledDiscoveryShelfImages(candidates);
+  const profileContext = currentWeeklyDiscoveryPreparationProfileContext(input.userId, new Date(existing.availableAt));
+  const { items: proposedItems, reports } = scheduledWeeklyDropMetadataProposal(existing, repairedCandidates, profileContext);
+
+  const positionsPreserved = proposedItems.every((item, index) => item.position === existing.items[index]?.position);
+  if (!positionsPreserved) throw new Error('Display Case refresh changed recommendation ordering');
+
+  const drop = input.apply
+    ? upsertScheduledDiscoveryDrop({
+        userId: existing.userId,
+        dropType: existing.dropType,
+        periodKey: existing.periodKey,
+        status: existing.status,
+        title: existing.title,
+        summary: existing.summary,
+        currency: existing.currency,
+        availableAt: existing.availableAt,
+        expiresAt: existing.expiresAt,
+        sourceStateUpdatedAt: existing.sourceStateUpdatedAt,
+        items: proposedItems
+      })
+    : { ...existing, items: proposedItems };
+
+  return {
+    userId: input.userId,
+    periodKey: input.periodKey,
+    applied: input.apply === true,
+    resolved: reports.filter((item) => item.status === 'RESOLVED').length,
+    unchanged: reports.filter((item) => item.status === 'UNCHANGED').length,
+    unresolved: reports.filter((item) => item.status === 'UNRESOLVED').length,
+    items: reports,
+    drop
+  };
 }
 
 export function backfillScheduledDiscoveryShelfCandidates(

@@ -45,6 +45,7 @@
     "weekly:replay": "tsx src/weekly-discovery-replay.ts",
     "weekly:evaluate": "tsx src/weekly-discovery-evaluate.ts",
     "discovery:inspect": "tsx src/discovery-shelf-inspect.ts",
+    "discovery:refresh-metadata": "tsx src/discovery-shelf-refresh-metadata.ts",
     "dev:discovery-worker": "tsx src/discovery-market-worker.ts",
     "dev:webhook": "tsx src/ebay-webhook.ts",
     "smoke": "tsx src/smoke.ts",

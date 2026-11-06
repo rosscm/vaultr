@@ -34,11 +34,12 @@ const state = {
   alertsError: null,
   isAlertsLoading: false,
   nextCursor: null,
+  alertPage: 1,
+  alertPageCursors: [null],
   matchingNewAlertCount: 0,
   bulkReviewBusy: false,
   requestId: 0,
   hasCheckedAllAlerts: false,
-  isLoadingMore: false,
   alertNotice: '',
   dismissUndo: null,
   dismissUndoTimer: null,
@@ -50,6 +51,7 @@ const state = {
   hasNewAlerts: false,
   vault: [],
   vaultFilter: 'ALL',
+  vaultPage: 1,
   completedChases: [],
   vaultPlan: null,
   vaultCurrency: 'CAD',
@@ -236,6 +238,11 @@ function formatMoney(amount, currency) {
   return `${currencySymbol(currency)}${amount.toFixed(2)}`;
 }
 
+function formatRoundedMoney(amount, currency) {
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return '';
+  return `${currencySymbol(currency)}${Math.round(amount)}`;
+}
+
 function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
@@ -280,9 +287,20 @@ function listingTypeLabel(value) {
 }
 
 function pageFromHash(hash = window.location.hash) {
-  const value = String(hash || '').replace(/^#/, '').toLowerCase();
+  const value = String(hash || '').replace(/^#/, '').split('?')[0].toLowerCase();
   if (value === 'home' || value === 'vault' || value === 'alerts' || value === 'shelf' || value === 'plus' || value === 'settings' || value === 'onboarding') return value;
   return 'home';
+}
+
+function alertFilterFromHash(hash = window.location.hash) {
+  const params = new URLSearchParams(String(hash || '').replace(/^#alerts\??/i, ''));
+  return { chaseId: params.get('chaseId'), chaseName: params.get('chaseName') || '' };
+}
+
+function resetAlertPagination() {
+  state.alertPage = 1;
+  state.alertPageCursors = [null];
+  state.nextCursor = null;
 }
 
 async function loadActivePageData() {
@@ -1315,6 +1333,10 @@ function inboxCaughtUpMarkup() {
 
 function alertsMarkup() {
   if (!state.alerts.length) {
+    if (state.alertChaseId) {
+      const cardName = state.alertChaseName || 'this Watchlist item';
+      return alertsPageMarkup(statePanelMarkup(`No matches for ${cardName} in this view.`, 'Try another filter or clear the Watchlist item filter.'));
+    }
     if (state.alertReviewState === 'NEW') {
       const broadlyCaughtUp = state.priority === 'ALL' && state.source === 'ALL' && !state.alertChaseId;
       return alertsPageMarkup(broadlyCaughtUp
@@ -1335,10 +1357,21 @@ function alertsMarkup() {
   }
 
   const list = state.alerts.map(alertCardMarkup).join('');
-  const loadMore = state.nextCursor
-    ? `<div class="load-more-row"><button class="button-ghost" type="button" data-action="load-more" ${state.isLoadingMore ? 'disabled' : ''}>${state.isLoadingMore ? 'Loading...' : 'Load more'}</button></div>`
+  const pagination = state.alertPage > 1 || state.nextCursor
+    ? paginationMarkup({ page: state.alertPage, hasPrevious: state.alertPage > 1, hasNext: Boolean(state.nextCursor), scope: 'alerts' })
     : '';
-  return alertsPageMarkup(`<div class="alert-list" aria-label="Inbox matches">${list}</div>${loadMore}`);
+  return alertsPageMarkup(`<div class="alert-list" aria-label="Inbox matches">${list}</div>${pagination}`);
+}
+
+function paginationMarkup({ page, hasPrevious, hasNext, scope, showing }) {
+  return `<nav class="pagination" aria-label="${escapeHtml(scope === 'alerts' ? 'Inbox pages' : 'Watchlist pages')}">
+    ${showing ? `<span class="pagination-summary">${escapeHtml(showing)}</span>` : '<span></span>'}
+    <div class="pagination-actions">
+      <button class="button-ghost" type="button" data-action="previous-${scope}-page"${hasPrevious ? '' : ' disabled'}>Previous</button>
+      <span class="pagination-current" aria-current="page">Page ${escapeHtml(page)}</span>
+      <button class="button-ghost" type="button" data-action="next-${scope}-page"${hasNext ? '' : ' disabled'}>Next</button>
+    </div>
+  </nav>`;
 }
 
 function alertActionMarkup(alert, { compact = false } = {}) {
@@ -1423,11 +1456,11 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
   const total = items.length;
   const details = [item.setName, item.cardNumber, item.language].filter(Boolean);
   const price = item.market?.askingTotal !== undefined
-    ? formatMoney(item.market.askingTotal, item.market.currency)
+    ? (editorial ? formatRoundedMoney(item.market.askingTotal, item.market.currency) : formatMoney(item.market.askingTotal, item.market.currency))
     : item.market?.soldTotal !== undefined
       ? formatMoney(item.market.soldTotal, item.market.currency)
       : '';
-  const priceLabel = item.market?.askingTotal !== undefined ? 'Asking price' : item.market?.soldTotal !== undefined ? 'Recent sold' : '';
+  const priceLabel = item.market?.askingTotal !== undefined ? (editorial ? 'Around' : 'Asking price') : item.market?.soldTotal !== undefined ? 'Recent sold' : '';
   return `
     <div class="home-shelf-feature" data-home-shelf-feature tabindex="0" aria-label="Display Case recommendation browser">
       <div class="home-shelf-artwork${item.imageUrl ? '' : ' empty'}${supporting.length ? ` has-${supporting.length + 1}-cards` : ''}">
@@ -1667,7 +1700,6 @@ function homePageMarkup() {
         <div class="home-section-heading">
           <div><h2 id="home-alerts-title">Latest matches</h2><p>New listings for the cards you’re watching, ready when you are.</p></div>
           <button class="home-text-link" type="button" data-action="view-new-alerts">Open Inbox</button>
-          ${alertPreview.length ? '<span class="home-plan-label">New</span>' : ''}
         </div>
         ${state.homeAttentionError
           ? '<p class="home-section-state">New matches could not be loaded right now.</p>'
@@ -1705,7 +1737,7 @@ function alertCardMarkup(alert) {
       <div class="alert-content">
         <div class="alert-main">
           <div class="alert-meta">
-            <span class="priority-pill ${priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priority)}</span>
+            <span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span>
             <span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span>
           </div>
           <h2 class="chase-name">${escapeHtml(alert.chaseName || 'Watchlist card')}</h2>
@@ -1753,7 +1785,20 @@ function vaultPageMarkup() {
     ? (state.vault || []).filter((item) => item.monitoringState !== 'ACTIVE')
     : [];
   const completed = state.vaultFilter === 'ALL' || state.vaultFilter === 'COMPLETED' ? state.completedChases || [] : [];
-  const hasVisibleRows = watchingItems.length > 0 || pausedItems.length > 0 || completed.length > 0;
+  const rows = [
+    ...watchingItems.map((item) => ({ kind: 'WATCHING', item })),
+    ...pausedItems.map((item) => ({ kind: 'PAUSED', item })),
+    ...completed.map((item) => ({ kind: 'COMPLETED', item }))
+  ];
+  const pageSize = 12;
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  state.vaultPage = Math.min(Math.max(1, state.vaultPage), totalPages);
+  const start = (state.vaultPage - 1) * pageSize;
+  const pageRows = rows.slice(start, start + pageSize);
+  const visibleWatching = pageRows.filter((row) => row.kind === 'WATCHING').map((row) => row.item);
+  const visiblePaused = pageRows.filter((row) => row.kind === 'PAUSED').map((row) => row.item);
+  const visibleCompleted = pageRows.filter((row) => row.kind === 'COMPLETED').map((row) => row.item);
+  const hasVisibleRows = rows.length > 0;
   const emptyState = hasVisibleRows
     ? ''
     : state.vaultFilter === 'ALL'
@@ -1768,10 +1813,11 @@ function vaultPageMarkup() {
       ${vaultSummaryMarkup()}
       ${vaultLimitWarningMarkup()}
       ${vaultLifecycleFiltersMarkup()}
-      ${vaultChaseSectionMarkup('WATCHING', watchingItems)}
-      ${vaultChaseSectionMarkup('PAUSED', pausedItems)}
+      ${vaultChaseSectionMarkup('WATCHING', visibleWatching)}
+      ${vaultChaseSectionMarkup('PAUSED', visiblePaused)}
       ${emptyState}
-      ${completedChasesSectionMarkup(completed)}
+      ${completedChasesSectionMarkup(visibleCompleted)}
+      ${totalPages > 1 ? paginationMarkup({ page: state.vaultPage, hasPrevious: state.vaultPage > 1, hasNext: state.vaultPage < totalPages, scope: 'vault', showing: `Showing ${start + 1}–${Math.min(start + pageSize, rows.length)} of ${rows.length}` }) : ''}
       ${vaultDialogMarkup()}
       ${removeDialogMarkup()}
       ${acquireDialogMarkup()}
@@ -1798,7 +1844,7 @@ function vaultChaseSectionMarkup(kind, items) {
 
 function vaultLifecycleFiltersMarkup() {
   const filters = [['ALL', 'All'], ['WATCHING', 'Watching'], ['PAUSED', 'Paused'], ['COMPLETED', 'Pickups']];
-  return `<div class="vault-lifecycle-filters" aria-label="Watchlist filters">${filters.map(([value, label]) => `<button class="pill-button" type="button" data-vault-filter="${value}" aria-pressed="${state.vaultFilter === value ? 'true' : 'false'}">${label}</button>`).join('')}</div>`;
+  return `<div class="vault-lifecycle-filters review-state-filters" aria-label="Watchlist filters">${filters.map(([value, label]) => `<button class="pill-button" type="button" data-vault-filter="${value}" aria-pressed="${state.vaultFilter === value ? 'true' : 'false'}">${label}</button>`).join('')}</div>`;
 }
 
 function vaultHeaderMarkup() {
@@ -2105,8 +2151,8 @@ function discoveryFeedbackMarkup(item, compact = false) {
   return `
     <div class="discovery-feedback${compact ? ' compact' : ''}" aria-label="Taste feedback">
       <div class="discovery-feedback-actions">
-        <button class="discovery-feedback-button${saved === 'MORE_LIKE_THIS' ? ' selected' : ''}" type="button" data-action="discovery-feedback" data-feedback-action="MORE_LIKE_THIS" ${context} ${disabled ? 'disabled' : ''} aria-pressed="${saved === 'MORE_LIKE_THIS'}">More like this</button>
-        <button class="discovery-feedback-button${saved === 'NOT_FOR_ME' ? ' selected' : ''}" type="button" data-action="discovery-feedback" data-feedback-action="NOT_FOR_ME" ${context} ${disabled ? 'disabled' : ''} aria-pressed="${saved === 'NOT_FOR_ME'}">Not for me</button>
+        <button class="discovery-feedback-button positive${saved === 'MORE_LIKE_THIS' ? ' selected' : ''}" type="button" data-action="discovery-feedback" data-feedback-action="MORE_LIKE_THIS" ${context} ${disabled ? 'disabled' : ''} aria-pressed="${saved === 'MORE_LIKE_THIS'}"><span aria-hidden="true">+ </span>More like this</button>
+        <button class="discovery-feedback-button negative${saved === 'NOT_FOR_ME' ? ' selected' : ''}" type="button" data-action="discovery-feedback" data-feedback-action="NOT_FOR_ME" ${context} ${disabled ? 'disabled' : ''} aria-pressed="${saved === 'NOT_FOR_ME'}"><span aria-hidden="true">− </span>Not for me</button>
         ${saved ? `<button class="discovery-feedback-undo" type="button" data-action="undo-discovery-feedback" ${context} data-feedback-version="${escapeHtml(item.feedback.version)}" ${disabled ? 'disabled' : ''}>Undo</button>` : ''}
       </div>
       ${pending ? '<span class="discovery-feedback-status" role="status">Saving…</span>' : error ? `<span class="discovery-feedback-status error" role="alert">${escapeHtml(error)}</span>` : notice ? `<span class="discovery-feedback-status" role="status">${escapeHtml(notice)}</span>` : ''}
@@ -2441,6 +2487,7 @@ async function redeemEmailLink() {
 
 function alertQuery(cursor) {
   const params = new URLSearchParams();
+  params.set('limit', '15');
   if (state.priority !== 'ALL') params.set('priority', state.priority);
   if (state.source !== 'ALL') params.set('source', state.source);
   if (state.alertChaseId) params.set('chaseId', state.alertChaseId);
@@ -2606,31 +2653,25 @@ async function dismissDiscordAlertInvite() {
   renderCurrentPage();
 }
 
-async function loadAlerts({ append = false } = {}) {
+async function loadAlerts({ cursor = state.alertPageCursors[state.alertPage - 1] || null } = {}) {
   const requestId = ++state.requestId;
-  if (!append) {
-    state.alerts = [];
-    state.nextCursor = null;
-    state.hasCheckedAllAlerts = false;
-    state.isAlertsLoading = true;
-    state.alertsError = null;
-    if (state.activePage === 'alerts') renderShell(skeletonMarkup());
-    else renderCurrentPage();
-  } else {
-    state.isLoadingMore = true;
-    renderCurrentPage();
-  }
+  state.alerts = [];
+  state.nextCursor = null;
+  state.hasCheckedAllAlerts = false;
+  state.isAlertsLoading = true;
+  state.alertsError = null;
+  if (state.activePage === 'alerts') renderShell(skeletonMarkup());
+  else renderCurrentPage();
 
   try {
-    const body = await fetchJson(alertQuery(append ? state.nextCursor : null));
+    const body = await fetchJson(alertQuery(cursor));
     if (requestId !== state.requestId) return;
-    state.alerts = append ? state.alerts.concat(body.items || []) : body.items || [];
+    state.alerts = body.items || [];
     state.alertsLoaded = true;
     state.alertsError = null;
     state.isAlertsLoading = false;
     state.nextCursor = body.nextCursor || null;
     state.matchingNewAlertCount = Number(body.matchingNewCount) || 0;
-    state.isLoadingMore = false;
     if (state.priority !== 'ALL' || state.source !== 'ALL') {
       state.hasCheckedAllAlerts = true;
     }
@@ -2638,7 +2679,6 @@ async function loadAlerts({ append = false } = {}) {
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
     if (requestId !== state.requestId) return;
-    state.isLoadingMore = false;
     state.isAlertsLoading = false;
     state.alertsError = 'load_failed';
     if (state.activePage === 'alerts') {
@@ -3355,7 +3395,13 @@ async function bootstrap() {
     state.identities = body.identities || state.identities;
     const onboarding = await loadOnboarding();
     const requestedPage = pageFromHash();
-    const hasExplicitRoute = /^#(home|vault|alerts|shelf|plus|settings|onboarding)$/i.test(window.location.hash);
+    if (requestedPage === 'alerts') {
+      const filter = alertFilterFromHash();
+      state.alertChaseId = filter.chaseId;
+      state.alertChaseName = filter.chaseName;
+      if (filter.chaseId) state.alertReviewState = 'ALL';
+    }
+    const hasExplicitRoute = /^#(home|vault|alerts|shelf|plus|settings|onboarding)(?:\?.*)?$/i.test(window.location.hash);
     state.activePage = (!isPreviewMode && onboarding?.status === 'IN_PROGRESS' && !hasExplicitRoute) || requestedPage === 'onboarding'
       ? 'onboarding'
       : state.emailConfirmation?.purpose === 'LINK_EMAIL'
@@ -3396,6 +3442,7 @@ app.addEventListener('click', async (event) => {
       state.alertChaseName = '';
       state.alertReviewState = 'NEW';
       state.alertsLoaded = false;
+      resetAlertPagination();
     }
     await navigateToPage(page);
     return;
@@ -3404,6 +3451,7 @@ app.addEventListener('click', async (event) => {
   const reviewState = target.getAttribute('data-review-state');
   if (reviewState) {
     state.alertReviewState = reviewState;
+    resetAlertPagination();
     state.alertsLoaded = false;
     await loadAlerts();
     return;
@@ -3412,6 +3460,7 @@ app.addEventListener('click', async (event) => {
   const vaultFilter = target.getAttribute('data-vault-filter');
   if (vaultFilter) {
     state.vaultFilter = vaultFilter;
+    state.vaultPage = 1;
     renderCurrentPage();
     return;
   }
@@ -3423,6 +3472,7 @@ app.addEventListener('click', async (event) => {
       state.alertChaseName = '';
     }
     state.priority = priority;
+    resetAlertPagination();
     state.alertsLoaded = false;
     await navigateToPage('alerts');
     return;
@@ -3586,6 +3636,7 @@ app.addEventListener('click', async (event) => {
     state.alertChaseName = '';
     state.alertReviewState = 'NEW';
     state.alertsLoaded = false;
+    resetAlertPagination();
     await navigateToPage('alerts');
     return;
   }
@@ -3629,8 +3680,23 @@ app.addEventListener('click', async (event) => {
     await navigateToPage('vault');
     return;
   }
-  if (action === 'load-more' && state.nextCursor && !state.isLoadingMore) {
-    await loadAlerts({ append: true });
+  if (action === 'next-alerts-page' && state.nextCursor) {
+    state.alertPageCursors[state.alertPage] = state.nextCursor;
+    state.alertPage += 1;
+    await loadAlerts({ cursor: state.nextCursor });
+    document.querySelector('.alert-control-stack')?.scrollIntoView({ block: 'start' });
+    return;
+  }
+  if (action === 'previous-alerts-page' && state.alertPage > 1) {
+    state.alertPage -= 1;
+    await loadAlerts({ cursor: state.alertPageCursors[state.alertPage - 1] || null });
+    document.querySelector('.alert-control-stack')?.scrollIntoView({ block: 'start' });
+    return;
+  }
+  if (action === 'next-vault-page' || action === 'previous-vault-page') {
+    state.vaultPage += action === 'next-vault-page' ? 1 : -1;
+    renderCurrentPage();
+    document.querySelector('.vault-lifecycle-filters')?.scrollIntoView({ block: 'start' });
     return;
   }
   if (action === 'retry-alerts') {
@@ -3679,13 +3745,16 @@ app.addEventListener('click', async (event) => {
     state.alertChaseName = target.getAttribute('data-card-name') || '';
     state.alertReviewState = 'ALL';
     state.alertsLoaded = false;
-    await navigateToPage('alerts');
+    resetAlertPagination();
+    window.location.hash = `alerts?chaseId=${encodeURIComponent(state.alertChaseId || '')}&chaseName=${encodeURIComponent(state.alertChaseName)}`;
     return;
   }
   if (action === 'clear-chase-filter') {
     state.alertChaseId = null;
     state.alertChaseName = '';
     state.alertReviewState = 'NEW';
+    resetAlertPagination();
+    window.history.replaceState(null, '', '#alerts');
     await loadAlerts();
     return;
   }
@@ -3946,6 +4015,7 @@ app.addEventListener('change', async (event) => {
   }
   if (target.getAttribute('data-action') === 'source-filter') {
     state.source = target.value;
+    resetAlertPagination();
     state.alertsLoaded = false;
     await navigateToPage('alerts');
   }
@@ -3953,6 +4023,14 @@ app.addEventListener('change', async (event) => {
 
 window.addEventListener('hashchange', () => {
   if (!state.user) return;
+  if (pageFromHash() === 'alerts') {
+    const filter = alertFilterFromHash();
+    state.alertChaseId = filter.chaseId;
+    state.alertChaseName = filter.chaseName;
+    state.alertReviewState = filter.chaseId ? 'ALL' : state.alertReviewState;
+    resetAlertPagination();
+    state.alertsLoaded = false;
+  }
   void navigateToPage(pageFromHash(), { updateHash: false });
 });
 
