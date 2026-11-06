@@ -1238,7 +1238,7 @@ function alertsPageMarkup(inner) {
             ${reviewStateButton('REVIEWED', 'Reviewed')}
             ${reviewStateButton('ALL', 'All')}
           </div>
-          ${state.matchingNewAlertCount > 0 ? `<button class="button-ghost alert-review-all" type="button" data-action="mark-all-reviewed"${state.bulkReviewBusy ? ' disabled' : ''}>${state.bulkReviewBusy ? 'Updating…' : `Mark all reviewed (${state.matchingNewAlertCount})`}</button>` : ''}
+          ${state.alertReviewState !== 'REVIEWED' && state.matchingNewAlertCount > 0 ? `<button class="button-ghost alert-review-all" type="button" data-action="mark-all-reviewed"${state.bulkReviewBusy ? ' disabled' : ''}>${state.bulkReviewBusy ? 'Updating…' : `Mark all reviewed (${state.matchingNewAlertCount})`}</button>` : ''}
         </div>
         <div class="toolbar" aria-label="Inbox filters">
           <div class="alert-control-group">
@@ -1356,6 +1356,7 @@ function alertActionMarkup(alert, { compact = false } = {}) {
 function homeAlertPreviewMarkup(alert) {
   const price = formatMoney(alert.listingPrice, alert.listingCurrency);
   const delta = formatPriceDelta(alert.priceDelta, alert.listingCurrency);
+  const quality = matchLabel(alert.matchScore);
   return `
     <li class="home-preview-row">
       <div class="home-preview-artwork">
@@ -1374,6 +1375,7 @@ function homeAlertPreviewMarkup(alert) {
         <span>${escapeHtml(alert.listingTitle || sourceLabel(alert.source))}</span>
         <span class="home-preview-meta">
           <span class="review-state-pill new">New</span>
+          ${quality ? `<span>${escapeHtml(quality)}</span>` : ''}
           <span>${escapeHtml(sourceLabel(alert.source))}</span>
           <span>${escapeHtml(relativeTime(alert.createdAt))}</span>
         </span>
@@ -1387,7 +1389,7 @@ function homeAlertPreviewMarkup(alert) {
 function boundedHomeShelfIndex(index, itemCount) {
   if (!Number.isInteger(itemCount) || itemCount <= 0) return 0;
   const numericIndex = Number.isFinite(index) ? Math.trunc(index) : 0;
-  return Math.min(Math.max(numericIndex, 0), itemCount - 1);
+  return ((numericIndex % itemCount) + itemCount) % itemCount;
 }
 
 function homeShelfIndexAfterGesture(index, itemCount, deltaX, deltaY) {
@@ -1455,8 +1457,8 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
       </div>
       ${total > 1 ? `
         <div class="home-shelf-controls" aria-label="Display Case preview controls">
-          <button class="home-shelf-control" type="button" data-action="previous-home-shelf" aria-label="Previous recommendation" title="Previous recommendation" ${featuredIndex === 0 ? 'disabled' : ''}>&larr;</button>
-          <button class="home-shelf-control" type="button" data-action="next-home-shelf" aria-label="Next recommendation" title="Next recommendation" ${featuredIndex === total - 1 ? 'disabled' : ''}>&rarr;</button>
+          <button class="home-shelf-control" type="button" data-action="previous-home-shelf" aria-label="Previous recommendation" title="Previous recommendation">&larr;</button>
+          <button class="home-shelf-control" type="button" data-action="next-home-shelf" aria-label="Next recommendation" title="Next recommendation">&rarr;</button>
         </div>
         <p class="home-shelf-position" role="status" aria-live="polite">${escapeHtml(featuredIndex + 1)} of ${escapeHtml(total)}</p>
       ` : ''}

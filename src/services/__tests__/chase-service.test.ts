@@ -10,6 +10,7 @@ import {
   listUserTasteMemoryChases,
   recordDiscoveryFeedback,
   removeAllChases,
+  resolveChaseRemoval,
   resetUserAlertSettings,
   setUserAlertSettings,
   setUserPlan
@@ -506,6 +507,36 @@ describe('chase service', () => {
     expect(listUserTasteMemoryChases(id).map((chase) => chase.cardName)).not.toContain('Pichu Expedition 22/165');
     expect(listUserTasteMemoryChases(id).map((chase) => chase.cardName)).not.toContain('Zapdos Expedition 48');
     expect(getVaultChases(id).completedChases.map((chase) => chase.cardName)).toEqual(['Mew RC24']);
+  });
+
+  it('enriches existing active and completed exact printings with trusted artwork at read time', () => {
+    const id = userId('legacy-artwork');
+    const cardName = "Squirtle Japanese McDonald's Pokémon-e Minimum Pack 007/018";
+    const trustedIdentity = {
+      cardImageIdentity: cardName,
+      cardImageSourceName: 'DEXTCG',
+      cardImageSourceKind: 'CARD_REFERENCE' as const,
+      cardImageSourceCardId: 'jpn_mcdemp-7'
+    };
+    const active = createChaseForUser({ userId: id, cardName, ...trustedIdentity });
+    const completed = createChaseForUser({ userId: id, cardName: `${cardName} pickup`, ...trustedIdentity });
+    expect(active.status).toBe('CREATED');
+    expect(completed.status).toBe('CREATED');
+    if (active.status !== 'CREATED' || completed.status !== 'CREATED') return;
+    resolveChaseRemoval(id, completed.chase.id, 'COMPLETED');
+
+    const vault = getVaultChases(id);
+    expect(vault.chases[0]?.chase).toMatchObject({
+      cardImageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceCardId: 'jpn_mcdemp-7'
+    });
+    expect(vault.completedChases[0]).toMatchObject({
+      cardImageUrl: 'https://static.dextcg.com/cards/jpn_mcdemp/7.png',
+      cardImageSourceKind: 'CARD_REFERENCE',
+      cardImageSourceCardId: 'jpn_mcdemp-7'
+    });
+    expect(getChase(id, active.chase.id)?.cardImageUrl).toBeUndefined();
   });
 
   it('marks plan-overflow chases as paused without losing list visibility', () => {

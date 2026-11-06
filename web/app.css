@@ -2867,8 +2867,8 @@ a {
 
 .shelf-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 34px 26px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 32px 20px;
   margin-top: 24px;
 }
 
@@ -2940,10 +2940,6 @@ a {
   align-content: end;
   margin-top: auto;
   padding-top: 7px;
-}
-
-.shelf-personalized-note {
-  max-width: 92ch;
 }
 
 .shelf-feedback-intro {
@@ -3986,7 +3982,7 @@ a {
 }
 
 .shelf-personalized-note {
-  max-width: 68ch;
+  max-width: 92ch;
   margin: 18px 0 0;
   color: var(--muted);
   font-size: 0.95rem;

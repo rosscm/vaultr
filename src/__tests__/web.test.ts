@@ -687,15 +687,15 @@ describe('web app static routes', () => {
       };
     };
 
-    expect(utilities.boundedHomeShelfIndex(-1, 3)).toBe(0);
-    expect(utilities.boundedHomeShelfIndex(9, 3)).toBe(2);
+    expect(utilities.boundedHomeShelfIndex(-1, 3)).toBe(2);
+    expect(utilities.boundedHomeShelfIndex(9, 3)).toBe(0);
     expect(utilities.boundedHomeShelfIndex(1, 0)).toBe(0);
     expect(utilities.homeShelfIndexAfterGesture(1, 3, -80, 8)).toBe(2);
     expect(utilities.homeShelfIndexAfterGesture(1, 3, 80, 8)).toBe(0);
     expect(utilities.homeShelfIndexAfterGesture(1, 3, 30, 2)).toBe(1);
     expect(utilities.homeShelfIndexAfterGesture(1, 3, 50, 80)).toBe(1);
-    expect(utilities.homeShelfIndexAfterGesture(0, 3, 80, 3)).toBe(0);
-    expect(utilities.homeShelfIndexAfterGesture(2, 3, -80, 3)).toBe(2);
+    expect(utilities.homeShelfIndexAfterGesture(0, 3, 80, 3)).toBe(2);
+    expect(utilities.homeShelfIndexAfterGesture(2, 3, -80, 3)).toBe(0);
 
     const presentation = utilities.homeShelfPresentation([
       { name: 'First', imageUrl: '/first.png' },
@@ -725,6 +725,7 @@ describe('web app static routes', () => {
       'escapeHtml',
       'formatMoney',
       'artworkTriggerMarkup',
+      'discoveryCardPrimaryActionMarkup',
       'discoveryFeedbackMarkup',
       `${functionSource}\nreturn homeShelfFeatureMarkup([item], 0, { editorial: true, feedback: false });`
     ) as (...args: any[]) => string;
@@ -734,6 +735,7 @@ describe('web app static routes', () => {
       String,
       (amount: number, currency: string) => `${currency} ${amount.toFixed(2)}`,
       () => '<button class="artwork-trigger">Artwork</button>',
+      () => '',
       () => ''
     );
 
@@ -857,6 +859,20 @@ describe('web app static routes', () => {
     expect(source).toContain("deltaX < 0 ? 1 : -1");
     expect(source).toContain("event.key === 'ArrowLeft' || event.key === 'ArrowRight'");
     expect(source).toContain('boundedHomeShelfIndex(currentIndex +');
+    expect(source).not.toContain("featuredIndex === 0 ? 'disabled' : ''");
+    expect(source).not.toContain("featuredIndex === total - 1 ? 'disabled' : ''");
+  });
+
+  it('keeps Display Case cards spacious and hides Inbox bulk review in Reviewed', async () => {
+    const [jsResponse, cssResponse] = await Promise.all([
+      handleWebRequest({ method: 'GET', url: '/app.js' }, { config }),
+      handleWebRequest({ method: 'GET', url: '/app.css' }, { config })
+    ]);
+    const source = jsResponse.body ?? '';
+    const css = cssResponse.body ?? '';
+    expect(source).toContain("state.alertReviewState !== 'REVIEWED' && state.matchingNewAlertCount > 0");
+    expect(css).toMatch(/\.shelf-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/);
+    expect(css.match(/\.shelf-personalized-note\s*\{/g)).toHaveLength(1);
   });
 
   it('closes Watchlist More menus through normal contextual-menu interactions', async () => {

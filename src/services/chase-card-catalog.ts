@@ -1285,6 +1285,31 @@ export async function resolveTrustedChaseCardReference(cardName: string): Promis
   };
 }
 
+export function resolveTrustedLocalChaseCardReference(cardName: string): TrustedChaseCardReferenceResolution | undefined {
+  const exactResolution = resolveExactTrustedChaseCardReference(cardName);
+  if (exactResolution) return exactResolution;
+
+  const localSearchChoices = searchLocalCardCatalog(cardName, 8);
+  if (!hasHighConfidenceLocalCatalogMatch(cardName, localSearchChoices)) return undefined;
+  const trustedMatches = localSearchChoices
+    .map(localCatalogChoiceToCatalogResult)
+    .filter(choiceHasTrustedPreview)
+    .filter((choice) => choiceMatchesStructuredIdentity(choice, cardName));
+  const uniqueMatches = new Map<string, ChaseCardCatalogResult>();
+  for (const match of trustedMatches) {
+    const key = `${match.imageSourceName}:${match.imageSourceCardId}`;
+    if (!uniqueMatches.has(key)) uniqueMatches.set(key, match);
+  }
+  const [match] = [...uniqueMatches.values()];
+  if (!match || uniqueMatches.size !== 1) return undefined;
+  return {
+    status: 'RESOLVED',
+    requestedCardName: cardName,
+    resolvedCardName: match.value,
+    preview: trustedChoicePreview(match)
+  };
+}
+
 export function resolveExactTrustedChaseCardReference(cardName: string): TrustedChaseCardReferenceResolution | undefined {
   const normalizedCardName = normalizeChaseCardName(cardName);
   const queryVariants = [...new Set([cardName, normalizedCardName].map((value) => value.trim()).filter(Boolean))];

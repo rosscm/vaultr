@@ -4476,6 +4476,7 @@ export const __discoveryPersistenceTestHooks = {
   applyExactCardRepeatFreshnessOrdering,
   reliableWeeklyDiscoveryMarketEstimate,
   repairExistingScheduledWeeklyDropReferences,
+  collectorProfileSelectionRecommendation,
   finalizeWeeklyDiscoveryShelf,
   isCollectorWorthyWeeklyCandidate,
   reconcileWeeklyReserveWithReliableMarketCache,
@@ -6999,7 +7000,9 @@ function localCatalogChoiceToDiscoveryCandidate(
   const lane = localCatalogChoiceLane(choice, role);
   const readableSubject = language === 'JAPANESE' ? readableCatalogSubject(choice.canonicalName) : undefined;
   const readableName = readableSubject
-    ? japaneseReadableDiscoveryName(readableSubject, sourceCardId, choice.cardNumber)
+    ? normalize(choice.value).includes(normalize(readableSubject))
+      ? choice.value
+      : japaneseReadableDiscoveryName(readableSubject, sourceCardId, choice.cardNumber)
     : choice.value;
   const anchorDetail = role === 'CORE_MATCH'
     ? 'the same Pokemon'
@@ -8348,26 +8351,30 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
   };
 }
 
-function firstCollectorProfileAnchor(features: WeeklyDiscoveryCandidateAnalysis['features'] | undefined, role: NonNullable<DiscoverySuggestion['discoveryRole']>): DiscoveryRecommendationAnchor | undefined {
+function collectorProfileAnchors(analysis: WeeklyDiscoveryCandidateAnalysis | undefined, role: NonNullable<DiscoverySuggestion['discoveryRole']>): DiscoveryRecommendationAnchor[] {
+  const features = analysis?.features;
+  const relevance = analysis?.rankExplanation.scoreComponents.personalRelevance;
+  const anchors: Array<DiscoveryRecommendationAnchor | undefined> = [];
   const subject = features?.subjects?.[0];
-  if (subject) return { kind: 'SUBJECT', key: normalize(subject), label: titleCase(subject) };
+  if (subject && (relevance?.subjectAffinity ?? 0) > 0) anchors.push({ kind: 'SUBJECT', key: normalize(subject), label: titleCase(subject) });
   const family = features?.evolutionFamilies?.[0];
-  if (family) return { kind: 'EVOLUTION_FAMILY', key: normalize(family), label: titleCase(family.replace(/[_-]+/g, ' ')) };
+  if (family && (relevance?.familyAffinity ?? 0) > 0) anchors.push({ kind: 'EVOLUTION_FAMILY', key: normalize(family), label: titleCase(family.replace(/[_-]+/g, ' ')) });
   const setFamily = features?.setFamilies?.[0];
-  if (setFamily) return { kind: 'SET_RELATIONSHIP', key: normalize(setFamily), label: titleCase(setFamily) };
   const set = features?.sets?.[0];
-  if (set) return { kind: 'SET_RELATIONSHIP', key: normalize(set), label: set };
+  if (setFamily && (relevance?.setAffinity ?? 0) > 0) anchors.push({ kind: 'SET_RELATIONSHIP', key: normalize(setFamily), label: titleCase(setFamily) });
+  else if (set && (relevance?.setAffinity ?? 0) > 0) anchors.push({ kind: 'SET_RELATIONSHIP', key: normalize(set), label: set });
   const promo = features?.promoTypes?.[0] ?? features?.releaseTypes?.[0];
-  if (promo) return { kind: 'PROMO_PREFERENCE', key: normalize(promo), label: titleCase(promo) };
+  if (promo && (relevance?.promoAffinity ?? 0) > 0) anchors.push({ kind: 'PROMO_PREFERENCE', key: normalize(promo), label: titleCase(promo) });
   const art = features?.artists?.[0] ?? features?.artTiers?.[0] ?? features?.aestheticTags?.[0];
-  if (art) return { kind: 'ART_STYLE', key: normalize(art), label: art };
+  if (art && Math.max(relevance?.artistAffinity ?? 0, relevance?.artTierAffinity ?? 0, relevance?.aestheticAffinity ?? 0) > 0) anchors.push({ kind: 'ART_STYLE', key: normalize(art), label: art });
   const format = features?.formats?.[0];
-  if (format) return { kind: 'FORMAT', key: normalize(format), label: titleCase(format) };
+  if (format && (relevance?.formatAffinity ?? 0) > 0) anchors.push({ kind: 'FORMAT', key: normalize(format), label: titleCase(format) });
   const japanese = features?.languages?.some((language) => normalize(language) === 'japanese');
-  if (japanese && role !== 'CONTROLLED_EXPLORATION') return { kind: 'REGIONAL_PRINT', key: 'JAPANESE', label: 'Japanese print affinity' };
+  if (japanese && role !== 'CONTROLLED_EXPLORATION' && (relevance?.languageAffinity ?? 0) > 0) anchors.push({ kind: 'REGIONAL_PRINT', key: 'JAPANESE', label: 'Japanese prints' });
   const era = features?.eras?.[0];
-  if (era) return { kind: 'ERA', key: normalize(era), label: titleCase(era) };
-  return undefined;
+  if (era && (relevance?.eraAffinity ?? 0) > 0) anchors.push({ kind: 'ERA', key: normalize(era), label: titleCase(era) });
+  return anchors.filter((anchor): anchor is DiscoveryRecommendationAnchor => !!anchor)
+    .filter((anchor, index, values) => values.findIndex((value) => value.kind === anchor.kind && value.key === anchor.key) === index);
 }
 
 function normalizeCollectorFacingCopy(value: string): string {
@@ -8377,7 +8384,7 @@ function normalizeCollectorFacingCopy(value: string): string {
 function collectorProfileAnchoredWhy(
   candidate: DiscoveryCandidate,
   role: NonNullable<DiscoverySuggestion['discoveryRole']>,
-  anchor: DiscoveryRecommendationAnchor | undefined
+  anchors: DiscoveryRecommendationAnchor[]
 ): string {
   const structuredSubjects = candidate.weeklyDiscovery?.features?.subjects?.filter((subject) => subject.trim());
   const subject = structuredSubjects?.length
@@ -8385,7 +8392,23 @@ function collectorProfileAnchoredWhy(
     : sourceCardSubject(candidate, sourceSetLabel(candidate));
   const setLabel = sourceSetLabel(candidate);
   const printing = setLabel ? `${subject} from ${setLabel}` : subject;
-  const rationale = !anchor
+  const [anchor, supportingAnchor] = anchors;
+  const anchorPhrase = (value: DiscoveryRecommendationAnchor): string => value.kind === 'SUBJECT'
+    ? `${value.label} cards`
+    : value.kind === 'EVOLUTION_FAMILY'
+      ? `the ${value.label} family`
+      : value.kind === 'SET_RELATIONSHIP'
+        ? `${value.label} releases`
+        : value.kind === 'ART_STYLE'
+          ? `${value.label} artwork`
+          : value.kind === 'FORMAT'
+            ? `${value.label} cards`
+            : value.kind === 'ERA'
+              ? `${value.label} era cards`
+              : value.label;
+  const rationale = anchor && supportingAnchor
+    ? `${printing} connects your interest in ${anchorPhrase(anchor)} with ${anchorPhrase(supportingAnchor)}, giving this exact printing more than one reason to fit your collection.`
+    : !anchor
     ? `${printing} is a broader exploration pick that adds a distinct printing to your Weekly Shelf.`
     : anchor.kind === 'SUBJECT'
       ? `${printing} follows your interest in ${anchor.label}, while adding a different release angle.`
@@ -8408,13 +8431,13 @@ function collectorProfileAnchoredWhy(
 function collectorProfileSelectionRecommendation(candidate: DiscoveryCandidate): DiscoveryRecommendationProfile | null {
   const role = candidate.weeklyDiscovery?.discoveryRole ?? candidate.suggestion.discoveryRole;
   if (!role) return null;
-  const anchor = firstCollectorProfileAnchor(candidate.weeklyDiscovery?.features, role);
+  const anchors = collectorProfileAnchors(candidate.weeklyDiscovery, role);
+  const anchor = anchors[0];
   const strength: DiscoveryRecommendationStrength = role === 'CORE_MATCH'
     ? 'DIRECT_PROFILE'
     : role === 'ADJACENT_DISCOVERY'
       ? 'STRONG_ADJACENT'
       : 'EXPLORATORY';
-  const anchors = anchor ? [anchor] : [];
   const hasOnlyEraSignal = !!anchor
     && anchor.kind === 'ERA'
     && !(candidate.weeklyDiscovery?.features.subjects?.length)
@@ -8432,7 +8455,7 @@ function collectorProfileSelectionRecommendation(candidate: DiscoveryCandidate):
     strength,
     anchors,
     primaryAnchor: anchor,
-    anchoredWhy: collectorProfileAnchoredWhy(candidate, role, anchor),
+    anchoredWhy: collectorProfileAnchoredWhy(candidate, role, anchors),
     isEraOnlyExploratory: strength === 'EXPLORATORY' && hasOnlyEraSignal,
     eraSetFamilyKey: candidateEraSetFamilyKey(candidate)
   };
@@ -9384,7 +9407,7 @@ function repairableScheduledReferenceUpdate(
   const canonicalImage = scheduledShelfImageFromCandidate(candidate);
   const existingCanonicalId = item.suggestion.referenceSourceCardId?.trim();
   const repairedCanonicalId = candidate.suggestion.referenceSourceCardId?.trim() ?? canonicalImage?.sourceCardId?.trim();
-  if (!existingCanonicalId || !repairedCanonicalId || existingCanonicalId !== repairedCanonicalId) return null;
+  if (!repairedCanonicalId || (existingCanonicalId && existingCanonicalId !== repairedCanonicalId)) return null;
   if (!canonicalImage || canonicalImage.sourceKind !== 'CARD_REFERENCE') return null;
   if (!verifyExactPrintingConsistency(candidate)) return null;
 

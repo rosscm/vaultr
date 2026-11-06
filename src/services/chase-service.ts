@@ -12,6 +12,7 @@ import {
 import {
   getCachedChaseCardPreview,
   normalizeChaseCardName,
+  resolveTrustedLocalChaseCardReference,
   type CachedChaseCardPreview
 } from './chase-card-catalog.js';
 import { customExclusionTerms } from './chase-exclusions.js';
@@ -293,12 +294,31 @@ function duplicateForName(chases: Chase[], normalizedCardName: string, exceptCha
   );
 }
 
+function withTrustedCatalogArtwork<T extends Chase | CompletedChase>(chase: T): T {
+  if (chase.cardImageUrl) return chase;
+  if (chase.cardImageSourceKind !== 'CARD_REFERENCE' || !chase.cardImageIdentity || !chase.cardImageSourceCardId) return chase;
+  try {
+    const resolution = resolveTrustedLocalChaseCardReference(chase.cardImageIdentity);
+    if (resolution?.status !== 'RESOLVED') return chase;
+    return {
+      ...chase,
+      cardImageUrl: resolution.preview.imageUrl,
+      cardImageIdentity: resolution.preview.imageIdentity,
+      cardImageSourceName: resolution.preview.imageSourceName,
+      cardImageSourceKind: resolution.preview.imageSourceKind,
+      cardImageSourceCardId: resolution.preview.imageSourceCardId
+    };
+  } catch {
+    return chase;
+  }
+}
+
 function invalidGradeResult(message: string): ChaseServiceError {
   return { ok: false, code: 'INVALID_GRADE_PREFERENCE', message };
 }
 
 export function getVaultChases(userId: VaultrUserId): VaultChasesResult {
-  const chases = listChases(userId);
+  const chases = listChases(userId).map(withTrustedCatalogArtwork);
   const plan = getUserPlan(userId);
   const limits = activePlanLimits(plan);
   const activeIds = new Set(monitoringPlanChases(chases, plan).map((chase) => chase.id));
@@ -309,7 +329,7 @@ export function getVaultChases(userId: VaultrUserId): VaultChasesResult {
   }));
   return {
     chases: views,
-    completedChases: listCompletedChases(userId),
+    completedChases: listCompletedChases(userId).map(withTrustedCatalogArtwork),
     plan: {
       tier: activeTier,
       maxActiveChases: limits.maxActiveChases,

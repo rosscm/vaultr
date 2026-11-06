@@ -175,6 +175,25 @@ function candidate(name: string, lane: string, selectionIndex: number, marketSam
 }
 
 describe('weekly discovery ranking mode integration', () => {
+  it('uses multiple supported collector anchors in recommendation explanations', () => {
+    const candidate = collectorProfileCandidate('Mew CoroCoro Promo', 'promo-mew-151', 0, 'CORE_MATCH', {
+        subjects: ['Mew'],
+        promoTypes: ['Magazine promo'],
+        languages: ['JAPANESE']
+      });
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.promoAffinity = 0.8;
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.languageAffinity = 0.6;
+    const recommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(candidate);
+
+    expect(recommendation?.anchors.map((anchor) => anchor.kind)).toEqual([
+      'SUBJECT',
+      'PROMO_PREFERENCE',
+      'REGIONAL_PRINT'
+    ]);
+    expect(recommendation?.anchoredWhy).toContain('Mew cards');
+    expect(recommendation?.anchoredWhy).toContain('Magazine Promo');
+  });
+
   it('uses legacy ranking for low-confidence collector profiles', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const selection = __discoveryPersistenceTestHooks.selectWeeklyDiscoveryRankingProfile(
@@ -11164,7 +11183,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-W29');
   });
 
-  it('repairs existing shelf reference fields even when a replacement shelf later fails validation', async () => {
+  it('repairs legacy shelf artwork without a stored source id when exact printing identity is recovered', async () => {
     const userId = `weekly-repair-${Date.now()}`;
     const periodKey = '2026-W29';
     const date = new Date('2026-07-14T12:00:00.000Z');
@@ -11185,7 +11204,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         name: 'Squirtle 151 170',
         referenceImageUrl: 'https://marketplace.example/squirtle-old-photo.png',
         referenceSourceName: 'Curated reference',
-        referenceSourceCardId: 'sv3pt5-170'
+        referenceSourceCardId: undefined
       },
       imageUrl: 'https://marketplace.example/squirtle-old-photo.png',
       imageSourceName: 'Curated reference',
@@ -11247,6 +11266,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     const repairedDrop = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
     expect(repairedDrop?.items[0]?.imageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
     expect(repairedDrop?.items[0]?.suggestion.referenceImageUrl).toBe('https://images.pokemontcg.io/sv3pt5/170_hires.png');
+    expect(repairedDrop?.items[0]?.suggestion.referenceSourceCardId).toBe('sv3pt5-170');
 
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
   });

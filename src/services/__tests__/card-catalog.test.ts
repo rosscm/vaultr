@@ -448,7 +448,7 @@ describe('local card catalog', () => {
     ], dbPath);
 
     expect(searchLocalCardCatalog('gardevoir 101/078', 5, { dbPath })[0]).toMatchObject({
-      value: 'サーナイトex Scarlet ex 101/78 Japanese',
+      value: 'Gardevoir ex Scarlet ex 101/78 Japanese',
       sourceCardId: 'SV1S-101',
       imageUrl: 'https://assets.tcgdex.net/ja/SV/SV1S/101/high.png'
     });
@@ -477,7 +477,7 @@ describe('local card catalog', () => {
     ], dbPath);
 
     expect(searchLocalCardCatalog('mew 347/190', 5, { dbPath })[0]).toMatchObject({
-      value: 'ミュウex Shiny Treasure ex 347/190 Japanese',
+      value: 'Mew ex Shiny Treasure ex 347/190 Japanese',
       imageSourceName: 'TCGDEX',
       imageSourceKind: 'CARD_REFERENCE'
     });
@@ -625,8 +625,9 @@ describe('local card catalog', () => {
     expect(choice).toMatchObject({
       canonicalName: 'ブラッキーex',
       sourceCardId: 'SV8a-217',
-      value: 'ブラッキーex Terastal Festival ex 217/187 Japanese'
+      value: 'Umbreon ex Terastal Festival ex 217/187 Japanese'
     });
+    expect(choice?.name).toMatch(/^Umbreon ex/);
     expect(choice?.name).toContain('Terastal Festival ex');
     expect(choice?.name).toContain('#217/187');
     expect(choice?.name).toContain('(Japanese)');

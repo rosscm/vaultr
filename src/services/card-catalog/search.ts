@@ -111,7 +111,9 @@ function hardReject(record: StoredCardCatalogRecord, query: ReturnType<typeof pa
 }
 
 function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCatalogChoice {
-  const value = catalogDisplayValue(record);
+  const readableSubject = record.language === 'ja' ? readableCatalogSubject(record.name) : undefined;
+  const displayRecord = readableSubject ? { ...record, name: readableSubject } : record;
+  const value = catalogDisplayValue(displayRecord);
   const printedTotal = normalizeCatalogPrintedTotal(record.printedTotal);
   const labelNumber = record.isUnnumbered
     ? 'unnumbered'
@@ -119,7 +121,7 @@ function toChoice(record: StoredCardCatalogRecord, score: number): LocalCardCata
     ? `${record.cardNumber}/${printedTotal}`
     : record.cardNumber;
   return {
-    name: `${record.name}${record.translatedSetName ?? record.setName ? ` - ${record.translatedSetName ?? record.setName}` : ''}${labelNumber ? ` #${labelNumber}` : ''}${record.language === 'ja' ? ' (Japanese)' : ''}`,
+    name: `${readableSubject ?? record.name}${record.translatedSetName ?? record.setName ? ` - ${record.translatedSetName ?? record.setName}` : ''}${labelNumber ? ` #${labelNumber}` : ''}${record.language === 'ja' ? ' (Japanese)' : ''}`,
     canonicalName: record.name,
     aliases: [...new Set((record.aliases ?? []).map((alias) => alias.alias).filter(Boolean))],
     value,
@@ -169,11 +171,14 @@ export function subjectIdentityTerms(subject: string | undefined): string[] {
 export function readableCatalogSubject(subject: string | undefined): string | undefined {
   if (!subject) return undefined;
   const normalizedSubject = normalizeCatalogText(subject);
+  const formatMatch = /^(.*?)(ex|gx|vmax|vstar|v)$/i.exec(normalizedSubject);
+  const normalizedBase = formatMatch?.[1]?.trim() || normalizedSubject;
   const englishAlias = Object.entries(JAPANESE_SUBJECT_ALIASES)
-    .find(([, aliases]) => aliases.some((alias) => normalizeCatalogText(alias) === normalizedSubject))?.[0];
-  return englishAlias
-    ? englishAlias.replace(/\b\w/g, (character) => character.toUpperCase())
-    : undefined;
+    .find(([, aliases]) => aliases.some((alias) => normalizeCatalogText(alias) === normalizedBase))?.[0];
+  if (!englishAlias) return undefined;
+  const readableBase = englishAlias.replace(/\b\w/g, (character) => character.toUpperCase());
+  const suffix = formatMatch?.[2];
+  return suffix ? `${readableBase} ${suffix.toLowerCase() === 'ex' ? 'ex' : suffix.toUpperCase()}` : readableBase;
 }
 
 export function catalogSubjectsEquivalent(left: string | undefined, right: string | undefined, aliases: string[] = []): boolean {
