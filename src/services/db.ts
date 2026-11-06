@@ -1210,12 +1210,37 @@ export function migrateAlertInboxState(database: Database.Database): void {
   })();
 }
 
-export function migrateAlertDeliveryRetrySchedule(database: Database.Database): void {
-  try {
-    database.exec(`ALTER TABLE alert_deliveries ADD COLUMN next_attempt_at TEXT;`);
-  } catch {
-    // Column already exists on upgraded databases.
-  }
+export function migrateAlertDeliveryRetrySchedule(database: Database.Database, now = new Date()): void {
+  database.transaction(() => {
+    try {
+      database.exec(`ALTER TABLE alert_deliveries ADD COLUMN next_attempt_at TEXT;`);
+    } catch {
+      // Column already exists on upgraded databases.
+    }
+    database.exec(`CREATE TABLE IF NOT EXISTS app_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL);`);
+    const migrationKey = 'alert_delivery_retry_schedule_v1_legacy_failed';
+    if (database.prepare('SELECT 1 FROM app_migrations WHERE migration_key = ?').get(migrationKey)) return;
+    const appliedAt = now.toISOString();
+    const nextAttemptAt = new Date(now.getTime() + 5 * 60_000).toISOString();
+    database.prepare(`
+      UPDATE alert_deliveries
+      SET next_attempt_at = @next_attempt_at,
+          updated_at = @applied_at
+      WHERE status = 'FAILED'
+        AND next_attempt_at IS NULL
+        AND attempts < 5
+        AND LOWER(COALESCE(last_error, '')) NOT LIKE '%failed (400)%'
+        AND LOWER(COALESCE(last_error, '')) NOT LIKE '%failed (403)%'
+        AND LOWER(COALESCE(last_error, '')) NOT LIKE '%failed (404)%'
+        AND LOWER(COALESCE(last_error, '')) NOT LIKE '%missing alert event%'
+        AND LOWER(COALESCE(last_error, '')) NOT LIKE '%missing listing url%'
+        AND LOWER(COALESCE(last_error, '')) NOT LIKE '%missing linked discord identity%'
+        AND LOWER(COALESCE(last_error, '')) NOT LIKE '%dm blocked%'
+        AND LOWER(COALESCE(last_error, '')) NOT LIKE '%cannot send messages%'
+        AND LOWER(COALESCE(last_error, '')) NOT LIKE '%response had no%'
+    `).run({ next_attempt_at: nextAttemptAt, applied_at: appliedAt });
+    database.prepare('INSERT INTO app_migrations (migration_key, applied_at) VALUES (?, ?)').run(migrationKey, appliedAt);
+  })();
 }
 
 export function migrateWebOnboarding(database: Database.Database): void {

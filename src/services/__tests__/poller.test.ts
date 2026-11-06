@@ -12,6 +12,7 @@ import {
   orderAlertCandidatesForSending,
   orderGroupMembersForRun,
   processPendingDiscordAlertDeliveries,
+  resetDiscordDeliveryConfigurationWarningForTests,
   shouldSendChaseTuningNotice,
   orderGroupsForRun,
   listingSourceDiagnosticSummary,
@@ -63,10 +64,12 @@ function baseChase(overrides: Partial<Chase> = {}): Chase {
 
 beforeEach(() => {
   process.env = { ...ORIGINAL_ENV };
+  resetDiscordDeliveryConfigurationWarningForTests();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
   process.env = { ...ORIGINAL_ENV };
+  resetDiscordDeliveryConfigurationWarningForTests();
 });
 
 describe('orderGroupsForRun', () => {
@@ -445,6 +448,42 @@ describe('pending Discord alert deliveries', () => {
       matchScore: 94
     });
 
+    clearAlertRows(userId);
+    clearAlertRows(discordUserId);
+  });
+
+  it('preserves queued Inbox deliveries through missing Discord configuration and resumes once restored', async () => {
+    const account = createUser({ displayName: 'Configuration Recovery Collector' });
+    const userId = account.id;
+    const discordUserId = `discord-config-recovery-${Date.now()}`;
+    linkIdentity({ userId, provider: 'DISCORD', providerUserId: discordUserId });
+    setDiscordCardAlertsEnabled(userId, true);
+    const { alertId, deliveryId } = enqueueAlertEventDelivery({
+      userId, chaseId: 'config-chase', listingId: 'config-listing', source: 'EBAY', channel: 'DISCORD_DM',
+      listingTitle: 'Configuration recovery listing', listingUrl: 'https://example.test/config-recovery'
+    });
+    const sender = vi.fn(async () => ({ messageId: 'configuration-recovery-message' }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    delete process.env.DISCORD_TOKEN;
+    process.env.VAULTR_WEB_BASE_URL = 'https://keepseek.test';
+    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 0, skipped: 0 });
+    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 0, skipped: 0 });
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    process.env.DISCORD_TOKEN = 'test-token';
+    delete process.env.VAULTR_WEB_BASE_URL;
+    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 0, skipped: 0 });
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'PENDING', attempts: 0, nextAttemptAt: undefined });
+    expect(getAlertEventById(alertId)).toMatchObject({ status: 'DELIVERY_PENDING', listingTitle: 'Configuration recovery listing' });
+    expect(sender).not.toHaveBeenCalled();
+
+    process.env.VAULTR_WEB_BASE_URL = 'https://keepseek.test';
+    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 1, failed: 0, skipped: 0 });
+    expect(sender).toHaveBeenCalledTimes(1);
+    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'SENT', attempts: 1 });
+    expect(getAlertEventById(alertId)).toMatchObject({ status: 'DELIVERED' });
     clearAlertRows(userId);
     clearAlertRows(discordUserId);
   });

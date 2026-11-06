@@ -207,10 +207,38 @@ describe('alert event delivery persistence', () => {
 
   it('migrates and persists restart-safe alert delivery retry eligibility', () => {
     const legacy = new Database(':memory:');
-    legacy.exec(`CREATE TABLE alert_deliveries (id TEXT PRIMARY KEY);`);
-    migrateAlertDeliveryRetrySchedule(legacy);
+    legacy.exec(`
+      CREATE TABLE alert_deliveries (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL,
+        last_error TEXT,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO alert_deliveries VALUES
+        ('ambiguous', 'FAILED', 2, 'network timeout', '2026-11-01T00:00:00.000Z'),
+        ('config', 'FAILED', 1, 'Discord REST delivery configuration is incomplete', '2026-11-01T00:00:00.000Z'),
+        ('permission', 'FAILED', 1, 'Discord DM send failed (403)', '2026-11-01T00:00:00.000Z'),
+        ('blocked', 'FAILED', 1, 'DM blocked', '2026-11-01T00:00:00.000Z'),
+        ('maxed', 'FAILED', 5, 'network timeout', '2026-11-01T00:00:00.000Z'),
+        ('sent', 'SENT', 1, NULL, '2026-11-01T00:00:00.000Z'),
+        ('suppressed', 'SUPPRESSED', 0, 'disabled', '2026-11-01T00:00:00.000Z');
+    `);
+    migrateAlertDeliveryRetrySchedule(legacy, new Date('2026-11-06T12:00:00.000Z'));
     expect((legacy.prepare('PRAGMA table_info(alert_deliveries)').all() as Array<{ name: string }>).map((column) => column.name)).toContain('next_attempt_at');
-    migrateAlertDeliveryRetrySchedule(legacy);
+    const retryRows = legacy.prepare('SELECT id, next_attempt_at FROM alert_deliveries ORDER BY id').all() as Array<{ id: string; next_attempt_at: string | null }>;
+    expect(retryRows).toEqual([
+      { id: 'ambiguous', next_attempt_at: '2026-11-06T12:05:00.000Z' },
+      { id: 'blocked', next_attempt_at: null },
+      { id: 'config', next_attempt_at: '2026-11-06T12:05:00.000Z' },
+      { id: 'maxed', next_attempt_at: null },
+      { id: 'permission', next_attempt_at: null },
+      { id: 'sent', next_attempt_at: null },
+      { id: 'suppressed', next_attempt_at: null }
+    ]);
+    migrateAlertDeliveryRetrySchedule(legacy, new Date('2026-11-07T12:00:00.000Z'));
+    expect((legacy.prepare('SELECT next_attempt_at FROM alert_deliveries WHERE id = ?').get('ambiguous') as { next_attempt_at: string }).next_attempt_at)
+      .toBe('2026-11-06T12:05:00.000Z');
     legacy.close();
 
     const userId = 'alert-delivery-retry-schedule-user';
