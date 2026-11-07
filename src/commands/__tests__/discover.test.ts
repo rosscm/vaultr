@@ -7836,6 +7836,101 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(result.inspectedCount).toBeGreaterThanOrEqual(20);
   });
 
+  it('keeps the default Discovery Budget behavior unchanged and enforces configured price eligibility', () => {
+    const pool = publishableShelfCandidates(22, (candidate, index) => index === 0
+      ? candidate
+      : {
+          ...candidate,
+          typicalRawSoldTotal: index === 1 ? 500 : 100,
+          soldSampleSize: 3,
+          displayCurrency: 'CAD' as const
+        });
+
+    const defaultSelection = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20, [], [], [], 'LEGACY', {
+      mode: 'ANY',
+      includeUnknownPrices: true,
+      dreamCardsEnabled: false
+    });
+    const constrained = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20, [], [], [], 'LEGACY', {
+      mode: 'PRESET',
+      maximumCad: 150,
+      includeUnknownPrices: false,
+      dreamCardsEnabled: false
+    });
+
+    expect(defaultSelection.items.map((item) => item.suggestion.referenceSourceCardId)).toEqual(
+      __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20).items.map((item) => item.suggestion.referenceSourceCardId)
+    );
+    expect(constrained.items).toHaveLength(20);
+    expect(constrained.items.map((item) => item.suggestion.referenceSourceCardId)).not.toContain('card-1');
+    expect(constrained.items.map((item) => item.suggestion.referenceSourceCardId)).not.toContain('card-2');
+    expect(constrained.rejectionCounts.DISCOVERY_BUDGET_PRICE_UNKNOWN).toBe(1);
+    expect(constrained.rejectionCounts.DISCOVERY_BUDGET_ABOVE_MAXIMUM).toBe(1);
+
+    const customRange = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20, [], [], [], 'LEGACY', {
+      mode: 'CUSTOM',
+      minimumCad: 150,
+      maximumCad: 600,
+      includeUnknownPrices: true,
+      dreamCardsEnabled: false
+    });
+    expect(customRange.items.map((item) => item.suggestion.referenceSourceCardId)).toContain('card-1');
+    expect(customRange.rejectionCounts.DISCOVERY_BUDGET_BELOW_MINIMUM).toBeGreaterThan(0);
+  });
+
+  it('allows at most one source-backed direct-profile dream card above a configured maximum', () => {
+    const pool = Array.from({ length: 23 }, (_, index) => publishableCanonicalCandidate(
+      `${collectorProfileTestSubjects[index]} Test Set ${index + 1} ${index + 1}`,
+      `budget-card-${index + 1}`,
+      collectorProfileTestSubjects[index]!,
+      `Test Set ${index + 1}`,
+      `${index + 1}`,
+      index,
+      `Budget Lane ${index + 1}`,
+      'CORE_MATCH'
+    )).map((candidate, index) => ({
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        recommendationEvidence: {
+          version: 1 as const,
+          signals: [{
+            kind: 'SUBJECT' as const,
+            key: collectorProfileTestSubjects[index]!.toLowerCase(),
+            label: collectorProfileTestSubjects[index]!,
+            cardCharacteristic: collectorProfileTestSubjects[index]!,
+            source: 'WATCHLIST' as const,
+            distinctCardCount: 1
+          }]
+        }
+      },
+      typicalRawSoldTotal: index < 2 ? 500 + index : 100,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+
+    const selection = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20, [], [], [], 'COLLECTOR_PROFILE_V1', {
+      mode: 'CUSTOM',
+      maximumCad: 150,
+      includeUnknownPrices: true,
+      dreamCardsEnabled: true
+    });
+
+    expect(selection.items).toHaveLength(20);
+    expect(selection.items.filter((item) => item.suggestion.discoveryBudgetException === 'DREAM_CARD')).toHaveLength(1);
+    expect(selection.items.find((item) => item.suggestion.discoveryBudgetException === 'DREAM_CARD')?.suggestion.referenceSourceCardId).toBe('budget-card-1');
+    expect(selection.items.map((item) => item.suggestion.referenceSourceCardId)).not.toContain('budget-card-2');
+    expect(selection.rejectionCounts.DISCOVERY_BUDGET_ABOVE_MAXIMUM).toBe(1);
+    expect(__discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(pool, 'CAD', 20, [], [], [], 'COLLECTOR_PROFILE_V1', {
+      mode: 'CUSTOM',
+      maximumCad: 150,
+      includeUnknownPrices: true,
+      dreamCardsEnabled: true
+    }).items.map((item) => item.suggestion.referenceSourceCardId)).toEqual(
+      selection.items.map((item) => item.suggestion.referenceSourceCardId)
+    );
+  });
+
   it('keeps a ranked reserve pool larger than 20 available to final publication selection', () => {
     const pool = publishableShelfCandidates(30);
     const reserve = __discoveryPersistenceTestHooks.orderFreshWeeklyPublicationReserve([], pool, [], 20, []);

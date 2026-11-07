@@ -58,6 +58,16 @@ export const WEB_PREVIEW_SETTINGS = {
     shippingPostalCode: 'M5V',
     listingSourceMode: 'EBAY_SHOPIFY',
     effectiveListingSourceMode: 'EBAY',
+    discoveryBudget: {
+      mode: 'ANY',
+      presetMaxCad: null,
+      customMinimum: null,
+      customMaximum: null,
+      includeUnknownPrices: true,
+      dreamCardsEnabled: false,
+      currency: 'CAD',
+      updatedAt: null
+    },
     updatedAt: '2026-10-09T12:00:00.000Z'
   },
   access: { tier: 'FREE', planStatus: 'ACTIVE', trustedShops: false },
@@ -69,6 +79,11 @@ export const WEB_PREVIEW_SETTINGS = {
       { value: 'MORE', label: 'More', maxAlertsPerHour: 25 }
     ],
     currencies: ['USD', 'CAD', 'EUR', 'GBP', 'JPY'],
+    discoveryBudgetPresets: [50, 150, 300, 500, 1000, 2000].map((maximumCad) => ({
+      maximumCad,
+      localAmount: maximumCad,
+      currency: 'CAD'
+    })),
     shippingCountries: [
       { label: 'Off', value: 'OFF' },
       { label: 'United States (USD)', value: 'US' },

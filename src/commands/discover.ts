@@ -34,6 +34,7 @@ import {
 } from '../services/chase-store.js';
 import { applyResolvedDiscoveryFeedback } from '../services/discovery-feedback.js';
 import { discoveryLearningFeatures } from '../services/discovery-learning-features.js';
+import { effectiveDiscoveryBudgetPolicy, getDiscoveryBudgetPolicy, type DiscoveryBudgetPolicy } from '../services/discovery-budget.js';
 import { isAbsoluteHttpImageUrl, isStructurallyValidTrustedCardImageUrl } from '../services/card-image-url.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice, type SupportedCurrency } from '../services/currency.js';
 import { buildEbaySearchKeywords, searchEbayListings, searchEbaySoldListings, snapshotEbayRuntimeStats, type EbayRuntimeStats } from '../services/ebay.js';
@@ -353,6 +354,9 @@ type DiscoveryShelfSelectionRejectionCode =
   | 'REFERENCE_PRINTING_MISMATCH'
   | 'EXACT_REPEAT_COOLDOWN'
   | 'BELOW_CHASE_VALUE_FLOOR'
+  | 'DISCOVERY_BUDGET_BELOW_MINIMUM'
+  | 'DISCOVERY_BUDGET_ABOVE_MAXIMUM'
+  | 'DISCOVERY_BUDGET_PRICE_UNKNOWN'
   | 'SUBJECT_SHELF_CAP'
   | 'FAMILY_SHELF_CAP'
   | 'FORMAT_SHELF_CAP'
@@ -10810,6 +10814,9 @@ function emptyDiscoveryShelfRejectionCounts(): Record<DiscoveryShelfSelectionRej
     REFERENCE_PRINTING_MISMATCH: 0,
     EXACT_REPEAT_COOLDOWN: 0,
     BELOW_CHASE_VALUE_FLOOR: 0,
+    DISCOVERY_BUDGET_BELOW_MINIMUM: 0,
+    DISCOVERY_BUDGET_ABOVE_MAXIMUM: 0,
+    DISCOVERY_BUDGET_PRICE_UNKNOWN: 0,
     SUBJECT_SHELF_CAP: 0,
     FAMILY_SHELF_CAP: 0,
     FORMAT_SHELF_CAP: 0,
@@ -10832,6 +10839,9 @@ function emptyDiscoveryShelfRejectionSamples(): DiscoveryShelfSelectionResult['r
     REFERENCE_PRINTING_MISMATCH: [],
     EXACT_REPEAT_COOLDOWN: [],
     BELOW_CHASE_VALUE_FLOOR: [],
+    DISCOVERY_BUDGET_BELOW_MINIMUM: [],
+    DISCOVERY_BUDGET_ABOVE_MAXIMUM: [],
+    DISCOVERY_BUDGET_PRICE_UNKNOWN: [],
     SUBJECT_SHELF_CAP: [],
     FAMILY_SHELF_CAP: [],
     FORMAT_SHELF_CAP: [],
@@ -11078,7 +11088,9 @@ function candidateItemSelectionRejection(
   selectionState: WeeklyShelfSelectionState,
   vaultEntries: ParallelPrintVaultEntry[],
   recommendation: DiscoveryRecommendationProfile,
-  limits: WeeklyShelfCapLimits = normalWeeklyShelfCapLimits()
+  limits: WeeklyShelfCapLimits = normalWeeklyShelfCapLimits(),
+  discoveryBudget?: DiscoveryBudgetPolicy,
+  allowDreamCard = false
 ): DiscoveryShelfSelectionRejection | null {
   const canonicalId = scheduledItemCanonicalId(item);
   const providerBackedDisplayName = !!candidate.weeklyDiscovery?.canonicalReference
@@ -11088,6 +11100,16 @@ function candidateItemSelectionRejection(
   const repeatHistory = recentRepeatHistory.get(canonicalId);
   if (repeatHistory && repeatHistory.mostRecentIndex < WEEKLY_DISCOVERY_EXACT_REPEAT_COOLDOWN_SHELVES) return { code: 'EXACT_REPEAT_COOLDOWN' };
   const reliableEstimate = reliableWeeklyDiscoveryMarketEstimate(candidate, targetCurrency);
+  if (discoveryBudget && (discoveryBudget.mode !== 'ANY' || !discoveryBudget.includeUnknownPrices)) {
+    const estimateCad = reliableWeeklyDiscoveryMarketEstimate(candidate, 'CAD');
+    if (!estimateCad && !discoveryBudget.includeUnknownPrices) return { code: 'DISCOVERY_BUDGET_PRICE_UNKNOWN' };
+    if (estimateCad && discoveryBudget.minimumCad !== undefined && estimateCad.amount < discoveryBudget.minimumCad) {
+      return { code: 'DISCOVERY_BUDGET_BELOW_MINIMUM' };
+    }
+    if (estimateCad && discoveryBudget.maximumCad !== undefined && estimateCad.amount > discoveryBudget.maximumCad && !allowDreamCard) {
+      return { code: 'DISCOVERY_BUDGET_ABOVE_MAXIMUM' };
+    }
+  }
   if (reliableEstimate && reliableEstimate.amount < weeklyDiscoveryValueFloor(targetCurrency) && !hasCollectorShapedScheduledSignal(candidate)) return { code: 'BELOW_CHASE_VALUE_FLOOR' };
   if (!hasTrustedReferenceImage(item)) return { code: 'BAD_IMAGE' };
   if (isGenericDiscoveryCardTitle(item.suggestion.name) || (isMarketplaceStyleDiscoveryName(item.suggestion.name) && !providerBackedDisplayName)) return { code: 'BAD_DISPLAY_NAME' };
@@ -11479,7 +11501,8 @@ function selectPublishableWeeklyDiscoveryShelf(
   recentDrops: ScheduledDiscoveryDrop[] = [],
   activeVaultChases: Chase[] = [],
   anchorProfileSignals: Chase[] = activeVaultChases,
-  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY',
+  discoveryBudget?: DiscoveryBudgetPolicy
 ): DiscoveryShelfSelectionResult {
   const rejectionCounts = emptyDiscoveryShelfRejectionCounts();
   const rejectionSamples = emptyDiscoveryShelfRejectionSamples();
@@ -11509,16 +11532,33 @@ function selectPublishableWeeklyDiscoveryShelf(
   const reserveHasAnchoredCandidates = candidates.some((candidate) =>
     recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode).anchors.length > 0
   );
+  const dreamCardCandidate = discoveryBudget?.dreamCardsEnabled && discoveryBudget.maximumCad !== undefined
+    ? candidates.find((candidate) => {
+        const recommendation = recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode);
+        const estimate = reliableWeeklyDiscoveryMarketEstimate(candidate, 'CAD');
+        return recommendation.strength === 'DIRECT_PROFILE'
+          && (recommendation.anchors.length > 0 || !!candidate.suggestion.recommendationEvidence?.signals.length)
+          && !!estimate
+          && estimate.amount > discoveryBudget.maximumCad!
+          && candidateHasTrustedPrintingReference(candidate, currency)
+          && !!(candidate.weeklyDiscovery?.canonicalReference || candidate.suggestion.canonicalReference);
+      })
+    : undefined;
+  const dreamCardKey = dreamCardCandidate ? topOffCandidateKey(dreamCardCandidate) : undefined;
 
   for (const rawCandidate of candidates) {
-    const candidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile, selectionMode);
+    const anchoredCandidate = candidateWithCollectorAnchoredRationale(rawCandidate, collectorAnchorProfile, selectionMode);
+    const isDreamCard = !!dreamCardKey && topOffCandidateKey(rawCandidate) === dreamCardKey;
+    const candidate = isDreamCard
+      ? { ...anchoredCandidate, suggestion: { ...anchoredCandidate.suggestion, discoveryBudgetException: 'DREAM_CARD' as const } }
+      : anchoredCandidate;
     const recommendation = reserveHasAnchoredCandidates
       ? recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode)
       : { ...recommendationProfileForSelection(candidate, collectorAnchorProfile, selectionMode), profileHasSignals: false };
     inspectedCount += 1;
     const [item] = scheduledDropItemsFromCandidates([candidate], currency);
     if (!item) continue;
-    const rejection = candidateItemSelectionRejection(candidate, item, seenCanonicalIds, repeatHistory, currency, selectionState, vaultEntries, recommendation);
+    const rejection = candidateItemSelectionRejection(candidate, item, seenCanonicalIds, repeatHistory, currency, selectionState, vaultEntries, recommendation, normalWeeklyShelfCapLimits(), discoveryBudget, isDreamCard);
     if (rejection) {
       rejectionCounts[rejection.code] += 1;
       if (isCapRejection(rejection.code)) {
@@ -12073,7 +12113,8 @@ function buildWeeklyDiscoverySupplyReadiness(
   activeVaultChases: Chase[],
   generatedStageCounts: Pick<WeeklyDiscoverySupplyStageCounts, 'rawGeneratedSuggestions' | 'sourceBackedSuggestions' | 'globalUniverseConsidered' | 'userUniverseConsidered' | 'deduplicatedCandidates'>,
   anchorProfileSignals: Chase[] = activeVaultChases,
-  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
+  selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY',
+  discoveryBudget?: DiscoveryBudgetPolicy
 ): WeeklyDiscoverySupplyReadiness {
   const analyzedReserve = analyzeWeeklyDiscoveryCandidateReserve(
     reserve,
@@ -12084,7 +12125,7 @@ function buildWeeklyDiscoverySupplyReadiness(
     selectionMode === 'COLLECTOR_PROFILE_V1' ? COLLECTOR_PROFILE_SCORING_STRATEGY : undefined
   );
   const rerankedReserve = rerankWeeklyDiscoveryReserve(analyzedReserve);
-  const selection = selectPublishableWeeklyDiscoveryShelf(rerankedReserve, currency, DISCOVERY_WEEKLY_DROP_SIZE, recentDrops, activeVaultChases, anchorProfileSignals, selectionMode);
+  const selection = selectPublishableWeeklyDiscoveryShelf(rerankedReserve, currency, DISCOVERY_WEEKLY_DROP_SIZE, recentDrops, activeVaultChases, anchorProfileSignals, selectionMode, discoveryBudget);
   const repeatHistory = exactRepeatHistoryByCanonicalId(recentDrops);
   const vaultEntries = parallelPrintVaultEntries(activeVaultChases);
   const stableCanonicalIdCandidates = rerankedReserve.filter((candidate) => candidateHasStableCanonicalId(candidate, currency));
@@ -12361,7 +12402,8 @@ export function finalizeWeeklyDiscoveryShelf(input: WeeklyDiscoveryFinalizationI
     input.priorShelfHistory,
     input.activeVault,
     input.anchorProfileSignals ?? input.activeVault,
-    input.rankingMode ?? 'LEGACY'
+    input.rankingMode ?? 'LEGACY',
+    input.discoveryBudget
   );
   const selectedCanonicalIds = new Set(selection.items.map((item) => item.suggestion.referenceSourceCardId?.trim()).filter((value): value is string => !!value));
   const recentRepeatHistory = exactRepeatHistoryByCanonicalId(input.priorShelfHistory);
@@ -12414,6 +12456,10 @@ export async function buildWeeklyDiscoveryFinalizationInput(
   const previousDropLookupIso = previousDropLookupDate.toISOString();
   const fallbackDrop = getLatestAvailableScheduledDiscoveryDrop(context.userId, 'WEEKLY_DISCOVERY', previousDropLookupIso);
   const profileContext = currentWeeklyDiscoveryPreparationProfileContext(context.userId, context.date);
+  const discoveryBudget = effectiveDiscoveryBudgetPolicy(
+    getDiscoveryBudgetPolicy(context.userId),
+    profileContext.hasFullDiscovery ? 'PRO' : 'FREE'
+  );
   const recentDrops = profileContext.priorShelfHistory;
   const immediatePreviousDropNames = recentDrops
     .slice(0, 1)
@@ -12451,7 +12497,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       budgetPreferenceCad: WEEKLY_DISCOVERY_VALUE_FLOOR_CAD
     },
     stableTieBreakerSeed: context.userId,
-    rankingMode: profileContext.rankingMode
+    rankingMode: profileContext.rankingMode,
+    discoveryBudget
   });
   const preparedReserve = context.mode === 'LIVE' && context.regenerateCurrent !== true
     ? getWeeklyDiscoveryPreparedReserve<DiscoveryCandidate, CanonicalLookupEvidenceMap>(context.userId, weeklyPeriod)
@@ -12498,7 +12545,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         deduplicatedCandidates: preparedReserve.reserveCount
       },
       profileContext.tasteProfileChases,
-      profileContext.rankingMode
+      profileContext.rankingMode,
+      discoveryBudget
     );
     const validatedSnapshot = capturePreparedWeeklyDiscoverySnapshot(
       preparedInput,
@@ -12840,7 +12888,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
       activeVault,
       baseStageCounts,
       profileContext.tasteProfileChases,
-      profileContext.rankingMode
+      profileContext.rankingMode,
+      discoveryBudget
     );
     if (context.mode === 'LIVE') {
       persistWeeklyDiscoveryPreparedReserve(
@@ -12949,7 +12998,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     activeVault,
     baseStageCounts,
     profileContext.tasteProfileChases,
-    profileContext.rankingMode
+    profileContext.rankingMode,
+    discoveryBudget
   );
   let validatedSnapshot: PreparedWeeklyDiscoverySnapshot | null = capturePreparedWeeklyDiscoverySnapshot(
     buildCurrentFinalizationInput(activeVault, profileContext.tasteProfileChases, profileContext.collectorProfile, candidateReserve, discoveryContext.settings.alertCurrency),
@@ -13059,7 +13109,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
             activeVault,
             baseStageCounts,
             profileContext.tasteProfileChases,
-            profileContext.rankingMode
+            profileContext.rankingMode,
+            discoveryBudget
           ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
@@ -13085,7 +13136,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         activeVault,
         baseStageCounts,
         profileContext.tasteProfileChases,
-        profileContext.rankingMode
+        profileContext.rankingMode,
+        discoveryBudget
       );
       if (context.mode === 'LIVE') {
         persistWeeklyDiscoveryPreparedReserve(
@@ -13376,7 +13428,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
     activeVault,
     finalStageCounts,
     profileContext.tasteProfileChases,
-    profileContext.rankingMode
+    profileContext.rankingMode,
+    discoveryBudget
   );
   if (supplyReadinessAfterTopOff.marketResolvedShortfall > 0) {
     const targetGroups = selectMarketShortfallHydrationTargetGroups(
@@ -13456,7 +13509,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
             activeVault,
             finalStageCounts,
             profileContext.tasteProfileChases,
-            profileContext.rankingMode
+            profileContext.rankingMode,
+            discoveryBudget
           ).projectedMarketResolvedCount >= WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
       }), {
         outputCount: (value) => value.filter((candidate) => candidateMarketStatus(candidate, marketContext.targetCurrency) === 'READY').length
@@ -13485,7 +13539,8 @@ export async function buildWeeklyDiscoveryFinalizationInput(
         activeVault,
         finalStageCounts,
         profileContext.tasteProfileChases,
-        profileContext.rankingMode
+        profileContext.rankingMode,
+        discoveryBudget
       );
       if (context.mode === 'LIVE') {
         persistWeeklyDiscoveryPreparedReserve(

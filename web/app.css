@@ -1436,6 +1436,15 @@ a {
   gap: 16px;
 }
 
+.settings-budget-fields {
+  display: grid;
+  gap: 18px;
+}
+
+.settings-budget-range {
+  align-items: start;
+}
+
 .settings-postal-field {
   grid-column: 2;
 }

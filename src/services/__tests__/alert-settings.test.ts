@@ -13,6 +13,7 @@ import {
 import { createUser, linkIdentity } from '../accounts.js';
 import { db } from '../db.js';
 import { getUserNotificationSettings } from '../notification-settings.js';
+import { getDiscoveryBudgetPolicy } from '../discovery-budget.js';
 
 const users = new Set<string>();
 
@@ -29,6 +30,7 @@ afterEach(() => {
     db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM user_notification_settings WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_discovery_budget_settings WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM user_identities WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   }
@@ -148,5 +150,105 @@ describe('shared alert settings', () => {
 
     expect(getUserAlertSettings(userId).shippingCountry).toBe('GB');
     expect(getUserAlertSettings(userId).shippingPostalCode).toBeUndefined();
+  });
+
+  it('defaults Discovery Budget to Any price with unknown prices allowed', () => {
+    const account = createUser({ displayName: 'Discovery Budget Default' });
+    users.add(account.id);
+
+    const response = alertSettingsResponse(account.id);
+    expect(response).toMatchObject({
+      settings: {
+        discoveryBudget: {
+          mode: 'ANY',
+          includeUnknownPrices: true,
+          dreamCardsEnabled: false
+        }
+      }
+    });
+    expect(response.options.discoveryBudgetPresets.map((option) => option.maximumCad)).toEqual([50, 150, 300, 500, 1000, 2000]);
+  });
+
+  it('persists Free presets and protects Plus-only custom ranges and dream cards', () => {
+    const account = createUser({ displayName: 'Discovery Budget Access' });
+    users.add(account.id);
+    setUserPlan(account.id, 'FREE');
+
+    expect(updateAlertSettings(account.id, {
+      discoveryBudget: {
+        mode: 'PRESET',
+        presetMaxCad: 300,
+        includeUnknownPrices: false,
+        dreamCardsEnabled: false
+      }
+    }).ok).toBe(true);
+    expect(getDiscoveryBudgetPolicy(account.id)).toMatchObject({
+      mode: 'PRESET',
+      maximumCad: 300,
+      includeUnknownPrices: false,
+      dreamCardsEnabled: false
+    });
+    expect(updateAlertSettings(account.id, {
+      discoveryBudget: {
+        mode: 'CUSTOM',
+        customMinimum: 100,
+        customMaximum: 500,
+        includeUnknownPrices: true,
+        dreamCardsEnabled: true
+      }
+    })).toMatchObject({ ok: false, code: 'PRO_REQUIRED', field: 'discoveryBudget.mode' });
+    expect(updateAlertSettings(account.id, {
+      discoveryBudget: {
+        mode: 'PRESET',
+        presetMaxCad: 300,
+        includeUnknownPrices: true,
+        dreamCardsEnabled: true
+      }
+    })).toMatchObject({ ok: false, code: 'PRO_REQUIRED', field: 'discoveryBudget.dreamCardsEnabled' });
+  });
+
+  it('stores custom Plus ranges canonically in CAD across currency changes', () => {
+    const account = createUser({ displayName: 'Discovery Budget Currency' });
+    users.add(account.id);
+    setUserPlan(account.id, 'PRO');
+    setUserAlertSettings(account.id, { alertCurrency: 'USD' });
+
+    expect(updateAlertSettings(account.id, {
+      discoveryBudget: {
+        mode: 'CUSTOM',
+        customMinimum: 100,
+        customMaximum: 500,
+        includeUnknownPrices: true,
+        dreamCardsEnabled: true
+      }
+    }).ok).toBe(true);
+    const canonical = getDiscoveryBudgetPolicy(account.id);
+    expect(canonical.minimumCad).toBeGreaterThan(100);
+    expect(canonical.maximumCad).toBeGreaterThan(canonical.minimumCad ?? 0);
+
+    expect(updateAlertSettings(account.id, { alertCurrency: 'EUR' }).ok).toBe(true);
+    expect(getDiscoveryBudgetPolicy(account.id)).toMatchObject({
+      minimumCad: canonical.minimumCad,
+      maximumCad: canonical.maximumCad,
+      dreamCardsEnabled: true
+    });
+    expect(alertSettingsResponse(account.id).settings.discoveryBudget).toMatchObject({ mode: 'CUSTOM', currency: 'EUR' });
+  });
+
+  it('rejects contradictory custom ranges without changing the saved policy', () => {
+    const account = createUser({ displayName: 'Discovery Budget Validation' });
+    users.add(account.id);
+    setUserPlan(account.id, 'PRO');
+
+    expect(updateAlertSettings(account.id, {
+      discoveryBudget: {
+        mode: 'CUSTOM',
+        customMinimum: 500,
+        customMaximum: 100,
+        includeUnknownPrices: true,
+        dreamCardsEnabled: false
+      }
+    })).toMatchObject({ ok: false, field: 'discoveryBudget.customMaximum' });
+    expect(getDiscoveryBudgetPolicy(account.id)).toMatchObject({ mode: 'ANY', includeUnknownPrices: true });
   });
 });

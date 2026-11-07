@@ -43,6 +43,7 @@ export type DiscoverySuggestion = {
   discoveryRole?: WeeklyDiscoveryRole;
   rankExplanation?: WeeklyDiscoveryRankExplanation;
   recommendationEvidence?: DiscoveryRecommendationEvidence;
+  discoveryBudgetException?: 'DREAM_CARD';
 };
 
 export type DiscoverySelection = {

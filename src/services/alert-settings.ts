@@ -1,6 +1,13 @@
 import type { ListingSourceModePreference, UserAlertSettings } from '../types.js';
 import { countUserAlertsInLastHour, getUserAlertSettings, getUserPlan, setUserAlertSettings } from './chase-store.js';
 import { db } from './db.js';
+import {
+  discoveryBudgetPresetOptions,
+  discoveryBudgetResponse,
+  setDiscoveryBudgetPolicy,
+  validateDiscoveryBudgetPatch,
+  type DiscoveryBudgetPolicy
+} from './discovery-budget.js';
 import { getUserNotificationSettings, setDiscordCardAlertsEnabled } from './notification-settings.js';
 import { activePlanTier } from './plans.js';
 
@@ -41,7 +48,8 @@ const ALLOWED_PATCH_FIELDS = new Set([
   'shippingCountry',
   'shippingPostalCode',
   'listingSourceMode',
-  'discordCardAlertsEnabled'
+  'discordCardAlertsEnabled',
+  'discoveryBudget'
 ]);
 
 export type AlertSettingsError = {
@@ -118,6 +126,7 @@ export function alertSettingsResponse(userId: string) {
       listingSourceMode: settings.listingSourceMode,
       effectiveListingSourceMode: effectiveAlertSourceMode(settings.listingSourceMode, tier),
       discordCardAlertsEnabled: notifications.discordCardAlertsEnabled,
+      discoveryBudget: discoveryBudgetResponse(userId, settings.alertCurrency, tier),
       updatedAt: settings.updatedAt
     },
     access: {
@@ -136,7 +145,8 @@ export function alertSettingsResponse(userId: string) {
       volumes: ALERT_VOLUME_OPTIONS,
       currencies: ALERT_CURRENCY_OPTIONS,
       shippingCountries: ALERT_SHIPPING_COUNTRY_OPTIONS,
-      sources: ALERT_SOURCE_OPTIONS
+      sources: ALERT_SOURCE_OPTIONS,
+      discoveryBudgetPresets: discoveryBudgetPresetOptions(settings.alertCurrency)
     }
   };
 }
@@ -151,6 +161,7 @@ export function updateAlertSettings(
   const current = getUserAlertSettings(userId);
   const next: Parameters<typeof setUserAlertSettings>[1] = {};
   let discordCardAlertsEnabled: boolean | undefined;
+  let discoveryBudgetPolicy: DiscoveryBudgetPolicy | undefined;
 
   if ('discordCardAlertsEnabled' in patch) {
     if (typeof patch.discordCardAlertsEnabled !== 'boolean') {
@@ -194,6 +205,20 @@ export function updateAlertSettings(
     next.listingSourceMode = source;
   }
 
+  if ('discoveryBudget' in patch) {
+    const nextCurrency = typeof patch.alertCurrency === 'string' ? patch.alertCurrency : current.alertCurrency;
+    const validated = validateDiscoveryBudgetPatch(patch.discoveryBudget, nextCurrency, activePlanTier(getUserPlan(userId)));
+    if ('error' in validated) {
+      return {
+        ok: false,
+        code: validated.error.proRequired ? 'PRO_REQUIRED' : 'INVALID_SETTINGS',
+        field: validated.error.field,
+        message: validated.error.message
+      };
+    }
+    discoveryBudgetPolicy = validated.policy;
+  }
+
   let effectiveCountry = current.shippingCountry;
   if ('shippingCountry' in patch) {
     const country = normalizeShippingCountry(patch.shippingCountry);
@@ -219,6 +244,7 @@ export function updateAlertSettings(
   const persist = db.transaction(() => {
     const settings = Object.keys(next).length > 0 ? setUserAlertSettings(userId, next) : getUserAlertSettings(userId);
     if (discordCardAlertsEnabled !== undefined) setDiscordCardAlertsEnabled(userId, discordCardAlertsEnabled);
+    if (discoveryBudgetPolicy) setDiscoveryBudgetPolicy(userId, discoveryBudgetPolicy);
     return settings;
   });
   return { ok: true, settings: persist() };

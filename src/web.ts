@@ -538,6 +538,7 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, perio
       : undefined,
     selection,
     roleLabel: weeklyShelfRoleLabel(item.suggestion.discoveryRole, item.suggestion.lane),
+    discoveryBudgetException: item.suggestion.discoveryBudgetException,
     signalLabel: shelfSignalLabel(item.suggestion.lane),
     reason: safeShelfReason(item),
     market: marketReady

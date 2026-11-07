@@ -330,6 +330,17 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS user_discovery_budget_settings (
+    user_id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL DEFAULT 'ANY',
+    preset_max_cad REAL,
+    custom_min_cad REAL,
+    custom_max_cad REAL,
+    include_unknown_prices INTEGER NOT NULL DEFAULT 1,
+    dream_cards_enabled INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS user_notification_settings (
     user_id TEXT PRIMARY KEY,
     discord_card_alerts_enabled INTEGER NOT NULL DEFAULT 0,

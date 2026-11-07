@@ -1954,6 +1954,55 @@ describe('authenticated settings API', () => {
     clearUser(userId);
   });
 
+  it('updates Discovery Budget for the session account and enforces Plus controls', async () => {
+    const userId = 'web-settings-discovery-budget';
+    const otherUserId = 'web-settings-discovery-budget-other';
+    const headers = auth(userId, 'settings-discovery-budget-token');
+    clearUser(otherUserId);
+    setUserPlan(userId, 'FREE');
+
+    const preset = await handleWebRequest({
+      method: 'PATCH',
+      url: '/api/settings?userId=web-settings-discovery-budget-other',
+      headers,
+      body: JSON.stringify({
+        discoveryBudget: {
+          mode: 'PRESET',
+          presetMaxCad: 150,
+          includeUnknownPrices: false,
+          dreamCardsEnabled: false
+        }
+      })
+    }, { config });
+    const custom = await handleWebRequest({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers,
+      body: JSON.stringify({
+        discoveryBudget: {
+          mode: 'CUSTOM',
+          customMinimum: 50,
+          customMaximum: 200,
+          includeUnknownPrices: true,
+          dreamCardsEnabled: true
+        }
+      })
+    }, { config });
+
+    expect(preset.status).toBe(200);
+    const presetBody = JSON.parse(preset.body ?? '{}');
+    expect(presetBody).toMatchObject({
+      settings: { discoveryBudget: { mode: 'PRESET', presetMaxCad: 150, includeUnknownPrices: false } }
+    });
+    expect(presetBody.options.discoveryBudgetPresets.map((option: { maximumCad: number }) => option.maximumCad)).toEqual([50, 150, 300, 500, 1000, 2000]);
+    expect(custom.status).toBe(403);
+    expect(JSON.parse(custom.body ?? '{}')).toMatchObject({ error: 'PRO_REQUIRED', field: 'discoveryBudget.mode' });
+    expect(JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/settings', headers }, { config })).body ?? '{}').settings.discoveryBudget.mode).toBe('PRESET');
+
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
   it('enforces source access, updates supported currency, and rejects invalid or unsupported fields', async () => {
     const userId = 'web-settings-validation';
     const otherUserId = 'web-settings-validation-other';

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DiscoveryCandidate } from '../commands/discover.js';
 import type { Chase } from '../types.js';
 import type { SupportedCurrency } from './currency.js';
+import type { DiscoveryBudgetPolicy } from './discovery-budget.js';
 import type { ScheduledDiscoveryDrop, ScheduledDiscoveryDropItem } from './scheduled-discovery-drops.js';
 import { isStructurallyValidTrustedCardImageUrl } from './card-image-url.js';
 import { WEEKLY_DISCOVERY_MARKET_POLICY } from './weekly-discovery-policy.js';
@@ -214,6 +215,7 @@ export type WeeklyDiscoveryFinalizationInput = {
   policies?: Partial<WeeklyDiscoveryPolicies>;
   stableTieBreakerSeed?: string;
   rankingMode?: WeeklyDiscoveryRankingMode;
+  discoveryBudget?: DiscoveryBudgetPolicy;
 };
 
 export type WeeklyDiscoveryStructuralGate = {

@@ -828,7 +828,16 @@ function settingsComparable(value) {
     shippingCountry: value.shippingCountry ?? null,
     shippingPostalCode: value.shippingPostalCode ?? null,
     listingSourceMode: value.listingSourceMode,
-    discordCardAlertsEnabled: Boolean(value.discordCardAlertsEnabled)
+    discordCardAlertsEnabled: Boolean(value.discordCardAlertsEnabled),
+    discoveryBudget: value.discoveryBudget ? {
+      mode: value.discoveryBudget.mode,
+      amountCurrency: value.discoveryBudget.currency || value.alertCurrency,
+      presetMaxCad: value.discoveryBudget.presetMaxCad ?? null,
+      customMinimum: value.discoveryBudget.customMinimum ?? null,
+      customMaximum: value.discoveryBudget.customMaximum ?? null,
+      includeUnknownPrices: Boolean(value.discoveryBudget.includeUnknownPrices),
+      dreamCardsEnabled: Boolean(value.discoveryBudget.dreamCardsEnabled)
+    } : null
   };
 }
 
@@ -837,7 +846,10 @@ function settingsAreDirty() {
 }
 
 function resetSettingsDraft() {
-  state.settingsDraft = state.settings ? { ...state.settings } : null;
+  state.settingsDraft = state.settings ? {
+    ...state.settings,
+    discoveryBudget: state.settings.discoveryBudget ? { ...state.settings.discoveryBudget } : null
+  } : null;
   state.settingsDirty = false;
   state.settingsFieldErrors = {};
   state.settingsSaveStatus = '';
@@ -852,7 +864,11 @@ function applySettingsResponse(body) {
 
 function settingsFieldError(field) {
   const message = state.settingsFieldErrors[field];
-  return message ? `<small class="field-error" id="settings-${escapeHtml(field)}-error">${escapeHtml(message)}</small>` : '';
+  return message ? `<small class="field-error" id="${settingsFieldErrorId(field)}">${escapeHtml(message)}</small>` : '';
+}
+
+function settingsFieldErrorId(field) {
+  return `settings-${String(field).replace(/[^a-zA-Z0-9_-]+/g, '-')}-error`;
 }
 
 function settingsCurrencyOptions(settings, options) {
@@ -907,12 +923,23 @@ function settingsPageMarkup() {
   const supportsPostal = country === 'CA' || country === 'US';
   const currencyOptions = settingsCurrencyOptions(draft, options);
   const sourceMismatch = draft.listingSourceMode !== draft.effectiveListingSourceMode;
-  const describedBy = (field, base) => `${base}${state.settingsFieldErrors[field] ? ` settings-${field}-error` : ''}`;
+  const describedBy = (field, base) => `${base}${state.settingsFieldErrors[field] ? ` ${settingsFieldErrorId(field)}` : ''}`;
   const emailIdentity = state.identities?.email || { connected: false };
   const discordIdentity = state.identities?.discord || { connected: false };
   const emailLinkAvailable = state.authConfig?.email?.available;
   const discordAvailable = state.authConfig?.discord?.available;
   const currentPlan = planLabel(state.vaultPlan?.tier || 'FREE');
+  const discoveryBudget = draft.discoveryBudget || {
+    mode: 'ANY',
+    presetMaxCad: null,
+    customMinimum: null,
+    customMaximum: null,
+    includeUnknownPrices: true,
+    dreamCardsEnabled: false
+  };
+  const discoveryBudgetHasMaximum = discoveryBudget.mode === 'PRESET'
+    || (discoveryBudget.mode === 'CUSTOM' && discoveryBudget.customMaximum !== null && discoveryBudget.customMaximum !== '');
+  const discoveryBudgetPresets = options.discoveryBudgetPresets || [];
   return `
     <section class="settings-page" aria-labelledby="settings-title">
       ${header}
@@ -988,6 +1015,48 @@ function settingsPageMarkup() {
               <span class="settings-toggle-switch" aria-hidden="true"><span></span></span>
             </label>
             ${settingsFieldError('discordCardAlertsEnabled')}
+          </div>
+        </section>
+        <section class="settings-group" aria-labelledby="settings-discovery-budget-title">
+          <div class="settings-group-heading">
+            <p class="eyebrow">Discovery Budget</p>
+            <h2 id="settings-discovery-budget-title">What price range would you like to explore?</h2>
+            <p>Find cards that fit your budget, with room for the occasional dream card. This does not change Watchlist spending limits.</p>
+          </div>
+          <div class="settings-budget-fields">
+            <label class="field">
+              <span>Preferred card price</span>
+              <select name="discoveryBudgetMode" aria-describedby="${describedBy('discoveryBudget.mode', 'settings-discovery-budget-help')}"${controlsDisabled ? ' disabled' : ''}>
+                <option value="ANY"${discoveryBudget.mode === 'ANY' ? ' selected' : ''}>Any price</option>
+                ${discoveryBudgetPresets.map((option) => `<option value="PRESET:${escapeHtml(option.maximumCad)}"${discoveryBudget.mode === 'PRESET' && discoveryBudget.presetMaxCad === option.maximumCad ? ' selected' : ''}>Under ${escapeHtml(formatRoundedMoney(option.localAmount, option.currency))}</option>`).join('')}
+                ${access.tier === 'PRO' || discoveryBudget.mode === 'CUSTOM' ? `<option value="CUSTOM"${discoveryBudget.mode === 'CUSTOM' ? ' selected' : ''}${access.tier === 'PRO' ? '' : ' disabled'}>Custom price range${access.tier === 'PRO' ? '' : ' (KeepSeek Plus)'}</option>` : ''}
+              </select>
+              <small class="field-hint" id="settings-discovery-budget-help">A preference for future Display Cases, not a marketplace filter.</small>
+              ${discoveryBudget.effectiveMode && discoveryBudget.effectiveMode !== discoveryBudget.mode ? '<small class="field-hint">Your custom range is retained, but Any price applies while KeepSeek Plus is inactive.</small>' : ''}
+              ${settingsFieldError('discoveryBudget.mode')}
+              ${settingsFieldError('discoveryBudget.presetMaxCad')}
+            </label>
+            ${access.tier === 'PRO' && discoveryBudget.mode === 'CUSTOM' ? `
+              <div class="settings-field-grid settings-budget-range">
+                <label class="field"><span>Minimum (${escapeHtml(draft.alertCurrency)})</span><input name="discoveryBudgetCustomMinimum" type="number" min="0" step="0.01" inputmode="decimal" value="${escapeHtml(discoveryBudget.customMinimum ?? '')}" placeholder="No minimum"${controlsDisabled ? ' disabled' : ''}>${settingsFieldError('discoveryBudget.customMinimum')}</label>
+                <label class="field"><span>Maximum (${escapeHtml(draft.alertCurrency)})</span><input name="discoveryBudgetCustomMaximum" type="number" min="0" step="0.01" inputmode="decimal" value="${escapeHtml(discoveryBudget.customMaximum ?? '')}" placeholder="No maximum"${controlsDisabled ? ' disabled' : ''}>${settingsFieldError('discoveryBudget.customMaximum')}</label>
+              </div>` : ''}
+            <div class="settings-toggle-field">
+              <label class="settings-toggle-control">
+                <span class="settings-toggle-copy"><strong>Include cards without reliable prices</strong><small>Keep distinctive cards eligible when trustworthy pricing is unavailable.</small></span>
+                <input class="settings-toggle-input" name="discoveryBudgetIncludeUnknownPrices" type="checkbox"${discoveryBudget.includeUnknownPrices ? ' checked' : ''}${controlsDisabled ? ' disabled' : ''}>
+                <span class="settings-toggle-switch" aria-hidden="true"><span></span></span>
+              </label>
+              ${settingsFieldError('discoveryBudget.includeUnknownPrices')}
+            </div>
+            ${access.tier === 'PRO' && discoveryBudgetHasMaximum ? `<div class="settings-toggle-field">
+              <label class="settings-toggle-control">
+                <span class="settings-toggle-copy"><strong>Leave room for dream cards</strong><small>Allow at most one strongly personalized, source-backed pick above your maximum.</small></span>
+                <input class="settings-toggle-input" name="discoveryBudgetDreamCardsEnabled" type="checkbox"${discoveryBudget.dreamCardsEnabled ? ' checked' : ''}${controlsDisabled ? ' disabled' : ''}>
+                <span class="settings-toggle-switch" aria-hidden="true"><span></span></span>
+              </label>
+              ${settingsFieldError('discoveryBudget.dreamCardsEnabled')}
+            </div>` : ''}
           </div>
         </section>
         <section class="settings-group" aria-labelledby="settings-sources-title">
@@ -1477,7 +1546,7 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
           : '<p class="home-shelf-artwork-unavailable">Artwork unavailable</p>'}
       </div>
       <div class="home-shelf-copy">
-        <small class="home-shelf-kind">${escapeHtml(label || (editorial ? 'Collector pick' : 'Picked for you'))}</small>
+        <small class="home-shelf-kind">${escapeHtml(item.discoveryBudgetException === 'DREAM_CARD' ? 'Dream card' : label || (editorial ? 'Collector pick' : 'Picked for you'))}</small>
         <h3>${escapeHtml(item.displayName || item.name || 'Display Case pick')}</h3>
         ${item.nativeName ? `<span class="home-shelf-details">Original name: ${escapeHtml(item.nativeName)}</span>` : ''}
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
@@ -2167,6 +2236,7 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
       <div class="shelf-card-body">
         <div class="shelf-card-meta">
           ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
+          ${item.discoveryBudgetException === 'DREAM_CARD' ? '<span class="status-pill dream-card">Dream card</span>' : ''}
         </div>
         <h2>${escapeHtml(item.displayName || item.name || 'Display Case pick')}</h2>
         ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
@@ -3017,7 +3087,7 @@ function settingsPatch() {
   const patch = {};
   if (!current || !draft) return patch;
   for (const field of Object.keys(draft)) {
-    if (draft[field] !== current[field]) patch[field] = draft[field];
+    if (JSON.stringify(draft[field]) !== JSON.stringify(current[field])) patch[field] = draft[field];
   }
   return patch;
 }
@@ -3036,7 +3106,7 @@ function syncSettingsFormState() {
 function clearSettingsFieldError(field) {
   if (!state.settingsFieldErrors[field]) return;
   delete state.settingsFieldErrors[field];
-  document.querySelector(`#settings-${field}-error`)?.remove();
+  document.getElementById(settingsFieldErrorId(field))?.remove();
 }
 
 function updateSettingsPostalControl(country) {
@@ -4045,6 +4115,20 @@ app.addEventListener('change', async (event) => {
     syncSettingsFormState();
     return;
   }
+  if (target instanceof HTMLInputElement && target.closest('[data-settings-form]') && target.name === 'discoveryBudgetIncludeUnknownPrices') {
+    state.settingsDraft.discoveryBudget.includeUnknownPrices = target.checked;
+    state.settingsSaveStatus = '';
+    clearSettingsFieldError('discoveryBudget.includeUnknownPrices');
+    syncSettingsFormState();
+    return;
+  }
+  if (target instanceof HTMLInputElement && target.closest('[data-settings-form]') && target.name === 'discoveryBudgetDreamCardsEnabled') {
+    state.settingsDraft.discoveryBudget.dreamCardsEnabled = target.checked;
+    state.settingsSaveStatus = '';
+    clearSettingsFieldError('discoveryBudget.dreamCardsEnabled');
+    syncSettingsFormState();
+    return;
+  }
   if (target.closest?.('[data-vault-form]') && (target instanceof HTMLSelectElement || target instanceof HTMLInputElement)) {
     const form = target.closest('[data-vault-form]');
     if (target.name === 'gradingType') syncGradeValueControl(form);
@@ -4053,6 +4137,29 @@ app.addEventListener('change', async (event) => {
   }
   if (!(target instanceof HTMLSelectElement)) return;
   if (target.closest('[data-settings-form]')) {
+    if (target.name === 'discoveryBudgetMode') {
+      if (target.value.startsWith('PRESET:')) {
+        state.settingsDraft.discoveryBudget.mode = 'PRESET';
+        state.settingsDraft.discoveryBudget.presetMaxCad = Number(target.value.slice('PRESET:'.length));
+        state.settingsDraft.discoveryBudget.customMinimum = null;
+        state.settingsDraft.discoveryBudget.customMaximum = null;
+        state.settingsDraft.discoveryBudget.dreamCardsEnabled = false;
+      } else {
+        state.settingsDraft.discoveryBudget.mode = target.value;
+        state.settingsDraft.discoveryBudget.presetMaxCad = null;
+        if (target.value !== 'CUSTOM') {
+          state.settingsDraft.discoveryBudget.customMinimum = null;
+          state.settingsDraft.discoveryBudget.customMaximum = null;
+          state.settingsDraft.discoveryBudget.dreamCardsEnabled = false;
+        }
+      }
+      state.settingsSaveStatus = '';
+      clearSettingsFieldError('discoveryBudget.mode');
+      clearSettingsFieldError('discoveryBudget.presetMaxCad');
+      state.settingsDirty = settingsAreDirty();
+      renderCurrentPage();
+      return;
+    }
     state.settingsDraft[target.name] = target.value === 'OFF' ? null : target.value;
     state.settingsSaveStatus = '';
     clearSettingsFieldError(target.name);
@@ -4138,6 +4245,15 @@ app.addEventListener('input', (event) => {
       if (output) output.textContent = target.value;
     }
     if (target.name === 'shippingPostalCode') state.settingsDraft.shippingPostalCode = target.value.trim() || null;
+    if (target.name === 'discoveryBudgetCustomMinimum') {
+      state.settingsDraft.discoveryBudget.customMinimum = target.value === '' ? null : Number(target.value);
+      clearSettingsFieldError('discoveryBudget.customMinimum');
+    }
+    if (target.name === 'discoveryBudgetCustomMaximum') {
+      state.settingsDraft.discoveryBudget.customMaximum = target.value === '' ? null : Number(target.value);
+      if (target.value === '') state.settingsDraft.discoveryBudget.dreamCardsEnabled = false;
+      clearSettingsFieldError('discoveryBudget.customMaximum');
+    }
     state.settingsSaveStatus = '';
     clearSettingsFieldError(target.name);
     syncSettingsFormState();
