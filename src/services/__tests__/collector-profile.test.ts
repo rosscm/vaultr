@@ -852,6 +852,46 @@ describe('collector interest profile', () => {
     expect(artistWithEraAnalysis?.discoveryRole).toBe('ADJACENT_DISCOVERY');
   });
 
+  it('values a named illustrator connection above an equally strong broad promo affinity', () => {
+    const profile = tasteProfile({
+      artists: { 'Shinji Kanda': 10 },
+      promoTypes: { 'black-star': 8 }
+    });
+    const artist = candidate('Dragonite Modern Set 1', {
+      catalogFacts: {
+        source: 'POKEMONTCG',
+        sourceCardId: 'modern-artist-1',
+        canonicalName: 'Dragonite',
+        setName: 'Modern Set',
+        cardNumber: '1',
+        language: 'en',
+        illustrator: 'Shinji Kanda',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    });
+    const broadPromo = candidate('Dragonite SWSH Black Star Promos SWSH200', {
+      catalogFacts: {
+        source: 'POKEMONTCG',
+        sourceCardId: 'swshp-SWSH200',
+        canonicalName: 'Dragonite',
+        setName: 'SWSH Black Star Promos',
+        cardNumber: 'SWSH200',
+        language: 'en',
+        isPromo: true,
+        promoContext: 'Black Star promo',
+        imageSourceKind: 'CARD_REFERENCE'
+      }
+    });
+
+    const ranked = analyzeCollectorProfileShadowReserve([broadPromo, artist], profile, {}, 'specificity-seed');
+    const artistScore = ranked.find((entry) => entry.suggestion.name === 'Dragonite Modern Set 1')
+      ?.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.personalAggregate ?? 0;
+    const promoScore = ranked.find((entry) => entry.suggestion.name === 'Dragonite SWSH Black Star Promos SWSH200')
+      ?.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.personalAggregate ?? 0;
+
+    expect(artistScore).toBeGreaterThan(promoScore);
+  });
+
   it('keeps generation rationale and taste tokens out of shadow intrinsic features', () => {
     const features = extractCollectorProfileDiscoveryFeatures(candidate('Pikachu-EX XY Black Star Promos XY174', {
       suggestion: {
@@ -1139,7 +1179,7 @@ describe('collector interest profile', () => {
     ], profile, {}, 'seed');
 
     expect(pikachu.weeklyDiscovery?.discoveryRole).toBe('CORE_MATCH');
-    expect(pikachu.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBeGreaterThan(0.4);
+    expect(pikachu.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBeGreaterThan(0.3);
   });
 
   it('keeps moderate subject plus format and language as adjacent below core strength', () => {
@@ -1217,7 +1257,7 @@ describe('collector interest profile', () => {
       })
     ], profile, {}, 'seed');
 
-    expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBeCloseTo(1, 6);
+    expect(shadow.weeklyDiscovery?.rankExplanation.shadowDiagnostics?.collectorAnchorStrength).toBeGreaterThan(0.85);
   });
 
   it('uses subject affinity strength for shadow novelty instead of binary known-subject presence', () => {

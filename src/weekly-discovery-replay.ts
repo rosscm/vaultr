@@ -8,7 +8,12 @@ import {
   type CanonicalLookupEvidenceMap,
   type CanonicalResolutionDiagnostics
 } from './services/discovery-canonical-resolution.js';
-import type { WeeklyDiscoveryFinalizationInput } from './services/weekly-discovery-ranking.js';
+import type {
+  DiscoveryValueComponents,
+  PersonalRelevanceComponents,
+  WeeklyDiscoveryFinalizationInput,
+  WeeklyDiscoveryRole
+} from './services/weekly-discovery-ranking.js';
 import { WEEKLY_DISCOVERY_MARKET_POLICY } from './services/weekly-discovery-policy.js';
 
 export type CaptureFixture = {
@@ -49,8 +54,112 @@ export type WeeklyDiscoveryReplaySummary = {
   familyConcentration: number;
   rejectionCounts: WeeklyDiscoveryFinalizerResult['selection']['rejectionCounts'];
   canonicalResolution: CanonicalResolutionDiagnostics;
+  qualityInspection: WeeklyDiscoveryQualityInspection;
   releaseGateFailures: string[];
 };
+
+type WeeklyDiscoveryQualityCandidate = {
+  rank: number;
+  name: string;
+  canonicalCardId?: string;
+  role?: WeeklyDiscoveryRole;
+  outcome?: string;
+  rejectionDetail?: string;
+  lane: string;
+  marketStatus: 'READY' | 'INCOMPLETE';
+  baseScore?: number;
+  slateScore?: number;
+  personalRelevance?: PersonalRelevanceComponents;
+  discoveryValue?: DiscoveryValueComponents;
+  broadPromoContribution?: number;
+  distinctiveSignals: {
+    artists: string[];
+    eras: string[];
+    releaseTypes: string[];
+    artTiers: string[];
+    promoTypes: string[];
+  };
+  strongestSignals: string[];
+};
+
+type WeeklyDiscoveryQualityInspection = {
+  preSelectionRoleDistribution: Record<WeeklyDiscoveryRole, number>;
+  selectedRoleDistribution: Record<WeeklyDiscoveryRole, number>;
+  selectedBroadPromoAffinityCount: number;
+  selectedDistinctiveTraitCount: number;
+  selectedCandidates: WeeklyDiscoveryQualityCandidate[];
+  highestRankedExcluded: WeeklyDiscoveryQualityCandidate[];
+  recoverySelections: WeeklyDiscoveryFinalizerResult['selection']['capRelaxationSelections'];
+  qualitySwapSelections: WeeklyDiscoveryFinalizerResult['selection']['qualitySwapSelections'];
+};
+
+function qualityInspection(result: WeeklyDiscoveryFinalizerResult): WeeklyDiscoveryQualityInspection {
+  const preSelectionRoleDistribution: Record<WeeklyDiscoveryRole, number> = {
+    CORE_MATCH: 0,
+    ADJACENT_DISCOVERY: 0,
+    CONTROLLED_EXPLORATION: 0
+  };
+  for (const candidate of result.rerankedReserve) {
+    if (candidate.weeklyDiscovery) preSelectionRoleDistribution[candidate.weeklyDiscovery.discoveryRole] += 1;
+  }
+  const selectedIds = new Set(result.selection.items.map((item) => item.suggestion.referenceSourceCardId));
+  const selectedAnalyses = result.rerankedReserve
+    .filter((candidate) => selectedIds.has(candidate.suggestion.referenceSourceCardId))
+    .map((candidate) => candidate.weeklyDiscovery)
+    .filter((analysis): analysis is NonNullable<typeof analysis> => !!analysis);
+  const candidateDiagnostic = (candidate: WeeklyDiscoveryFinalizerResult['rerankedReserve'][number], index: number): WeeklyDiscoveryQualityCandidate => {
+    const outcome = result.candidateOutcomes[index];
+    const analysis = candidate.weeklyDiscovery;
+    const relevance = analysis?.rankExplanation.scoreComponents.personalRelevance;
+    const market = analysis?.rankExplanation.scoreComponents.marketSuitability;
+    return {
+      rank: index + 1,
+      name: candidate.suggestion.name,
+      canonicalCardId: candidate.suggestion.referenceSourceCardId,
+      role: analysis?.discoveryRole,
+      outcome: outcome.outcome,
+      rejectionDetail: outcome.detail,
+      lane: candidate.suggestion.lane,
+      marketStatus: market?.marketResolved ? 'READY' as const : 'INCOMPLETE' as const,
+      baseScore: analysis?.rankExplanation.scoreComponents.baseScore,
+      slateScore: analysis?.rankExplanation.scoreComponents.slateScore,
+      personalRelevance: relevance,
+      discoveryValue: analysis?.rankExplanation.scoreComponents.discoveryValue,
+      broadPromoContribution: relevance?.promoAffinity,
+      distinctiveSignals: {
+        artists: analysis?.features.artists ?? [],
+        eras: analysis?.features.eras ?? [],
+        releaseTypes: analysis?.features.releaseTypes ?? [],
+        artTiers: analysis?.features.artTiers ?? [],
+        promoTypes: analysis?.features.promoTypes ?? []
+      },
+      strongestSignals: analysis?.rankExplanation.strongestSignals ?? []
+    };
+  };
+  const selectedCandidates = result.rerankedReserve.flatMap((candidate, index) =>
+    selectedIds.has(candidate.suggestion.referenceSourceCardId) ? [candidateDiagnostic(candidate, index)] : []
+  );
+  const highestRankedExcluded = result.rerankedReserve.flatMap((candidate, index) =>
+    selectedIds.has(candidate.suggestion.referenceSourceCardId) ? [] : [candidateDiagnostic(candidate, index)]
+  ).slice(0, 12);
+  return {
+    preSelectionRoleDistribution,
+    selectedRoleDistribution: result.roleDistribution,
+    selectedBroadPromoAffinityCount: selectedAnalyses.filter((analysis) =>
+      analysis.rankExplanation.scoreComponents.personalRelevance.promoAffinity > 0
+    ).length,
+    selectedDistinctiveTraitCount: selectedAnalyses.filter((analysis) =>
+      analysis.features.artists.length > 0
+      || analysis.features.eras.length > 0
+      || analysis.features.releaseTypes.length > 0
+      || analysis.features.artTiers.length > 0
+    ).length,
+    selectedCandidates,
+    highestRankedExcluded,
+    recoverySelections: result.selection.capRelaxationSelections,
+    qualitySwapSelections: result.selection.qualitySwapSelections
+  };
+}
 
 export class WeeklyDiscoveryReplayOfflineError extends Error {
   constructor(message: string) {
@@ -173,6 +282,7 @@ export function summarizeReplay(
     familyConcentration: result.familyConcentration,
     rejectionCounts: result.selection.rejectionCounts,
     canonicalResolution,
+    qualityInspection: qualityInspection(result),
     releaseGateFailures
   };
 }
@@ -235,7 +345,17 @@ async function main(argv: string[]): Promise<void> {
   }
 
   if (options.compare) {
-    const other = JSON.parse(readFileSync(resolve(options.compare), 'utf8')) as { summary?: { fingerprint?: string } };
+    const other = JSON.parse(readFileSync(resolve(options.compare), 'utf8')) as {
+      summary?: Pick<WeeklyDiscoveryReplaySummary, 'fingerprint' | 'selectedCanonicalIds' | 'roleDistribution' | 'marketResolvedCount'>;
+    };
+    if (other.summary?.selectedCanonicalIds) {
+      const previousIds = new Set(other.summary.selectedCanonicalIds);
+      const currentIds = new Set(replay.summary.selectedCanonicalIds);
+      console.log(`Added: ${replay.summary.selectedCanonicalIds.filter((id) => !previousIds.has(id)).filter(Boolean).join(', ') || 'none'}`);
+      console.log(`Removed: ${other.summary.selectedCanonicalIds.filter((id) => !currentIds.has(id)).filter(Boolean).join(', ') || 'none'}`);
+      console.log(`Market resolved: ${other.summary.marketResolvedCount} -> ${replay.summary.marketResolvedCount}`);
+      console.log(`Roles: ${JSON.stringify(other.summary.roleDistribution)} -> ${JSON.stringify(replay.summary.roleDistribution)}`);
+    }
     if (other.summary?.fingerprint && other.summary.fingerprint !== replay.summary.fingerprint) {
       console.error(`Fingerprint mismatch: ${replay.summary.fingerprint} != ${other.summary.fingerprint}`);
       process.exit(1);
@@ -259,6 +379,28 @@ async function main(argv: string[]): Promise<void> {
       console.log(`Missing Evidence Keys: ${replay.summary.canonicalResolution.missingEvidence.map((entry) => entry.lookupKey).join(', ')}`);
     }
     console.log(`Roles: core=${replay.summary.roleDistribution.CORE_MATCH} adjacent=${replay.summary.roleDistribution.ADJACENT_DISCOVERY} exploration=${replay.summary.roleDistribution.CONTROLLED_EXPLORATION}`);
+    if (options.verbose) {
+      const pool = replay.summary.qualityInspection.preSelectionRoleDistribution;
+      console.log(`Pre-selection roles: core=${pool.CORE_MATCH} adjacent=${pool.ADJACENT_DISCOVERY} exploration=${pool.CONTROLLED_EXPLORATION}`);
+      for (const candidate of replay.summary.qualityInspection.highestRankedExcluded) {
+        console.log([
+          `Excluded #${candidate.rank}: ${candidate.name}`,
+          candidate.role ?? 'unclassified',
+          candidate.marketStatus,
+          candidate.outcome ?? 'unknown',
+          candidate.rejectionDetail ?? 'no detail',
+          `base=${candidate.baseScore ?? 'n/a'}`,
+          `slate=${candidate.slateScore ?? 'n/a'}`,
+          `promo=${candidate.broadPromoContribution ?? 0}`
+        ].join(' | '));
+      }
+      for (const recovery of replay.summary.qualityInspection.recoverySelections) {
+        console.log(`Recovery: ${recovery.suggestionName} | ${recovery.recoveryKind ?? 'BOUNDED'} | ${recovery.relaxedReason}:${recovery.relaxedKey ?? ''}`);
+      }
+      for (const swap of replay.summary.qualityInspection.qualitySwapSelections) {
+        console.log(`Quality swap: ${swap.replacedSuggestionName} -> ${swap.selectedSuggestionName} | subject=${swap.matchedSubject} | ready=${swap.marketResolvedBefore}->${swap.marketResolvedAfter}`);
+      }
+    }
   }
 
   if ((options.assertReleaseGate || options.assertReady) && replay.summary.releaseGateFailures.length > 0) {

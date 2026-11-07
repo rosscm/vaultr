@@ -431,6 +431,15 @@ type DiscoveryShelfSelectionResult = {
       recoveredLimit: number;
     }>;
   }>;
+  qualitySwapSelections: Array<{
+    selectedSuggestionName: string;
+    selectedCanonicalCardId: string;
+    replacedSuggestionName: string;
+    replacedCanonicalCardId: string;
+    matchedSubject: string;
+    marketResolvedBefore: number;
+    marketResolvedAfter: number;
+  }>;
   rejectionCounts: Record<DiscoveryShelfSelectionRejectionCode, number>;
   rejectionSamples: Record<DiscoveryShelfSelectionRejectionCode, Array<{
     suggestionName: string;
@@ -11385,6 +11394,84 @@ function appendSiblingFallbackSelections(
   }
 }
 
+function improveSubjectRepresentativesWithinCoverage(
+  selected: Array<{ candidate: DiscoveryCandidate; item: ScheduledDiscoveryDropItem }>,
+  qualityCandidates: Array<{
+    candidate: DiscoveryCandidate;
+    item: ScheduledDiscoveryDropItem;
+    rejection?: DiscoveryShelfSelectionRejection;
+    recommendation: DiscoveryRecommendationProfile;
+  }>,
+  orderedCandidates: DiscoveryCandidate[],
+  collectorAnchorProfile: WeeklyCollectorAnchorProfile,
+  selectionMode: WeeklyDiscoverySelectionMode,
+  expectedSize: number
+): DiscoveryShelfSelectionResult['qualitySwapSelections'] {
+  const swaps: DiscoveryShelfSelectionResult['qualitySwapSelections'] = [];
+  const rankByCanonicalId = new Map(orderedCandidates.map((candidate, index) => [candidate.suggestion.referenceSourceCardId, index]));
+  const baseScore = (candidate: DiscoveryCandidate): number => candidate.weeklyDiscovery?.rankExplanation.scoreComponents.baseScore ?? 0;
+  const candidates = qualityCandidates
+    .filter((entry) =>
+      (!entry.rejection || entry.rejection.code === 'SUBJECT_SHELF_CAP')
+      && entry.candidate.weeklyDiscovery?.discoveryRole === 'CORE_MATCH'
+      && entry.item.market.status !== 'READY'
+    )
+    .sort((left, right) =>
+      (rankByCanonicalId.get(left.candidate.suggestion.referenceSourceCardId) ?? Number.MAX_SAFE_INTEGER)
+      - (rankByCanonicalId.get(right.candidate.suggestion.referenceSourceCardId) ?? Number.MAX_SAFE_INTEGER)
+    );
+
+  for (const entry of candidates) {
+    const readyCount = selected.filter((selectedEntry) => selectedEntry.item.market.status === 'READY').length;
+    const incompleteCount = selected.length - readyCount;
+    const matchedSubject = entry.rejection?.matchedKey ?? candidateShelfSubjectKey(entry.candidate);
+    const challengerRank = rankByCanonicalId.get(entry.candidate.suggestion.referenceSourceCardId) ?? Number.MAX_SAFE_INTEGER;
+    if (!matchedSubject) continue;
+    const replacement = selected
+      .map((selectedEntry, index) => ({ selectedEntry, index }))
+      .filter(({ selectedEntry }) =>
+        candidateShelfSubjectKeys(selectedEntry.candidate).includes(matchedSubject)
+        && (rankByCanonicalId.get(selectedEntry.candidate.suggestion.referenceSourceCardId) ?? -1) > challengerRank
+        && baseScore(selectedEntry.candidate) < baseScore(entry.candidate)
+      )
+      .sort((left, right) =>
+        (rankByCanonicalId.get(right.selectedEntry.candidate.suggestion.referenceSourceCardId) ?? -1)
+        - (rankByCanonicalId.get(left.selectedEntry.candidate.suggestion.referenceSourceCardId) ?? -1)
+      )[0];
+    if (!replacement) continue;
+    const replacesReady = replacement.selectedEntry.item.market.status === 'READY';
+    const marketResolvedAfter = readyCount - (replacesReady ? 1 : 0);
+    const marketIncompleteAfter = incompleteCount + (replacesReady ? 1 : 0);
+    if (marketResolvedAfter < WEEKLY_DISCOVERY_MIN_MARKET_RESOLVED
+      || marketIncompleteAfter > WEEKLY_DISCOVERY_MAX_MARKET_INCOMPLETE) continue;
+
+    const stateWithoutReplacement = emptyWeeklyShelfSelectionState();
+    stateWithoutReplacement.laneCapEnabled = new Set(orderedCandidates.map(candidateLaneShelfKey)).size > 1;
+    for (const selectedEntry of selected.filter((_, index) => index !== replacement.index)) {
+      recordSelectedCandidate(
+        selectedEntry.candidate,
+        stateWithoutReplacement,
+        recommendationProfileForSelection(selectedEntry.candidate, collectorAnchorProfile, selectionMode)
+      );
+    }
+    if (candidateShelfCapRejection(entry.candidate, stateWithoutReplacement, entry.recommendation, emergencyWeeklyShelfCapLimits(expectedSize))) continue;
+    const selectedCanonicalCardId = scheduledItemCanonicalId(entry.item);
+    const replacedCanonicalCardId = scheduledItemCanonicalId(replacement.selectedEntry.item);
+    if (!selectedCanonicalCardId || !replacedCanonicalCardId) continue;
+    selected[replacement.index] = entry;
+    swaps.push({
+      selectedSuggestionName: entry.candidate.suggestion.name,
+      selectedCanonicalCardId,
+      replacedSuggestionName: replacement.selectedEntry.candidate.suggestion.name,
+      replacedCanonicalCardId,
+      matchedSubject,
+      marketResolvedBefore: readyCount,
+      marketResolvedAfter
+    });
+  }
+  return swaps;
+}
+
 function selectPublishableWeeklyDiscoveryShelf(
   candidates: DiscoveryCandidate[],
   currency: SupportedCurrency,
@@ -11571,6 +11658,21 @@ function selectPublishableWeeklyDiscoveryShelf(
     expectedSize,
     capRelaxationSelections
   );
+  const qualitySwapSelections = improveSubjectRepresentativesWithinCoverage(
+    selected,
+    [
+      ...capRejectedCandidates,
+      ...siblingFallbackCandidates,
+      ...incompleteCandidates.map((entry) => ({
+        ...entry,
+        recommendation: recommendationProfileForSelection(entry.candidate, collectorAnchorProfile, selectionMode)
+      }))
+    ],
+    candidates,
+    collectorAnchorProfile,
+    selectionMode,
+    expectedSize
+  );
   const items = selected.map(({ item }, index) => ({ ...item, position: index + 1 }));
   for (const { candidate } of selected) selectedCandidates.push(candidate);
   const selectedMarketResolvedCount = items.filter((item) => item.market.status === 'READY').length;
@@ -11583,6 +11685,7 @@ function selectPublishableWeeklyDiscoveryShelf(
     marketResolvedCount: selectedMarketResolvedCount,
     marketIncompleteCount: Math.max(0, items.length - selectedMarketResolvedCount),
     capRelaxationSelections,
+    qualitySwapSelections,
     rejectionCounts,
     rejectionSamples
   };
@@ -12205,12 +12308,15 @@ function weeklyDiscoveryCandidateOutcome(
       discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }
-  if (candidateShelfCapRejection(preparedCandidate, selectionState, recommendation)) {
+  const capRejection = candidateShelfCapRejection(preparedCandidate, selectionState, recommendation);
+  if (capRejection) {
     return {
       suggestionName: preparedCandidate.suggestion.name,
       canonicalCardId: canonicalId,
       outcome: 'REJECTED_DIVERSITY',
-      detail: 'subject/family/format/lane cap',
+      detail: capRejection.matchedKey
+        ? `${capRejection.code}: ${capRejection.matchedKey}`
+        : capRejection.code,
       discoveryRole: preparedCandidate.suggestion.discoveryRole
     };
   }

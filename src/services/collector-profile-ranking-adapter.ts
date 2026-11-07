@@ -405,11 +405,14 @@ function clamp01(value: number): number {
 }
 
 function shadowPersonalAggregate(components: PersonalRelevanceComponents): number {
+  // A source-backed illustrator is a narrower collector signal than the broad
+  // promo bucket, so keep it independently meaningful in relevance scoring.
   return Number(clamp01(
     components.subjectAffinity * 0.32
     + components.familyAffinity * 0.04
     + components.setAffinity * 0.18
-    + components.promoAffinity * 0.13
+    + components.promoAffinity * 0.06
+    + components.artistAffinity * 0.07
     + components.formatAffinity * 0.12
     + components.eraAffinity * 0.10
     + components.languageAffinity * 0.06
@@ -423,7 +426,8 @@ function shadowCollectorAnchorStrength(components: PersonalRelevanceComponents):
     components.subjectAffinity * 0.36
     + components.familyAffinity * 0.04
     + components.setAffinity * 0.24
-    + components.promoAffinity * 0.16
+    + components.promoAffinity * 0.07
+    + components.artistAffinity * 0.09
     + components.formatAffinity * 0.12
     + components.eraAffinity * 0.06
     + components.artTierAffinity * 0.02

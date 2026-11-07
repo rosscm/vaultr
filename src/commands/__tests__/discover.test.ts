@@ -9387,6 +9387,62 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(diagnostics).toEqual([]);
   });
 
+  it('uses market headroom to keep the stronger same-subject core recommendation', () => {
+    const strongReady = collectorProfileCandidate('Mew Strong Ready', 'mew-ready-strong', 0, 'CORE_MATCH', { subjects: ['Mew'] });
+    const weakerReady = collectorProfileCandidate('Mew Generic Ready', 'mew-ready-generic', 2, 'CORE_MATCH', { subjects: ['Mew'] });
+    const distinctiveIncomplete = collectorProfileCandidate('Mew Distinctive Promo', 'mew-incomplete-distinctive', 1, 'CORE_MATCH', {
+      subjects: ['Mew'],
+      artists: ['Ken Sugimori'],
+      releaseTypes: ['japanese-release', 'promo-release']
+    });
+    strongReady.weeklyDiscovery!.rankExplanation.scoreComponents.baseScore = 0.9;
+    weakerReady.weeklyDiscovery!.rankExplanation.scoreComponents.baseScore = 0.3;
+    distinctiveIncomplete.weeklyDiscovery!.rankExplanation.scoreComponents.baseScore = 0.8;
+    distinctiveIncomplete.typicalRawSoldTotal = undefined;
+    distinctiveIncomplete.soldSampleSize = undefined;
+    distinctiveIncomplete.typicalRawAskingTotal = undefined;
+    distinctiveIncomplete.marketSampleSize = undefined;
+    distinctiveIncomplete.weeklyDiscovery!.rankExplanation.scoreComponents.marketSuitability = {
+      estimateConfidence: 0.2,
+      availabilityConfidence: 0.4,
+      valueFloorPass: true,
+      marketResolved: false,
+      shoppable: false
+    };
+    const readyDistinct = Array.from({ length: 17 }, (_, index) =>
+      collectorProfileCandidate(`${collectorProfileTestSubjects[index]!} Ready`, `distinct-ready-${index + 1}`, index + 10, 'ADJACENT_DISCOVERY', {
+        subjects: [collectorProfileTestSubjects[index]!]
+      })
+    );
+    const incompleteFill = collectorProfileCandidate('Distinct Incomplete Fill', 'distinct-incomplete-fill', 40, 'ADJACENT_DISCOVERY', {
+      subjects: ['Celebi']
+    });
+    incompleteFill.typicalRawSoldTotal = undefined;
+    incompleteFill.soldSampleSize = undefined;
+    incompleteFill.typicalRawAskingTotal = undefined;
+    incompleteFill.marketSampleSize = undefined;
+
+    const result = __discoveryPersistenceTestHooks.selectPublishableWeeklyDiscoveryShelf(
+      [strongReady, distinctiveIncomplete, weakerReady, ...readyDistinct, incompleteFill],
+      'CAD',
+      20,
+      [],
+      [],
+      [],
+      'COLLECTOR_PROFILE_V1'
+    );
+
+    expect(result.items).toHaveLength(20);
+    expect(result.marketResolvedCount).toBeGreaterThanOrEqual(15);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'mew-incomplete-distinctive')).toBe(true);
+    expect(result.items.some((item) => item.suggestion.referenceSourceCardId === 'mew-ready-generic')).toBe(false);
+    expect(result.qualitySwapSelections).toEqual([expect.objectContaining({
+      selectedCanonicalCardId: 'mew-incomplete-distinctive',
+      replacedCanonicalCardId: 'mew-ready-generic',
+      matchedSubject: 'mew'
+    })]);
+  });
+
   it('normalizes repeated canonical display-name tokens and uses canonical metadata for diversity keys', () => {
     const umbreonCanonicalReference = {
       provider: 'PokemonTCG' as const,
@@ -10370,6 +10426,16 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(first.summary.fingerprint).toBe(captured.fingerprint);
     expect(first.summary.selectedCanonicalIds).toEqual(fixture.preview!.selectedCanonicalIds);
     expect(first.summary.roleDistribution).toEqual(captured.roleDistribution);
+    expect(Object.values(first.summary.qualityInspection.preSelectionRoleDistribution)
+      .reduce((sum, count) => sum + count, 0)).toBe(reserve.length);
+    expect(first.summary.qualityInspection.selectedRoleDistribution).toEqual(captured.roleDistribution);
+    expect(first.summary.qualityInspection.highestRankedExcluded.length).toBeGreaterThan(0);
+    expect(first.summary.qualityInspection.highestRankedExcluded[0]).toEqual(expect.objectContaining({
+      rank: expect.any(Number),
+      outcome: expect.any(String),
+      personalRelevance: expect.any(Object),
+      distinctiveSignals: expect.any(Object)
+    }));
     expect(second.summary).toEqual(first.summary);
     expect(schemaOneCapture.summary.fingerprint).toBe(captured.fingerprint);
     expect(schemaOneCapture.summary.selectedCanonicalIds).toEqual(fixture.preview!.selectedCanonicalIds);
