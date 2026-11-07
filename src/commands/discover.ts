@@ -4478,6 +4478,7 @@ export const __discoveryPersistenceTestHooks = {
   repairExistingScheduledWeeklyDropReferences,
   refreshScheduledWeeklyDropMetadata,
   scheduledWeeklyDropMetadataProposal,
+  candidatesFromScheduledDiscoveryDrop,
   collectorProfileSelectionRecommendation,
   finalizeWeeklyDiscoveryShelf,
   isCollectorWorthyWeeklyCandidate,
@@ -9346,18 +9347,34 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
       sourceKind: item.imageSourceKind
     });
   };
-  return drop.items.map((item) => ({
-    suggestion: item.suggestion,
-    selectionIndex: item.position - 1,
-    listing: listingFromScheduledDiscoveryDropItem(item),
-    image: scheduledImageForItem(item),
-    typicalRawAskingTotal: item.market.askingTotal,
-    marketSampleSize: item.market.askingSampleSize,
-    typicalRawSoldTotal: item.market.soldTotal,
-    soldSampleSize: item.market.soldSampleSize,
-    displayCurrency: item.market.currency,
-    sourceStatus: sourceStatusFromScheduledMarketStatus(item.market.status)
-  })).filter(isFinishedShelfCandidate);
+  return drop.items.map((item) => {
+    const candidate: DiscoveryCandidate = {
+      suggestion: item.suggestion,
+      selectionIndex: item.position - 1,
+      listing: listingFromScheduledDiscoveryDropItem(item),
+      image: scheduledImageForItem(item),
+      typicalRawAskingTotal: item.market.askingTotal,
+      marketSampleSize: item.market.askingSampleSize,
+      typicalRawSoldTotal: item.market.soldTotal,
+      soldSampleSize: item.market.soldSampleSize,
+      displayCurrency: item.market.currency,
+      sourceStatus: sourceStatusFromScheduledMarketStatus(item.market.status)
+    };
+    const role = item.suggestion.discoveryRole;
+    const rankExplanation = item.suggestion.rankExplanation;
+    if (role && rankExplanation) {
+      candidate.weeklyDiscovery = {
+        canonicalReference: item.suggestion.canonicalReference,
+        features: extractCollectorProfileDiscoveryFeatures(candidate),
+        generationStrategies: item.suggestion.generationStrategies ?? [],
+        generationReasons: item.suggestion.generationReasons ?? [],
+        discoveryRole: role,
+        rankExplanation,
+        stableTieBreaker: item.suggestion.referenceSourceCardId ?? item.suggestion.name
+      };
+    }
+    return candidate;
+  }).filter(isFinishedShelfCandidate);
 }
 
 export async function repairScheduledDiscoveryShelfImages(candidates: DiscoveryCandidate[]): Promise<DiscoveryCandidate[]> {
@@ -9488,24 +9505,111 @@ export type ScheduledDiscoveryMetadataRefreshItem = {
   canonicalId?: string;
   existingName: string;
   proposedName: string;
+  existingNativeName?: string;
+  proposedNativeName?: string;
+  existingImageUrl?: string;
+  proposedImageUrl?: string;
   existingImageSource?: string;
   proposedImageSource?: string;
   existingWhy: string;
   proposedWhy: string;
-  status: 'RESOLVED' | 'UNCHANGED' | 'UNRESOLVED';
+  canonicalIdentityPreserved: boolean;
+  exactPrintingImageVerified: boolean;
+  imageChanged: boolean;
+  fields: {
+    displayName: ScheduledDiscoveryMetadataFieldResult;
+    nativeName: ScheduledDiscoveryMetadataFieldResult;
+    explanation: ScheduledDiscoveryMetadataFieldResult;
+    image: ScheduledDiscoveryMetadataFieldResult;
+    canonicalIdentity: ScheduledDiscoveryMetadataFieldResult;
+  };
+  status: 'IMPROVED' | 'UNCHANGED' | 'UNRESOLVED';
   reason?: string;
+};
+
+export type ScheduledDiscoveryMetadataFieldResult = {
+  before?: string;
+  after?: string;
+  outcome: 'IMPROVED' | 'PRESERVED' | 'REJECTED';
+  evidence: string;
 };
 
 export type ScheduledDiscoveryMetadataRefreshResult = {
   userId: string;
   periodKey: string;
   applied: boolean;
+  improved: number;
+  /** @deprecated Use improved. Retained for operator-script compatibility. */
   resolved: number;
   unchanged: number;
   unresolved: number;
   items: ScheduledDiscoveryMetadataRefreshItem[];
   drop: ScheduledDiscoveryDrop;
 };
+
+function metadataFieldResult(
+  before: string | undefined,
+  after: string | undefined,
+  outcome: ScheduledDiscoveryMetadataFieldResult['outcome'],
+  evidence: string
+): ScheduledDiscoveryMetadataFieldResult {
+  return { before, after, outcome, evidence };
+}
+
+function metadataCanonicalIdentity(suggestion: DiscoverySuggestion): string | undefined {
+  const reference = suggestion.canonicalReference;
+  const values = [
+    suggestion.referenceSourceCardId,
+    reference?.canonicalCardId,
+    reference?.setName,
+    reference?.cardNumber,
+    reference?.language
+  ].map((value) => value?.trim()).filter((value): value is string => !!value);
+  return values.length > 0 ? values.join(' | ') : undefined;
+}
+
+function unresolvedMetadataReport(item: ScheduledDiscoveryDropItem, reason: string): ScheduledDiscoveryMetadataRefreshItem {
+  const canonicalId = item.suggestion.referenceSourceCardId?.trim();
+  return {
+    position: item.position,
+    canonicalId,
+    existingName: item.suggestion.name,
+    proposedName: item.suggestion.name,
+    existingNativeName: item.suggestion.nativeName,
+    proposedNativeName: item.suggestion.nativeName,
+    existingImageUrl: item.imageUrl,
+    proposedImageUrl: item.imageUrl,
+    existingImageSource: item.imageSourceName,
+    proposedImageSource: item.imageSourceName,
+    existingWhy: item.suggestion.why,
+    proposedWhy: item.suggestion.why,
+    canonicalIdentityPreserved: true,
+    exactPrintingImageVerified: false,
+    imageChanged: false,
+    fields: {
+      displayName: metadataFieldResult(item.suggestion.name, item.suggestion.name, 'PRESERVED', reason),
+      nativeName: metadataFieldResult(item.suggestion.nativeName, item.suggestion.nativeName, 'PRESERVED', reason),
+      explanation: metadataFieldResult(item.suggestion.why, item.suggestion.why, 'PRESERVED', reason),
+      image: metadataFieldResult(item.imageUrl, item.imageUrl, 'PRESERVED', reason),
+      canonicalIdentity: metadataFieldResult(metadataCanonicalIdentity(item.suggestion), metadataCanonicalIdentity(item.suggestion), 'PRESERVED', reason)
+    },
+    status: 'UNRESOLVED',
+    reason
+  };
+}
+
+function supportedMetadataRationale(
+  candidate: DiscoveryCandidate,
+  collectorProfile: WeeklyCollectorAnchorProfile,
+  rankingMode: WeeklyDiscoverySelectionMode
+): { why: string; evidence: string } | null {
+  const recommendation = recommendationProfileForSelection(candidate, collectorProfile, rankingMode);
+  if (recommendation.anchors.length === 0) return null;
+  return {
+    why: recommendation.anchoredWhy,
+    evidence: `Verified collector anchors: ${recommendation.anchors.map((anchor) => `${anchor.kind}:${anchor.label}`).join(', ')}`
+  };
+}
 
 function scheduledWeeklyDropMetadataProposal(
   existing: ScheduledDiscoveryDrop,
@@ -9519,56 +9623,106 @@ function scheduledWeeklyDropMetadataProposal(
     const candidate = repairedByPosition.get(item.position - 1);
     const canonicalId = item.suggestion.referenceSourceCardId?.trim();
     if (!candidate || !canonicalId) {
-      reports.push({
-        position: item.position,
-        canonicalId,
-        existingName: item.suggestion.name,
-        proposedName: item.suggestion.name,
-        existingImageSource: item.imageSourceName,
-        proposedImageSource: item.imageSourceName,
-        existingWhy: item.suggestion.why,
-        proposedWhy: item.suggestion.why,
-        status: 'UNRESOLVED',
-        reason: canonicalId ? 'Stored recommendation could not be reconstructed safely' : 'Stored recommendation has no stable canonical identity'
-      });
+      reports.push(unresolvedMetadataReport(item, canonicalId
+        ? 'Stored recommendation could not be reconstructed safely'
+        : 'Stored recommendation has no stable canonical identity'));
       return item;
     }
 
     const repairedItem = repairableScheduledReferenceUpdate(item, candidate) ?? item;
-    const rationaleCandidate = candidateWithCollectorAnchoredRationale({
+    const rationaleInput = {
       ...candidate,
       suggestion: repairedItem.suggestion
-    }, collectorProfile, profile.rankingMode);
-    const proposedSuggestion = canonicalScheduledSuggestion(rationaleCandidate);
+    };
+    const rationale = supportedMetadataRationale(rationaleInput, collectorProfile, profile.rankingMode);
+    const rationaleCandidate = rationale
+      ? candidateWithCollectorAnchoredRationale(rationaleInput, collectorProfile, profile.rankingMode)
+      : rationaleInput;
+    let proposedSuggestion = {
+      ...canonicalScheduledSuggestion(rationaleCandidate),
+      why: rationale ? rationaleCandidate.suggestion.why : item.suggestion.why,
+      lane: item.suggestion.lane
+    };
     const proposedCanonicalId = proposedSuggestion.referenceSourceCardId?.trim();
-    if (proposedCanonicalId !== canonicalId) {
-      reports.push({
-        position: item.position,
-        canonicalId,
-        existingName: item.suggestion.name,
-        proposedName: item.suggestion.name,
-        existingImageSource: item.imageSourceName,
-        proposedImageSource: item.imageSourceName,
-        existingWhy: item.suggestion.why,
-        proposedWhy: item.suggestion.why,
-        status: 'UNRESOLVED',
-        reason: 'Proposed metadata did not preserve exact-printing identity'
-      });
+    const existingCanonicalIdentity = metadataCanonicalIdentity(item.suggestion);
+    const proposedCanonicalIdentity = metadataCanonicalIdentity(proposedSuggestion);
+    if (proposedCanonicalId !== canonicalId || proposedCanonicalIdentity !== existingCanonicalIdentity) {
+      const report = unresolvedMetadataReport(item, 'Proposed metadata did not preserve exact-printing identity');
+      report.canonicalIdentityPreserved = false;
+      report.fields.canonicalIdentity = metadataFieldResult(existingCanonicalIdentity, proposedCanonicalIdentity, 'REJECTED', report.reason!);
+      reports.push(report);
       return item;
     }
 
-    const proposed = { ...repairedItem, suggestion: proposedSuggestion };
-    const changed = JSON.stringify(proposed) !== JSON.stringify(item);
+    const candidateImage = scheduledShelfImageFromCandidate(candidate);
+    const imageProposalAttempted = !!candidateImage?.url && candidateImage.url !== item.imageUrl;
+    const exactPrintingImageVerified = imageProposalAttempted
+      && repairedItem !== item
+      && verifyExactPrintingConsistency(candidate);
+    const imageChanged = imageProposalAttempted && exactPrintingImageVerified;
+    if (!imageChanged) {
+      proposedSuggestion = {
+        ...proposedSuggestion,
+        referenceImageUrl: item.suggestion.referenceImageUrl,
+        referenceSourceName: item.suggestion.referenceSourceName
+      };
+    }
+    const proposed = imageChanged
+      ? { ...repairedItem, suggestion: proposedSuggestion }
+      : { ...item, suggestion: proposedSuggestion };
+    const nameChanged = proposed.suggestion.name !== item.suggestion.name;
+    const nativeNameChanged = proposed.suggestion.nativeName !== item.suggestion.nativeName;
+    const explanationChanged = proposed.suggestion.why !== item.suggestion.why;
+    const improved = nameChanged || nativeNameChanged || explanationChanged || imageChanged;
+    const hasRejectedField = imageProposalAttempted && !imageChanged;
+    const nameEvidence = nameChanged
+      ? candidateCanonicalReference(candidate)?.language === 'JAPANESE'
+        ? 'Trusted exact Japanese printing has an established English subject name; set, number, and language remain unchanged'
+        : 'Trusted canonical identity removes duplicated or marketplace-style display text'
+      : 'No demonstrably better trusted display name was available';
+    const explanationEvidence = explanationChanged
+      ? rationale!.evidence
+      : rationale
+        ? 'Existing explanation already matches the supported collector anchors'
+        : 'Preserved because reconstructed ranking evidence does not support a stronger collector-specific replacement';
+    const imageEvidence = imageProposalAttempted
+      ? imageChanged
+        ? 'Replacement is a trusted card reference verified against the same canonical printing'
+        : 'Rejected because exact-printing consistency could not be verified'
+      : repairedItem.imageSourceName !== item.imageSourceName
+        ? 'Source-label-only change rejected; artwork URL did not improve'
+        : 'Existing artwork retained; no verified URL improvement was found';
+    const reportedImageUrl = imageProposalAttempted ? candidateImage?.url : proposed.imageUrl;
+    const reportedImageSource = imageProposalAttempted ? candidateImage?.sourceName : proposed.imageSourceName;
     reports.push({
       position: item.position,
       canonicalId,
       existingName: item.suggestion.name,
       proposedName: proposed.suggestion.name,
+      existingNativeName: item.suggestion.nativeName,
+      proposedNativeName: proposed.suggestion.nativeName,
+      existingImageUrl: item.imageUrl,
+      proposedImageUrl: reportedImageUrl,
       existingImageSource: item.imageSourceName,
-      proposedImageSource: proposed.imageSourceName,
+      proposedImageSource: reportedImageSource,
       existingWhy: item.suggestion.why,
       proposedWhy: proposed.suggestion.why,
-      status: changed ? 'RESOLVED' : 'UNCHANGED'
+      canonicalIdentityPreserved: true,
+      exactPrintingImageVerified,
+      imageChanged,
+      fields: {
+        displayName: metadataFieldResult(item.suggestion.name, proposed.suggestion.name, nameChanged ? 'IMPROVED' : 'PRESERVED', nameEvidence),
+        nativeName: metadataFieldResult(item.suggestion.nativeName, proposed.suggestion.nativeName, nativeNameChanged ? 'IMPROVED' : 'PRESERVED', nativeNameChanged ? 'Original Japanese canonical name retained alongside the readable English display name' : 'Existing native name preserved'),
+        explanation: metadataFieldResult(item.suggestion.why, proposed.suggestion.why, explanationChanged ? 'IMPROVED' : 'PRESERVED', explanationEvidence),
+        image: metadataFieldResult(item.imageUrl, reportedImageUrl, imageChanged ? 'IMPROVED' : imageProposalAttempted ? 'REJECTED' : 'PRESERVED', imageEvidence),
+        canonicalIdentity: metadataFieldResult(existingCanonicalIdentity, proposedCanonicalIdentity, 'PRESERVED', 'Canonical source ID, set, number, and language are unchanged')
+      },
+      status: improved ? 'IMPROVED' : hasRejectedField ? 'UNRESOLVED' : 'UNCHANGED',
+      reason: improved
+        ? 'One or more evidence-backed metadata fields improved'
+        : hasRejectedField
+          ? 'A proposed field change could not satisfy the metadata quality checks'
+          : undefined
     });
     return proposed;
   });
@@ -9611,7 +9765,8 @@ export async function refreshScheduledWeeklyDropMetadata(input: {
     userId: input.userId,
     periodKey: input.periodKey,
     applied: input.apply === true,
-    resolved: reports.filter((item) => item.status === 'RESOLVED').length,
+    improved: reports.filter((item) => item.status === 'IMPROVED').length,
+    resolved: reports.filter((item) => item.status === 'IMPROVED').length,
     unchanged: reports.filter((item) => item.status === 'UNCHANGED').length,
     unresolved: reports.filter((item) => item.status === 'UNRESOLVED').length,
     items: reports,
@@ -10147,9 +10302,16 @@ function hasAmplifiedStructuredDisplayIdentity(candidate: DiscoveryCandidate): b
 
 function canonicalScheduledSuggestion(candidate: DiscoveryCandidate): DiscoverySuggestion {
   const canonicalImage = scheduledShelfImageFromCandidate(candidate);
-  const canonicalName = candidate.weeklyDiscovery?.canonicalReference?.canonicalName?.trim();
+  const reference = candidateCanonicalReference(candidate);
+  const canonicalName = reference?.canonicalName?.trim();
   const canonicalDisplayName = canonicalReferenceDisplayName(candidate);
-  const scheduledName = canonicalName && (
+  const hasVerifiedJapaneseReadableName = reference?.language === 'JAPANESE'
+    && !!readableCatalogSubject(reference.canonicalName)
+    && !!canonicalDisplayName
+    && !!candidate.suggestion.referenceSourceCardId?.trim();
+  const scheduledName = hasVerifiedJapaneseReadableName
+    ? canonicalDisplayName!
+    : canonicalName && (
     isMarketplaceStyleDiscoveryName(candidate.suggestion.name)
     || isGenericDiscoveryCardTitle(candidate.suggestion.name)
   )
@@ -10158,7 +10320,6 @@ function canonicalScheduledSuggestion(candidate: DiscoveryCandidate): DiscoveryS
       ? canonicalDisplayName
     : candidate.suggestion.name;
   const displayName = collapseAdjacentRepeatedNamePhrases(scheduledName);
-  const reference = candidateCanonicalReference(candidate);
   const nativeName = reference?.language === 'JAPANESE'
     && readableCatalogSubject(reference.canonicalName)
     && normalize(displayName) !== normalize(reference.canonicalName)

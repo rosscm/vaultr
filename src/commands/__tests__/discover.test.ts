@@ -11311,7 +11311,15 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       rankingMode: 'LEGACY'
     });
 
-    expect(preview.reports[0]).toMatchObject({ status: 'RESOLVED', canonicalId: 'sv3pt5-170' });
+    expect(preview.reports[0]).toMatchObject({
+      status: 'IMPROVED',
+      canonicalId: 'sv3pt5-170',
+      canonicalIdentityPreserved: true,
+      fields: {
+        displayName: { outcome: 'IMPROVED' },
+        canonicalIdentity: { outcome: 'PRESERVED' }
+      }
+    });
     expect(preview.items[0]?.position).toBe(existing.items[0]?.position);
     expect(preview.items[0]?.suggestion.referenceSourceCardId).toBe('sv3pt5-170');
     expect(preview.items[0]?.suggestion.name).toBe('Squirtle 151 170');
@@ -11319,7 +11327,194 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey)?.items[0]?.suggestion.name)
       .toBe('Squirtle 151 170 151 170');
 
+    const secondPreview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(
+      { ...existing, items: preview.items },
+      [candidate],
+      { tasteProfileChases: [], rankingMode: 'LEGACY' }
+    );
+    expect(secondPreview.reports[0]?.status).toBe('UNCHANGED');
+    expect(secondPreview.items[0]).toEqual(preview.items[0]);
+
     deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+  });
+
+  it('preserves a collector-specific explanation when reconstructed ranking evidence is unavailable', () => {
+    const candidate = publishableCanonicalCandidate('Mew Expedition Base Set 55', 'ecard1-55', 'Mew', 'Expedition Base Set', '55', 0);
+    const [generated] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD');
+    const existingWhy = 'This exact Expedition printing continues the e-Reader thread already visible in your collection.';
+    const item = {
+      ...generated!,
+      suggestion: {
+        ...generated!.suggestion,
+        why: existingWhy,
+        discoveryRole: 'ADJACENT_DISCOVERY' as const,
+        rankExplanation: undefined
+      }
+    };
+    const existing = { items: [item] } as ScheduledDiscoveryDrop;
+    const reconstructed = { ...candidate, suggestion: item.suggestion, weeklyDiscovery: undefined };
+
+    const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(existing, [reconstructed], {
+      tasteProfileChases: [chase('Mew Skyridge H32', 0)],
+      rankingMode: 'COLLECTOR_PROFILE_V1'
+    });
+
+    expect(preview.items[0]?.suggestion.why).toBe(existingWhy);
+    expect(preview.items[0]?.suggestion.lane).toBe(item.suggestion.lane);
+    expect(preview.reports[0]?.fields.explanation).toMatchObject({
+      outcome: 'PRESERVED',
+      before: existingWhy,
+      after: existingWhy
+    });
+    expect(preview.reports[0]?.fields.explanation.evidence).toContain('does not support');
+  });
+
+  it('does not replace stored explanations with generic exploration copy across a reconstructed shelf', () => {
+    const candidates = ['Mew', 'Pikachu', 'Articuno'].map((subject, index) => {
+      const candidate = publishableCanonicalCandidate(`${subject} Set ${index + 1}`, `set-${index + 1}`, subject, 'Test Set', `${index + 1}`, index);
+      return { ...candidate, weeklyDiscovery: undefined };
+    });
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(candidates, 'CAD').map((item, index) => ({
+      ...item,
+      suggestion: {
+        ...item.suggestion,
+        why: `Stored collector explanation ${index + 1}`,
+        discoveryRole: 'CONTROLLED_EXPLORATION' as const,
+        rankExplanation: undefined
+      }
+    }));
+    const existing = { items } as ScheduledDiscoveryDrop;
+
+    const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(existing, candidates, {
+      tasteProfileChases: [chase('Mew Expedition Base Set 55', 0)],
+      rankingMode: 'COLLECTOR_PROFILE_V1'
+    });
+
+    expect(preview.items.map((item) => item.suggestion.why)).toEqual(items.map((item) => item.suggestion.why));
+    expect(preview.reports.every((report) => report.fields.explanation.outcome === 'PRESERVED')).toBe(true);
+  });
+
+  it('uses verified ranking anchors to improve an explanation without changing identity or market evidence', () => {
+    const candidate = collectorProfileCandidate('Mew Profile Set 0 promo-151', 'promo-151', 0, 'CORE_MATCH', {
+      subjects: ['Mew'],
+      promoTypes: ['Magazine promo']
+    });
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.promoAffinity = 0.8;
+    candidate.weeklyDiscovery!.canonicalReference!.canonicalName = 'Mew';
+    candidate.suggestion = {
+      ...candidate.suggestion,
+      canonicalReference: candidate.weeklyDiscovery!.canonicalReference,
+      generationStrategies: candidate.weeklyDiscovery!.generationStrategies,
+      generationReasons: candidate.weeklyDiscovery!.generationReasons,
+      discoveryRole: candidate.weeklyDiscovery!.discoveryRole,
+      rankExplanation: candidate.weeklyDiscovery!.rankExplanation
+    };
+    const [generated] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD');
+    const item = {
+      ...generated!,
+      suggestion: { ...generated!.suggestion, why: 'A broad card to explore.' },
+      market: { ...generated!.market, askingTotal: 45, askingSampleSize: 4 }
+    };
+    const existing = { items: [item] } as ScheduledDiscoveryDrop;
+    const [reconstructed] = __discoveryPersistenceTestHooks.candidatesFromScheduledDiscoveryDrop(existing);
+    expect(reconstructed?.weeklyDiscovery?.features.subjects).toContain('Mew');
+
+    const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(existing, [reconstructed!], {
+      tasteProfileChases: [chase('Mew Expedition Base Set 55', 0)],
+      rankingMode: 'COLLECTOR_PROFILE_V1'
+    });
+
+    expect(preview.reports[0]?.fields.explanation.outcome).toBe('IMPROVED');
+    expect(preview.items[0]?.suggestion.why).toContain('Mew cards');
+    expect(preview.items[0]?.suggestion.referenceSourceCardId).toBe('promo-151');
+    expect(preview.items[0]?.market).toEqual(item.market);
+  });
+
+  it('adds a readable English name to a verified Japanese printing while preserving its native identity', () => {
+    const sourceName = 'TCGdex Japanese (SV2a)';
+    const canonicalId = 'sv2a-151';
+    const imageUrl = trustedReferenceImageUrl(sourceName, canonicalId);
+    const candidate = publishableSourceCandidate('ミュウ SV2a 151 Japanese', canonicalId, sourceName, 0);
+    candidate.suggestion = {
+      ...candidate.suggestion,
+      canonicalReference: {
+        provider: 'TCGDEX',
+        sourceCardId: canonicalId,
+        canonicalCardId: canonicalId,
+        canonicalName: 'ミュウ',
+        setName: 'Pokémon Card 151',
+        cardNumber: '151',
+        language: 'JAPANESE',
+        imageUrl,
+        imageSourceKind: 'CARD_REFERENCE'
+      },
+      referenceImageUrl: imageUrl
+    };
+    candidate.image = { name: candidate.suggestion.name, url: imageUrl, sourceName, sourceCardId: canonicalId, sourceKind: 'CARD_REFERENCE' };
+    const [item] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD');
+    const existingItem = { ...item!, suggestion: { ...item!.suggestion, name: 'ミュウ SV2a 151 Japanese', nativeName: undefined } };
+    const existing = { items: [existingItem] } as ScheduledDiscoveryDrop;
+
+    const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(existing, [candidate], {
+      tasteProfileChases: [],
+      rankingMode: 'LEGACY'
+    });
+
+    expect(preview.items[0]?.suggestion.name).toBe('Mew - sv2a 151 (Japanese)');
+    expect(preview.items[0]?.suggestion.nativeName).toBe('ミュウ');
+    expect(preview.items[0]?.suggestion.canonicalReference).toMatchObject({
+      sourceCardId: canonicalId,
+      setName: 'Pokémon Card 151',
+      cardNumber: '151',
+      language: 'JAPANESE'
+    });
+    expect(preview.reports[0]).toMatchObject({
+      status: 'IMPROVED',
+      imageChanged: false,
+      fields: {
+        displayName: { outcome: 'IMPROVED' },
+        nativeName: { outcome: 'IMPROVED' },
+        image: { outcome: 'PRESERVED' }
+      }
+    });
+  });
+
+  it('reports and rejects artwork that conflicts with the requested exact printing', () => {
+    const candidate = publishableCanonicalCandidate(
+      'Squirtle Pokemon 151 171',
+      'sv3pt5-170',
+      'Squirtle',
+      'Pokemon 151',
+      '170',
+      0
+    );
+    const [generated] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD');
+    const existingItem = {
+      ...generated!,
+      imageUrl: 'https://images.example.test/existing-squirtle-171.png',
+      imageSourceName: 'Existing trusted reference',
+      suggestion: {
+        ...generated!.suggestion,
+        name: 'Squirtle Pokemon 151 171',
+        referenceImageUrl: 'https://images.example.test/existing-squirtle-171.png',
+        referenceSourceName: 'Existing trusted reference'
+      }
+    };
+    const existing = { items: [existingItem] } as ScheduledDiscoveryDrop;
+
+    const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(existing, [candidate], {
+      tasteProfileChases: [],
+      rankingMode: 'LEGACY'
+    });
+
+    expect(preview.items[0]?.imageUrl).toBe(existingItem.imageUrl);
+    expect(preview.items[0]?.suggestion.referenceImageUrl).toBe(existingItem.suggestion.referenceImageUrl);
+    expect(preview.reports[0]).toMatchObject({
+      exactPrintingImageVerified: false,
+      imageChanged: false,
+      fields: { image: { outcome: 'REJECTED' } }
+    });
+    expect(preview.reports[0]?.fields.image.after).toBe(candidate.image?.url);
   });
 
   it('persists a qualified smaller shelf without repeat filler', () => {

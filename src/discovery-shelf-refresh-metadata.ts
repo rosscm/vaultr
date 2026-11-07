@@ -79,7 +79,7 @@ async function main(): Promise<void> {
     userId: result.userId,
     periodKey: result.periodKey,
     mode: result.applied ? 'APPLIED' : 'PREVIEW',
-    resolved: result.resolved,
+    improved: result.improved,
     unchanged: result.unchanged,
     unresolved: result.unresolved,
     items: result.items
