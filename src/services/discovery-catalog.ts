@@ -7,6 +7,20 @@ import type {
 } from './weekly-discovery-ranking.js';
 import type { Chase } from '../types.js';
 
+export type DiscoveryRecommendationEvidenceSource = 'WATCHLIST' | 'PICKUP' | 'POSITIVE_FEEDBACK' | 'INFERRED_PATTERN';
+
+export type DiscoveryRecommendationEvidence = {
+  version: 1;
+  signals: Array<{
+    kind: 'SUBJECT' | 'EVOLUTION_FAMILY' | 'SET_RELATIONSHIP' | 'PROMO_PREFERENCE' | 'REGIONAL_PRINT' | 'ART_STYLE' | 'FORMAT' | 'ERA';
+    key: string;
+    label: string;
+    cardCharacteristic: string;
+    source: DiscoveryRecommendationEvidenceSource;
+    distinctCardCount: number;
+  }>;
+};
+
 export type DiscoverySuggestion = {
   name: string;
   nativeName?: string;
@@ -28,6 +42,7 @@ export type DiscoverySuggestion = {
   generationReasons?: WeeklyDiscoveryGenerationReason[];
   discoveryRole?: WeeklyDiscoveryRole;
   rankExplanation?: WeeklyDiscoveryRankExplanation;
+  recommendationEvidence?: DiscoveryRecommendationEvidence;
 };
 
 export type DiscoverySelection = {

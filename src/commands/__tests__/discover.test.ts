@@ -183,7 +183,13 @@ describe('weekly discovery ranking mode integration', () => {
       });
     candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.promoAffinity = 0.8;
     candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.languageAffinity = 0.6;
-    const recommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(candidate);
+    candidate.weeklyDiscovery!.canonicalReference!.language = 'JAPANESE';
+    const recommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(
+      candidate,
+      __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([
+        { ...chase('Mew CoroCoro Magazine promo Japanese', 0), tasteSource: 'ACTIVE_CHASE' }
+      ])
+    );
 
     expect(recommendation?.anchors.map((anchor) => anchor.kind)).toEqual([
       'SUBJECT',
@@ -192,6 +198,111 @@ describe('weekly discovery ranking mode integration', () => {
     ]);
     expect(recommendation?.anchoredWhy).toContain('Mew cards');
     expect(recommendation?.anchoredWhy).toContain('Magazine Promo');
+  });
+
+  it('combines independently supported e-Reader and Pokemon-family evidence without double-counting one printing', () => {
+    const candidate = collectorProfileCandidate('Pichu Expedition Base Set 22', 'ecard1-22', 0, 'ADJACENT_DISCOVERY', {
+      evolutionFamilies: ['PIKACHU_LINE'],
+      eras: ['E-Reader Era']
+    });
+    candidate.weeklyDiscovery!.features.subjects = [];
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.subjectAffinity = 0;
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.familyAffinity = 0.8;
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.eraAffinity = 0.7;
+    const samePrinting = { ...chase('Pikachu Expedition Base Set 58', 0), cardImageSourceName: 'TCGDEX', cardImageSourceCardId: 'ecard1-58', cardImageSourceKind: 'CARD_REFERENCE' as const };
+    const recommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(
+      candidate,
+      __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([
+        samePrinting,
+        { ...samePrinting, id: 'duplicate-event', tasteSource: 'DISCOVERY_ADD' }
+      ])
+    );
+
+    expect(recommendation?.anchoredWhy).toContain('Pikachu family');
+    expect(recommendation?.anchoredWhy).toContain('E-Reader Era');
+    expect(recommendation?.recommendationEvidence?.signals).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'EVOLUTION_FAMILY', source: 'WATCHLIST', distinctCardCount: 1 }),
+      expect.objectContaining({ kind: 'ERA', source: 'WATCHLIST', distinctCardCount: 1 })
+    ]));
+  });
+
+  it('uses exact catalog illustrator metadata and accurate Pickup wording', () => {
+    const dbPath = resolve(mkdtempSync(`${tmpdir()}/keepseek-explanation-catalog-`), 'card-catalog.db');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      testCatalogRecord({ source: 'TCGDEX', sourceCardId: 'artist-source-1', name: 'Ditto', setName: 'Fossil', cardNumber: '3', illustrator: 'Yuka Morii' })
+    ], dbPath);
+    const candidate = collectorProfileCandidate('Wooper Art Card 1', 'artist-target-1', 0, 'ADJACENT_DISCOVERY', { artists: ['Yuka Morii'] });
+    candidate.weeklyDiscovery!.features.subjects = [];
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.subjectAffinity = 0;
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.artistAffinity = 0.9;
+    candidate.catalogFacts = {
+      source: 'POKEMONTCG',
+      sourceCardId: 'artist-target-1',
+      canonicalName: 'Wooper',
+      setName: 'Art Card',
+      cardNumber: '1',
+      language: 'en',
+      illustrator: 'Yuka Morii'
+    };
+    const pickup = {
+      ...chase('Ditto Fossil', 0),
+      tasteSource: 'BOUGHT_OR_SEEN' as const,
+      cardImageSourceName: 'TCGDEX',
+      cardImageSourceCardId: 'artist-source-1',
+      cardImageSourceKind: 'CARD_REFERENCE' as const
+    };
+    const recommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(
+      candidate,
+      __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([pickup])
+    );
+
+    expect(recommendation?.anchoredWhy).toContain("You've collected other cards illustrated by Yuka Morii");
+    expect(recommendation?.recommendationEvidence?.signals).toContainEqual(expect.objectContaining({
+      kind: 'ART_STYLE', source: 'PICKUP', cardCharacteristic: 'Yuka Morii'
+    }));
+
+    const watchlistRecommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(
+      candidate,
+      __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([{ ...pickup, tasteSource: 'ACTIVE_CHASE' }])
+    );
+    expect(watchlistRecommendation?.anchoredWhy).toContain('Your Watchlist includes Yuka Morii illustrations');
+    expect(watchlistRecommendation?.anchoredWhy).not.toContain("You've collected");
+  });
+
+  it('attributes exact Japanese promo affinity to positive feedback without claiming ownership', () => {
+    const candidate = collectorProfileCandidate('Pikachu SV-P 120 Japanese', 'SV-P-120', 0, 'ADJACENT_DISCOVERY', {
+      promoTypes: ['Japanese promo'],
+      languages: ['JAPANESE']
+    });
+    candidate.weeklyDiscovery!.features.subjects = [];
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.subjectAffinity = 0;
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.promoAffinity = 0.9;
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.languageAffinity = 0.8;
+    candidate.weeklyDiscovery!.canonicalReference!.language = 'JAPANESE';
+    candidate.catalogFacts = {
+      source: 'TCGDEX',
+      sourceCardId: 'SV-P-120',
+      canonicalName: 'ピカチュウ',
+      setName: 'SV-P Promo',
+      cardNumber: '120',
+      language: 'ja',
+      isPromo: true,
+      promoContext: 'SV-P promo'
+    };
+    const recommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(
+      candidate,
+      __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([
+        { ...chase('Mew Japanese Black Star promo', 0), tasteSource: 'DISCOVERY_LIKE' }
+      ])
+    );
+
+    expect(recommendation?.anchoredWhy).toContain("You've shown an interest in");
+    expect(recommendation?.anchoredWhy).not.toContain("You've collected");
+    expect(recommendation?.recommendationEvidence?.signals).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'PROMO_PREFERENCE', source: 'POSITIVE_FEEDBACK' }),
+      expect.objectContaining({ kind: 'REGIONAL_PRINT', source: 'POSITIVE_FEEDBACK' })
+    ]));
   });
 
   it('uses legacy ranking for low-confidence collector profiles', () => {
@@ -11369,6 +11480,52 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(preview.reports[0]?.fields.explanation.evidence).toContain('does not support');
   });
 
+  it('persists recommendation evidence and does not reinterpret prepared copy from a changed profile', () => {
+    const userId = `weekly-explanation-evidence-${Date.now()}`;
+    const periodKey = '2026-W45';
+    const candidate = collectorProfileCandidate('Pichu Expedition Base Set 22', 'ecard1-22', 0, 'ADJACENT_DISCOVERY', {
+      evolutionFamilies: ['PIKACHU_LINE'],
+      eras: ['E-Reader Era']
+    });
+    candidate.weeklyDiscovery!.features.subjects = [];
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.subjectAffinity = 0;
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.familyAffinity = 0.8;
+    candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.eraAffinity = 0.7;
+    const originalProfile = __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile([
+      chase('Pikachu Expedition Base Set 58', 0)
+    ]);
+    const recommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(candidate, originalProfile)!;
+    candidate.suggestion = {
+      ...candidate.suggestion,
+      why: recommendation.anchoredWhy,
+      recommendationEvidence: recommendation.recommendationEvidence
+    };
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD');
+    upsertScheduledDiscoveryDrop({
+      userId,
+      dropType: 'WEEKLY_DISCOVERY',
+      periodKey,
+      status: 'READY',
+      title: 'Display Case',
+      currency: 'CAD',
+      availableAt: '2026-11-02T12:00:00.000Z',
+      items
+    });
+    const reloaded = getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey)!;
+    const [reconstructed] = __discoveryPersistenceTestHooks.candidatesFromScheduledDiscoveryDrop(reloaded);
+    const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(reloaded, [reconstructed!], {
+      tasteProfileChases: [chase('Mew Southern Islands', 1)],
+      rankingMode: 'COLLECTOR_PROFILE_V1'
+    });
+
+    expect(reloaded.items[0]?.suggestion.recommendationEvidence).toEqual(recommendation.recommendationEvidence);
+    expect(preview.items[0]?.suggestion.why).toBe(recommendation.anchoredWhy);
+    expect(preview.items[0]?.suggestion.recommendationEvidence).toEqual(recommendation.recommendationEvidence);
+    expect(preview.reports[0]?.fields.explanation.outcome).toBe('PRESERVED');
+
+    deleteScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', periodKey);
+  });
+
   it('does not replace stored explanations with generic exploration copy across a reconstructed shelf', () => {
     const candidates = ['Mew', 'Pikachu', 'Articuno'].map((subject, index) => {
       const candidate = publishableCanonicalCandidate(`${subject} Set ${index + 1}`, `set-${index + 1}`, subject, 'Test Set', `${index + 1}`, index);
@@ -11409,10 +11566,19 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       discoveryRole: candidate.weeklyDiscovery!.discoveryRole,
       rankExplanation: candidate.weeklyDiscovery!.rankExplanation
     };
+    const profileChases = [chase('Mew CoroCoro Magazine promo', 0)];
+    const recommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(
+      candidate,
+      __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile(profileChases)
+    );
     const [generated] = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates([candidate], 'CAD');
     const item = {
       ...generated!,
-      suggestion: { ...generated!.suggestion, why: 'A broad card to explore.' },
+      suggestion: {
+        ...generated!.suggestion,
+        why: 'A broad card to explore.',
+        recommendationEvidence: recommendation?.recommendationEvidence
+      },
       market: { ...generated!.market, askingTotal: 45, askingSampleSize: 4 }
     };
     const existing = { items: [item] } as ScheduledDiscoveryDrop;
@@ -11420,7 +11586,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(reconstructed?.weeklyDiscovery?.features.subjects).toContain('Mew');
 
     const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(existing, [reconstructed!], {
-      tasteProfileChases: [chase('Mew Expedition Base Set 55', 0)],
+      tasteProfileChases: profileChases,
       rankingMode: 'COLLECTOR_PROFILE_V1'
     });
 
@@ -11471,14 +11637,25 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       rankExplanation: umbreon.weeklyDiscovery!.rankExplanation
     };
     const candidates = [...examples.map((example) => example.candidate), salamence, umbreon];
+    const profileChases = [
+      chase('Eevee Skyridge', 0),
+      chase('Squirtle Expedition', 1),
+      chase('Pikachu Fossil', 2),
+      chase('Salamence ex', 3)
+    ];
+    const anchorProfile = __discoveryPersistenceTestHooks.buildWeeklyCollectorAnchorProfile(profileChases);
     const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(candidates, 'CAD').map((item, index) => ({
       ...item,
-      suggestion: { ...item.suggestion, why: index === 4 ? 'Umbreon is already a concise collector pick.' : 'A broad card to explore.' }
+      suggestion: {
+        ...item.suggestion,
+        why: index === 4 ? 'Umbreon is already a concise collector pick.' : 'A broad card to explore.',
+        recommendationEvidence: __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(candidates[index]!, anchorProfile)?.recommendationEvidence
+      }
     }));
     const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(
       { items } as ScheduledDiscoveryDrop,
       candidates,
-      { tasteProfileChases: [chase('Eevee Skyridge', 0), chase('Squirtle Expedition', 1), chase('Salamence ex', 2)], rankingMode: 'COLLECTOR_PROFILE_V1' }
+      { tasteProfileChases: profileChases, rankingMode: 'COLLECTOR_PROFILE_V1' }
     );
 
     for (const [index, example] of examples.entries()) {

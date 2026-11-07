@@ -37,7 +37,13 @@ import { discoveryLearningFeatures } from '../services/discovery-learning-featur
 import { isAbsoluteHttpImageUrl, isStructurallyValidTrustedCardImageUrl } from '../services/card-image-url.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice, type SupportedCurrency } from '../services/currency.js';
 import { buildEbaySearchKeywords, searchEbayListings, searchEbaySoldListings, snapshotEbayRuntimeStats, type EbayRuntimeStats } from '../services/ebay.js';
-import { hasPromoLeaningDiscoveryProfile, selectDiscoverySuggestionsForFocuses, type DiscoverySuggestion } from '../services/discovery-catalog.js';
+import {
+  hasPromoLeaningDiscoveryProfile,
+  selectDiscoverySuggestionsForFocuses,
+  type DiscoveryRecommendationEvidence,
+  type DiscoveryRecommendationEvidenceSource,
+  type DiscoverySuggestion
+} from '../services/discovery-catalog.js';
 import { listDiscoveryUniverseCards, upsertDiscoveryUniverseCard, type DiscoveryUniverseCard } from '../services/discovery-card-universe.js';
 import { listDiscoveryUserUniverseCards, replaceDiscoveryUserUniverseCards, type DiscoveryUserUniverseCard } from '../services/discovery-user-universe.js';
 import {
@@ -80,6 +86,7 @@ import {
   weeklyDiscoveryRankingModeForCollectorProfile
 } from '../services/collector-profile-ranking-adapter.js';
 import { getCollectorInterestProfile } from '../services/collector-profile.js';
+import { COLLECTOR_CARD_FAMILIES } from '../services/collector-card-families.js';
 import { getCardCatalogRecordByReference, getCardCatalogRecordBySourceCardId } from '../services/card-catalog-db.js';
 import { readableCatalogSubject, searchLocalCardCatalog } from '../services/card-catalog/search.js';
 import type { LocalCardCatalogChoice } from '../services/card-catalog/types.js';
@@ -380,6 +387,7 @@ type DiscoveryRecommendationProfile = {
   anchors: DiscoveryRecommendationAnchor[];
   primaryAnchor?: DiscoveryRecommendationAnchor;
   anchoredWhy: string;
+  recommendationEvidence?: DiscoveryRecommendationEvidence;
   isEraOnlyExploratory: boolean;
   eraSetFamilyKey?: string;
 };
@@ -8359,18 +8367,53 @@ function collectorFacingFamilyLabel(value: string): string {
   return `${titleCase(base)} family`;
 }
 
+function collectorFamilyKey(value: string): string {
+  return normalize(value.replace(/[_-]+/g, ' ').replace(/\b(?:family|line)\b/gi, ' '));
+}
+
+function collectorFamilyMembers(key: string): string[] {
+  const entry = Object.entries(COLLECTOR_CARD_FAMILIES)
+    .find(([familyKey]) => collectorFamilyKey(familyKey) === key);
+  return entry?.[1].map(normalize) ?? [];
+}
+
 function candidateSupportsCollectorAnchor(candidate: DiscoveryCandidate, anchor: DiscoveryRecommendationAnchor): boolean {
-  if (anchor.kind !== 'ART_STYLE' && anchor.kind !== 'FORMAT') return true;
+  const reference = candidateCanonicalReference(candidate);
   const actualPrintingText = [
-    candidateCanonicalReference(candidate)?.canonicalName,
-    candidateCanonicalReference(candidate)?.setName,
+    reference?.canonicalName,
+    reference?.setName,
+    reference?.cardNumber,
     candidate.catalogFacts?.rarity,
     candidate.catalogFacts?.illustrator,
     candidate.catalogFacts?.releaseType,
-    candidate.catalogFacts?.promoContext
+    candidate.catalogFacts?.promoContext,
+    candidate.catalogFacts?.releaseEvent
   ].filter(Boolean).join(' ');
+  if (!reference && !candidate.catalogFacts) return false;
+  const exactSubjectTokens = profileSubjectTokens(reference?.canonicalName ?? candidate.catalogFacts?.canonicalName ?? '');
+  if (anchor.kind === 'SUBJECT') return exactSubjectTokens.includes(anchor.key);
+  if (anchor.kind === 'EVOLUTION_FAMILY') {
+    const members = collectorFamilyMembers(anchor.key);
+    return members.length > 0 && exactSubjectTokens.some((subject) => members.includes(subject));
+  }
+  if (anchor.kind === 'SET_RELATIONSHIP') {
+    const exactSet = candidate.catalogFacts?.translatedSetName ?? candidate.catalogFacts?.setName ?? reference?.setName;
+    return (!!exactSet && normalize(exactSet) === anchor.key) || setFamilyKeyFromText(exactSet ?? '') === anchor.key;
+  }
+  if (anchor.kind === 'PROMO_PREFERENCE') {
+    return candidate.catalogFacts?.isPromo === true || /\bpromo|campaign|event|magazine|distribution\b/i.test([
+      reference?.canonicalName,
+      reference?.setName,
+      candidate.catalogFacts?.promoContext,
+      candidate.catalogFacts?.releaseType,
+      candidate.catalogFacts?.releaseEvent
+    ].filter(Boolean).join(' '));
+  }
+  if (anchor.kind === 'REGIONAL_PRINT') return reference?.language === 'JAPANESE' || candidate.catalogFacts?.language === 'ja';
+  if (anchor.kind === 'ERA') return eraLabelsFromText(actualPrintingText).some((value) => normalize(value) === anchor.key);
+  if (anchor.kind === 'ART_STYLE' && candidate.catalogFacts?.illustrator && normalize(candidate.catalogFacts.illustrator) === anchor.key) return true;
   const genericArtOrFormat = /\b(?:special[ -]?art|premium|illustration|art rare|sir|sar|trainer gallery|galarian gallery)\b/i.test(anchor.label);
-  if (!genericArtOrFormat) return true;
+  if (!genericArtOrFormat) return anchor.kind === 'FORMAT' && formatKeyFromText(actualPrintingText) === anchor.key;
   return /\b(?:special illustration|illustration rare|art rare|sir|sar|alt(?:ernate)? art|full art|trainer gallery|galarian gallery)\b/i.test(actualPrintingText);
 }
 
@@ -8381,7 +8424,7 @@ function collectorProfileAnchors(candidate: DiscoveryCandidate, analysis: Weekly
   const subject = features?.subjects?.[0];
   if (subject && (relevance?.subjectAffinity ?? 0) > 0) anchors.push({ kind: 'SUBJECT', key: normalize(subject), label: titleCase(subject) });
   const family = features?.evolutionFamilies?.[0];
-  if (family && (relevance?.familyAffinity ?? 0) > 0) anchors.push({ kind: 'EVOLUTION_FAMILY', key: normalize(family), label: collectorFacingFamilyLabel(family) });
+  if (family && (relevance?.familyAffinity ?? 0) > 0) anchors.push({ kind: 'EVOLUTION_FAMILY', key: collectorFamilyKey(family), label: collectorFacingFamilyLabel(family) });
   const setFamily = features?.setFamilies?.[0];
   const set = features?.sets?.[0];
   if (setFamily && (relevance?.setAffinity ?? 0) > 0) anchors.push({ kind: 'SET_RELATIONSHIP', key: normalize(setFamily), label: titleCase(setFamily) });
@@ -8391,7 +8434,7 @@ function collectorProfileAnchors(candidate: DiscoveryCandidate, analysis: Weekly
   const art = features?.artists?.[0] ?? features?.artTiers?.[0] ?? features?.aestheticTags?.[0];
   if (art && Math.max(relevance?.artistAffinity ?? 0, relevance?.artTierAffinity ?? 0, relevance?.aestheticAffinity ?? 0) > 0) anchors.push({ kind: 'ART_STYLE', key: normalize(art), label: art });
   const format = features?.formats?.[0];
-  if (format && (relevance?.formatAffinity ?? 0) > 0) anchors.push({ kind: 'FORMAT', key: normalize(format), label: titleCase(format) });
+  if (format && (relevance?.formatAffinity ?? 0) > 0) anchors.push({ kind: 'FORMAT', key: format.toUpperCase(), label: titleCase(format) });
   const japanese = features?.languages?.some((language) => normalize(language) === 'japanese');
   if (japanese && role !== 'CONTROLLED_EXPLORATION' && (relevance?.languageAffinity ?? 0) > 0) anchors.push({ kind: 'REGIONAL_PRINT', key: 'JAPANESE', label: 'Japanese prints' });
   const era = features?.eras?.[0];
@@ -8405,10 +8448,118 @@ function normalizeCollectorFacingCopy(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function recommendationEvidenceSource(chase: Chase): DiscoveryRecommendationEvidenceSource {
+  if (chase.tasteSource === 'BOUGHT_OR_SEEN') return 'PICKUP';
+  if (chase.tasteSource === 'DISCOVERY_LIKE') return 'POSITIVE_FEEDBACK';
+  if (!chase.tasteSource || chase.tasteSource === 'ACTIVE_CHASE' || chase.tasteSource === 'DISCOVERY_ADD') return 'WATCHLIST';
+  return 'INFERRED_PATTERN';
+}
+
+function recommendationEvidenceIdentity(chase: Chase): string {
+  return chase.cardImageSourceName && chase.cardImageSourceCardId
+    ? `${normalize(chase.cardImageSourceName)}:${normalize(chase.cardImageSourceCardId)}`
+    : normalize(chase.cardName);
+}
+
+function chaseSupportsRecommendationAnchor(chase: Chase, anchor: DiscoveryRecommendationAnchor): boolean {
+  const text = chaseReferenceText(chase);
+  const record = chase.cardImageSourceKind === 'CARD_REFERENCE' && chase.cardImageSourceName && chase.cardImageSourceCardId
+    ? getCardCatalogRecordBySourceCardId(chase.cardImageSourceName, chase.cardImageSourceCardId)
+      ?? getCardCatalogRecordByReference(chase.cardImageSourceName, chase.cardImageSourceCardId)
+    : null;
+  switch (anchor.kind) {
+    case 'SUBJECT': return profileSubjectTokens(chase.cardName).includes(anchor.key);
+    case 'EVOLUTION_FAMILY': {
+      const members = collectorFamilyMembers(anchor.key);
+      return members.length > 0 && profileSubjectTokens(chaseReferenceText(chase)).some((subject) => members.includes(subject));
+    }
+    case 'SET_RELATIONSHIP': {
+      const setLabel = setHintForPrinting(text) ?? chaseSpecialSetLabel(chase);
+      return (!!setLabel && normalize(setLabel) === anchor.key) || setFamilyKeyFromText(text) === anchor.key;
+    }
+    case 'PROMO_PREFERENCE': return /\bpromo|black star|mcdonald'?s|special delivery|league promo|nintendo promo\b/i.test(text);
+    case 'REGIONAL_PRINT': return cardLanguageFromText(text) === 'JAPANESE';
+    case 'ART_STYLE': return !!record?.illustrator && normalize(record.illustrator) === anchor.key;
+    case 'FORMAT': return formatKeyFromText(text) === anchor.key;
+    case 'ERA': return eraLabelsFromText(text).some((value) => normalize(value) === anchor.key);
+  }
+}
+
+function recommendationEvidenceForAnchors(
+  candidate: DiscoveryCandidate,
+  anchors: DiscoveryRecommendationAnchor[],
+  collectorProfile: WeeklyCollectorAnchorProfile
+): DiscoveryRecommendationEvidence | undefined {
+  const sourcePriority: Record<DiscoveryRecommendationEvidenceSource, number> = {
+    PICKUP: 4,
+    POSITIVE_FEEDBACK: 3,
+    WATCHLIST: 2,
+    INFERRED_PATTERN: 1
+  };
+  const signals: DiscoveryRecommendationEvidence['signals'] = anchors.flatMap((anchor) => {
+    const distinct = new Map<string, Chase>();
+    for (const chase of collectorProfile.positiveChases) {
+      if (!chaseSupportsRecommendationAnchor(chase, anchor)) continue;
+      const identity = recommendationEvidenceIdentity(chase);
+      if (!identity) continue;
+      const existing = distinct.get(identity);
+      if (!existing || sourcePriority[recommendationEvidenceSource(chase)] > sourcePriority[recommendationEvidenceSource(existing)]) {
+        distinct.set(identity, chase);
+      }
+    }
+    const supporting = [...distinct.values()];
+    if (supporting.length === 0) return [];
+    const source = supporting
+      .map(recommendationEvidenceSource)
+      .sort((left, right) => sourcePriority[right] - sourcePriority[left])[0]!;
+    return [{
+      kind: anchor.kind,
+      key: anchor.key,
+      label: anchor.label,
+      cardCharacteristic: anchor.kind === 'ART_STYLE'
+        ? candidate.catalogFacts?.illustrator ?? anchor.label
+        : anchor.kind === 'REGIONAL_PRINT'
+          ? 'Japanese printing'
+          : anchor.label,
+      source,
+      distinctCardCount: supporting.length
+    }];
+  });
+  return signals.length > 0 ? { version: 1, signals } : undefined;
+}
+
+function explanationAnchorPriority(signal: DiscoveryRecommendationEvidence['signals'][number]): number {
+  if (signal.kind === 'ART_STYLE' && signal.key !== 'art-style') return 100;
+  if (signal.kind === 'PROMO_PREFERENCE') return 90;
+  if (signal.kind === 'ERA' && /e[- ]?reader/i.test(signal.label)) return 88;
+  if (signal.kind === 'EVOLUTION_FAMILY') return 85;
+  if (signal.kind === 'SUBJECT') return 80;
+  if (signal.kind === 'SET_RELATIONSHIP') return 75;
+  if (signal.kind === 'FORMAT') return 70;
+  if (signal.kind === 'REGIONAL_PRINT') return 65;
+  return 60;
+}
+
+function collectorEvidenceClause(
+  signal: DiscoveryRecommendationEvidence['signals'][number],
+  anchor: DiscoveryRecommendationAnchor,
+  phrase: string
+): string {
+  if (signal.source === 'PICKUP') {
+    return anchor.kind === 'SUBJECT' || anchor.kind === 'ART_STYLE'
+      ? `You've collected ${phrase}`
+      : `Your collection includes ${phrase}`;
+  }
+  if (signal.source === 'WATCHLIST') return `Your Watchlist includes ${phrase}`;
+  if (signal.source === 'POSITIVE_FEEDBACK') return `You've shown an interest in ${phrase}`;
+  return signal.distinctCardCount >= 2 ? `Your collecting pattern points to ${phrase}` : `Your profile includes ${phrase}`;
+}
+
 function collectorProfileAnchoredWhy(
   candidate: DiscoveryCandidate,
   role: NonNullable<DiscoverySuggestion['discoveryRole']>,
-  anchors: DiscoveryRecommendationAnchor[]
+  anchors: DiscoveryRecommendationAnchor[],
+  evidence?: DiscoveryRecommendationEvidence
 ): string {
   const canonicalName = candidateCanonicalReference(candidate)?.canonicalName?.trim();
   const subject = canonicalName
@@ -8416,7 +8567,9 @@ function collectorProfileAnchoredWhy(
     : sourceCardSubject(candidate, sourceSetLabel(candidate));
   const setLabel = sourceSetLabel(candidate);
   const printing = setLabel && !normalize(subject).includes(normalize(setLabel)) ? `${subject} from ${setLabel}` : subject;
-  const [anchor, supportingAnchor] = anchors;
+  const evidenceSignals = [...(evidence?.signals ?? [])].sort((left, right) => explanationAnchorPriority(right) - explanationAnchorPriority(left));
+  const evidenceAnchors = evidenceSignals.map((signal) => anchors.find((anchor) => anchor.kind === signal.kind && anchor.key === signal.key)).filter((anchor): anchor is DiscoveryRecommendationAnchor => !!anchor);
+  const [anchor, supportingAnchor] = evidenceAnchors.length > 0 ? evidenceAnchors : anchors;
   const anchorPhrase = (value: DiscoveryRecommendationAnchor): string => value.kind === 'SUBJECT'
     ? `${value.label} cards`
     : value.kind === 'EVOLUTION_FAMILY'
@@ -8428,35 +8581,43 @@ function collectorProfileAnchoredWhy(
           : value.kind === 'FORMAT'
             ? `${value.label} cards`
             : value.kind === 'ERA'
-              ? `${value.label} era cards`
+              ? /\bera$/i.test(value.label) ? `${value.label} cards` : `${value.label} era cards`
               : value.label;
-  const rationale = !anchor
-    ? `${printing} is a broader exploration pick that adds a distinct printing to your Weekly Shelf.`
-    : anchor.kind === 'SUBJECT'
-      ? `${printing} follows your interest in ${anchorPhrase(anchor)} through a different printing.`
-      : anchor.kind === 'EVOLUTION_FAMILY'
-        ? `${printing} extends ${anchorPhrase(anchor)} already represented in your collection.`
-        : anchor.kind === 'SET_RELATIONSHIP'
-          ? `${printing} continues your interest in ${anchorPhrase(anchor)} with a different card.`
-          : anchor.kind === 'PROMO_PREFERENCE'
-            ? `${printing} reflects your interest in ${anchor.label}.`
-            : anchor.kind === 'REGIONAL_PRINT'
-              ? `${printing} follows your ${anchor.label} interest with an exact printing.`
-              : anchor.kind === 'ART_STYLE'
-                ? `${printing} connects to your ${anchor.label} artwork interest.`
-                : anchor.kind === 'FORMAT'
-                  ? `${printing} extends your ${anchor.label} format interest.`
-                  : `${anchor.label} is represented in your collection, so ${printing} works as a broader era exploration pick.`;
-  const supportingSentence = supportingAnchor
+  const primaryEvidence = evidenceSignals.find((signal) => signal.kind === anchor?.kind && signal.key === anchor?.key);
+  const supportingEvidence = evidenceSignals.find((signal) => signal.kind === supportingAnchor?.kind && signal.key === supportingAnchor?.key);
+  const supportedPair = primaryEvidence && supportingEvidence && primaryEvidence.source === supportingEvidence.source
+    ? `${collectorEvidenceClause(primaryEvidence, anchor!, anchorPhrase(anchor!))} and ${anchorPhrase(supportingAnchor!)}. ${printing} connects both.`
+    : undefined;
+  const rationale = supportedPair ?? (!anchor || !primaryEvidence
+    ? role === 'CONTROLLED_EXPLORATION'
+      ? `${printing} sits a little outside your usual collection and offers a distinct card to explore.`
+      : `${printing} stands out for its verified printing details and adds a different direction to explore.`
+    : primaryEvidence.source === 'PICKUP' && anchor.kind === 'ART_STYLE'
+      ? `You've collected other cards illustrated by ${anchor.label}. ${printing} shares the same artist.`
+      : primaryEvidence.source === 'WATCHLIST' && anchor.kind === 'ART_STYLE'
+        ? `Your Watchlist includes ${anchor.label} illustrations, and ${printing} shares the same artist.`
+        : anchor.kind === 'SUBJECT'
+          ? `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${printing} explores a different printing.`
+          : anchor.kind === 'EVOLUTION_FAMILY'
+            ? `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${printing} explores another part of that family.`
+            : anchor.kind === 'PROMO_PREFERENCE'
+              ? `${collectorEvidenceClause(primaryEvidence, anchor, anchor.label)}. ${printing} offers another special release to explore.`
+              : anchor.kind === 'REGIONAL_PRINT'
+                ? `${collectorEvidenceClause(primaryEvidence, anchor, 'Japanese printings')}. ${printing} continues that regional thread.`
+                : anchor.kind === 'ERA'
+                  ? `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${printing} offers another card from that era.`
+                  : `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${printing} is another verified match for that thread.`);
+  const supportingSentence = supportingAnchor && !supportedPair
     ? ` It also matches your interest in ${anchorPhrase(supportingAnchor)}.`
     : '';
   return normalizeCollectorFacingCopy(`${rationale || `${printing} fits your ${role.toLowerCase().replace(/_/g, ' ')} interests.`}${supportingSentence}`);
 }
 
-function collectorProfileSelectionRecommendation(candidate: DiscoveryCandidate): DiscoveryRecommendationProfile | null {
+function collectorProfileSelectionRecommendation(candidate: DiscoveryCandidate, collectorProfile: WeeklyCollectorAnchorProfile): DiscoveryRecommendationProfile | null {
   const role = candidate.weeklyDiscovery?.discoveryRole ?? candidate.suggestion.discoveryRole;
   if (!role) return null;
   const anchors = collectorProfileAnchors(candidate, candidate.weeklyDiscovery, role);
+  const recommendationEvidence = recommendationEvidenceForAnchors(candidate, anchors, collectorProfile);
   const anchor = anchors[0];
   const strength: DiscoveryRecommendationStrength = role === 'CORE_MATCH'
     ? 'DIRECT_PROFILE'
@@ -8480,7 +8641,8 @@ function collectorProfileSelectionRecommendation(candidate: DiscoveryCandidate):
     strength,
     anchors,
     primaryAnchor: anchor,
-    anchoredWhy: collectorProfileAnchoredWhy(candidate, role, anchors),
+    anchoredWhy: collectorProfileAnchoredWhy(candidate, role, anchors, recommendationEvidence),
+    recommendationEvidence,
     isEraOnlyExploratory: strength === 'EXPLORATORY' && hasOnlyEraSignal,
     eraSetFamilyKey: candidateEraSetFamilyKey(candidate)
   };
@@ -8492,7 +8654,7 @@ function recommendationProfileForSelection(
   selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): DiscoveryRecommendationProfile {
   if (selectionMode === 'COLLECTOR_PROFILE_V1') {
-    const collectorProfileRecommendation = collectorProfileSelectionRecommendation(candidate);
+    const collectorProfileRecommendation = collectorProfileSelectionRecommendation(candidate, collectorProfile);
     if (collectorProfileRecommendation) return collectorProfileRecommendation;
   }
   return recommendationProfileForCandidate(candidate, collectorProfile);
@@ -8503,6 +8665,7 @@ function candidateWithCollectorAnchoredRationale(
   collectorProfile: WeeklyCollectorAnchorProfile,
   selectionMode: WeeklyDiscoverySelectionMode = 'LEGACY'
 ): DiscoveryCandidate {
+  if (candidate.suggestion.recommendationEvidence?.signals.length) return candidate;
   if (!collectorProfile.hasSignals && selectionMode !== 'COLLECTOR_PROFILE_V1') return candidate;
   const recommendation = recommendationProfileForSelection(candidate, collectorProfile, selectionMode);
   const lane = currentLaneForRecommendation(candidate, recommendation);
@@ -8512,7 +8675,8 @@ function candidateWithCollectorAnchoredRationale(
     suggestion: {
       ...candidate.suggestion,
       lane,
-      why: recommendation.anchoredWhy
+      why: recommendation.anchoredWhy,
+      recommendationEvidence: recommendation.recommendationEvidence
     }
   };
 }
@@ -9400,7 +9564,11 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
             canonicalCardId: catalogRecord.sourceCardId,
             canonicalName: catalogRecord.name,
             setId: catalogRecord.setId,
-            setName: catalogRecord.translatedSetName ?? catalogRecord.setName,
+            setName: catalogRecord.translatedSetName
+              ?? catalogRecord.setName
+              ?? catalogRecord.series
+              ?? catalogRecord.setId
+              ?? catalogRecord.sourceCardId,
             cardNumber: catalogRecord.cardNumber ?? catalogRecord.sourceCardId,
             language: catalogRecord.language === 'ja' ? 'JAPANESE' : 'ENGLISH',
             imageUrl: catalogImageUrl,
@@ -9510,7 +9678,7 @@ function repairableScheduledReferenceUpdate(
   const repairedCanonicalId = candidate.suggestion.referenceSourceCardId?.trim() ?? canonicalImage?.sourceCardId?.trim();
   if (!repairedCanonicalId || (existingCanonicalId && existingCanonicalId !== repairedCanonicalId)) return null;
   if (!canonicalImage || canonicalImage.sourceKind !== 'CARD_REFERENCE') return null;
-  if (!verifyExactPrintingConsistency(candidate)) return null;
+  if (!verifyExactPrintingConsistency(candidate) || !metadataDisplayNumberMatchesExactPrinting(candidate)) return null;
 
   const nextSuggestion = {
     ...item.suggestion,
@@ -9712,16 +9880,22 @@ function materiallyImprovesExplanation(
 
 function supportedMetadataRationale(
   candidate: DiscoveryCandidate,
-  collectorProfile: WeeklyCollectorAnchorProfile,
-  rankingMode: WeeklyDiscoverySelectionMode,
   existingWhy: string
 ): { why: string; evidence: string } | null {
-  const recommendation = recommendationProfileForSelection(candidate, collectorProfile, rankingMode);
-  if (recommendation.anchors.length === 0) return null;
-  if (!materiallyImprovesExplanation(existingWhy, recommendation.anchoredWhy, candidate, recommendation.anchors)) return null;
+  const persistedEvidence = candidate.suggestion.recommendationEvidence;
+  if (!persistedEvidence?.signals.length) return null;
+  const role = candidate.suggestion.discoveryRole ?? candidate.weeklyDiscovery?.discoveryRole;
+  if (!role) return null;
+  const anchors = persistedEvidence.signals.map((signal): DiscoveryRecommendationAnchor => ({
+    kind: signal.kind,
+    key: signal.key,
+    label: signal.label
+  }));
+  const proposedWhy = collectorProfileAnchoredWhy(candidate, role, anchors, persistedEvidence);
+  if (!materiallyImprovesExplanation(existingWhy, proposedWhy, candidate, anchors)) return null;
   return {
-    why: recommendation.anchoredWhy,
-    evidence: `Verified collector anchors: ${recommendation.anchors.map((anchor) => `${anchor.kind}:${anchor.label}`).join(', ')}`
+    why: proposedWhy,
+    evidence: `Persisted collector evidence: ${persistedEvidence.signals.map((signal) => `${signal.kind}:${signal.cardCharacteristic}:${signal.source}:${signal.distinctCardCount}`).join(', ')}`
   };
 }
 
@@ -9730,8 +9904,8 @@ function scheduledWeeklyDropMetadataProposal(
   repairedCandidates: DiscoveryCandidate[],
   profile: { tasteProfileChases: Chase[]; rankingMode: WeeklyDiscoverySelectionMode }
 ): { items: ScheduledDiscoveryDropItem[]; reports: ScheduledDiscoveryMetadataRefreshItem[] } {
+  void profile;
   const repairedByPosition = new Map(repairedCandidates.map((candidate) => [candidate.selectionIndex ?? -1, candidate]));
-  const collectorProfile = buildWeeklyCollectorAnchorProfile(profile.tasteProfileChases);
   const reports: ScheduledDiscoveryMetadataRefreshItem[] = [];
   const items = existing.items.map((item) => {
     const candidate = repairedByPosition.get(item.position - 1);
@@ -9746,11 +9920,15 @@ function scheduledWeeklyDropMetadataProposal(
     const repairedItem = repairableScheduledReferenceUpdate(item, candidate) ?? item;
     const rationaleInput = {
       ...candidate,
-      suggestion: repairedItem.suggestion
+      suggestion: {
+        ...candidate.suggestion,
+        ...repairedItem.suggestion,
+        canonicalReference: candidate.suggestion.canonicalReference ?? repairedItem.suggestion.canonicalReference
+      }
     };
-    const rationale = supportedMetadataRationale(rationaleInput, collectorProfile, profile.rankingMode, item.suggestion.why);
+    const rationale = supportedMetadataRationale(rationaleInput, item.suggestion.why);
     const rationaleCandidate = rationale
-      ? candidateWithCollectorAnchoredRationale(rationaleInput, collectorProfile, profile.rankingMode)
+      ? { ...rationaleInput, suggestion: { ...rationaleInput.suggestion, why: rationale.why } }
       : rationaleInput;
     let proposedSuggestion = {
       ...canonicalScheduledSuggestion(rationaleCandidate),
@@ -9760,7 +9938,9 @@ function scheduledWeeklyDropMetadataProposal(
     const proposedCanonicalId = proposedSuggestion.referenceSourceCardId?.trim();
     const existingCanonicalIdentity = metadataCanonicalIdentity(item.suggestion);
     const proposedCanonicalIdentity = metadataCanonicalIdentity(proposedSuggestion);
-    if (proposedCanonicalId !== canonicalId || proposedCanonicalIdentity !== existingCanonicalIdentity) {
+    const canonicalIdentityPreserved = proposedCanonicalId === canonicalId
+      && (!item.suggestion.canonicalReference || proposedCanonicalIdentity === existingCanonicalIdentity);
+    if (!canonicalIdentityPreserved) {
       const report = unresolvedMetadataReport(item, 'Proposed metadata did not preserve exact-printing identity');
       report.canonicalIdentityPreserved = false;
       report.fields.canonicalIdentity = metadataFieldResult(existingCanonicalIdentity, proposedCanonicalIdentity, 'REJECTED', report.reason!);
@@ -9772,7 +9952,8 @@ function scheduledWeeklyDropMetadataProposal(
     const imageProposalAttempted = !!candidateImage?.url && candidateImage.url !== item.imageUrl;
     const replacementImageVerified = imageProposalAttempted
       && repairedItem !== item
-      && verifyExactPrintingConsistency(candidate);
+      && verifyExactPrintingConsistency(candidate)
+      && metadataDisplayNumberMatchesExactPrinting(candidate);
     const existingImageVerified = !!item.imageUrl
       && candidateImage?.url === item.imageUrl
       && isStructurallyValidTrustedCardImageUrl(
@@ -10330,6 +10511,14 @@ function exactPrintingComparison(candidate: DiscoveryCandidate): ExactPrintingCo
 
 function verifyExactPrintingConsistency(candidate: DiscoveryCandidate): boolean {
   return exactPrintingComparison(candidate).ok;
+}
+
+function metadataDisplayNumberMatchesExactPrinting(candidate: DiscoveryCandidate): boolean {
+  const resolvedNumber = exactPrintingCardNumberIdentity(resolvedReferenceCardNumber(candidate));
+  if (!resolvedNumber) return true;
+  const displayMatch = /(?:^|\s)#?([A-Z]{0,6}\d{1,4})(?:\/\d{1,4})?(?:\s+(?:Japanese|English))?$/i.exec(candidate.suggestion.name.trim());
+  if (!displayMatch) return true;
+  return exactPrintingCardNumberIdentity(displayMatch[1]) === resolvedNumber;
 }
 
 function scheduledMarketStatusFromCandidate(candidate: DiscoveryCandidate): DiscoveryScheduledMarketStatus {
