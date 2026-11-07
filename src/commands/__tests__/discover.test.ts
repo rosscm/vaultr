@@ -11430,6 +11430,71 @@ describe('candidatesFromDiscoveryMarketCache', () => {
     expect(preview.items[0]?.market).toEqual(item.market);
   });
 
+  it('uses natural family language, preserves printing qualifiers, and rejects unsupported art-profile wording', () => {
+    const examples = [
+      { name: 'Dark Vaporeon Team Rocket 45', canonicalName: 'Dark Vaporeon', family: 'EEVEE_FAMILY', expected: 'Eevee family' },
+      { name: 'Wartortle Expedition Base Set 58', canonicalName: 'Wartortle', family: 'SQUIRTLE_LINE', expected: 'Squirtle family' },
+      { name: 'Raichu Fossil 14', canonicalName: 'Raichu', family: 'PIKACHU_LINE', expected: 'Pikachu family' }
+    ].map((example, index) => {
+      const candidate = collectorProfileCandidate(example.name, `family-${index}`, index, 'ADJACENT_DISCOVERY', {
+        evolutionFamilies: [example.family]
+      });
+      candidate.weeklyDiscovery!.features.subjects = [];
+      candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.subjectAffinity = 0;
+      candidate.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.familyAffinity = 0.9;
+      candidate.weeklyDiscovery!.canonicalReference!.canonicalName = example.canonicalName;
+      candidate.suggestion = {
+        ...candidate.suggestion,
+        canonicalReference: candidate.weeklyDiscovery!.canonicalReference,
+        discoveryRole: candidate.weeklyDiscovery!.discoveryRole,
+        rankExplanation: candidate.weeklyDiscovery!.rankExplanation
+      };
+      return { ...example, candidate };
+    });
+    const salamence = collectorProfileCandidate('Salamence ex Journey Together 187', 'sal-ex-187', 3, 'CORE_MATCH', { subjects: ['Salamence'] });
+    salamence.weeklyDiscovery!.canonicalReference!.canonicalName = 'Salamence ex';
+    salamence.suggestion = {
+      ...salamence.suggestion,
+      canonicalReference: salamence.weeklyDiscovery!.canonicalReference,
+      discoveryRole: salamence.weeklyDiscovery!.discoveryRole,
+      rankExplanation: salamence.weeklyDiscovery!.rankExplanation
+    };
+    const umbreon = collectorProfileCandidate('Umbreon Neo Discovery 13', 'neo2-13', 4, 'ADJACENT_DISCOVERY', { formats: ['special-art'] });
+    umbreon.weeklyDiscovery!.features.subjects = [];
+    umbreon.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.subjectAffinity = 0;
+    umbreon.weeklyDiscovery!.rankExplanation.scoreComponents.personalRelevance.formatAffinity = 0.9;
+    umbreon.weeklyDiscovery!.canonicalReference!.canonicalName = 'Umbreon';
+    umbreon.suggestion = {
+      ...umbreon.suggestion,
+      canonicalReference: umbreon.weeklyDiscovery!.canonicalReference,
+      discoveryRole: umbreon.weeklyDiscovery!.discoveryRole,
+      rankExplanation: umbreon.weeklyDiscovery!.rankExplanation
+    };
+    const candidates = [...examples.map((example) => example.candidate), salamence, umbreon];
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(candidates, 'CAD').map((item, index) => ({
+      ...item,
+      suggestion: { ...item.suggestion, why: index === 4 ? 'Umbreon is already a concise collector pick.' : 'A broad card to explore.' }
+    }));
+    const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(
+      { items } as ScheduledDiscoveryDrop,
+      candidates,
+      { tasteProfileChases: [chase('Eevee Skyridge', 0), chase('Squirtle Expedition', 1), chase('Salamence ex', 2)], rankingMode: 'COLLECTOR_PROFILE_V1' }
+    );
+
+    for (const [index, example] of examples.entries()) {
+      const why = preview.items[index]?.suggestion.why ?? '';
+      expect(why).toContain(example.canonicalName);
+      expect(why).toContain(example.expected);
+      expect(why).not.toMatch(/family family|EEVEE_FAMILY|SQUIRTLE_LINE/);
+      expect(why.length).toBeLessThan(180);
+      expect(preview.reports[index]?.fields.explanation.outcome).toBe('IMPROVED');
+    }
+    expect(preview.items[3]?.suggestion.why).toContain('Salamence ex');
+    expect(preview.items[3]?.suggestion.why).not.toContain('Special Art');
+    expect(preview.items[4]?.suggestion.why).toBe(items[4]?.suggestion.why);
+    expect(preview.reports[4]?.fields.explanation.outcome).toBe('PRESERVED');
+  });
+
   it('adds a readable English name to a verified Japanese printing while preserving its native identity', () => {
     const sourceName = 'TCGdex Japanese (SV2a)';
     const canonicalId = 'sv2a-151';
@@ -11477,6 +11542,56 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         image: { outcome: 'PRESERVED' }
       }
     });
+  });
+
+  it('recovers only exact trusted Japanese names and preserves conflicting or unmapped identities', () => {
+    const dbPath = resolve(mkdtempSync(`${tmpdir()}/keepseek-metadata-catalog-`), 'card-catalog.db');
+    process.env.CARD_CATALOG_PATH = dbPath;
+    replaceCardCatalogSourceRecords('TCGDEX', [
+      testCatalogRecord({
+        source: 'TCGDEX', language: 'ja', sourceCardId: 'M1S-091', name: 'ミツルの思いやり', setName: 'メガシンフォニア', translatedSetName: 'Mega Symphonia', cardNumber: '091',
+        imageUrl: 'https://assets.tcgdex.net/ja/M/M1S/091/high.png'
+      }),
+      testCatalogRecord({
+        source: 'TCGDEX', language: 'ja', sourceCardId: 'SV-P-120', name: 'ピカチュウ', setName: 'スカーレット&バイオレット プロモカード', cardNumber: '120',
+        imageUrl: 'https://assets.tcgdex.net/ja/SV/SV-P/120/high.png'
+      }),
+      testCatalogRecord({
+        source: 'TCGDEX', language: 'en', sourceCardId: 'svp-048', name: 'Squirtle', setName: 'SVP Black Star Promos', cardNumber: '048',
+        imageUrl: 'https://assets.tcgdex.net/en/Scarlet%20%26%20Violet/SVP%20Black%20Star%20Promos/048/high.png'
+      }),
+      testCatalogRecord({
+        source: 'TCGDEX', language: 'ja', sourceCardId: 'SV-P-048', name: 'ミライドン', setName: 'スカーレット&バイオレット プロモカード', cardNumber: '048',
+        imageUrl: 'https://assets.tcgdex.net/ja/SV/SV-P/048/high.png'
+      })
+    ], dbPath);
+    const stored = [
+      publishableSourceCandidate('ミツルの思いやり M1S 091 Japanese', 'M1S-091', 'TCGdex Japanese (M1S)', 0),
+      publishableSourceCandidate('ピカチュウ SV-P 120 Japanese', 'SV-P-120', 'TCGdex Japanese (SV-P)', 1),
+      publishableSourceCandidate('ミライドン SV-P 048 Japanese', 'svp-048', 'TCGdex Japanese (SV-P)', 2)
+    ];
+    stored[0]!.image = { ...stored[0]!.image!, url: 'https://assets.tcgdex.net/ja/M/M1S/091/high.png' };
+    stored[1]!.image = { ...stored[1]!.image!, url: 'https://assets.tcgdex.net/ja/SV/SV-P/120/high.png' };
+    stored[2]!.image = { ...stored[2]!.image!, url: 'https://assets.tcgdex.net/ja/SV/SV-P/048/high.png' };
+    stored.forEach((candidate) => { candidate.suggestion.referenceImageUrl = candidate.image!.url; });
+    const items = __discoveryPersistenceTestHooks.scheduledDropItemsFromCandidates(stored, 'CAD');
+    const existing = { items } as ScheduledDiscoveryDrop;
+    const reconstructed = __discoveryPersistenceTestHooks.candidatesFromScheduledDiscoveryDrop(existing);
+    const preview = __discoveryPersistenceTestHooks.scheduledWeeklyDropMetadataProposal(existing, reconstructed, {
+      tasteProfileChases: [], rankingMode: 'LEGACY'
+    });
+
+    expect(reconstructed[0]?.suggestion.canonicalReference).toMatchObject({ sourceCardId: 'M1S-091', language: 'JAPANESE' });
+    expect(preview.items[0]?.suggestion.name).toBe(items[0]?.suggestion.name);
+    expect(preview.reports[0]?.fields.displayName.evidence).toContain('no established English name mapping');
+    expect(preview.items[1]?.suggestion.name).toContain('Pikachu');
+    expect(preview.items[1]?.suggestion.nativeName).toBe('ピカチュウ');
+    expect(preview.items[1]?.suggestion.referenceSourceCardId).toBe('SV-P-120');
+    expect(preview.reports[1]).toMatchObject({ exactPrintingImageVerified: true, imageChanged: false });
+    expect(reconstructed[2]?.suggestion.canonicalReference).toBeUndefined();
+    expect(preview.items[2]?.suggestion.name).toBe(items[2]?.suggestion.name);
+    expect(preview.reports[2]?.fields.displayName.evidence).toContain('do not resolve to the same Japanese printing');
+    expect(preview.items[2]?.imageUrl).toBe(items[2]?.imageUrl);
   });
 
   it('reports and rejects artwork that conflicts with the requested exact printing', () => {

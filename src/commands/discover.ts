@@ -8354,14 +8354,34 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
   };
 }
 
-function collectorProfileAnchors(analysis: WeeklyDiscoveryCandidateAnalysis | undefined, role: NonNullable<DiscoverySuggestion['discoveryRole']>): DiscoveryRecommendationAnchor[] {
+function collectorFacingFamilyLabel(value: string): string {
+  const base = value.replace(/[_-]+/g, ' ').replace(/\b(?:family|line)\b/gi, '').replace(/\s+/g, ' ').trim();
+  return `${titleCase(base)} family`;
+}
+
+function candidateSupportsCollectorAnchor(candidate: DiscoveryCandidate, anchor: DiscoveryRecommendationAnchor): boolean {
+  if (anchor.kind !== 'ART_STYLE' && anchor.kind !== 'FORMAT') return true;
+  const actualPrintingText = [
+    candidateCanonicalReference(candidate)?.canonicalName,
+    candidateCanonicalReference(candidate)?.setName,
+    candidate.catalogFacts?.rarity,
+    candidate.catalogFacts?.illustrator,
+    candidate.catalogFacts?.releaseType,
+    candidate.catalogFacts?.promoContext
+  ].filter(Boolean).join(' ');
+  const genericArtOrFormat = /\b(?:special[ -]?art|premium|illustration|art rare|sir|sar|trainer gallery|galarian gallery)\b/i.test(anchor.label);
+  if (!genericArtOrFormat) return true;
+  return /\b(?:special illustration|illustration rare|art rare|sir|sar|alt(?:ernate)? art|full art|trainer gallery|galarian gallery)\b/i.test(actualPrintingText);
+}
+
+function collectorProfileAnchors(candidate: DiscoveryCandidate, analysis: WeeklyDiscoveryCandidateAnalysis | undefined, role: NonNullable<DiscoverySuggestion['discoveryRole']>): DiscoveryRecommendationAnchor[] {
   const features = analysis?.features;
   const relevance = analysis?.rankExplanation.scoreComponents.personalRelevance;
   const anchors: Array<DiscoveryRecommendationAnchor | undefined> = [];
   const subject = features?.subjects?.[0];
   if (subject && (relevance?.subjectAffinity ?? 0) > 0) anchors.push({ kind: 'SUBJECT', key: normalize(subject), label: titleCase(subject) });
   const family = features?.evolutionFamilies?.[0];
-  if (family && (relevance?.familyAffinity ?? 0) > 0) anchors.push({ kind: 'EVOLUTION_FAMILY', key: normalize(family), label: titleCase(family.replace(/[_-]+/g, ' ')) });
+  if (family && (relevance?.familyAffinity ?? 0) > 0) anchors.push({ kind: 'EVOLUTION_FAMILY', key: normalize(family), label: collectorFacingFamilyLabel(family) });
   const setFamily = features?.setFamilies?.[0];
   const set = features?.sets?.[0];
   if (setFamily && (relevance?.setAffinity ?? 0) > 0) anchors.push({ kind: 'SET_RELATIONSHIP', key: normalize(setFamily), label: titleCase(setFamily) });
@@ -8377,6 +8397,7 @@ function collectorProfileAnchors(analysis: WeeklyDiscoveryCandidateAnalysis | un
   const era = features?.eras?.[0];
   if (era && (relevance?.eraAffinity ?? 0) > 0) anchors.push({ kind: 'ERA', key: normalize(era), label: titleCase(era) });
   return anchors.filter((anchor): anchor is DiscoveryRecommendationAnchor => !!anchor)
+    .filter((anchor) => candidateSupportsCollectorAnchor(candidate, anchor))
     .filter((anchor, index, values) => values.findIndex((value) => value.kind === anchor.kind && value.key === anchor.key) === index);
 }
 
@@ -8389,17 +8410,17 @@ function collectorProfileAnchoredWhy(
   role: NonNullable<DiscoverySuggestion['discoveryRole']>,
   anchors: DiscoveryRecommendationAnchor[]
 ): string {
-  const structuredSubjects = candidate.weeklyDiscovery?.features?.subjects?.filter((subject) => subject.trim());
-  const subject = structuredSubjects?.length
-    ? structuredSubjects.join(' & ')
+  const canonicalName = candidateCanonicalReference(candidate)?.canonicalName?.trim();
+  const subject = canonicalName
+    ? readableCatalogSubject(canonicalName) ?? canonicalName
     : sourceCardSubject(candidate, sourceSetLabel(candidate));
   const setLabel = sourceSetLabel(candidate);
-  const printing = setLabel ? `${subject} from ${setLabel}` : subject;
+  const printing = setLabel && !normalize(subject).includes(normalize(setLabel)) ? `${subject} from ${setLabel}` : subject;
   const [anchor, supportingAnchor] = anchors;
   const anchorPhrase = (value: DiscoveryRecommendationAnchor): string => value.kind === 'SUBJECT'
     ? `${value.label} cards`
     : value.kind === 'EVOLUTION_FAMILY'
-      ? `the ${value.label} family`
+      ? `the ${value.label}`
       : value.kind === 'SET_RELATIONSHIP'
         ? `${value.label} releases`
         : value.kind === 'ART_STYLE'
@@ -8409,16 +8430,14 @@ function collectorProfileAnchoredWhy(
             : value.kind === 'ERA'
               ? `${value.label} era cards`
               : value.label;
-  const rationale = anchor && supportingAnchor
-    ? `${printing} connects your interest in ${anchorPhrase(anchor)} with ${anchorPhrase(supportingAnchor)}, giving this exact printing more than one reason to fit your collection.`
-    : !anchor
+  const rationale = !anchor
     ? `${printing} is a broader exploration pick that adds a distinct printing to your Weekly Shelf.`
     : anchor.kind === 'SUBJECT'
-      ? `${printing} follows your interest in ${anchor.label}, while adding a different release angle.`
+      ? `${printing} follows your interest in ${anchorPhrase(anchor)} through a different printing.`
       : anchor.kind === 'EVOLUTION_FAMILY'
-        ? `${printing} extends the ${anchor.label} family already represented in your collection with a different print.`
+        ? `${printing} extends ${anchorPhrase(anchor)} already represented in your collection.`
         : anchor.kind === 'SET_RELATIONSHIP'
-          ? `${printing} continues your ${anchor.label} release thread with a different collector target.`
+          ? `${printing} continues your interest in ${anchorPhrase(anchor)} with a different card.`
           : anchor.kind === 'PROMO_PREFERENCE'
             ? `${printing} reflects your interest in ${anchor.label}.`
             : anchor.kind === 'REGIONAL_PRINT'
@@ -8428,13 +8447,16 @@ function collectorProfileAnchoredWhy(
                 : anchor.kind === 'FORMAT'
                   ? `${printing} extends your ${anchor.label} format interest.`
                   : `${anchor.label} is represented in your collection, so ${printing} works as a broader era exploration pick.`;
-  return normalizeCollectorFacingCopy(rationale || `${printing} fits your ${role.toLowerCase().replace(/_/g, ' ')} interests.`);
+  const supportingSentence = supportingAnchor
+    ? ` It also matches your interest in ${anchorPhrase(supportingAnchor)}.`
+    : '';
+  return normalizeCollectorFacingCopy(`${rationale || `${printing} fits your ${role.toLowerCase().replace(/_/g, ' ')} interests.`}${supportingSentence}`);
 }
 
 function collectorProfileSelectionRecommendation(candidate: DiscoveryCandidate): DiscoveryRecommendationProfile | null {
   const role = candidate.weeklyDiscovery?.discoveryRole ?? candidate.suggestion.discoveryRole;
   if (!role) return null;
-  const anchors = collectorProfileAnchors(candidate.weeklyDiscovery, role);
+  const anchors = collectorProfileAnchors(candidate, candidate.weeklyDiscovery, role);
   const anchor = anchors[0];
   const strength: DiscoveryRecommendationStrength = role === 'CORE_MATCH'
     ? 'DIRECT_PROFILE'
@@ -9336,6 +9358,25 @@ function listingFromScheduledDiscoveryDropItem(item: ScheduledDiscoveryDrop['ite
   };
 }
 
+function trustedCatalogRecordForScheduledItem(item: ScheduledDiscoveryDropItem) {
+  const sourceName = item.suggestion.referenceSourceName ?? item.imageSourceName ?? '';
+  const sourceCardId = item.suggestion.referenceSourceCardId?.trim();
+  if (!sourceCardId) return null;
+  const source = /^TCGdex\b/i.test(sourceName)
+    ? 'TCGDEX'
+    : /^(?:Pokemon TCG|Pokémon TCG)\b/i.test(sourceName)
+      ? 'POKEMONTCG'
+      : /^(?:KeepSeek|Vaultr) Curated\b/i.test(sourceName)
+        ? 'CURATED'
+        : undefined;
+  if (!source) return null;
+  const record = getCardCatalogRecordBySourceCardId(source, sourceCardId);
+  if (!record) return null;
+  if (/^TCGdex Japanese\b/i.test(sourceName) && record.language !== 'ja') return null;
+  if (/^TCGdex(?! Japanese)\b/i.test(sourceName) && record.language !== 'en') return null;
+  return record;
+}
+
 function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): DiscoveryCandidate[] {
   const scheduledImageForItem = (item: ScheduledDiscoveryDrop['items'][number]): DiscoveryCardImage | undefined => {
     if (!item.imageUrl || !item.imageSourceName || !item.imageSourceKind) return undefined;
@@ -9348,8 +9389,27 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
     });
   };
   return drop.items.map((item) => {
+    const catalogRecord = item.suggestion.canonicalReference ? null : trustedCatalogRecordForScheduledItem(item);
+    const catalogImageUrl = catalogRecord?.imageUrl ?? item.imageUrl ?? item.suggestion.referenceImageUrl;
+    const suggestion: DiscoverySuggestion = catalogRecord && catalogImageUrl
+      ? {
+          ...item.suggestion,
+          canonicalReference: {
+            provider: catalogRecord.source,
+            sourceCardId: catalogRecord.sourceCardId,
+            canonicalCardId: catalogRecord.sourceCardId,
+            canonicalName: catalogRecord.name,
+            setId: catalogRecord.setId,
+            setName: catalogRecord.translatedSetName ?? catalogRecord.setName,
+            cardNumber: catalogRecord.cardNumber ?? catalogRecord.sourceCardId,
+            language: catalogRecord.language === 'ja' ? 'JAPANESE' : 'ENGLISH',
+            imageUrl: catalogImageUrl,
+            imageSourceKind: 'CARD_REFERENCE'
+          }
+        }
+      : item.suggestion;
     const candidate: DiscoveryCandidate = {
-      suggestion: item.suggestion,
+      suggestion,
       selectionIndex: item.position - 1,
       listing: listingFromScheduledDiscoveryDropItem(item),
       image: scheduledImageForItem(item),
@@ -9358,19 +9418,41 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
       typicalRawSoldTotal: item.market.soldTotal,
       soldSampleSize: item.market.soldSampleSize,
       displayCurrency: item.market.currency,
-      sourceStatus: sourceStatusFromScheduledMarketStatus(item.market.status)
+      sourceStatus: sourceStatusFromScheduledMarketStatus(item.market.status),
+      catalogFacts: catalogRecord ? {
+        source: catalogRecord.source,
+        sourceCardId: catalogRecord.sourceCardId,
+        canonicalName: catalogRecord.name,
+        setId: catalogRecord.setId,
+        setName: catalogRecord.setName,
+        translatedSetName: catalogRecord.translatedSetName,
+        cardNumber: catalogRecord.cardNumber,
+        printedTotal: catalogRecord.printedTotal,
+        language: catalogRecord.language,
+        rarity: catalogRecord.rarity,
+        illustrator: catalogRecord.illustrator,
+        isPromo: catalogRecord.isPromo,
+        promoContext: catalogRecord.promoContext,
+        releaseType: catalogRecord.releaseType,
+        releaseEvent: catalogRecord.releaseEvent,
+        releaseYear: catalogRecord.releaseYear,
+        series: catalogRecord.series,
+        verificationStatus: catalogRecord.verificationStatus,
+        imageUrl: catalogRecord.imageUrl,
+        imageSourceKind: catalogRecord.imageUrl ? 'CARD_REFERENCE' : undefined
+      } : undefined
     };
-    const role = item.suggestion.discoveryRole;
-    const rankExplanation = item.suggestion.rankExplanation;
+    const role = suggestion.discoveryRole;
+    const rankExplanation = suggestion.rankExplanation;
     if (role && rankExplanation) {
       candidate.weeklyDiscovery = {
-        canonicalReference: item.suggestion.canonicalReference,
+        canonicalReference: suggestion.canonicalReference,
         features: extractCollectorProfileDiscoveryFeatures(candidate),
-        generationStrategies: item.suggestion.generationStrategies ?? [],
-        generationReasons: item.suggestion.generationReasons ?? [],
+        generationStrategies: suggestion.generationStrategies ?? [],
+        generationReasons: suggestion.generationReasons ?? [],
         discoveryRole: role,
         rankExplanation,
-        stableTieBreaker: item.suggestion.referenceSourceCardId ?? item.suggestion.name
+        stableTieBreaker: suggestion.referenceSourceCardId ?? suggestion.name
       };
     }
     return candidate;
@@ -9598,13 +9680,45 @@ function unresolvedMetadataReport(item: ScheduledDiscoveryDropItem, reason: stri
   };
 }
 
+function explanationQualityScore(value: string, candidate: DiscoveryCandidate, anchors: DiscoveryRecommendationAnchor[]): number {
+  const normalizedValue = normalize(value);
+  const canonicalName = candidateCanonicalReference(candidate)?.canonicalName ?? candidate.suggestion.name;
+  const canonicalTokens = normalize(canonicalName).split(/\s+/).filter((token) => token.length > 2 && !/^(?:pokemon|card)$/.test(token));
+  const printingQualifiers = canonicalTokens.filter((token) => /^(?:dark|shining|ex|gx|vmax|vstar)$/.test(token));
+  let score = 0;
+  if (canonicalTokens.some((token) => normalizedValue.includes(token))) score += 2;
+  score += printingQualifiers.filter((token) => normalizedValue.includes(token)).length * 2;
+  if (/\b(?:your|collection|collector|vault|interest)\b/.test(normalizedValue)) score += 2;
+  if (anchors.some((anchor) => normalize(anchor.label).split(/\s+/).some((token) => token.length > 3 && normalizedValue.includes(token)))) score += 1;
+  if (/\b(?:broad(?:er)? exploration|different collector target|more than one reason|weekly shelf fresh)\b/.test(normalizedValue)) score -= 2;
+  if (/\b([a-z]+) family family\b/.test(normalizedValue) || /[_]/.test(value)) score -= 8;
+  if (value.length > 220) score -= 1;
+  return score;
+}
+
+function materiallyImprovesExplanation(
+  existing: string,
+  proposed: string,
+  candidate: DiscoveryCandidate,
+  anchors: DiscoveryRecommendationAnchor[]
+): boolean {
+  if (!proposed.trim() || normalize(proposed) === normalize(existing)) return false;
+  if (/\b([a-z]+) family family\b/i.test(proposed) || /\b(?:EEVEE FAMILY|SQUIRTLE LINE|PIKACHU LINE)\b/.test(proposed)) return false;
+  const canonicalName = candidateCanonicalReference(candidate)?.canonicalName ?? '';
+  const qualifiers = normalize(canonicalName).split(/\s+/).filter((token) => /^(?:dark|shining|ex|gx|vmax|vstar)$/.test(token));
+  if (qualifiers.some((qualifier) => !normalize(proposed).includes(qualifier))) return false;
+  return explanationQualityScore(proposed, candidate, anchors) > explanationQualityScore(existing, candidate, anchors);
+}
+
 function supportedMetadataRationale(
   candidate: DiscoveryCandidate,
   collectorProfile: WeeklyCollectorAnchorProfile,
-  rankingMode: WeeklyDiscoverySelectionMode
+  rankingMode: WeeklyDiscoverySelectionMode,
+  existingWhy: string
 ): { why: string; evidence: string } | null {
   const recommendation = recommendationProfileForSelection(candidate, collectorProfile, rankingMode);
   if (recommendation.anchors.length === 0) return null;
+  if (!materiallyImprovesExplanation(existingWhy, recommendation.anchoredWhy, candidate, recommendation.anchors)) return null;
   return {
     why: recommendation.anchoredWhy,
     evidence: `Verified collector anchors: ${recommendation.anchors.map((anchor) => `${anchor.kind}:${anchor.label}`).join(', ')}`
@@ -9634,7 +9748,7 @@ function scheduledWeeklyDropMetadataProposal(
       ...candidate,
       suggestion: repairedItem.suggestion
     };
-    const rationale = supportedMetadataRationale(rationaleInput, collectorProfile, profile.rankingMode);
+    const rationale = supportedMetadataRationale(rationaleInput, collectorProfile, profile.rankingMode, item.suggestion.why);
     const rationaleCandidate = rationale
       ? candidateWithCollectorAnchoredRationale(rationaleInput, collectorProfile, profile.rankingMode)
       : rationaleInput;
@@ -9656,10 +9770,19 @@ function scheduledWeeklyDropMetadataProposal(
 
     const candidateImage = scheduledShelfImageFromCandidate(candidate);
     const imageProposalAttempted = !!candidateImage?.url && candidateImage.url !== item.imageUrl;
-    const exactPrintingImageVerified = imageProposalAttempted
+    const replacementImageVerified = imageProposalAttempted
       && repairedItem !== item
       && verifyExactPrintingConsistency(candidate);
-    const imageChanged = imageProposalAttempted && exactPrintingImageVerified;
+    const existingImageVerified = !!item.imageUrl
+      && candidateImage?.url === item.imageUrl
+      && isStructurallyValidTrustedCardImageUrl(
+        item.imageUrl,
+        item.imageSourceName ?? item.suggestion.referenceSourceName,
+        candidateCanonicalReference(candidate)?.cardNumber
+      )
+      && verifyExactPrintingConsistency(candidate);
+    const exactPrintingImageVerified = replacementImageVerified || existingImageVerified;
+    const imageChanged = imageProposalAttempted && replacementImageVerified;
     if (!imageChanged) {
       proposedSuggestion = {
         ...proposedSuggestion,
@@ -9675,10 +9798,15 @@ function scheduledWeeklyDropMetadataProposal(
     const explanationChanged = proposed.suggestion.why !== item.suggestion.why;
     const improved = nameChanged || nativeNameChanged || explanationChanged || imageChanged;
     const hasRejectedField = imageProposalAttempted && !imageChanged;
+    const reference = candidateCanonicalReference(candidate);
     const nameEvidence = nameChanged
-      ? candidateCanonicalReference(candidate)?.language === 'JAPANESE'
+      ? reference?.language === 'JAPANESE'
         ? 'Trusted exact Japanese printing has an established English subject name; set, number, and language remain unchanged'
         : 'Trusted canonical identity removes duplicated or marketplace-style display text'
+      : reference?.language === 'JAPANESE' && !readableCatalogSubject(reference.canonicalName)
+        ? 'Preserved because the trusted exact Japanese record has no established English name mapping'
+        : /^TCGdex Japanese\b/i.test(item.suggestion.referenceSourceName ?? item.imageSourceName ?? '') && !reference
+          ? 'Preserved because the stored source label and exact catalog identity do not resolve to the same Japanese printing'
       : 'No demonstrably better trusted display name was available';
     const explanationEvidence = explanationChanged
       ? rationale!.evidence
@@ -9691,6 +9819,8 @@ function scheduledWeeklyDropMetadataProposal(
         : 'Rejected because exact-printing consistency could not be verified'
       : repairedItem.imageSourceName !== item.imageSourceName
         ? 'Source-label-only change rejected; artwork URL did not improve'
+        : existingImageVerified
+          ? 'Existing artwork is a structurally valid trusted reference for the exact printing'
         : 'Existing artwork retained; no verified URL improvement was found';
     const reportedImageUrl = imageProposalAttempted ? candidateImage?.url : proposed.imageUrl;
     const reportedImageSource = imageProposalAttempted ? candidateImage?.sourceName : proposed.imageSourceName;
