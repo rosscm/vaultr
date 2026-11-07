@@ -139,7 +139,8 @@ try {
   const preview = finalizeWeeklyDiscoveryShelf(input);
   ensureParentDir(options.out);
   writeFileSync(resolve(options.out), JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
+    candidateRepresentation: 'PREPARED_FINALIZATION_INPUT',
     capturedAt: new Date().toISOString(),
     userId: options.userId,
     input,
@@ -153,18 +154,21 @@ try {
   }, null, 2));
 
   if (options.sanitizeOut) {
+    const sanitizedInput = sanitizeCapture(input);
+    const sanitizedPreview = finalizeWeeklyDiscoveryShelf(sanitizedInput);
     ensureParentDir(options.sanitizeOut);
     writeFileSync(resolve(options.sanitizeOut), JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      candidateRepresentation: 'PREPARED_FINALIZATION_INPUT',
       capturedAt: 'SANITIZED',
       userId: 'user-synthetic-owner',
-      input: sanitizeCapture(input),
+      input: sanitizedInput,
       canonicalLookupEvidence,
       preview: {
-        fingerprint: preview.fingerprint,
-        selectedCanonicalIds: preview.selection.items.map((item) => item.suggestion.referenceSourceCardId),
-        roleDistribution: preview.roleDistribution,
-        structuralGate: preview.structuralGate
+        fingerprint: sanitizedPreview.fingerprint,
+        selectedCanonicalIds: sanitizedPreview.selection.items.map((item) => item.suggestion.referenceSourceCardId),
+        roleDistribution: sanitizedPreview.roleDistribution,
+        structuralGate: sanitizedPreview.structuralGate
       }
     }, null, 2));
   }

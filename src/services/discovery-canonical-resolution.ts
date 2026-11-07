@@ -125,6 +125,9 @@ type ResolveOptions = {
   replayEvidence?: CanonicalLookupEvidenceMap;
   abortSignal?: AbortSignal;
   deadlineAtMs?: number;
+  // Prepared finalization snapshots are already production-authoritative. Audit
+  // their bindings and replay evidence without reconstructing candidate fields.
+  preservePreparedCandidates?: boolean;
 };
 
 export function mergeCanonicalLookupEvidenceMaps(
@@ -764,10 +767,12 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
       const plan = candidatePlans[index]!;
       const candidate = plan.candidate;
       if (plan.trustedBinding) {
-        const rebindingStartedAt = Date.now();
-        resolved[index] = candidateFromAcceptedRecord(candidate, plan.trustedBinding);
-        canonicalResolutionRuntimeStats.successfulRebindings += 1;
-        addCanonicalResolutionRuntimeStat('rebindingMs', Date.now() - rebindingStartedAt);
+        if (!options.preservePreparedCandidates) {
+          const rebindingStartedAt = Date.now();
+          resolved[index] = candidateFromAcceptedRecord(candidate, plan.trustedBinding);
+          canonicalResolutionRuntimeStats.successfulRebindings += 1;
+          addCanonicalResolutionRuntimeStat('rebindingMs', Date.now() - rebindingStartedAt);
+        }
         continue;
       }
       if (!plan.needsResolution || !plan.lookupKey) {
@@ -810,8 +815,10 @@ export async function resolveWeeklyDiscoveryCanonicalReferences(
       const accepted = evidenceRecordByAcceptedSourceId(lookupEvidence);
       const rebindingStartedAt = Date.now();
       if (accepted && compatibilityReasons(discoveryPrintingIdentity(candidate.suggestion), accepted).length === 0) {
-        resolved[index] = candidateFromAcceptedRecord(candidate, accepted);
-        canonicalResolutionRuntimeStats.successfulRebindings += 1;
+        if (!options.preservePreparedCandidates) {
+          resolved[index] = candidateFromAcceptedRecord(candidate, accepted);
+          canonicalResolutionRuntimeStats.successfulRebindings += 1;
+        }
         acceptedResolutionCount += 1;
       } else {
         resolved[index] = candidate;

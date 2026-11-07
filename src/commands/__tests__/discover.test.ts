@@ -96,7 +96,11 @@ import {
   getWeeklyDiscoveryPreparedReserve,
   upsertWeeklyDiscoveryPreparedReserve
 } from '../../services/weekly-discovery-prepared-reserve.js';
-import { discoveryCanonicalLookupKey, type CanonicalLookupEvidenceMap } from '../../services/discovery-canonical-resolution.js';
+import {
+  discoveryCanonicalLookupKey,
+  resolveWeeklyDiscoveryCanonicalReferences,
+  type CanonicalLookupEvidenceMap
+} from '../../services/discovery-canonical-resolution.js';
 import type { Chase, Listing } from '../../types.js';
 import type { ScheduledDiscoveryDrop } from '../../services/scheduled-discovery-drops.js';
 import type { CollectorInterestProfile } from '../../services/collector-profile.js';
@@ -10295,6 +10299,86 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         expect(first.selection.marketIncompleteCount).toBeLessThanOrEqual(5);
       }
     }
+  });
+
+  it('replays a prepared capture without canonical rebinding changing selection or explanation evidence', async () => {
+    const reserve = publishableShelfCandidates(22, (candidate, index) => ({
+      ...candidate,
+      suggestion: {
+        ...candidate.suggestion,
+        name: `${candidate.suggestion.name} prepared display`,
+        recommendationEvidence: {
+          version: 1 as const,
+          signals: [{
+            kind: 'SUBJECT' as const,
+            key: `card ${index + 1}`,
+            label: `Card ${index + 1}`,
+            cardCharacteristic: `Card ${index + 1}`,
+            source: 'WATCHLIST' as const,
+            distinctCardCount: 1
+          }]
+        }
+      },
+      typicalRawSoldTotal: 90 + index,
+      soldSampleSize: 3,
+      displayCurrency: 'CAD' as const
+    }));
+    const input: WeeklyDiscoveryFinalizationInput = {
+      targetPeriod: '2026-W46',
+      frozenTime: '2026-11-10T12:00:00.000Z',
+      userCurrency: 'CAD',
+      exchangeRates: {},
+      activeVault: [],
+      collectorProfile: buildCollectorTasteProfile([], { budgetPreferenceCad: 30 }),
+      priorShelfHistory: [],
+      orderedCandidateReserve: reserve,
+      feedbackPreferences: { budgetPreferenceCad: 30 },
+      stableTieBreakerSeed: 'prepared-capture-replay'
+    };
+    const captured = __discoveryPersistenceTestHooks.finalizeWeeklyDiscoveryShelf(input);
+    const fixture: CaptureFixture = {
+      schemaVersion: 2,
+      candidateRepresentation: 'PREPARED_FINALIZATION_INPUT',
+      input,
+      canonicalLookupEvidence: {},
+      preview: {
+        fingerprint: captured.fingerprint,
+        selectedCanonicalIds: captured.selection.items.map((item) => item.suggestion.referenceSourceCardId),
+        roleDistribution: captured.roleDistribution,
+        structuralGate: captured.structuralGate
+      }
+    };
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const first = await replayWeeklyDiscoveryFixture(fixture);
+    const second = await replayWeeklyDiscoveryFixture(fixture);
+    const schemaOneCapture = await replayWeeklyDiscoveryFixture({
+      ...fixture,
+      schemaVersion: 1,
+      candidateRepresentation: undefined
+    });
+    const validatedOnce = await resolveWeeklyDiscoveryCanonicalReferences(reserve, {
+      replayEvidence: {},
+      preservePreparedCandidates: true
+    });
+    const validatedTwice = await resolveWeeklyDiscoveryCanonicalReferences(validatedOnce.candidates, {
+      replayEvidence: {},
+      preservePreparedCandidates: true
+    });
+
+    expect(first.summary.fingerprint).toBe(captured.fingerprint);
+    expect(first.summary.selectedCanonicalIds).toEqual(fixture.preview!.selectedCanonicalIds);
+    expect(first.summary.roleDistribution).toEqual(captured.roleDistribution);
+    expect(second.summary).toEqual(first.summary);
+    expect(schemaOneCapture.summary.fingerprint).toBe(captured.fingerprint);
+    expect(schemaOneCapture.summary.selectedCanonicalIds).toEqual(fixture.preview!.selectedCanonicalIds);
+    expect(validatedOnce.candidates).toEqual(reserve);
+    expect(validatedTwice.candidates).toEqual(reserve);
+    expect(first.result.selection.items[0]?.suggestion.recommendationEvidence)
+      .toEqual(captured.selection.items[0]?.suggestion.recommendationEvidence);
+    expect(first.summary.canonicalResolution.providerRequestsAttempted).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('keeps live replay fixtures free of real user, guild, and credential identifiers', () => {

@@ -13,8 +13,15 @@ import { WEEKLY_DISCOVERY_MARKET_POLICY } from './services/weekly-discovery-poli
 
 export type CaptureFixture = {
   schemaVersion: number;
+  candidateRepresentation?: 'PREPARED_FINALIZATION_INPUT';
   input: WeeklyDiscoveryFinalizationInput;
   canonicalLookupEvidence?: CanonicalLookupEvidenceMap;
+  preview?: {
+    fingerprint: string;
+    selectedCanonicalIds: Array<string | undefined>;
+    roleDistribution: WeeklyDiscoveryFinalizerResult['roleDistribution'];
+    structuralGate: WeeklyDiscoveryFinalizerResult['structuralGate'];
+  };
 };
 
 type Options = {
@@ -190,9 +197,16 @@ export async function replayWeeklyDiscoveryFixture(
 ): Promise<WeeklyDiscoveryReplayResult> {
   const restoreFetch = installOfflineReplayNetworkGuard();
   try {
+    // Capture-generated schema-v1 fixtures already stored the production-prepared
+    // reserve, although they did not label that representation explicitly.
+    const hasPreparedCandidateRepresentation = fixture.candidateRepresentation === 'PREPARED_FINALIZATION_INPUT'
+      || !!fixture.preview;
     const canonicalResolution = await resolveWeeklyDiscoveryCanonicalReferences(
       fixture.input.orderedCandidateReserve,
-      { replayEvidence: fixture.canonicalLookupEvidence ?? {} }
+      {
+        replayEvidence: fixture.canonicalLookupEvidence ?? {},
+        preservePreparedCandidates: hasPreparedCandidateRepresentation
+      }
     );
     const result = finalizeWeeklyDiscoveryShelf({
       ...fixture.input,
