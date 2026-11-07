@@ -8363,7 +8363,7 @@ function recommendationProfileForCandidate(candidate: DiscoveryCandidate, collec
 }
 
 function collectorFacingFamilyLabel(value: string): string {
-  const base = value.replace(/[_-]+/g, ' ').replace(/\b(?:family|line)\b/gi, '').replace(/\s+/g, ' ').trim();
+  const base = value.replace(/[_-]+/g, ' ').replace(/\b(?:family|line)\b/gi, '').replace(/\s+/g, ' ').trim().toLowerCase();
   return `${titleCase(base)} family`;
 }
 
@@ -10471,6 +10471,8 @@ function weeklyDiscoveryValueFloor(currency: SupportedCurrency): number {
 function exactPrintingCardNumberIdentity(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\s+/g, '').toUpperCase();
   if (!normalized) return undefined;
+  const promoMatch = /^(?:XY|SM|S|SV)-?P-?(\d{1,4})$/.exec(normalized) ?? /^SVP(\d{1,4})$/.exec(normalized);
+  if (promoMatch) return promoMatch[1];
   const slashMatch = /^([A-Z]{0,6}\d{1,4}|\d{1,4})\/\d{1,4}$/.exec(normalized);
   return slashMatch?.[1] ?? normalized;
 }
