@@ -302,6 +302,46 @@ describe('orderAlertCandidatesForSending', () => {
     });
     expect(candidates).toEqual([]);
   });
+
+  it('does not let an exact-identity art-display accessory reach alert-candidate ranking', () => {
+    const chase = baseChase({
+      cardName: 'Sylveon EX Generations RC32',
+      queryName: 'Sylveon EX RC32',
+      grade: 'UNGRADED',
+      maxPrice: 300
+    });
+    const listing: Listing = {
+      source: 'EBAY',
+      listingId: '336740538287',
+      title: 'Sylveon EX RC32 Case | Pokemon Generations | Art Guard (Ungraded)',
+      price: 40,
+      currency: 'CAD',
+      url: 'https://www.ebay.ca/itm/336740538287',
+      region: 'CA',
+      condition: 'Ungraded',
+      sellerFeedbackPercent: 100,
+      sellerFeedbackScore: 5000
+    };
+
+    const match = matchChaseToListing(chase, listing);
+    const candidates = match.isMatch
+      ? orderAlertCandidatesForSending([{
+          listing,
+          normalizedListing: listing,
+          match,
+          targetCurrency: 'CAD',
+          listingFingerprint: '336740538287',
+          rankScore: match.score * 1000
+        } as never])
+      : [];
+
+    expect(match).toEqual({
+      isMatch: false,
+      score: 0,
+      reasons: ['default_exclusion_block', 'default_exclusion:display accessory']
+    });
+    expect(candidates).toEqual([]);
+  });
 });
 
 describe('alert eBay search options', () => {

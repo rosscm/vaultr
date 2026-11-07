@@ -388,6 +388,24 @@ describe('matchChaseToListing', () => {
         reasons: ['default_exclusion_block', 'default_exclusion:display accessory']
       },
       {
+        cardName: 'Sylveon EX Generations RC32',
+        title: 'Sylveon EX RC32 Case | Pokemon Generations | Art Guard (Ungraded)',
+        term: 'display accessory',
+        reasons: ['default_exclusion_block', 'default_exclusion:display accessory']
+      },
+      {
+        cardName: 'Mew EX Legendary Treasures RC24',
+        title: 'Mew EX RC24 Legendary Treasures Card Artwork Protector',
+        term: 'display accessory',
+        reasons: ['default_exclusion_block', 'default_exclusion:display accessory']
+      },
+      {
+        cardName: 'Umbreon ex Prismatic Evolutions 161/131',
+        title: 'Umbreon ex 161/131 Prismatic Evolutions ArtGuard',
+        term: 'display accessory',
+        reasons: ['default_exclusion_block', 'default_exclusion:display accessory']
+      },
+      {
         cardName: 'Umbreon EX 217/187',
         title: '9x Umbreon EX 217/187 Near Mint PSA',
         term: 'multi-card lot',
@@ -488,6 +506,28 @@ describe('matchChaseToListing', () => {
     expect(result.isMatch).toBe(true);
     expect(result.reasons).not.toContain('default_exclusion_block');
     expect(result.reasons).not.toContain('custom_or_unofficial_item_block');
+  });
+
+  it('does not treat standalone case-fresh wording as an accessory', () => {
+    const chase = baseChase({ cardName: 'Sylveon EX Generations RC32', queryName: 'Sylveon EX RC32', grade: 'UNGRADED' });
+    const result = matchChaseToListing(chase, baseListing({
+      title: 'Sylveon EX RC32 Generations Radiant Collection Case Fresh Pokemon Card',
+      condition: 'Ungraded'
+    }));
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).not.toContain('default_exclusion_block');
+  });
+
+  it('preserves genuine graded card listings that mention a protective case', () => {
+    const chase = baseChase({ cardName: 'Sylveon EX Generations RC32', queryName: 'Sylveon EX RC32', grade: 'PSA 10' });
+    const result = matchChaseToListing(chase, baseListing({
+      title: 'Sylveon EX RC32 Generations PSA 10 Graded Card with Protective Case',
+      condition: 'Graded'
+    }));
+
+    expect(result.isMatch).toBe(true);
+    expect(result.reasons).not.toContain('default_exclusion_block');
   });
 
   it('penalizes unrated sellers without blocking the match', () => {

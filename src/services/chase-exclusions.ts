@@ -18,7 +18,10 @@ export const DEFAULT_EXCLUDED_TITLE_PATTERNS: DefaultExcludedTitlePattern[] = [
   { term: 'magnetic case', pattern: /\bmagnetic\s+(?:cases?|card|display|holder)\b/ },
   { term: 'card case', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+cases?\b|\bcase\s+card\b|\bart\s+case\b/ },
   { term: 'card holder', pattern: /\b(?:card|tcg|ccg|trading\s+card)\s+holders?\b/ },
-  { term: 'display accessory', pattern: /\b(?:display|protector)\s+cases?\b|\b(?:display|protector)\s+case\b|\bcases?\s+(?:for|only)\b|\bslab\s+stand\b/ },
+  {
+    term: 'display accessory',
+    pattern: /\b(?:display|protector)\s+cases?\b|\b(?:display|protector)\s+case\b|\bcases?\s+(?:for|only)\b|\bslab\s+stand\b|\b(?:card\s+)?art(?:work)?\s*(?:guards?|displays?|protectors?|holders?)\b/
+  },
   { term: 'display card', pattern: /\bdisplay\s+cards?\b/ },
   { term: 'frame', pattern: /\b(?:art|display|photo|magnetic)?\s*frames?\b/ },
   { term: 'stand', pattern: /\bstands?\b/ },
