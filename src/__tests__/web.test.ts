@@ -417,7 +417,9 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('<h2 id="home-alerts-title">Latest matches</h2>');
     expect(jsResponse.body?.match(/New matches for the cards you’re watching will appear here\./g)).toHaveLength(2);
     expect(jsResponse.body).toContain('data-action="dismiss-alert"');
-    expect(jsResponse.body).toContain('data-action="undo-dismiss"');
+    expect(jsResponse.body).toContain('data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Remove</button>');
+    expect(jsResponse.body).toContain("state.dismissUndo.undoAction === 'undo-not-the-card' ? 'undo-not-the-card' : 'undo-dismiss'");
+    expect(jsResponse.body).toContain("if (action === 'undo-dismiss')");
     expect(jsResponse.body).toContain('data-action="view-alert-chase"');
     expect(jsResponse.body).toContain("target.getAttribute('data-reviewed') !== 'true' && !isPreviewMode");
     expect(jsResponse.body).not.toContain("alertPreview.length ? '<span class=\"home-plan-label\">New</span>' : ''");
@@ -428,7 +430,7 @@ describe('web app static routes', () => {
       (jsResponse.body ?? '').indexOf('function homePageMarkup()')
     );
     expect(homeEmptySource).not.toContain('Open Inbox');
-    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial, label } = {})');
+    expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, label } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
     expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
     expect(jsResponse.body).toContain('With <a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case');
@@ -459,7 +461,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('<p class="eyebrow">INBOX</p>');
     expect(jsResponse.body).toContain('<h2 id="home-alerts-title">Latest matches</h2>');
     expect(jsResponse.body).toContain("label || (editorial ? 'Collector pick' : 'Picked for you')");
-    expect(jsResponse.body).toContain("${feedback ? discoveryFeedbackMarkup(item, true) : ''}");
+    expect(jsResponse.body).toContain("${feedback ? discoveryFeedbackMarkup(item) : ''}");
     expect(jsResponse.body).toContain('home-shelf-supporting-card');
     expect(jsResponse.body).toContain('aria-hidden="true"');
     expect(jsResponse.body).toContain("title: 'Your Display Case'");
@@ -734,8 +736,7 @@ describe('web app static routes', () => {
       'formatRoundedMoney',
       'artworkTriggerMarkup',
       'discoveryCardPrimaryActionMarkup',
-      'discoveryFeedbackMarkup',
-      `${functionSource}\nreturn homeShelfFeatureMarkup([item], 0, { editorial: true, feedback: false });`
+      `${functionSource}\nreturn homeShelfFeatureMarkup([item], 0, { editorial: true });`
     ) as (...args: any[]) => string;
     const renderItem = (item: Record<string, unknown>) => render(
       item,
@@ -744,7 +745,6 @@ describe('web app static routes', () => {
       (amount: number, currency: string) => `${currency} ${amount.toFixed(2)}`,
       (amount: number, currency: string) => `${currency} ${Math.round(amount)}`,
       () => '<button class="artwork-trigger">Artwork</button>',
-      () => '',
       () => ''
     );
 
@@ -758,6 +758,7 @@ describe('web app static routes', () => {
     expect(withPrice).toContain('Around');
     expect(withPrice).toContain('CAD 42');
     expect(withPrice).not.toContain('Add to Watchlist');
+    expect(functionSource).not.toContain('discoveryFeedbackMarkup');
   });
 
   it('uses real Watchlist data in the Home preview without changing lifecycle hooks', async () => {
@@ -797,6 +798,7 @@ describe('web app static routes', () => {
     expect(source).toContain("function watchlistCriteriaSummary(chase)");
     expect(source).toContain("'No max'");
     expect(cardSource).toContain('<p class="vault-search-summary">');
+    expect(cardSource).toContain('class="priority-pill ${(chase.priority || \'NORMAL\').toLowerCase()}"');
     expect(cardSource).not.toContain('<dl class="vault-search-criteria">');
     expect(cardSource).toContain('class="button-primary vault-view-matches"');
     expect(cardSource).toContain('class="vault-action-link vault-action-secondary vault-desktop-action"');
@@ -890,7 +892,9 @@ describe('web app static routes', () => {
       }
     });
     expect(itemOnly).toContain('<dt>Preferred listing type</dt><dd>Buy Now</dd>');
-    expect(itemOnly).toContain('<dt>Listing type</dt><dd>Auction</dd>');
+    expect(itemOnly).toContain('<dt>Format</dt><dd>Auction</dd>');
+    expect(itemOnly).toContain('<h3>Listing and pricing</h3>');
+    expect(itemOnly).toContain('<h3>Your Watchlist criteria</h3>');
     expect(itemOnly).toContain('<dt>Shipping</dt><dd>Unknown</dd>');
     expect(itemOnly).toContain('<dt>Final total</dt><dd>Unknown</dd>');
     expect(itemOnly).toContain('under max using item price only; shipping unknown');

@@ -8570,6 +8570,18 @@ function collectorEvidenceClause(
   return signal.distinctCardCount >= 2 ? `Your collecting pattern points to ${phrase}` : `Your profile includes ${phrase}`;
 }
 
+function collectorFacingReleaseContext(candidate: DiscoveryCandidate): string | undefined {
+  const values = [
+    candidate.catalogFacts?.releaseEvent,
+    candidate.catalogFacts?.promoContext,
+    candidate.catalogFacts?.releaseType
+  ];
+  return values
+    .map((value) => value?.trim())
+    .find((value): value is string => !!value
+      && !/^(?:promo|promotional|promo release|pokumon promo|special release)$/i.test(value));
+}
+
 function collectorProfileAnchoredWhy(
   candidate: DiscoveryCandidate,
   role: NonNullable<DiscoverySuggestion['discoveryRole']>,
@@ -8582,6 +8594,7 @@ function collectorProfileAnchoredWhy(
     : sourceCardSubject(candidate, sourceSetLabel(candidate));
   const setLabel = sourceSetLabel(candidate);
   const printing = setLabel && !normalize(subject).includes(normalize(setLabel)) ? `${subject} from ${setLabel}` : subject;
+  const releaseContext = collectorFacingReleaseContext(candidate);
   const evidenceSignals = [...(evidence?.signals ?? [])].sort((left, right) => explanationAnchorPriority(right) - explanationAnchorPriority(left));
   const evidenceAnchors = evidenceSignals.map((signal) => anchors.find((anchor) => anchor.kind === signal.kind && anchor.key === signal.key)).filter((anchor): anchor is DiscoveryRecommendationAnchor => !!anchor);
   const [anchor, supportingAnchor] = evidenceAnchors.length > 0 ? evidenceAnchors : anchors;
@@ -8601,7 +8614,7 @@ function collectorProfileAnchoredWhy(
   const primaryEvidence = evidenceSignals.find((signal) => signal.kind === anchor?.kind && signal.key === anchor?.key);
   const supportingEvidence = evidenceSignals.find((signal) => signal.kind === supportingAnchor?.kind && signal.key === supportingAnchor?.key);
   const supportedPair = primaryEvidence && supportingEvidence && primaryEvidence.source === supportingEvidence.source
-    ? `${collectorEvidenceClause(primaryEvidence, anchor!, anchorPhrase(anchor!))} and ${anchorPhrase(supportingAnchor!)}. ${printing} connects both.`
+    ? `${collectorEvidenceClause(primaryEvidence, anchor!, anchorPhrase(anchor!))} and ${anchorPhrase(supportingAnchor!)}. ${printing} connects both${releaseContext ? ` through ${releaseContext}` : ''}.`
     : undefined;
   const rationale = supportedPair ?? (!anchor || !primaryEvidence
     ? role === 'CONTROLLED_EXPLORATION'
@@ -8616,9 +8629,13 @@ function collectorProfileAnchoredWhy(
           : anchor.kind === 'EVOLUTION_FAMILY'
             ? `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${printing} explores another part of that family.`
             : anchor.kind === 'PROMO_PREFERENCE'
-              ? `${collectorEvidenceClause(primaryEvidence, anchor, anchor.label)}. ${printing} offers another special release to explore.`
+              ? releaseContext
+                ? `${collectorEvidenceClause(primaryEvidence, anchor, anchor.label)}. ${printing} comes from ${releaseContext}.`
+                : `${collectorEvidenceClause(primaryEvidence, anchor, anchor.label)}. ${printing} offers another special release to explore.`
               : anchor.kind === 'REGIONAL_PRINT'
-                ? `${collectorEvidenceClause(primaryEvidence, anchor, 'Japanese printings')}. ${printing} continues that regional thread.`
+                ? releaseContext
+                  ? `${collectorEvidenceClause(primaryEvidence, anchor, 'Japanese printings')}. ${printing} comes from ${releaseContext}.`
+                  : `${collectorEvidenceClause(primaryEvidence, anchor, 'Japanese printings')}. ${printing} continues that regional thread.`
                 : anchor.kind === 'ERA'
                   ? `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${printing} offers another card from that era.`
                   : `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${printing} is another verified match for that thread.`);

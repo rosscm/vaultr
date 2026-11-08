@@ -292,7 +292,8 @@ describe('weekly discovery ranking mode integration', () => {
       cardNumber: '120',
       language: 'ja',
       isPromo: true,
-      promoContext: 'SV-P promo'
+      promoContext: 'SV-P promo',
+      releaseEvent: 'Pokemon Center campaign'
     };
     const recommendation = __discoveryPersistenceTestHooks.collectorProfileSelectionRecommendation(
       candidate,
@@ -302,6 +303,7 @@ describe('weekly discovery ranking mode integration', () => {
     );
 
     expect(recommendation?.anchoredWhy).toContain("You've shown an interest in");
+    expect(recommendation?.anchoredWhy).toContain('Pokemon Center campaign');
     expect(recommendation?.anchoredWhy).not.toContain("You've collected");
     expect(recommendation?.recommendationEvidence?.signals).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'PROMO_PREFERENCE', source: 'POSITIVE_FEEDBACK' }),

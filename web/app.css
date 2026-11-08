@@ -2281,7 +2281,7 @@ a {
 .home-shelf-position {
   grid-column: 2;
   justify-self: start;
-  margin: 2px 0 0;
+  margin: -5px 0 0;
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 720;
@@ -2798,7 +2798,7 @@ a {
 
 .alert-detail-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr));
   gap: 18px;
   padding-top: 14px;
 }
@@ -2828,8 +2828,9 @@ a {
 }
 
 .alert-actions .listing-link {
-  width: fit-content;
+  width: 100%;
   margin-left: 0;
+  justify-content: center;
 }
 
 .alert-secondary-actions {
@@ -2837,6 +2838,8 @@ a {
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 10px;
+  justify-content: flex-end;
+  width: 100%;
 }
 
 .alert-review-action {
@@ -3172,15 +3175,27 @@ a {
 }
 
 .discovery-feedback-button.positive {
-  border-color: rgba(84, 193, 166, 0.34);
-  background: rgba(84, 193, 166, 0.07);
-  color: rgba(150, 229, 207, 0.94);
+  border-color: rgba(184, 148, 255, 0.42);
+  background: rgba(139, 92, 246, 0.09);
+  color: var(--purple);
 }
 
 .discovery-feedback-button.negative {
-  border-color: rgba(255, 122, 155, 0.34);
-  background: rgba(255, 122, 155, 0.07);
-  color: rgba(255, 166, 187, 0.94);
+  border-color: rgba(255, 148, 187, 0.4);
+  background: rgba(255, 148, 187, 0.075);
+  color: var(--pink);
+}
+
+.discovery-feedback-button.positive.selected {
+  border-color: rgba(184, 148, 255, 0.72);
+  background: rgba(139, 92, 246, 0.2);
+  color: var(--text);
+}
+
+.discovery-feedback-button.negative.selected {
+  border-color: rgba(255, 148, 187, 0.7);
+  background: rgba(255, 148, 187, 0.18);
+  color: var(--text);
 }
 
 .discovery-feedback-button.positive.selected {

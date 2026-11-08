@@ -1449,10 +1449,10 @@ function alertActionMarkup(alert, { compact = false } = {}) {
   return `
     ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
     <span class="alert-secondary-actions">
-      <button class="vault-action-link alert-review-action" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
       ${compact ? '' : `<button class="vault-action-link alert-watchlist-action" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button>`}
+      <button class="vault-action-link alert-review-action" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
       ${compact ? '' : `<button class="vault-action-link alert-wrong-card-action" type="button" data-action="not-the-card" data-alert-id="${escapeHtml(alert.id)}">Not the card</button>`}
-      <button class="vault-action-link danger alert-dismiss-action" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button>
+      <button class="vault-action-link danger alert-dismiss-action" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Remove</button>
     </span>
   `;
 }
@@ -1521,7 +1521,7 @@ function homeShelfPresentation(items, index) {
   };
 }
 
-function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !editorial, label } = {}) {
+function homeShelfFeatureMarkup(items, index, { editorial = false, label } = {}) {
   const { featured: item, featuredIndex, supporting } = homeShelfPresentation(items, index);
   if (!item) return '';
   const total = items.length;
@@ -1557,7 +1557,6 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, feedback = !e
           ${discoveryCardPrimaryActionMarkup(item)}
           ${item.ebayUrl ? `<a class="listing-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
         </div>
-        ${feedback ? discoveryFeedbackMarkup(item, true) : ''}
       </div>
       ${total > 1 ? `
         <div class="home-shelf-controls" aria-label="Display Case preview controls">
@@ -1748,7 +1747,7 @@ function homePageMarkup() {
             ? '<div class="home-discovery-state"><p>Your Display Case could not be loaded right now.</p><button class="button-ghost" type="button" data-action="retry-shelf">Try again</button></div>'
             : state.shelfLoaded
                 ? displayCaseItems.length
-                  ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: !personalizedReady, feedback: personalizedReady, label: personalizedReady ? 'Picked for you' : weeklyFinds ? 'Weekly find' : 'Collector pick' })
+                  ? homeShelfFeatureMarkup(displayCaseItems, shelfIndex, { editorial: !personalizedReady, label: personalizedReady ? 'Picked for you' : weeklyFinds ? 'Weekly find' : 'Collector pick' })
                   : `<div class="home-discovery-state"><p>${inlineKeepSeekPlusCopy(discoveryStateCopy(discovery, true))}</p></div>`
                 : '<div class="home-discovery-state"><p>Loading your latest collector picks...</p></div>'}
           </div>
@@ -1812,26 +1811,25 @@ function alertCardMarkup(alert) {
     <details class="alert-listing-details">
       <summary>Listing details</summary>
       <div class="alert-detail-grid">
-        <section><h3>Your criteria</h3><dl>
+        <section class="alert-detail-listing"><h3>Listing and pricing</h3><dl>
+          <div><dt>Item price</dt><dd>${money(details.pricing?.itemPrice, details.pricing?.currency)}</dd></div>
+          <div><dt>Shipping</dt><dd>${shippingKnown ? money(details.pricing.shipping, details.pricing.currency) : 'Unknown'}</dd></div>
+          <div><dt>Final total</dt><dd>${verifiedTotal ? money(details.pricing.total, details.pricing.currency) : 'Unknown'}</dd></div>
+          <div><dt>Compared with max</dt><dd>${escapeHtml(comparison)}</dd></div>
+          <div><dt>Marketplace</dt><dd>${detailValue(details.listing?.sourceLabel)}</dd></div>
+          <div><dt>Seller</dt><dd>${detailValue(details.listing?.seller)}</dd></div>
+          <div><dt>Seller feedback</dt><dd>${details.listing?.sellerFeedbackPercent === undefined ? 'Unknown' : `${escapeHtml(String(details.listing.sellerFeedbackPercent))}%`}</dd></div>
+          <div><dt>Format</dt><dd>${details.listing?.listingType ? escapeHtml(listingTypeLabel(details.listing.listingType)) : 'Unknown'}</dd></div>
+          <div><dt>Region</dt><dd>${detailValue(details.listing?.region)}</dd></div>
+          <div><dt>Listed</dt><dd>${alert.listingPostedAt ? escapeHtml(relativeTime(alert.listingPostedAt)) : 'Unknown'}</dd></div>
+        </dl></section>
+        <section><h3>Your Watchlist criteria</h3><dl>
+          <div><dt>Target card</dt><dd>${escapeHtml(alert.chaseName || 'Watchlist card')}</dd></div>
           <div><dt>Maximum</dt><dd>${money(details.chase?.maxPrice, details.pricing?.currency)}</dd></div>
           <div><dt>Condition</dt><dd>${detailValue(details.chase?.condition)}</dd></div>
           <div><dt>Grade</dt><dd>${detailValue(details.chase?.grade)}</dd></div>
           <div><dt>Preferred listing type</dt><dd>${details.chase?.listingType ? escapeHtml(listingTypeLabel(details.chase.listingType)) : 'Not specified'}</dd></div>
         </dl>${details.chase?.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>
-        <section><h3>Price</h3><dl>
-          <div><dt>Item</dt><dd>${money(details.pricing?.itemPrice, details.pricing?.currency)}</dd></div>
-          <div><dt>Shipping</dt><dd>${shippingKnown ? money(details.pricing.shipping, details.pricing.currency) : 'Unknown'}</dd></div>
-          <div><dt>Final total</dt><dd>${verifiedTotal ? money(details.pricing.total, details.pricing.currency) : 'Unknown'}</dd></div>
-          <div><dt>Compared with max</dt><dd>${escapeHtml(comparison)}</dd></div>
-        </dl></section>
-        <section><h3>Listing</h3><dl>
-          <div><dt>Source</dt><dd>${detailValue(details.listing?.sourceLabel)}</dd></div>
-          <div><dt>Seller</dt><dd>${detailValue(details.listing?.seller)}</dd></div>
-          <div><dt>Feedback</dt><dd>${details.listing?.sellerFeedbackPercent === undefined ? 'Unknown' : `${escapeHtml(String(details.listing.sellerFeedbackPercent))}%`}</dd></div>
-          <div><dt>Region</dt><dd>${detailValue(details.listing?.region)}</dd></div>
-          <div><dt>Listing type</dt><dd>${details.listing?.listingType ? escapeHtml(listingTypeLabel(details.listing.listingType)) : 'Unknown'}</dd></div>
-          <div><dt>Posted</dt><dd>${alert.listingPostedAt ? escapeHtml(relativeTime(alert.listingPostedAt)) : 'Unknown'}</dd></div>
-        </dl></section>
         <section><h3>Why it matched</h3><p>${escapeHtml(details.match?.explanation || 'This listing cleared your saved Watchlist filters.')}</p>
           ${details.match?.positiveSignals?.length ? `<ul>${details.match.positiveSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}</ul>` : ''}
           ${details.match?.warnings?.length ? `<p class="alert-detail-warning">Check: ${escapeHtml(details.match.warnings.join(', '))}</p>` : ''}
@@ -2063,7 +2061,7 @@ function vaultCardMarkup(item) {
         <div class="vault-card-content">
         <div class="vault-card-meta">
           <span class="status-pill ${paused ? 'paused' : 'active'}">${iconMarkup('binoculars')}${statusLabel}</span>
-          ${chase.priority === 'GRAIL' || chase.priority === 'HIGH' ? `<span class="priority-pill ${chase.priority === 'GRAIL' ? 'grail' : ''}">${escapeHtml(priorityLabel(chase.priority))}</span>` : ''}
+          <span class="priority-pill ${(chase.priority || 'NORMAL').toLowerCase()}">${escapeHtml(priorityLabel(chase.priority))}</span>
         </div>
         <h2>${escapeHtml(chase.cardName || 'Watchlist card')}</h2>
         ${item.monitoringState === 'PAUSED_PLAN_LIMIT' ? '<p class="paused-copy">Saved in your Watchlist, but not monitored under the current plan limit.</p>' : userPaused ? '<p class="paused-copy">Search is paused. Your preferences are preserved.</p>' : ''}
