@@ -3198,16 +3198,6 @@ a {
   color: var(--text);
 }
 
-.discovery-feedback-button.positive.selected {
-  border-color: rgba(84, 193, 166, 0.72);
-  background: rgba(84, 193, 166, 0.2);
-}
-
-.discovery-feedback-button.negative.selected {
-  border-color: rgba(255, 122, 155, 0.72);
-  background: rgba(255, 122, 155, 0.2);
-}
-
 .discovery-feedback-button:disabled,
 .discovery-feedback-undo:disabled {
   cursor: default;
