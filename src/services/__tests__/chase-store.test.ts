@@ -20,9 +20,12 @@ import {
   markAlertDeliverySent,
   markChasesPollAttempted,
   markChasesPollChecked,
+  isListingFingerprintIgnored,
+  reportAlertIncorrectMatch,
   removeAllChases,
   resolveChaseRemoval,
   restoreAlert,
+  undoAlertIncorrectMatch,
   upsertAlertEvent,
 } from '../chase-store.js';
 import { db, migrateAlertDeliveryRetrySchedule, migrateAlertInboxState } from '../db.js';
@@ -427,6 +430,37 @@ describe('user alert history read model', () => {
 
     clearAlertRows(userId);
     clearAlertRows(otherUserId);
+  });
+
+  it('reports and reverses an incorrect-card match without changing collector taste', () => {
+    const userId = 'alert-wrong-card-user';
+    clearAlertRows(userId);
+    db.prepare('DELETE FROM ignored_listing_fingerprints WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM alert_feedback WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
+    const listingTitle = 'Sylveon EX RC32 Case | Pokemon Generations | Art Guard (Ungraded)';
+    const alert = seedAlert(userId, 32, {
+      chaseId: 'sylveon-rc32',
+      listingId: '336740538287',
+      chaseName: 'Sylveon EX Generations RC32',
+      listingTitle
+    });
+    const fingerprint = listingTitle.toLowerCase().replace(/[^\w\s/.-]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter((term) => term.length >= 3).slice(0, 8).join(' ');
+
+    expect(reportAlertIncorrectMatch(userId, alert.alertId, '2026-11-07T12:00:00.000Z')?.dismissedAt).toBeTruthy();
+    expect(reportAlertIncorrectMatch(userId, alert.alertId, '2026-11-07T12:01:00.000Z')?.dismissedAt).toBeTruthy();
+    expect(db.prepare('SELECT feedback, feedback_reason FROM alert_feedback WHERE user_id = ? AND chase_id = ? AND listing_id = ?').get(userId, 'sylveon-rc32', '336740538287')).toEqual({
+      feedback: 'TUNE_OUT',
+      feedback_reason: 'WRONG_CARD'
+    });
+    expect(isListingFingerprintIgnored(userId, 'sylveon-rc32', fingerprint)).toBe(true);
+    expect(isListingFingerprintIgnored(userId, 'another-chase', fingerprint)).toBe(false);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM user_taste_memory WHERE user_id = ?').get(userId)).toEqual({ count: 0 });
+
+    expect(undoAlertIncorrectMatch(userId, alert.alertId)?.dismissedAt).toBeUndefined();
+    expect(isListingFingerprintIgnored(userId, 'sylveon-rc32', fingerprint)).toBe(false);
+    expect(db.prepare('SELECT 1 FROM alert_feedback WHERE user_id = ? AND chase_id = ? AND listing_id = ?').get(userId, 'sylveon-rc32', '336740538287')).toBeUndefined();
+    clearAlertRows(userId);
   });
 
   it('preserves inbox state across deterministic upserts and delivery transitions', () => {

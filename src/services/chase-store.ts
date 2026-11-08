@@ -4,6 +4,7 @@ import { buildEbaySearchKeywords } from './ebay.js';
 import { makeAlertFeedbackToken } from './alert-feedback-token.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice } from './currency.js';
 import { normalizePlanTier } from './plans.js';
+import { makeListingFingerprint } from './listing-fingerprint.js';
 import type {
   AlertDelivery,
   AlertDeliveryChannel,
@@ -1283,6 +1284,11 @@ const upsertAlertFeedbackStmt = db.prepare(`
     created_at = excluded.created_at
 `);
 
+const deleteAlertFeedbackStmt = db.prepare(`
+  DELETE FROM alert_feedback
+  WHERE user_id = ? AND chase_id = ? AND listing_id = ?
+`);
+
 const listAlertFeedbackSummarySinceStmt = db.prepare(`
   SELECT feedback, feedback_reason, COUNT(*) AS count
   FROM alert_feedback
@@ -1367,6 +1373,11 @@ const hasIgnoredFingerprintStmt = db.prepare(`
   FROM ignored_listing_fingerprints
   WHERE user_id = ? AND chase_id = ? AND fingerprint = ?
   LIMIT 1
+`);
+
+const deleteIgnoredFingerprintStmt = db.prepare(`
+  DELETE FROM ignored_listing_fingerprints
+  WHERE user_id = ? AND chase_id = ? AND fingerprint = ?
 `);
 
 const pruneAlertFingerprintClaimsStmt = db.prepare(`
@@ -2788,6 +2799,32 @@ export function dismissAlert(userId: string, alertId: string, now?: string): Ale
 
 export function restoreAlert(userId: string, alertId: string): AlertHistoryItem | null {
   return updateAlertInboxState(userId, alertId, 'RESTORE');
+}
+
+export function reportAlertIncorrectMatch(
+  userId: string,
+  alertId: string,
+  now = new Date().toISOString()
+): AlertHistoryItem | null {
+  return db.transaction(() => {
+    const alert = getAlertEventForUser(userId, alertId);
+    if (!alert) return null;
+    const fingerprint = makeListingFingerprint(alert.listingTitle ?? '');
+    upsertAlertFeedbackStmt.run(userId, alert.chaseId, alert.listingId, 'TUNE_OUT', 'WRONG_CARD', now);
+    if (fingerprint) insertIgnoredFingerprintStmt.run(userId, alert.chaseId, fingerprint, now);
+    return updateAlertInboxState(userId, alertId, 'DISMISS', now);
+  })();
+}
+
+export function undoAlertIncorrectMatch(userId: string, alertId: string): AlertHistoryItem | null {
+  return db.transaction(() => {
+    const alert = getAlertEventForUser(userId, alertId);
+    if (!alert) return null;
+    const fingerprint = makeListingFingerprint(alert.listingTitle ?? '');
+    deleteAlertFeedbackStmt.run(userId, alert.chaseId, alert.listingId);
+    if (fingerprint) deleteIgnoredFingerprintStmt.run(userId, alert.chaseId, fingerprint);
+    return updateAlertInboxState(userId, alertId, 'RESTORE');
+  })();
 }
 
 export function claimAlertForSending(chaseId: string, userId: string, listingId: string, source: ListingSource): boolean {

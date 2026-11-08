@@ -15,6 +15,9 @@ import { __chaseCardCatalogTestHooks, clearChaseCardAutocompleteCache } from '..
 import { getOrCreateOnboardingState } from '../services/onboarding.js';
 import { replaceCardCatalogSourceRecords } from '../services/card-catalog-db.js';
 import { weeklyGeneralDiscoveryPeriodKey } from '../services/weekly-general-discovery.js';
+import { setDiscoveryBudgetPolicy } from '../services/discovery-budget.js';
+import { upsertWeeklyDiscoveryPreparationState } from '../services/weekly-discovery-preparation-state.js';
+import { weeklyPreparationTargetDate } from '../services/discovery-drop-scheduler.js';
 import { listTrustedShopifyShopNames } from '../services/shopify.js';
 import {
   deleteScheduledDiscoveryDrop,
@@ -46,6 +49,8 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM completed_chases WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM alert_feedback WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM ignored_listing_fingerprints WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_taste_memory WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_discovery_feedback WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_training_examples WHERE user_id = ?').run(userId);
@@ -56,6 +61,8 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_scheduled_drop_items WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM discovery_scheduled_drops WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM weekly_discovery_preparation_state WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_discovery_budget_settings WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_onboarding WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_collector_artwork_preferences WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_collector_subject_preferences WHERE user_id = ?').run(userId);
@@ -2263,6 +2270,40 @@ describe('authenticated alert API', () => {
     clearUser(otherUserId);
   });
 
+  it('reports an owned Inbox listing as not the card and reverses it idempotently', async () => {
+    const userId = 'web-alert-wrong-card-user';
+    const otherUserId = 'web-alert-wrong-card-other';
+    clearUser(userId);
+    clearUser(otherUserId);
+    const title = 'Sylveon EX RC32 Case | Pokemon Generations | Art Guard (Ungraded)';
+    const owned = seedAlert(userId, 32, {
+      chaseId: 'sylveon-rc32', listingId: '336740538287', listingTitle: title
+    });
+    const other = seedAlert(otherUserId, 33, { listingTitle: title });
+    const { token } = createWebSession({ userId }, { token: 'wrong-card-alert-token' });
+    const headers = { cookie: sessionCookie(token) };
+
+    const reported = await handleWebRequest({ method: 'POST', url: `/api/alerts/${owned.alertId}/not-the-card`, headers }, { config });
+    const repeated = await handleWebRequest({ method: 'POST', url: `/api/alerts/${owned.alertId}/not-the-card`, headers }, { config });
+    expect(reported.status).toBe(200);
+    expect(repeated.status).toBe(200);
+    expect(JSON.parse(reported.body ?? '{}').item.dismissedAt).toBeTruthy();
+    expect(db.prepare('SELECT feedback, feedback_reason FROM alert_feedback WHERE user_id = ? AND chase_id = ? AND listing_id = ?').get(userId, 'sylveon-rc32', '336740538287')).toEqual({
+      feedback: 'TUNE_OUT', feedback_reason: 'WRONG_CARD'
+    });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM ignored_listing_fingerprints WHERE user_id = ? AND chase_id = ?').get(userId, 'sylveon-rc32')).toEqual({ count: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM user_taste_memory WHERE user_id = ?').get(userId)).toEqual({ count: 0 });
+    expect((await handleWebRequest({ method: 'POST', url: `/api/alerts/${other.alertId}/not-the-card`, headers }, { config })).status).toBe(404);
+
+    const undone = await handleWebRequest({ method: 'POST', url: `/api/alerts/${owned.alertId}/undo-not-the-card`, headers }, { config });
+    expect(undone.status).toBe(200);
+    expect(JSON.parse(undone.body ?? '{}').item.dismissedAt).toBeUndefined();
+    expect(db.prepare('SELECT 1 FROM alert_feedback WHERE user_id = ? AND chase_id = ? AND listing_id = ?').get(userId, 'sylveon-rc32', '336740538287')).toBeUndefined();
+    expect(db.prepare('SELECT 1 FROM ignored_listing_fingerprints WHERE user_id = ? AND chase_id = ?').get(userId, 'sylveon-rc32')).toBeUndefined();
+    clearUser(userId);
+    clearUser(otherUserId);
+  });
+
   it('returns owned alert details and 404 for another user alert ID', async () => {
     const userId = 'web-alert-detail-user';
     const otherUserId = 'web-alert-detail-other';
@@ -2751,6 +2792,67 @@ describe('authenticated Weekly Shelf API', () => {
     expect(body.periodKey).toBe('2026-W34');
     expect(body.items[0].name).toBe('W34 Previous Shelf Card');
 
+    clearUser(userId);
+  });
+
+  it('exposes a current persisted budget shortage only while retaining the previous shelf', async () => {
+    const userId = 'web-shelf-budget-shortage-user';
+    const now = new Date('2026-08-30T13:00:00.000Z');
+    clearUser(userId);
+    seedWeeklyShelf(userId, new Date('2026-08-17T13:00:00.000Z'), { name: 'Previous valid pick' });
+    setDiscoveryBudgetPolicy(userId, { mode: 'PRESET', maximumCad: 50, includeUnknownPrices: false, dreamCardsEnabled: false }, new Date('2026-08-29T10:00:00.000Z'));
+    const targetPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', weeklyPreparationTargetDate(now));
+    upsertWeeklyDiscoveryPreparationState({
+      userId,
+      periodKey: targetPeriod,
+      state: 'RETRY_SCHEDULED',
+      attemptCount: 1,
+      lastOutcome: 'RETRYABLE_FAILURE',
+      failureCode: 'DISCOVERY_BUDGET_SHORTAGE',
+      failureSummary: 'Restricted budget prevented a valid shelf',
+      preparationGeneration: 1,
+      releasePassed: true,
+      ownerAlertSent: false,
+      recoveredAfterRelease: false,
+      deliveryState: 'NONE',
+      deliveryAttemptCount: 0,
+      updatedAt: '2026-08-30T12:00:00.000Z'
+    });
+    const { token } = createWebSession({ userId }, { token: 'shelf-budget-shortage-token' });
+    const headers = { cookie: sessionCookie(token) };
+
+    const response = await handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config, now: () => now });
+    const body = JSON.parse(response.body ?? '{}');
+    expect(body).toMatchObject({
+      shelfKind: 'PREVIOUS',
+      budgetShortage: { retainedPreviousShelf: true }
+    });
+    expect(body.items[0]?.name).toBe('Previous valid pick');
+
+    setDiscoveryBudgetPolicy(userId, { mode: 'ANY', includeUnknownPrices: true, dreamCardsEnabled: false }, new Date('2026-08-30T12:30:00.000Z'));
+    const afterChange = await handleWebRequest({ method: 'GET', url: '/api/shelf', headers }, { config, now: () => now });
+    expect(JSON.parse(afterChange.body ?? '{}').budgetShortage).toBeUndefined();
+    clearUser(userId);
+  });
+
+  it('exposes a budget-specific first shelf shortage without claiming picks were retained', async () => {
+    const userId = 'web-shelf-first-budget-shortage-user';
+    const now = new Date('2026-08-30T13:00:00.000Z');
+    clearUser(userId);
+    setUserPlan(userId, 'PRO');
+    const targetPeriod = scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', weeklyPreparationTargetDate(now));
+    upsertWeeklyDiscoveryPreparationState({
+      userId, periodKey: targetPeriod, state: 'RETRY_SCHEDULED', attemptCount: 1,
+      lastOutcome: 'RETRYABLE_FAILURE', failureCode: 'DISCOVERY_BUDGET_SHORTAGE',
+      preparationGeneration: 1, releasePassed: true, ownerAlertSent: false,
+      recoveredAfterRelease: false, deliveryState: 'NONE', deliveryAttemptCount: 0,
+      updatedAt: '2026-08-30T12:00:00.000Z'
+    });
+    const { token } = createWebSession({ userId }, { token: 'first-budget-shortage-token' });
+    const response = await handleWebRequest({ method: 'GET', url: '/api/shelf', headers: { cookie: sessionCookie(token) } }, { config, now: () => now });
+    expect(JSON.parse(response.body ?? '{}')).toMatchObject({
+      status: 'UPCOMING', items: [], budgetShortage: { retainedPreviousShelf: false }
+    });
     clearUser(userId);
   });
 

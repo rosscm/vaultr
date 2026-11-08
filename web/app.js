@@ -1362,7 +1362,7 @@ function alertNoticeMarkup() {
   return `
     <div class="alert-notice" role="status">
       <span>${escapeHtml(state.alertNotice || 'Match dismissed.')}</span>
-      ${state.dismissUndo ? '<button class="vault-action-link" type="button" data-action="undo-dismiss">Undo</button>' : ''}
+      ${state.dismissUndo ? `<button class="vault-action-link" type="button" data-action="${state.dismissUndo.undoAction === 'undo-not-the-card' ? 'undo-not-the-card' : 'undo-dismiss'}">Undo</button>` : ''}
     </div>
   `;
 }
@@ -1451,6 +1451,7 @@ function alertActionMarkup(alert, { compact = false } = {}) {
     <span class="alert-secondary-actions">
       <button class="vault-action-link alert-review-action" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
       ${compact ? '' : `<button class="vault-action-link alert-watchlist-action" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button>`}
+      ${compact ? '' : `<button class="vault-action-link alert-wrong-card-action" type="button" data-action="not-the-card" data-alert-id="${escapeHtml(alert.id)}">Not the card</button>`}
       <button class="vault-action-link danger alert-dismiss-action" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Dismiss</button>
     </span>
   `;
@@ -2156,12 +2157,27 @@ function shelfPageMarkup() {
     <section class="shelf-page" aria-labelledby="shelf-title">
       ${shelfHeaderMarkup()}
       ${vaultNoticeMarkup('shelf')}
+      ${discoveryBudgetShortageMarkup(state.shelf)}
       ${personalized && items.length ? `<p class="shelf-personalized-note">There’s always another card to fall in love with. Explore discoveries shaped by your collection and what catches your eye, with familiar favourites and unexpected finds along the way.</p><p class="shelf-feedback-intro">${isPreviewMode ? 'Taste feedback is read-only in preview.' : 'Your feedback helps shape future discoveries.'}</p>` : ''}
       ${personalized && items.length ? shelfMetaMarkup(state.shelf) : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
     </section>
   `;
+}
+
+function discoveryBudgetShortageMarkup(shelf) {
+  if (!shelf?.budgetShortage) return '';
+  const retained = shelf.budgetShortage.retainedPreviousShelf && Array.isArray(shelf.items) && shelf.items.length > 0;
+  return `<aside class="discovery-budget-shortage" role="status">
+    <div>
+      <h2>${retained ? 'Your previous Display Case is still here' : 'Your Display Case needs a little more room'}</h2>
+      <p>${retained
+        ? "We couldn't find enough cards within your Discovery Budget this week, so we're keeping your previous picks for now. Try widening your price range or including cards with unknown prices to discover more."
+        : "We couldn't find enough cards within your Discovery Budget to prepare your first Display Case. Try widening your price range or including cards with unknown prices to discover more."}</p>
+    </div>
+    <button class="button-ghost" type="button" data-action="review-discovery-budget">Review Discovery Budget</button>
+  </aside>`;
 }
 
 function shelfHeaderMarkup() {
@@ -2694,10 +2710,14 @@ async function mutateAlert(alertId, action) {
   }
   try {
     const body = await fetchJson(`/api/alerts/${encodeURIComponent(alertId)}/${action}`, { method: 'POST' });
-    state.alertNotice = action === 'dismiss' ? 'Match dismissed.' : '';
-    if (action === 'dismiss') {
+    state.alertNotice = action === 'dismiss'
+      ? 'Match dismissed.'
+      : action === 'not-the-card'
+        ? 'Reported as an incorrect match. KeepSeek will ignore this listing for this Watchlist item.'
+        : '';
+    if (action === 'dismiss' || action === 'not-the-card') {
       clearDismissUndo();
-      state.dismissUndo = body.item;
+      state.dismissUndo = { ...body.item, undoAction: action === 'not-the-card' ? 'undo-not-the-card' : 'restore' };
       state.dismissUndoTimer = window.setTimeout(() => {
         clearDismissUndo();
         state.alertNotice = '';
@@ -3728,8 +3748,8 @@ app.addEventListener('click', async (event) => {
     }
     return;
   }
-  if (action === 'mark-alert-reviewed' || action === 'mark-alert-new' || action === 'dismiss-alert') {
-    const operation = action === 'mark-alert-reviewed' ? 'review' : action === 'mark-alert-new' ? 'mark-new' : 'dismiss';
+  if (action === 'mark-alert-reviewed' || action === 'mark-alert-new' || action === 'dismiss-alert' || action === 'not-the-card') {
+    const operation = action === 'mark-alert-reviewed' ? 'review' : action === 'mark-alert-new' ? 'mark-new' : action === 'not-the-card' ? 'not-the-card' : 'dismiss';
     await mutateAlert(target.getAttribute('data-alert-id'), operation);
     return;
   }
@@ -3746,11 +3766,23 @@ app.addEventListener('click', async (event) => {
     requestAnimationFrame(() => document.querySelector('#settings-delivery-title')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
     return;
   }
+  if (action === 'review-discovery-budget') {
+    await navigateToPage('settings');
+    requestAnimationFrame(() => document.querySelector('#settings-discovery-budget-title')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    return;
+  }
   if (action === 'undo-dismiss') {
     const alertId = state.dismissUndo?.id;
     clearDismissUndo();
     state.alertNotice = '';
     await mutateAlert(alertId, 'restore');
+    return;
+  }
+  if (action === 'undo-not-the-card') {
+    const alertId = state.dismissUndo?.id;
+    clearDismissUndo();
+    state.alertNotice = '';
+    await mutateAlert(alertId, 'undo-not-the-card');
     return;
   }
   if (action === 'view-new-alerts') {

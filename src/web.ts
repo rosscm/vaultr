@@ -17,7 +17,9 @@ import {
   markAlertNew,
   markAlertReviewed,
   markAllAlertEventsReviewed,
+  reportAlertIncorrectMatch,
   restoreAlert,
+  undoAlertIncorrectMatch,
   type ListAlertEventsForUserOptions
 } from './services/chase-store.js';
 import { applyPreparedDiscoveryFeedback, type DiscoveryFeedbackAction } from './services/discovery-feedback.js';
@@ -57,6 +59,8 @@ import {
   type ScheduledDiscoveryDropItem
 } from './services/scheduled-discovery-drops.js';
 import { weeklyPreparationTargetDate } from './services/discovery-drop-scheduler.js';
+import { getWeeklyDiscoveryPreparationState } from './services/weekly-discovery-preparation-state.js';
+import { getDiscoveryBudgetPolicy } from './services/discovery-budget.js';
 import { hasViewedDisplayCasePeriod, markDisplayCasePeriodViewed } from './services/display-case-views.js';
 import { alertSettingsResponse, updateAlertSettings } from './services/alert-settings.js';
 import { getOrCreateOnboardingState, transitionOnboarding, type OnboardingAction, type OnboardingStep } from './services/onboarding.js';
@@ -735,6 +739,11 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     .filter((drop) => Date.parse(drop.availableAt) <= now.getTime())
     .sort((a, b) => Date.parse(b.availableAt) - Date.parse(a.availableAt))[0];
   const drop = currentDrop ?? latestAvailableDrop ?? latestHistoricalDrop;
+  const preparationState = getWeeklyDiscoveryPreparationState(userId, targetPeriod);
+  const budget = getDiscoveryBudgetPolicy(userId);
+  const budgetShortage = preparationState?.failureCode === 'DISCOVERY_BUDGET_SHORTAGE'
+    && preparationState.state !== 'PREPARING'
+    && (!budget.updatedAt || Date.parse(preparationState.updatedAt) >= Date.parse(budget.updatedAt));
   const shelfKind = !drop
     ? 'UPCOMING'
     : currentDrop?.periodKey === drop.periodKey
@@ -752,7 +761,8 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
       discovery: webDiscoveryState(userId, config, false),
       starterItems: generalDiscovery.items,
       generalDiscovery: { periodKey: generalDiscovery.periodKey, status: generalDiscovery.status, mode: generalDiscovery.mode, catalogItemCount: generalDiscovery.catalogItemCount },
-      isNew: false
+      isNew: false,
+      budgetShortage: budgetShortage ? { retainedPreviousShelf: false } : undefined
     });
   }
 
@@ -774,6 +784,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     items: personalized ? drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey)) : [],
     discovery,
     isNew: !hasViewedDisplayCasePeriod(userId, drop.periodKey),
+    budgetShortage: budgetShortage ? { retainedPreviousShelf: shelfKind === 'PREVIOUS' } : undefined,
     ...(personalized ? {} : {
       starterItems: generalDiscovery!.items,
       generalDiscovery: { periodKey: generalDiscovery!.periodKey, status: generalDiscovery!.status, mode: generalDiscovery!.mode, catalogItemCount: generalDiscovery!.catalogItemCount }
@@ -1342,7 +1353,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     return jsonResponse(200, { reviewedCount, reviewedAt });
   }
 
-  const alertActionMatch = url.pathname.match(/^\/api\/alerts\/([^/]+)\/(review|mark-new|dismiss|restore)$/);
+  const alertActionMatch = url.pathname.match(/^\/api\/alerts\/([^/]+)\/(review|mark-new|dismiss|restore|not-the-card|undo-not-the-card)$/);
   if (method === 'POST' && alertActionMatch) {
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');
@@ -1360,7 +1371,11 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
         ? markAlertNew(session.userId, alertId)
         : action === 'dismiss'
           ? dismissAlert(session.userId, alertId, now)
-          : restoreAlert(session.userId, alertId);
+          : action === 'restore'
+            ? restoreAlert(session.userId, alertId)
+            : action === 'not-the-card'
+              ? reportAlertIncorrectMatch(session.userId, alertId, now)
+              : undoAlertIncorrectMatch(session.userId, alertId);
     return item ? jsonResponse(200, { item: publicAlertItem(item) }) : errorResponse(404, 'not_found');
   }
 

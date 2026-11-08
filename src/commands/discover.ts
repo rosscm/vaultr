@@ -527,6 +527,7 @@ type PersistValidatedWeeklyDiscoveryDropResult = {
   rejectionCounts: Record<DiscoveryShelfSelectionRejectionCode, number>;
   rejectionSamples: DiscoveryShelfSelectionResult['rejectionSamples'];
   retainedPreviousShelf: boolean;
+  budgetShortage: boolean;
 };
 
 type WeeklyDiscoveryPreparationProfileContext = {
@@ -1558,6 +1559,7 @@ export function weeklyDiscoveryHasOptionalStageBudget(
 function classifyWeeklyPreparationFailureCode(
   persisted: PersistValidatedWeeklyDiscoveryDropResult
 ): WeeklyPreparationFailureCode {
+  if (persisted.budgetShortage) return 'DISCOVERY_BUDGET_SHORTAGE';
   const failureCodes = new Set(persisted.failures.map((failure) => failure.code));
   if (failureCodes.has('INSUFFICIENT_MARKET_RESOLVED')) return 'INSUFFICIENT_MARKET_READY';
   if (failureCodes.has('MISSING_IMAGE') || failureCodes.has('BAD_IMAGE_PROVENANCE')) return 'INSUFFICIENT_TRUSTED_IMAGES';
@@ -13684,7 +13686,8 @@ function persistValidatedWeeklyDiscoveryDrop(
       marketIncompleteCount: 0,
       rejectionCounts: emptyDiscoveryShelfRejectionCounts(),
       rejectionSamples: emptyDiscoveryShelfRejectionSamples(),
-      retainedPreviousShelf: !!getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date))
+      retainedPreviousShelf: !!getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date)),
+      budgetShortage: false
     };
   }
   const rejectedNameKeys = discoveryExclusionNameKeys(listRecentUserDiscoveryFeedback(userId, 'NOT_FOR_ME').map((item) => item.suggestionName));
@@ -13748,6 +13751,18 @@ function persistFinalizedWeeklyDiscoveryDropSnapshot(
     persistDiscoveryUniverseCandidate(candidate);
   }
   if (failures.length > 0) {
+    const unrestrictedFinalization = finalizationInput.discoveryBudget
+      && (finalizationInput.discoveryBudget.mode !== 'ANY' || !finalizationInput.discoveryBudget.includeUnknownPrices)
+      ? finalizeWeeklyDiscoveryShelf({
+          ...finalizationInput,
+          discoveryBudget: { mode: 'ANY', includeUnknownPrices: true, dreamCardsEnabled: false }
+        })
+      : undefined;
+    const budgetShortage = !!unrestrictedFinalization
+      && weeklyDiscoveryPublicationFailures(
+        unrestrictedFinalization.selection.items,
+        unrestrictedFinalization.selection.marketResolvedCount
+      ).length === 0;
     const previousDropExists = !!getScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', scheduledDiscoveryPeriodKey('WEEKLY_DISCOVERY', date));
     const finalValues = items
       .map((item) => item.market.soldTotal ?? item.market.askingTotal)
@@ -13780,7 +13795,8 @@ function persistFinalizedWeeklyDiscoveryDropSnapshot(
       marketIncompleteCount: selection.marketIncompleteCount,
       rejectionCounts: selection.rejectionCounts,
       rejectionSamples: selection.rejectionSamples,
-      retainedPreviousShelf: previousDropExists
+      retainedPreviousShelf: previousDropExists,
+      budgetShortage
     };
   }
   const readyCount = items.filter((item) => item.market.status === 'READY').length;
@@ -13808,7 +13824,8 @@ function persistFinalizedWeeklyDiscoveryDropSnapshot(
     marketIncompleteCount: selection.marketIncompleteCount,
     rejectionCounts: selection.rejectionCounts,
     rejectionSamples: selection.rejectionSamples,
-    retainedPreviousShelf: false
+    retainedPreviousShelf: false,
+    budgetShortage: false
   };
 }
 
@@ -14889,7 +14906,8 @@ export async function prepareWeeklyDiscoveryDropForUser(
         marketIncompleteCount: 0,
         rejectionCounts: emptyDiscoveryShelfRejectionCounts(),
         rejectionSamples: emptyDiscoveryShelfRejectionSamples(),
-        retainedPreviousShelf: false
+        retainedPreviousShelf: false,
+        budgetShortage: false
       };
   if (persisted.saved && profileContext.hasFullDiscovery) {
     return {

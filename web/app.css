@@ -2848,8 +2848,44 @@ a {
 }
 
 .alert-watchlist-action,
+.alert-wrong-card-action,
 .alert-dismiss-action {
   padding-inline: 4px;
+}
+
+.alert-wrong-card-action {
+  color: var(--muted-strong);
+}
+
+.discovery-budget-shortage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 211, 135, 0.22);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 211, 135, 0.045);
+}
+
+.discovery-budget-shortage h2 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.discovery-budget-shortage p {
+  max-width: 780px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .discovery-budget-shortage {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .discord-alert-invite {
