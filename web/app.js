@@ -8,6 +8,7 @@ let logoutReturnFocus = null;
 let newAlertPresenceRequest = null;
 let newAlertPresenceTimer = null;
 let alertNoticeTimer = null;
+let alertDetailReturnFocus = null;
 
 function apiUrl(url) {
   if (!isPreviewMode || !url.startsWith('/api/')) return url;
@@ -30,6 +31,8 @@ const state = {
   alertChaseId: null,
   alertChaseName: '',
   alerts: [],
+  selectedAlertId: null,
+  alertDetailOpen: false,
   alertsLoaded: false,
   alertsError: null,
   isAlertsLoading: false,
@@ -302,6 +305,9 @@ function resetAlertPagination() {
   state.alertPage = 1;
   state.alertPageCursors = [null];
   state.nextCursor = null;
+  state.selectedAlertId = null;
+  state.alertDetailOpen = false;
+  document.body.classList.remove('alert-detail-open');
 }
 
 async function loadActivePageData() {
@@ -1323,8 +1329,8 @@ function alertsPageMarkup(inner) {
           <span class="alert-control-label">Inbox</span>
           <div class="review-state-filters" aria-label="Alert review state">
             ${reviewStateButton('NEW', 'New')}
-            ${reviewStateButton('REVIEWED', 'Reviewed')}
             ${reviewStateButton('ALL', 'All')}
+            ${reviewStateButton('REVIEWED', 'Reviewed')}
           </div>
           ${state.alertReviewState !== 'REVIEWED' && state.matchingNewAlertCount > 0 ? `<button class="button-ghost alert-review-all" type="button" data-action="mark-all-reviewed"${state.bulkReviewBusy ? ' disabled' : ''}>${state.bulkReviewBusy ? 'Updating…' : `Mark all reviewed (${state.matchingNewAlertCount})`}</button>` : ''}
         </div>
@@ -1426,11 +1432,42 @@ function alertsMarkup() {
     return alertsPageMarkup(statePanelMarkup('No matches for this source yet.', 'Try another source or check back after KeepSeek finds a new match.'));
   }
 
-  const list = state.alerts.map(alertCardMarkup).join('');
+  const selected = selectedAlert();
+  const list = state.alerts.map((alert) => alertCardMarkup(alert, alert.id === selected?.id)).join('');
   const pagination = state.alertPage > 1 || state.nextCursor
     ? paginationMarkup({ page: state.alertPage, hasPrevious: state.alertPage > 1, hasNext: Boolean(state.nextCursor), scope: 'alerts' })
     : '';
-  return alertsPageMarkup(`<div class="alert-list" aria-label="Inbox matches">${list}</div>${pagination}`);
+  return alertsPageMarkup(`
+    <div class="inbox-master-detail${state.alertDetailOpen ? ' detail-open' : ''}">
+      <div class="inbox-master-column">
+        <div class="alert-list" aria-label="Inbox matches">${list}</div>
+        ${pagination}
+      </div>
+      ${alertDetailPanelMarkup(selected)}
+    </div>
+  `);
+}
+
+function resolvedSelectedAlertId(alerts, selectedAlertId) {
+  if (!alerts.length) return null;
+  return alerts.some((alert) => alert.id === selectedAlertId) ? selectedAlertId : alerts[0].id;
+}
+
+function selectedAlert() {
+  if (!state.alerts.length) return null;
+  state.selectedAlertId = resolvedSelectedAlertId(state.alerts, state.selectedAlertId);
+  return state.alerts.find((alert) => alert.id === state.selectedAlertId) || null;
+}
+
+function focusMobileAlertDetail() {
+  if (!window.matchMedia('(max-width: 900px)').matches) return;
+  document.body.classList.add('alert-detail-open');
+  requestAnimationFrame(() => {
+    const panel = document.querySelector('[data-alert-detail-panel]');
+    panel?.setAttribute('role', 'dialog');
+    panel?.setAttribute('aria-modal', 'true');
+    panel?.querySelector('.alert-detail-close')?.focus();
+  });
 }
 
 function paginationMarkup({ page, hasPrevious, hasNext, scope, showing }) {
@@ -1786,95 +1823,141 @@ function homePageMarkup() {
   `;
 }
 
-function alertCardMarkup(alert) {
-  const priority = alert.chasePriority || 'NORMAL';
-  const price = formatMoney(alert.listingPrice, alert.listingCurrency);
-  const delta = formatPriceDelta(alert.priceDelta, alert.listingCurrency);
-  const reviewed = Boolean(alert.reviewedAt);
+function alertPricingPresentation(alert) {
   const details = alert.details;
-  const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
-  const money = (value, currency) => value === undefined || value === null ? 'Unknown' : formatMoney(value, currency) || 'Unknown';
+  const currency = details?.pricing?.currency || alert.listingCurrency;
   const shippingKnown = typeof details?.pricing?.shipping === 'number';
   const verifiedTotal = details?.pricing?.comparisonBasis === 'VERIFIED_TOTAL' && typeof details?.pricing?.total === 'number';
   const comparisonAmount = details?.pricing?.amountUnderMax;
+  const money = (value) => value === undefined || value === null ? 'Unknown' : formatMoney(value, currency) || 'Unknown';
   const comparison = comparisonAmount === undefined
     ? 'Not available'
     : comparisonAmount === 0
-      ? verifiedTotal ? 'At max using verified total' : 'At max using item price only; shipping unknown'
-    : verifiedTotal
-      ? `${money(comparisonAmount, details.pricing.currency)} under max using verified total`
-      : `${money(comparisonAmount, details.pricing.currency)} under max using item price only; shipping unknown`;
-  const compactDelta = delta && details?.pricing?.comparisonBasis === 'ITEM_PRICE' && !shippingKnown
-    ? `${delta} on item price; shipping unknown`
-    : delta;
-  const detailsMarkup = details ? `
-    <details class="alert-listing-details">
-      <summary>Listing details</summary>
-      <div class="alert-detail-grid">
-        <section class="alert-detail-listing"><h3>Listing and pricing</h3><dl>
-          <div><dt>Item price</dt><dd>${money(details.pricing?.itemPrice, details.pricing?.currency)}</dd></div>
-          <div><dt>Shipping</dt><dd>${shippingKnown ? money(details.pricing.shipping, details.pricing.currency) : 'Unknown'}</dd></div>
-          <div><dt>Final total</dt><dd>${verifiedTotal ? money(details.pricing.total, details.pricing.currency) : 'Unknown'}</dd></div>
-          <div><dt>Compared with max</dt><dd>${escapeHtml(comparison)}</dd></div>
-          <div><dt>Marketplace</dt><dd>${detailValue(details.listing?.sourceLabel)}</dd></div>
-          <div><dt>Seller</dt><dd>${detailValue(details.listing?.seller)}</dd></div>
-          <div><dt>Seller feedback</dt><dd>${details.listing?.sellerFeedbackPercent === undefined ? 'Unknown' : `${escapeHtml(String(details.listing.sellerFeedbackPercent))}%`}</dd></div>
-          <div><dt>Format</dt><dd>${details.listing?.listingType ? escapeHtml(listingTypeLabel(details.listing.listingType)) : 'Unknown'}</dd></div>
-          <div><dt>Region</dt><dd>${detailValue(details.listing?.region)}</dd></div>
-          <div><dt>Listed</dt><dd>${alert.listingPostedAt ? escapeHtml(relativeTime(alert.listingPostedAt)) : 'Unknown'}</dd></div>
-        </dl></section>
-        <section><h3>Your Watchlist criteria</h3><dl>
-          <div><dt>Target card</dt><dd>${escapeHtml(alert.chaseName || 'Watchlist card')}</dd></div>
-          <div><dt>Maximum</dt><dd>${money(details.chase?.maxPrice, details.pricing?.currency)}</dd></div>
-          <div><dt>Condition</dt><dd>${detailValue(details.chase?.condition)}</dd></div>
-          <div><dt>Grade</dt><dd>${detailValue(details.chase?.grade)}</dd></div>
-          <div><dt>Preferred listing type</dt><dd>${details.chase?.listingType ? escapeHtml(listingTypeLabel(details.chase.listingType)) : 'Not specified'}</dd></div>
-        </dl>${details.chase?.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>
-        <section><h3>Why it matched</h3><p>${escapeHtml(details.match?.explanation || 'This listing cleared your saved Watchlist filters.')}</p>
-          ${details.match?.positiveSignals?.length ? `<ul>${details.match.positiveSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}</ul>` : ''}
-          ${details.match?.warnings?.length ? `<p class="alert-detail-warning">Check: ${escapeHtml(details.match.warnings.join(', '))}</p>` : ''}
-        </section>
-      </div>
-    </details>` : `
-    <details class="alert-listing-details historical">
-      <summary>Listing details</summary>
-      <p>Additional match evidence was not stored for this historical alert.</p>
-    </details>`;
+      ? verifiedTotal ? 'At your maximum using verified total' : 'At your maximum using item price only; shipping unknown'
+      : verifiedTotal
+        ? `${money(comparisonAmount)} below your maximum using verified total`
+        : `${money(comparisonAmount)} below your maximum using item price only; shipping unknown`;
+  const compactDelta = comparisonAmount === undefined
+    ? formatPriceDelta(alert.priceDelta, alert.listingCurrency)
+    : comparisonAmount === 0
+      ? verifiedTotal ? 'At your maximum' : 'At max on item price; shipping unknown'
+      : verifiedTotal
+        ? `${money(comparisonAmount)} below max`
+        : `${money(comparisonAmount)} below max on item price; shipping unknown`;
+  return { details, currency, shippingKnown, verifiedTotal, comparisonAmount, comparison, compactDelta, money };
+}
+
+function alertArtworkMarkup(alert, className = 'alert-image') {
+  return alert.imageUrl
+    ? artworkTriggerMarkup({
+        imageUrl: alert.imageUrl,
+        identity: alert.listingTitle || alert.chaseName || 'Alert listing',
+        imageKind: 'Listing image',
+        imageClass: className,
+        imageDataAttribute: 'data-alert-image'
+      })
+    : '<span class="alert-image-placeholder" aria-hidden="true">K</span>';
+}
+
+function alertCardMarkup(alert, selected = false) {
+  const priority = alert.chasePriority || 'NORMAL';
+  const reviewed = Boolean(alert.reviewedAt);
+  const pricing = alertPricingPresentation(alert);
+  const price = formatMoney(alert.listingPrice, alert.listingCurrency);
   return `
-    <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${alert.imageUrl ? 'has-image' : 'no-image'}">
-      <div class="alert-artwork">
-        ${alert.imageUrl
-          ? artworkTriggerMarkup({
-              imageUrl: alert.imageUrl,
-              identity: alert.listingTitle || alert.chaseName || 'Alert listing',
-              imageKind: 'Listing image',
-              imageClass: 'alert-image',
-              imageDataAttribute: 'data-alert-image'
-            })
-          : '<span class="alert-image-placeholder" aria-hidden="true">K</span>'}
-      </div>
+    <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${selected ? 'selected' : ''} ${alert.imageUrl ? 'has-image' : 'no-image'}" data-alert-card data-alert-id="${escapeHtml(alert.id)}" tabindex="0" aria-current="${selected ? 'true' : 'false'}">
+      <div class="alert-artwork">${alertArtworkMarkup(alert)}</div>
       <div class="alert-content">
         <div class="alert-main">
           <div class="alert-meta">
             <span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span>
             <span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span>
           </div>
-          <h2 class="chase-name">${escapeHtml(alert.chaseName || 'Watchlist card')}</h2>
+          <button class="alert-select-button" type="button" data-action="select-alert" data-alert-id="${escapeHtml(alert.id)}">
+            <span class="chase-name">${escapeHtml(alert.chaseName || 'Watchlist card')}</span>
+          </button>
           ${alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
           <div class="alert-context">
-            <span class="source-pill">${escapeHtml(sourceLabel(alert.source))}</span>
+            <span>${escapeHtml(sourceLabel(alert.source))}</span>
+            <span aria-hidden="true">•</span>
+            <span>${escapeHtml(relativeTime(alert.createdAt))}</span>
             <span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span>
-            <span class="alert-age">${escapeHtml(relativeTime(alert.createdAt))}</span>
           </div>
         </div>
         <div class="alert-price-column">
           ${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}
-          ${compactDelta ? `<span class="price-delta">${escapeHtml(compactDelta)}</span>` : ''}
+          ${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping</span>` : '<span class="alert-card-shipping">Shipping unknown</span>'}
+          ${pricing.compactDelta ? `<span class="price-delta">${escapeHtml(pricing.compactDelta)}</span>` : ''}
         </div>
-        <div class="alert-actions">${alertActionMarkup(alert)}</div>
-        ${detailsMarkup}
+        <div class="alert-actions">${alertActionMarkup(alert, { compact: true })}</div>
       </div>
     </article>
+  `;
+}
+
+function alertDetailRows(rows) {
+  return `<dl>${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${value}</dd></div>`).join('')}</dl>`;
+}
+
+function alertDetailPanelMarkup(alert) {
+  if (!alert) return '';
+  const priority = alert.chasePriority || 'NORMAL';
+  const reviewed = Boolean(alert.reviewedAt);
+  const pricing = alertPricingPresentation(alert);
+  const details = pricing.details;
+  const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
+  const listingRows = details ? [
+    ['Seller', detailValue(details.listing?.seller, 'Unknown')],
+    ['Seller feedback', details.listing?.sellerFeedbackPercent === undefined ? 'Unknown' : `${escapeHtml(String(details.listing.sellerFeedbackPercent))}%`],
+    ['Marketplace', detailValue(details.listing?.sourceLabel, sourceLabel(alert.source))],
+    ['Format', details.listing?.listingType ? escapeHtml(listingTypeLabel(details.listing.listingType)) : 'Unknown'],
+    ['Condition', detailValue(details.listing?.condition, 'Unknown')],
+    ['Region', detailValue(details.listing?.region, 'Unknown')],
+    ['Listed', alert.listingPostedAt ? escapeHtml(relativeTime(alert.listingPostedAt)) : 'Unknown']
+  ] : [];
+  const pricingRows = details ? [
+    ['Item price', pricing.money(details.pricing?.itemPrice)],
+    ['Shipping', pricing.shippingKnown ? pricing.money(details.pricing.shipping) : 'Unknown'],
+    ['Verified total', pricing.verifiedTotal ? pricing.money(details.pricing.total) : 'Unknown'],
+    ['Your maximum', pricing.money(details.chase?.maxPrice)],
+    ['Below maximum', pricing.comparisonAmount === undefined ? 'Not available' : pricing.money(pricing.comparisonAmount)],
+    ['Comparison basis', escapeHtml(pricing.comparison)]
+  ] : [];
+  const criteriaRows = details ? [
+    ['Target card', escapeHtml(alert.chaseName || 'Watchlist card')],
+    ['Preferred condition', detailValue(details.chase?.condition)],
+    ['Grade', detailValue(details.chase?.grade)],
+    ['Preferred listing type', details.chase?.listingType ? escapeHtml(listingTypeLabel(details.chase.listingType)) : 'Not specified']
+  ] : [];
+  const matchExplanation = details?.match?.explanation || 'This listing cleared your saved Watchlist filters.';
+  return `
+    <aside class="alert-detail-panel" data-alert-detail-panel role="region" aria-labelledby="alert-detail-title">
+      <header class="alert-detail-header">
+        <div><p class="eyebrow">LISTING DETAILS</p><h2 id="alert-detail-title">${escapeHtml(alert.listingTitle || alert.chaseName || 'Marketplace listing')}</h2></div>
+        <button class="alert-detail-close button-ghost" type="button" data-action="close-alert-detail" aria-label="Close listing details">Close</button>
+      </header>
+      <div class="alert-detail-summary">
+        <div class="alert-detail-artwork">${alertArtworkMarkup(alert, 'alert-detail-image')}</div>
+        <div>
+          <p class="alert-detail-target">For ${escapeHtml(alert.chaseName || 'your Watchlist')}</p>
+          <p class="alert-detail-market">${escapeHtml(details?.listing?.sourceLabel || sourceLabel(alert.source))}${details?.listing?.listingType ? ` • ${escapeHtml(listingTypeLabel(details.listing.listingType))}` : ''}</p>
+          <p class="alert-detail-price">${formatMoney(alert.listingPrice, alert.listingCurrency) || 'Price unavailable'}</p>
+          <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping` : 'Shipping unknown'}</p>
+          <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span></div>
+        </div>
+      </div>
+      ${details ? `
+        <section class="alert-detail-section alert-match-evidence"><div class="alert-detail-section-heading"><h3>Why it matched</h3><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span></div>
+          <p>${escapeHtml(matchExplanation)}</p>
+          ${details.match?.positiveSignals?.length ? `<ul>${details.match.positiveSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}</ul>` : ''}
+          ${details.match?.warnings?.length ? `<p class="alert-detail-warning">Check: ${escapeHtml(details.match.warnings.join(', '))}</p>` : ''}
+        </section>
+        <section class="alert-detail-section"><h3>Pricing</h3>${alertDetailRows(pricingRows)}</section>
+        <section class="alert-detail-section"><h3>Listing highlights</h3>${alertDetailRows(listingRows)}</section>
+        <section class="alert-detail-section"><h3>Your Watchlist criteria</h3>${alertDetailRows(criteriaRows)}${details.chase?.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>
+      ` : '<section class="alert-detail-section historical"><h3>Historical match</h3><p>Additional match evidence was not stored for this alert.</p></section>'}
+      <section class="alert-detail-actions" aria-label="Listing actions"><h3>Actions</h3><div class="alert-actions">${alertActionMarkup(alert)}</div></section>
+    </aside>
   `;
 }
 
@@ -3566,7 +3649,17 @@ async function bootstrap() {
 }
 
 app.addEventListener('click', async (event) => {
-  const target = event.target.closest('button, a');
+  const clickedElement = event.target instanceof Element ? event.target : null;
+  const target = clickedElement?.closest('button, a');
+  const clickedAlertCard = clickedElement?.closest('[data-alert-card]');
+  if (!target && clickedAlertCard) {
+    state.selectedAlertId = clickedAlertCard.getAttribute('data-alert-id');
+    state.alertDetailOpen = true;
+    alertDetailReturnFocus = clickedAlertCard;
+    renderCurrentPage();
+    focusMobileAlertDetail();
+    return;
+  }
   if (!target) return;
   if (homeShelfSuppressClick && target.closest('[data-home-shelf-feature]')) {
     event.preventDefault();
@@ -3738,6 +3831,26 @@ app.addEventListener('click', async (event) => {
   if (action === 'open-artwork') {
     event.preventDefault();
     openArtworkOverlay(target);
+    return;
+  }
+  if (action === 'select-alert') {
+    state.selectedAlertId = target.getAttribute('data-alert-id');
+    state.alertDetailOpen = true;
+    alertDetailReturnFocus = target;
+    renderCurrentPage();
+    focusMobileAlertDetail();
+    return;
+  }
+  if (action === 'close-alert-detail') {
+    state.alertDetailOpen = false;
+    document.body.classList.remove('alert-detail-open');
+    renderCurrentPage();
+    requestAnimationFrame(() => {
+      if (alertDetailReturnFocus instanceof HTMLElement && alertDetailReturnFocus.isConnected) alertDetailReturnFocus.focus();
+      else [...document.querySelectorAll('[data-alert-card]')]
+        .find((card) => card.getAttribute('data-alert-id') === state.selectedAlertId)?.focus();
+      alertDetailReturnFocus = null;
+    });
     return;
   }
   if (action === 'review-listing') {
@@ -4121,6 +4234,35 @@ document.addEventListener('keydown', (event) => {
     }
     return;
   }
+  if (state.alertDetailOpen && window.matchMedia('(max-width: 900px)').matches) {
+    const panel = document.querySelector('[data-alert-detail-panel]');
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      state.alertDetailOpen = false;
+      document.body.classList.remove('alert-detail-open');
+      renderCurrentPage();
+      requestAnimationFrame(() => {
+        const selectedCard = [...document.querySelectorAll('[data-alert-card]')]
+          .find((card) => card.getAttribute('data-alert-id') === state.selectedAlertId);
+        if (alertDetailReturnFocus instanceof HTMLElement && alertDetailReturnFocus.isConnected) alertDetailReturnFocus.focus();
+        else if (selectedCard instanceof HTMLElement) selectedCard.focus();
+        alertDetailReturnFocus = null;
+      });
+      return;
+    }
+    if (event.key === 'Tab' && panel) {
+      const controls = [...panel.querySelectorAll('button:not(:disabled), a[href]')];
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+  }
   if (event.key !== 'Escape') return;
   const menu = document.querySelector('.vault-more-actions[open]');
   if (!menu) return;
@@ -4303,6 +4445,16 @@ app.addEventListener('input', (event) => {
 
 app.addEventListener('keydown', (event) => {
   const target = event.target;
+  const alertCard = target instanceof Element ? target.closest('[data-alert-card]') : null;
+  if (alertCard && target === alertCard && (event.key === 'Enter' || event.key === ' ')) {
+    event.preventDefault();
+    state.selectedAlertId = alertCard.getAttribute('data-alert-id');
+    state.alertDetailOpen = true;
+    alertDetailReturnFocus = alertCard;
+    renderCurrentPage();
+    focusMobileAlertDetail();
+    return;
+  }
   if (target instanceof Element && target.closest('[data-home-shelf-feature]') && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
     event.preventDefault();
     const itemCount = homeDisplayCaseItems().length;

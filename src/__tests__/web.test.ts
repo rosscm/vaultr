@@ -862,11 +862,11 @@ describe('web app static routes', () => {
   it('distinguishes marketplace listing type and item-only versus verified-total pricing', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
-    const functionSource = source.slice(source.indexOf('function alertCardMarkup('), source.indexOf('function vaultPageMarkup('));
+    const functionSource = source.slice(source.indexOf('function alertPricingPresentation('), source.indexOf('function vaultPageMarkup('));
     const render = new Function(
       'priorityLabel', 'formatMoney', 'formatPriceDelta', 'escapeHtml', 'listingTypeLabel', 'artworkTriggerMarkup',
       'sourceLabel', 'matchLabel', 'relativeTime', 'alertActionMarkup',
-      `${functionSource}\nreturn alertCardMarkup;`
+      `${functionSource}\nreturn { card: alertCardMarkup, panel: alertDetailPanelMarkup };`
     )(
       () => 'Casual',
       (amount: number, currency: string) => `${currency} $${amount.toFixed(2)}`,
@@ -883,24 +883,27 @@ describe('web app static routes', () => {
       chasePriority: 'NORMAL', chaseName: 'Mew ex', source: 'EBAY', listingPrice: 80, listingCurrency: 'CAD',
       priceDelta: 20, matchScore: 90, createdAt: '2026-11-06T10:00:00.000Z', listingPostedAt: '2026-11-06T09:00:00.000Z'
     };
-    const itemOnly = render({
+    const itemOnlyAlert = {
       ...base,
       details: {
         chase: { maxPrice: 100, listingType: 'BUY_IT_NOW' },
         pricing: { itemPrice: 80, currency: 'CAD', comparisonBasis: 'ITEM_PRICE', amountUnderMax: 20 },
         listing: { listingType: 'AUCTION' }, match: {}
       }
-    });
+    };
+    const itemOnly = render.panel(itemOnlyAlert);
+    const itemOnlyCard = render.card(itemOnlyAlert, true);
     expect(itemOnly).toContain('<dt>Preferred listing type</dt><dd>Buy Now</dd>');
     expect(itemOnly).toContain('<dt>Format</dt><dd>Auction</dd>');
-    expect(itemOnly).toContain('<h3>Listing and pricing</h3>');
+    expect(itemOnly).toContain('<h3>Pricing</h3>');
     expect(itemOnly).toContain('<h3>Your Watchlist criteria</h3>');
     expect(itemOnly).toContain('<dt>Shipping</dt><dd>Unknown</dd>');
-    expect(itemOnly).toContain('<dt>Final total</dt><dd>Unknown</dd>');
-    expect(itemOnly).toContain('under max using item price only; shipping unknown');
-    expect(itemOnly).toContain('under max on item price; shipping unknown');
+    expect(itemOnly).toContain('<dt>Verified total</dt><dd>Unknown</dd>');
+    expect(itemOnly).toContain('below your maximum using item price only; shipping unknown');
+    expect(itemOnlyCard).toContain('below max on item price; shipping unknown');
+    expect(itemOnlyCard).toContain('aria-current="true"');
 
-    const verified = render({
+    const verified = render.panel({
       ...base,
       details: {
         chase: { maxPrice: 100, listingType: 'ANY' },
@@ -908,8 +911,31 @@ describe('web app static routes', () => {
         listing: { listingType: 'BUY_IT_NOW' }, match: {}
       }
     });
-    expect(verified).toContain('<dt>Final total</dt><dd>CAD $85.00</dd>');
-    expect(verified).toContain('CAD $15.00 under max using verified total');
+    expect(verified).toContain('<dt>Verified total</dt><dd>CAD $85.00</dd>');
+    expect(verified).toContain('CAD $15.00 below your maximum using verified total');
+  });
+
+  it('renders Inbox as a selectable master-detail surface without inline listing disclosures', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const inboxSource = source.slice(source.indexOf('function alertsMarkup('), source.indexOf('function vaultPageMarkup('));
+    expect(inboxSource).toContain('class="inbox-master-detail');
+    expect(inboxSource).toContain('data-alert-card');
+    expect(inboxSource).toContain('data-alert-detail-panel');
+    expect(inboxSource).toContain('data-action="select-alert"');
+    expect(inboxSource).toContain('data-action="close-alert-detail"');
+    expect(inboxSource).not.toContain('<details class="alert-listing-details"');
+    expect(source).toContain("state.selectedAlertId = target.getAttribute('data-alert-id')");
+    expect(source).toContain('state.alertDetailOpen && window.matchMedia');
+    expect(source).toContain("if (event.key === 'Escape')");
+    expect(source).toContain("event.key === 'Enter' || event.key === ' '");
+    const helperMatch = source.match(/function resolvedSelectedAlertId\([\s\S]*?\n\}/);
+    expect(helperMatch).not.toBeNull();
+    const resolveSelection = new Function(`${helperMatch![0]}\nreturn resolvedSelectedAlertId;`)();
+    const alerts = [{ id: 'first' }, { id: 'second' }];
+    expect(resolveSelection(alerts, 'second')).toBe('second');
+    expect(resolveSelection(alerts, 'removed')).toBe('first');
+    expect(resolveSelection([], 'removed')).toBeNull();
   });
 
   it('supports direct, touch, arrow, and keyboard Home Display Case browsing', async () => {
