@@ -1481,15 +1481,26 @@ function paginationMarkup({ page, hasPrevious, hasNext, scope, showing }) {
   </nav>`;
 }
 
-function alertActionMarkup(alert, { compact = false } = {}) {
+function alertActionMarkup(alert, { compact = false, includeCorrection = false } = {}) {
   const reviewed = Boolean(alert.reviewedAt);
   return `
     ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
     <span class="alert-secondary-actions">
       ${compact ? '' : `<button class="vault-action-link alert-watchlist-action" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button>`}
       <button class="vault-action-link alert-review-action" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
-      ${compact ? '' : `<button class="vault-action-link alert-wrong-card-action" type="button" data-action="not-the-card" data-alert-id="${escapeHtml(alert.id)}">Not the card</button>`}
+      ${includeCorrection ? `<button class="vault-action-link alert-wrong-card-action" type="button" data-action="not-the-card" data-alert-id="${escapeHtml(alert.id)}">Not the card</button>` : ''}
       <button class="vault-action-link danger alert-dismiss-action" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Remove</button>
+    </span>
+  `;
+}
+
+function alertDetailActionMarkup(alert) {
+  const reviewed = Boolean(alert.reviewedAt);
+  return `
+    ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
+    <span class="alert-secondary-actions">
+      <button class="vault-action-link alert-watchlist-action" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button>
+      <button class="vault-action-link alert-review-action" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
     </span>
   `;
 }
@@ -1885,11 +1896,10 @@ function alertCardMarkup(alert, selected = false) {
           </div>
         </div>
         <div class="alert-price-column">
-          ${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}
-          ${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping</span>` : '<span class="alert-card-shipping">Shipping unknown</span>'}
+          <span class="alert-price-primary">${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping</span>` : '<span class="alert-card-shipping">Shipping unknown</span>'}</span>
           ${pricing.compactDelta ? `<span class="price-delta">${escapeHtml(pricing.compactDelta)}</span>` : ''}
         </div>
-        <div class="alert-actions">${alertActionMarkup(alert, { compact: true })}</div>
+        <div class="alert-actions">${alertActionMarkup(alert, { compact: true, includeCorrection: true })}</div>
       </div>
     </article>
   `;
@@ -1948,7 +1958,7 @@ function alertDetailPanelMarkup(alert) {
           <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span></div>
         </div>
       </div>
-      <section class="alert-detail-actions" aria-label="Listing actions"><h3>Actions</h3><div class="alert-actions">${alertActionMarkup(alert)}</div></section>
+      <section class="alert-detail-actions" aria-label="Listing actions"><h3>Actions</h3><div class="alert-actions">${alertDetailActionMarkup(alert)}</div></section>
       ${details ? `
         <section class="alert-detail-section alert-match-evidence"><div class="alert-detail-section-heading"><h3>Why it matched</h3><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span></div>
           ${showMatchExplanation ? `<p>${escapeHtml(matchExplanation)}</p>` : ''}
@@ -2237,11 +2247,10 @@ function shelfPageMarkup() {
   const items = personalized ? state.shelf?.items || [] : [];
   return `
     <section class="shelf-page" aria-labelledby="shelf-title">
-      ${shelfHeaderMarkup()}
+      ${shelfHeaderMarkup(state.shelf)}
       ${vaultNoticeMarkup('shelf')}
       ${discoveryBudgetShortageMarkup(state.shelf)}
       ${personalized && items.length ? `<p class="shelf-personalized-note">There’s always another card to fall in love with. Explore discoveries shaped by your collection and what catches your eye, with familiar favourites and unexpected finds along the way.</p><p class="shelf-feedback-intro">${isPreviewMode ? 'Taste feedback is read-only in preview.' : 'Your feedback helps shape future discoveries.'}</p>` : ''}
-      ${personalized && items.length ? shelfMetaMarkup(state.shelf) : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
     </section>
@@ -2262,26 +2271,27 @@ function discoveryBudgetShortageMarkup(shelf) {
   </aside>`;
 }
 
-function shelfHeaderMarkup() {
-  return pageHeaderMarkup({
-    id: 'shelf-title',
-    title: 'Your Display Case',
-    tagline: 'Find the cards you didn’t know you loved.',
-    copy: '',
-    className: 'shelf-page-header'
-  });
+function shelfHeaderMarkup(shelf) {
+  return `<header class="page-header shelf-page-header">
+    <div>
+      <h1 id="shelf-title">Display Case</h1>
+      <p class="page-tagline">Find the cards you didn’t know you loved.</p>
+      <p class="page-support">A curated set of recommendations shaped by your collection, Watchlist, and collecting style.</p>
+    </div>
+    ${shelfMetaMarkup(shelf)}
+  </header>`;
 }
 
 function shelfMetaMarkup(shelf) {
+  if (!shelf) return '';
   const updated = shelf.updatedAt ? formatDate(shelf.updatedAt) : '';
   const details = [
-    shelf.periodKey,
-    shelf.shelfKind === 'PREVIOUS' ? 'Previous shelf' : shelf.status === 'READY' ? 'Ready' : shelf.status === 'PARTIAL' ? 'Partial selection' : '',
     `${shelf.itemCount || shelf.items?.length || 0} picks`,
     updated ? `Updated ${updated}` : ''
   ].filter(Boolean);
   return `
     <div class="shelf-summary" aria-label="Display Case summary">
+      <span class="shelf-summary-icon" aria-hidden="true">${iconMarkup('calendar')}</span>
       ${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}
     </div>
   `;

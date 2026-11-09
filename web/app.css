@@ -2281,7 +2281,7 @@ a {
 .home-shelf-position {
   grid-column: 2;
   justify-self: start;
-  margin: -5px 0 0;
+  margin: -14px 0 0;
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 720;
@@ -2579,8 +2579,12 @@ a {
   align-items: end;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 10px 18px;
+  gap: 12px 20px;
   margin: 14px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.022);
 }
 
 .inbox-page .alert-inbox-control {
@@ -2590,7 +2594,9 @@ a {
 
 .inbox-page .toolbar {
   flex: 1 1 430px;
-  padding: 8px 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .alert-control-group {
@@ -3067,22 +3073,48 @@ a {
 
 .shelf-summary {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 20px 0 10px;
+  width: fit-content;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .shelf-summary span {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0 10px;
+  min-height: 0;
+  border: 0;
+  padding: 0;
   color: var(--muted-strong);
-  background: rgba(255, 255, 255, 0.04);
+  background: transparent;
   font-size: 0.8rem;
   font-weight: 760;
+}
+
+.shelf-summary span + span::before {
+  content: "•";
+  margin-right: 8px;
+  color: var(--muted);
+}
+
+.shelf-summary .shelf-summary-icon {
+  width: 18px;
+  color: var(--muted-strong);
+}
+
+.shelf-summary .shelf-summary-icon::before { content: none; }
+.shelf-summary .shelf-summary-icon + span::before { content: none; }
+
+.shelf-page-header {
+  width: 100%;
+  max-width: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
 }
 
 .shelf-grid {
@@ -3520,11 +3552,18 @@ a {
 .alert-price-column {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 3px;
   grid-column: 1;
   justify-items: start;
   text-align: left;
   font-variant-numeric: tabular-nums;
+}
+
+.alert-price-primary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
 .price-unavailable {
@@ -5695,6 +5734,13 @@ a {
 }
 
 @media (max-width: 760px) {
+  .shelf-page-header {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .shelf-summary { margin-top: 8px; }
+
   .home-shelf-feature {
     grid-template-columns: minmax(0, 1fr);
   }

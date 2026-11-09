@@ -464,7 +464,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("${feedback ? discoveryFeedbackMarkup(item) : ''}");
     expect(jsResponse.body).toContain('home-shelf-supporting-card');
     expect(jsResponse.body).toContain('aria-hidden="true"');
-    expect(jsResponse.body).toContain("title: 'Your Display Case'");
+    expect(jsResponse.body).toContain('<h1 id="shelf-title">Display Case</h1>');
     expect(jsResponse.body).toContain('Find the cards you didn’t know you loved.');
     expect(jsResponse.body).toContain('Explore three fresh finds each week. With KeepSeek Plus');
     const shelfEmptySource = (jsResponse.body ?? '').slice(
@@ -629,7 +629,7 @@ describe('web app static routes', () => {
     const plus = between('function plusPageMarkup()', 'function onboardingStepIndicator(');
     const alerts = between('function alertsPageMarkup(', 'function reviewStateButton(');
     const vault = between('function vaultHeaderMarkup()', 'function vaultSummaryMarkup(');
-    const discover = between('function shelfHeaderMarkup()', 'function shelfMetaMarkup(');
+    const discover = between('function shelfHeaderMarkup(shelf)', 'function shelfMetaMarkup(');
 
     const headerHelper = between('function pageHeaderMarkup(', 'function planLabel(');
     expect(headerHelper).not.toContain('eyebrow');
@@ -640,9 +640,9 @@ describe('web app static routes', () => {
     expect(vault).toContain("title: 'Your Watchlist'");
     expect(vault).toContain("tagline: 'Keep the cards you’re chasing close.'");
     expect(vault).toContain("className: 'vault-page-header'");
-    expect(discover).toContain("title: 'Your Display Case'");
-    expect(discover).toContain("tagline: 'Find the cards you didn’t know you loved.'");
-    expect(discover).toContain("copy: ''");
+    expect(discover).toContain('<h1 id="shelf-title">Display Case</h1>');
+    expect(discover).toContain('Find the cards you didn’t know you loved.');
+    expect(discover).toContain('A curated set of recommendations shaped by your collection, Watchlist, and collecting style.');
     expect(source).not.toContain('Explore standout cards and discover your next favourite.');
   });
 
@@ -864,7 +864,7 @@ describe('web app static routes', () => {
     const functionSource = source.slice(source.indexOf('function alertPricingPresentation('), source.indexOf('function vaultPageMarkup('));
     const render = new Function(
       'priorityLabel', 'formatMoney', 'formatPriceDelta', 'escapeHtml', 'listingTypeLabel', 'artworkTriggerMarkup',
-      'sourceLabel', 'matchLabel', 'relativeTime', 'alertActionMarkup',
+      'sourceLabel', 'matchLabel', 'relativeTime', 'alertActionMarkup', 'alertDetailActionMarkup',
       `${functionSource}\nreturn { card: alertCardMarkup, panel: alertDetailPanelMarkup };`
     )(
       () => 'Casual',
@@ -876,7 +876,8 @@ describe('web app static routes', () => {
       () => 'eBay',
       () => 'Strong match',
       () => '2h ago',
-      () => ''
+      () => '',
+      (alert: any) => `<span>detail actions for ${alert.id ?? 'alert'}</span>`
     );
     const base = {
       chasePriority: 'NORMAL', chaseName: 'Mew ex', source: 'EBAY', listingPrice: 80, listingCurrency: 'CAD',
@@ -895,6 +896,7 @@ describe('web app static routes', () => {
     expect(itemOnly).toContain('<dt>Preferred listing type</dt><dd>Buy Now</dd>');
     expect(itemOnly).toContain('<dt>Format</dt><dd>Auction</dd>');
     expect(itemOnly).toContain('<dt>Condition</dt><dd>Ungraded - Lightly played (Excellent)</dd>');
+    expect(itemOnly).toContain('detail actions for alert');
     expect(itemOnly).toContain('<h3>Pricing</h3>');
     expect(itemOnly).toContain('<h3>Your Watchlist criteria</h3>');
     expect(itemOnly).toContain('<dt>Shipping</dt><dd>Unknown</dd>');
@@ -938,6 +940,20 @@ describe('web app static routes', () => {
     expect(resolveSelection([], 'removed')).toBeNull();
   });
 
+  it('keeps corrective Inbox actions on cards and limits the detail panel to contextual actions', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const cardActions = source.slice(source.indexOf('function alertActionMarkup('), source.indexOf('function alertDetailActionMarkup('));
+    const detailActions = source.slice(source.indexOf('function alertDetailActionMarkup('), source.indexOf('function homeAlertPreviewMarkup('));
+    expect(cardActions).toContain('Not the card');
+    expect(cardActions).toContain('Remove');
+    expect(detailActions).toContain('View listing');
+    expect(detailActions).toContain('View Watchlist item');
+    expect(detailActions).toContain('Mark reviewed');
+    expect(detailActions).not.toContain('Not the card');
+    expect(detailActions).not.toContain('Remove');
+  });
+
   it('refreshes the Home attention preview when the Inbox new-state changes', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
@@ -947,10 +963,14 @@ describe('web app static routes', () => {
     expect(refreshSource).toContain('void loadHomeAttention()');
   });
 
-  it('labels partial Display Cases truthfully and uses neutral unavailable-artwork fallbacks', async () => {
+  it('uses collector-facing Display Case metadata and neutral unavailable-artwork fallbacks', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
-    expect(source).toContain("status === 'PARTIAL' ? 'Partial selection'");
+    const summarySource = source.slice(source.indexOf('function shelfMetaMarkup('), source.indexOf('function shelfEmptyMarkup('));
+    expect(summarySource).toContain('picks');
+    expect(summarySource).toContain('Updated');
+    expect(summarySource).not.toContain('periodKey');
+    expect(summarySource).not.toContain('Partial selection');
     expect(source).toContain('Artwork unavailable');
   });
 
