@@ -554,8 +554,12 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, perio
           status: item.market.status,
           currency: item.market.currency,
           askingTotal: item.market.askingTotal,
+          askingRangeLow: item.market.askingRangeLow,
+          askingRangeHigh: item.market.askingRangeHigh,
           askingSampleSize: item.market.askingSampleSize,
           soldTotal: item.market.soldTotal,
+          soldRangeLow: item.market.soldRangeLow,
+          soldRangeHigh: item.market.soldRangeHigh,
           soldSampleSize: item.market.soldSampleSize,
           updatedAt: item.market.updatedAt
         }

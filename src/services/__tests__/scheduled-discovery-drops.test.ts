@@ -87,6 +87,8 @@ describe('scheduled discovery drops', () => {
               status: 'READY',
               currency: 'CAD',
               askingTotal: 1330,
+              askingRangeLow: 1200,
+              askingRangeHigh: 1450,
               askingSampleSize: 5,
               listing: {
                 id: 'listing-1',
@@ -109,7 +111,14 @@ describe('scheduled discovery drops', () => {
       suggestion: { name: 'Mew ex Paldean Fates 232' },
       imageUrl: 'https://images.example/mew.png',
       imageSourceKind: 'CARD_REFERENCE',
-      market: { status: 'READY', currency: 'CAD', askingTotal: 1330, askingSampleSize: 5 }
+      market: {
+        status: 'READY',
+        currency: 'CAD',
+        askingTotal: 1330,
+        askingRangeLow: 1200,
+        askingRangeHigh: 1450,
+        askingSampleSize: 5
+      }
     });
 
     const latest = getLatestAvailableScheduledDiscoveryDrop(userId, 'WEEKLY_DISCOVERY', '2026-06-10T16:01:00.000Z');

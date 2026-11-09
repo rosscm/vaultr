@@ -734,6 +734,7 @@ describe('web app static routes', () => {
       'escapeHtml',
       'formatMoney',
       'formatRoundedMoney',
+      'displayCaseMarketPrice',
       'artworkTriggerMarkup',
       'discoveryCardPrimaryActionMarkup',
       `${functionSource}\nreturn homeShelfFeatureMarkup([item], 0, { editorial: true });`
@@ -744,6 +745,9 @@ describe('web app static routes', () => {
       String,
       (amount: number, currency: string) => `${currency} ${amount.toFixed(2)}`,
       (amount: number, currency: string) => `${currency} ${Math.round(amount)}`,
+      (market: any) => market?.askingRangeLow !== undefined
+        ? { label: 'Typical asking range', value: `${market.currency} ${Math.round(market.askingRangeLow)}–${market.currency} ${Math.round(market.askingRangeHigh)}` }
+        : market?.askingTotal !== undefined ? { label: 'Around', value: `${market.currency} ${Math.round(market.askingTotal)}` } : null,
       () => '<button class="artwork-trigger">Artwork</button>',
       () => ''
     );
@@ -757,6 +761,9 @@ describe('web app static routes', () => {
     const withPrice = renderItem({ name: 'Mew', reason: 'Collector context.', market: { askingTotal: 42, currency: 'CAD' } });
     expect(withPrice).toContain('Around');
     expect(withPrice).toContain('CAD 42');
+    const withRange = renderItem({ name: 'Mew', market: { askingRangeLow: 35, askingRangeHigh: 55, askingTotal: 42, currency: 'CAD' } });
+    expect(withRange).toContain('Typical asking range');
+    expect(withRange).toContain('CAD 35–CAD 55');
     expect(withPrice).not.toContain('Add to Watchlist');
     expect(functionSource).not.toContain('discoveryFeedbackMarkup');
   });
@@ -1013,7 +1020,9 @@ describe('web app static routes', () => {
     expect(source).toContain('alerts?chaseId=${encodeURIComponent(state.alertChaseId');
     expect(source).toContain('No matches for ${cardName} in this view.');
     expect(source).toContain("/^#(home|vault|alerts|shelf|plus|settings|onboarding)(?:\\?.*)?$/i");
-    expect(source).toContain("editorial ? 'Around' : 'Asking price'");
+    expect(source).toContain("label: 'Typical asking range'");
+    expect(source).toContain("label: 'Typical sold range'");
+    expect(source).toContain("label: 'Around'");
 
     const helperMatch = source.match(/function formatRoundedMoney\([^]*?\n\}/);
     expect(helperMatch?.[0]).toBeTruthy();
@@ -1177,7 +1186,7 @@ describe('web app static routes', () => {
     expect(actionRow).toContain('discoveryCardPrimaryActionMarkup(item)');
     expect(actionRow).toContain('View on eBay');
     expect(cardSource.match(/class="shelf-card-actions"/g)).toHaveLength(1);
-    expect(cardSource).toContain('const showMarket = Boolean(price) || !editorial;');
+    expect(cardSource).toContain('const showMarket = Boolean(marketPrice) || !editorial;');
     expect(cardSource).toContain("shelf-card-footer${showMarket ? '' : ' no-market'}");
     expect(cardSource.indexOf('shelf-market-status')).toBeLessThan(cardSource.indexOf('shelf-card-actions'));
     expect(cardSource.indexOf('shelf-card-actions')).toBeLessThan(cardSource.indexOf('discoveryFeedbackMarkup(item)'));

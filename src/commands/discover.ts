@@ -121,6 +121,7 @@ import { getWeeklyDiscoveryPreparationState, type WeeklyPreparationFailureCode }
 import { infoEmbed, successEmbed, warningEmbed } from '../ui/embeds.js';
 import { freeVaultLimitMessage } from './pro-copy.js';
 import type { Chase, Listing, PlanTier } from '../types.js';
+import { centralDiscoveryMarketRange } from '../services/discovery-market-range.js';
 
 export type DiscoveryCandidate = {
   suggestion: DiscoverySuggestion;
@@ -149,8 +150,12 @@ export type DiscoveryCandidate = {
     imageSourceKind?: LocalCardCatalogChoice['imageSourceKind'];
   };
   typicalRawAskingTotal?: number;
+  askingRangeLow?: number;
+  askingRangeHigh?: number;
   marketSampleSize?: number;
   typicalRawSoldTotal?: number;
+  soldRangeLow?: number;
+  soldRangeHigh?: number;
   soldSampleSize?: number;
   displayCurrency?: SupportedCurrency;
   selectionIndex?: number;
@@ -2842,8 +2847,12 @@ function candidateFromCachedMarket(
     selectionIndex,
     listing,
     typicalRawAskingTotal: cacheEntry.typicalRawAskingTotal,
+    askingRangeLow: cacheEntry.askingRangeLow,
+    askingRangeHigh: cacheEntry.askingRangeHigh,
     marketSampleSize: cacheEntry.marketSampleSize,
     typicalRawSoldTotal: cacheEntry.typicalRawSoldTotal,
+    soldRangeLow: cacheEntry.soldRangeLow,
+    soldRangeHigh: cacheEntry.soldRangeHigh,
     soldSampleSize: cacheEntry.soldSampleSize,
     displayCurrency: cacheEntry.displayCurrency ?? targetCurrency,
     sourceStatus,
@@ -2870,7 +2879,11 @@ function convertDiscoveryCandidateMarketCurrency(candidate: DiscoveryCandidate, 
   return {
     ...candidate,
     typicalRawAskingTotal: candidate.typicalRawAskingTotal === undefined ? undefined : convertCurrencyAmount(candidate.typicalRawAskingTotal, sourceCurrency, targetCurrency),
+    askingRangeLow: candidate.askingRangeLow === undefined ? undefined : convertCurrencyAmount(candidate.askingRangeLow, sourceCurrency, targetCurrency),
+    askingRangeHigh: candidate.askingRangeHigh === undefined ? undefined : convertCurrencyAmount(candidate.askingRangeHigh, sourceCurrency, targetCurrency),
     typicalRawSoldTotal: candidate.typicalRawSoldTotal === undefined ? undefined : convertCurrencyAmount(candidate.typicalRawSoldTotal, sourceCurrency, targetCurrency),
+    soldRangeLow: candidate.soldRangeLow === undefined ? undefined : convertCurrencyAmount(candidate.soldRangeLow, sourceCurrency, targetCurrency),
+    soldRangeHigh: candidate.soldRangeHigh === undefined ? undefined : convertCurrencyAmount(candidate.soldRangeHigh, sourceCurrency, targetCurrency),
     displayCurrency: targetCurrency,
     listing: candidate.listing
       ? {
@@ -3366,8 +3379,12 @@ function candidateWithFreshMarketCache(
     ...candidate,
     suggestion: marketSuggestion,
     typicalRawAskingTotal: marketCandidate.typicalRawAskingTotal,
+    askingRangeLow: marketCandidate.askingRangeLow,
+    askingRangeHigh: marketCandidate.askingRangeHigh,
     marketSampleSize: marketCandidate.marketSampleSize,
     typicalRawSoldTotal: marketCandidate.typicalRawSoldTotal,
+    soldRangeLow: marketCandidate.soldRangeLow,
+    soldRangeHigh: marketCandidate.soldRangeHigh,
     soldSampleSize: marketCandidate.soldSampleSize,
     displayCurrency: marketCandidate.displayCurrency ?? candidate.displayCurrency,
     sourceStatus: marketCandidate.sourceStatus
@@ -3545,12 +3562,15 @@ async function enrichSuggestion(
 
     const totals = baselineRawListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
     const typicalRawAskingTotal = typicalMarketTotal(totals);
+    const askingRange = centralDiscoveryMarketRange(totals);
     const imageUrl = imageUrlFromListing(listing);
     const askSnapshot: DiscoveryCandidate = {
       suggestion,
       selectionIndex,
       listing,
       typicalRawAskingTotal,
+      askingRangeLow: askingRange?.low,
+      askingRangeHigh: askingRange?.high,
       marketSampleSize: totals.length,
       soldSampleSize: 0,
       displayCurrency: targetCurrency
@@ -3575,11 +3595,14 @@ async function enrichSuggestion(
       soldTotals = [];
     }
     const typicalRawSoldTotal = typicalMarketTotal(soldTotals);
+    const soldRange = centralDiscoveryMarketRange(soldTotals);
     return {
       ...askSnapshot,
       typicalRawAskingTotal,
       marketSampleSize: totals.length,
       typicalRawSoldTotal,
+      soldRangeLow: soldRange?.low,
+      soldRangeHigh: soldRange?.high,
       soldSampleSize: soldTotals.length,
       displayCurrency: targetCurrency
     };
@@ -3651,8 +3674,12 @@ function saveDiscoveryMarketRefreshResult(job: DiscoveryMarketRefreshWork, candi
     listing: candidate.listing,
     imageUrl: candidate.image?.sourceKind === 'MARKET_LISTING' ? candidate.image.url : undefined,
     typicalRawAskingTotal: candidate.typicalRawAskingTotal,
+    askingRangeLow: candidate.askingRangeLow,
+    askingRangeHigh: candidate.askingRangeHigh,
     marketSampleSize: candidate.marketSampleSize,
     typicalRawSoldTotal: candidate.typicalRawSoldTotal,
+    soldRangeLow: candidate.soldRangeLow,
+    soldRangeHigh: candidate.soldRangeHigh,
     soldSampleSize: candidate.soldSampleSize,
     sourceStatus: candidate.sourceStatus === 'PENDING' ? undefined : candidate.sourceStatus
   });
@@ -8582,6 +8609,22 @@ function collectorFacingReleaseContext(candidate: DiscoveryCandidate): string | 
       && !/^(?:promo|promotional|promo release|pokumon promo|special release)$/i.test(value));
 }
 
+function collectorFacingAnchorLabel(value: string): string {
+  const cleaned = value.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/^black star$/i.test(cleaned)) return 'Black Star promos';
+  if (/^[A-Z0-9 ]+$/.test(cleaned)) return titleCase(cleaned.toLowerCase());
+  return cleaned;
+}
+
+function collectorFacingCandidateDetail(candidate: DiscoveryCandidate, printing: string): string {
+  const releaseContext = collectorFacingReleaseContext(candidate);
+  if (releaseContext) return `${printing} comes from ${releaseContext}.`;
+  if (candidate.catalogFacts?.illustrator) return `${printing} was illustrated by ${candidate.catalogFacts.illustrator}.`;
+  const setLabel = sourceSetLabel(candidate);
+  if (setLabel) return `${printing} offers a distinct printing from ${setLabel}.`;
+  return `${printing} is a distinct exact printing to explore.`;
+}
+
 function collectorProfileAnchoredWhy(
   candidate: DiscoveryCandidate,
   role: NonNullable<DiscoverySuggestion['discoveryRole']>,
@@ -8599,27 +8642,25 @@ function collectorProfileAnchoredWhy(
   const evidenceAnchors = evidenceSignals.map((signal) => anchors.find((anchor) => anchor.kind === signal.kind && anchor.key === signal.key)).filter((anchor): anchor is DiscoveryRecommendationAnchor => !!anchor);
   const [anchor, supportingAnchor] = evidenceAnchors.length > 0 ? evidenceAnchors : anchors;
   const anchorPhrase = (value: DiscoveryRecommendationAnchor): string => value.kind === 'SUBJECT'
-    ? `${value.label} cards`
+    ? `${collectorFacingAnchorLabel(value.label)} cards`
     : value.kind === 'EVOLUTION_FAMILY'
-      ? `the ${value.label}`
+      ? `the ${collectorFacingAnchorLabel(value.label)}`
       : value.kind === 'SET_RELATIONSHIP'
-        ? `${value.label} releases`
+        ? `${collectorFacingAnchorLabel(value.label)} releases`
         : value.kind === 'ART_STYLE'
-          ? `${value.label} artwork`
+          ? `${collectorFacingAnchorLabel(value.label)} artwork`
           : value.kind === 'FORMAT'
-            ? `${value.label} cards`
+            ? `${collectorFacingAnchorLabel(value.label)} cards`
             : value.kind === 'ERA'
-              ? /\bera$/i.test(value.label) ? `${value.label} cards` : `${value.label} era cards`
-              : value.label;
+              ? /\bera$/i.test(value.label) ? `${collectorFacingAnchorLabel(value.label)} cards` : `${collectorFacingAnchorLabel(value.label)} era cards`
+              : collectorFacingAnchorLabel(value.label);
   const primaryEvidence = evidenceSignals.find((signal) => signal.kind === anchor?.kind && signal.key === anchor?.key);
   const supportingEvidence = evidenceSignals.find((signal) => signal.kind === supportingAnchor?.kind && signal.key === supportingAnchor?.key);
   const supportedPair = primaryEvidence && supportingEvidence && primaryEvidence.source === supportingEvidence.source
     ? `${collectorEvidenceClause(primaryEvidence, anchor!, anchorPhrase(anchor!))} and ${anchorPhrase(supportingAnchor!)}. ${printing} connects both${releaseContext ? ` through ${releaseContext}` : ''}.`
     : undefined;
   const rationale = supportedPair ?? (!anchor || !primaryEvidence
-    ? role === 'CONTROLLED_EXPLORATION'
-      ? `${printing} sits a little outside your usual collection and offers a distinct card to explore.`
-      : `${printing} stands out for its verified printing details and adds a different direction to explore.`
+    ? collectorFacingCandidateDetail(candidate, printing)
     : primaryEvidence.source === 'PICKUP' && anchor.kind === 'ART_STYLE'
       ? `You've collected other cards illustrated by ${anchor.label}. ${printing} shares the same artist.`
       : primaryEvidence.source === 'WATCHLIST' && anchor.kind === 'ART_STYLE'
@@ -8627,11 +8668,11 @@ function collectorProfileAnchoredWhy(
         : anchor.kind === 'SUBJECT'
           ? `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${printing} explores a different printing.`
           : anchor.kind === 'EVOLUTION_FAMILY'
-            ? `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${printing} explores another part of that family.`
+            ? `${collectorEvidenceClause(primaryEvidence, anchor, anchorPhrase(anchor))}. ${releaseContext ? `${printing} comes from ${releaseContext}.` : collectorFacingCandidateDetail(candidate, printing)}`
             : anchor.kind === 'PROMO_PREFERENCE'
               ? releaseContext
-                ? `${collectorEvidenceClause(primaryEvidence, anchor, anchor.label)}. ${printing} comes from ${releaseContext}.`
-                : `${collectorEvidenceClause(primaryEvidence, anchor, anchor.label)}. ${printing} offers another special release to explore.`
+                ? `${collectorEvidenceClause(primaryEvidence, anchor, collectorFacingAnchorLabel(anchor.label))}. ${printing} comes from ${releaseContext}.`
+                : `${collectorEvidenceClause(primaryEvidence, anchor, collectorFacingAnchorLabel(anchor.label))}. ${collectorFacingCandidateDetail(candidate, printing)}`
               : anchor.kind === 'REGIONAL_PRINT'
                 ? releaseContext
                   ? `${collectorEvidenceClause(primaryEvidence, anchor, 'Japanese printings')}. ${printing} comes from ${releaseContext}.`
@@ -9614,8 +9655,12 @@ function candidatesFromScheduledDiscoveryDrop(drop: ScheduledDiscoveryDrop): Dis
       listing: listingFromScheduledDiscoveryDropItem(item),
       image: scheduledImageForItem(item),
       typicalRawAskingTotal: item.market.askingTotal,
+      askingRangeLow: item.market.askingRangeLow,
+      askingRangeHigh: item.market.askingRangeHigh,
       marketSampleSize: item.market.askingSampleSize,
       typicalRawSoldTotal: item.market.soldTotal,
+      soldRangeLow: item.market.soldRangeLow,
+      soldRangeHigh: item.market.soldRangeHigh,
       soldSampleSize: item.market.soldSampleSize,
       displayCurrency: item.market.currency,
       sourceStatus: sourceStatusFromScheduledMarketStatus(item.market.status),
@@ -10699,8 +10744,12 @@ function scheduledDropItemsFromCandidates(candidates: DiscoveryCandidate[], curr
       status: scheduledMarketStatusFromCandidate(candidate),
       currency: candidate.displayCurrency ?? currency,
       askingTotal: candidate.typicalRawAskingTotal,
+      askingRangeLow: candidate.askingRangeLow,
+      askingRangeHigh: candidate.askingRangeHigh,
       askingSampleSize: candidate.marketSampleSize,
       soldTotal: candidate.typicalRawSoldTotal,
+      soldRangeLow: candidate.soldRangeLow,
+      soldRangeHigh: candidate.soldRangeHigh,
       soldSampleSize: candidate.soldSampleSize,
       listing: (candidate.sourceStatus === 'RATE_LIMITED' || candidate.sourceStatus === 'TIMEOUT' || candidate.sourceStatus === 'ERROR') ? undefined : candidate.listing
         ? {

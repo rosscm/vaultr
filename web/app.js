@@ -246,6 +246,29 @@ function formatRoundedMoney(amount, currency) {
   return `${currencySymbol(currency)}${Math.round(amount)}`;
 }
 
+function displayCaseMarketPrice(market) {
+  if (!market) return null;
+  if (Number.isFinite(market.askingRangeLow) && Number.isFinite(market.askingRangeHigh)) {
+    return {
+      label: 'Typical asking range',
+      value: `${formatRoundedMoney(market.askingRangeLow, market.currency)}–${formatRoundedMoney(market.askingRangeHigh, market.currency)}`
+    };
+  }
+  if (Number.isFinite(market.soldRangeLow) && Number.isFinite(market.soldRangeHigh)) {
+    return {
+      label: 'Typical sold range',
+      value: `${formatRoundedMoney(market.soldRangeLow, market.currency)}–${formatRoundedMoney(market.soldRangeHigh, market.currency)}`
+    };
+  }
+  if (Number.isFinite(market.askingTotal)) {
+    return { label: 'Around', value: formatRoundedMoney(market.askingTotal, market.currency) };
+  }
+  if (Number.isFinite(market.soldTotal)) {
+    return { label: 'Recent sold estimate', value: formatRoundedMoney(market.soldTotal, market.currency) };
+  }
+  return null;
+}
+
 function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
@@ -1574,12 +1597,7 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, label } = {})
   if (!item) return '';
   const total = items.length;
   const details = [item.setName, item.cardNumber, item.language].filter(Boolean);
-  const price = item.market?.askingTotal !== undefined
-    ? (editorial ? formatRoundedMoney(item.market.askingTotal, item.market.currency) : formatMoney(item.market.askingTotal, item.market.currency))
-    : item.market?.soldTotal !== undefined
-      ? formatMoney(item.market.soldTotal, item.market.currency)
-      : '';
-  const priceLabel = item.market?.askingTotal !== undefined ? (editorial ? 'Around' : 'Asking price') : item.market?.soldTotal !== undefined ? 'Recent sold' : '';
+  const marketPrice = displayCaseMarketPrice(item.market);
   return `
     <div class="home-shelf-feature" data-home-shelf-feature tabindex="0" aria-label="Display Case recommendation browser">
       <div class="home-shelf-artwork${item.imageUrl ? '' : ' empty'}${supporting.length ? ` has-${supporting.length + 1}-cards` : ''}">
@@ -1600,7 +1618,7 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, label } = {})
         ${item.nativeName ? `<span class="home-shelf-details">Original name: ${escapeHtml(item.nativeName)}</span>` : ''}
         ${details.length ? `<span class="home-shelf-details">${details.map(escapeHtml).join(' · ')}</span>` : ''}
         ${item.reason ? `<p>${escapeHtml(item.reason)}</p>` : ''}
-        ${price ? `<span class="home-shelf-price"><small>${escapeHtml(priceLabel)}</small>${escapeHtml(price)}</span>` : ''}
+        ${marketPrice ? `<span class="home-shelf-price"><small>${escapeHtml(marketPrice.label)}</small>${escapeHtml(marketPrice.value)}</span>` : ''}
         <div class="home-shelf-actions">
           ${discoveryCardPrimaryActionMarkup(item)}
           ${item.ebayUrl ? `<a class="listing-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
@@ -2250,7 +2268,7 @@ function shelfPageMarkup() {
       ${shelfHeaderMarkup(state.shelf)}
       ${vaultNoticeMarkup('shelf')}
       ${discoveryBudgetShortageMarkup(state.shelf)}
-      ${personalized && items.length ? `<p class="shelf-personalized-note">There’s always another card to fall in love with. Explore discoveries shaped by your collection and what catches your eye, with familiar favourites and unexpected finds along the way.</p><p class="shelf-feedback-intro">${isPreviewMode ? 'Taste feedback is read-only in preview.' : 'Your feedback helps shape future discoveries.'}</p>` : ''}
+      ${personalized && items.length ? `<p class="shelf-feedback-intro">${isPreviewMode ? 'Taste feedback is read-only in preview.' : 'Your feedback helps shape future discoveries.'}</p>` : ''}
       ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
       ${vaultDialogMarkup()}
     </section>
@@ -2322,16 +2340,11 @@ function shelfEmptyMarkup(shelf) {
 
 function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}) {
   const details = [item.setName, item.cardNumber, item.language].filter(Boolean);
-  const price = item.market?.askingTotal !== undefined
-    ? formatMoney(item.market.askingTotal, item.market.currency)
-    : item.market?.soldTotal !== undefined
-      ? formatMoney(item.market.soldTotal, item.market.currency)
-      : '';
-  const priceLabel = item.market?.askingTotal !== undefined ? 'Asking price' : item.market?.soldTotal !== undefined ? 'Recent sold' : '';
+  const marketPrice = displayCaseMarketPrice(item.market);
   const marketUnavailable = item.market?.status === 'EMPTY' || item.market?.status === 'NO_ACCEPTED_SAMPLES'
     ? 'No reliable market estimate yet'
     : 'Pricing unavailable';
-  const showMarket = Boolean(price) || !editorial;
+  const showMarket = Boolean(marketPrice) || !editorial;
   return `
     <article class="shelf-card">
       ${item.imageUrl ? artworkTriggerMarkup({
@@ -2352,7 +2365,7 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
         ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
         <div class="shelf-card-footer${showMarket ? '' : ' no-market'}">
           ${showMarket ? `<div class="shelf-market-status">
-            ${price ? `<p class="shelf-price"><span>${escapeHtml(priceLabel)}</span>${escapeHtml(price)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
+            ${marketPrice ? `<p class="shelf-price"><span>${escapeHtml(marketPrice.label)}</span>${escapeHtml(marketPrice.value)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
           </div>` : ''}
           <div class="shelf-card-actions">
             ${discoveryCardPrimaryActionMarkup(item)}

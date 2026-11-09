@@ -421,8 +421,12 @@ db.exec(`
     listing_url TEXT,
     image_url TEXT,
     typical_raw_asking_total REAL,
+    asking_range_low REAL,
+    asking_range_high REAL,
     market_sample_size INTEGER,
     typical_raw_sold_total REAL,
+    sold_range_low REAL,
+    sold_range_high REAL,
     sold_sample_size INTEGER,
     source_status TEXT,
     fetched_at TEXT NOT NULL,
@@ -537,8 +541,12 @@ db.exec(`
     market_status TEXT NOT NULL,
     market_currency TEXT NOT NULL,
     asking_total REAL,
+    asking_range_low REAL,
+    asking_range_high REAL,
     asking_sample_size INTEGER,
     sold_total REAL,
+    sold_range_low REAL,
+    sold_range_high REAL,
     sold_sample_size INTEGER,
     listing_id TEXT,
     listing_title TEXT,
@@ -1141,6 +1149,22 @@ try {
   db.exec(`ALTER TABLE discovery_market_cache ADD COLUMN sold_sample_size INTEGER;`);
 } catch {
   // Column already exists on upgraded databases.
+}
+for (const statement of [
+  `ALTER TABLE discovery_market_cache ADD COLUMN asking_range_low REAL;`,
+  `ALTER TABLE discovery_market_cache ADD COLUMN asking_range_high REAL;`,
+  `ALTER TABLE discovery_market_cache ADD COLUMN sold_range_low REAL;`,
+  `ALTER TABLE discovery_market_cache ADD COLUMN sold_range_high REAL;`,
+  `ALTER TABLE discovery_scheduled_drop_items ADD COLUMN asking_range_low REAL;`,
+  `ALTER TABLE discovery_scheduled_drop_items ADD COLUMN asking_range_high REAL;`,
+  `ALTER TABLE discovery_scheduled_drop_items ADD COLUMN sold_range_low REAL;`,
+  `ALTER TABLE discovery_scheduled_drop_items ADD COLUMN sold_range_high REAL;`
+]) {
+  try {
+    db.exec(statement);
+  } catch {
+    // Column already exists on upgraded databases.
+  }
 }
 db.exec(`
   DELETE FROM discovery_market_cache

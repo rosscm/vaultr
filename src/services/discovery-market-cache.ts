@@ -14,8 +14,12 @@ export type DiscoveryMarketCacheEntry = {
   listingUrl?: string;
   imageUrl?: string;
   typicalRawAskingTotal?: number;
+  askingRangeLow?: number;
+  askingRangeHigh?: number;
   marketSampleSize?: number;
   typicalRawSoldTotal?: number;
+  soldRangeLow?: number;
+  soldRangeHigh?: number;
   soldSampleSize?: number;
   sourceStatus?: DiscoveryMarketSourceStatus;
   fetchedAt: string;
@@ -32,8 +36,12 @@ type DiscoveryMarketCacheRow = {
   listing_url: string | null;
   image_url: string | null;
   typical_raw_asking_total: number | null;
+  asking_range_low: number | null;
+  asking_range_high: number | null;
   market_sample_size: number | null;
   typical_raw_sold_total: number | null;
+  sold_range_low: number | null;
+  sold_range_high: number | null;
   sold_sample_size: number | null;
   source_status: DiscoveryMarketSourceStatus | null;
   fetched_at: string;
@@ -48,8 +56,12 @@ type UpsertDiscoveryMarketCacheInput = {
   listing?: Listing;
   imageUrl?: string;
   typicalRawAskingTotal?: number;
+  askingRangeLow?: number;
+  askingRangeHigh?: number;
   marketSampleSize?: number;
   typicalRawSoldTotal?: number;
+  soldRangeLow?: number;
+  soldRangeHigh?: number;
   soldSampleSize?: number;
   sourceStatus?: DiscoveryMarketSourceStatus;
   fetchedAt?: string;
@@ -57,7 +69,8 @@ type UpsertDiscoveryMarketCacheInput = {
 
 const getDiscoveryMarketCacheStmt = db.prepare(`
   SELECT cache_key, suggestion_name, display_currency, destination_country, listing_id, listing_title, listing_url, image_url,
-         typical_raw_asking_total, market_sample_size, typical_raw_sold_total, sold_sample_size, source_status, fetched_at, updated_at
+         typical_raw_asking_total, asking_range_low, asking_range_high, market_sample_size,
+         typical_raw_sold_total, sold_range_low, sold_range_high, sold_sample_size, source_status, fetched_at, updated_at
   FROM discovery_market_cache
   WHERE cache_key = ?
 `);
@@ -65,11 +78,13 @@ const getDiscoveryMarketCacheStmt = db.prepare(`
 const upsertDiscoveryMarketCacheStmt = db.prepare(`
   INSERT INTO discovery_market_cache (
     cache_key, suggestion_name, display_currency, destination_country, listing_id, listing_title, listing_url, image_url,
-    typical_raw_asking_total, market_sample_size, typical_raw_sold_total, sold_sample_size, source_status, fetched_at, updated_at
+    typical_raw_asking_total, asking_range_low, asking_range_high, market_sample_size,
+    typical_raw_sold_total, sold_range_low, sold_range_high, sold_sample_size, source_status, fetched_at, updated_at
   )
   VALUES (
     @cache_key, @suggestion_name, @display_currency, @destination_country, @listing_id, @listing_title, @listing_url, @image_url,
-    @typical_raw_asking_total, @market_sample_size, @typical_raw_sold_total, @sold_sample_size, @source_status, @fetched_at, @updated_at
+    @typical_raw_asking_total, @asking_range_low, @asking_range_high, @market_sample_size,
+    @typical_raw_sold_total, @sold_range_low, @sold_range_high, @sold_sample_size, @source_status, @fetched_at, @updated_at
   )
   ON CONFLICT(cache_key) DO UPDATE SET
     suggestion_name = excluded.suggestion_name,
@@ -80,8 +95,12 @@ const upsertDiscoveryMarketCacheStmt = db.prepare(`
     listing_url = excluded.listing_url,
     image_url = excluded.image_url,
     typical_raw_asking_total = excluded.typical_raw_asking_total,
+    asking_range_low = excluded.asking_range_low,
+    asking_range_high = excluded.asking_range_high,
     market_sample_size = excluded.market_sample_size,
     typical_raw_sold_total = excluded.typical_raw_sold_total,
+    sold_range_low = excluded.sold_range_low,
+    sold_range_high = excluded.sold_range_high,
     sold_sample_size = excluded.sold_sample_size,
     source_status = excluded.source_status,
     fetched_at = excluded.fetched_at,
@@ -95,7 +114,8 @@ const deleteDiscoveryMarketCacheStmt = db.prepare(`
 
 const listReliableDiscoveryMarketCacheStmt = db.prepare(`
   SELECT cache_key, suggestion_name, display_currency, destination_country, listing_id, listing_title, listing_url, image_url,
-         typical_raw_asking_total, market_sample_size, typical_raw_sold_total, sold_sample_size, source_status, fetched_at, updated_at
+         typical_raw_asking_total, asking_range_low, asking_range_high, market_sample_size,
+         typical_raw_sold_total, sold_range_low, sold_range_high, sold_sample_size, source_status, fetched_at, updated_at
   FROM discovery_market_cache
   WHERE display_currency = @display_currency
     AND (@destination_country IS NULL OR destination_country IS NULL OR destination_country = @destination_country)
@@ -110,7 +130,8 @@ const listReliableDiscoveryMarketCacheStmt = db.prepare(`
 
 const listDiscoveryMarketSignalCacheStmt = db.prepare(`
   SELECT cache_key, suggestion_name, display_currency, destination_country, listing_id, listing_title, listing_url, image_url,
-         typical_raw_asking_total, market_sample_size, typical_raw_sold_total, sold_sample_size, source_status, fetched_at, updated_at
+         typical_raw_asking_total, asking_range_low, asking_range_high, market_sample_size,
+         typical_raw_sold_total, sold_range_low, sold_range_high, sold_sample_size, source_status, fetched_at, updated_at
   FROM discovery_market_cache
   WHERE display_currency = @display_currency
     AND (@destination_country IS NULL OR destination_country IS NULL OR destination_country = @destination_country)
@@ -134,8 +155,12 @@ function mapDiscoveryMarketCacheRow(row: DiscoveryMarketCacheRow): DiscoveryMark
     listingUrl: row.listing_url ?? undefined,
     imageUrl: row.image_url ?? undefined,
     typicalRawAskingTotal: row.typical_raw_asking_total ?? undefined,
+    askingRangeLow: row.asking_range_low ?? undefined,
+    askingRangeHigh: row.asking_range_high ?? undefined,
     marketSampleSize: row.market_sample_size ?? undefined,
     typicalRawSoldTotal: row.typical_raw_sold_total ?? undefined,
+    soldRangeLow: row.sold_range_low ?? undefined,
+    soldRangeHigh: row.sold_range_high ?? undefined,
     soldSampleSize: row.sold_sample_size ?? undefined,
     sourceStatus: row.source_status ?? undefined,
     fetchedAt: row.fetched_at,
@@ -197,8 +222,12 @@ export function upsertDiscoveryMarketCache(input: UpsertDiscoveryMarketCacheInpu
     listing_url: input.listing?.url ?? null,
     image_url: input.imageUrl ?? input.listing?.imageUrl ?? input.listing?.thumbnailUrl ?? null,
     typical_raw_asking_total: input.typicalRawAskingTotal ?? null,
+    asking_range_low: input.askingRangeLow ?? null,
+    asking_range_high: input.askingRangeHigh ?? null,
     market_sample_size: input.marketSampleSize ?? null,
     typical_raw_sold_total: input.typicalRawSoldTotal ?? null,
+    sold_range_low: input.soldRangeLow ?? null,
+    sold_range_high: input.soldRangeHigh ?? null,
     sold_sample_size: input.soldSampleSize ?? null,
     source_status: input.sourceStatus ?? null,
     fetched_at: input.fetchedAt ?? now,

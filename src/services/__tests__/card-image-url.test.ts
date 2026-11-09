@@ -39,4 +39,10 @@ describe('trusted card image URLs', () => {
     expect(isStructurallyValidTrustedCardImageUrl('https://images.example.test/cards/sylveon-rc32.png', 'CURATED', 'RC32')).toBe(true);
     expect(isIdentifiableGenericCardImageUrl('https://images.example.test/cards/flashback-sylveon.png')).toBe(false);
   });
+
+  it('rejects the verified 30th Celebration card-back fallback references only', () => {
+    expect(isStructurallyValidTrustedCardImageUrl('https://images.pokemontcg.io/me55/139_hires.png', 'Pokemon TCG (30th Celebration)', '139')).toBe(false);
+    expect(isStructurallyValidTrustedCardImageUrl('https://images.pokemontcg.io/me55/153_hires.png', 'Pokemon TCG (30th Celebration)', '153')).toBe(false);
+    expect(isStructurallyValidTrustedCardImageUrl('https://images.pokemontcg.io/me55/152_hires.png', 'Pokemon TCG (30th Celebration)', '152')).toBe(true);
+  });
 });

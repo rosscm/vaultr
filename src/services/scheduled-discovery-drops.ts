@@ -16,8 +16,12 @@ export type ScheduledDiscoveryDropItem = {
     status: string;
     currency: SupportedCurrency;
     askingTotal?: number;
+    askingRangeLow?: number;
+    askingRangeHigh?: number;
     askingSampleSize?: number;
     soldTotal?: number;
+    soldRangeLow?: number;
+    soldRangeHigh?: number;
     soldSampleSize?: number;
     listing?: {
       id: string;
@@ -84,8 +88,12 @@ type ScheduledDiscoveryDropItemRow = {
   market_status: string;
   market_currency: SupportedCurrency;
   asking_total: number | null;
+  asking_range_low: number | null;
+  asking_range_high: number | null;
   asking_sample_size: number | null;
   sold_total: number | null;
+  sold_range_low: number | null;
+  sold_range_high: number | null;
   sold_sample_size: number | null;
   listing_id: string | null;
   listing_title: string | null;
@@ -138,12 +146,14 @@ const deleteScheduledDiscoveryDropItemsStmt = db.prepare(`
 const insertScheduledDiscoveryDropItemStmt = db.prepare(`
   INSERT INTO discovery_scheduled_drop_items (
     user_id, drop_type, period_key, position, suggestion_name, suggestion_json, image_url, image_source_name,
-    image_source_kind, market_status, market_currency, asking_total, asking_sample_size, sold_total, sold_sample_size,
+    image_source_kind, market_status, market_currency, asking_total, asking_range_low, asking_range_high, asking_sample_size,
+    sold_total, sold_range_low, sold_range_high, sold_sample_size,
     listing_id, listing_title, listing_url, market_updated_at, created_at, updated_at
   )
   VALUES (
     @user_id, @drop_type, @period_key, @position, @suggestion_name, @suggestion_json, @image_url, @image_source_name,
-    @image_source_kind, @market_status, @market_currency, @asking_total, @asking_sample_size, @sold_total, @sold_sample_size,
+    @image_source_kind, @market_status, @market_currency, @asking_total, @asking_range_low, @asking_range_high, @asking_sample_size,
+    @sold_total, @sold_range_low, @sold_range_high, @sold_sample_size,
     @listing_id, @listing_title, @listing_url, @market_updated_at, @created_at, @updated_at
   )
 `);
@@ -200,7 +210,8 @@ const listScheduledDiscoveryDropsForPeriodStmt = db.prepare(`
 
 const listScheduledDiscoveryDropItemsStmt = db.prepare(`
   SELECT position, suggestion_name, suggestion_json, image_url, image_source_name, market_status, market_currency,
-         image_source_kind, asking_total, asking_sample_size, sold_total, sold_sample_size, listing_id, listing_title, listing_url, market_updated_at
+         image_source_kind, asking_total, asking_range_low, asking_range_high, asking_sample_size,
+         sold_total, sold_range_low, sold_range_high, sold_sample_size, listing_id, listing_title, listing_url, market_updated_at
   FROM discovery_scheduled_drop_items
   WHERE user_id = ? AND drop_type = ? AND period_key = ?
   ORDER BY position ASC
@@ -347,8 +358,12 @@ function mapScheduledDiscoveryDropItemRow(row: ScheduledDiscoveryDropItemRow): S
       status: row.market_status,
       currency: row.market_currency,
       askingTotal: row.asking_total ?? undefined,
+      askingRangeLow: row.asking_range_low ?? undefined,
+      askingRangeHigh: row.asking_range_high ?? undefined,
       askingSampleSize: row.asking_sample_size ?? undefined,
       soldTotal: row.sold_total ?? undefined,
+      soldRangeLow: row.sold_range_low ?? undefined,
+      soldRangeHigh: row.sold_range_high ?? undefined,
       soldSampleSize: row.sold_sample_size ?? undefined,
       listing:
         row.listing_id && row.listing_title && row.listing_url
@@ -440,8 +455,12 @@ export function upsertScheduledDiscoveryDrop(input: UpsertScheduledDiscoveryDrop
         market_status: item.market.status,
         market_currency: item.market.currency,
         asking_total: item.market.askingTotal ?? null,
+        asking_range_low: item.market.askingRangeLow ?? null,
+        asking_range_high: item.market.askingRangeHigh ?? null,
         asking_sample_size: item.market.askingSampleSize ?? null,
         sold_total: item.market.soldTotal ?? null,
+        sold_range_low: item.market.soldRangeLow ?? null,
+        sold_range_high: item.market.soldRangeHigh ?? null,
         sold_sample_size: item.market.soldSampleSize ?? null,
         listing_id: item.market.listing?.id ?? null,
         listing_title: item.market.listing?.title ?? null,

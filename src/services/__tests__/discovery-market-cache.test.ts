@@ -52,16 +52,24 @@ describe('discovery market cache', () => {
         listingType: 'BUY_IT_NOW'
       },
       typicalRawAskingTotal: 42,
+      askingRangeLow: 35,
+      askingRangeHigh: 48,
       marketSampleSize: 3,
       typicalRawSoldTotal: 37,
+      soldRangeLow: 32,
+      soldRangeHigh: 41,
       soldSampleSize: 4
     });
 
     const entry = getDiscoveryMarketCache(cacheKey);
     expect(entry?.suggestionName).toBe(testKey);
     expect(entry?.typicalRawAskingTotal).toBe(42);
+    expect(entry?.askingRangeLow).toBe(35);
+    expect(entry?.askingRangeHigh).toBe(48);
     expect(entry?.marketSampleSize).toBe(3);
     expect(entry?.typicalRawSoldTotal).toBe(37);
+    expect(entry?.soldRangeLow).toBe(32);
+    expect(entry?.soldRangeHigh).toBe(41);
     expect(entry?.soldSampleSize).toBe(4);
     expect(entry?.imageUrl).toBe('https://i.ebayimg.example/mew.jpg');
 

@@ -62,6 +62,11 @@ export function isIdentifiableGenericCardImageUrl(value: string | undefined): bo
   return /(?:^|[\/_\-.])(card[_-]?back|back[_-]?of[_-]?card|pokemon[_-]?card[_-]?back|tcg[_-]?back|placeholder|default[_-]?card|image[_-]?unavailable)(?:[\/_\-.]|$)/i.test(identity);
 }
 
+const KNOWN_GENERIC_CARD_BACK_URLS = new Set([
+  'https://images.pokemontcg.io/me55/139_hires.png',
+  'https://images.pokemontcg.io/me55/153_hires.png'
+]);
+
 export function isStructurallyValidTcgDexImageUrl(value: string | undefined, expectedLocalId?: string): boolean {
   if (!isAbsoluteHttpImageUrl(value)) return false;
   const parsed = new URL(value!);
@@ -89,6 +94,7 @@ export function tcgDexCanonicalImageUrl(identity: TcgDexImageIdentity): string |
 
 export function isStructurallyValidTrustedCardImageUrl(value: string | undefined, sourceName?: string, expectedLocalId?: string): boolean {
   if (!isAbsoluteHttpImageUrl(value)) return false;
+  if (KNOWN_GENERIC_CARD_BACK_URLS.has(value!)) return false;
   if (isIdentifiableGenericCardImageUrl(value)) return false;
   const parsed = new URL(value!);
   if (parsed.hostname === 'assets.tcgdex.net' || /^TCGdex(?: Japanese)?(?:\s*\(|$)/i.test(sourceName ?? '')) {
