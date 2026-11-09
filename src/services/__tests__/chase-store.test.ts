@@ -608,7 +608,7 @@ describe('user alert history read model', () => {
         details: {
           chase: { maxPrice: 100, condition: 'NM' },
           pricing: { itemPrice: 72, currency: 'CAD', comparisonBasis: 'ITEM_PRICE', amountUnderMax: 28 },
-          listing: { sourceLabel: 'eBay', seller: 'Card Shop', sellerFeedbackPercent: 99.8, region: 'CA' },
+          listing: { sourceLabel: 'eBay', seller: 'Card Shop', sellerFeedbackPercent: 99.8, region: 'CA', condition: 'Ungraded - Lightly played (Excellent)' },
           match: { score: 91, positiveSignals: ['exact card name'], warnings: [], explanation: 'Matched the exact card name.' },
           ignored: 'not exposed'
         }
@@ -618,7 +618,15 @@ describe('user alert history read model', () => {
     expect(getAlertEventForUser(userId, alert.alertId)?.details).toEqual({
       chase: { targetNote: undefined, maxPrice: 100, condition: 'NM', grade: undefined, listingType: undefined },
       pricing: { itemPrice: 72, shipping: undefined, total: undefined, currency: 'CAD', comparisonBasis: 'ITEM_PRICE', amountUnderMax: 28 },
-      listing: { sourceLabel: 'eBay', seller: 'Card Shop', sellerFeedbackPercent: 99.8, sellerFeedbackScore: undefined, region: 'CA', listingType: undefined },
+      listing: {
+        sourceLabel: 'eBay',
+        seller: 'Card Shop',
+        sellerFeedbackPercent: 99.8,
+        sellerFeedbackScore: undefined,
+        region: 'CA',
+        listingType: undefined,
+        condition: 'Ungraded - Lightly played (Excellent)'
+      },
       match: { score: 91, positiveSignals: ['exact card name'], warnings: [], explanation: 'Matched the exact card name.' }
     });
     expect(getAlertEventForUser(userId, alert.alertId)).not.toHaveProperty('payload');

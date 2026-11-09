@@ -1309,7 +1309,7 @@ function alertsPageMarkup(inner) {
   const discordAlertsEnabled = Boolean(state.settings?.discordCardAlertsEnabled);
   const showDiscordInvite = state.settingsLoaded && !discordAlertsEnabled && !access.discordAlertInviteDismissed;
   return `
-    <section aria-labelledby="alerts-title">
+    <section class="inbox-page" aria-labelledby="alerts-title">
       ${pageHeaderMarkup({
         id: 'alerts-title',
         title: 'Your matches',
@@ -1625,7 +1625,7 @@ function homeWatchlistPreviewMarkup(item) {
               imageClass: 'home-watchlist-image',
               imageDataAttribute: 'data-home-watchlist-image'
             })
-          : '<span class="home-watchlist-placeholder" aria-hidden="true">K</span>'}
+          : '<span class="home-watchlist-placeholder artwork-unavailable" role="img" aria-label="Artwork unavailable">Artwork unavailable</span>'}
       </div>
       <div class="home-watchlist-copy">
         <span class="home-watchlist-status">${escapeHtml(status)}</span>
@@ -1930,6 +1930,8 @@ function alertDetailPanelMarkup(alert) {
     ['Preferred listing type', details.chase?.listingType ? escapeHtml(listingTypeLabel(details.chase.listingType)) : 'Not specified']
   ] : [];
   const matchExplanation = details?.match?.explanation || 'This listing cleared your saved Watchlist filters.';
+  const positiveSignals = details?.match?.positiveSignals || [];
+  const showMatchExplanation = positiveSignals.length === 0 || !/^Matched because of\b/i.test(matchExplanation);
   return `
     <aside class="alert-detail-panel" data-alert-detail-panel role="region" aria-labelledby="alert-detail-title">
       <header class="alert-detail-header">
@@ -1946,17 +1948,17 @@ function alertDetailPanelMarkup(alert) {
           <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span></div>
         </div>
       </div>
+      <section class="alert-detail-actions" aria-label="Listing actions"><h3>Actions</h3><div class="alert-actions">${alertActionMarkup(alert)}</div></section>
       ${details ? `
         <section class="alert-detail-section alert-match-evidence"><div class="alert-detail-section-heading"><h3>Why it matched</h3><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span></div>
-          <p>${escapeHtml(matchExplanation)}</p>
-          ${details.match?.positiveSignals?.length ? `<ul>${details.match.positiveSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}</ul>` : ''}
+          ${showMatchExplanation ? `<p>${escapeHtml(matchExplanation)}</p>` : ''}
+          ${positiveSignals.length ? `<ul>${positiveSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}</ul>` : ''}
           ${details.match?.warnings?.length ? `<p class="alert-detail-warning">Check: ${escapeHtml(details.match.warnings.join(', '))}</p>` : ''}
         </section>
         <section class="alert-detail-section"><h3>Pricing</h3>${alertDetailRows(pricingRows)}</section>
         <section class="alert-detail-section"><h3>Listing highlights</h3>${alertDetailRows(listingRows)}</section>
         <section class="alert-detail-section"><h3>Your Watchlist criteria</h3>${alertDetailRows(criteriaRows)}${details.chase?.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>
       ` : '<section class="alert-detail-section historical"><h3>Historical match</h3><p>Additional match evidence was not stored for this alert.</p></section>'}
-      <section class="alert-detail-actions" aria-label="Listing actions"><h3>Actions</h3><div class="alert-actions">${alertActionMarkup(alert)}</div></section>
     </aside>
   `;
 }
@@ -2121,7 +2123,6 @@ function watchlistCriteriaSummary(chase) {
   ];
   const listingType = listingTypeLabel(chase.listingType);
   if (listingType !== 'Any listing') summary.push({ icon: 'shop', text: listingType });
-  if (chase.priority === 'GRAIL' || chase.priority === 'HIGH') summary.push({ icon: 'plus', text: priorityLabel(chase.priority) });
   return summary;
 }
 
@@ -2139,7 +2140,7 @@ function vaultCardMarkup(item) {
         imageKind: 'Card artwork',
         imageClass: 'vault-card-image',
         imageDataAttribute: 'data-vault-card-image'
-      }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">K</div>`}
+      }) : `<div class="vault-card-image placeholder-image artwork-unavailable" role="img" aria-label="Artwork unavailable"><span>Artwork unavailable</span></div>`}
       <div class="vault-card-body">
         <div class="vault-card-content">
         <div class="vault-card-meta">
@@ -2182,7 +2183,7 @@ function completedChaseMarkup(chase) {
         imageKind: 'Card artwork',
         imageClass: 'vault-card-image',
         imageDataAttribute: 'data-vault-card-image'
-      }) : `<div class="vault-card-image placeholder-image" aria-hidden="true">K</div>`}
+      }) : `<div class="vault-card-image placeholder-image artwork-unavailable" role="img" aria-label="Artwork unavailable"><span>Artwork unavailable</span></div>`}
       <div class="vault-card-body">
         <div class="vault-card-content">
         <div class="vault-card-meta">
@@ -2275,7 +2276,7 @@ function shelfMetaMarkup(shelf) {
   const updated = shelf.updatedAt ? formatDate(shelf.updatedAt) : '';
   const details = [
     shelf.periodKey,
-    shelf.shelfKind === 'PREVIOUS' ? 'Previous shelf' : shelf.status === 'READY' ? 'Ready' : shelf.status === 'PARTIAL' ? 'Preview' : '',
+    shelf.shelfKind === 'PREVIOUS' ? 'Previous shelf' : shelf.status === 'READY' ? 'Ready' : shelf.status === 'PARTIAL' ? 'Partial selection' : '',
     `${shelf.itemCount || shelf.items?.length || 0} picks`,
     updated ? `Updated ${updated}` : ''
   ].filter(Boolean);
@@ -2745,7 +2746,12 @@ async function refreshNewAlertPresence() {
       const hasNewAlerts = Boolean(body.items?.length);
       if (hasNewAlerts !== state.hasNewAlerts) {
         state.hasNewAlerts = hasNewAlerts;
-        renderCurrentPage();
+        if (state.activePage === 'home') {
+          state.homeAttentionLoaded = false;
+          void loadHomeAttention();
+        } else {
+          renderCurrentPage();
+        }
       }
     } catch (error) {
       if (String(error?.message) !== 'unauthorized') return;
@@ -4495,7 +4501,11 @@ app.addEventListener(
       const placeholder = document.createElement('span');
       placeholder.className = 'alert-image-placeholder';
       placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.textContent = 'K';
+      placeholder.classList.add('artwork-unavailable');
+      placeholder.setAttribute('role', 'img');
+      placeholder.setAttribute('aria-label', 'Artwork unavailable');
+      placeholder.removeAttribute('aria-hidden');
+      placeholder.textContent = 'Artwork unavailable';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-alert-image]')) {
       const placeholder = document.createElement('span');
@@ -4512,16 +4522,19 @@ app.addEventListener(
       (target.closest('.home-shelf-supporting-card') || target).remove();
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-watchlist-image]')) {
       const placeholder = document.createElement('span');
-      placeholder.className = 'home-watchlist-placeholder';
-      placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.textContent = 'K';
+      placeholder.className = 'home-watchlist-placeholder artwork-unavailable';
+      placeholder.setAttribute('role', 'img');
+      placeholder.setAttribute('aria-label', 'Artwork unavailable');
+      placeholder.textContent = 'Artwork unavailable';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-vault-card-image], [data-shelf-card-image]')) {
       const placeholder = document.createElement('div');
       placeholder.className = `${target.matches('[data-shelf-card-image]') ? 'shelf-card-image' : 'vault-card-image'} placeholder-image`;
-      placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.textContent = target.matches('[data-shelf-card-image]') ? 'Image unavailable' : 'K';
+      placeholder.setAttribute('role', 'img');
+      placeholder.setAttribute('aria-label', 'Artwork unavailable');
+      placeholder.textContent = 'Artwork unavailable';
       if (target.matches('[data-shelf-card-image]')) placeholder.classList.add('shelf-image-unavailable');
+      placeholder.classList.add('artwork-unavailable');
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     }
   },

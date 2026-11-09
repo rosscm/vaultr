@@ -293,7 +293,8 @@ function alertMatchDetailsFromPayload(payload: Record<string, unknown> | undefin
       sellerFeedbackPercent: number(listing.sellerFeedbackPercent),
       sellerFeedbackScore: number(listing.sellerFeedbackScore),
       region: string(listing.region) as Listing['region'],
-      listingType: string(listing.listingType) as Listing['listingType']
+      listingType: string(listing.listingType) as Listing['listingType'],
+      condition: string(listing.condition)
     } : undefined,
     match: match ? {
       score: number(match.score),

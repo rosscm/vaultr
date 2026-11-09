@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isIdentifiableGenericCardImageUrl,
   isStructurallyValidTcgDexImageUrl,
   isStructurallyValidTrustedCardImageUrl,
   tcgDexCanonicalImageUrl
@@ -29,5 +30,13 @@ describe('trusted card image URLs', () => {
     expect(isStructurallyValidTrustedCardImageUrl('https://assets.tcgdex.net/en/Scarlet & Violet/SVP Black Star Promos/157/high.png', 'TCGdex'))
       .toBe(false);
     expect(isStructurallyValidTrustedCardImageUrl('https://assets.tcgdex.net/en/SV/SVP/157/high.png', 'TCGdex')).toBe(true);
+  });
+
+  it('rejects identifiable generic card backs and placeholders without rejecting ordinary card URLs', () => {
+    expect(isIdentifiableGenericCardImageUrl('https://images.example.test/pokemon-card-back.png')).toBe(true);
+    expect(isIdentifiableGenericCardImageUrl('https://images.example.test/cards/image-unavailable.webp')).toBe(true);
+    expect(isStructurallyValidTrustedCardImageUrl('https://images.example.test/pokemon-card-back.png', 'CURATED', 'RC32')).toBe(false);
+    expect(isStructurallyValidTrustedCardImageUrl('https://images.example.test/cards/sylveon-rc32.png', 'CURATED', 'RC32')).toBe(true);
+    expect(isIdentifiableGenericCardImageUrl('https://images.example.test/cards/flashback-sylveon.png')).toBe(false);
   });
 });

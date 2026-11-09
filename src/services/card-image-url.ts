@@ -55,6 +55,13 @@ export function isAbsoluteHttpImageUrl(value: string | undefined): boolean {
   }
 }
 
+export function isIdentifiableGenericCardImageUrl(value: string | undefined): boolean {
+  if (!isAbsoluteHttpImageUrl(value)) return false;
+  const parsed = new URL(value!);
+  const identity = decodeURIComponent(`${parsed.hostname}${parsed.pathname}`).toLowerCase();
+  return /(?:^|[\/_\-.])(card[_-]?back|back[_-]?of[_-]?card|pokemon[_-]?card[_-]?back|tcg[_-]?back|placeholder|default[_-]?card|image[_-]?unavailable)(?:[\/_\-.]|$)/i.test(identity);
+}
+
 export function isStructurallyValidTcgDexImageUrl(value: string | undefined, expectedLocalId?: string): boolean {
   if (!isAbsoluteHttpImageUrl(value)) return false;
   const parsed = new URL(value!);
@@ -82,6 +89,7 @@ export function tcgDexCanonicalImageUrl(identity: TcgDexImageIdentity): string |
 
 export function isStructurallyValidTrustedCardImageUrl(value: string | undefined, sourceName?: string, expectedLocalId?: string): boolean {
   if (!isAbsoluteHttpImageUrl(value)) return false;
+  if (isIdentifiableGenericCardImageUrl(value)) return false;
   const parsed = new URL(value!);
   if (parsed.hostname === 'assets.tcgdex.net' || /^TCGdex(?: Japanese)?(?:\s*\(|$)/i.test(sourceName ?? '')) {
     return isStructurallyValidTcgDexImageUrl(value, expectedLocalId);

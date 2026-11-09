@@ -198,6 +198,7 @@ export type AlertMatchDetails = {
     sellerFeedbackScore?: number;
     region?: Listing['region'];
     listingType?: Listing['listingType'];
+    condition?: string;
   };
   match?: {
     score?: number;

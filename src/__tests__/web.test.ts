@@ -854,8 +854,7 @@ describe('web app static routes', () => {
         { icon: 'tag', text: 'No max' },
         { icon: 'layers', text: 'Any condition' },
         { icon: 'grade', text: 'PSA 9' },
-        { icon: 'shop', text: 'Buy Now' },
-        { icon: 'plus', text: 'Grail' }
+        { icon: 'shop', text: 'Buy Now' }
       ]);
   });
 
@@ -888,13 +887,14 @@ describe('web app static routes', () => {
       details: {
         chase: { maxPrice: 100, listingType: 'BUY_IT_NOW' },
         pricing: { itemPrice: 80, currency: 'CAD', comparisonBasis: 'ITEM_PRICE', amountUnderMax: 20 },
-        listing: { listingType: 'AUCTION' }, match: {}
+        listing: { listingType: 'AUCTION', condition: 'Ungraded - Lightly played (Excellent)' }, match: {}
       }
     };
     const itemOnly = render.panel(itemOnlyAlert);
     const itemOnlyCard = render.card(itemOnlyAlert, true);
     expect(itemOnly).toContain('<dt>Preferred listing type</dt><dd>Buy Now</dd>');
     expect(itemOnly).toContain('<dt>Format</dt><dd>Auction</dd>');
+    expect(itemOnly).toContain('<dt>Condition</dt><dd>Ungraded - Lightly played (Excellent)</dd>');
     expect(itemOnly).toContain('<h3>Pricing</h3>');
     expect(itemOnly).toContain('<h3>Your Watchlist criteria</h3>');
     expect(itemOnly).toContain('<dt>Shipping</dt><dd>Unknown</dd>');
@@ -936,6 +936,22 @@ describe('web app static routes', () => {
     expect(resolveSelection(alerts, 'second')).toBe('second');
     expect(resolveSelection(alerts, 'removed')).toBe('first');
     expect(resolveSelection([], 'removed')).toBeNull();
+  });
+
+  it('refreshes the Home attention preview when the Inbox new-state changes', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const refreshSource = source.slice(source.indexOf('async function refreshNewAlertPresence('), source.indexOf('function scheduleNewAlertPresenceRefresh('));
+    expect(refreshSource).toContain("state.activePage === 'home'");
+    expect(refreshSource).toContain('state.homeAttentionLoaded = false');
+    expect(refreshSource).toContain('void loadHomeAttention()');
+  });
+
+  it('labels partial Display Cases truthfully and uses neutral unavailable-artwork fallbacks', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    expect(source).toContain("status === 'PARTIAL' ? 'Partial selection'");
+    expect(source).toContain('Artwork unavailable');
   });
 
   it('supports direct, touch, arrow, and keyboard Home Display Case browsing', async () => {

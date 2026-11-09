@@ -1116,7 +1116,8 @@ export async function runPoll(): Promise<void> {
               sellerFeedbackPercent: listing.sellerFeedbackPercent,
               sellerFeedbackScore: listing.sellerFeedbackScore,
               region: listing.region,
-              listingType: listing.listingType
+              listingType: listing.listingType,
+              condition: listing.condition
             },
             match: {
               score: match.score,

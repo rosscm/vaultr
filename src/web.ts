@@ -32,6 +32,7 @@ import {
   type TrustedChaseCardPreview
 } from './services/chase-card-catalog.js';
 import { customExclusionTerms } from './services/chase-exclusions.js';
+import { isStructurallyValidTrustedCardImageUrl } from './services/card-image-url.js';
 import {
   addUserChase,
   getVaultChases,
@@ -347,10 +348,14 @@ function requireJsonBody(request: WebRequest): { ok: true; body: Record<string, 
 }
 
 function publicChase(chase: ReturnType<typeof getVaultChases>['chases'][number]['chase']) {
+  const cardImageUrl = chase.cardImageSourceKind === 'CARD_REFERENCE'
+    && isStructurallyValidTrustedCardImageUrl(chase.cardImageUrl, chase.cardImageSourceName)
+    ? chase.cardImageUrl
+    : undefined;
   return {
     id: chase.id,
     cardName: chase.cardName,
-    cardImageUrl: chase.cardImageUrl,
+    cardImageUrl,
     cardIdentity: chase.cardImageSourceKind === 'CARD_REFERENCE' && chase.cardImageIdentity && chase.cardImageSourceName && chase.cardImageSourceCardId
       ? {
           value: chase.cardImageIdentity,
@@ -503,8 +508,7 @@ function discoveryEbayUrl(item: { name: string; setName?: string; cardNumber?: s
 function usefulShelfImageUrl(item: ScheduledDiscoveryDropItem): string | undefined {
   if (item.imageSourceKind !== 'CARD_REFERENCE') return undefined;
   const imageUrl = item.imageUrl?.trim();
-  if (!imageUrl) return undefined;
-  if (/card[_-]?back|back(?:\.|_|-)|placeholder|default-card/i.test(imageUrl)) return undefined;
+  if (!isStructurallyValidTrustedCardImageUrl(imageUrl, item.imageSourceName, item.suggestion.canonicalReference?.cardNumber)) return undefined;
   return imageUrl;
 }
 
@@ -566,6 +570,7 @@ function normalizedCardIdentity(value: string): string {
 
 function trustedPreview(preview: ReturnType<typeof getCachedChaseCardPreview>): TrustedChaseCardPreview | undefined {
   if (!preview?.imageUrl || !preview.imageIdentity || preview.imageSourceKind !== 'CARD_REFERENCE' || !preview.imageSourceName || !preview.imageSourceCardId) return undefined;
+  if (!isStructurallyValidTrustedCardImageUrl(preview.imageUrl, preview.imageSourceName)) return undefined;
   return preview as TrustedChaseCardPreview;
 }
 
