@@ -3850,7 +3850,7 @@ async function isReachableTrustedReferenceImage(url: string, abortSignal?: Abort
   } catch {
     return false;
   }
-  if (parsed.hostname !== 'assets.tcgdex.net') return true;
+  if (parsed.protocol !== 'https:' || !isStructurallyValidTrustedCardImageUrl(url)) return false;
   const cached = referenceImageReachabilityCache.get(url);
   if (cached && Date.now() - cached.checkedAt < REFERENCE_IMAGE_REACHABILITY_TTL_MS) return cached.reachable;
   const controller = new AbortController();
@@ -3953,9 +3953,7 @@ export async function attachReferenceImages(
         return { ...candidate, image: downgradedImage };
       }
       diagnostics.imageClearedCount += 1;
-      return candidate.image?.sourceKind === 'MARKET_LISTING' && !isVettedMarketplaceImageCandidate(candidate)
-        ? { ...candidate, image: undefined }
-        : { ...candidate, image: undefined };
+      return { ...withoutBrokenReferenceImage(candidate), image: undefined };
     }
     if (options.validateRemoteReferences && !await isReachableTrustedReferenceImage(reference.imageUrl, options.abortSignal)) {
       diagnostics.imageClearedCount += 1;

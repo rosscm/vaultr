@@ -970,7 +970,7 @@ describe('web app static routes', () => {
     expect(refreshSource).toContain('void loadHomeAttention()');
   });
 
-  it('uses collector-facing Display Case metadata and neutral unavailable-artwork fallbacks', async () => {
+  it('uses collector-facing Display Case metadata and the established card-back fallback', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const summarySource = source.slice(source.indexOf('function shelfMetaMarkup('), source.indexOf('function shelfEmptyMarkup('));
@@ -978,7 +978,9 @@ describe('web app static routes', () => {
     expect(summarySource).toContain('Updated');
     expect(summarySource).not.toContain('periodKey');
     expect(summarySource).not.toContain('Partial selection');
-    expect(source).toContain('Artwork unavailable');
+    expect(source).toContain("const displayCaseCardBackUrl = 'https://images.pokemontcg.io/me55/153_hires.png'");
+    expect(source).toContain('Pokémon card back placeholder');
+    expect(source).toContain('data-display-case-card-back');
   });
 
   it('supports direct, touch, arrow, and keyboard Home Display Case browsing', async () => {
@@ -1186,10 +1188,51 @@ describe('web app static routes', () => {
     expect(actionRow).toContain('discoveryCardPrimaryActionMarkup(item)');
     expect(actionRow).toContain('View on eBay');
     expect(cardSource.match(/class="shelf-card-actions"/g)).toHaveLength(1);
-    expect(cardSource).toContain('const showMarket = Boolean(marketPrice) || !editorial;');
+    expect(cardSource).toContain('const showMarket = marketPrices.length > 0 || !editorial;');
+    expect(cardSource).toContain('class="shelf-card-main"');
+    expect(cardSource).toContain('class="shelf-printing-meta"');
     expect(cardSource).toContain("shelf-card-footer${showMarket ? '' : ' no-market'}");
     expect(cardSource.indexOf('shelf-market-status')).toBeLessThan(cardSource.indexOf('shelf-card-actions'));
     expect(cardSource.indexOf('shelf-card-actions')).toBeLessThan(cardSource.indexOf('discoveryFeedbackMarkup(item)'));
+  });
+
+  it('formats Display Case printing metadata as separate collector-facing pills', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const helperSource = source.slice(source.indexOf('function displayCasePrintingMetadata('), source.indexOf('function formatDate('));
+    const formatMetadata = new Function(`${helperSource}\nreturn displayCasePrintingMetadata;`)() as (item: Record<string, unknown>) => string[];
+
+    expect(formatMetadata({
+      setName: 'VSTAR Universe',
+      setId: 'S12a',
+      cardNumber: '054',
+      printedTotal: '172',
+      language: 'JAPANESE',
+      printingAttributes: ['Promo']
+    })).toEqual(['VSTAR Universe (S12a)', '#054/172', 'Japanese', 'Promo']);
+    expect(formatMetadata({ setName: 'Team Rocket', cardNumber: '62/82', language: 'ENGLISH' }))
+      .toEqual(['Team Rocket', '#62/82', 'English']);
+  });
+
+  it('keeps independently supported asking and sold ranges in the Display Case', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const helperSource = source.slice(source.indexOf('function displayCaseMarketPrices('), source.indexOf('function displayCasePrintingMetadata('));
+    const prices = new Function(
+      'formatRoundedMoney',
+      `${helperSource}\nreturn displayCaseMarketPrices;`
+    )((amount: number, currency: string) => `${currency} ${Math.round(amount)}`) as (market: Record<string, unknown>) => Array<{ label: string; value: string }>;
+
+    expect(prices({
+      askingRangeLow: 70,
+      askingRangeHigh: 110,
+      soldRangeLow: 50,
+      soldRangeHigh: 85,
+      currency: 'CAD'
+    })).toEqual([
+      { label: 'Typical asking range', value: 'CAD 70–CAD 110' },
+      { label: 'Typical sold range', value: 'CAD 50–CAD 85' }
+    ]);
   });
 
   it('uses one exact-identity action for watched and acquired Display Case cards', async () => {

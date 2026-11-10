@@ -1,6 +1,7 @@
 const app = document.querySelector('#app');
 const isPreviewMode = window.location.pathname === '/preview' || window.location.pathname === '/preview/';
 const appHomePath = isPreviewMode ? '/preview' : '/app';
+const displayCaseCardBackUrl = 'https://images.pokemontcg.io/me55/153_hires.png';
 let artworkReturnFocus = null;
 let artworkPreviousBodyOverflow = '';
 let artworkKeydownHandler = null;
@@ -246,27 +247,50 @@ function formatRoundedMoney(amount, currency) {
   return `${currencySymbol(currency)}${Math.round(amount)}`;
 }
 
-function displayCaseMarketPrice(market) {
-  if (!market) return null;
+function displayCaseMarketPrices(market) {
+  const prices = [];
+  if (!market) return prices;
   if (Number.isFinite(market.askingRangeLow) && Number.isFinite(market.askingRangeHigh)) {
-    return {
+    prices.push({
       label: 'Typical asking range',
       value: `${formatRoundedMoney(market.askingRangeLow, market.currency)}–${formatRoundedMoney(market.askingRangeHigh, market.currency)}`
-    };
+    });
+  } else if (Number.isFinite(market.askingTotal)) {
+    prices.push({ label: 'Around', value: formatRoundedMoney(market.askingTotal, market.currency) });
   }
   if (Number.isFinite(market.soldRangeLow) && Number.isFinite(market.soldRangeHigh)) {
-    return {
+    prices.push({
       label: 'Typical sold range',
       value: `${formatRoundedMoney(market.soldRangeLow, market.currency)}–${formatRoundedMoney(market.soldRangeHigh, market.currency)}`
-    };
+    });
+  } else if (!prices.length && Number.isFinite(market.soldTotal)) {
+    prices.push({ label: 'Recent sold estimate', value: formatRoundedMoney(market.soldTotal, market.currency) });
   }
-  if (Number.isFinite(market.askingTotal)) {
-    return { label: 'Around', value: formatRoundedMoney(market.askingTotal, market.currency) };
+  return prices;
+}
+
+function displayCaseMarketPrice(market) {
+  return displayCaseMarketPrices(market)?.[0] || null;
+}
+
+function displayCasePrintingMetadata(item) {
+  const metadata = [];
+  const setName = String(item?.setName || '').trim();
+  const setId = String(item?.setId || '').trim();
+  const normalizedSetName = setName.toLowerCase();
+  if (setName) metadata.push(setId && !normalizedSetName.includes(setId.toLowerCase()) ? `${setName} (${setId})` : setName);
+
+  const number = String(item?.cardNumber || '').trim();
+  const total = String(item?.printedTotal || '').trim();
+  if (number) {
+    const completeNumber = total && !number.includes('/') ? `${number}/${total}` : number;
+    metadata.push(completeNumber.startsWith('#') ? completeNumber : `#${completeNumber}`);
   }
-  if (Number.isFinite(market.soldTotal)) {
-    return { label: 'Recent sold estimate', value: formatRoundedMoney(market.soldTotal, market.currency) };
+  if (item?.language) metadata.push(String(item.language).toLowerCase() === 'japanese' ? 'Japanese' : 'English');
+  for (const attribute of item?.printingAttributes || []) {
+    if (attribute && !metadata.some((value) => value.toLowerCase() === String(attribute).toLowerCase())) metadata.push(String(attribute));
   }
-  return null;
+  return metadata;
 }
 
 function formatDate(value) {
@@ -2309,7 +2333,6 @@ function shelfMetaMarkup(shelf) {
   ].filter(Boolean);
   return `
     <div class="shelf-summary" aria-label="Display Case summary">
-      <span class="shelf-summary-icon" aria-hidden="true">${iconMarkup('calendar')}</span>
       ${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}
     </div>
   `;
@@ -2339,40 +2362,42 @@ function shelfEmptyMarkup(shelf) {
 }
 
 function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}) {
-  const details = [item.setName, item.cardNumber, item.language].filter(Boolean);
-  const marketPrice = displayCaseMarketPrice(item.market);
+  const details = displayCasePrintingMetadata(item);
+  const marketPrices = displayCaseMarketPrices(item.market) || [];
   const marketUnavailable = item.market?.status === 'EMPTY' || item.market?.status === 'NO_ACCEPTED_SAMPLES'
     ? 'No reliable market estimate yet'
     : 'Pricing unavailable';
-  const showMarket = Boolean(marketPrice) || !editorial;
+  const showMarket = marketPrices.length > 0 || !editorial;
   return `
     <article class="shelf-card">
-      ${item.imageUrl ? artworkTriggerMarkup({
-        imageUrl: item.imageUrl,
-        identity: item.name || 'Display Case pick',
-        imageKind: 'Card artwork',
-        imageClass: 'shelf-card-image',
-        imageDataAttribute: 'data-shelf-card-image'
-      }) : '<div class="shelf-card-image placeholder-image shelf-image-unavailable"><span>Image unavailable</span></div>'}
-      <div class="shelf-card-body">
-        <div class="shelf-card-meta">
-          ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
-          ${item.discoveryBudgetException === 'DREAM_CARD' ? '<span class="status-pill dream-card">Dream card</span>' : ''}
-        </div>
-        <h2>${escapeHtml(item.displayName || item.name || 'Display Case pick')}</h2>
-        ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
-        ${details.length ? `<div class="vault-detail-row">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
-        ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
-        <div class="shelf-card-footer${showMarket ? '' : ' no-market'}">
-          ${showMarket ? `<div class="shelf-market-status">
-            ${marketPrice ? `<p class="shelf-price"><span>${escapeHtml(marketPrice.label)}</span>${escapeHtml(marketPrice.value)}</p>` : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
-          </div>` : ''}
-          <div class="shelf-card-actions">
-            ${discoveryCardPrimaryActionMarkup(item)}
-            ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
+      <div class="shelf-card-main">
+        ${item.imageUrl ? artworkTriggerMarkup({
+          imageUrl: item.imageUrl,
+          identity: item.name || 'Display Case pick',
+          imageKind: 'Card artwork',
+          imageClass: 'shelf-card-image',
+          imageDataAttribute: 'data-shelf-card-image'
+        }) : `<img class="shelf-card-image shelf-card-back" src="${displayCaseCardBackUrl}" alt="Pokémon card back placeholder" data-display-case-card-back>`}
+        <div class="shelf-card-body">
+          <div class="shelf-card-meta">
+            ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
+            ${item.discoveryBudgetException === 'DREAM_CARD' ? '<span class="status-pill dream-card">Dream card</span>' : ''}
           </div>
-          ${feedback ? discoveryFeedbackMarkup(item) : ''}
+          <h2>${escapeHtml(item.displayName || item.name || 'Display Case pick')}</h2>
+          ${item.nativeName ? `<p class="shelf-native-name">Original name: ${escapeHtml(item.nativeName)}</p>` : ''}
+          ${details.length ? `<div class="shelf-printing-meta">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</div>` : ''}
+          ${item.reason ? `<p class="shelf-reason">${escapeHtml(item.reason)}</p>` : ''}
         </div>
+      </div>
+      <div class="shelf-card-footer${showMarket ? '' : ' no-market'}">
+        ${showMarket ? `<div class="shelf-market-status">
+          ${marketPrices.length ? marketPrices.map((price) => `<p class="shelf-price"><span>${escapeHtml(price.label)}</span>${escapeHtml(price.value)}</p>`).join('') : `<p class="shelf-price unavailable">${escapeHtml(marketUnavailable)}</p>`}
+        </div>` : ''}
+        <div class="shelf-card-actions">
+          ${discoveryCardPrimaryActionMarkup(item)}
+          ${item.ebayUrl ? `<a class="listing-link shelf-ebay-link" href="${escapeHtml(item.ebayUrl)}" target="_blank" rel="noopener noreferrer">View on eBay</a>` : ''}
+        </div>
+        ${feedback ? discoveryFeedbackMarkup(item) : ''}
       </div>
     </article>
   `;
@@ -4559,6 +4584,13 @@ app.addEventListener(
       if (target.matches('[data-shelf-card-image]')) placeholder.classList.add('shelf-image-unavailable');
       placeholder.classList.add('artwork-unavailable');
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
+    } else if (target instanceof HTMLImageElement && target.matches('[data-display-case-card-back]')) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'shelf-card-image placeholder-image shelf-image-unavailable';
+      placeholder.setAttribute('role', 'img');
+      placeholder.setAttribute('aria-label', 'Artwork unavailable');
+      placeholder.textContent = 'Artwork unavailable';
+      target.replaceWith(placeholder);
     }
   },
   true

@@ -3079,10 +3079,9 @@ a {
   gap: 8px;
   width: fit-content;
   margin: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.035);
+  padding: 0;
+  border: 0;
+  background: transparent;
   white-space: nowrap;
 }
 
@@ -3122,39 +3121,49 @@ a {
 .shelf-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 32px 20px;
+  gap: 22px 16px;
   margin-top: 24px;
 }
 
 .shelf-card {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   gap: 14px;
-  padding: 10px;
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
+  padding: 14px;
+  border: 1px solid rgba(211, 196, 255, 0.14);
+  border-radius: var(--radius-md);
+  background: rgba(15, 15, 35, 0.58);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.12);
   transition: transform var(--ease), background var(--ease), box-shadow var(--ease);
 }
 
 .shelf-card:hover {
   transform: translateY(-2px);
-  border-color: transparent;
-  background: rgba(255, 255, 255, 0.025);
+  border-color: rgba(183, 121, 255, 0.3);
+  background: rgba(20, 18, 43, 0.68);
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
 }
 
 .shelf-card-image {
-  width: min(100%, 255px);
+  width: 100%;
   aspect-ratio: 3 / 4;
   height: auto;
   max-height: none;
   margin-inline: auto;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.02);
   filter: drop-shadow(0 16px 24px rgba(2, 1, 8, 0.3));
   object-fit: contain;
+}
+
+.shelf-card-main {
+  display: grid;
+  grid-template-columns: minmax(104px, 42%) minmax(0, 1fr);
+  align-items: start;
+  gap: 13px;
+  min-width: 0;
 }
 
 .shelf-card-body {
@@ -3162,7 +3171,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 9px;
-  padding: 0 4px 4px;
+  padding: 0;
 }
 
 .shelf-card-meta {
@@ -3175,7 +3184,7 @@ a {
 .shelf-card h2 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   font-weight: 760;
   line-height: 1.24;
 }
@@ -3183,8 +3192,30 @@ a {
 .shelf-reason {
   margin: 0;
   color: var(--muted);
-  font-size: 0.96rem;
-  line-height: 1.58;
+  font-size: 0.82rem;
+  line-height: 1.48;
+}
+
+.shelf-printing-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.shelf-printing-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid rgba(211, 196, 255, 0.24);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .shelf-card-footer {
@@ -3193,7 +3224,8 @@ a {
   gap: 9px;
   align-content: end;
   margin-top: auto;
-  padding-top: 7px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(211, 196, 255, 0.12);
 }
 
 .shelf-feedback-intro {
@@ -3207,14 +3239,25 @@ a {
 }
 
 .shelf-price {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
+  display: grid;
+  gap: 2px;
   margin: 0;
   color: var(--muted-strong);
   font-size: 1.02rem;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
+}
+
+.shelf-market-status {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px;
+}
+
+.shelf-market-status > :only-child {
+  grid-column: 1 / -1;
 }
 
 .shelf-price span {
@@ -3228,15 +3271,6 @@ a {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 700;
-}
-
-.shelf-market-status {
-  min-height: 38px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .shelf-card-actions {
@@ -3301,9 +3335,14 @@ a {
 }
 
 .discovery-feedback-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
+}
+
+.discovery-feedback-actions > :only-child,
+.discovery-feedback-undo {
+  grid-column: 1 / -1;
 }
 
 .discovery-feedback-button,
@@ -3589,6 +3628,12 @@ a {
 
   .app-footer-links {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 1320px) and (min-width: 1101px) {
+  .shelf-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -3965,6 +4010,11 @@ a {
   text-align: center;
 }
 
+.shelf-card-back {
+  opacity: 0.82;
+  filter: saturate(0.78) brightness(0.88);
+}
+
 .page-header h1[tabindex="-1"]:focus {
   outline: none;
 }
@@ -4310,10 +4360,9 @@ a {
   transform: translateY(0);
 }
 
-.shelf-card > .artwork-trigger {
-  width: min(100%, 280px);
+.shelf-card-main > .artwork-trigger {
+  width: 100%;
   aspect-ratio: 3 / 4;
-  margin-inline: auto;
 }
 
 .shelf-editorial {
@@ -4382,7 +4431,7 @@ a {
   margin: 0;
 }
 
-.shelf-card > .artwork-trigger .shelf-card-image {
+.shelf-card-main > .artwork-trigger .shelf-card-image {
   width: 100%;
   height: 100%;
 }

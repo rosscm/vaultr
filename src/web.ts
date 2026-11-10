@@ -33,6 +33,7 @@ import {
 } from './services/chase-card-catalog.js';
 import { customExclusionTerms } from './services/chase-exclusions.js';
 import { isStructurallyValidTrustedCardImageUrl } from './services/card-image-url.js';
+import { getCardCatalogRecordBySourceCardId } from './services/card-catalog-db.js';
 import {
   addUserChase,
   getVaultChases,
@@ -514,6 +515,9 @@ function usefulShelfImageUrl(item: ScheduledDiscoveryDropItem): string | undefin
 
 function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, periodKey: string) {
   const reference = item.suggestion.canonicalReference;
+  const catalogRecord = reference?.provider && reference.sourceCardId
+    ? getCardCatalogRecordBySourceCardId(reference.provider, reference.sourceCardId)
+    : null;
   const marketReady = item.market.status === 'READY';
   const imageUrl = usefulShelfImageUrl(item);
   const selection = imageUrl && reference?.sourceCardId
@@ -534,8 +538,11 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, perio
     nativeName: item.suggestion.nativeName,
     imageUrl,
     setName: reference?.setName,
+    setId: reference?.setId,
     language: reference?.language,
     cardNumber: reference?.cardNumber,
+    printedTotal: catalogRecord?.printedTotal,
+    printingAttributes: catalogRecord?.isPromo ? ['Promo'] : [],
     cardIdentity: reference?.sourceCardId
       ? {
           value: reference.canonicalName || item.suggestion.name,

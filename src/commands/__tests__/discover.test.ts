@@ -13365,6 +13365,37 @@ describe('attachReferenceImages', () => {
     expect(attached?.suggestion.referenceImageUrl).toBeUndefined();
   });
 
+  it('rejects an unreachable trusted Pokemon TCG artwork URL before publication', async () => {
+    const imageUrl = `https://images.pokemontcg.io/me55/${Date.now()}_hires.png`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('not found', {
+      status: 404,
+      headers: { 'content-type': 'image/png' }
+    })));
+    const seeded = candidate('Sylveon ex 30th Celebration 153', 'visual-format discovery', 0);
+
+    const input = {
+      ...seeded,
+      suggestion: {
+        ...seeded.suggestion,
+        referenceImageUrl: imageUrl,
+        referenceSourceName: 'Pokemon TCG (30th Celebration)',
+        referenceSourceCardId: 'me55-153'
+      },
+      image: {
+        name: seeded.suggestion.name,
+        url: imageUrl,
+        sourceName: 'Pokemon TCG (30th Celebration)',
+        sourceCardId: 'me55-153',
+        sourceKind: 'CARD_REFERENCE'
+      }
+    };
+    const [attached] = await attachReferenceImages([input], undefined, { validateRemoteReferences: true });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(attached?.image).toBeUndefined();
+    expect(attached?.suggestion.referenceImageUrl).toBeUndefined();
+  });
+
   it('uses a complete trusted suggestion binding without re-fetching reference data', async () => {
     const seeded = candidate(`Mewtwo GX Hidden Fates SV59 ${Date.now()}`, 'modern texture', 0, 4);
     const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage');
