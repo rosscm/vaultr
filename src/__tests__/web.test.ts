@@ -278,6 +278,7 @@ describe('web app static routes', () => {
     const onboardingArtResponse = await handleWebRequest({ method: 'GET', url: '/onboarding-art/mew-corocoro-promo-151.webp' }, { config });
     const iconResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-icon.svg' }, { config });
     const lockupResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-lockup-dark.svg' }, { config });
+    const cardBackResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-card-back.svg' }, { config });
     const shopMarkResponse = await handleWebRequest({ method: 'GET', url: '/shop-marks/hobbiesville.png' }, { config });
 
     expect(appResponse.status).toBe(200);
@@ -304,6 +305,9 @@ describe('web app static routes', () => {
     expect(iconResponse.headers?.['Content-Type']).toBe('image/svg+xml');
     expect(lockupResponse.status).toBe(200);
     expect(lockupResponse.headers?.['Content-Type']).toBe('image/svg+xml');
+    expect(cardBackResponse.status).toBe(200);
+    expect(cardBackResponse.headers?.['Content-Type']).toBe('image/svg+xml');
+    expect(cardBackResponse.body).toContain('KeepSeek card back placeholder');
     expect(shopMarkResponse.status).toBe(200);
     expect(shopMarkResponse.headers?.['Content-Type']).toBe('image/png');
     expect(appResponse.body).toContain('<link rel="icon" href="/keepseek-icon.svg" type="image/svg+xml">');
@@ -970,7 +974,7 @@ describe('web app static routes', () => {
     expect(refreshSource).toContain('void loadHomeAttention()');
   });
 
-  it('uses collector-facing Display Case metadata without a broken remote card-back fallback', async () => {
+  it('uses collector-facing Display Case metadata with one local presentation-only card-back fallback', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const summarySource = source.slice(source.indexOf('function shelfMetaMarkup('), source.indexOf('function shelfEmptyMarkup('));
@@ -979,7 +983,13 @@ describe('web app static routes', () => {
     expect(summarySource).not.toContain('periodKey');
     expect(summarySource).not.toContain('Partial selection');
     expect(source).not.toContain('images.pokemontcg.io/me55/153_hires.png');
-    expect(source).toContain('aria-label=\"Artwork unavailable\"');
+    expect(source).toContain("const displayCaseCardBackUrl = '/keepseek-card-back.svg'");
+    expect(source.match(/alt=\"Pokémon card back placeholder\"/g)).toHaveLength(2);
+    expect(source.match(/data-display-case-card-back/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(source).not.toContain('referenceImageUrl: displayCaseCardBackUrl');
+    expect(source).toContain("target.matches('[data-home-shelf-image]')");
+    expect(source).toContain("target.matches('[data-shelf-card-image]')");
+    expect(source).toContain('cardBack.src = displayCaseCardBackUrl');
   });
 
   it('preserves and resolves an exact Inbox alert deep link without changing review state', async () => {

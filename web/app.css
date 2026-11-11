@@ -4010,6 +4010,20 @@ a {
   text-align: center;
 }
 
+.display-case-card-back {
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.shelf-card-main > .display-case-card-back {
+  opacity: 0.9;
+}
+
+.home-shelf-artwork > .display-case-card-back {
+  filter: saturate(0.9) brightness(0.94);
+}
+
 .page-header h1[tabindex="-1"]:focus {
   outline: none;
 }

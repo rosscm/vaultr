@@ -2,6 +2,7 @@ const app = document.querySelector('#app');
 const isPreviewMode = window.location.pathname === '/preview' || window.location.pathname === '/preview/';
 const appHomePath = isPreviewMode ? '/preview' : '/app';
 const pendingAuthDestinationKey = 'keepseek.pendingAuthDestination';
+const displayCaseCardBackUrl = '/keepseek-card-back.svg';
 let artworkReturnFocus = null;
 let artworkPreviousBodyOverflow = '';
 let artworkKeydownHandler = null;
@@ -1653,7 +1654,7 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, label } = {})
               imageClass: 'home-shelf-feature-image',
               imageDataAttribute: 'data-home-shelf-image'
             })
-          : '<p class="home-shelf-artwork-unavailable">Artwork unavailable</p>'}
+          : `<img class="home-shelf-feature-image display-case-card-back" src="${displayCaseCardBackUrl}" alt="Pokémon card back placeholder" data-display-case-card-back data-card-back-context="home">`}
       </div>
       <div class="home-shelf-copy">
         <small class="home-shelf-kind">${escapeHtml(item.discoveryBudgetException === 'DREAM_CARD' ? 'Dream card' : label || (editorial ? 'Collector pick' : 'Picked for you'))}</small>
@@ -2396,7 +2397,7 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
           imageKind: 'Card artwork',
           imageClass: 'shelf-card-image',
           imageDataAttribute: 'data-shelf-card-image'
-        }) : '<div class="shelf-card-image placeholder-image shelf-image-unavailable" role="img" aria-label="Artwork unavailable"><span class="sr-only">Artwork unavailable</span></div>'}
+        }) : `<img class="shelf-card-image display-case-card-back" src="${displayCaseCardBackUrl}" alt="Pokémon card back placeholder" data-display-case-card-back data-card-back-context="shelf">`}
         <div class="shelf-card-body">
           <div class="shelf-card-meta">
             ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
@@ -4604,10 +4605,13 @@ app.addEventListener(
       placeholder.textContent = 'K';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-shelf-image]')) {
-      const placeholder = document.createElement('p');
-      placeholder.className = 'home-shelf-artwork-unavailable';
-      placeholder.textContent = 'Artwork unavailable';
-      (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
+      const cardBack = document.createElement('img');
+      cardBack.className = 'home-shelf-feature-image display-case-card-back';
+      cardBack.src = displayCaseCardBackUrl;
+      cardBack.alt = 'Pokémon card back placeholder';
+      cardBack.setAttribute('data-display-case-card-back', '');
+      cardBack.setAttribute('data-card-back-context', 'home');
+      (target.closest('.artwork-trigger') || target).replaceWith(cardBack);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-shelf-background-image]')) {
       (target.closest('.home-shelf-supporting-card') || target).remove();
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-watchlist-image]')) {
@@ -4617,15 +4621,32 @@ app.addEventListener(
       placeholder.setAttribute('aria-label', 'Artwork unavailable');
       placeholder.textContent = 'Artwork unavailable';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
-    } else if (target instanceof HTMLImageElement && target.matches('[data-vault-card-image], [data-shelf-card-image]')) {
+    } else if (target instanceof HTMLImageElement && target.matches('[data-shelf-card-image]')) {
+      const cardBack = document.createElement('img');
+      cardBack.className = 'shelf-card-image display-case-card-back';
+      cardBack.src = displayCaseCardBackUrl;
+      cardBack.alt = 'Pokémon card back placeholder';
+      cardBack.setAttribute('data-display-case-card-back', '');
+      cardBack.setAttribute('data-card-back-context', 'shelf');
+      (target.closest('.artwork-trigger') || target).replaceWith(cardBack);
+    } else if (target instanceof HTMLImageElement && target.matches('[data-vault-card-image]')) {
       const placeholder = document.createElement('div');
-      placeholder.className = `${target.matches('[data-shelf-card-image]') ? 'shelf-card-image' : 'vault-card-image'} placeholder-image`;
+      placeholder.className = 'vault-card-image placeholder-image';
       placeholder.setAttribute('role', 'img');
       placeholder.setAttribute('aria-label', 'Artwork unavailable');
       placeholder.textContent = 'Artwork unavailable';
-      if (target.matches('[data-shelf-card-image]')) placeholder.classList.add('shelf-image-unavailable');
       placeholder.classList.add('artwork-unavailable');
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
+    } else if (target instanceof HTMLImageElement && target.matches('[data-display-case-card-back]')) {
+      const homeFallback = target.getAttribute('data-card-back-context') === 'home';
+      const placeholder = document.createElement(homeFallback ? 'p' : 'div');
+      placeholder.className = homeFallback
+        ? 'home-shelf-artwork-unavailable'
+        : 'shelf-card-image placeholder-image shelf-image-unavailable';
+      placeholder.setAttribute('role', 'img');
+      placeholder.setAttribute('aria-label', 'Artwork unavailable');
+      placeholder.textContent = 'Artwork unavailable';
+      target.replaceWith(placeholder);
     }
   },
   true
