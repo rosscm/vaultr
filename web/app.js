@@ -386,10 +386,9 @@ async function loadActivePageData() {
     ]);
   }
   if (state.activePage === 'alerts') {
-    await Promise.all([
-      state.alertsLoaded ? Promise.resolve() : loadAlerts(),
-      state.settingsLoaded ? Promise.resolve() : loadSettings()
-    ]);
+    if (!state.settingsLoaded) await loadSettings();
+    normalizeInboxFiltersForAccess();
+    if (!state.alertsLoaded) await loadAlerts();
   }
   if (state.activePage === 'vault') await loadVault();
   if (state.activePage === 'shelf') {
@@ -732,9 +731,10 @@ function signedOutMarkup() {
     <main id="app-main" class="signed-out">
       <section class="signed-out-card" aria-labelledby="signed-out-title">
         ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
-        <img class="boot-logo" src="/keepseek-icon.svg" alt="KeepSeek">
-        <h1 id="signed-out-title">Your collection, watched.</h1>
-        <p>Build your Watchlist, review matching listings, and discover more of what you love.</p>
+        <div class="signed-out-brand"><img src="/keepseek-lockup-dark.svg" alt="KeepSeek"></div>
+        <div class="signed-out-card-fan" aria-hidden="true"><img src="/keepseek-card-back.svg" alt=""><img src="/keepseek-card-back.svg" alt=""><img src="/keepseek-card-back.svg" alt=""><span class="signed-out-orbit"></span><span class="signed-out-star">✦</span></div>
+        <h1 id="signed-out-title">There’s always <em>another</em><br> card worth chasing.</h1>
+        <p class="signed-out-intro">Keep the cards you love close, find listings that fit what you’re after, and discover a few unexpected favourites along the way.</p>
         ${confirmationReady ? `
           <div class="auth-confirmation" role="status">
             <strong>${state.emailConfirmation.purpose === 'LINK_EMAIL' ? 'Verify this email login' : 'Your secure sign-in link is ready'}</strong>
@@ -749,8 +749,8 @@ function signedOutMarkup() {
               <button class="button-primary" type="submit"${state.authBusy ? ' disabled' : ''}>${state.authBusy ? 'Sending…' : 'Send sign-in link'}</button>
             </form>
             <p class="auth-fine-print">If this email is new to KeepSeek, your account will be created after verification.</p>
-          ` : '<p class="auth-unavailable">Email sign-in isn’t available here yet.</p>'}
-          ${discordAvailable ? '<div class="auth-divider"><span>or</span></div><a class="button-ghost auth-discord-button" href="/auth/discord">Sign in with Discord</a>' : ''}
+          ` : ''}
+          ${discordAvailable ? `${emailAvailable ? '<div class="auth-divider"><span>or</span></div>' : ''}<a class="auth-discord-button" href="/auth/discord"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="currentColor" d="M19.5 5.3A17 17 0 0 0 15.3 4l-.5 1.1a15 15 0 0 0-5.6 0L8.7 4a17 17 0 0 0-4.2 1.3C1.8 9.3 1.1 13.2 1.5 17a17 17 0 0 0 5.2 2.6l1.3-1.8a11 11 0 0 1-2-1l.5-.4c3.8 1.8 7.9 1.8 11.7 0l.5.4a13 13 0 0 1-2 1l1.3 1.8a17 17 0 0 0 5.2-2.6c.5-4.4-.8-8.2-3.7-11.7ZM8.7 14.6c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Zm6.6 0c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Z"/></svg><span>Continue with Discord</span></a><p class="auth-reassurance">${iconMarkup('shield')}<span>Sign in securely with your Discord account.</span></p>` : ''}
         `}
         ${state.authNotice ? `<p class="form-success" role="status">${escapeHtml(state.authNotice)}</p>` : ''}
         ${state.authError ? `<p class="form-error" role="alert">${escapeHtml(state.authError)}</p>` : ''}
@@ -887,7 +887,8 @@ function iconMarkup(name) {
     pause: '<path d="M8 5v14M16 5v14"/>',
     trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.4v-.1A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-1.5-1H2V10h.1A1.7 1.7 0 0 0 3.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.06 4.2l.06.06A1.7 1.7 0 0 0 8 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 18.4 9a1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
-    logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h7v18h-7"/>'
+    logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h7v18h-7"/>',
+    shield: '<path d="M12 3 20 6v5c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6l8-3Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/>'
   };
   return `<svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24">${paths[name] || ''}</svg>`;
 }
@@ -930,9 +931,16 @@ function resetSettingsDraft() {
 
 function applySettingsResponse(body) {
   state.settings = { ...(body.settings || {}), access: body.access || {}, options: body.options || {} };
+  normalizeInboxFiltersForAccess();
   resetSettingsDraft();
   state.settingsLoaded = true;
   state.settingsError = null;
+}
+
+function normalizeInboxFiltersForAccess() {
+  if (state.settings?.access?.tier === 'PRO') return;
+  if (state.priority === 'GRAIL' || state.priority === 'HIGH') state.priority = 'ALL';
+  if (state.source === 'SHOPIFY') state.source = 'ALL';
 }
 
 function settingsFieldError(field) {
@@ -1234,7 +1242,7 @@ function plusPageMarkup() {
     id: 'plus-title',
     title: 'KeepSeek Plus',
     tagline: 'Make discovery feel more like you.',
-    copy: 'Give your collection more room to grow, with more cards to watch and a personalized Display Case that gets to know what you love.',
+    copy: 'There’s always another card worth chasing. Give yourself more room for the ones you love, more control over the listings you see, and a personalized Display Case that helps you discover favourites you might never have thought to look for.',
     className: 'plus-header'
   });
   if (state.isVaultLoading && !state.vaultLoaded) {
@@ -1373,6 +1381,7 @@ function onboardingPageMarkup() {
 
 function alertsPageMarkup(inner) {
   const access = state.settings?.access || {};
+  const plusFilters = access.tier === 'PRO';
   const discordAlertsEnabled = Boolean(state.settings?.discordCardAlertsEnabled);
   const showDiscordInvite = state.settingsLoaded && !discordAlertsEnabled && !access.discordAlertInviteDismissed;
   return `
@@ -1418,10 +1427,11 @@ function alertsPageMarkup(inner) {
             <select class="source-select" data-action="source-filter">
               <option value="ALL"${state.source === 'ALL' ? ' selected' : ''}>All sources</option>
               <option value="EBAY"${state.source === 'EBAY' ? ' selected' : ''}>eBay</option>
-              <option value="SHOPIFY"${state.source === 'SHOPIFY' ? ' selected' : ''}>Supported shops</option>
+              <option value="SHOPIFY"${state.source === 'SHOPIFY' ? ' selected' : ''}${plusFilters ? '' : ' disabled'}>Supported shops${plusFilters ? '' : ' (KeepSeek Plus)'}</option>
             </select>
           </label>
         </div>
+        ${plusFilters ? '' : '<p class="inbox-plus-filter-help" id="inbox-plus-filter-help"><strong>KeepSeek Plus</strong> adds Grail, High, and supported-shop filters. Historical matches remain available in All and Reviewed.</p>'}
       </div>
       ${inner}
     </section>
@@ -1443,7 +1453,9 @@ function alertNoticeMarkup() {
 }
 
 function priorityButton(value, label) {
-  return `<button class="pill-button" type="button" data-priority="${value}" aria-pressed="${state.priority === value ? 'true' : 'false'}">${label}</button>`;
+  const plusLocked = state.settings?.access?.tier !== 'PRO' && (value === 'GRAIL' || value === 'HIGH');
+  const plusHint = plusLocked ? ' KeepSeek Plus' : '';
+  return `<button class="pill-button${plusLocked ? ' plus-locked' : ''}" type="button" data-priority="${value}" aria-pressed="${state.priority === value ? 'true' : 'false'}"${plusLocked ? ` disabled aria-describedby="inbox-plus-filter-help" title="${label} priority filtering is available with KeepSeek Plus"` : ''}>${label}${plusHint ? `<span>${plusHint}</span>` : ''}</button>`;
 }
 
 function skeletonMarkup() {
@@ -1738,15 +1750,15 @@ function editorialDiscoveryCopy() {
 function homeDiscoveryHeadingCopy(mode) {
   if (mode === 'PERSONALIZED') return {
     heading: 'Picked for you',
-    copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell KeepSeek you like.'
+    copy: 'A little of what you already love, and a few things you might not expect. Your collection, Watchlist, and feedback help shape the mix.'
   };
   if (mode === 'STARTER') return {
     heading: 'Your next favourite could be here.',
-    copy: 'Meet your first collector picks. Fresh finds follow each week.'
+    copy: 'A few collector favourites and unexpected finds to explore each week. With KeepSeek Plus, your Watchlist, Pickups, and feedback help shape a personalized Display Case, bringing you more of what you love and a few surprises along the way.'
   };
   if (mode === 'WEEKLY') return {
     heading: 'Your next favourite could be here.',
-    copy: 'Three fresh finds each week. See what catches your eye.'
+    copy: 'A few collector favourites and unexpected finds to explore each week. With KeepSeek Plus, your Watchlist, Pickups, and feedback help shape a personalized Display Case, bringing you more of what you love and a few surprises along the way.'
   };
   return { heading: 'Collector picks', copy: editorialDiscoveryCopy() };
 }
@@ -1841,7 +1853,7 @@ function homePageMarkup() {
         <div class="home-intro-primary">
           <p class="home-greeting">Welcome back, ${escapeHtml(userDisplayName(state.user))}</p>
           <h1 id="home-title">Less searching. <span>More collecting.</span></h1>
-          <p class="home-intro-support">Finding the cards you want shouldn’t feel like a full-time job. Tell KeepSeek what you’re chasing and it’ll look for listings that fit. With <a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case to help surface your next favourite.</p>
+          <p class="home-intro-support">Tell KeepSeek what you’re chasing and it’ll look for listings that fit, so you can spend less time searching and more time collecting.</p>
         </div>
         <button class="button-primary home-watchlist-cta" type="button" data-action="open-add-chase">Add to Watchlist <span aria-hidden="true">&rarr;</span></button>
       </header>
@@ -1850,7 +1862,7 @@ function homePageMarkup() {
 
       <section class="home-product-section home-display-case-section" aria-labelledby="home-display-case-title">
         <div class="home-section-heading">
-          <div><h2 id="home-display-case-title">${escapeHtml(discoveryHeading.heading)}</h2><p>${escapeHtml(discoveryHeading.copy)}</p></div>
+          <div><h2 id="home-display-case-title">${escapeHtml(discoveryHeading.heading)}</h2><p>${linkedKeepSeekPlusCopy(discoveryHeading.copy)}</p></div>
           <button class="home-text-link" type="button" data-page="shelf">Explore Display Case</button>
         </div>
         <div class="home-discovery">
@@ -2131,7 +2143,7 @@ function vaultHeaderMarkup() {
     id: 'vault-title',
     title: 'Your Watchlist',
     tagline: 'Keep the cards you’re chasing close.',
-    copy: 'From longtime grails to cards that just caught your eye, keep them here. KeepSeek looks for listings that match what you’re after.',
+    copy: 'Some cards have been on your wish list for years. Others catch your eye out of nowhere. Keep them all close, and let KeepSeek look for listings that fit what you’re after.',
     className: 'vault-page-header',
     action: '<button class="button-primary vault-add-button" type="button" data-action="open-add-chase">Add to Watchlist</button>'
   });
@@ -2336,11 +2348,16 @@ function discoveryBudgetShortageMarkup(shelf) {
 }
 
 function shelfHeaderMarkup(shelf) {
+  const personalized = hasPersonalizedDiscoveryAccess();
+  const copy = personalized
+    ? 'The best finds aren’t always the ones you set out looking for. Explore a curated mix of familiar favourites and unexpected discoveries, shaped by the cards you already love, the ones you’re chasing, and your own collecting style.'
+    : 'Sometimes a card catches your eye when you least expect it. Explore a fresh mix of collector picks each week, from familiar favourites to something a little different. You never know what might end up on your wish list.';
   return `<header class="page-header shelf-page-header">
     <div>
       <h1 id="shelf-title">Display Case</h1>
       <p class="page-tagline">Find the cards you didn’t know you loved.</p>
-      <p class="page-support">A curated set of recommendations shaped by your collection, Watchlist, and collecting style.</p>
+      <p class="page-support">${escapeHtml(copy)}</p>
+      ${personalized ? '' : '<p class="shelf-plus-context">With <a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>, your Watchlist, Pickups, and feedback can shape a personalized Display Case once KeepSeek has enough collecting history.</p>'}
     </div>
     ${shelfMetaMarkup(shelf)}
   </header>`;
@@ -3798,6 +3815,11 @@ app.addEventListener('click', async (event) => {
 
   const priority = target.getAttribute('data-priority');
   if (priority) {
+    if (state.settings?.access?.tier !== 'PRO' && (priority === 'GRAIL' || priority === 'HIGH')) {
+      state.alertNotice = `${priorityLabel(priority)} filtering is available with KeepSeek Plus.`;
+      renderCurrentPage();
+      return;
+    }
     if (state.activePage !== 'alerts') {
       state.alertChaseId = null;
       state.alertChaseName = '';
@@ -4443,6 +4465,12 @@ app.addEventListener('change', async (event) => {
     return;
   }
   if (target.getAttribute('data-action') === 'source-filter') {
+    if (target.value === 'SHOPIFY' && state.settings?.access?.tier !== 'PRO') {
+      target.value = 'ALL';
+      state.alertNotice = 'Supported-shop filtering is available with KeepSeek Plus.';
+      renderCurrentPage();
+      return;
+    }
     state.source = target.value;
     resetAlertPagination();
     state.alertsLoaded = false;

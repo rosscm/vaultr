@@ -8478,7 +8478,9 @@ function collectorProfileAnchors(candidate: DiscoveryCandidate, analysis: Weekly
   const japanese = features?.languages?.some((language) => normalize(language) === 'japanese');
   if (japanese && role !== 'CONTROLLED_EXPLORATION' && (relevance?.languageAffinity ?? 0) > 0) anchors.push({ kind: 'REGIONAL_PRINT', key: 'JAPANESE', label: 'Japanese prints' });
   const era = features?.eras?.[0];
-  if (era && (relevance?.eraAffinity ?? 0) > 0) anchors.push({ kind: 'ERA', key: normalize(era), label: titleCase(era) });
+  if (era && (relevance?.eraAffinity ?? 0) > 0) {
+    anchors.push({ kind: 'ERA', key: normalize(era), label: eraLabelsFromText(era)[0] ?? titleCase(era) });
+  }
   return anchors.filter((anchor): anchor is DiscoveryRecommendationAnchor => !!anchor)
     .filter((anchor) => candidateSupportsCollectorAnchor(candidate, anchor))
     .filter((anchor, index, values) => values.findIndex((value) => value.kind === anchor.kind && value.key === anchor.key) === index);
@@ -8609,6 +8611,7 @@ function collectorFacingReleaseContext(candidate: DiscoveryCandidate): string | 
 
 function collectorFacingAnchorLabel(value: string): string {
   const cleaned = value.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/^e reader era$/i.test(cleaned)) return 'E-Reader Era';
   if (/^black star$/i.test(cleaned)) return 'Black Star promos';
   if (/^[A-Z0-9 ]+$/.test(cleaned)) return titleCase(cleaned.toLowerCase());
   return cleaned;

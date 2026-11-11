@@ -182,6 +182,31 @@ a {
   color: var(--muted);
 }
 
+.signed-out {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 18% 82%, rgba(255, 122, 198, 0.18), transparent 28%),
+    radial-gradient(circle at 82% 18%, rgba(139, 92, 246, 0.18), transparent 30%),
+    #0b1023;
+}
+
+.signed-out::before,
+.signed-out::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: 520px;
+  height: 220px;
+  border: 2px solid rgba(255, 148, 187, 0.22);
+  border-radius: 50%;
+  transform: rotate(-20deg);
+}
+
+.signed-out::before { left: -120px; top: 36%; }
+.signed-out::after { right: -180px; bottom: 8%; transform: rotate(24deg); }
+
 .boot-logo {
   display: block;
   width: 62px;
@@ -191,21 +216,28 @@ a {
 }
 
 .signed-out-card {
-  width: min(560px, 100%);
-  padding: 34px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-strong);
-  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(20px);
+  position: relative;
+  width: min(660px, 100%);
+  padding: 34px 52px 38px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 148, 187, 0.52);
+  border-radius: 32px;
+  background: linear-gradient(145deg, rgba(55, 27, 78, 0.94), rgba(20, 16, 49, 0.96) 58%, rgba(31, 20, 66, 0.96));
+  box-shadow: 0 30px 90px rgba(2, 1, 12, 0.55), inset 0 1px rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(22px);
+  text-align: center;
 }
 
+.signed-out-brand img { width: min(250px, 62%); height: auto; }
+
 .signed-out-card h1 {
-  margin: 18px 0 12px;
-  font-size: clamp(2rem, 5vw, 3.35rem);
-  line-height: 1.02;
+  margin: 22px 0 14px;
+  font-size: clamp(2.15rem, 5vw, 3.5rem);
+  line-height: 1.06;
   letter-spacing: 0;
 }
+
+.signed-out-card h1 em { color: var(--pink); font-style: italic; }
 
 .signed-out-card p {
   margin: 0;
@@ -215,6 +247,16 @@ a {
   line-height: 1.6;
 }
 
+.signed-out-card .signed-out-intro { max-width: 36rem; margin-inline: auto; }
+
+.signed-out-card-fan { position: relative; width: 210px; height: 126px; margin: 2px auto 8px; }
+.signed-out-card-fan img { position: absolute; left: 50%; bottom: 4px; width: 76px; height: 106px; object-fit: cover; border-radius: 8px; box-shadow: 0 14px 28px rgba(3, 1, 14, 0.42); }
+.signed-out-card-fan img:nth-child(1) { transform: translateX(-102%) rotate(-18deg); opacity: 0.7; }
+.signed-out-card-fan img:nth-child(2) { z-index: 2; transform: translateX(-50%); }
+.signed-out-card-fan img:nth-child(3) { transform: translateX(2%) rotate(18deg); opacity: 0.7; }
+.signed-out-orbit { position: absolute; z-index: 3; inset: 53px 22px 20px; border-bottom: 5px solid var(--pink); border-radius: 50%; transform: rotate(-8deg); }
+.signed-out-star { position: absolute; z-index: 4; top: -8px; right: 42px; color: var(--gold); font-size: 2.2rem; }
+
 .email-auth-form,
 .email-link-form {
   display: grid;
@@ -222,12 +264,18 @@ a {
   margin-top: 24px;
 }
 
+.signed-out-card .email-auth-form { text-align: left; }
+
 .email-auth-form .button-primary,
 .email-link-form .button-ghost,
-.auth-confirmation .button-primary,
-.auth-discord-button {
-  margin-top: 0;
-}
+.auth-confirmation .button-primary { margin-top: 0; }
+.auth-discord-button { width: 100%; min-height: 58px; display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 24px; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 14px; background: #5865f2; color: #fff; box-shadow: 0 12px 26px rgba(34, 42, 160, 0.32); font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; }
+.auth-discord-button:hover { background: #6875f5; transform: translateY(-1px); }
+.auth-discord-button:active { background: #4752c4; transform: translateY(0); }
+.auth-discord-button:focus-visible { outline: 3px solid rgba(255, 211, 135, 0.85); outline-offset: 3px; }
+.auth-discord-button svg { width: 27px; height: 27px; flex: 0 0 auto; }
+.auth-reassurance { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 14px auto 0 !important; font-size: 0.84rem !important; }
+.auth-reassurance .nav-icon { width: 19px; height: 19px; color: var(--lavender); }
 
 .auth-fine-print,
 .auth-unavailable {
@@ -2600,6 +2648,11 @@ a {
   background: transparent;
 }
 
+.inbox-plus-filter-help { grid-column: 1 / -1; margin: -6px 0 0; color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
+.pill-button.plus-locked { color: var(--muted); opacity: 0.72; }
+.pill-button.plus-locked span { display: block; color: var(--gold); font-size: 0.58rem; line-height: 1; }
+.shelf-plus-context { margin-top: 8px !important; font-size: 0.84rem !important; }
+
 .alert-control-group {
   min-width: 0;
   display: grid;
@@ -2806,8 +2859,9 @@ a {
 .alert-actions {
   min-width: 0;
   display: grid;
-  grid-column: 2;
-  grid-row: 1 / -1;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  grid-template-columns: minmax(170px, 0.72fr) minmax(360px, 1.28fr);
   align-content: center;
   gap: 8px;
 }
@@ -3467,7 +3521,7 @@ a {
 .alert-content {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(245px, 0.58fr);
+  grid-template-columns: minmax(0, 1fr) minmax(132px, auto);
   grid-template-rows: auto auto;
   align-items: start;
   gap: 10px 14px;
@@ -3606,7 +3660,8 @@ a {
   min-width: 0;
   display: grid;
   gap: 3px;
-  grid-column: 1;
+  grid-column: 2;
+  grid-row: 1;
   justify-items: start;
   text-align: left;
   font-variant-numeric: tabular-nums;
@@ -3695,6 +3750,7 @@ a {
     grid-column: 1 / -1;
     grid-row: auto;
     display: grid;
+    grid-template-columns: 1fr;
   }
 }
 
@@ -5399,6 +5455,14 @@ a {
 }
 
 @media (max-width: 560px) {
+  .signed-out { padding: 12px; }
+  .signed-out-card { padding: 26px 20px 28px; border-radius: 22px; }
+  .signed-out-card-fan { width: 164px; height: 102px; }
+  .signed-out-card-fan img { width: 60px; height: 84px; }
+  .signed-out-card h1 { font-size: clamp(1.85rem, 10vw, 2.55rem); }
+  .signed-out-card h1 br { display: none; }
+  .signed-out-card p { font-size: 0.94rem; }
+  .auth-discord-button { min-height: 54px; font-size: 0.98rem; }
   .app-atmosphere {
     background: radial-gradient(ellipse at -12% 72%, rgba(139, 92, 246, 0.075), transparent 38%);
   }

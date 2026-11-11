@@ -1060,6 +1060,13 @@ function mockedReferenceCacheEntry(suggestionName: string, sourceCardId: string,
   };
 }
 
+function mockReachableReferenceImages(): void {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]), {
+    status: 200,
+    headers: { 'content-type': 'image/png' }
+  })));
+}
+
 function replayFixture(name: string): {
   schemaVersion: number;
   input: WeeklyDiscoveryFinalizationInput;
@@ -9683,6 +9690,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('hydrates bounded useful reference batches instead of scanning the whole unresolved reserve', async () => {
+    mockReachableReferenceImages();
     const tasteSignals = [
       chase('Mew RC24', 1),
       chase('Umbreon XY96', 2),
@@ -9719,6 +9727,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         }) satisfies DiscoveryCandidate
       )
     ];
+    const replayEvidence = reserve.reduce<CanonicalLookupEvidenceMap>((map, candidate) => ({
+      ...map,
+      ...replayEvidenceForCandidate(candidate)
+    }), {});
     const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) =>
       mockedReferenceCacheEntry(
         suggestion.name,
@@ -9729,7 +9741,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const result = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
       reserve,
-      canonicalLookupEvidence: {},
+      canonicalLookupEvidence: replayEvidence,
       profileContext: {
         hasFullDiscovery: true,
         settings: { alertCurrency: 'CAD' },
@@ -9772,6 +9784,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('persists a pre-reference checkpoint before expanded-reserve reference work begins', async () => {
+    mockReachableReferenceImages();
     const userId = `weekly-pre-reference-${Date.now()}`;
     const periodKey = '2026-W32';
     const tasteSignals = [
@@ -9955,6 +9968,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('persists partial reference successes and resumes only remaining work on the next attempt', async () => {
+    mockReachableReferenceImages();
     const userId = `weekly-reference-progress-${Date.now()}`;
     const periodKey = '2026-W32';
     const tasteSignals = [
@@ -10084,6 +10098,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('hydrates top-off references in bounded batches and persists progress with the top-off stage', async () => {
+    mockReachableReferenceImages();
     const userId = `weekly-topoff-reference-${Date.now()}`;
     const periodKey = '2026-W32';
     const tasteSignals = [
@@ -10120,6 +10135,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
         displayCurrency: 'CAD' as const
       }))
     ];
+    const replayEvidence = reserve.reduce<CanonicalLookupEvidenceMap>((map, candidate) => ({
+      ...map,
+      ...replayEvidenceForCandidate(candidate)
+    }), {});
     const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) =>
       mockedReferenceCacheEntry(
         suggestion.name,
@@ -10130,7 +10149,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const result = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
       reserve,
-      canonicalLookupEvidence: {},
+      canonicalLookupEvidence: replayEvidence,
       profileContext: {
         hasFullDiscovery: true,
         settings: { alertCurrency: 'CAD' },
@@ -10178,6 +10197,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
   });
 
   it('resumes top-off reference preparation without repeating already resolved work', async () => {
+    mockReachableReferenceImages();
     const userId = `weekly-topoff-resume-${Date.now()}`;
     const periodKey = '2026-W32';
     const tasteSignals = [
@@ -10192,6 +10212,10 @@ describe('candidatesFromDiscoveryMarketCache', () => {
       soldSampleSize: 3,
       displayCurrency: 'CAD' as const
     }));
+    const replayEvidence = reserve.reduce<CanonicalLookupEvidenceMap>((map, candidate) => ({
+      ...map,
+      ...replayEvidenceForCandidate(candidate)
+    }), {});
     let fetchCount = 0;
     const fetchCalls: string[] = [];
     const fetchSpy = vi.spyOn(discoveryReferenceCacheService, 'getOrFetchDiscoveryReferenceImage').mockImplementation(async (suggestion) => {
@@ -10211,7 +10235,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
       reserve,
-      canonicalLookupEvidence: {},
+      canonicalLookupEvidence: replayEvidence,
       profileContext: {
         hasFullDiscovery: true,
         settings: { alertCurrency: 'CAD' },
@@ -10258,7 +10282,7 @@ describe('candidatesFromDiscoveryMarketCache', () => {
 
     const resumed = await __discoveryPersistenceTestHooks.hydrateWeeklyDiscoveryReferencesIncrementally({
       reserve: checkpoint?.reserveCandidates ?? [],
-      canonicalLookupEvidence: {},
+      canonicalLookupEvidence: replayEvidence,
       profileContext: {
         hasFullDiscovery: true,
         settings: { alertCurrency: 'CAD' },

@@ -334,7 +334,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("activePage: 'home'");
     expect(jsResponse.body).toContain('Welcome back, ${escapeHtml(userDisplayName(state.user))}');
     expect(jsResponse.body).toContain('Keep what you love. Seek what comes next.');
-    expect(jsResponse.body).toContain('Your collection, watched.');
+    expect(jsResponse.body).toContain('There’s always <em>another</em>');
+    expect(jsResponse.body).toContain('Continue with Discord');
     expect(jsResponse.body).toContain("const isPreviewMode = window.location.pathname === '/preview'");
     expect(jsResponse.body).toContain("return `/api/preview/${url.slice('/api/'.length)}`;");
     expect(jsResponse.body).toContain('Preview mode is read-only. No changes were saved.');
@@ -404,7 +405,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('const requestId = ++state.vaultRequestId;');
     expect(jsResponse.body).toContain('if (requestId !== state.vaultRequestId) return null;');
     expect(jsResponse.body).toContain('Make KeepSeek feel right for you. Manage your account and adjust how KeepSeek finds matches for what you collect.');
-    expect(jsResponse.body).toContain('Email sign-in isn’t available here yet.');
+    expect(jsResponse.body).not.toContain('<p class="auth-unavailable">Email sign-in isn’t available here yet.</p>');
     expect(jsResponse.body).toContain('You already have a card on your Watchlist. You’re ready to continue.');
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
     expect(jsResponse.body).toContain("fetchJson('/api/alerts?reviewState=NEW&limit=4')");
@@ -436,9 +437,7 @@ describe('web app static routes', () => {
     expect(homeEmptySource).not.toContain('Open Inbox');
     expect(jsResponse.body).toContain('function homeShelfFeatureMarkup(items, index, { editorial = false, label } = {})');
     expect(jsResponse.body).toContain('Less searching. <span>More collecting.</span>');
-    expect(jsResponse.body).toContain('Finding the cards you want shouldn’t feel like a full-time job.');
-    expect(jsResponse.body).toContain('With <a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>, your Watchlist, Pickups, and feedback also shape a personalized Display Case');
-    expect(jsResponse.body).toContain('Tell KeepSeek what you’re chasing and it’ll look for listings that fit.');
+    expect(jsResponse.body).toContain('Tell KeepSeek what you’re chasing and it’ll look for listings that fit');
     expect(jsResponse.body).not.toContain('function homeHowMarkup()');
     expect(jsResponse.body).not.toContain('home-how-steps');
     expect(jsResponse.body).not.toContain("['01', 'Watch it'");
@@ -448,8 +447,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Marketplace checks paused');
     expect(jsResponse.body).not.toContain('home-introduction');
     expect(jsResponse.body).toContain('function homeDiscoveryHeadingCopy(mode)');
-    expect(jsResponse.body).toContain('Meet your first collector picks. Fresh finds follow each week.');
-    expect(jsResponse.body).toContain('Three fresh finds each week. See what catches your eye.');
+    expect(jsResponse.body).toContain('A few collector favourites and unexpected finds to explore each week.');
     expect(jsResponse.body).toContain('Explore Display Case');
     expect(jsResponse.body).not.toContain('Picked around your taste');
     expect(jsResponse.body).toContain('Open Inbox');
@@ -459,7 +457,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("total > 1 ?");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_USER'");
     expect(jsResponse.body).toContain("item.monitoringState === 'PAUSED_PLAN_LIMIT'");
-    expect(jsResponse.body).toContain('Picks shaped by your Watchlist, Pickups, and the cards you tell KeepSeek you like.');
+    expect(jsResponse.body).toContain('A little of what you already love, and a few things you might not expect.');
     expect(jsResponse.body).toContain('Three cards to explore. New picks every week.');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">DISCOVER</p>');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">INBOX</p>');
@@ -648,8 +646,42 @@ describe('web app static routes', () => {
     expect(vault).toContain("className: 'vault-page-header'");
     expect(discover).toContain('<h1 id="shelf-title">Display Case</h1>');
     expect(discover).toContain('Find the cards you didn’t know you loved.');
-    expect(discover).toContain('A curated set of recommendations shaped by your collection, Watchlist, and collecting style.');
+    expect(discover).toContain('The best finds aren’t always the ones you set out looking for.');
+    expect(discover).toContain('Sometimes a card catches your eye when you least expect it.');
     expect(source).not.toContain('Explore standout cards and discover your next favourite.');
+  });
+
+  it('renders Discord-only sign-in as the primary available method and preserves email mode', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const functionSource = source.slice(source.indexOf('function signedOutMarkup('), source.indexOf('function shellMarkup('));
+    const render = (authConfig: object) => new Function('state', 'escapeHtml', 'iconMarkup', `${functionSource}\nreturn signedOutMarkup();`)(
+      { authConfig, emailConfirmation: null, authEmailDraft: '', authBusy: false, authNotice: '', authError: '' },
+      String,
+      () => '<svg></svg>'
+    ) as string;
+    const discordOnly = render({ email: { available: false }, discord: { available: true } });
+    expect(discordOnly).toContain('Continue with Discord');
+    expect(discordOnly).toContain('Sign in securely with your Discord account.');
+    expect(discordOnly).not.toContain('auth-divider');
+    expect(discordOnly).not.toContain('Email sign-in isn’t available');
+    const both = render({ email: { available: true }, discord: { available: true } });
+    expect(both).toContain('data-email-signin-form');
+    expect(both).toContain('auth-divider');
+    expect(both).toContain('Continue with Discord');
+  });
+
+  it('keeps Plus Inbox filters visible while normalizing unavailable active filters', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const alerts = source.slice(source.indexOf('function alertsPageMarkup('), source.indexOf('function skeletonMarkup('));
+    expect(alerts).toContain("priorityButton('GRAIL', 'Grail')");
+    expect(alerts).toContain("priorityButton('HIGH', 'High')");
+    expect(alerts).toContain('Supported shops${plusFilters ? \'\' : \' (KeepSeek Plus)\'}');
+    expect(alerts).toContain('Historical matches remain available in All and Reviewed.');
+    const normalizeSource = source.slice(source.indexOf('function normalizeInboxFiltersForAccess('), source.indexOf('function settingsFieldError('));
+    expect(normalizeSource).toContain("state.priority === 'GRAIL' || state.priority === 'HIGH'");
+    expect(normalizeSource).toContain("state.source === 'SHOPIFY'");
   });
 
   it('renders accessible onboarding progress from the enabled step count', async () => {
@@ -1152,15 +1184,15 @@ describe('web app static routes', () => {
 
     expect(headingFor('STARTER')).toEqual({
       heading: 'Your next favourite could be here.',
-      copy: 'Meet your first collector picks. Fresh finds follow each week.'
+      copy: 'A few collector favourites and unexpected finds to explore each week. With KeepSeek Plus, your Watchlist, Pickups, and feedback help shape a personalized Display Case, bringing you more of what you love and a few surprises along the way.'
     });
     expect(headingFor('WEEKLY')).toEqual({
       heading: 'Your next favourite could be here.',
-      copy: 'Three fresh finds each week. See what catches your eye.'
+      copy: 'A few collector favourites and unexpected finds to explore each week. With KeepSeek Plus, your Watchlist, Pickups, and feedback help shape a personalized Display Case, bringing you more of what you love and a few surprises along the way.'
     });
     expect(headingFor('PERSONALIZED')).toEqual({
       heading: 'Picked for you',
-      copy: 'Picks shaped by your Watchlist, Pickups, and the cards you tell KeepSeek you like.'
+      copy: 'A little of what you already love, and a few things you might not expect. Your collection, Watchlist, and feedback help shape the mix.'
     });
     expect(headingFor('FALLBACK')).toEqual({ heading: 'Collector picks', copy: 'A few handpicked cards to explore.' });
   });

@@ -58,4 +58,18 @@ describe('Discord REST alert delivery', () => {
     expect(error).toBeInstanceOf(DiscordRestDeliveryError);
     expect(error).toMatchObject({ statusCode: 429, retryAfterMs: 12_500, retryable: true });
   });
+
+  it('retains bounded Discord API diagnostics for permanent failures', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      headers: { get: () => null },
+      json: async () => ({ message: 'Cannot send messages to this user', code: 50007, recipient_id: 'sensitive' })
+    });
+    const error = await sendDiscordTextDirectMessage({ token: 'token', discordUserId: 'owner-1', content: 'Alert', fetchImpl }).catch((caught) => caught);
+    expect(error).toMatchObject({ statusCode: 403, discordCode: 50007, retryable: false });
+    expect(error.message).toBe('Discord DM channel request failed (403, Discord code 50007)');
+    expect(error.message).not.toContain('recipient_id');
+    expect(error.message).not.toContain('Cannot send messages');
+  });
 });
