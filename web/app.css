@@ -2575,25 +2575,26 @@ a {
 .inbox-page > .page-header .page-support { line-height: 1.45; }
 
 .inbox-page .alert-control-stack {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px 20px;
-  margin: 14px 0 12px;
-  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: minmax(440px, 1.15fr) minmax(420px, 1fr);
+  align-items: start;
+  gap: 18px;
+  margin: 10px 0 12px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.022);
 }
 
 .inbox-page .alert-inbox-control {
-  width: auto;
-  flex: 1 1 390px;
+  width: 100%;
 }
 
 .inbox-page .toolbar {
-  flex: 1 1 430px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(142px, auto);
+  align-items: start;
+  gap: 14px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -2615,13 +2616,13 @@ a {
 
 .alert-inbox-control {
   width: 100%;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  column-gap: 18px;
 }
 
-.alert-inbox-control .alert-control-label {
-  grid-column: 1 / -1;
+.alert-inbox-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .toolbar {
@@ -2962,7 +2963,7 @@ a {
 
 .alert-card .alert-secondary-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
 }
 
@@ -2973,6 +2974,7 @@ a {
   border: 1px solid rgba(191, 165, 255, 0.2);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.025);
+  white-space: nowrap;
 }
 
 .alert-review-action {
@@ -3042,7 +3044,15 @@ a {
 .discord-alert-invite p { margin-top: 3px; color: var(--muted); font-size: 0.82rem; }
 .discord-alert-invite > div:last-child { display: flex; gap: 8px; flex: 0 0 auto; }
 
-.alert-review-all { margin-left: auto; }
+.alert-review-all {
+  flex: 0 0 auto;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .inbox-page .alert-control-stack { grid-template-columns: 1fr; }
+}
 
 .pagination {
   display: flex;
@@ -3067,7 +3077,9 @@ a {
 @media (max-width: 760px) {
   .discord-alert-invite { align-items: flex-start; flex-direction: column; }
   .discord-alert-invite > div:last-child { width: 100%; flex-wrap: wrap; }
-  .alert-review-all { width: 100%; margin-left: 0; }
+  .inbox-page .toolbar { grid-template-columns: 1fr; }
+  .alert-inbox-row { align-items: flex-start; flex-direction: column; }
+  .alert-review-all { width: auto; margin-left: 0; }
   .pagination { align-items: flex-start; flex-direction: column; }
 }
 
@@ -3455,7 +3467,7 @@ a {
 .alert-content {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.48fr);
+  grid-template-columns: minmax(0, 1fr) minmax(245px, 0.58fr);
   grid-template-rows: auto auto;
   align-items: start;
   gap: 10px 14px;
@@ -5743,6 +5755,14 @@ a {
   .alert-actions {
     width: 100%;
     margin-left: 0;
+  }
+
+  .alert-card .alert-secondary-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .alert-card .alert-dismiss-action {
+    grid-column: 1 / -1;
   }
 
   .artwork-overlay {

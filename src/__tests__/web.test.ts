@@ -641,6 +641,8 @@ describe('web app static routes', () => {
     expect(plus).toContain("tagline: 'Make discovery feel more like you.'");
     expect(alerts).toContain("title: 'Your matches'");
     expect(alerts).toContain("tagline: 'The right card might have just turned up.'");
+    expect(alerts).toContain('class="alert-inbox-row"');
+    expect(alerts).toContain('data-action="mark-all-reviewed"');
     expect(vault).toContain("title: 'Your Watchlist'");
     expect(vault).toContain("tagline: 'Keep the cards you’re chasing close.'");
     expect(vault).toContain("className: 'vault-page-header'");
@@ -741,6 +743,7 @@ describe('web app static routes', () => {
       'displayCaseMarketPrice',
       'artworkTriggerMarkup',
       'discoveryCardPrimaryActionMarkup',
+      'displayCaseCardBackUrl',
       `${functionSource}\nreturn homeShelfFeatureMarkup([item], 0, { editorial: true });`
     ) as (...args: any[]) => string;
     const renderItem = (item: Record<string, unknown>) => render(
@@ -753,7 +756,8 @@ describe('web app static routes', () => {
         ? { label: 'Typical asking range', value: `${market.currency} ${Math.round(market.askingRangeLow)}–${market.currency} ${Math.round(market.askingRangeHigh)}` }
         : market?.askingTotal !== undefined ? { label: 'Around', value: `${market.currency} ${Math.round(market.askingTotal)}` } : null,
       () => '<button class="artwork-trigger">Artwork</button>',
-      () => ''
+      () => '',
+      '/keepseek-card-back.svg'
     );
 
     const withoutPrice = renderItem({ name: 'Mew', reason: 'Collector context.' });
@@ -984,7 +988,8 @@ describe('web app static routes', () => {
     expect(summarySource).not.toContain('Partial selection');
     expect(source).not.toContain('images.pokemontcg.io/me55/153_hires.png');
     expect(source).toContain("const displayCaseCardBackUrl = '/keepseek-card-back.svg'");
-    expect(source.match(/alt=\"Pokémon card back placeholder\"/g)).toHaveLength(2);
+    expect(source.match(/alt=\"KeepSeek card back placeholder\"/g)).toHaveLength(2);
+    expect(source).not.toContain('Pokémon card back placeholder');
     expect(source.match(/data-display-case-card-back/g)?.length).toBeGreaterThanOrEqual(3);
     expect(source).not.toContain('referenceImageUrl: displayCaseCardBackUrl');
     expect(source).toContain("target.matches('[data-home-shelf-image]')");

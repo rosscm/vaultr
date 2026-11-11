@@ -1394,12 +1394,14 @@ function alertsPageMarkup(inner) {
       <div class="alert-control-stack">
         <div class="alert-control-group alert-inbox-control">
           <span class="alert-control-label">Inbox</span>
-          <div class="review-state-filters" aria-label="Alert review state">
-            ${reviewStateButton('NEW', 'New')}
-            ${reviewStateButton('ALL', 'All')}
-            ${reviewStateButton('REVIEWED', 'Reviewed')}
+          <div class="alert-inbox-row">
+            <div class="review-state-filters" aria-label="Alert review state">
+              ${reviewStateButton('NEW', 'New')}
+              ${reviewStateButton('ALL', 'All')}
+              ${reviewStateButton('REVIEWED', 'Reviewed')}
+            </div>
+            ${state.alertReviewState !== 'REVIEWED' && state.matchingNewAlertCount > 0 ? `<button class="button-ghost alert-review-all" type="button" data-action="mark-all-reviewed"${state.bulkReviewBusy ? ' disabled' : ''}>${state.bulkReviewBusy ? 'Updating…' : `Mark all reviewed (${state.matchingNewAlertCount})`}</button>` : ''}
           </div>
-          ${state.alertReviewState !== 'REVIEWED' && state.matchingNewAlertCount > 0 ? `<button class="button-ghost alert-review-all" type="button" data-action="mark-all-reviewed"${state.bulkReviewBusy ? ' disabled' : ''}>${state.bulkReviewBusy ? 'Updating…' : `Mark all reviewed (${state.matchingNewAlertCount})`}</button>` : ''}
         </div>
         <div class="toolbar" aria-label="Inbox filters">
           <div class="alert-control-group">
@@ -1654,7 +1656,7 @@ function homeShelfFeatureMarkup(items, index, { editorial = false, label } = {})
               imageClass: 'home-shelf-feature-image',
               imageDataAttribute: 'data-home-shelf-image'
             })
-          : `<img class="home-shelf-feature-image display-case-card-back" src="${displayCaseCardBackUrl}" alt="Pokémon card back placeholder" data-display-case-card-back data-card-back-context="home">`}
+          : `<img class="home-shelf-feature-image display-case-card-back" src="${displayCaseCardBackUrl}" alt="KeepSeek card back placeholder" data-display-case-card-back data-card-back-context="home">`}
       </div>
       <div class="home-shelf-copy">
         <small class="home-shelf-kind">${escapeHtml(item.discoveryBudgetException === 'DREAM_CARD' ? 'Dream card' : label || (editorial ? 'Collector pick' : 'Picked for you'))}</small>
@@ -2397,7 +2399,7 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
           imageKind: 'Card artwork',
           imageClass: 'shelf-card-image',
           imageDataAttribute: 'data-shelf-card-image'
-        }) : `<img class="shelf-card-image display-case-card-back" src="${displayCaseCardBackUrl}" alt="Pokémon card back placeholder" data-display-case-card-back data-card-back-context="shelf">`}
+        }) : `<img class="shelf-card-image display-case-card-back" src="${displayCaseCardBackUrl}" alt="KeepSeek card back placeholder" data-display-case-card-back data-card-back-context="shelf">`}
         <div class="shelf-card-body">
           <div class="shelf-card-meta">
             ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
@@ -4608,7 +4610,7 @@ app.addEventListener(
       const cardBack = document.createElement('img');
       cardBack.className = 'home-shelf-feature-image display-case-card-back';
       cardBack.src = displayCaseCardBackUrl;
-      cardBack.alt = 'Pokémon card back placeholder';
+      cardBack.alt = 'KeepSeek card back placeholder';
       cardBack.setAttribute('data-display-case-card-back', '');
       cardBack.setAttribute('data-card-back-context', 'home');
       (target.closest('.artwork-trigger') || target).replaceWith(cardBack);
@@ -4625,7 +4627,7 @@ app.addEventListener(
       const cardBack = document.createElement('img');
       cardBack.className = 'shelf-card-image display-case-card-back';
       cardBack.src = displayCaseCardBackUrl;
-      cardBack.alt = 'Pokémon card back placeholder';
+      cardBack.alt = 'KeepSeek card back placeholder';
       cardBack.setAttribute('data-display-case-card-back', '');
       cardBack.setAttribute('data-card-back-context', 'shelf');
       (target.closest('.artwork-trigger') || target).replaceWith(cardBack);
