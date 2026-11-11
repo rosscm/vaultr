@@ -4010,11 +4010,6 @@ a {
   text-align: center;
 }
 
-.shelf-card-back {
-  opacity: 0.82;
-  filter: saturate(0.78) brightness(0.88);
-}
-
 .page-header h1[tabindex="-1"]:focus {
   outline: none;
 }

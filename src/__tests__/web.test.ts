@@ -970,7 +970,7 @@ describe('web app static routes', () => {
     expect(refreshSource).toContain('void loadHomeAttention()');
   });
 
-  it('uses collector-facing Display Case metadata and the established card-back fallback', async () => {
+  it('uses collector-facing Display Case metadata without a broken remote card-back fallback', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const summarySource = source.slice(source.indexOf('function shelfMetaMarkup('), source.indexOf('function shelfEmptyMarkup('));
@@ -978,9 +978,20 @@ describe('web app static routes', () => {
     expect(summarySource).toContain('Updated');
     expect(summarySource).not.toContain('periodKey');
     expect(summarySource).not.toContain('Partial selection');
-    expect(source).toContain("const displayCaseCardBackUrl = 'https://images.pokemontcg.io/me55/153_hires.png'");
-    expect(source).toContain('Pokémon card back placeholder');
-    expect(source).toContain('data-display-case-card-back');
+    expect(source).not.toContain('images.pokemontcg.io/me55/153_hires.png');
+    expect(source).toContain('aria-label=\"Artwork unavailable\"');
+  });
+
+  it('preserves and resolves an exact Inbox alert deep link without changing review state', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    expect(source).toContain("alertId: params.get('alertId')");
+    expect(source).toContain('window.sessionStorage.setItem(pendingAuthDestinationKey, window.location.hash)');
+    expect(source).toContain('fetchJson(`/api/alerts/${encodeURIComponent(state.alertDeepLinkId)}`)');
+    expect(source).toContain('state.selectedAlertId = linkedAlert.id');
+    expect(source).toContain('state.alertDetailOpen = true');
+    expect(source).toContain("linked.item?.dismissedAt");
+    expect(source).not.toContain('markAlertReviewed(linkedAlert');
   });
 
   it('supports direct, touch, arrow, and keyboard Home Display Case browsing', async () => {

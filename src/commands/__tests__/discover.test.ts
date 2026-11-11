@@ -13386,7 +13386,7 @@ describe('attachReferenceImages', () => {
         url: imageUrl,
         sourceName: 'Pokemon TCG (30th Celebration)',
         sourceCardId: 'me55-153',
-        sourceKind: 'CARD_REFERENCE'
+        sourceKind: 'CARD_REFERENCE' as const
       }
     };
     const [attached] = await attachReferenceImages([input], undefined, { validateRemoteReferences: true });

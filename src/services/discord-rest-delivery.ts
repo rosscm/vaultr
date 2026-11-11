@@ -29,33 +29,28 @@ function retryAfterMs(response: DiscordRestResponse): number | undefined {
   return Number.isFinite(header) && header > 0 ? Math.ceil(header * 1000) : undefined;
 }
 
-function money(value: number | undefined, currency: string | undefined): string {
-  return value === undefined ? 'Unknown' : `${currency ?? ''} ${value.toFixed(2)}`.trim();
+function watchlistPriorityDescription(priority: AlertEvent['chasePriority']): string {
+  if (priority === 'GRAIL') return 'KeepSeek found a new match for one of your Grail Watchlist cards.';
+  if (priority === 'HIGH') return 'KeepSeek found a new match for one of your High-priority Watchlist cards.';
+  if (priority === 'NORMAL') return 'KeepSeek found a new match for one of your Casual Watchlist cards.';
+  return 'KeepSeek found a new match for one of your Watchlist cards.';
 }
 
 export function discordAlertMessage(event: AlertEvent, webBaseUrl: string): Record<string, unknown> {
-  const details = event.details;
-  const fields = [
-    { name: 'Watchlist card', value: event.chaseName ?? 'Saved card', inline: false },
-    { name: 'Price', value: money(event.listingPrice, event.listingCurrency), inline: true },
-    { name: 'Confidence', value: event.matchScore === undefined ? 'Unknown' : `${event.matchScore}/100`, inline: true }
-  ];
-  if (details?.match?.explanation) fields.push({ name: 'Why it matched', value: details.match.explanation.slice(0, 1024), inline: false });
   const inboxUrl = new URL('/app', webBaseUrl);
-  inboxUrl.hash = `alerts?chaseId=${encodeURIComponent(event.chaseId)}&chaseName=${encodeURIComponent(event.chaseName ?? '')}`;
+  inboxUrl.hash = `alerts?chaseId=${encodeURIComponent(event.chaseId)}&alertId=${encodeURIComponent(event.id)}`;
   return {
     embeds: [{
-      title: event.listingTitle?.slice(0, 256) ?? 'New Watchlist match',
+      title: 'A new match for your Watchlist!',
+      description: `${watchlistPriorityDescription(event.chasePriority)}\n\nOpen your Inbox to review the price, seller, and listing details.`,
       color: 0xff7ac6,
-      fields,
       timestamp: event.updatedAt,
       footer: { text: 'KeepSeek • Optional Discord alert' }
     }],
     components: [{
       type: 1,
       components: [
-        ...(event.listingUrl ? [{ type: 2, style: 5, label: 'View listing', url: event.listingUrl }] : []),
-        { type: 2, style: 5, label: 'Open Inbox', url: inboxUrl.toString() }
+        { type: 2, style: 5, label: 'Open KeepSeek Inbox', url: inboxUrl.toString() }
       ]
     }]
   };

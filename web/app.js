@@ -1,7 +1,7 @@
 const app = document.querySelector('#app');
 const isPreviewMode = window.location.pathname === '/preview' || window.location.pathname === '/preview/';
 const appHomePath = isPreviewMode ? '/preview' : '/app';
-const displayCaseCardBackUrl = 'https://images.pokemontcg.io/me55/153_hires.png';
+const pendingAuthDestinationKey = 'keepseek.pendingAuthDestination';
 let artworkReturnFocus = null;
 let artworkPreviousBodyOverflow = '';
 let artworkKeydownHandler = null;
@@ -31,6 +31,7 @@ const state = {
   alertReviewState: 'NEW',
   alertChaseId: null,
   alertChaseName: '',
+  alertDeepLinkId: null,
   alerts: [],
   selectedAlertId: null,
   alertDetailOpen: false,
@@ -345,7 +346,25 @@ function pageFromHash(hash = window.location.hash) {
 
 function alertFilterFromHash(hash = window.location.hash) {
   const params = new URLSearchParams(String(hash || '').replace(/^#alerts\??/i, ''));
-  return { chaseId: params.get('chaseId'), chaseName: params.get('chaseName') || '' };
+  return { chaseId: params.get('chaseId'), chaseName: params.get('chaseName') || '', alertId: params.get('alertId') };
+}
+
+function preservePendingAuthDestination() {
+  const filter = alertFilterFromHash();
+  if (pageFromHash() !== 'alerts' || !filter.alertId) return;
+  try { window.sessionStorage.setItem(pendingAuthDestinationKey, window.location.hash); } catch { /* Storage may be unavailable. */ }
+}
+
+function restorePendingAuthDestination() {
+  if (window.location.hash) return;
+  try {
+    const pending = window.sessionStorage.getItem(pendingAuthDestinationKey);
+    if (pending && pageFromHash(pending) === 'alerts') window.history.replaceState(null, '', pending);
+  } catch { /* Storage may be unavailable. */ }
+}
+
+function clearPendingAuthDestination() {
+  try { window.sessionStorage.removeItem(pendingAuthDestinationKey); } catch { /* Storage may be unavailable. */ }
 }
 
 function resetAlertPagination() {
@@ -2377,7 +2396,7 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
           imageKind: 'Card artwork',
           imageClass: 'shelf-card-image',
           imageDataAttribute: 'data-shelf-card-image'
-        }) : `<img class="shelf-card-image shelf-card-back" src="${displayCaseCardBackUrl}" alt="Pokémon card back placeholder" data-display-case-card-back>`}
+        }) : '<div class="shelf-card-image placeholder-image shelf-image-unavailable" role="img" aria-label="Artwork unavailable"><span class="sr-only">Artwork unavailable</span></div>'}
         <div class="shelf-card-body">
           <div class="shelf-card-meta">
             ${item.roleLabel ? `<span class="status-pill active">${escapeHtml(item.roleLabel)}</span>` : ''}
@@ -2941,9 +2960,27 @@ async function loadAlerts({ cursor = state.alertPageCursors[state.alertPage - 1]
   else renderCurrentPage();
 
   try {
+    let linkedAlert = null;
+    if (state.alertDeepLinkId) {
+      try {
+        const linked = await fetchJson(`/api/alerts/${encodeURIComponent(state.alertDeepLinkId)}`);
+        if (linked.item?.dismissedAt) state.alertNotice = 'That Inbox match has been removed.';
+        else linkedAlert = linked.item || null;
+      } catch (error) {
+        if (String(error?.message) === 'unauthorized') throw error;
+        state.alertNotice = 'That Inbox match is no longer available.';
+      }
+    }
     const body = await fetchJson(alertQuery(cursor));
     if (requestId !== state.requestId) return;
     state.alerts = body.items || [];
+    if (linkedAlert && !state.alerts.some((item) => item.id === linkedAlert.id)) state.alerts.unshift(linkedAlert);
+    if (linkedAlert) {
+      state.selectedAlertId = linkedAlert.id;
+      state.alertDetailOpen = true;
+      if (!state.alertChaseName) state.alertChaseName = linkedAlert.chaseName || '';
+    }
+    state.alertDeepLinkId = null;
     state.alertsLoaded = true;
     state.alertsError = null;
     state.isAlertsLoading = false;
@@ -3665,6 +3702,8 @@ async function reopenChase(chaseId) {
 }
 
 async function bootstrap() {
+  restorePendingAuthDestination();
+  preservePendingAuthDestination();
   await loadAuthSurface();
   try {
     const body = await fetchJson('/api/me');
@@ -3676,7 +3715,8 @@ async function bootstrap() {
       const filter = alertFilterFromHash();
       state.alertChaseId = filter.chaseId;
       state.alertChaseName = filter.chaseName;
-      if (filter.chaseId) state.alertReviewState = 'ALL';
+      state.alertDeepLinkId = filter.alertId;
+      if (filter.chaseId || filter.alertId) state.alertReviewState = 'ALL';
     }
     const hasExplicitRoute = /^#(home|vault|alerts|shelf|plus|settings|onboarding)(?:\?.*)?$/i.test(window.location.hash);
     state.activePage = (!isPreviewMode && onboarding?.status === 'IN_PROGRESS' && !hasExplicitRoute) || requestedPage === 'onboarding'
@@ -3686,6 +3726,7 @@ async function bootstrap() {
         : requestedPage;
     renderCurrentPage();
     await loadActivePageData();
+    clearPendingAuthDestination();
     startNewAlertPresenceRefresh();
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
@@ -4412,7 +4453,8 @@ window.addEventListener('hashchange', () => {
     const filter = alertFilterFromHash();
     state.alertChaseId = filter.chaseId;
     state.alertChaseName = filter.chaseName;
-    state.alertReviewState = filter.chaseId ? 'ALL' : state.alertReviewState;
+    state.alertDeepLinkId = filter.alertId;
+    state.alertReviewState = filter.chaseId || filter.alertId ? 'ALL' : state.alertReviewState;
     resetAlertPagination();
     state.alertsLoaded = false;
   }
@@ -4584,13 +4626,6 @@ app.addEventListener(
       if (target.matches('[data-shelf-card-image]')) placeholder.classList.add('shelf-image-unavailable');
       placeholder.classList.add('artwork-unavailable');
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
-    } else if (target instanceof HTMLImageElement && target.matches('[data-display-case-card-back]')) {
-      const placeholder = document.createElement('div');
-      placeholder.className = 'shelf-card-image placeholder-image shelf-image-unavailable';
-      placeholder.setAttribute('role', 'img');
-      placeholder.setAttribute('aria-label', 'Artwork unavailable');
-      placeholder.textContent = 'Artwork unavailable';
-      target.replaceWith(placeholder);
     }
   },
   true
