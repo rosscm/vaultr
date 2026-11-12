@@ -182,10 +182,31 @@ a {
 }
 
 .signed-out {
+  position: relative;
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(340px, 45fr) minmax(480px, 55fr);
-  background: #0b1023;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 14% 48%, rgba(255, 116, 181, 0.34) 0%, rgba(174, 78, 150, 0.2) 25%, transparent 49%),
+    radial-gradient(ellipse at 58% 112%, rgba(171, 67, 153, 0.2) 0%, transparent 42%),
+    radial-gradient(ellipse at 88% 28%, rgba(74, 69, 151, 0.12) 0%, transparent 40%),
+    linear-gradient(108deg, #704174 0%, #50345f 26%, #282044 48%, #12152d 68%, #0b1023 100%);
+}
+
+.signed-out::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: -18%;
+  bottom: -34%;
+  width: 82%;
+  height: 68%;
+  border: 1px solid rgba(244, 128, 207, 0.18);
+  border-radius: 50%;
+  transform: rotate(-14deg);
+  pointer-events: none;
 }
 
 .signed-out-illustration {
@@ -195,35 +216,21 @@ a {
   min-width: 0;
   overflow: hidden;
   padding: clamp(30px, 5vw, 76px);
-  background:
-    radial-gradient(circle at 24% 26%, rgba(255, 177, 213, 0.2), transparent 28%),
-    linear-gradient(145deg, #32214f 0%, #6d3d79 55%, #a45a94 100%);
+  background: transparent;
 }
 
-.signed-out-illustration::after {
+.signed-out-illustration::before {
   content: '';
   position: absolute;
-  z-index: 2;
-  top: 0;
-  right: -1px;
-  bottom: 0;
-  width: clamp(34px, 5vw, 74px);
-  background: linear-gradient(90deg, transparent, rgba(11, 16, 35, 0.96));
+  left: -28%;
+  bottom: 8%;
+  width: 118%;
+  height: 46%;
+  border-radius: 50%;
+  background: rgba(37, 24, 72, 0.14);
+  transform: rotate(-12deg);
   pointer-events: none;
 }
-
-.signed-out-illustration::before,
-.signed-out-illustration > span {
-  content: '';
-  position: absolute;
-  width: 135%;
-  height: 38%;
-  border-radius: 50%;
-  background: rgba(28, 20, 66, 0.18);
-  transform: rotate(-18deg);
-}
-
-.signed-out-illustration::before { top: 3%; left: -54%; }
 
 .signed-out-illustration img {
   position: relative;
@@ -231,7 +238,7 @@ a {
   display: block;
   width: min(100%, 720px);
   height: auto;
-  filter: drop-shadow(0 28px 28px rgba(19, 8, 38, 0.24));
+  filter: drop-shadow(0 22px 22px rgba(19, 8, 38, 0.18));
 }
 
 .signed-out-auth-panel {
@@ -239,9 +246,7 @@ a {
   place-items: center;
   min-width: 0;
   padding: clamp(36px, 7vw, 104px);
-  background:
-    radial-gradient(circle at 76% 32%, rgba(139, 92, 246, 0.12), transparent 34%),
-    #0b1023;
+  background: transparent;
 }
 
 .signed-out-auth {
@@ -279,9 +284,9 @@ a {
 }
 
 .signed-out-auth h1 {
-  max-width: 13ch;
+  max-width: none;
   margin: clamp(48px, 8vh, 82px) 0 18px;
-  font-size: clamp(2.65rem, 4.6vw, 4.65rem);
+  font-size: clamp(2.65rem, 4.6vw, 4rem);
   line-height: 1.06;
   letter-spacing: 0;
 }
@@ -386,18 +391,15 @@ a {
   .signed-out {
     grid-template-columns: 1fr;
     grid-template-rows: clamp(210px, 34vh, 300px) auto;
+    background:
+      radial-gradient(ellipse at 18% 16%, rgba(255, 116, 181, 0.28) 0%, transparent 38%),
+      radial-gradient(ellipse at 76% 44%, rgba(112, 73, 160, 0.14) 0%, transparent 40%),
+      linear-gradient(180deg, #68406f 0%, #584064 20%, #3f3154 34%, #292443 48%, #17182f 64%, #0b1023 82%);
   }
 
   .signed-out-illustration { padding: 12px 28px; }
-  .signed-out-illustration::after {
-    top: auto;
-    right: 0;
-    left: 0;
-    width: auto;
-    height: 38px;
-    background: linear-gradient(180deg, transparent, rgba(11, 16, 35, 0.96));
-  }
-  .signed-out-illustration img { width: min(100%, 460px); }
+  .signed-out-illustration::before { display: none; }
+  .signed-out-illustration img { width: min(58vw, 220px); max-height: 100%; object-fit: contain; }
   .signed-out-auth-panel { place-items: start center; padding: 34px 22px 46px; }
   .signed-out-brand img { width: min(230px, 62%); }
   .signed-out-auth h1 { max-width: none; margin-top: 38px; font-size: clamp(2.15rem, 10vw, 3rem); }
@@ -3220,7 +3222,14 @@ a {
 @media (max-width: 760px) {
   .discord-alert-invite { align-items: flex-start; flex-direction: column; }
   .discord-alert-invite > div:last-child { width: 100%; flex-wrap: wrap; }
-  .inbox-page .toolbar { grid-template-columns: 1fr; }
+  .inbox-page .alert-control-stack { gap: 8px; margin-block: 8px 10px; padding: 9px 10px; }
+  .inbox-page .toolbar { grid-template-columns: minmax(0, 1fr) minmax(145px, 0.68fr); gap: 9px; }
+  .inbox-page .toolbar .priority-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .inbox-page .toolbar .priority-filters::-webkit-scrollbar { display: none; }
+  .inbox-page .alert-control-group { gap: 5px; }
+  .inbox-page .review-state-filters { gap: 3px; padding: 2px; }
+  .inbox-page .source-select { min-height: 40px; }
+  .inbox-plus-filter-help { margin-top: -2px; }
   .alert-inbox-row { align-items: flex-start; flex-direction: column; }
   .alert-review-all { width: auto; margin-left: 0; }
   .pagination { align-items: flex-start; flex-direction: column; }
@@ -5398,6 +5407,57 @@ a {
     display: flex;
     gap: 8px;
   }
+
+  .mobile-account-menu { position: relative; }
+
+  .mobile-account-menu summary {
+    min-width: 42px;
+    min-height: 42px;
+    display: grid;
+    place-items: center;
+    border: 1px solid transparent;
+    border-radius: 50%;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .mobile-account-menu summary::-webkit-details-marker { display: none; }
+  .mobile-account-menu summary:hover { background: rgba(255, 255, 255, 0.055); }
+  .mobile-account-menu summary:focus-visible { border-color: var(--lavender); outline: 3px solid rgba(185, 155, 255, 0.28); outline-offset: 2px; }
+
+  .mobile-account-menu-panel {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 172px;
+    display: grid;
+    gap: 4px;
+    padding: 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: rgba(17, 14, 36, 0.98);
+    box-shadow: 0 18px 40px rgba(3, 2, 12, 0.42);
+  }
+
+  .mobile-account-menu-panel button {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-weight: 650;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mobile-account-menu-panel button:hover,
+  .mobile-account-menu-panel button:focus-visible { background: rgba(185, 155, 255, 0.12); }
+  .mobile-account-menu-panel .nav-icon { width: 19px; height: 19px; color: var(--lavender); }
 
   .mobile-header .avatar,
   .mobile-header .avatar-fallback {

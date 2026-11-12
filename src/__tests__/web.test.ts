@@ -350,6 +350,10 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("navButton('shelf', 'Display Case')");
     expect(jsResponse.body).toContain("navButton('plus', 'Plus')");
     expect(jsResponse.body).toContain('<nav class="app-nav mobile-primary-nav" aria-label="KeepSeek app navigation">');
+    expect(jsResponse.body).toContain('class="mobile-account-menu"');
+    expect(jsResponse.body).toContain('<span>Settings</span>');
+    expect(jsResponse.body).toContain('We couldn’t complete Discord sign-in. Please try again.');
+    expect(jsResponse.body).toContain('display-case-card-back');
     expect(jsResponse.body).not.toContain('class="mobile-nav"');
     expect(jsResponse.body).toContain("selected ? ' aria-current=\"page\"' : ''");
     expect(jsResponse.body).toContain('data-page="plus"');
@@ -1776,17 +1780,73 @@ describe('web auth routes', () => {
     expect(cookieValue(response.headers, 'vaultr_oauth_state')).toBe(location.searchParams.get('state'));
   });
 
-  it('rejects missing and mismatched OAuth state', async () => {
-    const missing = await handleWebRequest({ method: 'GET', url: '/auth/discord/callback?code=abc' }, { config });
-    expect(missing.status).toBe(400);
-    expect(JSON.parse(missing.body ?? '{}')).toEqual({ error: 'invalid_state' });
+  it('returns missing and mismatched OAuth state to branded sign-in without exchanging a code', async () => {
+    const fetchImpl = vi.fn();
+    const missing = await handleWebRequest({ method: 'GET', url: '/auth/discord/callback?code=abc' }, { config, fetchImpl });
+    expect(missing.status).toBe(302);
+    expect(missing.headers?.Location).toBe('/app?authError=discord_sign_in_failed');
 
     const mismatched = await handleWebRequest(
       { method: 'GET', url: '/auth/discord/callback?code=abc&state=one', headers: { cookie: 'vaultr_oauth_state=two' } },
-      { config }
+      { config, fetchImpl }
     );
-    expect(mismatched.status).toBe(400);
-    expect(JSON.parse(mismatched.body ?? '{}')).toEqual({ error: 'invalid_state' });
+    expect(mismatched.status).toBe(302);
+    expect(mismatched.headers?.Location).toBe('/app?authError=discord_sign_in_failed');
+    expect(mismatched.headers?.['Set-Cookie']).toBeUndefined();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('returns cancelled Discord authorization to branded sign-in and clears validated state', async () => {
+    const response = await handleWebRequest({
+      method: 'GET',
+      url: '/auth/discord/callback?error=access_denied&state=state-1',
+      headers: { cookie: 'vaultr_oauth_state=state-1' }
+    }, { config });
+    expect(response.status).toBe(302);
+    expect(response.headers?.Location).toBe('/app?authError=discord_cancelled');
+    expect(response.headers?.['Set-Cookie']).toEqual(expect.stringContaining('Max-Age=0'));
+  });
+
+  it('returns a validated callback without an authorization code to branded sign-in', async () => {
+    const fetchImpl = vi.fn();
+    const response = await handleWebRequest({
+      method: 'GET',
+      url: '/auth/discord/callback?state=state-1',
+      headers: { cookie: 'vaultr_oauth_state=state-1' }
+    }, { config, fetchImpl });
+    expect(response.headers?.Location).toBe('/app?authError=discord_sign_in_failed');
+    expect(response.headers?.['Set-Cookie']).toEqual(expect.stringContaining('Max-Age=0'));
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('returns invalid Discord linking callbacks to Settings without replacing the active session', async () => {
+    const user = createUser({ displayName: 'Link recovery collector' });
+    const { token } = createWebSession({ userId: user.id }, { token: 'link-recovery-session' });
+    const start = await handleWebRequest({ method: 'GET', url: '/auth/discord/link', headers: { cookie: sessionCookie(token) } }, { config });
+    const linkCookie = cookieValue(start.headers, 'vaultr_oauth_state_link');
+    const fetchImpl = vi.fn();
+    const response = await handleWebRequest({
+      method: 'GET',
+      url: '/auth/discord/callback?code=abc',
+      headers: { cookie: `${sessionCookie(token)}; vaultr_oauth_state_link=${linkCookie}` }
+    }, { config, fetchImpl });
+    expect(response.status).toBe(302);
+    expect(response.headers?.Location).toBe('/app?discordLink=failed#settings');
+    expect(resolveWebSession(token)?.userId).toBe(user.id);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    clearUser(user.id);
+  });
+
+  it('does not clear a newer OAuth state when an older callback arrives', async () => {
+    const fetchImpl = vi.fn();
+    const response = await handleWebRequest({
+      method: 'GET',
+      url: '/auth/discord/callback?code=old-code&state=old-state',
+      headers: { cookie: 'vaultr_oauth_state=new-state' }
+    }, { config, fetchImpl });
+    expect(response.headers?.Location).toBe('/app?authError=discord_sign_in_failed');
+    expect(response.headers?.['Set-Cookie']).toBeUndefined();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('creates a session from a successful mocked Discord callback', async () => {
@@ -1915,8 +1975,23 @@ describe('web auth routes', () => {
       { config, fetchImpl }
     );
 
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(302);
+    expect(response.headers?.Location).toBe('/app?authError=discord_sign_in_failed');
     expect(cookieValue(response.headers, 'vaultr_session')).toBeUndefined();
+  });
+
+  it('returns profile retrieval failures to branded sign-in without creating a session', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => String(url).includes('/oauth2/token')
+      ? new Response(JSON.stringify({ access_token: 'profile-failure-token' }), { status: 200 })
+      : new Response('{}', { status: 502 })) as typeof fetch;
+    const response = await handleWebRequest({
+      method: 'GET',
+      url: '/auth/discord/callback?code=abc&state=state-1',
+      headers: { cookie: 'vaultr_oauth_state=state-1' }
+    }, { config, fetchImpl });
+    expect(response.headers?.Location).toBe('/app?authError=discord_sign_in_failed');
+    expect(cookieValue(response.headers, 'vaultr_session')).toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it('returns unauthorized for missing sessions and revokes active sessions on logout', async () => {

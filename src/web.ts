@@ -1144,51 +1144,64 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
   if (method === 'GET' && url.pathname === '/auth/discord/callback') {
     if (!options.config.discordClientId || !options.config.discordClientSecret) return errorResponse(503, 'discord_auth_unavailable');
     const cookies = parseCookies(getHeader(request.headers, 'cookie'));
+    const callbackState = url.searchParams.get('state');
+    const signInState = cookies[cookieNames(options.config).oauthState];
     const rawLinkState = cookies[cookieNames(options.config).oauthLinkState];
     let linkState: { state: string; userId: string } | null = null;
     try {
-      if (rawLinkState) linkState = JSON.parse(Buffer.from(rawLinkState, 'base64url').toString('utf8')) as { state: string; userId: string };
+      if (rawLinkState) {
+        const parsed = JSON.parse(Buffer.from(rawLinkState, 'base64url').toString('utf8')) as Partial<{ state: string; userId: string }>;
+        if (typeof parsed.state === 'string' && parsed.state && typeof parsed.userId === 'string' && parsed.userId) {
+          linkState = { state: parsed.state, userId: parsed.userId };
+        }
+      }
     } catch {
       linkState = null;
     }
-    const linking = Boolean(linkState && url.searchParams.get('state') === linkState.state);
-    const clearStateCookie = clearCookieHeader(linking ? cookieNames(options.config).oauthLinkState : cookieNames(options.config).oauthState, secureCookies);
-    if (url.searchParams.has('error')) {
-      return linking
-        ? redirectResponse('/app?discordLink=cancelled#settings', { 'Set-Cookie': clearStateCookie })
-        : errorResponse(400, 'oauth_denied', { 'Set-Cookie': clearStateCookie });
-    }
+    const activeSession = authenticatedSession(request, options);
+    const linkStateMatches = Boolean(callbackState && linkState?.state === callbackState);
+    const signInStateMatches = Boolean(callbackState && signInState === callbackState);
+    const linking = linkStateMatches || Boolean(!signInStateMatches && rawLinkState && activeSession);
+    const stateMatches = linking ? linkStateMatches : signInStateMatches;
+    const stateCookieName = linking ? cookieNames(options.config).oauthLinkState : cookieNames(options.config).oauthState;
+    const clearedStateHeaders = { 'Set-Cookie': clearCookieHeader(stateCookieName, secureCookies) };
+    const redirectFailure = (reason: string, cancelled = false): WebResponse => {
+      options.logger?.error(`[web] Discord OAuth ${linking ? 'link' : 'sign-in'} failed: ${reason}`);
+      const location = linking
+        ? `/app?discordLink=${cancelled ? 'cancelled' : 'failed'}#settings`
+        : `/app?authError=${cancelled ? 'discord_cancelled' : 'discord_sign_in_failed'}`;
+      return redirectResponse(location, stateMatches ? clearedStateHeaders : {});
+    };
+
+    if (!callbackState || !stateMatches) return redirectFailure(!callbackState ? 'missing_state' : signInState || linkState ? 'state_mismatch' : 'missing_state_cookie');
+    if (url.searchParams.has('error')) return redirectFailure('authorization_cancelled', true);
     const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
-    const expectedState = linking ? linkState?.state : cookies[cookieNames(options.config).oauthState];
-    if (!code) return errorResponse(400, 'missing_code', { 'Set-Cookie': clearStateCookie });
-    if (!state || !expectedState) return errorResponse(400, 'invalid_state', { 'Set-Cookie': clearStateCookie });
-    if (state !== expectedState) return errorResponse(400, 'invalid_state', { 'Set-Cookie': clearStateCookie });
+    if (!code) return redirectFailure('missing_code');
 
     try {
       const accessToken = await exchangeDiscordCode(code, options);
-      if (!accessToken) return errorResponse(502, 'discord_oauth_failed', { 'Set-Cookie': clearStateCookie });
+      if (!accessToken) return redirectFailure('token_exchange');
       const profile = await fetchDiscordUser(accessToken, options);
-      if (!profile) return errorResponse(502, 'discord_profile_failed', { 'Set-Cookie': clearStateCookie });
+      if (!profile) return redirectFailure('profile_fetch');
       if (linking && linkState) {
-        const session = authenticatedSession(request, options);
+        const session = activeSession;
         if (!session || session.userId !== linkState.userId) {
-          return redirectResponse('/app?discordLink=auth_required#settings', { 'Set-Cookie': clearStateCookie });
+          return redirectResponse('/app?discordLink=auth_required#settings', clearedStateHeaders);
         }
         const claimed = getIdentity('DISCORD', profile.discordUserId);
         const accountDiscord = getIdentityForUser(session.userId, 'DISCORD');
         if (claimed && claimed.userId !== session.userId) {
-          return redirectResponse('/app?discordLink=identity_conflict#settings', { 'Set-Cookie': clearStateCookie });
+          return redirectResponse('/app?discordLink=identity_conflict#settings', clearedStateHeaders);
         }
         if (accountDiscord && accountDiscord.providerUserId !== profile.discordUserId) {
-          return redirectResponse('/app?discordLink=account_conflict#settings', { 'Set-Cookie': clearStateCookie });
+          return redirectResponse('/app?discordLink=account_conflict#settings', clearedStateHeaders);
         }
         if (claimed) {
           updateIdentityProfile({ provider: 'DISCORD', providerUserId: profile.discordUserId, ...profile });
         } else {
           linkIdentity({ userId: session.userId, provider: 'DISCORD', providerUserId: profile.discordUserId, ...profile });
         }
-        return redirectResponse('/app?discordLink=linked#settings', { 'Set-Cookie': clearStateCookie });
+        return redirectResponse('/app?discordLink=linked#settings', clearedStateHeaders);
       }
       const user = resolveOrCreateDiscordUser(profile);
       const { token } = createWebSession({ userId: user.id }, { now: options.now?.() ?? new Date(), ttlDays: SESSION_TTL_DAYS });
@@ -1197,11 +1210,11 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
         secure: secureCookies
       });
       return redirectResponse(options.config.postLoginRedirectPath ?? '/app', {
-        'Set-Cookie': [clearStateCookie, sessionCookie]
+        'Set-Cookie': [clearCookieHeader(stateCookieName, secureCookies), sessionCookie]
       });
-    } catch (error) {
-      options.logger?.error('[web] Discord OAuth callback failed', error);
-      return errorResponse(502, 'discord_oauth_failed', { 'Set-Cookie': clearStateCookie });
+    } catch {
+      options.logger?.error(`[web] Discord OAuth ${linking ? 'link' : 'sign-in'} failed unexpectedly`);
+      return redirectResponse(linking ? '/app?discordLink=failed#settings' : '/app?authError=discord_sign_in_failed', clearedStateHeaders);
     }
   }
 

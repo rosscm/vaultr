@@ -801,8 +801,13 @@ function shellMarkup(content) {
               ${environmentBadgeMarkup()}
             </a>
             <div class="user-area">
-              ${avatarHtml(state.user)}
-              ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button class="button-ghost" type="button" data-action="logout">${iconMarkup('logout')}<span>Log out</span></button>`}
+              <details class="mobile-account-menu" data-mobile-account-menu>
+                <summary aria-label="Open account menu">${avatarHtml(state.user)}</summary>
+                <div class="mobile-account-menu-panel" role="menu" aria-label="Account">
+                  <button type="button" data-page="settings" role="menuitem">${iconMarkup('settings')}<span>Settings</span></button>
+                  ${isPreviewMode ? '<span class="preview-label">Preview mode</span>' : `<button type="button" data-action="logout" role="menuitem">${iconMarkup('logout')}<span>Log out</span></button>`}
+                </div>
+              </details>
             </div>
           </div>
           <nav class="app-nav mobile-primary-nav" aria-label="KeepSeek app navigation">
@@ -1949,7 +1954,7 @@ function alertArtworkMarkup(alert, className = 'alert-image') {
         imageClass: className,
         imageDataAttribute: 'data-alert-image'
       })
-    : '<span class="alert-image-placeholder" aria-hidden="true">K</span>';
+    : `<img class="${escapeHtml(className)} alert-image-placeholder display-case-card-back" src="${displayCaseCardBackUrl}" alt="Artwork unavailable">`;
 }
 
 function alertCardMarkup(alert, selected = false) {
@@ -2739,12 +2744,16 @@ async function loadAuthSurface() {
     if (!state.emailConfirmation && new URLSearchParams(window.location.search).get('emailConfirm') === 'invalid') {
       state.authError = 'This link is invalid, expired, or already used. Request a new one.';
     }
+    const authError = new URLSearchParams(window.location.search).get('authError');
+    if (authError === 'discord_sign_in_failed') state.authError = 'We couldn’t complete Discord sign-in. Please try again.';
+    if (authError === 'discord_cancelled') state.authNotice = 'Discord sign-in was cancelled. Nothing changed.';
     const discordLink = new URLSearchParams(window.location.search).get('discordLink');
     if (discordLink === 'linked') state.authNotice = 'Discord is now connected to this KeepSeek account.';
     if (discordLink === 'cancelled') state.authNotice = 'Discord connection was cancelled. Nothing changed.';
     if (discordLink === 'identity_conflict') state.authError = 'That Discord identity belongs to another KeepSeek account. Accounts are never merged automatically.';
     if (discordLink === 'account_conflict') state.authError = 'This KeepSeek account already has a different Discord identity connected.';
     if (discordLink === 'auth_required') state.authError = 'Sign in again before connecting Discord.';
+    if (discordLink === 'failed') state.authError = 'We couldn’t connect Discord. Please try again.';
   } catch {
     state.authConfig = { email: { available: false }, discord: { available: false } };
     state.emailConfirmation = null;
@@ -3771,6 +3780,8 @@ async function bootstrap() {
 
 app.addEventListener('click', async (event) => {
   const clickedElement = event.target instanceof Element ? event.target : null;
+  const openAccountMenu = document.querySelector('[data-mobile-account-menu][open]');
+  if (openAccountMenu && !clickedElement?.closest('[data-mobile-account-menu]')) openAccountMenu.removeAttribute('open');
   const target = clickedElement?.closest('button, a');
   const clickedAlertCard = clickedElement?.closest('[data-alert-card]');
   if (!target && clickedAlertCard) {
@@ -4390,6 +4401,13 @@ document.addEventListener('keydown', (event) => {
     }
   }
   if (event.key !== 'Escape') return;
+  const accountMenu = document.querySelector('[data-mobile-account-menu][open]');
+  if (accountMenu) {
+    event.preventDefault();
+    accountMenu.removeAttribute('open');
+    accountMenu.querySelector('summary')?.focus();
+    return;
+  }
   const menu = document.querySelector('.vault-more-actions[open]');
   if (!menu) return;
   event.preventDefault();
@@ -4625,14 +4643,10 @@ app.addEventListener(
       const card = target.closest('.alert-card');
       card?.classList.remove('has-image');
       card?.classList.add('no-image');
-      const placeholder = document.createElement('span');
-      placeholder.className = 'alert-image-placeholder';
-      placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.classList.add('artwork-unavailable');
-      placeholder.setAttribute('role', 'img');
-      placeholder.setAttribute('aria-label', 'Artwork unavailable');
-      placeholder.removeAttribute('aria-hidden');
-      placeholder.textContent = 'Artwork unavailable';
+      const placeholder = document.createElement('img');
+      placeholder.className = 'alert-image-placeholder display-case-card-back';
+      placeholder.src = displayCaseCardBackUrl;
+      placeholder.alt = 'Artwork unavailable';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-home-alert-image]')) {
       const placeholder = document.createElement('span');
