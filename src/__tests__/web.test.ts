@@ -579,7 +579,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
     expect(jsResponse.body).not.toContain("${state.vaultNotice ? `<div class=\"vault-notice\"");
     expect(jsResponse.body).toContain('${item.roleLabel ? `<span class="status-pill active">');
-    expect(jsResponse.body).toContain('shelfCardMarkup(item, { editorial: true })');
+    expect(jsResponse.body).toContain("shelfCardMarkup(item, { editorial: true, collection: 'starterItems', index })");
     expect(jsResponse.body).not.toContain('A read-only shelf');
     expect(cssResponse.body).toContain('.shelf-card-actions');
     expect(cssResponse.body).toContain('.button-watchlist');
@@ -926,6 +926,7 @@ describe('web app static routes', () => {
     const render = new Function(
       'priorityLabel', 'formatMoney', 'formatPriceDelta', 'escapeHtml', 'listingTypeLabel', 'artworkTriggerMarkup',
       'sourceLabel', 'matchLabel', 'relativeTime', 'alertActionMarkup', 'alertDetailActionMarkup',
+      'displayCaseCardBackUrl',
       `${functionSource}\nreturn { card: alertCardMarkup, panel: alertDetailPanelMarkup };`
     )(
       () => 'Casual',
@@ -938,7 +939,8 @@ describe('web app static routes', () => {
       () => 'Strong match',
       () => '2h ago',
       () => '',
-      (alert: any) => `<span>detail actions for ${alert.id ?? 'alert'}</span>`
+      (alert: any) => `<span>detail actions for ${alert.id ?? 'alert'}</span>`,
+      '/keepseek-card-back.svg'
     );
     const base = {
       chasePriority: 'NORMAL', chaseName: 'Mew ex', source: 'EBAY', listingPrice: 80, listingCurrency: 'CAD',
@@ -1071,7 +1073,7 @@ describe('web app static routes', () => {
     expect(source).not.toContain("featuredIndex === total - 1 ? 'disabled' : ''");
   });
 
-  it('keeps Display Case cards spacious and hides Inbox bulk review in Reviewed', async () => {
+  it('uses compact accessible Display Case browsing on mobile and hides Inbox bulk review in Reviewed', async () => {
     const [jsResponse, cssResponse] = await Promise.all([
       handleWebRequest({ method: 'GET', url: '/app.js' }, { config }),
       handleWebRequest({ method: 'GET', url: '/app.css' }, { config })
@@ -1080,7 +1082,28 @@ describe('web app static routes', () => {
     const css = cssResponse.body ?? '';
     expect(source).toContain("state.alertReviewState !== 'REVIEWED' && state.matchingNewAlertCount > 0");
     expect(css).toMatch(/\.shelf-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/);
+    expect(source).toContain('data-action="open-shelf-detail"');
+    expect(source).toContain('role="dialog" aria-modal="true" aria-labelledby="shelf-detail-title"');
+    expect(source).toContain("action === 'close-shelf-detail'");
+    expect(source).toContain('replacement.focus({ preventScroll: true })');
+    expect(css).toMatch(/@media \(max-width: 760px\)[\s\S]*?\.shelf-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/);
+    expect(css).toContain('.shelf-compact-image');
+    expect(css).toContain('.shelf-detail-backdrop');
     expect(css.match(/\.shelf-personalized-note\s*\{/g)).toHaveLength(1);
+  });
+
+  it('keeps Home artwork dimensions stable and mobile Inbox content readable', async () => {
+    const [jsResponse, cssResponse] = await Promise.all([
+      handleWebRequest({ method: 'GET', url: '/app.js' }, { config }),
+      handleWebRequest({ method: 'GET', url: '/app.css' }, { config })
+    ]);
+    const source = jsResponse.body ?? '';
+    const css = cssResponse.body ?? '';
+    expect(source).toContain("target.matches('[data-shelf-compact-image]')");
+    expect(css).toMatch(/\.home-shelf-artwork > \.display-case-card-back\s*\{[^}]*width:\s*min\(230px, 42%\)[^}]*aspect-ratio:\s*3 \/ 4/);
+    expect(css).toMatch(/@media \(max-width: 760px\)[\s\S]*?\.alert-content\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+    expect(css).toMatch(/@media \(max-width: 430px\)[\s\S]*?\.inbox-page \.toolbar\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+    expect(css).toContain('white-space: nowrap;');
   });
 
   it('keeps filtered Inbox routes, bounded pagination, and editorial price presentation explicit', async () => {

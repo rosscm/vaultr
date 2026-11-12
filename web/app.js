@@ -11,6 +11,7 @@ let newAlertPresenceRequest = null;
 let newAlertPresenceTimer = null;
 let alertNoticeTimer = null;
 let alertDetailReturnFocus = null;
+let shelfDetailReturnFocus = null;
 
 function apiUrl(url) {
   if (!isPreviewMode || !url.startsWith('/api/')) return url;
@@ -70,6 +71,7 @@ const state = {
   isShelfLoading: false,
   shelfLoaded: false,
   shelfError: null,
+  shelfDetail: null,
   homeShelfIndex: 0,
   discoveryFeedbackPending: {},
   discoveryFeedbackErrors: {},
@@ -440,6 +442,11 @@ async function navigateToPage(page, { updateHash = true } = {}) {
   }
   const pageChanged = state.activePage !== nextPage;
   if (pageChanged) clearTransientAlertNotice();
+  if (pageChanged) {
+    state.shelfDetail = null;
+    document.body.classList.remove('shelf-detail-open');
+    shelfDetailReturnFocus = null;
+  }
   if (pageChanged && state.vaultNotice?.kind !== 'error' && nextPage !== state.vaultNotice?.scope) state.vaultNotice = null;
   state.activePage = nextPage;
   renderCurrentPage();
@@ -2338,7 +2345,8 @@ function shelfPageMarkup() {
       ${vaultNoticeMarkup('shelf')}
       ${discoveryBudgetShortageMarkup(state.shelf)}
       ${personalized && items.length ? `<p class="shelf-feedback-intro">${isPreviewMode ? 'Taste feedback is read-only in preview.' : 'Your feedback helps shape future discoveries.'}</p>` : ''}
-      ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item) => shelfCardMarkup(item, { feedback: personalized })).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
+      ${items.length ? `<div class="shelf-grid" aria-label="Display Case recommendations">${items.map((item, index) => shelfCardMarkup(item, { feedback: personalized, collection: 'items', index })).join('')}</div>` : shelfEmptyMarkup(state.shelf)}
+      ${shelfDetailMarkup()}
       ${vaultDialogMarkup()}
     </section>
   `;
@@ -2405,13 +2413,60 @@ function shelfEmptyMarkup(shelf) {
         : `<div class="shelf-plus-intro"><p>${linkedKeepSeekPlusCopy(freeIntroduction)}</p></div>`}
       <header class="shelf-editorial-heading"><h2>${weekly ? 'This week’s finds' : 'Collector picks'}</h2></header>
       ${starters.length
-        ? `<div class="shelf-grid shelf-editorial-grid" aria-label="General discovery picks">${starters.map((item) => shelfCardMarkup(item, { editorial: true })).join('')}</div>`
+        ? `<div class="shelf-grid shelf-editorial-grid" aria-label="General discovery picks">${starters.map((item, index) => shelfCardMarkup(item, { editorial: true, collection: 'starterItems', index })).join('')}</div>`
         : '<div class="starter-artwork-fallback">Collector picks will appear here when available.</div>'}
     </section>
   `;
 }
 
-function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}) {
+function shelfCompactTileMarkup(item, collection, index) {
+  const identity = item.displayName || item.name || 'Display Case pick';
+  return `<button class="shelf-compact-tile" type="button" data-action="open-shelf-detail" data-shelf-collection="${escapeHtml(collection)}" data-shelf-index="${escapeHtml(index)}" aria-label="View recommendation details for ${escapeHtml(identity)}">
+    ${item.imageUrl
+      ? `<img class="shelf-compact-image" src="${escapeHtml(item.imageUrl)}" alt="" loading="lazy" data-shelf-compact-image>`
+      : `<img class="shelf-compact-image display-case-card-back" src="${displayCaseCardBackUrl}" alt="" data-display-case-card-back data-card-back-context="shelf-compact">`}
+    <span class="shelf-compact-name">${escapeHtml(identity)}</span>
+  </button>`;
+}
+
+function shelfDetailItem() {
+  const detail = state.shelfDetail;
+  if (!detail) return null;
+  const items = detail.collection === 'starterItems' ? state.shelf?.starterItems : state.shelf?.items;
+  return Array.isArray(items) ? items[detail.index] || null : null;
+}
+
+function shelfDetailMarkup() {
+  const item = shelfDetailItem();
+  if (!item) return '';
+  const editorial = state.shelfDetail.collection === 'starterItems';
+  return `<div class="modal-backdrop shelf-detail-backdrop" role="presentation">
+    <section class="shelf-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="shelf-detail-title" data-shelf-detail-dialog>
+      <header class="shelf-detail-header">
+        <div><p class="eyebrow">DISPLAY CASE PICK</p><h2 id="shelf-detail-title">${escapeHtml(item.displayName || item.name || 'Display Case pick')}</h2></div>
+        <button class="button-ghost" type="button" data-action="close-shelf-detail" aria-label="Close recommendation details">Close</button>
+      </header>
+      ${shelfCardMarkup(item, { editorial, feedback: !editorial, includeCompact: false })}
+    </section>
+  </div>`;
+}
+
+function closeShelfDetail() {
+  const detail = state.shelfDetail;
+  state.shelfDetail = null;
+  document.body.classList.remove('shelf-detail-open');
+  renderCurrentPage();
+  requestAnimationFrame(() => {
+    const replacement = detail
+      ? document.querySelector(`[data-action="open-shelf-detail"][data-shelf-collection="${detail.collection}"][data-shelf-index="${detail.index}"]`)
+      : null;
+    if (replacement instanceof HTMLElement) replacement.focus({ preventScroll: true });
+    else if (shelfDetailReturnFocus instanceof HTMLElement && shelfDetailReturnFocus.isConnected) shelfDetailReturnFocus.focus({ preventScroll: true });
+    shelfDetailReturnFocus = null;
+  });
+}
+
+function shelfCardMarkup(item, { editorial = false, feedback = !editorial, collection = 'items', index = 0, includeCompact = true } = {}) {
   const details = displayCasePrintingMetadata(item);
   const marketPrices = displayCaseMarketPrices(item.market) || [];
   const marketUnavailable = item.market?.status === 'EMPTY' || item.market?.status === 'NO_ACCEPTED_SAMPLES'
@@ -2420,6 +2475,7 @@ function shelfCardMarkup(item, { editorial = false, feedback = !editorial } = {}
   const showMarket = marketPrices.length > 0 || !editorial;
   return `
     <article class="shelf-card">
+      ${includeCompact ? shelfCompactTileMarkup(item, collection, index) : ''}
       <div class="shelf-card-main">
         ${item.imageUrl ? artworkTriggerMarkup({
           imageUrl: item.imageUrl,
@@ -3970,6 +4026,21 @@ app.addEventListener('click', async (event) => {
     openArtworkOverlay(target);
     return;
   }
+  if (action === 'open-shelf-detail') {
+    const collection = target.getAttribute('data-shelf-collection');
+    const index = Number(target.getAttribute('data-shelf-index'));
+    if (!['items', 'starterItems'].includes(collection) || !Number.isInteger(index)) return;
+    shelfDetailReturnFocus = target;
+    state.shelfDetail = { collection, index };
+    document.body.classList.add('shelf-detail-open');
+    renderCurrentPage();
+    requestAnimationFrame(() => document.querySelector('[data-action="close-shelf-detail"]')?.focus());
+    return;
+  }
+  if (action === 'close-shelf-detail') {
+    closeShelfDetail();
+    return;
+  }
   if (action === 'select-alert') {
     state.selectedAlertId = target.getAttribute('data-alert-id');
     state.alertDetailOpen = true;
@@ -4209,6 +4280,8 @@ app.addEventListener('click', async (event) => {
   }
   if (action === 'add-shelf-card-to-vault') {
     const cardName = target.getAttribute('data-card-name') || '';
+    state.shelfDetail = null;
+    document.body.classList.remove('shelf-detail-open');
     resetVaultAutocomplete();
     if (!await ensureVaultLoaded()) return;
     state.vaultCardSelection = await trustedSelectionForDiscoveryCard(target, cardName);
@@ -4399,6 +4472,27 @@ document.addEventListener('keydown', (event) => {
         first?.focus();
       }
     }
+  }
+  if (state.shelfDetail) {
+    const dialog = document.querySelector('[data-shelf-detail-dialog]');
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeShelfDetail();
+      return;
+    }
+    if (event.key === 'Tab' && dialog) {
+      const controls = [...dialog.querySelectorAll('button:not(:disabled), a[href]')];
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    return;
   }
   if (event.key !== 'Escape') return;
   const accountMenu = document.querySelector('[data-mobile-account-menu][open]');
@@ -4671,6 +4765,14 @@ app.addEventListener(
       placeholder.setAttribute('aria-label', 'Artwork unavailable');
       placeholder.textContent = 'Artwork unavailable';
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
+    } else if (target instanceof HTMLImageElement && target.matches('[data-shelf-compact-image]')) {
+      const cardBack = document.createElement('img');
+      cardBack.className = 'shelf-compact-image display-case-card-back';
+      cardBack.src = displayCaseCardBackUrl;
+      cardBack.alt = '';
+      cardBack.setAttribute('data-display-case-card-back', '');
+      cardBack.setAttribute('data-card-back-context', 'shelf-compact');
+      target.replaceWith(cardBack);
     } else if (target instanceof HTMLImageElement && target.matches('[data-shelf-card-image]')) {
       const cardBack = document.createElement('img');
       cardBack.className = 'shelf-card-image display-case-card-back';
@@ -4688,11 +4790,15 @@ app.addEventListener(
       placeholder.classList.add('artwork-unavailable');
       (target.closest('.artwork-trigger') || target).replaceWith(placeholder);
     } else if (target instanceof HTMLImageElement && target.matches('[data-display-case-card-back]')) {
-      const homeFallback = target.getAttribute('data-card-back-context') === 'home';
+      const context = target.getAttribute('data-card-back-context');
+      const homeFallback = context === 'home';
+      const compactFallback = context === 'shelf-compact';
       const placeholder = document.createElement(homeFallback ? 'p' : 'div');
       placeholder.className = homeFallback
         ? 'home-shelf-artwork-unavailable'
-        : 'shelf-card-image placeholder-image shelf-image-unavailable';
+        : compactFallback
+          ? 'shelf-compact-image placeholder-image shelf-image-unavailable'
+          : 'shelf-card-image placeholder-image shelf-image-unavailable';
       placeholder.setAttribute('role', 'img');
       placeholder.setAttribute('aria-label', 'Artwork unavailable');
       placeholder.textContent = 'Artwork unavailable';
