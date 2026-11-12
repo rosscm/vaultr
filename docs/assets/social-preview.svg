@@ -19,9 +19,9 @@
   <path d="m264 118 8 19 19 8-19 8-8 19-8-19-19-8 19-8 8-19Z" fill="#ffd66b"/>
   <text x="310" y="202" fill="#f8f6f3" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="72" font-weight="800">Keep</text>
   <text x="493" y="202" fill="#ff7ab6" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="72" font-weight="800">Seek</text>
-  <text x="146" y="338" fill="#fbf7ff" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="52" font-weight="800">Less searching.</text>
-  <text x="146" y="406" fill="#fbf7ff" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="52" font-weight="800">More collecting.</text>
-  <text x="146" y="474" fill="#cabedf" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="600">Keep what you love. Seek what comes next.</text>
+  <text x="146" y="338" fill="#fbf7ff" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="45" font-weight="800">For the cards you want now,</text>
+  <text x="146" y="400" fill="#fbf7ff" font-family="Sora, Segoe UI, Arial, sans-serif" font-size="45" font-weight="800">and the ones you'll want next.</text>
+  <text x="146" y="470" fill="#cabedf" font-family="Manrope, Segoe UI, Arial, sans-serif" font-size="27" font-weight="600">Watchlist · Inbox · Display Case</text>
   <rect x="760" y="150" width="180" height="254" rx="24" fill="#21183a" stroke="#ffffff" stroke-opacity=".16" transform="rotate(-9 760 150)"/>
   <rect x="850" y="136" width="180" height="254" rx="24" fill="#2d2050" stroke="#ffffff" stroke-opacity=".16"/>
   <rect x="928" y="160" width="180" height="254" rx="24" fill="#1a3150" stroke="#ffffff" stroke-opacity=".16" transform="rotate(10 928 160)"/>

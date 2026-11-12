@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- TODO before public production launch: replace vaultr.example with the real Vaultr domain. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://vaultr.example/</loc>
+    <loc>https://getkeepseek.com/</loc>
   </url>
   <url>
-    <loc>https://vaultr.example/privacy.html</loc>
+    <loc>https://getkeepseek.com/privacy.html</loc>
   </url>
   <url>
-    <loc>https://vaultr.example/terms.html</loc>
+    <loc>https://getkeepseek.com/terms.html</loc>
   </url>
 </urlset>
