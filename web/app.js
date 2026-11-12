@@ -729,11 +729,14 @@ function signedOutMarkup() {
   const confirmationReady = state.emailConfirmation?.ready;
   return `
     <main id="app-main" class="signed-out">
-      <section class="signed-out-card" aria-labelledby="signed-out-title">
-        ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
+      <section class="signed-out-illustration" aria-hidden="true">
+        <img src="/illustrations/collector-binder.svg" alt="">
+      </section>
+      <div class="signed-out-auth-panel">
+        <section class="signed-out-auth" aria-labelledby="signed-out-title">
         <div class="signed-out-brand"><img src="/keepseek-lockup-dark.svg" alt="KeepSeek"></div>
-        <div class="signed-out-card-fan" aria-hidden="true"><img src="/keepseek-card-back.svg" alt=""><img src="/keepseek-card-back.svg" alt=""><img src="/keepseek-card-back.svg" alt=""><span class="signed-out-orbit"></span><span class="signed-out-star">✦</span></div>
-        <h1 id="signed-out-title">There’s always <em>another</em><br> card worth chasing.</h1>
+        ${state.authConfig?.environment?.label ? `<span class="environment-label">${escapeHtml(state.authConfig.environment.label)}</span>` : ''}
+        <h1 id="signed-out-title">A place for your collection.</h1>
         <p class="signed-out-intro">Keep the cards you love close, find listings that fit what you’re after, and discover a few unexpected favourites along the way.</p>
         ${confirmationReady ? `
           <div class="auth-confirmation" role="status">
@@ -743,6 +746,8 @@ function signedOutMarkup() {
           </div>
           ${state.emailConfirmation.purpose === 'LINK_EMAIL' && discordAvailable ? '<a class="button-primary auth-discord-button" href="/auth/discord">Sign in with Discord</a>' : ''}
         ` : `
+          ${discordAvailable ? `<a class="auth-discord-button" href="/auth/discord"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="currentColor" d="M19.5 5.3A17 17 0 0 0 15.3 4l-.5 1.1a15 15 0 0 0-5.6 0L8.7 4a17 17 0 0 0-4.2 1.3C1.8 9.3 1.1 13.2 1.5 17a17 17 0 0 0 5.2 2.6l1.3-1.8a11 11 0 0 1-2-1l.5-.4c3.8 1.8 7.9 1.8 11.7 0l.5.4a13 13 0 0 1-2 1l1.3 1.8a17 17 0 0 0 5.2-2.6c.5-4.4-.8-8.2-3.7-11.7ZM8.7 14.6c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Zm6.6 0c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Z"/></svg><span>Continue with Discord</span></a><p class="auth-reassurance">${iconMarkup('shield')}<span>Sign in securely with your Discord account.</span></p>` : ''}
+          ${emailAvailable && discordAvailable ? '<div class="auth-divider"><span>or</span></div>' : ''}
           ${emailAvailable ? `
             <form class="email-auth-form" data-email-signin-form novalidate>
               <label class="field"><span>Email</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" required></label>
@@ -750,11 +755,12 @@ function signedOutMarkup() {
             </form>
             <p class="auth-fine-print">If this email is new to KeepSeek, your account will be created after verification.</p>
           ` : ''}
-          ${discordAvailable ? `${emailAvailable ? '<div class="auth-divider"><span>or</span></div>' : ''}<a class="auth-discord-button" href="/auth/discord"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="currentColor" d="M19.5 5.3A17 17 0 0 0 15.3 4l-.5 1.1a15 15 0 0 0-5.6 0L8.7 4a17 17 0 0 0-4.2 1.3C1.8 9.3 1.1 13.2 1.5 17a17 17 0 0 0 5.2 2.6l1.3-1.8a11 11 0 0 1-2-1l.5-.4c3.8 1.8 7.9 1.8 11.7 0l.5.4a13 13 0 0 1-2 1l1.3 1.8a17 17 0 0 0 5.2-2.6c.5-4.4-.8-8.2-3.7-11.7ZM8.7 14.6c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Zm6.6 0c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Z"/></svg><span>Continue with Discord</span></a><p class="auth-reassurance">${iconMarkup('shield')}<span>Sign in securely with your Discord account.</span></p>` : ''}
         `}
         ${state.authNotice ? `<p class="form-success" role="status">${escapeHtml(state.authNotice)}</p>` : ''}
         ${state.authError ? `<p class="form-error" role="alert">${escapeHtml(state.authError)}</p>` : ''}
-      </section>
+        <p class="auth-legal">By continuing, you agree to KeepSeek’s <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
+        </section>
+      </div>
     </main>
   `;
 }
@@ -3751,7 +3757,7 @@ async function bootstrap() {
   } catch (error) {
     if (String(error?.message) === 'unauthorized') return;
     app.innerHTML = `
-      <main id="app-main" class="signed-out">
+      <main id="app-main" class="boot-screen">
         <section class="signed-out-card">
           <img class="boot-logo" src="/keepseek-icon.svg" alt="" aria-hidden="true">
           <h1>KeepSeek could not open.</h1>

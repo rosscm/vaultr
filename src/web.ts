@@ -126,6 +126,7 @@ const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/keepseek-icon.svg': { file: 'assets/brand/keepseek-icon.svg', contentType: 'image/svg+xml' },
   '/keepseek-lockup-dark.svg': { file: 'assets/brand/keepseek-lockup-dark.svg', contentType: 'image/svg+xml' },
   '/keepseek-card-back.svg': { file: 'assets/cards/keepseek-card-back.svg', contentType: 'image/svg+xml' },
+  '/illustrations/collector-binder.svg': { file: 'assets/illustrations/collector-binder.svg', contentType: 'image/svg+xml' },
   '/shop-marks/hobbiesville.png': { file: 'assets/shops/hobbiesville.png', contentType: 'image/png' },
   '/shop-marks/derpycards.png': { file: 'assets/shops/derpycards.png', contentType: 'image/png' },
   '/shop-marks/theghostgames.png': { file: 'assets/shops/theghostgames.png', contentType: 'image/png' },

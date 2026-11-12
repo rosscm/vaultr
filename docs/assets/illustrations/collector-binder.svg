@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 900" role="img" aria-labelledby="binder-stack-title binder-stack-desc">
+  <title id="binder-stack-title">KeepSeek collector binder stack</title>
+  <desc id="binder-stack-desc">Two compact closed trading-card binders in plum and muted pink, casually overlapped with stitched zipper edges, visible spines, and layered page thickness.</desc>
+  <defs>
+    <linearGradient id="pink-cover" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d66aa6"/><stop offset="1" stop-color="#9c477e"/></linearGradient>
+    <linearGradient id="plum-cover" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4d3269"/><stop offset="1" stop-color="#21193f"/></linearGradient>
+    <linearGradient id="plum-sheen" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#9b8cff" stop-opacity=".28"/><stop offset=".5" stop-color="#9b8cff" stop-opacity=".03"/><stop offset="1" stop-color="#ff7ab6" stop-opacity=".16"/></linearGradient>
+    <linearGradient id="pages" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#ddd6ee"/><stop offset=".5" stop-color="#fff9ff"/><stop offset="1" stop-color="#bfb3dd"/></linearGradient>
+  </defs>
+
+  <ellipse cx="410" cy="737" rx="292" ry="63" fill="#281a43" opacity=".2"/>
+
+  <!-- Rear pink binder -->
+  <g transform="translate(70 220) rotate(-14 258 292)">
+    <path d="M41 47Q41 16 75 10H457Q493 12 499 46L535 548Q537 578 505 585H99Q67 581 63 551Z" fill="#321d49" opacity=".24"/>
+    <path d="M27 31Q29 7 57 5H441Q469 7 473 34L510 537Q512 563 485 568H77Q50 565 47 539Z" fill="url(#pink-cover)" stroke="#ed91bf" stroke-width="6"/>
+    <path d="M444 21Q468 23 473 47L510 537Q511 556 494 564L470 52Q468 35 444 21Z" fill="#71345f" opacity=".52"/>
+    <path d="M48 48 455 39 487 531 72 539Z" fill="none" stroke="#ffb4d5" stroke-width="3" stroke-dasharray="5 9" stroke-linecap="round"/>
+    <path d="M65 556H484Q499 555 509 543L511 557Q511 579 487 583H81Q62 580 57 565Z" fill="url(#pages)" stroke="#8a507f" stroke-width="4"/>
+    <g stroke="#ad7da4" stroke-width="2" opacity=".48"><path d="M88 566H475M101 573H466"/></g>
+    <path d="M471 82 502 489" stroke="#9b4e7d" stroke-width="7" stroke-linecap="round" opacity=".7"/>
+  </g>
+
+  <!-- Front plum binder -->
+  <g transform="translate(250 112) rotate(10 237 314)">
+    <!-- Rear cover and page block establish thickness -->
+    <path d="M34 42Q35 13 68 7H422Q453 9 458 40L498 602Q500 635 465 642H72Q40 637 37 604Z" fill="#25183c" opacity=".24"/>
+    <path d="M29 33Q30 9 59 6H409Q438 8 442 35L482 587Q484 616 451 623H64Q38 619 35 589Z" fill="#17132e" stroke="#4b3d74" stroke-width="6"/>
+    <path d="M50 558 459 562 482 587Q484 616 451 623H64Q39 619 35 590Z" fill="url(#pages)" stroke="#6d5a91" stroke-width="5"/>
+    <g fill="none" stroke="#9587b6" stroke-width="2" opacity=".55"><path d="M60 579H454M66 588H461M73 597H449"/></g>
+
+    <!-- Front cover -->
+    <path d="M18 31Q20 6 49 4H399Q429 7 433 35L462 552Q464 578 437 583H52Q25 580 23 553Z" fill="url(#plum-cover)" stroke="#7563a1" stroke-width="6"/>
+    <path d="M34 43Q36 22 58 20H389Q411 22 414 45L444 535Q445 557 424 561H65Q43 558 42 536Z" fill="url(#plum-sheen)"/>
+    <path d="M36 43Q38 22 60 20H389Q411 22 414 45L444 535Q445 557 424 561H65Q43 558 42 536Z" fill="none" stroke="#d274d0" stroke-width="3" stroke-dasharray="5 9" stroke-linecap="round"/>
+
+    <!-- Spine ridge -->
+    <path d="M47 45Q58 33 73 33L91 547Q75 554 59 543Z" fill="#30214e" opacity=".52"/>
+    <path d="M75 46 91 532" stroke="#8d72b8" stroke-width="3" opacity=".6"/>
+
+    <path d="M126 86Q128 70 146 69H356" fill="none" stroke="#a992d0" stroke-width="4" stroke-linecap="round" opacity=".16"/>
+
+    <!-- Zipper track and pull -->
+    <path d="M432 80 458 495" stroke="#bd68b8" stroke-width="7" stroke-linecap="round" opacity=".65"/>
+    <g transform="translate(448 475)">
+      <path d="M0 0q28 4 26 34" fill="none" stroke="#a985cf" stroke-width="7" stroke-linecap="round"/>
+      <rect x="14" y="29" width="25" height="45" rx="10" fill="#8e6ab6" stroke="#d8c7ef" stroke-width="3"/>
+      <path d="M27 39v23" stroke="#33254f" stroke-width="4" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

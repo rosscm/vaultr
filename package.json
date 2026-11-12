@@ -53,6 +53,7 @@
     "test:discovery": "vitest run --config vitest.config.ts src/commands/__tests__/discover.test.ts",
     "test:discovery:related": "vitest run --config vitest.config.ts src/commands/__tests__/discover.test.ts src/services/__tests__/discovery-source-catalog.test.ts src/services/__tests__/discovery-reference-cache.test.ts",
     "check:discovery": "npm run test:discovery:related && npm run build && git diff --check",
+    "sync:site-assets": "node scripts/sync-site-assets.mjs",
     "check:site": "tsx scripts/validate-static-site.ts"
   },
   "dependencies": {

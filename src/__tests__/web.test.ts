@@ -279,6 +279,7 @@ describe('web app static routes', () => {
     const iconResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-icon.svg' }, { config });
     const lockupResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-lockup-dark.svg' }, { config });
     const cardBackResponse = await handleWebRequest({ method: 'GET', url: '/keepseek-card-back.svg' }, { config });
+    const binderResponse = await handleWebRequest({ method: 'GET', url: '/illustrations/collector-binder.svg' }, { config });
     const shopMarkResponse = await handleWebRequest({ method: 'GET', url: '/shop-marks/hobbiesville.png' }, { config });
 
     expect(appResponse.status).toBe(200);
@@ -308,6 +309,9 @@ describe('web app static routes', () => {
     expect(cardBackResponse.status).toBe(200);
     expect(cardBackResponse.headers?.['Content-Type']).toBe('image/svg+xml');
     expect(cardBackResponse.body).toContain('KeepSeek card back placeholder');
+    expect(binderResponse.status).toBe(200);
+    expect(binderResponse.headers?.['Content-Type']).toBe('image/svg+xml');
+    expect(binderResponse.body).toContain('KeepSeek collector binder stack');
     expect(shopMarkResponse.status).toBe(200);
     expect(shopMarkResponse.headers?.['Content-Type']).toBe('image/png');
     expect(appResponse.body).toContain('<link rel="icon" href="/keepseek-icon.svg" type="image/svg+xml">');
@@ -334,7 +338,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain("activePage: 'home'");
     expect(jsResponse.body).toContain('Welcome back, ${escapeHtml(userDisplayName(state.user))}');
     expect(jsResponse.body).toContain('Keep what you love. Seek what comes next.');
-    expect(jsResponse.body).toContain('There’s always <em>another</em>');
+    expect(jsResponse.body).toContain('A place for your collection.');
+    expect(jsResponse.body).toContain('/illustrations/collector-binder.svg');
     expect(jsResponse.body).toContain('Continue with Discord');
     expect(jsResponse.body).toContain("const isPreviewMode = window.location.pathname === '/preview'");
     expect(jsResponse.body).toContain("return `/api/preview/${url.slice('/api/'.length)}`;");
@@ -663,12 +668,17 @@ describe('web app static routes', () => {
     const discordOnly = render({ email: { available: false }, discord: { available: true } });
     expect(discordOnly).toContain('Continue with Discord');
     expect(discordOnly).toContain('Sign in securely with your Discord account.');
+    expect(discordOnly).toContain('A place for your collection.');
+    expect(discordOnly).toContain('Terms of Service');
+    expect(discordOnly).toContain('Privacy Policy');
     expect(discordOnly).not.toContain('auth-divider');
+    expect(discordOnly).not.toContain('data-email-signin-form');
     expect(discordOnly).not.toContain('Email sign-in isn’t available');
     const both = render({ email: { available: true }, discord: { available: true } });
     expect(both).toContain('data-email-signin-form');
     expect(both).toContain('auth-divider');
     expect(both).toContain('Continue with Discord');
+    expect(both.indexOf('Continue with Discord')).toBeLessThan(both.indexOf('data-email-signin-form'));
   });
 
   it('keeps Plus Inbox filters visible while normalizing unavailable active filters', async () => {

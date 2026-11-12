@@ -168,8 +168,7 @@ a {
   min-height: 100vh;
 }
 
-.boot-screen,
-.signed-out {
+.boot-screen {
   min-height: 100vh;
   display: grid;
   place-items: center;
@@ -183,29 +182,80 @@ a {
 }
 
 .signed-out {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(340px, 45fr) minmax(480px, 55fr);
+  background: #0b1023;
+}
+
+.signed-out-illustration {
   position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
   overflow: hidden;
-  isolation: isolate;
+  padding: clamp(30px, 5vw, 76px);
   background:
-    radial-gradient(circle at 18% 82%, rgba(255, 122, 198, 0.18), transparent 28%),
-    radial-gradient(circle at 82% 18%, rgba(139, 92, 246, 0.18), transparent 30%),
+    radial-gradient(circle at 24% 26%, rgba(255, 177, 213, 0.2), transparent 28%),
+    linear-gradient(145deg, #32214f 0%, #6d3d79 55%, #a45a94 100%);
+}
+
+.signed-out-illustration::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  width: clamp(34px, 5vw, 74px);
+  background: linear-gradient(90deg, transparent, rgba(11, 16, 35, 0.96));
+  pointer-events: none;
+}
+
+.signed-out-illustration::before,
+.signed-out-illustration > span {
+  content: '';
+  position: absolute;
+  width: 135%;
+  height: 38%;
+  border-radius: 50%;
+  background: rgba(28, 20, 66, 0.18);
+  transform: rotate(-18deg);
+}
+
+.signed-out-illustration::before { top: 3%; left: -54%; }
+
+.signed-out-illustration img {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: min(100%, 720px);
+  height: auto;
+  filter: drop-shadow(0 28px 28px rgba(19, 8, 38, 0.24));
+}
+
+.signed-out-auth-panel {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  padding: clamp(36px, 7vw, 104px);
+  background:
+    radial-gradient(circle at 76% 32%, rgba(139, 92, 246, 0.12), transparent 34%),
     #0b1023;
 }
 
-.signed-out::before,
-.signed-out::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  width: 520px;
-  height: 220px;
-  border: 2px solid rgba(255, 148, 187, 0.22);
-  border-radius: 50%;
-  transform: rotate(-20deg);
+.signed-out-auth {
+  position: relative;
+  width: min(610px, 100%);
 }
 
-.signed-out::before { left: -120px; top: 36%; }
-.signed-out::after { right: -180px; bottom: 8%; transform: rotate(24deg); }
+.signed-out-brand img { display: block; width: min(290px, 62%); height: auto; }
+
+.signed-out-auth > .environment-label {
+  position: absolute;
+  top: 8px;
+  right: 0;
+}
 
 .boot-logo {
   display: block;
@@ -228,34 +278,23 @@ a {
   text-align: center;
 }
 
-.signed-out-brand img { width: min(250px, 62%); height: auto; }
-
-.signed-out-card h1 {
-  margin: 22px 0 14px;
-  font-size: clamp(2.15rem, 5vw, 3.5rem);
+.signed-out-auth h1 {
+  max-width: 13ch;
+  margin: clamp(48px, 8vh, 82px) 0 18px;
+  font-size: clamp(2.65rem, 4.6vw, 4.65rem);
   line-height: 1.06;
   letter-spacing: 0;
 }
 
-.signed-out-card h1 em { color: var(--pink); font-style: italic; }
-
-.signed-out-card p {
+.signed-out-auth p {
   margin: 0;
-  max-width: 35rem;
+  max-width: 38rem;
   color: var(--muted);
-  font-size: 1.04rem;
+  font-size: 1.06rem;
   line-height: 1.6;
 }
 
-.signed-out-card .signed-out-intro { max-width: 36rem; margin-inline: auto; }
-
-.signed-out-card-fan { position: relative; width: 210px; height: 126px; margin: 2px auto 8px; }
-.signed-out-card-fan img { position: absolute; left: 50%; bottom: 4px; width: 76px; height: 106px; object-fit: cover; border-radius: 8px; box-shadow: 0 14px 28px rgba(3, 1, 14, 0.42); }
-.signed-out-card-fan img:nth-child(1) { transform: translateX(-102%) rotate(-18deg); opacity: 0.7; }
-.signed-out-card-fan img:nth-child(2) { z-index: 2; transform: translateX(-50%); }
-.signed-out-card-fan img:nth-child(3) { transform: translateX(2%) rotate(18deg); opacity: 0.7; }
-.signed-out-orbit { position: absolute; z-index: 3; inset: 53px 22px 20px; border-bottom: 5px solid var(--pink); border-radius: 50%; transform: rotate(-8deg); }
-.signed-out-star { position: absolute; z-index: 4; top: -8px; right: 42px; color: var(--gold); font-size: 2.2rem; }
+.signed-out-auth .signed-out-intro { max-width: 38rem; }
 
 .email-auth-form,
 .email-link-form {
@@ -264,7 +303,16 @@ a {
   margin-top: 24px;
 }
 
-.signed-out-card .email-auth-form { text-align: left; }
+.signed-out-auth .email-auth-form { text-align: left; }
+
+.signed-out-auth .email-auth-form .button-primary {
+  border: 1px solid rgba(185, 155, 255, 0.82);
+  background: transparent;
+  color: var(--text);
+  box-shadow: none;
+}
+
+.signed-out-auth .email-auth-form .button-primary:hover { background: rgba(155, 140, 255, 0.12); }
 
 .email-auth-form .button-primary,
 .email-link-form .button-ghost,
@@ -276,6 +324,15 @@ a {
 .auth-discord-button svg { width: 27px; height: 27px; flex: 0 0 auto; }
 .auth-reassurance { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 14px auto 0 !important; font-size: 0.84rem !important; }
 .auth-reassurance .nav-icon { width: 19px; height: 19px; color: var(--lavender); }
+
+.auth-legal {
+  margin: 30px auto 0 !important;
+  text-align: center;
+  font-size: 0.82rem !important;
+}
+
+.auth-legal a { color: var(--muted-strong); text-decoration: underline; text-underline-offset: 3px; }
+.auth-legal a:hover { color: var(--text); }
 
 .auth-fine-print,
 .auth-unavailable {
@@ -313,6 +370,38 @@ a {
 
 .auth-confirmation p {
   font-size: 0.94rem;
+}
+
+@media (max-width: 900px) {
+  .signed-out {
+    grid-template-columns: minmax(260px, 40fr) minmax(430px, 60fr);
+  }
+
+  .signed-out-illustration { padding: 24px; }
+  .signed-out-auth-panel { padding: 42px clamp(28px, 5vw, 58px); }
+  .signed-out-auth h1 { font-size: clamp(2.45rem, 6vw, 3.6rem); }
+}
+
+@media (max-width: 700px) {
+  .signed-out {
+    grid-template-columns: 1fr;
+    grid-template-rows: clamp(210px, 34vh, 300px) auto;
+  }
+
+  .signed-out-illustration { padding: 12px 28px; }
+  .signed-out-illustration::after {
+    top: auto;
+    right: 0;
+    left: 0;
+    width: auto;
+    height: 38px;
+    background: linear-gradient(180deg, transparent, rgba(11, 16, 35, 0.96));
+  }
+  .signed-out-illustration img { width: min(100%, 460px); }
+  .signed-out-auth-panel { place-items: start center; padding: 34px 22px 46px; }
+  .signed-out-brand img { width: min(230px, 62%); }
+  .signed-out-auth h1 { max-width: none; margin-top: 38px; font-size: clamp(2.15rem, 10vw, 3rem); }
+  .signed-out-auth > .environment-label { top: 3px; }
 }
 
 .account-methods {
@@ -5455,13 +5544,9 @@ a {
 }
 
 @media (max-width: 560px) {
-  .signed-out { padding: 12px; }
-  .signed-out-card { padding: 26px 20px 28px; border-radius: 22px; }
-  .signed-out-card-fan { width: 164px; height: 102px; }
-  .signed-out-card-fan img { width: 60px; height: 84px; }
-  .signed-out-card h1 { font-size: clamp(1.85rem, 10vw, 2.55rem); }
-  .signed-out-card h1 br { display: none; }
-  .signed-out-card p { font-size: 0.94rem; }
+  .signed-out { grid-template-rows: 220px auto; }
+  .signed-out-auth-panel { padding-inline: 18px; }
+  .signed-out-auth p { font-size: 0.96rem; }
   .auth-discord-button { min-height: 54px; font-size: 0.98rem; }
   .app-atmosphere {
     background: radial-gradient(ellipse at -12% 72%, rgba(139, 92, 246, 0.075), transparent 38%);

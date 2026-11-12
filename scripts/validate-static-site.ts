@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 const root = process.cwd();
 const docsDir = join(root, 'docs');
+const appBinderPath = join(root, 'web/assets/illustrations/collector-binder.svg');
+const siteBinderPath = join(docsDir, 'assets/illustrations/collector-binder.svg');
 const htmlFiles = ['index.html', 'privacy.html', 'terms.html', '404.html'];
 const requiredFiles = [
   ...htmlFiles,
@@ -27,6 +29,12 @@ for (const file of requiredFiles) {
 }
 
 const css = existsSync(join(docsDir, 'styles.css')) ? read('styles.css') : '';
+
+if (!existsSync(siteBinderPath)) {
+  failures.push('Missing docs/assets/illustrations/collector-binder.svg');
+} else if (readFileSync(siteBinderPath, 'utf8') !== readFileSync(appBinderPath, 'utf8')) {
+  failures.push('Public collector binder is out of sync; run npm run sync:site-assets');
+}
 const definedClasses = new Set([...css.matchAll(/\.([a-zA-Z0-9_-]+)(?=[\s.#:{,[)>])/g)].map((match) => match[1]));
 
 for (const file of htmlFiles) {
