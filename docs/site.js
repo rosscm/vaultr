@@ -28,3 +28,38 @@ if ('IntersectionObserver' in window) {
 document.querySelectorAll('.mobile-nav a').forEach((link) => {
   link.addEventListener('click', () => link.closest('details')?.removeAttribute('open'));
 });
+
+document.querySelectorAll('[data-walkthrough]').forEach((walkthrough) => {
+  const tabs = [...walkthrough.querySelectorAll('[data-walkthrough-tab]')];
+  const panels = [...walkthrough.querySelectorAll('[data-walkthrough-panel]')];
+  const progress = walkthrough.querySelector('[data-walkthrough-progress]');
+
+  const selectStage = (nextTab, moveFocus = false) => {
+    const stage = nextTab.dataset.walkthroughTab;
+    const index = tabs.indexOf(nextTab);
+    tabs.forEach((tab) => {
+      const selected = tab === nextTab;
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    });
+    panels.forEach((panel) => {
+      panel.hidden = panel.dataset.walkthroughPanel !== stage;
+    });
+    if (progress) progress.style.width = `${((index + 1) / tabs.length) * 100}%`;
+    if (moveFocus) nextTab.focus();
+  };
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => selectStage(tab));
+    tab.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      let nextIndex = index;
+      if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+      if (event.key === 'Home') nextIndex = 0;
+      if (event.key === 'End') nextIndex = tabs.length - 1;
+      selectStage(tabs[nextIndex], true);
+    });
+  });
+});
