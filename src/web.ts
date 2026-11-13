@@ -1488,10 +1488,12 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     if ('error' in parsedOptions) return errorResponse(400, parsedOptions.error);
     const page = listAlertEventsForUser(session.userId, parsedOptions.options);
     const matchingNewCount = countNewAlertEventsForUser(session.userId, parsedOptions.options);
+    const hasInboxHistory = listAlertEventsForUser(session.userId, { limit: 1 }).items.length > 0;
     return jsonResponse(200, {
       items: page.items.map(publicAlertItem),
       nextCursor: encodeCursor(page.nextCursor),
-      matchingNewCount
+      matchingNewCount,
+      hasInboxHistory
     });
   }
 

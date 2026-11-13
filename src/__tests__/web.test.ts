@@ -373,6 +373,10 @@ describe('web app static routes', () => {
     expect(cssResponse.body).toContain('.settings-toggle-input:focus-visible + .settings-toggle-switch');
     expect(cssResponse.body).toContain('.settings-toggle-input:checked + .settings-toggle-switch');
     expect(cssResponse.body).toContain('.settings-toggle-input:disabled + .settings-toggle-switch');
+    expect(cssResponse.body).toContain('body:has(.modal-backdrop)');
+    expect(cssResponse.body).toContain('.settings-postal-field[hidden]');
+    expect(cssResponse.body).toContain('.shelf-editorial-grid > .shelf-card');
+    expect(cssResponse.body).toContain('.advanced-section.plus-locked .advanced-fields');
     expect(jsResponse.body).toContain('data-onboarding-market-form');
     expect(jsResponse.body).toContain('Finish setting up KeepSeek');
     expect(jsResponse.body).toContain('Your progress is saved.');
@@ -411,7 +415,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Maximum (${escapeHtml(state.vaultCurrency)})');
     expect(jsResponse.body).toContain('Known shipping is included when available.');
     expect(jsResponse.body).toContain('A number requests that exact listed grade.');
-    expect(jsResponse.body).toContain('Condition, listing type, priority, target notes, exclusions, and supported-shop monitoring are included with <strong class="inline-vaultr-plus">KeepSeek Plus</strong>.');
+    expect(jsResponse.body).toContain('<strong class="inline-vaultr-plus">KeepSeek Plus</strong> adds condition, listing type, priority, target notes, exclusions, and supported-shop monitoring.');
     expect(jsResponse.body).toContain("state.vaultCardSelection = item.selection");
     expect(jsResponse.body).toContain('body.cardSelectionToken = state.vaultCardSelection.token;');
     expect(jsResponse.body).toContain('input.value.trim() !== state.vaultCardSelection.value');
@@ -493,16 +497,22 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('aria-hidden="true"');
     expect(jsResponse.body).toContain('<h1 id="shelf-title">Display Case</h1>');
     expect(jsResponse.body).toContain('Find the cards you didn’t know you loved.');
-    expect(jsResponse.body).toContain('Explore three fresh finds each week. With KeepSeek Plus');
+    expect(jsResponse.body).toContain('Explore a fresh mix of collector picks each week');
     const shelfEmptySource = (jsResponse.body ?? '').slice(
       (jsResponse.body ?? '').indexOf('function shelfEmptyMarkup('),
       (jsResponse.body ?? '').indexOf('function shelfCardMarkup(')
     );
-    expect(shelfEmptySource).toContain('linkedKeepSeekPlusCopy(freeIntroduction)');
+    expect(shelfEmptySource).not.toContain('freeIntroduction');
     expect(shelfEmptySource).not.toContain('>Explore KeepSeek Plus</button>');
     expect(jsResponse.body).toContain("weekly ? 'This week’s finds' : 'Collector picks'");
     expect(jsResponse.body).toContain('A few handpicked cards to explore.');
     expect(jsResponse.body).not.toContain('Try a Plus example');
+    expect(jsResponse.body).toContain("state.hasInboxHistory ? inboxCaughtUpMarkup() : inboxGettingStartedMarkup()");
+    expect(jsResponse.body).toContain('Your matches will appear here');
+    expect(jsResponse.body).toContain('No matches just yet');
+    expect(jsResponse.body).toContain('class="onboarding-resume-prompt${state.activePage === \'home\' ? \'\' : \' compact\'}"');
+    expect(jsResponse.body).toContain('const isNewCollector = state.vaultLoaded && state.vault.length === 0 && state.completedChases.length === 0;');
+    expect(jsResponse.body).toContain('visibleCount > 0 ? `${visibleCount} picks` : \'\'');
     expect(jsResponse.body).not.toContain('displayCasePreview');
     expect(jsResponse.body).not.toContain('display-case-preview');
     expect(jsResponse.body).not.toContain('<p class="eyebrow">DISCOVER</p>');
@@ -672,7 +682,7 @@ describe('web app static routes', () => {
     expect(discover).toContain('<h1 id="shelf-title">Display Case</h1>');
     expect(discover).toContain('Find the cards you didn’t know you loved.');
     expect(discover).toContain('The best finds aren’t always the ones you set out looking for.');
-    expect(discover).toContain('Sometimes a card catches your eye when you least expect it.');
+    expect(discover).toContain('Explore a fresh mix of collector picks each week');
     expect(source).not.toContain('Explore standout cards and discover your next favourite.');
   });
 
@@ -1224,8 +1234,7 @@ describe('web app static routes', () => {
       copy: 'A few handpicked cards to explore.'
     });
     expect(source).toContain('Find the cards you didn’t know you loved.');
-    expect(source).toContain('Start with three collector picks, with fresh finds each week.');
-    expect(source).toContain('Explore three fresh finds each week.');
+    expect(source).toContain('Explore a fresh mix of collector picks each week');
     expect(source).not.toContain('KeepSeek Plus adds ongoing personalized discovery');
   });
 
@@ -2517,6 +2526,22 @@ describe('authenticated alert API', () => {
     expect(response.status).toBe(401);
   });
 
+  it('reports whether the Inbox has any history independently of the current view', async () => {
+    const userId = 'web-alert-history-user';
+    clearUser(userId);
+    const { token } = createWebSession({ userId }, { token: 'alert-history-token' });
+    const headers = { cookie: sessionCookie(token) };
+
+    const empty = await handleWebRequest({ method: 'GET', url: '/api/alerts?reviewState=NEW' , headers }, { config });
+    expect(JSON.parse(empty.body ?? '{}').hasInboxHistory).toBe(false);
+
+    seedAlert(userId, 1);
+    const reviewedView = await handleWebRequest({ method: 'GET', url: '/api/alerts?reviewState=REVIEWED', headers }, { config });
+    expect(JSON.parse(reviewedView.body ?? '{}')).toMatchObject({ items: [], hasInboxHistory: true });
+
+    clearUser(userId);
+  });
+
   it('returns only the authenticated user alerts and excludes payload data', async () => {
     const userId = 'web-alert-user';
     const otherUserId = 'web-alert-other';
@@ -2551,6 +2576,7 @@ describe('authenticated alert API', () => {
     });
     expect(body.items[0]).not.toHaveProperty('payload');
     expect(body.nextCursor).toBeNull();
+    expect(body.hasInboxHistory).toBe(true);
 
     clearUser(userId);
     clearUser(otherUserId);
@@ -2576,6 +2602,7 @@ describe('authenticated alert API', () => {
     expect(first.status).toBe(200);
     expect(firstBody.items).toHaveLength(1);
     expect(firstBody.matchingNewCount).toBe(2);
+    expect(firstBody.hasInboxHistory).toBe(true);
     expect(firstBody.nextCursor).toBeTruthy();
     expect(decodeAlertCursor(firstBody.nextCursor)).toMatchObject({
       createdAt: firstBody.items[0].createdAt,

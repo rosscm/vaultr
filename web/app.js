@@ -12,6 +12,7 @@ let newAlertPresenceTimer = null;
 let alertNoticeTimer = null;
 let alertDetailReturnFocus = null;
 let shelfDetailReturnFocus = null;
+let lastRenderedMobileNavPage = null;
 
 function apiUrl(url) {
   if (!isPreviewMode || !url.startsWith('/api/')) return url;
@@ -44,6 +45,7 @@ const state = {
   alertPage: 1,
   alertPageCursors: [null],
   matchingNewAlertCount: 0,
+  hasInboxHistory: false,
   bulkReviewBusy: false,
   requestId: 0,
   hasCheckedAllAlerts: false,
@@ -388,7 +390,10 @@ async function loadActivePageData() {
     ]);
   }
   if (state.activePage === 'alerts') {
-    if (!state.settingsLoaded) await loadSettings();
+    await Promise.all([
+      state.settingsLoaded ? Promise.resolve() : loadSettings(),
+      state.vaultLoaded ? Promise.resolve() : loadVault()
+    ]);
     normalizeInboxFiltersForAccess();
     if (!state.alertsLoaded) await loadAlerts();
   }
@@ -867,7 +872,7 @@ function appFooterMarkup() {
 function onboardingResumePromptMarkup() {
   if (state.activePage === 'onboarding' || state.onboarding?.status !== 'IN_PROGRESS') return '';
   return `
-    <aside class="onboarding-resume-prompt" aria-label="Incomplete KeepSeek setup">
+    <aside class="onboarding-resume-prompt${state.activePage === 'home' ? '' : ' compact'}" aria-label="Incomplete KeepSeek setup">
       <span><strong>Finish setting up KeepSeek</strong><small>Your progress is saved.</small></span>
       <button class="button-ghost" type="button" data-action="resume-onboarding">Resume setup</button>
     </aside>
@@ -1422,7 +1427,9 @@ function alertsPageMarkup(inner) {
   const access = state.settings?.access || {};
   const plusFilters = access.tier === 'PRO';
   const discordAlertsEnabled = Boolean(state.settings?.discordCardAlertsEnabled);
-  const showDiscordInvite = state.settingsLoaded && !discordAlertsEnabled && !access.discordAlertInviteDismissed;
+  const hasWatchlist = state.vault.length > 0;
+  const showControls = state.hasInboxHistory;
+  const showDiscordInvite = hasWatchlist && state.settingsLoaded && !discordAlertsEnabled && !access.discordAlertInviteDismissed;
   return `
     <section class="inbox-page" aria-labelledby="alerts-title">
       ${pageHeaderMarkup({
@@ -1439,7 +1446,7 @@ function alertsPageMarkup(inner) {
       ` : ''}
       ${alertNoticeMarkup()}
       ${showDiscordInvite ? `<aside class="discord-alert-invite" aria-labelledby="discord-alert-invite-title"><div><h2 id="discord-alert-invite-title">Want a heads-up when a match appears?</h2><p>${access.discordLinked ? 'Turn on optional Discord alerts in Settings. Your Inbox remains the full match history.' : 'Connect Discord in Settings, then choose whether KeepSeek should send match alerts there.'}</p></div><div><button class="button-primary" type="button" data-action="open-discord-alert-settings">${access.discordLinked ? 'Choose alert settings' : 'Connect Discord'}</button><button class="button-ghost" type="button" data-action="dismiss-discord-alert-invite">Not now</button></div></aside>` : ''}
-      <div class="alert-control-stack">
+      ${showControls ? `<div class="alert-control-stack">
         <div class="alert-control-group alert-inbox-control">
           <span class="alert-control-label">Inbox</span>
           <div class="alert-inbox-row">
@@ -1471,7 +1478,7 @@ function alertsPageMarkup(inner) {
           </label>
         </div>
         ${plusFilters ? '' : '<p class="inbox-plus-filter-help" id="inbox-plus-filter-help"><strong>KeepSeek Plus</strong> adds Grail, High, and supported-shop filters. Historical matches remain available in All and Reviewed.</p>'}
-      </div>
+      </div>` : ''}
       ${inner}
     </section>
   `;
@@ -1527,6 +1534,20 @@ function inboxCaughtUpMarkup() {
   `;
 }
 
+function inboxGettingStartedMarkup() {
+  const hasWatchlist = state.vault.length > 0;
+  return `
+    <div class="state-panel inbox-empty-state inbox-getting-started">
+      <span class="inbox-empty-icon" aria-hidden="true">${iconMarkup('alerts')}</span>
+      <h2>${hasWatchlist ? 'No matches just yet' : 'Your matches will appear here'}</h2>
+      <p>${hasWatchlist
+        ? 'KeepSeek is checking for listings that fit your Watchlist. Anything it finds will appear here.'
+        : 'Add a card to your Watchlist and KeepSeek will start looking for listings that fit.'}</p>
+      ${hasWatchlist ? '' : '<button class="button-primary" type="button" data-action="open-add-chase">Add to Watchlist</button>'}
+    </div>
+  `;
+}
+
 function alertsMarkup() {
   if (!state.alerts.length) {
     if (state.alertChaseId) {
@@ -1536,7 +1557,7 @@ function alertsMarkup() {
     if (state.alertReviewState === 'NEW') {
       const broadlyCaughtUp = state.priority === 'ALL' && state.source === 'ALL' && !state.alertChaseId;
       return alertsPageMarkup(broadlyCaughtUp
-        ? inboxCaughtUpMarkup()
+        ? state.hasInboxHistory ? inboxCaughtUpMarkup() : inboxGettingStartedMarkup()
         : statePanelMarkup('No new matches in this view.', 'Try another filter or return to the full New inbox.'));
     }
     if (state.alertReviewState === 'REVIEWED') {
@@ -1866,10 +1887,13 @@ function discoveryStateCopy(discovery, compact = false) {
 }
 
 function homeAttentionEmptyMarkup() {
+  const hasHistory = state.hasInboxHistory;
   return `
     <div class="home-attention-empty">
       <span class="home-attention-empty-icon" aria-hidden="true">${iconMarkup('alerts')}</span>
-      <div><strong>You’re all caught up</strong><p>New matches for the cards you’re watching will appear here.</p></div>
+      <div><strong>${hasHistory ? 'You’re all caught up' : 'No matches just yet'}</strong><p>${hasHistory
+        ? 'New matches for the cards you’re watching will appear here.'
+        : 'KeepSeek is checking for listings that fit your Watchlist. Anything it finds will appear here.'}</p></div>
     </div>
   `;
 }
@@ -1885,6 +1909,7 @@ function homePageMarkup() {
   const watchlistPreview = state.vault.slice(0, 4);
   const shelfIndex = boundedHomeShelfIndex(state.homeShelfIndex, displayCaseItems.length);
   const discovery = state.shelf?.discovery;
+  const isNewCollector = state.vaultLoaded && state.vault.length === 0 && state.completedChases.length === 0;
 
   return `
     <section class="home-page" aria-labelledby="home-title">
@@ -1917,7 +1942,12 @@ function homePageMarkup() {
         </div>
       </section>
 
-      <section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
+      ${isNewCollector ? `<section class="home-product-section home-new-collector-guide" aria-labelledby="home-start-title">
+        <div class="home-section-heading">
+          <div><h2 id="home-start-title">Start with a card you’re chasing</h2><p>Add it once and KeepSeek will look for matching listings. Anything it finds will appear in your Inbox.</p></div>
+          <button class="home-text-link" type="button" data-page="vault">Open Watchlist</button>
+        </div>
+      </section>` : `<section class="home-product-section home-vault-section" aria-labelledby="home-vault-title">
         <div class="home-section-heading">
           <div><h2 id="home-vault-title">Your Watchlist</h2><p>KeepSeek is keeping an eye out for listings that match your preferences.</p></div>
           <button class="home-text-link" type="button" data-page="vault">View Watchlist</button>
@@ -1943,7 +1973,7 @@ function homePageMarkup() {
               : activeChases
                 ? homeAttentionEmptyMarkup()
                 : '<div class="home-section-state home-empty-action"><p>Add your first card to start watching for matches.</p><button class="button-ghost" type="button" data-action="open-add-chase">Add to Watchlist</button></div>'}
-      </section>
+      </section>`}
       ${vaultDialogMarkup()}
     </section>
   `;
@@ -2391,13 +2421,12 @@ function shelfHeaderMarkup(shelf) {
   const personalized = hasPersonalizedDiscoveryAccess();
   const copy = personalized
     ? 'The best finds aren’t always the ones you set out looking for. Explore a curated mix of familiar favourites and unexpected discoveries, shaped by the cards you already love, the ones you’re chasing, and your own collecting style.'
-    : 'Sometimes a card catches your eye when you least expect it. Explore a fresh mix of collector picks each week, from familiar favourites to something a little different. You never know what might end up on your wish list.';
+    : 'Explore a fresh mix of collector picks each week, from familiar favourites to something a little different. With KeepSeek Plus, your Watchlist, Pickups, and feedback help shape recommendations around your collecting tastes.';
   return `<header class="page-header shelf-page-header">
     <div>
       <h1 id="shelf-title">Display Case</h1>
       <p class="page-tagline">Find the cards you didn’t know you loved.</p>
       <p class="page-support">${escapeHtml(copy)}</p>
-      ${personalized ? '' : '<p class="shelf-plus-context">With <a class="inline-vaultr-plus" href="#plus" data-page="plus">KeepSeek Plus</a>, your Watchlist, Pickups, and feedback can shape a personalized Display Case once KeepSeek has enough collecting history.</p>'}
     </div>
     ${shelfMetaMarkup(shelf)}
   </header>`;
@@ -2405,9 +2434,11 @@ function shelfHeaderMarkup(shelf) {
 
 function shelfMetaMarkup(shelf) {
   if (!shelf) return '';
-  const updated = shelf.updatedAt ? formatDate(shelf.updatedAt) : '';
+  const personalized = hasPersonalizedDiscoveryAccess();
+  const visibleCount = personalized ? (shelf.items?.length || 0) : (shelf.starterItems?.length || 0);
+  const updated = personalized && shelf.updatedAt ? formatDate(shelf.updatedAt) : '';
   const details = [
-    `${shelf.itemCount || shelf.items?.length || 0} picks`,
+    visibleCount > 0 ? `${visibleCount} picks` : '',
     updated ? `Updated ${updated}` : ''
   ].filter(Boolean);
   return `
@@ -2419,19 +2450,13 @@ function shelfMetaMarkup(shelf) {
 
 function shelfEmptyMarkup(shelf) {
   const starters = shelf?.starterItems || [];
-  const starter = shelf?.generalDiscovery?.mode === 'STARTER';
   const weekly = shelf?.generalDiscovery?.mode === 'WEEKLY';
   const plusAccount = state.vaultPlan?.tier === 'PRO';
-  const freeIntroduction = starter
-    ? 'Start with three collector picks, with fresh finds each week. With KeepSeek Plus, your Watchlist, Pickups, and feedback shape a personalized Display Case with familiar favourites and unexpected finds.'
-    : weekly
-    ? 'Explore three fresh finds each week. With KeepSeek Plus, your Watchlist, Pickups, and feedback shape a personalized Display Case with familiar favourites and unexpected finds.'
-    : 'Explore these collector picks while this week’s finds are unavailable. With KeepSeek Plus, your Watchlist, Pickups, and feedback shape a personalized Display Case with familiar favourites and unexpected finds.';
   return `
     <section class="shelf-editorial" aria-label="General discovery picks">
       ${plusAccount
         ? `<p class="shelf-personalized-note">${inlineKeepSeekPlusCopy(discoveryStateCopy(shelf?.discovery))}</p>`
-        : `<div class="shelf-plus-intro"><p>${linkedKeepSeekPlusCopy(freeIntroduction)}</p></div>`}
+        : ''}
       <header class="shelf-editorial-heading"><h2>${weekly ? 'This week’s finds' : 'Collector picks'}</h2></header>
       ${starters.length
         ? `<div class="shelf-grid shelf-editorial-grid" aria-label="General discovery picks">${starters.map((item, index) => shelfCardMarkup(item, { editorial: true, collection: 'starterItems', index })).join('')}</div>`
@@ -2622,7 +2647,7 @@ function vaultDialogMarkup() {
         <details class="advanced-section${hasPlus ? ' has-plus' : ' plus-locked'}" ${hasPlus ? 'open' : ''}>
           <summary>${hasPlus ? 'KeepSeek Plus controls' : 'See KeepSeek Plus controls'}</summary>
           <div class="advanced-section-heading">
-            <div><h3 id="advanced-fields-title">KeepSeek Plus controls</h3><p>${hasPlus ? 'Optional controls for a more precise search.' : 'Condition, listing type, priority, target notes, exclusions, and supported-shop monitoring are included with <strong class="inline-vaultr-plus">KeepSeek Plus</strong>. Saved locked values stay intact.'}</p></div>
+            <div>${hasPlus ? '<h3 id="advanced-fields-title">KeepSeek Plus controls</h3><p>Optional controls for a more precise search.</p>' : '<p id="advanced-fields-title"><strong class="inline-vaultr-plus">KeepSeek Plus</strong> adds condition, listing type, priority, target notes, exclusions, and supported-shop monitoring.</p>'}</div>
             ${hasPlus ? '' : '<button class="vault-action-link" type="button" data-page="plus">Explore Plus</button>'}
           </div>
         <fieldset class="advanced-fields" aria-describedby="advanced-fields-title" ${hasPlus ? '' : 'disabled'}>
@@ -2726,6 +2751,8 @@ function renderSignedOut() {
 
 function renderShell(content) {
   app.innerHTML = shellMarkup(content);
+  if (lastRenderedMobileNavPage === state.activePage) return;
+  lastRenderedMobileNavPage = state.activePage;
   requestAnimationFrame(() => {
     const activeMobileNavItem = document.querySelector('.mobile-primary-nav [aria-current="page"]');
     activeMobileNavItem?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
@@ -2913,6 +2940,7 @@ async function loadHomeAttention() {
     const body = await fetchJson('/api/alerts?reviewState=NEW&limit=4');
     if (requestId !== state.homeAttentionRequestId) return;
     state.homeAttentionAlerts = body.items || [];
+    state.hasInboxHistory = Boolean(body.hasInboxHistory);
     state.hasNewAlerts = state.homeAttentionAlerts.length > 0;
     state.homeAttentionLoaded = true;
     state.homeAttentionLoading = false;
@@ -3107,6 +3135,7 @@ async function loadAlerts({ cursor = state.alertPageCursors[state.alertPage - 1]
     state.isAlertsLoading = false;
     state.nextCursor = body.nextCursor || null;
     state.matchingNewAlertCount = Number(body.matchingNewCount) || 0;
+    state.hasInboxHistory = Boolean(body.hasInboxHistory);
     if (state.priority !== 'ALL' || state.source !== 'ALL') {
       state.hasCheckedAllAlerts = true;
     }
