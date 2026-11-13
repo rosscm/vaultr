@@ -29,6 +29,29 @@ document.querySelectorAll('.mobile-nav a').forEach((link) => {
   link.addEventListener('click', () => link.closest('details')?.removeAttribute('open'));
 });
 
+const recommendationCards = [...document.querySelectorAll('[data-recommendation-key]')];
+document.querySelectorAll('[data-walkthrough-recommendations]').forEach((container) => {
+  recommendationCards.forEach((source) => {
+    const card = document.createElement('article');
+    const image = source.querySelector('img')?.cloneNode();
+    const copy = document.createElement('div');
+    const label = document.createElement('span');
+    const name = document.createElement('strong');
+    const details = document.createElement('small');
+    const reason = document.createElement('small');
+    label.className = 'status-pill';
+    label.textContent = source.dataset.label;
+    name.textContent = source.dataset.name;
+    details.textContent = source.dataset.details;
+    reason.className = 'mini-recommendation-reason';
+    reason.textContent = source.dataset.reason;
+    copy.append(label, name, details, reason);
+    if (image) card.append(image);
+    card.append(copy);
+    container.append(card);
+  });
+});
+
 document.querySelectorAll('[data-walkthrough]').forEach((walkthrough) => {
   const tabs = [...walkthrough.querySelectorAll('[data-walkthrough-tab]')];
   const panels = [...walkthrough.querySelectorAll('[data-walkthrough-panel]')];
