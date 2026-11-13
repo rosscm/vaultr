@@ -5,7 +5,8 @@ import {
   getIdentity,
   getIdentityForUser,
   resolveDiscordUserId,
-  resolveOrCreateDiscordUser
+  resolveOrCreateDiscordUser,
+  resolveOrCreateGoogleUser
 } from '../accounts.js';
 import { db, migrateLegacyDiscordUserIdsToAccounts } from '../db.js';
 
@@ -138,6 +139,30 @@ describe('accounts', () => {
     expect(resolveDiscordUserId(user.id)).toBeNull();
     expect(getIdentitiesForUser(user.id)).toEqual([]);
     cleanupUserIds([user.id]);
+  });
+
+  it('creates and reuses one account for a stable Google subject', () => {
+    const googleUserId = `google-account-${Date.now()}`;
+    const first = resolveOrCreateGoogleUser({
+      googleUserId,
+      displayName: 'Google Collector',
+      email: 'collector@example.test'
+    });
+    const second = resolveOrCreateGoogleUser({
+      googleUserId,
+      displayName: 'Updated Collector',
+      email: 'updated@example.test'
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(getIdentity('GOOGLE', googleUserId)).toMatchObject({
+      userId: first.id,
+      providerUserId: googleUserId,
+      displayName: 'Updated Collector',
+      email: 'updated@example.test'
+    });
+    expect(getIdentitiesForUser(first.id)).toHaveLength(1);
+    cleanupUserIds([first.id]);
   });
 
   it('migrates legacy Discord-owned rows to one internal account and preserves profile metadata', () => {

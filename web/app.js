@@ -20,8 +20,8 @@ function apiUrl(url) {
 
 const state = {
   user: null,
-  identities: { email: { connected: false }, discord: { connected: false } },
-  authConfig: { email: { available: false }, discord: { available: false }, environment: null },
+  identities: { email: { connected: false }, discord: { connected: false }, google: { connected: false } },
+  authConfig: { email: { available: false }, discord: { available: false }, google: { available: false }, environment: null },
   emailConfirmation: null,
   authBusy: false,
   authEmailDraft: '',
@@ -733,6 +733,7 @@ function relativeTime(value) {
 function signedOutMarkup() {
   const emailAvailable = state.authConfig?.email?.available;
   const discordAvailable = state.authConfig?.discord?.available;
+  const googleAvailable = state.authConfig?.google?.available;
   const confirmationReady = state.emailConfirmation?.ready;
   return `
     <main id="app-main" class="signed-out">
@@ -753,8 +754,10 @@ function signedOutMarkup() {
           </div>
           ${state.emailConfirmation.purpose === 'LINK_EMAIL' && discordAvailable ? '<a class="button-primary auth-discord-button" href="/auth/discord">Sign in with Discord</a>' : ''}
         ` : `
-          ${discordAvailable ? `<a class="auth-discord-button" href="/auth/discord"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="currentColor" d="M19.5 5.3A17 17 0 0 0 15.3 4l-.5 1.1a15 15 0 0 0-5.6 0L8.7 4a17 17 0 0 0-4.2 1.3C1.8 9.3 1.1 13.2 1.5 17a17 17 0 0 0 5.2 2.6l1.3-1.8a11 11 0 0 1-2-1l.5-.4c3.8 1.8 7.9 1.8 11.7 0l.5.4a13 13 0 0 1-2 1l1.3 1.8a17 17 0 0 0 5.2-2.6c.5-4.4-.8-8.2-3.7-11.7ZM8.7 14.6c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Zm6.6 0c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Z"/></svg><span>Continue with Discord</span></a><p class="auth-reassurance">${iconMarkup('shield')}<span>Sign in securely with your Discord account.</span></p>` : ''}
-          ${emailAvailable && discordAvailable ? '<div class="auth-divider"><span>or</span></div>' : ''}
+          ${discordAvailable ? `<a class="auth-discord-button" href="/auth/discord"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="currentColor" d="M19.5 5.3A17 17 0 0 0 15.3 4l-.5 1.1a15 15 0 0 0-5.6 0L8.7 4a17 17 0 0 0-4.2 1.3C1.8 9.3 1.1 13.2 1.5 17a17 17 0 0 0 5.2 2.6l1.3-1.8a11 11 0 0 1-2-1l.5-.4c3.8 1.8 7.9 1.8 11.7 0l.5.4a13 13 0 0 1-2 1l1.3 1.8a17 17 0 0 0 5.2-2.6c.5-4.4-.8-8.2-3.7-11.7ZM8.7 14.6c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Zm6.6 0c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Z"/></svg><span>Continue with Discord</span></a>` : ''}
+          ${googleAvailable ? `<a class="auth-google-button" href="/auth/google"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.5-.2-2.2H12v4.3h5.4a4.6 4.6 0 0 1-2 3v2.8h3.3c1.9-1.8 2.9-4.5 2.9-7.9Z"/><path fill="#34A853" d="M12 22c2.7 0 5-.9 6.7-2.4l-3.3-2.8c-.9.6-2.1 1-3.4 1a5.9 5.9 0 0 1-5.6-4.1H3v2.9A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.4 13.7a6 6 0 0 1 0-3.4V7.4H3a10 10 0 0 0 0 9.2l3.4-2.9Z"/><path fill="#EA4335" d="M12 6.2c1.5 0 2.8.5 3.9 1.5l2.9-2.9A9.8 9.8 0 0 0 3 7.4l3.4 2.9A5.9 5.9 0 0 1 12 6.2Z"/></svg><span>Continue with Google</span></a>` : ''}
+          ${(discordAvailable || googleAvailable) ? '<p class="auth-reassurance">Existing collector? Use your original sign-in, then connect another method in Settings.</p>' : ''}
+          ${emailAvailable && (discordAvailable || googleAvailable) ? '<div class="auth-divider"><span>or</span></div>' : ''}
           ${emailAvailable ? `
             <form class="email-auth-form" data-email-signin-form novalidate>
               <label class="field"><span>Email</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" required></label>
@@ -1025,8 +1028,10 @@ function settingsPageMarkup() {
   const describedBy = (field, base) => `${base}${state.settingsFieldErrors[field] ? ` ${settingsFieldErrorId(field)}` : ''}`;
   const emailIdentity = state.identities?.email || { connected: false };
   const discordIdentity = state.identities?.discord || { connected: false };
+  const googleIdentity = state.identities?.google || { connected: false };
   const emailLinkAvailable = state.authConfig?.email?.available;
   const discordAvailable = state.authConfig?.discord?.available;
+  const googleAvailable = state.authConfig?.google?.available;
   const currentPlan = planLabel(state.vaultPlan?.tier || 'FREE');
   const discoveryBudget = draft.discoveryBudget || {
     mode: 'ANY',
@@ -1055,6 +1060,10 @@ function settingsPageMarkup() {
             <div class="account-method-row">
               <span><strong>Email</strong><small>${emailIdentity.connected ? `${escapeHtml(emailIdentity.email)} · Verified` : 'Not connected'}</small><small>${emailIdentity.connected ? 'Use this address to sign in with a secure email link.' : emailLinkAvailable ? 'Add an email address as another way to sign in.' : 'Email sign-in isn’t available here yet.'}</small></span>
               ${emailIdentity.connected || !emailLinkAvailable ? '' : `<form class="email-link-form" data-email-link-form novalidate><label class="field"><span class="visually-hidden">Email address</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" placeholder="you@example.com" required${isPreviewMode ? ' disabled' : ''}></label><button class="button-ghost" type="submit"${isPreviewMode || state.authBusy ? ' disabled' : ''}>Send verification link</button></form>`}
+            </div>
+            <div class="account-method-row">
+              <span><strong>Google</strong><small>${googleIdentity.connected ? escapeHtml(googleIdentity.email || googleIdentity.displayName || 'Connected') : 'Not connected'}</small><small>${googleIdentity.connected ? 'Connected as another secure way to sign in.' : 'Connect Google without changing your KeepSeek account or collection.'}</small></span>
+              ${googleIdentity.connected || !googleAvailable || isPreviewMode ? '' : '<a class="button-ghost account-method-action" href="/auth/google/link">Connect Google</a>'}
             </div>
             <div class="account-method-row">
               <span><strong>Discord</strong><small>${discordIdentity.connected ? escapeHtml(discordIdentity.displayName || discordIdentity.username || 'Connected') : 'Not connected'}</small><small>${discordIdentity.connected ? 'Connected for sign-in and supported Discord features.' : 'Optional. Connect Discord as another way to access KeepSeek.'}</small></span>
@@ -2803,6 +2812,8 @@ async function loadAuthSurface() {
     const authError = new URLSearchParams(window.location.search).get('authError');
     if (authError === 'discord_sign_in_failed') state.authError = 'We couldn’t complete Discord sign-in. Please try again.';
     if (authError === 'discord_cancelled') state.authNotice = 'Discord sign-in was cancelled. Nothing changed.';
+    if (authError === 'google_sign_in_failed') state.authError = 'We couldn’t complete Google sign-in. Please try again.';
+    if (authError === 'google_cancelled') state.authNotice = 'Google sign-in was cancelled. Nothing changed.';
     const discordLink = new URLSearchParams(window.location.search).get('discordLink');
     if (discordLink === 'linked') state.authNotice = 'Discord is now connected to this KeepSeek account.';
     if (discordLink === 'cancelled') state.authNotice = 'Discord connection was cancelled. Nothing changed.';
@@ -2810,8 +2821,15 @@ async function loadAuthSurface() {
     if (discordLink === 'account_conflict') state.authError = 'This KeepSeek account already has a different Discord identity connected.';
     if (discordLink === 'auth_required') state.authError = 'Sign in again before connecting Discord.';
     if (discordLink === 'failed') state.authError = 'We couldn’t connect Discord. Please try again.';
+    const googleLink = new URLSearchParams(window.location.search).get('googleLink');
+    if (googleLink === 'linked') state.authNotice = 'Google is now connected to this KeepSeek account.';
+    if (googleLink === 'cancelled') state.authNotice = 'Google connection was cancelled. Nothing changed.';
+    if (googleLink === 'identity_conflict') state.authError = 'That Google identity belongs to another KeepSeek account. Accounts are never merged automatically.';
+    if (googleLink === 'account_conflict') state.authError = 'This KeepSeek account already has a different Google identity connected.';
+    if (googleLink === 'auth_required') state.authError = 'Sign in again before connecting Google.';
+    if (googleLink === 'failed') state.authError = 'We couldn’t connect Google. Please try again.';
   } catch {
-    state.authConfig = { email: { available: false }, discord: { available: false } };
+    state.authConfig = { email: { available: false }, discord: { available: false }, google: { available: false } };
     state.emailConfirmation = null;
   }
 }

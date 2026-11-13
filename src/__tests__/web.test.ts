@@ -43,6 +43,12 @@ const emailConfig: WebConfig = {
   }
 };
 
+const googleConfig: WebConfig = {
+  ...config,
+  googleClientId: 'google-client-id',
+  googleClientSecret: 'google-client-secret'
+};
+
 function clearUser(userId: string): void {
   clearChaseCardAutocompleteCache();
   removeAllChases(userId);
@@ -671,7 +677,7 @@ describe('web app static routes', () => {
     ) as string;
     const discordOnly = render({ email: { available: false }, discord: { available: true } });
     expect(discordOnly).toContain('Continue with Discord');
-    expect(discordOnly).toContain('Sign in securely with your Discord account.');
+    expect(discordOnly).toContain('Use your original sign-in, then connect another method in Settings.');
     expect(discordOnly).toContain('A place for your collection.');
     expect(discordOnly).toContain('Terms of Service');
     expect(discordOnly).toContain('Privacy Policy');
@@ -683,6 +689,9 @@ describe('web app static routes', () => {
     expect(both).toContain('auth-divider');
     expect(both).toContain('Continue with Discord');
     expect(both.indexOf('Continue with Discord')).toBeLessThan(both.indexOf('data-email-signin-form'));
+    const googleAndDiscord = render({ email: { available: false }, discord: { available: true }, google: { available: true } });
+    expect(googleAndDiscord).toContain('Continue with Google');
+    expect(googleAndDiscord.indexOf('Continue with Discord')).toBeLessThan(googleAndDiscord.indexOf('Continue with Google'));
   });
 
   it('keeps Plus Inbox filters visible while normalizing unavailable active filters', async () => {
@@ -1528,7 +1537,7 @@ describe('web app preview mode', () => {
       identities: { email: { connected: true, verified: true }, discord: { connected: true } },
       preview: true
     });
-    expect(JSON.parse(authConfig.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true }, features: { tasteOnboarding: true }, preview: true });
+    expect(JSON.parse(authConfig.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true }, google: { available: true }, features: { tasteOnboarding: true }, preview: true });
     expect(JSON.parse(vault.body ?? '{}').items.length).toBeGreaterThanOrEqual(6);
     expect(JSON.parse(vault.body ?? '{}').completedItems).toHaveLength(1);
     const previewVault = JSON.parse(vault.body ?? '{}');
@@ -1679,6 +1688,7 @@ describe('web auth routes', () => {
     expect(JSON.parse(methods.body ?? '{}')).toEqual({
       email: { available: false },
       discord: { available: true },
+      google: { available: false },
       environment: { label: 'Staging' },
       features: { tasteOnboarding: false }
     });
@@ -1699,12 +1709,12 @@ describe('web auth routes', () => {
     })).toMatchObject({ baseUrl: 'https://vaultr.example', emailAuth: { fromEmail: 'login@vaultr.example' } });
 
     const methods = await handleWebRequest({ method: 'GET', url: '/api/auth/config' }, { config: emailConfig });
-    expect(JSON.parse(methods.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true }, features: { tasteOnboarding: false } });
+    expect(JSON.parse(methods.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: true }, google: { available: false }, features: { tasteOnboarding: false } });
     const emailOnly = await handleWebRequest(
       { method: 'GET', url: '/api/auth/config' },
       { config: { baseUrl: 'https://vaultr.example', emailAuth: emailConfig.emailAuth } }
     );
-    expect(JSON.parse(emailOnly.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: false }, features: { tasteOnboarding: false } });
+    expect(JSON.parse(emailOnly.body ?? '{}')).toEqual({ email: { available: true }, discord: { available: false }, google: { available: false }, features: { tasteOnboarding: false } });
   });
 
   it('requests, confirms without consuming, and redeems an email sign-in with rotated protected cookies', async () => {
@@ -1801,6 +1811,125 @@ describe('web auth routes', () => {
     expect(location.searchParams.get('redirect_uri')).toBe(`${config.baseUrl}/auth/discord/callback`);
     expect(location.searchParams.get('state')).toBeTruthy();
     expect(cookieValue(response.headers, 'vaultr_oauth_state')).toBe(location.searchParams.get('state'));
+  });
+
+  it('creates Google authorization with scoped OIDC, PKCE, nonce, and an exact callback', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/auth/google' }, { config: googleConfig });
+    expect(response.status).toBe(302);
+    const location = new URL(String(response.headers?.Location));
+    expect(location.origin + location.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
+    expect(location.searchParams.get('client_id')).toBe('google-client-id');
+    expect(location.searchParams.get('redirect_uri')).toBe(`${config.baseUrl}/auth/google/callback`);
+    expect(location.searchParams.get('scope')).toBe('openid email profile');
+    expect(location.searchParams.get('nonce')).toBeTruthy();
+    expect(location.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(location.searchParams.get('code_challenge')).toBeTruthy();
+    const encoded = decodeURIComponent(cookieValue(response.headers, 'vaultr_google_oauth_state')!);
+    const state = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    expect(state.state).toBe(location.searchParams.get('state'));
+    expect(state.nonce).toBe(location.searchParams.get('nonce'));
+    expect(state.codeVerifier).toBeTruthy();
+  });
+
+  it('creates and reuses a Google-only account session without a Discord identity', async () => {
+    const googleUserId = `google-web-${Date.now()}`;
+    const start = await handleWebRequest({ method: 'GET', url: '/auth/google' }, { config: googleConfig });
+    const location = new URL(String(start.headers?.Location));
+    const oauthCookie = cookieValue(start.headers, 'vaultr_google_oauth_state');
+    const verifier = vi.fn(async () => ({
+      googleUserId,
+      displayName: 'Google Collector',
+      avatarUrl: 'https://example.test/google-avatar.png',
+      email: 'google@example.test'
+    }));
+    const callback = await handleWebRequest({
+      method: 'GET',
+      url: `/auth/google/callback?code=google-code&state=${location.searchParams.get('state')}`,
+      headers: { cookie: `vaultr_google_oauth_state=${oauthCookie}` }
+    }, { config: googleConfig, googleCodeVerifier: verifier });
+    const token = decodeURIComponent(cookieValue(callback.headers, 'vaultr_session')!);
+    const session = resolveWebSession(token);
+    expect(callback.headers?.Location).toBe('/app');
+    expect(session?.userId).toBe(getIdentity('GOOGLE', googleUserId)?.userId);
+    expect(getIdentity('DISCORD', googleUserId)).toBeNull();
+
+    const secondStart = await handleWebRequest({ method: 'GET', url: '/auth/google' }, { config: googleConfig });
+    const secondLocation = new URL(String(secondStart.headers?.Location));
+    const secondCallback = await handleWebRequest({
+      method: 'GET',
+      url: `/auth/google/callback?code=second-code&state=${secondLocation.searchParams.get('state')}`,
+      headers: { cookie: `vaultr_google_oauth_state=${cookieValue(secondStart.headers, 'vaultr_google_oauth_state')}` }
+    }, { config: googleConfig, googleCodeVerifier: verifier });
+    const secondSession = resolveWebSession(decodeURIComponent(cookieValue(secondCallback.headers, 'vaultr_session')!));
+    expect(secondSession?.userId).toBe(session?.userId);
+    if (session?.userId) clearUser(session.userId);
+  });
+
+  it('links Google only to the initiating session and rejects identities owned elsewhere', async () => {
+    const collector = createUser({ displayName: 'Discord Collector' });
+    linkIdentity({ userId: collector.id, provider: 'DISCORD', providerUserId: 'google-link-discord' });
+    const owner = createUser({ displayName: 'Google Owner' });
+    linkIdentity({ userId: owner.id, provider: 'GOOGLE', providerUserId: 'claimed-google', email: 'same@example.test' });
+    const { token } = createWebSession({ userId: collector.id }, { token: 'google-link-session' });
+    const start = await handleWebRequest({
+      method: 'GET', url: '/auth/google/link', headers: { cookie: sessionCookie(token) }
+    }, { config: googleConfig });
+    const location = new URL(String(start.headers?.Location));
+    const stateCookie = cookieValue(start.headers, 'vaultr_google_oauth_state_link');
+    const conflict = await handleWebRequest({
+      method: 'GET',
+      url: `/auth/google/callback?code=code&state=${location.searchParams.get('state')}`,
+      headers: { cookie: `${sessionCookie(token)}; vaultr_google_oauth_state_link=${stateCookie}` }
+    }, {
+      config: googleConfig,
+      googleCodeVerifier: async () => ({ googleUserId: 'claimed-google', email: 'same@example.test' })
+    });
+    expect(conflict.headers?.Location).toBe('/app?googleLink=identity_conflict#settings');
+    expect(getIdentity('GOOGLE', 'claimed-google')?.userId).toBe(owner.id);
+
+    const successStart = await handleWebRequest({ method: 'GET', url: '/auth/google/link', headers: { cookie: sessionCookie(token) } }, { config: googleConfig });
+    const successLocation = new URL(String(successStart.headers?.Location));
+    const success = await handleWebRequest({
+      method: 'GET',
+      url: `/auth/google/callback?code=code&state=${successLocation.searchParams.get('state')}`,
+      headers: { cookie: `${sessionCookie(token)}; vaultr_google_oauth_state_link=${cookieValue(successStart.headers, 'vaultr_google_oauth_state_link')}` }
+    }, {
+      config: googleConfig,
+      googleCodeVerifier: async () => ({ googleUserId: 'new-google', displayName: 'Different Name', email: 'same@example.test' })
+    });
+    expect(success.headers?.Location).toBe('/app?googleLink=linked#settings');
+    expect(getIdentity('GOOGLE', 'new-google')?.userId).toBe(collector.id);
+    expect(getUserById(collector.id)?.displayName).toBe('Discord Collector');
+    clearUser(collector.id);
+    clearUser(owner.id);
+  });
+
+  it('rejects expired Google state and changed linking sessions before verification', async () => {
+    const now = new Date('2026-11-13T12:00:00.000Z');
+    const start = await handleWebRequest({ method: 'GET', url: '/auth/google' }, { config: googleConfig, now: () => now });
+    const location = new URL(String(start.headers?.Location));
+    const verifier = vi.fn();
+    const expired = await handleWebRequest({
+      method: 'GET',
+      url: `/auth/google/callback?code=code&state=${location.searchParams.get('state')}`,
+      headers: { cookie: `vaultr_google_oauth_state=${cookieValue(start.headers, 'vaultr_google_oauth_state')}` }
+    }, { config: googleConfig, now: () => new Date(now.getTime() + 11 * 60_000), googleCodeVerifier: verifier });
+    expect(expired.headers?.Location).toBe('/app?authError=google_sign_in_failed');
+    expect(verifier).not.toHaveBeenCalled();
+
+    const user = createUser();
+    const first = createWebSession({ userId: user.id }, { token: 'google-original-session' });
+    const second = createWebSession({ userId: user.id }, { token: 'google-changed-session' });
+    const linkStart = await handleWebRequest({ method: 'GET', url: '/auth/google/link', headers: { cookie: sessionCookie(first.token) } }, { config: googleConfig });
+    const linkLocation = new URL(String(linkStart.headers?.Location));
+    const changed = await handleWebRequest({
+      method: 'GET',
+      url: `/auth/google/callback?code=code&state=${linkLocation.searchParams.get('state')}`,
+      headers: { cookie: `${sessionCookie(second.token)}; vaultr_google_oauth_state_link=${cookieValue(linkStart.headers, 'vaultr_google_oauth_state_link')}` }
+    }, { config: googleConfig, googleCodeVerifier: async () => ({ googleUserId: 'not-linked' }) });
+    expect(changed.headers?.Location).toBe('/app?googleLink=auth_required#settings');
+    expect(getIdentity('GOOGLE', 'not-linked')).toBeNull();
+    clearUser(user.id);
   });
 
   it('returns missing and mismatched OAuth state to branded sign-in without exchanging a code', async () => {

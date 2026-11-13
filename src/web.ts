@@ -84,9 +84,18 @@ import {
   getIdentityForUser,
   getUserById,
   linkIdentity,
+  resolveOrCreateGoogleUser,
   updateIdentityProfile,
   resolveOrCreateDiscordUser
 } from './services/accounts.js';
+import {
+  createGoogleOAuthState,
+  exchangeAndVerifyGoogleCode,
+  googleAuthorizationUrl,
+  type GoogleAuthConfig,
+  type GoogleCodeVerifier,
+  type GoogleOAuthState
+} from './services/google-auth.js';
 import { dismissDiscordAlertInvite } from './services/notification-settings.js';
 import {
   createPostmarkMagicLinkTransport,
@@ -153,6 +162,8 @@ type FetchLike = typeof fetch;
 export type WebConfig = {
   discordClientId?: string;
   discordClientSecret?: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
   baseUrl: string;
   postLoginRedirectPath?: string;
   previewEnabled?: boolean;
@@ -165,12 +176,14 @@ export type WebConfig = {
   };
 };
 
-function cookieNames(config: WebConfig): { oauthState: string; oauthLinkState: string; session: string; emailConfirm: string } {
+function cookieNames(config: WebConfig): { oauthState: string; oauthLinkState: string; googleOauthState: string; googleOauthLinkState: string; session: string; emailConfirm: string } {
   const namespace = config.cookieNamespace?.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
-  if (!namespace) return { oauthState: OAUTH_STATE_COOKIE, oauthLinkState: `${OAUTH_STATE_COOKIE}_link`, session: SESSION_COOKIE, emailConfirm: EMAIL_CONFIRM_COOKIE };
+  if (!namespace) return { oauthState: OAUTH_STATE_COOKIE, oauthLinkState: `${OAUTH_STATE_COOKIE}_link`, googleOauthState: 'vaultr_google_oauth_state', googleOauthLinkState: 'vaultr_google_oauth_state_link', session: SESSION_COOKIE, emailConfirm: EMAIL_CONFIRM_COOKIE };
   return {
     oauthState: `vaultr_${namespace}_oauth_state`,
     oauthLinkState: `vaultr_${namespace}_oauth_link_state`,
+    googleOauthState: `vaultr_${namespace}_google_oauth_state`,
+    googleOauthLinkState: `vaultr_${namespace}_google_oauth_link_state`,
     session: `vaultr_${namespace}_session`,
     emailConfirm: `vaultr_${namespace}_email_confirm`
   };
@@ -215,6 +228,7 @@ type WebHandlerOptions = {
   now?: () => Date;
   logger?: Pick<Console, 'error'>;
   emailTransport?: MagicLinkEmailTransport;
+  googleCodeVerifier?: GoogleCodeVerifier;
 };
 
 function configuredEmailAuth(options: WebHandlerOptions): EmailAuthConfig | null {
@@ -241,6 +255,35 @@ function baseOrigin(config: WebConfig): string {
 
 function oauthCallbackUrl(config: WebConfig): string {
   return `${baseOrigin(config)}/auth/discord/callback`;
+}
+
+function googleOAuthConfig(config: WebConfig): GoogleAuthConfig | null {
+  if (!config.googleClientId || !config.googleClientSecret) return null;
+  return {
+    clientId: config.googleClientId,
+    clientSecret: config.googleClientSecret,
+    redirectUri: `${baseOrigin(config)}/auth/google/callback`
+  };
+}
+
+function encodeGoogleOAuthState(state: GoogleOAuthState): string {
+  return Buffer.from(JSON.stringify(state)).toString('base64url');
+}
+
+function decodeGoogleOAuthState(value: string | undefined, now: Date): GoogleOAuthState | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<GoogleOAuthState>;
+    if (typeof parsed.state !== 'string' || !parsed.state
+      || typeof parsed.nonce !== 'string' || !parsed.nonce
+      || typeof parsed.codeVerifier !== 'string' || !parsed.codeVerifier
+      || typeof parsed.createdAt !== 'number'
+      || parsed.createdAt > now.getTime() + 60_000
+      || now.getTime() - parsed.createdAt > OAUTH_STATE_MAX_AGE_SECONDS * 1000) return null;
+    return parsed as GoogleOAuthState;
+  } catch {
+    return null;
+  }
 }
 
 function cookieHeaderParts(name: string, value: string, options: { maxAgeSeconds?: number; secure: boolean }): string {
@@ -863,7 +906,7 @@ function previewResponse(method: string, url: URL): WebResponse | null {
   if (!url.pathname.startsWith('/api/preview/')) return null;
   if (method !== 'GET') return errorResponse(405, 'preview_read_only', { Allow: 'GET' });
   if (url.pathname === '/api/preview/me') return jsonResponse(200, WEB_PREVIEW_ME);
-  if (url.pathname === '/api/preview/auth/config') return jsonResponse(200, { email: { available: true }, discord: { available: true }, features: { tasteOnboarding: true }, preview: true });
+  if (url.pathname === '/api/preview/auth/config') return jsonResponse(200, { email: { available: true }, discord: { available: true }, google: { available: true }, features: { tasteOnboarding: true }, preview: true });
   if (url.pathname === '/api/preview/auth/email/confirmation') return jsonResponse(200, { ready: false, preview: true });
   if (url.pathname === '/api/preview/onboarding') return jsonResponse(200, WEB_PREVIEW_ONBOARDING);
   if (url.pathname === '/api/preview/collector-profile') return jsonResponse(200, {
@@ -1034,6 +1077,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     return jsonResponse(200, {
       email: { available: configuredEmailAuth(options) !== null },
       discord: { available: Boolean(options.config.discordClientId && options.config.discordClientSecret) },
+      google: { available: googleOAuthConfig(options.config) !== null },
       ...(options.config.environmentLabel ? { environment: { label: options.config.environmentLabel } } : {}),
       features: { tasteOnboarding: tasteOnboardingEnabled() }
     });
@@ -1102,6 +1146,96 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
         cookieHeaderParts(cookieNames(options.config).session, token, { maxAgeSeconds: SESSION_TTL_DAYS * 24 * 60 * 60, secure: secureCookies })
       ]
     });
+  }
+
+  if (method === 'GET' && (url.pathname === '/auth/google' || url.pathname === '/auth/google/link')) {
+    const googleConfig = googleOAuthConfig(options.config);
+    if (!googleConfig) return errorResponse(503, 'google_auth_unavailable');
+    const linking = url.pathname.endsWith('/link');
+    const session = linking ? authenticatedSession(request, options) : null;
+    if (linking && !session) return redirectResponse('/app?googleLink=auth_required#settings');
+    const oauthState = createGoogleOAuthState({
+      now: options.now?.(),
+      userId: session?.userId,
+      sessionTokenHash: session?.tokenHash
+    });
+    const stateCookie = linking ? cookieNames(options.config).googleOauthLinkState : cookieNames(options.config).googleOauthState;
+    return redirectResponse(googleAuthorizationUrl(googleConfig, oauthState), {
+      'Set-Cookie': cookieHeaderParts(stateCookie, encodeGoogleOAuthState(oauthState), {
+        maxAgeSeconds: OAUTH_STATE_MAX_AGE_SECONDS,
+        secure: secureCookies
+      })
+    });
+  }
+
+  if (method === 'GET' && url.pathname === '/auth/google/callback') {
+    const googleConfig = googleOAuthConfig(options.config);
+    if (!googleConfig) return errorResponse(503, 'google_auth_unavailable');
+    const now = options.now?.() ?? new Date();
+    const cookies = parseCookies(getHeader(request.headers, 'cookie'));
+    const callbackState = url.searchParams.get('state');
+    const signInState = decodeGoogleOAuthState(cookies[cookieNames(options.config).googleOauthState], now);
+    const linkState = decodeGoogleOAuthState(cookies[cookieNames(options.config).googleOauthLinkState], now);
+    const linkStateMatches = Boolean(callbackState && linkState?.state === callbackState);
+    const signInStateMatches = Boolean(callbackState && signInState?.state === callbackState);
+    const linking = linkStateMatches || Boolean(!signInStateMatches && cookies[cookieNames(options.config).googleOauthLinkState]);
+    const oauthState = linking ? linkState : signInState;
+    const stateMatches = linking ? linkStateMatches : signInStateMatches;
+    const stateCookieName = linking ? cookieNames(options.config).googleOauthLinkState : cookieNames(options.config).googleOauthState;
+    const clearedStateHeaders = { 'Set-Cookie': clearCookieHeader(stateCookieName, secureCookies) };
+    const redirectFailure = (reason: string, cancelled = false): WebResponse => {
+      options.logger?.error(`[web] Google OAuth ${linking ? 'link' : 'sign-in'} failed: ${reason}`);
+      return redirectResponse(
+        linking
+          ? `/app?googleLink=${cancelled ? 'cancelled' : 'failed'}#settings`
+          : `/app?authError=${cancelled ? 'google_cancelled' : 'google_sign_in_failed'}`,
+        stateMatches ? clearedStateHeaders : {}
+      );
+    };
+    if (!callbackState || !stateMatches || !oauthState) return redirectFailure(!callbackState ? 'missing_state' : 'invalid_or_expired_state');
+    if (url.searchParams.has('error')) return redirectFailure('authorization_cancelled', true);
+    const code = url.searchParams.get('code');
+    if (!code) return redirectFailure('missing_code');
+
+    try {
+      const profile = await (options.googleCodeVerifier ?? exchangeAndVerifyGoogleCode)({
+        code,
+        nonce: oauthState.nonce,
+        codeVerifier: oauthState.codeVerifier,
+        config: googleConfig
+      });
+      if (linking) {
+        const session = authenticatedSession(request, options);
+        if (!session || !oauthState.userId || session.userId !== oauthState.userId || session.tokenHash !== oauthState.sessionTokenHash) {
+          return redirectResponse('/app?googleLink=auth_required#settings', clearedStateHeaders);
+        }
+        const claimed = getIdentity('GOOGLE', profile.googleUserId);
+        const accountGoogle = getIdentityForUser(session.userId, 'GOOGLE');
+        if (claimed && claimed.userId !== session.userId) {
+          return redirectResponse('/app?googleLink=identity_conflict#settings', clearedStateHeaders);
+        }
+        if (accountGoogle && accountGoogle.providerUserId !== profile.googleUserId) {
+          return redirectResponse('/app?googleLink=account_conflict#settings', clearedStateHeaders);
+        }
+        if (claimed) {
+          updateIdentityProfile({ provider: 'GOOGLE', providerUserId: profile.googleUserId, displayName: profile.displayName, avatarUrl: profile.avatarUrl, email: profile.email });
+        } else {
+          linkIdentity({ userId: session.userId, provider: 'GOOGLE', providerUserId: profile.googleUserId, displayName: profile.displayName, avatarUrl: profile.avatarUrl, email: profile.email });
+        }
+        return redirectResponse('/app?googleLink=linked#settings', clearedStateHeaders);
+      }
+      const user = resolveOrCreateGoogleUser(profile);
+      const { token } = createWebSession({ userId: user.id }, { now, ttlDays: SESSION_TTL_DAYS });
+      return redirectResponse(options.config.postLoginRedirectPath ?? '/app', {
+        'Set-Cookie': [
+          clearCookieHeader(stateCookieName, secureCookies),
+          cookieHeaderParts(cookieNames(options.config).session, token, { maxAgeSeconds: SESSION_TTL_DAYS * 24 * 60 * 60, secure: secureCookies })
+        ]
+      });
+    } catch {
+      options.logger?.error(`[web] Google OAuth ${linking ? 'link' : 'sign-in'} failed during token verification`);
+      return redirectResponse(linking ? '/app?googleLink=failed#settings' : '/app?authError=google_sign_in_failed', clearedStateHeaders);
+    }
   }
 
   if (method === 'GET' && url.pathname === '/auth/discord') {
@@ -1234,6 +1368,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     const user = getUserById(session.userId);
     const discord = getIdentityForUser(session.userId, 'DISCORD');
     const email = getIdentityForUser(session.userId, 'EMAIL');
+    const google = getIdentityForUser(session.userId, 'GOOGLE');
     return jsonResponse(200, {
       user: {
         id: session.userId,
@@ -1242,6 +1377,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
       },
       identities: {
         email: email ? { connected: true, email: email.providerUserId, verified: true } : { connected: false },
+        google: google ? { connected: true, email: google.email, displayName: google.displayName, avatarUrl: google.avatarUrl } : { connected: false },
         discord: discord
           ? {
               connected: true,
@@ -1623,6 +1759,8 @@ export function readRequestBody(req: IncomingMessage, maxBytes = MAX_JSON_BODY_B
 export function webConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WebConfig {
   const discordClientId = env.DISCORD_CLIENT_ID;
   const discordClientSecret = env.DISCORD_CLIENT_SECRET;
+  const googleClientId = env.GOOGLE_CLIENT_ID;
+  const googleClientSecret = env.GOOGLE_CLIENT_SECRET;
   const baseUrl = env.VAULTR_WEB_BASE_URL;
   if (!baseUrl) throw new Error('Missing VAULTR_WEB_BASE_URL in environment');
   const encryptionKey = parseEmailAuthEncryptionKey(env.VAULTR_AUTH_OUTBOX_KEY);
@@ -1630,6 +1768,8 @@ export function webConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WebConfi
   return {
     discordClientId,
     discordClientSecret,
+    googleClientId,
+    googleClientSecret,
     baseUrl,
     postLoginRedirectPath: env.VAULTR_WEB_POST_LOGIN_REDIRECT_PATH ?? '/app',
     previewEnabled: env.VAULTR_WEB_PREVIEW === 'true',

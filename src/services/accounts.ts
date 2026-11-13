@@ -3,7 +3,7 @@ import { db } from './db.js';
 
 export type VaultrUserId = string;
 export type DiscordUserId = string;
-export type IdentityProvider = 'DISCORD' | 'EMAIL';
+export type IdentityProvider = 'DISCORD' | 'EMAIL' | 'GOOGLE';
 
 export type VaultrUser = {
   id: VaultrUserId;
@@ -32,6 +32,13 @@ export type DiscordIdentityInput = {
   username?: string;
   displayName?: string;
   avatarUrl?: string;
+};
+
+export type GoogleIdentityInput = {
+  googleUserId: string;
+  displayName?: string;
+  avatarUrl?: string;
+  email?: string;
 };
 
 type UserRow = {
@@ -277,6 +284,41 @@ export function resolveOrCreateDiscordUser(input: DiscordIdentityInput): VaultrU
       username: input.username,
       displayName,
       avatarUrl: input.avatarUrl
+    });
+    return user;
+  })();
+}
+
+export function resolveOrCreateGoogleUser(input: GoogleIdentityInput): VaultrUser {
+  const existing = getIdentity('GOOGLE', input.googleUserId);
+  if (existing) {
+    updateIdentityProfile({
+      provider: 'GOOGLE',
+      providerUserId: input.googleUserId,
+      displayName: input.displayName,
+      avatarUrl: input.avatarUrl,
+      email: input.email
+    });
+    updateUserProfileStmt.run({
+      id: existing.userId,
+      display_name: input.displayName ?? null,
+      avatar_url: input.avatarUrl ?? null,
+      updated_at: new Date().toISOString()
+    });
+    const user = getUserById(existing.userId);
+    if (!user) throw new Error('Google identity points at missing Vaultr user');
+    return user;
+  }
+
+  return db.transaction(() => {
+    const user = createUser({ displayName: input.displayName, avatarUrl: input.avatarUrl });
+    linkIdentity({
+      userId: user.id,
+      provider: 'GOOGLE',
+      providerUserId: input.googleUserId,
+      displayName: input.displayName,
+      avatarUrl: input.avatarUrl,
+      email: input.email
     });
     return user;
   })();

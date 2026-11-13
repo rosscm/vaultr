@@ -327,6 +327,11 @@ a {
 .auth-discord-button:active { background: #4752c4; transform: translateY(0); }
 .auth-discord-button:focus-visible { outline: 3px solid rgba(255, 211, 135, 0.85); outline-offset: 3px; }
 .auth-discord-button svg { width: 27px; height: 27px; flex: 0 0 auto; }
+.auth-google-button { width: 100%; min-height: 58px; display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 12px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 14px; background: #fff; color: #25232a; box-shadow: 0 10px 24px rgba(4, 3, 18, 0.24); font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; }
+.auth-google-button:hover { background: #f7f7f8; transform: translateY(-1px); }
+.auth-google-button:active { background: #ececee; transform: translateY(0); }
+.auth-google-button:focus-visible { outline: 3px solid rgba(255, 211, 135, 0.85); outline-offset: 3px; }
+.auth-google-button svg { width: 24px; height: 24px; flex: 0 0 auto; }
 .auth-reassurance { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 14px auto 0 !important; font-size: 0.84rem !important; }
 .auth-reassurance .nav-icon { width: 19px; height: 19px; color: var(--lavender); }
 
