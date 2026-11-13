@@ -1008,7 +1008,7 @@ function settingsPageMarkup() {
     id: 'settings-title',
     title: 'Settings',
     tagline: 'Set KeepSeek up your way.',
-    copy: 'Make KeepSeek feel right for you. Manage your account and adjust how KeepSeek finds matches for what you collect.'
+    copy: 'Manage your account, fine-tune your matches, and make discovery feel more like you.'
   });
   if (state.isSettingsLoading && !state.settingsLoaded) {
     return `<section class="settings-page" aria-labelledby="settings-title">${header}<div class="settings-loading" role="status">Loading Settings…</div></section>`;
@@ -1044,92 +1044,117 @@ function settingsPageMarkup() {
   const discoveryBudgetHasMaximum = discoveryBudget.mode === 'PRESET'
     || (discoveryBudget.mode === 'CUSTOM' && discoveryBudget.customMaximum !== null && discoveryBudget.customMaximum !== '');
   const discoveryBudgetPresets = options.discoveryBudgetPresets || [];
+  const shippingCountryLabel = (label) => String(label).replace(/\s+\([A-Z]{3}\)$/, '');
   return `
     <section class="settings-page" aria-labelledby="settings-title">
       ${header}
       ${isPreviewMode ? '<p class="preview-read-only" role="status">Preview mode is read-only. You can inspect these settings, but changes will not be saved.</p>' : ''}
-      <section class="settings-overview" aria-label="Account overview">
-        <div class="settings-overview-row"><span><small>Current plan</small><strong>${escapeHtml(currentPlan)}</strong></span><button class="button-ghost settings-plan-link" type="button" data-action="open-plan-comparison">Compare plans</button></div>
-        ${tasteOnboardingEnabled() ? '<div class="settings-overview-row"><span><strong>Collector Profile</strong><small>Update your favourites and artwork preferences without changing your Watchlist.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="edit-collector-profile">Edit profile</button></div>' : ''}
-        <div class="settings-overview-row"><span><strong>Getting started</strong><small>Review your market preferences or the first-card walkthrough.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="revisit-onboarding">Revisit setup</button></div>
-      </section>
-      <section class="settings-group account-methods" aria-labelledby="settings-login-title">
-        <div class="settings-group-heading"><p class="eyebrow">Account</p><h2 id="settings-login-title">Login methods</h2></div>
-        <div class="account-method-content">
+      <section class="settings-category" aria-labelledby="settings-account-title">
+        <header class="settings-category-heading"><h2 id="settings-account-title">Account</h2></header>
+        <section class="settings-overview" aria-label="Account overview">
+          <div class="settings-overview-row"><span><small>Current plan</small><strong>${escapeHtml(currentPlan)}</strong></span><button class="button-ghost settings-plan-link" type="button" data-action="open-plan-comparison">Compare plans</button></div>
+          ${tasteOnboardingEnabled() ? '<div class="settings-overview-row"><span><strong>Collector Profile</strong><small>Update your favourites and artwork preferences without changing your Watchlist.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="edit-collector-profile">Edit profile</button></div>' : ''}
+          ${state.onboarding?.status === 'IN_PROGRESS' ? '' : '<div class="settings-overview-row settings-overview-secondary"><span><strong>Getting started</strong><small>Revisit your initial setup and preferences.</small></span><button class="button-ghost settings-onboarding-link" type="button" data-action="revisit-onboarding">Revisit setup</button></div>'}
+        </section>
+        <section class="settings-group account-methods" aria-labelledby="settings-login-title">
+          <div class="settings-group-heading"><h3 id="settings-login-title">Login methods</h3><p>Connect another sign-in method if you'd like. It's completely optional.</p></div>
+          <div class="account-method-content">
           <div class="account-method-list">
-            <div class="account-method-row">
-              <span><strong>Email</strong><small>${emailIdentity.connected ? `${escapeHtml(emailIdentity.email)} · Verified` : 'Not connected'}</small><small>${emailIdentity.connected ? 'Use this address to sign in with a secure email link.' : emailLinkAvailable ? 'Add an email address as another way to sign in.' : 'Email sign-in isn’t available here yet.'}</small></span>
+            ${emailIdentity.connected || emailLinkAvailable ? `<div class="account-method-row">
+              <span><strong>Email</strong><small>${emailIdentity.connected ? escapeHtml(emailIdentity.email) : 'Not connected'}</small></span>
               ${emailIdentity.connected || !emailLinkAvailable ? '' : `<form class="email-link-form" data-email-link-form novalidate><label class="field"><span class="visually-hidden">Email address</span><input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(state.authEmailDraft)}" placeholder="you@example.com" required${isPreviewMode ? ' disabled' : ''}></label><button class="button-ghost" type="submit"${isPreviewMode || state.authBusy ? ' disabled' : ''}>Send verification link</button></form>`}
+              ${emailIdentity.connected ? '<small class="account-method-status">Connected</small>' : ''}
+            </div>` : ''}
+            <div class="account-method-row">
+              <span><strong>Google</strong><small>${googleIdentity.connected ? escapeHtml(googleIdentity.email || googleIdentity.displayName || 'Google account') : 'Not connected'}</small></span>
+              ${googleIdentity.connected ? '<small class="account-method-status">Connected</small>' : googleAvailable && !isPreviewMode ? '<a class="button-ghost account-method-action" href="/auth/google/link">Connect Google</a>' : ''}
             </div>
             <div class="account-method-row">
-              <span><strong>Google</strong><small>${googleIdentity.connected ? escapeHtml(googleIdentity.email || googleIdentity.displayName || 'Connected') : 'Not connected'}</small><small>${googleIdentity.connected ? 'Connected as another secure way to sign in.' : 'Connect Google without changing your KeepSeek account or collection.'}</small></span>
-              ${googleIdentity.connected || !googleAvailable || isPreviewMode ? '' : '<a class="button-ghost account-method-action" href="/auth/google/link">Connect Google</a>'}
-            </div>
-            <div class="account-method-row">
-              <span><strong>Discord</strong><small>${discordIdentity.connected ? escapeHtml(discordIdentity.displayName || discordIdentity.username || 'Connected') : 'Not connected'}</small><small>${discordIdentity.connected ? 'Connected for sign-in and supported Discord features.' : 'Optional. Connect Discord as another way to access KeepSeek.'}</small></span>
-              ${discordIdentity.connected || !discordAvailable || isPreviewMode ? '' : '<a class="button-ghost account-method-action" href="/auth/discord/link">Connect Discord</a>'}
+              <span><strong>Discord</strong><small>${discordIdentity.connected ? escapeHtml(discordIdentity.displayName || discordIdentity.username || 'Discord account') : 'Not connected'}</small></span>
+              ${discordIdentity.connected ? '<small class="account-method-status">Connected</small>' : discordAvailable && !isPreviewMode ? '<a class="button-ghost account-method-action" href="/auth/discord/link">Connect Discord</a>' : ''}
             </div>
           </div>
           ${state.emailConfirmation?.ready && state.emailConfirmation.purpose === 'LINK_EMAIL' ? '<button class="button-primary" type="button" data-action="redeem-email-link">Finish adding email</button>' : ''}
           ${state.authNotice ? `<p class="form-success" role="status">${escapeHtml(state.authNotice)}</p>` : ''}
           ${state.authError ? `<p class="form-error" role="alert">${escapeHtml(state.authError)}</p>` : ''}
-        </div>
+          </div>
+        </section>
       </section>
       <form class="settings-form" data-settings-form novalidate>
-        <section class="settings-group" aria-labelledby="settings-matching-title">
+        <section class="settings-category" aria-labelledby="settings-watchlist-title">
+          <header class="settings-category-heading"><h2 id="settings-watchlist-title">Watchlist & matches</h2></header>
+          <section class="settings-group" aria-labelledby="settings-matching-title">
           <div class="settings-group-heading">
-            <p class="eyebrow">Matching</p>
-            <h2 id="settings-matching-title">Match quality</h2>
+            <h3 id="settings-matching-title">Match confidence</h3>
+            <p id="settings-confidence-help">KeepSeek scores how closely listings match your saved criteria, including card identity, grading, condition, and price, with adjustments for seller and listing quality.</p>
           </div>
           <label class="field settings-confidence-field">
-            <span>Match confidence <output data-confidence-output>${escapeHtml(draft.minScore)}</output></span>
+            <span class="settings-slider-value"><span>Current score</span><output data-confidence-output>${escapeHtml(draft.minScore)}</output></span>
             <input name="minScore" type="range" min="${escapeHtml(options.confidence?.min ?? 0)}" max="${escapeHtml(options.confidence?.max ?? 100)}" step="1" value="${escapeHtml(draft.minScore)}" aria-describedby="${describedBy('minScore', 'settings-confidence-help')}"${controlsDisabled ? ' disabled' : ''}>
-            <small class="field-hint" id="settings-confidence-help">Higher confidence means fewer, stricter matches enter your Inbox.</small>
+            <small class="field-hint">Higher settings mean fewer, stricter matches.</small>
             ${settingsFieldError('minScore')}
           </label>
         </section>
         <section class="settings-group" aria-labelledby="settings-volume-title">
           <div class="settings-group-heading">
-            <p class="eyebrow">Match volume</p>
-            <h2 id="settings-volume-title">How many matches to surface</h2>
-            <p>Limits matches surfaced in your Inbox and Discord. It does not change how often KeepSeek checks.</p>
+            <h3 id="settings-volume-title">Match volume</h3>
+            <p>Choose how many new matches KeepSeek surfaces per hour across your Watchlist. This doesn't change how often it checks for listings.</p>
           </div>
-          <fieldset class="settings-segments" aria-describedby="settings-volume-help">
-            <legend class="sr-only">Match volume</legend>
-            ${(options.volumes || []).map((option) => `
-              <label>
-                <input type="radio" name="alertVolume" value="${escapeHtml(option.value)}"${draft.alertVolume === option.value ? ' checked' : ''}${controlsDisabled ? ' disabled' : ''}>
-                <span><strong>${escapeHtml(option.label)}</strong><small>${escapeHtml(option.maxAlertsPerHour)}/hour</small></span>
-              </label>
-            `).join('')}
-          </fieldset>
-          <small class="field-hint" id="settings-volume-help">The limit applies across active Watchlist searches.</small>
-          ${state.settings?.status?.alertVolumeReached ? '<p class="form-notice" role="status"><strong>Alert volume reached.</strong> KeepSeek has reached your current hourly match limit. New matches will resume as the rolling hour clears.</p>' : ''}
-          ${settingsFieldError('alertVolume')}
+          <div class="settings-control-stack">
+            <fieldset class="settings-segments">
+              <legend class="visually-hidden">Match volume</legend>
+              ${(options.volumes || []).map((option) => `
+                <label>
+                  <input type="radio" name="alertVolume" value="${escapeHtml(option.value)}"${draft.alertVolume === option.value ? ' checked' : ''}${controlsDisabled ? ' disabled' : ''}>
+                  <span><strong>${escapeHtml(option.label)}</strong><small>${escapeHtml(option.maxAlertsPerHour)}/hour</small></span>
+                </label>
+              `).join('')}
+            </fieldset>
+            ${state.settings?.status?.alertVolumeReached ? '<p class="form-notice" role="status"><strong>Alert volume reached.</strong> KeepSeek has reached your current hourly match limit. New matches will resume as the rolling hour clears.</p>' : ''}
+            ${settingsFieldError('alertVolume')}
+          </div>
+        </section>
+        <section class="settings-group" aria-labelledby="settings-sources-title">
+          <div class="settings-group-heading">
+            <h3 id="settings-sources-title">Listing sources</h3>
+            <p>Choose which supported marketplaces KeepSeek searches for cards on your Watchlist.</p>
+          </div>
+          <label class="field">
+            <span class="visually-hidden">Listing sources</span>
+            <select name="listingSourceMode" aria-describedby="${describedBy('listingSourceMode', 'settings-source-help')}"${controlsDisabled ? ' disabled' : ''}>
+              ${(options.sources || []).map((option) => {
+                const locked = option.requiresPro && !access.trustedShops;
+                return `<option value="${escapeHtml(option.value)}"${draft.listingSourceMode === option.value ? ' selected' : ''}${locked ? ' disabled' : ''}>${escapeHtml(option.label)}${locked ? ' (KeepSeek Plus)' : ''}</option>`;
+              }).join('')}
+            </select>
+            <small class="field-hint" id="settings-source-help">Supported shops require <strong class="inline-vaultr-plus">KeepSeek Plus</strong>.${sourceMismatch ? ` Your saved preference is retained, but KeepSeek is currently using ${escapeHtml(draft.effectiveListingSourceMode === 'EBAY' ? 'eBay' : draft.effectiveListingSourceMode)}.` : ''}</small>
+            ${settingsFieldError('listingSourceMode')}
+          </label>
         </section>
         <section class="settings-group" aria-labelledby="settings-delivery-title">
           <div class="settings-group-heading">
-            <p class="eyebrow">Delivery</p>
-            <h2 id="settings-delivery-title">Discord match alerts</h2>
-            <p>Your Inbox is the complete match history. Optionally receive a Discord DM when a new match appears.</p>
+            <h3 id="settings-delivery-title">Discord notifications</h3>
+            <p>Get optional DMs when KeepSeek finds new matches. Your Inbox is always available.</p>
           </div>
           <div class="settings-toggle-field">
             <label class="settings-toggle-control">
               <span class="settings-toggle-copy">
-                <strong>${access.discordLinked ? 'Send new match alerts to Discord' : 'Connect Discord to enable match alerts'}</strong>
-                <small id="settings-discord-alerts-help">${access.discordLinked ? 'Optional delivery for card and listing matches only.' : 'Connect Discord in Login methods before enabling DM alerts.'}</small>
+                <strong class="visually-hidden">Discord notifications</strong>
+                ${access.discordLinked ? '' : '<small id="settings-discord-alerts-help">Connect Discord in Login methods to enable notifications.</small>'}
               </span>
-              <input class="settings-toggle-input" name="discordCardAlertsEnabled" type="checkbox"${draft.discordCardAlertsEnabled ? ' checked' : ''}${controlsDisabled || !access.discordLinked ? ' disabled' : ''} aria-describedby="${describedBy('discordCardAlertsEnabled', 'settings-discord-alerts-help')}">
+              <input class="settings-toggle-input" name="discordCardAlertsEnabled" type="checkbox" aria-label="Discord notifications"${draft.discordCardAlertsEnabled ? ' checked' : ''}${controlsDisabled || !access.discordLinked ? ' disabled' : ''}${access.discordLinked ? '' : ` aria-describedby="${describedBy('discordCardAlertsEnabled', 'settings-discord-alerts-help')}"`}>
               <span class="settings-toggle-switch" aria-hidden="true"><span></span></span>
             </label>
             ${settingsFieldError('discordCardAlertsEnabled')}
           </div>
         </section>
-        <section class="settings-group" aria-labelledby="settings-discovery-budget-title">
+        </section>
+        <section class="settings-category" aria-labelledby="settings-display-case-title">
+          <header class="settings-category-heading"><h2 id="settings-display-case-title">Display Case</h2></header>
+          <section class="settings-group" aria-labelledby="settings-discovery-budget-title">
           <div class="settings-group-heading">
-            <p class="eyebrow">Discovery Budget</p>
-            <h2 id="settings-discovery-budget-title">What price range would you like to explore?</h2>
-            <p>Find cards that fit your budget, with room for the occasional dream card. This does not change Watchlist spending limits.</p>
+            <h3 id="settings-discovery-budget-title">Discovery budget</h3>
+            <p id="settings-discovery-budget-help">Guide the prices you'd like to see in your Display Case. This won't change the maximums you've set for cards on your Watchlist.</p>
           </div>
           <div class="settings-budget-fields">
             <label class="field">
@@ -1139,7 +1164,6 @@ function settingsPageMarkup() {
                 ${discoveryBudgetPresets.map((option) => `<option value="PRESET:${escapeHtml(option.maximumCad)}"${discoveryBudget.mode === 'PRESET' && discoveryBudget.presetMaxCad === option.maximumCad ? ' selected' : ''}>Under ${escapeHtml(formatRoundedMoney(option.localAmount, option.currency))}</option>`).join('')}
                 ${access.tier === 'PRO' || discoveryBudget.mode === 'CUSTOM' ? `<option value="CUSTOM"${discoveryBudget.mode === 'CUSTOM' ? ' selected' : ''}${access.tier === 'PRO' ? '' : ' disabled'}>Custom price range${access.tier === 'PRO' ? '' : ' (KeepSeek Plus)'}</option>` : ''}
               </select>
-              <small class="field-hint" id="settings-discovery-budget-help">A preference for future Display Cases, not a marketplace filter.</small>
               ${discoveryBudget.effectiveMode && discoveryBudget.effectiveMode !== discoveryBudget.mode ? '<small class="field-hint">Your custom range is retained, but Any price applies while KeepSeek Plus is inactive.</small>' : ''}
               ${settingsFieldError('discoveryBudget.mode')}
               ${settingsFieldError('discoveryBudget.presetMaxCad')}
@@ -1151,7 +1175,7 @@ function settingsPageMarkup() {
               </div>` : ''}
             <div class="settings-toggle-field">
               <label class="settings-toggle-control">
-                <span class="settings-toggle-copy"><strong>Include cards without reliable prices</strong><small>Keep distinctive cards eligible when trustworthy pricing is unavailable.</small></span>
+                <span class="settings-toggle-copy"><strong>Include cards without reliable prices</strong><small>Keep interesting cards in the mix when reliable pricing isn't available.</small></span>
                 <input class="settings-toggle-input" name="discoveryBudgetIncludeUnknownPrices" type="checkbox"${discoveryBudget.includeUnknownPrices ? ' checked' : ''}${controlsDisabled ? ' disabled' : ''}>
                 <span class="settings-toggle-switch" aria-hidden="true"><span></span></span>
               </label>
@@ -1159,7 +1183,7 @@ function settingsPageMarkup() {
             </div>
             ${access.tier === 'PRO' && discoveryBudgetHasMaximum ? `<div class="settings-toggle-field">
               <label class="settings-toggle-control">
-                <span class="settings-toggle-copy"><strong>Leave room for dream cards</strong><small>Allow at most one strongly personalized, source-backed pick above your maximum.</small></span>
+                <span class="settings-toggle-copy"><strong>Leave room for dream cards</strong><small>Allow up to one personalized pick above your preferred maximum when reliable pricing is available.</small></span>
                 <input class="settings-toggle-input" name="discoveryBudgetDreamCardsEnabled" type="checkbox"${discoveryBudget.dreamCardsEnabled ? ' checked' : ''}${controlsDisabled ? ' disabled' : ''}>
                 <span class="settings-toggle-switch" aria-hidden="true"><span></span></span>
               </label>
@@ -1167,52 +1191,40 @@ function settingsPageMarkup() {
             </div>` : ''}
           </div>
         </section>
-        <section class="settings-group" aria-labelledby="settings-sources-title">
-          <div class="settings-group-heading">
-            <p class="eyebrow">Sources</p>
-            <h2 id="settings-sources-title">Where KeepSeek searches</h2>
-          </div>
-          <label class="field">
-            <span>Listing sources</span>
-            <select name="listingSourceMode" aria-describedby="${describedBy('listingSourceMode', 'settings-source-help')}"${controlsDisabled ? ' disabled' : ''}>
-              ${(options.sources || []).map((option) => {
-                const locked = option.requiresPro && !access.trustedShops;
-                return `<option value="${escapeHtml(option.value)}"${draft.listingSourceMode === option.value ? ' selected' : ''}${locked ? ' disabled' : ''}>${escapeHtml(option.label)}${locked ? ' (KeepSeek Plus)' : ''}</option>`;
-              }).join('')}
-            </select>
-            <small class="field-hint" id="settings-source-help">Supported shops require <strong class="inline-vaultr-plus">KeepSeek Plus</strong>.${sourceMismatch ? ` Your saved preference is retained, but KeepSeek is currently using ${escapeHtml(draft.effectiveListingSourceMode === 'EBAY' ? 'eBay' : draft.effectiveListingSourceMode)}.` : ''}</small>
-            ${settingsFieldError('listingSourceMode')}
-          </label>
         </section>
-        <section class="settings-group" aria-labelledby="settings-pricing-title">
+        <section class="settings-category" aria-labelledby="settings-market-title">
+          <header class="settings-category-heading"><h2 id="settings-market-title">Market preferences</h2></header>
+          <section class="settings-group" aria-labelledby="settings-pricing-title">
           <div class="settings-group-heading">
-            <p class="eyebrow">Pricing & shipping</p>
-            <h2 id="settings-pricing-title">Your market context</h2>
+            <h3 id="settings-pricing-title">Currency & shipping</h3>
           </div>
-          <div class="settings-field-grid">
+          <div class="settings-market-fields">
             <label class="field">
               <span>Currency</span>
               <select name="alertCurrency" aria-describedby="${describedBy('alertCurrency', 'settings-currency-help')}"${controlsDisabled ? ' disabled' : ''}>
                 ${currencyOptions.map((currency) => `<option value="${escapeHtml(currency)}"${draft.alertCurrency === currency ? ' selected' : ''}>${escapeHtml(currency)}</option>`).join('')}
               </select>
-              <small class="field-hint" id="settings-currency-help">Changing currency converts and rounds saved Watchlist budgets. Shipping destination remains independent.</small>
+              <small class="field-hint" id="settings-currency-help">Changing your currency also converts saved Watchlist budgets. Your shipping destination won't change.</small>
               ${settingsFieldError('alertCurrency')}
             </label>
-            <label class="field">
-              <span>Ship-to country</span>
-              <select name="shippingCountry" aria-describedby="${describedBy('shippingCountry', 'settings-country-help')}"${controlsDisabled ? ' disabled' : ''}>
-                ${(options.shippingCountries || []).map((option) => `<option value="${escapeHtml(option.value)}"${country === option.value ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}
-              </select>
-              <small class="field-hint" id="settings-country-help">Used for shipping availability and estimates.</small>
-              ${settingsFieldError('shippingCountry')}
-            </label>
-            <label class="field settings-postal-field"${supportsPostal ? '' : ' hidden'}>
-              <span>${country === 'CA' ? 'Postal region' : 'ZIP region'}</span>
-              <input name="shippingPostalCode" maxlength="16" value="${escapeHtml(draft.shippingPostalCode || '')}" placeholder="${country === 'CA' ? 'M5V' : '90210'}" aria-describedby="${describedBy('shippingPostalCode', 'settings-postal-help')}"${controlsDisabled || !supportsPostal ? ' disabled' : ''}>
-              <small class="field-hint" id="settings-postal-help">Only a coarse region is retained: the first three Canadian characters or five-digit US ZIP.</small>
-              ${settingsFieldError('shippingPostalCode')}
-            </label>
+            <div class="settings-shipping-fields">
+              <label class="field">
+                <span>Ship-to country</span>
+                <select name="shippingCountry" aria-describedby="${describedBy('shippingCountry', 'settings-country-help')}"${controlsDisabled ? ' disabled' : ''}>
+                  ${(options.shippingCountries || []).map((option) => `<option value="${escapeHtml(option.value)}"${country === option.value ? ' selected' : ''}>${escapeHtml(shippingCountryLabel(option.label))}</option>`).join('')}
+                </select>
+                <small class="field-hint" id="settings-country-help">Helps KeepSeek check shipping availability and estimate costs.</small>
+                ${settingsFieldError('shippingCountry')}
+              </label>
+              <label class="field settings-postal-field"${supportsPostal ? '' : ' hidden'}>
+                <span>${country === 'CA' ? 'Postal region' : 'ZIP region'}</span>
+                <input name="shippingPostalCode" maxlength="16" value="${escapeHtml(draft.shippingPostalCode || '')}" placeholder="${country === 'CA' ? 'M5V' : '90210'}" aria-describedby="${describedBy('shippingPostalCode', 'settings-postal-help')}"${controlsDisabled || !supportsPostal ? ' disabled' : ''}>
+                <small class="field-hint" id="settings-postal-help">Only your general region is saved, not your full address.</small>
+                ${settingsFieldError('shippingPostalCode')}
+              </label>
+            </div>
           </div>
+        </section>
         </section>
         <footer class="settings-actions">
           <p class="settings-save-status" role="status" aria-live="polite">${escapeHtml(state.settingsSaveStatus)}</p>

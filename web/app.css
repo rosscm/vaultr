@@ -424,9 +424,9 @@ a {
 }
 
 .account-method-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 16px;
   min-width: 0;
   padding: 16px 0;
@@ -443,6 +443,13 @@ a {
   line-height: 1.4;
 }
 
+.account-method-status {
+  justify-self: end;
+  color: #9ee6c4 !important;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
 .account-method-row .email-link-form {
   width: min(330px, 100%);
   grid-template-columns: minmax(150px, 1fr) auto;
@@ -455,8 +462,10 @@ a {
   margin: 0;
 }
 
-.account-method-action {
-  flex: 0 0 auto;
+.account-method-row .account-method-action {
+  grid-column: auto;
+  width: fit-content;
+  justify-self: end;
   text-decoration: none;
 }
 
@@ -920,7 +929,8 @@ a {
 
 .settings-page {
   display: grid;
-  max-width: 820px;
+  width: min(100%, 1100px);
+  max-width: 1100px;
   gap: 24px;
 }
 
@@ -931,6 +941,31 @@ a {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.settings-category {
+  display: grid;
+  min-width: 0;
+  gap: 0;
+}
+
+.settings-category + .settings-category,
+.settings-form > .settings-category + .settings-category {
+  margin-top: 38px;
+}
+
+.settings-category-heading {
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.settings-category-heading h2 {
+  margin: 0;
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 .settings-overview-row {
   min-height: 68px;
   display: flex;
@@ -938,6 +973,10 @@ a {
   justify-content: space-between;
   gap: 20px;
   padding: 13px 16px;
+}
+
+.settings-overview-secondary {
+  min-height: 60px;
 }
 
 .settings-overview-row + .settings-overview-row {
@@ -1373,14 +1412,13 @@ a {
 .settings-form {
   display: grid;
   gap: 0;
-  border-top: 1px solid var(--line);
 }
 
 .settings-group {
   display: grid;
-  grid-template-columns: minmax(180px, 0.72fr) minmax(0, 1.28fr);
-  gap: 28px;
-  padding: 26px 0;
+  grid-template-columns: minmax(250px, 0.82fr) minmax(0, 1.18fr);
+  gap: clamp(32px, 4.5vw, 58px);
+  padding: 24px 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -1388,21 +1426,38 @@ a {
   align-self: start;
 }
 
-.settings-group-heading h2 {
-  margin: 5px 0 0;
-  font-size: 1rem;
+.settings-group-heading h3 {
+  margin: 0;
+  color: var(--muted-strong);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 760;
   letter-spacing: 0;
 }
 
 .settings-group-heading > p:not(.eyebrow) {
   margin: 7px 0 0;
+  max-width: 34ch;
   color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.45;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.settings-control-stack,
+.settings-shipping-fields {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.settings-slider-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .settings-confidence-field output {
-  float: right;
   color: var(--pink);
   font-variant-numeric: tabular-nums;
 }
@@ -1580,6 +1635,13 @@ a {
   gap: 16px;
 }
 
+.settings-market-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 20px;
+}
+
 .settings-budget-fields {
   display: grid;
   gap: 18px;
@@ -1590,7 +1652,7 @@ a {
 }
 
 .settings-postal-field {
-  grid-column: 2;
+  grid-column: auto;
 }
 
 .field-error {
@@ -1628,6 +1690,27 @@ a {
   margin: 0 auto 0 0;
   color: var(--muted-strong);
   font-size: 0.84rem;
+}
+
+@media (max-width: 860px) {
+  .settings-category + .settings-category,
+  .settings-form > .settings-category + .settings-category {
+    margin-top: 30px;
+  }
+
+  .settings-group {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 24px 0;
+  }
+
+  .settings-group-heading > p:not(.eyebrow) {
+    max-width: 62ch;
+  }
+
+  .settings-market-fields {
+    grid-template-columns: 1fr;
+  }
 }
 
 .home-page {
@@ -5796,6 +5879,15 @@ a {
   .account-method-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .account-method-row {
+    grid-template-columns: 1fr;
+  }
+
+  .account-method-status,
+  .account-method-action {
+    justify-self: start;
   }
 
   .settings-overview-row .button-ghost,

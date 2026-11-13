@@ -419,7 +419,17 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('Your preferences are still here; choose the card again to refresh it before saving.');
     expect(jsResponse.body).toContain('const requestId = ++state.vaultRequestId;');
     expect(jsResponse.body).toContain('if (requestId !== state.vaultRequestId) return null;');
-    expect(jsResponse.body).toContain('Make KeepSeek feel right for you. Manage your account and adjust how KeepSeek finds matches for what you collect.');
+    expect(jsResponse.body).toContain('Manage your account, fine-tune your matches, and make discovery feel more like you.');
+    expect(jsResponse.body).toContain('Connect another sign-in method if you\'d like. It\'s completely optional.');
+    expect(jsResponse.body).toContain("state.onboarding?.status === 'IN_PROGRESS' ? '' : '<div class=\"settings-overview-row settings-overview-secondary\"");
+    expect(jsResponse.body).toContain("emailIdentity.connected || emailLinkAvailable ?");
+    expect(jsResponse.body).toContain('class="settings-control-stack"');
+    expect(jsResponse.body).not.toContain('This is a rule-based score, not a percentage probability.');
+    expect(jsResponse.body).toContain('<header class="settings-category-heading"><h2 id="settings-watchlist-title">Watchlist & matches</h2></header>');
+    expect(jsResponse.body).toContain('<h3 id="settings-volume-title">Match volume</h3>');
+    expect(jsResponse.body).toContain('aria-label="Discord notifications"');
+    expect(jsResponse.body).toContain('class="settings-market-fields"');
+    expect(jsResponse.body).toContain("replace(/\\s+\\([A-Z]{3}\\)$/, '')");
     expect(jsResponse.body).not.toContain('<p class="auth-unavailable">Email sign-in isn’t available here yet.</p>');
     expect(jsResponse.body).toContain('You already have a card on your Watchlist. You’re ready to continue.');
     expect(jsResponse.body).toContain("alertReviewState: 'NEW'");
