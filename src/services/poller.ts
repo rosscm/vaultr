@@ -25,6 +25,7 @@ import {
   recordSourceObservations
 } from './chase-store.js';
 import { ebayRateLimitRetryAfterMs, enrichEbayListingDetails, getCachedEbayListings, searchEbayListings, type ShippingDestination } from './ebay.js';
+import { ebayHistoricalVerificationEnabled, processEbayListingVerificationQueue } from './ebay-listing-verification.js';
 import { searchTrustedShopifyListingsDetailed, startTrustedShopifyCatalogWorker, type TrustedShopifySearchResult } from './shopify.js';
 import { matchChaseToListing } from './matcher.js';
 import { searchMockListings } from './mock-listings.js';
@@ -1167,6 +1168,14 @@ export function startPoller(): void {
     }
     try {
       await runPoll();
+      if (ebayHistoricalVerificationEnabled()) {
+        try {
+          const verification = await processEbayListingVerificationQueue();
+          if (verification.attempted > 0) console.info(`[eBayVerification] ${JSON.stringify(verification)}`);
+        } catch (error) {
+          console.error('Historical eBay verification batch failed', error);
+        }
+      }
       await processPendingDiscordAlertDeliveries();
     } catch (error) {
       console.error('Poller run failed', error);

@@ -502,6 +502,80 @@ describe('searchEbayListings Browse shipping', () => {
   });
 });
 
+describe('verifyEbayListingAvailability', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+    process.env = {
+      ...ORIGINAL_ENV,
+      EBAY_CLIENT_ID: 'client-id',
+      EBAY_CLIENT_SECRET: 'client-secret',
+      EBAY_MAX_REQUESTS_PER_MINUTE: '100'
+    };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  async function verifyResponse(body: unknown, status = 200, headers?: HeadersInit) {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } }));
+    const { verifyEbayListingAvailability } = await import('../ebay.js');
+    return verifyEbayListingAvailability('v1|123|0', { now: new Date('2026-11-16T12:00:00.000Z') });
+  }
+
+  it('classifies available and ended-but-public item responses', async () => {
+    await expect(verifyResponse({
+      itemEndDate: '2026-11-17T12:00:00.000Z',
+      estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'IN_STOCK' }]
+    })).resolves.toMatchObject({ kind: 'AVAILABLE', availabilityStatus: 'IN_STOCK' });
+
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+    const ended = await verifyResponse({
+      itemEndDate: '2026-11-15T12:00:00.000Z',
+      estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'OUT_OF_STOCK' }]
+    });
+    expect(ended).toMatchObject({ kind: 'ENDED_PUBLIC', availabilityStatus: 'OUT_OF_STOCK' });
+  });
+
+  it('keeps ordinary 404 responses ambiguous and recognizes explicit unavailability', async () => {
+    await expect(verifyResponse({ errors: [{ errorId: 2002 }] }, 404)).resolves.toMatchObject({
+      kind: 'AMBIGUOUS_NOT_FOUND', httpStatus: 404, errorCode: '2002'
+    });
+
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+    await expect(verifyResponse({}, 410)).resolves.toMatchObject({ kind: 'UNAVAILABLE', httpStatus: 410 });
+  });
+
+  it('classifies rate limits, server failures, authentication failures, and timeouts', async () => {
+    await expect(verifyResponse({}, 429, { 'retry-after': '30' })).resolves.toMatchObject({
+      kind: 'RATE_LIMITED', retryAfterMs: 30_000
+    });
+
+    for (const [status, kind] of [[503, 'TEMPORARY_FAILURE'], [401, 'AUTH_FAILURE']] as const) {
+      vi.resetModules();
+      vi.stubGlobal('fetch', vi.fn());
+      await expect(verifyResponse({}, status)).resolves.toMatchObject({ kind, httpStatus: status });
+    }
+
+    vi.resetModules();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockRejectedValueOnce(Object.assign(new Error('timed out'), { name: 'TimeoutError' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { verifyEbayListingAvailability } = await import('../ebay.js');
+    await expect(verifyEbayListingAvailability('v1|timeout|0')).resolves.toMatchObject({
+      kind: 'TEMPORARY_FAILURE', errorCode: 'TIMEOUT'
+    });
+  });
+});
+
 describe('searchEbaySoldListings', () => {
   beforeEach(() => {
     vi.resetModules();

@@ -268,6 +268,31 @@ db.exec(`
     PRIMARY KEY (chase_id, listing_id, source)
   );
 
+  CREATE TABLE IF NOT EXISTS ebay_listing_verifications (
+    listing_id TEXT PRIMARY KEY,
+    availability_state TEXT NOT NULL DEFAULT 'UNVERIFIED',
+    last_successful_verification_at TEXT,
+    next_verification_at TEXT,
+    last_attempted_at TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error_class TEXT,
+    last_http_status INTEGER,
+    item_end_at TEXT,
+    availability_status TEXT,
+    redacted_at TEXT,
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS ebay_listing_verification_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    listing_id TEXT NOT NULL,
+    attempted_at TEXT NOT NULL,
+    FOREIGN KEY (listing_id) REFERENCES ebay_listing_verifications(listing_id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS trusted_shop_catalog_state (
     shop_slug TEXT PRIMARY KEY,
     sweep_id TEXT NOT NULL,
@@ -1388,6 +1413,8 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_auth_email_outbox_pending ON auth_email_
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_user_seen ON source_observations(user_id, last_seen_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_listing ON source_observations(listing_id, source);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_source_observations_last_seen ON source_observations(last_seen_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_ebay_listing_verifications_due ON ebay_listing_verifications(next_verification_at, lease_expires_at);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_ebay_listing_verification_attempts_time ON ebay_listing_verification_attempts(attempted_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_ignored_listing_fingerprints_user_chase ON ignored_listing_fingerprints(user_id, chase_id);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_guild_started_users_guild_time ON guild_started_users(guild_id, started_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_user_weekly_reflection_posts_user_week ON user_weekly_reflection_posts(user_id, week_key);`);
@@ -1405,3 +1432,31 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_user ON discover
 db.exec(`CREATE INDEX IF NOT EXISTS idx_discovery_vault_actions_expires ON discovery_vault_actions(expires_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_feedback_user_time ON alert_feedback(user_id, created_at);`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chase_poll_state_last_checked ON chase_poll_state(last_checked_at);`);
+
+db.exec(`
+  INSERT OR IGNORE INTO ebay_listing_verifications (listing_id, created_at, updated_at)
+  SELECT listing_id, MIN(observed_at), MIN(observed_at)
+  FROM (
+    SELECT listing_id, created_at AS observed_at FROM alert_events WHERE source = 'EBAY'
+    UNION ALL
+    SELECT listing_id, sent_at AS observed_at FROM sent_alerts WHERE source = 'EBAY'
+  )
+  WHERE listing_id IS NOT NULL AND trim(listing_id) != ''
+  GROUP BY listing_id;
+
+  CREATE TRIGGER IF NOT EXISTS register_ebay_alert_verification
+  AFTER INSERT ON alert_events
+  WHEN NEW.source = 'EBAY' AND trim(NEW.listing_id) != ''
+  BEGIN
+    INSERT OR IGNORE INTO ebay_listing_verifications (listing_id, created_at, updated_at)
+    VALUES (NEW.listing_id, NEW.created_at, NEW.created_at);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS register_ebay_sent_alert_verification
+  AFTER INSERT ON sent_alerts
+  WHEN NEW.source = 'EBAY' AND trim(NEW.listing_id) != ''
+  BEGIN
+    INSERT OR IGNORE INTO ebay_listing_verifications (listing_id, created_at, updated_at)
+    VALUES (NEW.listing_id, NEW.sent_at, NEW.sent_at);
+  END;
+`);

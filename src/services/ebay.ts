@@ -18,6 +18,15 @@ export type EbaySoldSearchOptions = {
   pageCount?: number;
 };
 
+export type EbayListingVerificationResult = {
+  kind: 'AVAILABLE' | 'ENDED_PUBLIC' | 'UNAVAILABLE' | 'AMBIGUOUS_NOT_FOUND' | 'RATE_LIMITED' | 'TEMPORARY_FAILURE' | 'AUTH_FAILURE';
+  httpStatus?: number;
+  retryAfterMs?: number;
+  itemEndAt?: string;
+  availabilityStatus?: string;
+  errorCode?: string;
+};
+
 const EBAY_FINDING_ENDPOINT_PROD = 'https://svcs.ebay.com/services/search/FindingService/v1';
 const EBAY_FINDING_ENDPOINT_SANDBOX = 'https://svcs.sandbox.ebay.com/services/search/FindingService/v1';
 const EBAY_BROWSE_ENDPOINT_PROD = 'https://api.ebay.com/buy/browse/v1/item_summary/search';
@@ -742,6 +751,86 @@ export async function enrichEbayListingDetails(listing: Listing, destination?: S
     return browseEnriched;
   } catch {
     return listing;
+  }
+}
+
+function browseErrorCode(json: any): string | undefined {
+  const error = Array.isArray(json?.errors) ? json.errors[0] : undefined;
+  const value = error?.errorId ?? error?.code;
+  return value === undefined || value === null ? undefined : String(value);
+}
+
+function browseAvailabilityStatus(json: any): string | undefined {
+  const values = Array.isArray(json?.estimatedAvailabilities) ? json.estimatedAvailabilities : [];
+  const status = values.find((value: any) => typeof value?.estimatedAvailabilityStatus === 'string')?.estimatedAvailabilityStatus;
+  return typeof status === 'string' && status.trim() ? status.trim().toUpperCase() : undefined;
+}
+
+export async function verifyEbayListingAvailability(
+  listingId: string,
+  options: { timeoutMs?: number; now?: Date } = {}
+): Promise<EbayListingVerificationResult> {
+  const normalizedId = listingId.trim();
+  if (!normalizedId) return { kind: 'TEMPORARY_FAILURE', errorCode: 'INVALID_LISTING_ID' };
+
+  try {
+    const token = await getBrowseAccessToken();
+    const timeoutMs = Math.max(1_000, Math.min(30_000, Math.floor(options.timeoutMs ?? 10_000)));
+    const response = await fetchEbay(
+      `${getEbayBrowseItemEndpoint()}/${encodeURIComponent(normalizedId)}?fieldgroups=COMPACT`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US'
+        },
+        signal: AbortSignal.timeout(timeoutMs)
+      }
+    );
+    const json: any = await parseJsonResponse(response);
+    const errorCode = browseErrorCode(json);
+
+    if (response.status === 429 || isBrowseRateLimitError(response, json)) {
+      const retryAfterMs = ebayRetryAfterMs(response);
+      rememberEbayRateLimit(new EbayRateLimitError('eBay historical verification rate limited', retryAfterMs));
+      return { kind: 'RATE_LIMITED', httpStatus: response.status, retryAfterMs, errorCode };
+    }
+    if (response.status === 401 || response.status === 403) {
+      return { kind: 'AUTH_FAILURE', httpStatus: response.status, errorCode };
+    }
+    // A generic Browse 404 can also represent an unresolved or malformed resource route.
+    // Keep it retryable until eBay documents a terminal item-specific response.
+    if (response.status === 404) {
+      return { kind: 'AMBIGUOUS_NOT_FOUND', httpStatus: response.status, errorCode };
+    }
+    if (response.status === 410) {
+      return { kind: 'UNAVAILABLE', httpStatus: response.status, errorCode };
+    }
+    if (!response.ok) {
+      return { kind: 'TEMPORARY_FAILURE', httpStatus: response.status, errorCode };
+    }
+
+    const itemEndAt = typeof json?.itemEndDate === 'string' ? json.itemEndDate : undefined;
+    const availabilityStatus = browseAvailabilityStatus(json);
+    const endMs = itemEndAt ? Date.parse(itemEndAt) : Number.NaN;
+    const ended = Number.isFinite(endMs) && endMs <= (options.now ?? new Date()).getTime();
+    const unavailableForPurchase = availabilityStatus === 'OUT_OF_STOCK';
+    return {
+      kind: ended || unavailableForPurchase ? 'ENDED_PUBLIC' : 'AVAILABLE',
+      httpStatus: response.status,
+      itemEndAt,
+      availabilityStatus
+    };
+  } catch (error) {
+    if (isEbayRateLimitError(error)) {
+      return { kind: 'RATE_LIMITED', retryAfterMs: ebayRateLimitRetryAfterMs(error) };
+    }
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+      return { kind: 'TEMPORARY_FAILURE', errorCode: 'TIMEOUT' };
+    }
+    if (error instanceof Error && /Missing EBAY_|OAuth token request failed: (401|403)/i.test(error.message)) {
+      return { kind: 'AUTH_FAILURE', errorCode: 'EBAY_AUTHENTICATION' };
+    }
+    return { kind: 'TEMPORARY_FAILURE', errorCode: 'NETWORK_OR_API_ERROR' };
   }
 }
 
