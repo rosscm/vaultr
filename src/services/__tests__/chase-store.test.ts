@@ -28,7 +28,13 @@ import {
   undoAlertIncorrectMatch,
   upsertAlertEvent,
 } from '../chase-store.js';
-import { db, migrateAlertDeliveryRetrySchedule, migrateAlertInboxState } from '../db.js';
+import {
+  db,
+  migrateAlertDeliveryRetrySchedule,
+  migrateAlertInboxState,
+  migrateEbaySellerIdentifierStorage,
+  removePersistedEbaySellerIdentifiers
+} from '../db.js';
 
 describe('chase poll state', () => {
   it('records a poll attempt separately from the last successful check', () => {
@@ -620,7 +626,7 @@ describe('user alert history read model', () => {
       pricing: { itemPrice: 72, shipping: undefined, total: undefined, currency: 'CAD', comparisonBasis: 'ITEM_PRICE', amountUnderMax: 28 },
       listing: {
         sourceLabel: 'eBay',
-        seller: 'Card Shop',
+        seller: undefined,
         sellerFeedbackPercent: 99.8,
         sellerFeedbackScore: undefined,
         region: 'CA',
@@ -631,5 +637,58 @@ describe('user alert history read model', () => {
     });
     expect(getAlertEventForUser(userId, alert.alertId)).not.toHaveProperty('payload');
     clearAlertRows(userId);
+  });
+
+  it('removes eBay seller identities at persistence while retaining feedback and supported-shop labels', () => {
+    const userId = 'alert-seller-minimization-user';
+    clearAlertRows(userId);
+    const ebay = seedAlert(userId, 1, {
+      source: 'EBAY',
+      payload: { details: { listing: { seller: 'IdentifyingSeller', sellerFeedbackPercent: 99.8, sellerFeedbackScore: 500 } } }
+    });
+    const shop = seedAlert(userId, 2, {
+      source: 'SHOPIFY',
+      payload: { details: { listing: { seller: 'Trusted Card Shop', sellerFeedbackPercent: 100 } } }
+    });
+
+    expect(getAlertEventById(ebay.alertId)?.details?.listing).toMatchObject({
+      seller: undefined,
+      sellerFeedbackPercent: 99.8,
+      sellerFeedbackScore: 500
+    });
+    expect(JSON.stringify(getAlertEventById(ebay.alertId)?.payload)).not.toContain('IdentifyingSeller');
+    expect(getAlertEventById(shop.alertId)?.details?.listing?.seller).toBe('Trusted Card Shop');
+    clearAlertRows(userId);
+  });
+
+  it('sanitizes historical eBay payloads repeatably without changing history state or malformed records', () => {
+    const database = new Database(':memory:');
+    database.exec(`
+      CREATE TABLE app_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
+      CREATE TABLE alert_events (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        payload_json TEXT,
+        reviewed_at TEXT,
+        dismissed_at TEXT
+      );
+    `);
+    const insert = database.prepare('INSERT INTO alert_events VALUES (?, ?, ?, ?, ?)');
+    insert.run('ebay', 'EBAY', JSON.stringify({ details: { listing: { seller: 'LegacySeller', sellerFeedbackPercent: 99.5, sellerFeedbackScore: 42 } } }), 'reviewed', 'dismissed');
+    insert.run('shop', 'SHOPIFY', JSON.stringify({ details: { listing: { seller: 'Trusted Shop' } } }), null, null);
+    insert.run('malformed', 'EBAY', '{not-json', null, null);
+
+    expect(removePersistedEbaySellerIdentifiers(database)).toEqual({ updated: 1, malformed: 1 });
+    expect(removePersistedEbaySellerIdentifiers(database)).toEqual({ updated: 0, malformed: 1 });
+    const ebay = database.prepare('SELECT * FROM alert_events WHERE id = ?').get('ebay') as Record<string, string>;
+    const shop = database.prepare('SELECT payload_json FROM alert_events WHERE id = ?').get('shop') as { payload_json: string };
+    expect(JSON.parse(ebay.payload_json)).toEqual({ details: { listing: { sellerFeedbackPercent: 99.5, sellerFeedbackScore: 42 } } });
+    expect(ebay).toMatchObject({ reviewed_at: 'reviewed', dismissed_at: 'dismissed' });
+    expect(JSON.parse(shop.payload_json)).toEqual({ details: { listing: { seller: 'Trusted Shop' } } });
+
+    migrateEbaySellerIdentifierStorage(database, new Date('2026-11-16T12:00:00.000Z'));
+    migrateEbaySellerIdentifierStorage(database, new Date('2026-11-16T13:00:00.000Z'));
+    expect(database.prepare("SELECT COUNT(*) AS count FROM app_migrations WHERE migration_key = 'ebay_alert_payload_seller_identity_v1'").get()).toEqual({ count: 1 });
+    database.close();
   });
 });

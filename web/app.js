@@ -2079,7 +2079,7 @@ function alertDetailPanelMarkup(alert) {
   const details = pricing.details;
   const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
   const listingRows = details ? [
-    ['Seller', detailValue(details.listing?.seller, 'Unknown')],
+    ...(details.listing?.seller ? [['Seller', detailValue(details.listing.seller)]] : []),
     ['Seller feedback', details.listing?.sellerFeedbackPercent === undefined ? 'Unknown' : `${escapeHtml(String(details.listing.sellerFeedbackPercent))}%`],
     ['Marketplace', detailValue(details.listing?.sourceLabel, sourceLabel(alert.source))],
     ['Format', details.listing?.listingType ? escapeHtml(listingTypeLabel(details.listing.listingType)) : 'Unknown'],

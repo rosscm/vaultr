@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 type DeletionNotification = {
@@ -20,14 +20,26 @@ type DeletionNotification = {
   };
 };
 
-function maskValue(value: string): string {
-  if (value.length <= 4) return '****';
-  return `${value.slice(0, 2)}***${value.slice(-2)}`;
-}
-
 function appendAuditLine(filePath: string, line: string): void {
   mkdirSync(dirname(filePath), { recursive: true });
   appendFileSync(filePath, `${line}\n`, { encoding: 'utf-8' });
+}
+
+function auditContainsNotification(filePath: string, notificationId: string): boolean {
+  if (!existsSync(filePath)) return false;
+  try {
+    return readFileSync(filePath, 'utf-8').split('\n').some((line) => {
+      if (!line.trim()) return false;
+      try {
+        const record = JSON.parse(line) as { notificationId?: unknown };
+        return record.notificationId === notificationId;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,22 +61,29 @@ export function processEbayAccountDeletionNotification(payload: unknown): boolea
 
   const notificationId = stringField(notification?.notificationId) ?? 'unknown';
   const eventDate = stringField(notification?.eventDate) ?? new Date().toISOString();
-  const userId = stringField(notificationData?.userId) ?? 'unknown';
-  const maskedUserId = maskValue(userId);
+  const username = stringField(notificationData?.username);
+  const userId = stringField(notificationData?.userId);
+  const eiasToken = stringField(notificationData?.eiasToken);
 
-  // Vaultr currently stores no personal eBay account data. We still keep an
-  // audit record proving deletion events were received and processed.
   const deletionAuditPath = process.env.EBAY_DELETION_AUDIT_PATH ?? './data/ebay-deletions.log';
+  if (notificationId !== 'unknown' && auditContainsNotification(deletionAuditPath, notificationId)) {
+    console.log(`[eBay deletion] duplicate acknowledged notificationId=${notificationId}`);
+    return true;
+  }
   const auditRecord = JSON.stringify({
     processedAt: new Date().toISOString(),
     topic,
     notificationId,
     eventDate,
-    maskedUserId,
-    action: 'NO_PERSONAL_EBAY_DATA_STORED'
+    identifiersPresent: {
+      username: Boolean(username),
+      userId: Boolean(userId),
+      eiasToken: Boolean(eiasToken)
+    },
+    action: 'NO_CORRELATABLE_EBAY_ACCOUNT_IDENTIFIER_STORED'
   });
   appendAuditLine(deletionAuditPath, auditRecord);
 
-  console.log(`[eBay deletion] processed notificationId=${notificationId} userId=${maskedUserId}`);
+  console.log(`[eBay deletion] processed notificationId=${notificationId} action=NO_CORRELATABLE_EBAY_ACCOUNT_IDENTIFIER_STORED`);
   return true;
 }

@@ -5,6 +5,7 @@ import { makeAlertFeedbackToken } from './alert-feedback-token.js';
 import { convertCurrencyAmount, roundConvertedMaxPrice } from './currency.js';
 import { normalizePlanTier } from './plans.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
+import { sanitizeEbayAlertPayload } from './ebay-seller-data.js';
 import type {
   AlertDelivery,
   AlertDeliveryChannel,
@@ -2502,6 +2503,9 @@ export type AlertEventUpsertInput = {
 export function upsertAlertEvent(input: AlertEventUpsertInput): { alertId: string } {
   const now = input.now ?? new Date().toISOString();
   const alertId = deterministicAlertEventId(input.userId, input.chaseId, input.listingId, input.source);
+  const payload = input.payload && input.source === 'EBAY'
+    ? sanitizeEbayAlertPayload(input.payload).payload
+    : input.payload;
   upsertAlertEventStmt.run({
     id: alertId,
     user_id: input.userId,
@@ -2524,7 +2528,7 @@ export function upsertAlertEvent(input: AlertEventUpsertInput): { alertId: strin
     source_first_seen_at: input.sourceFirstSeenAt ?? null,
     source_last_seen_at: input.sourceLastSeenAt ?? null,
     source_rank: input.sourceRank ?? null,
-    payload_json: input.payload ? JSON.stringify(input.payload) : null,
+    payload_json: payload ? JSON.stringify(payload) : null,
     created_at: now,
     updated_at: now
   });

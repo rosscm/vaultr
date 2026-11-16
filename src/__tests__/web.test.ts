@@ -584,6 +584,8 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('class="vault-action-link alert-review-action"');
     expect(jsResponse.body).toContain('class="vault-action-link alert-watchlist-action"');
     expect(jsResponse.body).toContain('class="vault-action-link danger alert-dismiss-action"');
+    expect(jsResponse.body).toContain("...(details.listing?.seller ? [['Seller', detailValue(details.listing.seller)]] : [])");
+    expect(jsResponse.body).not.toContain("['Seller', detailValue(details.listing?.seller, 'Unknown')]");
     expect(jsResponse.body).toContain('const discordAlertsEnabled = Boolean(state.settings?.discordCardAlertsEnabled);');
     expect(jsResponse.body).toContain('function setTransientAlertNotice(message)');
     expect(jsResponse.body).toContain('clearTransientAlertNotice();');

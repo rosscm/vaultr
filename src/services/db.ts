@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
+import { sanitizeEbayAlertPayload } from './ebay-seller-data.js';
 
 const dbFile = process.env.DATABASE_PATH ?? './data/vaultr.db';
 const resolvedDbPath = path.resolve(dbFile);
@@ -1278,6 +1279,49 @@ export function migrateAlertDeliveryRetrySchedule(database: Database.Database, n
   })();
 }
 
+export function removePersistedEbaySellerIdentifiers(database: Database.Database): { updated: number; malformed: number } {
+  const rows = database.prepare(`
+    SELECT id, payload_json
+    FROM alert_events
+    WHERE source = 'EBAY' AND payload_json IS NOT NULL
+  `).all() as Array<{ id: string; payload_json: string }>;
+  const update = database.prepare('UPDATE alert_events SET payload_json = ? WHERE id = ?');
+  let updated = 0;
+  let malformed = 0;
+
+  database.transaction(() => {
+    for (const row of rows) {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(row.payload_json);
+      } catch {
+        malformed += 1;
+        continue;
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
+      const sanitized = sanitizeEbayAlertPayload(payload as Record<string, unknown>);
+      if (!sanitized.changed) continue;
+      update.run(JSON.stringify(sanitized.payload), row.id);
+      updated += 1;
+    }
+  })();
+
+  return { updated, malformed };
+}
+
+export function migrateEbaySellerIdentifierStorage(database: Database.Database, now = new Date()): void {
+  database.transaction(() => {
+    database.exec(`CREATE TABLE IF NOT EXISTS app_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL);`);
+    const migrationKey = 'ebay_alert_payload_seller_identity_v1';
+    if (database.prepare('SELECT 1 FROM app_migrations WHERE migration_key = ?').get(migrationKey)) return;
+    const result = removePersistedEbaySellerIdentifiers(database);
+    if (result.malformed > 0) {
+      console.warn(`[eBay seller data] skipped ${result.malformed} malformed alert payload(s) during identifier cleanup`);
+    }
+    database.prepare('INSERT INTO app_migrations (migration_key, applied_at) VALUES (?, ?)').run(migrationKey, now.toISOString());
+  })();
+}
+
 export function migrateWebOnboarding(database: Database.Database): void {
   database.transaction(() => {
     database.exec(`
@@ -1305,6 +1349,7 @@ export function migrateWebOnboarding(database: Database.Database): void {
 
 migrateAlertInboxState(db);
 migrateAlertDeliveryRetrySchedule(db);
+migrateEbaySellerIdentifierStorage(db);
 
 migrateLegacyDiscordUserIdsToAccounts();
 migrateWebOnboarding(db);

@@ -1112,7 +1112,7 @@ export async function runPoll(): Promise<void> {
             },
             listing: {
               sourceLabel,
-              seller: listing.seller,
+              seller: listing.source === 'EBAY' ? undefined : listing.seller,
               sellerFeedbackPercent: listing.sellerFeedbackPercent,
               sellerFeedbackScore: listing.sellerFeedbackScore,
               region: listing.region,
