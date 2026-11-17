@@ -576,6 +576,47 @@ describe('verifyEbayListingAvailability', () => {
     await expect(verifyResponse({}, 410)).resolves.toMatchObject({ kind: 'AMBIGUOUS_NOT_FOUND', httpStatus: 410 });
   });
 
+  it('defers legacy and unrecognized identifiers instead of using the RESTful item endpoint', async () => {
+    const { verifyEbayListingAvailability } = await import('../ebay.js');
+
+    await expect(verifyEbayListingAvailability('336740538287')).resolves.toMatchObject({
+      kind: 'TEMPORARY_FAILURE', errorCode: 'LEGACY_ID_REQUIRES_RESOLUTION'
+    });
+    await expect(verifyEbayListingAvailability('unexpected-id')).resolves.toMatchObject({
+      kind: 'TEMPORARY_FAILURE', errorCode: 'UNRECOGNIZED_LISTING_ID_FORMAT'
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('starts each HTTP timeout after shared request-budget waiting', async () => {
+    vi.useFakeTimers();
+    process.env.EBAY_MIN_REQUEST_GAP_MS = '1000';
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(jsonResponse({
+        estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'IN_STOCK' }]
+      }));
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+      .mockImplementation(() => new AbortController().signal);
+    const { verifyEbayListingAvailability } = await import('../ebay.js');
+
+    const verification = verifyEbayListingAvailability('v1|delayed|0', { timeoutMs: 5_000 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(timeoutSpy).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(timeoutSpy).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(verification).resolves.toMatchObject({ kind: 'AVAILABLE' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(timeoutSpy).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it('classifies rate limits, server failures, authentication failures, and timeouts', async () => {
     await expect(verifyResponse({}, 429, { 'retry-after': '30' })).resolves.toMatchObject({
       kind: 'RATE_LIMITED', retryAfterMs: 30_000

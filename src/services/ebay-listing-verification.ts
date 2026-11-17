@@ -75,6 +75,11 @@ const claimStmt = db.prepare(`
     AND redacted_at IS NULL AND attempt_count < @max_attempts
     AND (lease_expires_at IS NULL OR lease_expires_at <= @now)
 `);
+const renewLeaseStmt = db.prepare(`
+  UPDATE ebay_listing_verifications
+  SET lease_expires_at = @lease_expires_at, updated_at = @now
+  WHERE listing_id = @listing_id AND lease_owner = @owner
+`);
 const recordAttemptStmt = db.prepare(`
   INSERT INTO ebay_listing_verification_attempts (listing_id, attempted_at) VALUES (?, ?)
 `);
@@ -197,17 +202,23 @@ function retryDelayMs(result: EbayListingVerificationResult, attempts: number): 
   return Math.min(6 * 60 * 60_000, 5 * 60_000 * 2 ** Math.max(0, attempts));
 }
 
-function saveResult(record: EbayListingVerificationState, owner: string, result: EbayListingVerificationResult, now: Date): void {
+function saveResult(
+  record: EbayListingVerificationState,
+  owner: string,
+  result: EbayListingVerificationResult,
+  attemptedAt: Date,
+  completedAt: Date
+): void {
   const successful = result.kind === 'AVAILABLE' || result.kind === 'ENDED_PUBLIC' || result.kind === 'UNAVAILABLE';
   const errorClass = successful ? null : result.kind;
   const attemptCount = successful ? 0 : record.attemptCount + (result.kind === 'RATE_LIMITED' ? 0 : 1);
   const nextVerificationAt = result.kind === 'AVAILABLE'
-    ? new Date(now.getTime() + 6 * 60 * 60_000).toISOString()
+    ? new Date(completedAt.getTime() + 6 * 60 * 60_000).toISOString()
     : result.kind === 'ENDED_PUBLIC'
-      ? new Date(now.getTime() + 24 * 60 * 60_000).toISOString()
+      ? new Date(completedAt.getTime() + 24 * 60 * 60_000).toISOString()
       : result.kind === 'UNAVAILABLE'
         ? null
-        : new Date(now.getTime() + retryDelayMs(result, attemptCount)).toISOString();
+        : new Date(completedAt.getTime() + retryDelayMs(result, attemptCount)).toISOString();
   const state: EbayListingAvailabilityState = result.kind === 'AVAILABLE'
     ? 'AVAILABLE'
     : result.kind === 'ENDED_PUBLIC'
@@ -220,49 +231,62 @@ function saveResult(record: EbayListingVerificationState, owner: string, result:
     listing_id: record.listingId,
     lease_owner: owner,
     availability_state: state,
-    last_successful_verification_at: successful ? now.toISOString() : record.lastSuccessfulVerificationAt ?? null,
+    last_successful_verification_at: successful ? completedAt.toISOString() : record.lastSuccessfulVerificationAt ?? null,
     next_verification_at: nextVerificationAt,
-    last_attempted_at: now.toISOString(),
+    last_attempted_at: attemptedAt.toISOString(),
     attempt_count: attemptCount,
     last_error_class: errorClass,
     last_http_status: result.httpStatus ?? null,
     item_end_at: result.itemEndAt ?? record.itemEndAt ?? null,
     availability_status: result.availabilityStatus ?? record.availabilityStatus ?? null,
-    updated_at: now.toISOString()
+    updated_at: completedAt.toISOString()
   });
 }
 
 export async function processEbayListingVerificationQueue(input: {
   now?: Date;
+  clock?: () => Date;
   workerId?: string;
   verify?: typeof verifyEbayListingAvailability;
 } = {}): Promise<{ disabled: boolean; attempted: number; succeeded: number; failed: number; deferred: number }> {
   if (!ebayHistoricalVerificationEnabled()) return { disabled: true, attempted: 0, succeeded: 0, failed: 0, deferred: 0 };
 
-  const now = input.now ?? new Date();
+  const clock = input.clock ?? (input.now ? () => new Date(input.now!.getTime()) : () => new Date());
+  const batchStartedAt = clock();
   const batchLimit = boundedEnv('EBAY_HISTORICAL_VERIFICATION_BATCH_SIZE', 10, 25);
   const hourlyLimit = boundedEnv('EBAY_HISTORICAL_VERIFICATION_HOURLY_LIMIT', 100, 500);
   const maxAttempts = boundedEnv('EBAY_HISTORICAL_VERIFICATION_MAX_ATTEMPTS', 8, 20);
   const leaseMs = boundedEnv('EBAY_HISTORICAL_VERIFICATION_LEASE_SECONDS', 300, 900) * 1000;
-  const hourAgo = new Date(now.getTime() - 60 * 60_000).toISOString();
-  const recent = Number((attemptsSinceStmt.get(hourAgo) as { count: number }).count);
-  const allowance = Math.max(0, Math.min(batchLimit, hourlyLimit - recent));
-  if (allowance === 0) return { disabled: false, attempted: 0, succeeded: 0, failed: 0, deferred: batchLimit };
-
-  scheduleUnverifiedEbayListings(now, allowance);
+  scheduleUnverifiedEbayListings(batchStartedAt, batchLimit);
   const workerId = input.workerId ?? randomUUID();
   let succeeded = 0;
   let failed = 0;
   let attempted = 0;
   const verify = input.verify ?? verifyEbayListingAvailability;
-  for (let index = 0; index < allowance; index += 1) {
-    const [record] = claimDue(workerId, now, 1, maxAttempts, leaseMs);
+  for (let index = 0; index < batchLimit; index += 1) {
+    const claimAt = clock();
+    const hourAgo = new Date(claimAt.getTime() - 60 * 60_000).toISOString();
+    const recent = Number((attemptsSinceStmt.get(hourAgo) as { count: number }).count);
+    if (recent >= hourlyLimit) break;
+    const [record] = claimDue(workerId, claimAt, 1, maxAttempts, leaseMs);
     if (!record) break;
     attempted += 1;
-    recordAttemptStmt.run(record.listingId, now.toISOString());
+    const attemptedAt = clock();
+    recordAttemptStmt.run(record.listingId, attemptedAt.toISOString());
     let result: EbayListingVerificationResult;
     try {
-      result = await verify(record.listingId, { now });
+      result = await verify(record.listingId, {
+        now: attemptedAt,
+        onRequestStart: () => {
+          const requestStartedAt = clock();
+          renewLeaseStmt.run({
+            listing_id: record.listingId,
+            owner: workerId,
+            now: requestStartedAt.toISOString(),
+            lease_expires_at: new Date(requestStartedAt.getTime() + leaseMs).toISOString()
+          });
+        }
+      });
     } catch (error) {
       console.error('Historical eBay listing verification failed unexpectedly', {
         listingId: record.listingId,
@@ -270,12 +294,13 @@ export async function processEbayListingVerificationQueue(input: {
       });
       result = { kind: 'TEMPORARY_FAILURE', errorCode: 'UNEXPECTED_EXCEPTION' };
     }
-    saveResult(record, workerId, result, now);
+    const completedAt = clock();
+    saveResult(record, workerId, result, attemptedAt, completedAt);
     if (result.kind === 'AVAILABLE' || result.kind === 'ENDED_PUBLIC' || result.kind === 'UNAVAILABLE') succeeded += 1;
     else failed += 1;
   }
-  pruneAttemptsStmt.run(new Date(now.getTime() - 24 * 60 * 60_000).toISOString());
-  return { disabled: false, attempted, succeeded, failed, deferred: Math.max(0, allowance - attempted) };
+  pruneAttemptsStmt.run(new Date(clock().getTime() - 24 * 60 * 60_000).toISOString());
+  return { disabled: false, attempted, succeeded, failed, deferred: Math.max(0, batchLimit - attempted) };
 }
 
 type VerificationProcessor = () => Promise<{ attempted: number }>;

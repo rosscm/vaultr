@@ -76,6 +76,13 @@ class EbayRateLimitError extends Error {
   }
 }
 
+class EbayRequestBudgetTimeoutError extends Error {
+  constructor() {
+    super('Timed out waiting for the shared eBay request budget');
+    this.name = 'EbayRequestBudgetTimeoutError';
+  }
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -168,8 +175,11 @@ function pruneEbayRequestWindow(nowMs: number): void {
   while (ebayRequestTimestamps.length > 0 && ebayRequestTimestamps[0] < oneMinuteAgo) ebayRequestTimestamps.shift();
 }
 
-async function waitForEbayRequestBudget(): Promise<void> {
+async function waitForEbayRequestBudget(maxWaitMs?: number): Promise<void> {
+  const queuedAt = Date.now();
   const waitTurn = async () => {
+    const remainingWaitMs = () => maxWaitMs === undefined ? undefined : maxWaitMs - (Date.now() - queuedAt);
+    if ((remainingWaitMs() ?? 1) <= 0) throw new EbayRequestBudgetTimeoutError();
     const maxRequestsPerMinute = ebayMaxRequestsPerMinute();
     const minGapMs = ebayMinRequestGapMs();
     let nowMs = Date.now();
@@ -181,6 +191,11 @@ async function waitForEbayRequestBudget(): Promise<void> {
     const gapWaitMs = lastRequestMs !== undefined ? lastRequestMs + minGapMs - nowMs : 0;
     const waitMs = Math.max(0, windowWaitMs, gapWaitMs);
     if (waitMs > 0) {
+      const remaining = remainingWaitMs();
+      if (remaining !== undefined && waitMs >= remaining) {
+        await sleep(Math.max(0, remaining));
+        throw new EbayRequestBudgetTimeoutError();
+      }
       ebayRuntimeStats.rateLimitSleeps += 1;
       ebayRuntimeStats.rateLimitSleepMs += waitMs;
       await sleep(waitMs);
@@ -196,11 +211,22 @@ async function waitForEbayRequestBudget(): Promise<void> {
   return nextTurn;
 }
 
-async function fetchEbay(url: string, init?: RequestInit): Promise<Response> {
-  await waitForEbayRequestBudget();
+async function fetchEbay(
+  url: string,
+  init?: RequestInit,
+  options: { requestTimeoutMs?: number; budgetWaitTimeoutMs?: number; onRequestStart?: () => void } = {}
+): Promise<Response> {
+  await waitForEbayRequestBudget(options.budgetWaitTimeoutMs);
+  options.onRequestStart?.();
   ebayRuntimeStats.requestsAttempted += 1;
   try {
-    const response = await fetch(url, init);
+    const timeoutSignal = options.requestTimeoutMs === undefined
+      ? undefined
+      : AbortSignal.timeout(options.requestTimeoutMs);
+    const signal = init?.signal && timeoutSignal
+      ? AbortSignal.any([init.signal, timeoutSignal])
+      : init?.signal ?? timeoutSignal;
+    const response = await fetch(url, { ...init, signal });
     ebayRuntimeStats.requestsCompleted += 1;
     return response;
   } catch (error) {
@@ -551,7 +577,11 @@ async function parseJsonResponse(response: Response): Promise<any> {
   }
 }
 
-async function getBrowseAccessToken(): Promise<string> {
+async function getBrowseAccessToken(requestOptions: {
+  requestTimeoutMs?: number;
+  budgetWaitTimeoutMs?: number;
+  onRequestStart?: () => void;
+} = {}): Promise<string> {
   if (cachedBrowseToken && cachedBrowseToken.expiresAtMs > Date.now() + 60_000) {
     return cachedBrowseToken.token;
   }
@@ -576,7 +606,7 @@ async function getBrowseAccessToken(): Promise<string> {
       'Content-Type': 'application/x-www-form-urlencoded'
     },
     body
-  });
+  }, requestOptions);
   const json: any = await parseJsonResponse(response);
   if (!response.ok || !json?.access_token) {
     throw new Error(`eBay OAuth token request failed: ${response.status}`);
@@ -768,23 +798,31 @@ function browseAvailabilityStatus(json: any): string | undefined {
 
 export async function verifyEbayListingAvailability(
   listingId: string,
-  options: { timeoutMs?: number; now?: Date } = {}
+  options: { timeoutMs?: number; budgetWaitTimeoutMs?: number; now?: Date; onRequestStart?: () => void } = {}
 ): Promise<EbayListingVerificationResult> {
   const normalizedId = listingId.trim();
   if (!normalizedId) return { kind: 'TEMPORARY_FAILURE', errorCode: 'INVALID_LISTING_ID' };
+  if (/^\d+$/.test(normalizedId)) {
+    return { kind: 'TEMPORARY_FAILURE', errorCode: 'LEGACY_ID_REQUIRES_RESOLUTION' };
+  }
+  if (!/^v1\|[^|]+\|[^|]+$/.test(normalizedId)) {
+    return { kind: 'TEMPORARY_FAILURE', errorCode: 'UNRECOGNIZED_LISTING_ID_FORMAT' };
+  }
 
   try {
-    const token = await getBrowseAccessToken();
     const timeoutMs = Math.max(1_000, Math.min(30_000, Math.floor(options.timeoutMs ?? 10_000)));
+    const budgetWaitTimeoutMs = Math.max(1_000, Math.min(120_000, Math.floor(options.budgetWaitTimeoutMs ?? 120_000)));
+    const requestOptions = { requestTimeoutMs: timeoutMs, budgetWaitTimeoutMs, onRequestStart: options.onRequestStart };
+    const token = await getBrowseAccessToken(requestOptions);
     const response = await fetchEbay(
       `${getEbayBrowseItemEndpoint()}/${encodeURIComponent(normalizedId)}?fieldgroups=COMPACT`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
           'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID ?? 'EBAY_US'
-        },
-        signal: AbortSignal.timeout(timeoutMs)
-      }
+        }
+      },
+      requestOptions
     );
     const json: any = await parseJsonResponse(response);
     const errorCode = browseErrorCode(json);
@@ -849,6 +887,9 @@ export async function verifyEbayListingAvailability(
     }
     if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
       return { kind: 'TEMPORARY_FAILURE', errorCode: 'TIMEOUT' };
+    }
+    if (error instanceof EbayRequestBudgetTimeoutError) {
+      return { kind: 'TEMPORARY_FAILURE', errorCode: 'REQUEST_BUDGET_TIMEOUT' };
     }
     if (error instanceof Error && /Missing EBAY_|OAuth token request failed: (401|403)/i.test(error.message)) {
       return { kind: 'AUTH_FAILURE', errorCode: 'EBAY_AUTHENTICATION' };

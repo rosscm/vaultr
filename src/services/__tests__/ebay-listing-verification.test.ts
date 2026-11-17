@@ -184,6 +184,39 @@ describe('eBay listing verification persistence', () => {
     expect(verify).toHaveBeenCalledTimes(1);
   });
 
+  it('uses per-item claim, attempt, completion, and retry timestamps in a long-running batch', async () => {
+    const first = listingId('timing-a');
+    const second = listingId('timing-b');
+    seedAlert(first, 'timing-user-a');
+    seedAlert(second, 'timing-user-b');
+    let currentMs = Date.parse('2026-11-16T12:00:00.000Z');
+    const clock = () => new Date(currentMs);
+    const leaseExpirations: string[] = [];
+    const verify = vi.fn(async (id: string, options: { onRequestStart?: () => void }) => {
+      currentMs += 4 * 60_000;
+      options.onRequestStart?.();
+      leaseExpirations.push(getEbayListingVerificationState(id)!.leaseExpiresAt!);
+      currentMs += 30_000;
+      return { kind: 'TEMPORARY_FAILURE' as const, httpStatus: 503 };
+    });
+
+    const result = await processEbayListingVerificationQueue({ clock, workerId: 'timing-worker', verify });
+
+    expect(result.attempted).toBe(2);
+    expect(getEbayListingVerificationState(first)).toMatchObject({
+      lastAttemptedAt: '2026-11-16T12:00:00.000Z',
+      nextVerificationAt: '2026-11-16T12:14:30.000Z'
+    });
+    expect(getEbayListingVerificationState(second)).toMatchObject({
+      lastAttemptedAt: '2026-11-16T12:04:30.000Z',
+      nextVerificationAt: '2026-11-16T12:19:00.000Z'
+    });
+    expect(leaseExpirations).toEqual([
+      '2026-11-16T12:09:00.000Z',
+      '2026-11-16T12:13:30.000Z'
+    ]);
+  });
+
   it('turns unexpected verifier exceptions into durable retries and releases the lease', async () => {
     const id = listingId('exception');
     seedAlert(id);
