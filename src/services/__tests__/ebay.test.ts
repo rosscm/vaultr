@@ -543,14 +543,37 @@ describe('verifyEbayListingAvailability', () => {
     expect(ended).toMatchObject({ kind: 'ENDED_PUBLIC', availabilityStatus: 'OUT_OF_STOCK' });
   });
 
-  it('keeps ordinary 404 responses ambiguous and recognizes explicit unavailability', async () => {
+  it('requires complete positive evidence before classifying an item as available', async () => {
+    await expect(verifyResponse({
+      itemEndDate: '2026-11-17T12:00:00.000Z'
+    })).resolves.toMatchObject({
+      kind: 'TEMPORARY_FAILURE', errorCode: 'INCOMPLETE_AVAILABILITY_EVIDENCE'
+    });
+
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+    await expect(verifyResponse({
+      itemEndDate: 'not-a-date',
+      estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'IN_STOCK' }]
+    })).resolves.toMatchObject({
+      kind: 'TEMPORARY_FAILURE', errorCode: 'INCOMPLETE_AVAILABILITY_EVIDENCE'
+    });
+
+    vi.resetModules();
+    vi.stubGlobal('fetch', vi.fn());
+    await expect(verifyResponse({
+      estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'IN_STOCK' }]
+    })).resolves.toMatchObject({ kind: 'AVAILABLE', availabilityStatus: 'IN_STOCK' });
+  });
+
+  it('keeps 404 and 410 responses ambiguous', async () => {
     await expect(verifyResponse({ errors: [{ errorId: 2002 }] }, 404)).resolves.toMatchObject({
       kind: 'AMBIGUOUS_NOT_FOUND', httpStatus: 404, errorCode: '2002'
     });
 
     vi.resetModules();
     vi.stubGlobal('fetch', vi.fn());
-    await expect(verifyResponse({}, 410)).resolves.toMatchObject({ kind: 'UNAVAILABLE', httpStatus: 410 });
+    await expect(verifyResponse({}, 410)).resolves.toMatchObject({ kind: 'AMBIGUOUS_NOT_FOUND', httpStatus: 410 });
   });
 
   it('classifies rate limits, server failures, authentication failures, and timeouts', async () => {

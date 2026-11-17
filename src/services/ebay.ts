@@ -802,8 +802,10 @@ export async function verifyEbayListingAvailability(
     if (response.status === 404) {
       return { kind: 'AMBIGUOUS_NOT_FOUND', httpStatus: response.status, errorCode };
     }
+    // Browse does not document a generic 410 as conclusive proof that an item
+    // is no longer publicly accessible. Keep both not-found shapes retryable.
     if (response.status === 410) {
-      return { kind: 'UNAVAILABLE', httpStatus: response.status, errorCode };
+      return { kind: 'AMBIGUOUS_NOT_FOUND', httpStatus: response.status, errorCode };
     }
     if (!response.ok) {
       return { kind: 'TEMPORARY_FAILURE', httpStatus: response.status, errorCode };
@@ -812,10 +814,31 @@ export async function verifyEbayListingAvailability(
     const itemEndAt = typeof json?.itemEndDate === 'string' ? json.itemEndDate : undefined;
     const availabilityStatus = browseAvailabilityStatus(json);
     const endMs = itemEndAt ? Date.parse(itemEndAt) : Number.NaN;
-    const ended = Number.isFinite(endMs) && endMs <= (options.now ?? new Date()).getTime();
+    const hasEndDate = itemEndAt !== undefined;
+    const hasValidEndDate = !hasEndDate || Number.isFinite(endMs);
+    const ended = hasEndDate && Number.isFinite(endMs) && endMs <= (options.now ?? new Date()).getTime();
     const unavailableForPurchase = availabilityStatus === 'OUT_OF_STOCK';
+    if (ended || unavailableForPurchase) {
+      return {
+        kind: 'ENDED_PUBLIC',
+        httpStatus: response.status,
+        itemEndAt,
+        availabilityStatus
+      };
+    }
+    // Good 'Til Cancelled listings can omit itemEndDate. Explicit IN_STOCK is
+    // still required; a malformed supplied date remains inconclusive.
+    if (!hasValidEndDate || availabilityStatus !== 'IN_STOCK') {
+      return {
+        kind: 'TEMPORARY_FAILURE',
+        httpStatus: response.status,
+        itemEndAt,
+        availabilityStatus,
+        errorCode: 'INCOMPLETE_AVAILABILITY_EVIDENCE'
+      };
+    }
     return {
-      kind: ended || unavailableForPurchase ? 'ENDED_PUBLIC' : 'AVAILABLE',
+      kind: 'AVAILABLE',
       httpStatus: response.status,
       itemEndAt,
       availabilityStatus

@@ -135,16 +135,24 @@ export function ebayListingContentFreshness(
   listingId: string,
   now = new Date(),
   maxAgeMs = 6 * 60 * 60 * 1000
-): { state: EbayListingAvailabilityState; fresh: boolean; verifiedAt?: string } {
+): {
+  state: EbayListingAvailabilityState;
+  availabilityFresh: boolean;
+  contentFresh: false;
+  availabilityVerifiedAt?: string;
+  contentRefreshedAt?: string;
+} {
   const record = getEbayListingVerificationState(listingId);
-  if (!record) return { state: 'UNVERIFIED', fresh: false };
+  if (!record) return { state: 'UNVERIFIED', availabilityFresh: false, contentFresh: false };
   const verifiedMs = Date.parse(record.lastSuccessfulVerificationAt ?? '');
   return {
     state: record.availabilityState,
-    fresh: (record.availabilityState === 'AVAILABLE' || record.availabilityState === 'ENDED_PUBLIC')
+    availabilityFresh: (record.availabilityState === 'AVAILABLE' || record.availabilityState === 'ENDED_PUBLIC')
       && Number.isFinite(verifiedMs)
       && now.getTime() - verifiedMs <= maxAgeMs,
-    verifiedAt: record.lastSuccessfulVerificationAt
+    contentFresh: false,
+    availabilityVerifiedAt: record.lastSuccessfulVerificationAt,
+    contentRefreshedAt: undefined
   };
 }
 
@@ -235,7 +243,7 @@ export async function processEbayListingVerificationQueue(input: {
   const batchLimit = boundedEnv('EBAY_HISTORICAL_VERIFICATION_BATCH_SIZE', 10, 25);
   const hourlyLimit = boundedEnv('EBAY_HISTORICAL_VERIFICATION_HOURLY_LIMIT', 100, 500);
   const maxAttempts = boundedEnv('EBAY_HISTORICAL_VERIFICATION_MAX_ATTEMPTS', 8, 20);
-  const leaseMs = boundedEnv('EBAY_HISTORICAL_VERIFICATION_LEASE_SECONDS', 120, 900) * 1000;
+  const leaseMs = boundedEnv('EBAY_HISTORICAL_VERIFICATION_LEASE_SECONDS', 300, 900) * 1000;
   const hourAgo = new Date(now.getTime() - 60 * 60_000).toISOString();
   const recent = Number((attemptsSinceStmt.get(hourAgo) as { count: number }).count);
   const allowance = Math.max(0, Math.min(batchLimit, hourlyLimit - recent));
@@ -243,17 +251,67 @@ export async function processEbayListingVerificationQueue(input: {
 
   scheduleUnverifiedEbayListings(now, allowance);
   const workerId = input.workerId ?? randomUUID();
-  const claimed = claimDue(workerId, now, allowance, maxAttempts, leaseMs);
   let succeeded = 0;
   let failed = 0;
+  let attempted = 0;
   const verify = input.verify ?? verifyEbayListingAvailability;
-  for (const record of claimed) {
+  for (let index = 0; index < allowance; index += 1) {
+    const [record] = claimDue(workerId, now, 1, maxAttempts, leaseMs);
+    if (!record) break;
+    attempted += 1;
     recordAttemptStmt.run(record.listingId, now.toISOString());
-    const result = await verify(record.listingId, { now });
+    let result: EbayListingVerificationResult;
+    try {
+      result = await verify(record.listingId, { now });
+    } catch (error) {
+      console.error('Historical eBay listing verification failed unexpectedly', {
+        listingId: record.listingId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      result = { kind: 'TEMPORARY_FAILURE', errorCode: 'UNEXPECTED_EXCEPTION' };
+    }
     saveResult(record, workerId, result, now);
     if (result.kind === 'AVAILABLE' || result.kind === 'ENDED_PUBLIC' || result.kind === 'UNAVAILABLE') succeeded += 1;
     else failed += 1;
   }
   pruneAttemptsStmt.run(new Date(now.getTime() - 24 * 60 * 60_000).toISOString());
-  return { disabled: false, attempted: claimed.length, succeeded, failed, deferred: Math.max(0, allowance - claimed.length) };
+  return { disabled: false, attempted, succeeded, failed, deferred: Math.max(0, allowance - attempted) };
 }
+
+type VerificationProcessor = () => Promise<{ attempted: number }>;
+
+let verificationWorkerTimer: ReturnType<typeof setInterval> | undefined;
+let verificationWorkerRunning = false;
+
+async function runScheduledVerification(processor: VerificationProcessor): Promise<void> {
+  if (verificationWorkerRunning) return;
+  verificationWorkerRunning = true;
+  try {
+    const result = await processor();
+    if (result.attempted > 0) console.info(`[eBayVerification] ${JSON.stringify(result)}`);
+  } catch (error) {
+    console.error('Historical eBay verification batch failed', error);
+  } finally {
+    verificationWorkerRunning = false;
+  }
+}
+
+export function startHistoricalEbayVerificationWorker(
+  processor: VerificationProcessor = processEbayListingVerificationQueue
+): void {
+  if (!ebayHistoricalVerificationEnabled() || verificationWorkerTimer) return;
+  const intervalMs = boundedEnv('EBAY_HISTORICAL_VERIFICATION_INTERVAL_SECONDS', 900, 3600) * 1000;
+  verificationWorkerTimer = setInterval(() => {
+    void runScheduledVerification(processor);
+  }, intervalMs);
+  verificationWorkerTimer.unref?.();
+}
+
+export const __ebayListingVerificationTestHooks = {
+  stopWorker(): void {
+    if (verificationWorkerTimer) clearInterval(verificationWorkerTimer);
+    verificationWorkerTimer = undefined;
+    verificationWorkerRunning = false;
+  },
+  runScheduledVerification
+};

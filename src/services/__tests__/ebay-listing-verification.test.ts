@@ -3,9 +3,11 @@ import { db } from '../db.js';
 import { upsertAlertEvent } from '../chase-store.js';
 import {
   ebayListingContentFreshness,
+  __ebayListingVerificationTestHooks,
   getEbayListingVerificationState,
   processEbayListingVerificationQueue,
-  scheduleUnverifiedEbayListings
+  scheduleUnverifiedEbayListings,
+  startHistoricalEbayVerificationWorker
 } from '../ebay-listing-verification.js';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -42,6 +44,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __ebayListingVerificationTestHooks.stopWorker();
   for (const id of listingIds) {
     db.prepare('DELETE FROM alert_events WHERE listing_id = ?').run(id);
     db.prepare('DELETE FROM sent_alerts WHERE listing_id = ?').run(id);
@@ -125,7 +128,100 @@ describe('eBay listing verification persistence', () => {
     verify.mockResolvedValue({ kind: 'AVAILABLE', httpStatus: 200, availabilityStatus: 'IN_STOCK' });
     const retryAt = new Date(failed!.nextVerificationAt!);
     expect((await processEbayListingVerificationQueue({ now: retryAt, verify })).succeeded).toBe(1);
-    expect(ebayListingContentFreshness(id, retryAt)).toMatchObject({ state: 'AVAILABLE', fresh: true });
+    expect(ebayListingContentFreshness(id, retryAt)).toMatchObject({
+      state: 'AVAILABLE',
+      availabilityFresh: true,
+      contentFresh: false,
+      availabilityVerifiedAt: retryAt.toISOString()
+    });
+  });
+
+  it('does not treat availability verification as a refresh of stored listing content', async () => {
+    const id = listingId('content-freshness');
+    const alertId = seedAlert(id);
+    const before = db.prepare('SELECT listing_title, listing_price, listing_currency, listing_image_url FROM alert_events WHERE id = ?')
+      .get(alertId);
+    const now = new Date('2026-11-16T12:00:00.000Z');
+
+    await processEbayListingVerificationQueue({
+      now,
+      verify: vi.fn().mockResolvedValue({
+        kind: 'AVAILABLE',
+        httpStatus: 200,
+        itemEndAt: '2026-11-17T12:00:00.000Z',
+        availabilityStatus: 'IN_STOCK'
+      })
+    });
+
+    expect(ebayListingContentFreshness(id, now)).toEqual({
+      state: 'AVAILABLE',
+      availabilityFresh: true,
+      contentFresh: false,
+      availabilityVerifiedAt: now.toISOString(),
+      contentRefreshedAt: undefined
+    });
+    expect(db.prepare('SELECT listing_title, listing_price, listing_currency, listing_image_url FROM alert_events WHERE id = ?')
+      .get(alertId)).toEqual(before);
+  });
+
+  it('prevents concurrent workers from verifying the same listing', async () => {
+    const id = listingId('concurrent');
+    seedAlert(id);
+    const now = new Date('2026-11-16T12:00:00.000Z');
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const verify = vi.fn(async () => {
+      await blocked;
+      return { kind: 'AVAILABLE' as const, httpStatus: 200 };
+    });
+
+    const first = processEbayListingVerificationQueue({ now, workerId: 'worker-a', verify });
+    await vi.waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+    const second = await processEbayListingVerificationQueue({ now, workerId: 'worker-b', verify });
+    expect(second.attempted).toBe(0);
+    release();
+    await expect(first).resolves.toMatchObject({ attempted: 1, succeeded: 1 });
+    expect(verify).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns unexpected verifier exceptions into durable retries and releases the lease', async () => {
+    const id = listingId('exception');
+    seedAlert(id);
+    const result = await processEbayListingVerificationQueue({
+      now: new Date('2026-11-16T12:00:00.000Z'),
+      workerId: 'exception-worker',
+      verify: vi.fn().mockRejectedValue(new Error('unexpected test failure'))
+    });
+
+    expect(result).toMatchObject({ attempted: 1, failed: 1 });
+    expect(getEbayListingVerificationState(id)).toMatchObject({
+      availabilityState: 'VERIFICATION_FAILED',
+      lastErrorClass: 'TEMPORARY_FAILURE',
+      attemptCount: 1
+    });
+    expect(getEbayListingVerificationState(id)?.leaseOwner).toBeUndefined();
+  });
+
+  it('runs historical verification on an independent non-overlapping timer', async () => {
+    vi.useFakeTimers();
+    process.env.EBAY_HISTORICAL_VERIFICATION_INTERVAL_SECONDS = '1';
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const processor = vi.fn(async () => {
+      await blocked;
+      return { attempted: 1 };
+    });
+
+    startHistoricalEbayVerificationWorker(processor);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(processor).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(processor).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(processor).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 
   it('enforces a durable hourly request limit', async () => {
