@@ -184,6 +184,46 @@ describe('eBay listing verification persistence', () => {
     expect(verify).toHaveBeenCalledTimes(1);
   });
 
+  it('prevents a stale worker from overwriting the result of a new lease owner', async () => {
+    process.env.EBAY_HISTORICAL_VERIFICATION_LEASE_SECONDS = '1';
+    const id = listingId('stale-owner');
+    seedAlert(id);
+    let currentMs = Date.parse('2026-11-16T12:00:00.000Z');
+    const clock = () => new Date(currentMs);
+    let releaseA!: () => void;
+    const blockedA = new Promise<void>((resolve) => { releaseA = resolve; });
+    const verifyA = vi.fn(async (_id: string, options?: { onRequestStart?: () => void }) => {
+      options?.onRequestStart?.();
+      await blockedA;
+      return { kind: 'ENDED_PUBLIC' as const, httpStatus: 200, availabilityStatus: 'OUT_OF_STOCK' };
+    });
+
+    const workerA = processEbayListingVerificationQueue({ clock, workerId: 'worker-a', verify: verifyA });
+    await vi.waitFor(() => expect(verifyA).toHaveBeenCalledTimes(1));
+    currentMs = Date.parse('2026-11-16T12:02:00.000Z');
+    const workerB = await processEbayListingVerificationQueue({
+      clock,
+      workerId: 'worker-b',
+      verify: vi.fn(async (_listingId, options) => {
+        options.onRequestStart?.();
+        return { kind: 'AVAILABLE' as const, httpStatus: 200, availabilityStatus: 'IN_STOCK' };
+      })
+    });
+    const stateAfterB = getEbayListingVerificationState(id);
+    expect(workerB).toMatchObject({ attempted: 1, succeeded: 1 });
+    expect(stateAfterB).toMatchObject({
+      availabilityState: 'AVAILABLE',
+      lastSuccessfulVerificationAt: '2026-11-16T12:02:00.000Z',
+      nextVerificationAt: '2026-11-16T18:02:00.000Z',
+      availabilityStatus: 'IN_STOCK'
+    });
+
+    currentMs = Date.parse('2026-11-16T12:03:00.000Z');
+    releaseA();
+    await expect(workerA).resolves.toMatchObject({ attempted: 1, succeeded: 0, failed: 0 });
+    expect(getEbayListingVerificationState(id)).toEqual(stateAfterB);
+  });
+
   it('uses per-item claim, attempt, completion, and retry timestamps in a long-running batch', async () => {
     const first = listingId('timing-a');
     const second = listingId('timing-b');
@@ -192,9 +232,9 @@ describe('eBay listing verification persistence', () => {
     let currentMs = Date.parse('2026-11-16T12:00:00.000Z');
     const clock = () => new Date(currentMs);
     const leaseExpirations: string[] = [];
-    const verify = vi.fn(async (id: string, options: { onRequestStart?: () => void }) => {
+    const verify = vi.fn(async (id: string, options?: { onRequestStart?: () => void }) => {
       currentMs += 4 * 60_000;
-      options.onRequestStart?.();
+      options?.onRequestStart?.();
       leaseExpirations.push(getEbayListingVerificationState(id)!.leaseExpiresAt!);
       currentMs += 30_000;
       return { kind: 'TEMPORARY_FAILURE' as const, httpStatus: 503 };

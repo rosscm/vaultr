@@ -208,7 +208,7 @@ function saveResult(
   result: EbayListingVerificationResult,
   attemptedAt: Date,
   completedAt: Date
-): void {
+): boolean {
   const successful = result.kind === 'AVAILABLE' || result.kind === 'ENDED_PUBLIC' || result.kind === 'UNAVAILABLE';
   const errorClass = successful ? null : result.kind;
   const attemptCount = successful ? 0 : record.attemptCount + (result.kind === 'RATE_LIMITED' ? 0 : 1);
@@ -227,7 +227,7 @@ function saveResult(
         ? 'UNAVAILABLE'
         : 'VERIFICATION_FAILED';
 
-  completeStmt.run({
+  return completeStmt.run({
     listing_id: record.listingId,
     lease_owner: owner,
     availability_state: state,
@@ -240,7 +240,7 @@ function saveResult(
     item_end_at: result.itemEndAt ?? record.itemEndAt ?? null,
     availability_status: result.availabilityStatus ?? record.availabilityStatus ?? null,
     updated_at: completedAt.toISOString()
-  });
+  }).changes > 0;
 }
 
 export async function processEbayListingVerificationQueue(input: {
@@ -274,28 +274,37 @@ export async function processEbayListingVerificationQueue(input: {
     const attemptedAt = clock();
     recordAttemptStmt.run(record.listingId, attemptedAt.toISOString());
     let result: EbayListingVerificationResult;
+    let leaseLost = false;
     try {
       result = await verify(record.listingId, {
-        now: attemptedAt,
+        clock,
         onRequestStart: () => {
           const requestStartedAt = clock();
-          renewLeaseStmt.run({
+          const renewed = renewLeaseStmt.run({
             listing_id: record.listingId,
             owner: workerId,
             now: requestStartedAt.toISOString(),
             lease_expires_at: new Date(requestStartedAt.getTime() + leaseMs).toISOString()
           });
+          if (renewed.changes === 0) {
+            leaseLost = true;
+            throw new Error('Historical eBay verification lease ownership was lost');
+          }
         }
       });
     } catch (error) {
-      console.error('Historical eBay listing verification failed unexpectedly', {
-        listingId: record.listingId,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      if (!leaseLost) {
+        console.error('Historical eBay listing verification failed unexpectedly', {
+          listingId: record.listingId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
       result = { kind: 'TEMPORARY_FAILURE', errorCode: 'UNEXPECTED_EXCEPTION' };
     }
+    if (leaseLost) break;
     const completedAt = clock();
-    saveResult(record, workerId, result, attemptedAt, completedAt);
+    const persisted = saveResult(record, workerId, result, attemptedAt, completedAt);
+    if (!persisted) break;
     if (result.kind === 'AVAILABLE' || result.kind === 'ENDED_PUBLIC' || result.kind === 'UNAVAILABLE') succeeded += 1;
     else failed += 1;
   }

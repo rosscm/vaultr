@@ -798,7 +798,13 @@ function browseAvailabilityStatus(json: any): string | undefined {
 
 export async function verifyEbayListingAvailability(
   listingId: string,
-  options: { timeoutMs?: number; budgetWaitTimeoutMs?: number; now?: Date; onRequestStart?: () => void } = {}
+  options: {
+    timeoutMs?: number;
+    budgetWaitTimeoutMs?: number;
+    now?: Date;
+    clock?: () => Date;
+    onRequestStart?: () => void;
+  } = {}
 ): Promise<EbayListingVerificationResult> {
   const normalizedId = listingId.trim();
   if (!normalizedId) return { kind: 'TEMPORARY_FAILURE', errorCode: 'INVALID_LISTING_ID' };
@@ -854,7 +860,8 @@ export async function verifyEbayListingAvailability(
     const endMs = itemEndAt ? Date.parse(itemEndAt) : Number.NaN;
     const hasEndDate = itemEndAt !== undefined;
     const hasValidEndDate = !hasEndDate || Number.isFinite(endMs);
-    const ended = hasEndDate && Number.isFinite(endMs) && endMs <= (options.now ?? new Date()).getTime();
+    const responseTime = options.clock?.() ?? options.now ?? new Date();
+    const ended = hasEndDate && Number.isFinite(endMs) && endMs <= responseTime.getTime();
     const unavailableForPurchase = availabilityStatus === 'OUT_OF_STOCK';
     if (ended || unavailableForPurchase) {
       return {

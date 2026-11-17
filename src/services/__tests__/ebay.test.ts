@@ -543,6 +543,25 @@ describe('verifyEbayListingAvailability', () => {
     expect(ended).toMatchObject({ kind: 'ENDED_PUBLIC', availabilityStatus: 'OUT_OF_STOCK' });
   });
 
+  it('classifies against response time when a listing ends after the attempt begins', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(jsonResponse({
+        itemEndDate: '2026-11-16T12:01:00.000Z',
+        estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'IN_STOCK' }]
+      }));
+    const { verifyEbayListingAvailability } = await import('../ebay.js');
+
+    await expect(verifyEbayListingAvailability('v1|response-time|0', {
+      now: new Date('2026-11-16T12:00:00.000Z'),
+      clock: () => new Date('2026-11-16T12:02:00.000Z')
+    })).resolves.toMatchObject({
+      kind: 'ENDED_PUBLIC',
+      itemEndAt: '2026-11-16T12:01:00.000Z'
+    });
+  });
+
   it('requires complete positive evidence before classifying an item as available', async () => {
     await expect(verifyResponse({
       itemEndDate: '2026-11-17T12:00:00.000Z'
