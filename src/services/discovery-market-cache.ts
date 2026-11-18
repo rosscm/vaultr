@@ -230,7 +230,7 @@ export function upsertDiscoveryMarketCache(input: UpsertDiscoveryMarketCacheInpu
     sold_range_high: input.soldRangeHigh ?? null,
     sold_sample_size: input.soldSampleSize ?? null,
     source_status: input.sourceStatus ?? null,
-    fetched_at: input.fetchedAt ?? now,
+    fetched_at: input.fetchedAt ?? input.listing?.contentRetrievedAt ?? '',
     updated_at: now
   });
 }
@@ -247,6 +247,7 @@ export function listingFromDiscoveryMarketCache(entry: DiscoveryMarketCacheEntry
     imageUrl: entry.imageUrl,
     thumbnailUrl: entry.imageUrl,
     region: 'OTHER',
-    listingType: 'OTHER'
+    listingType: 'OTHER',
+    contentRetrievedAt: entry.fetchedAt || undefined
   };
 }

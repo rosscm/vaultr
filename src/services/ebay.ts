@@ -621,7 +621,7 @@ async function getBrowseAccessToken(requestOptions: {
   return cachedBrowseToken.token;
 }
 
-function mapBrowseItemToListing(item: any, destination?: ShippingDestination): Listing | null {
+function mapBrowseItemToListing(item: any, destination: ShippingDestination | undefined, contentRetrievedAt: string): Listing | null {
   const listingId = item?.itemId;
   const title = item?.title;
   const url = item?.itemWebUrl;
@@ -663,7 +663,8 @@ function mapBrowseItemToListing(item: any, destination?: ShippingDestination): L
     postedAt: item?.itemCreationDate ?? item?.itemOriginDate,
     region: mapCountryToRegion(item?.itemLocation?.country),
     condition: item?.condition,
-    listingType: mapBrowseListingType(item?.buyingOptions)
+    listingType: mapBrowseListingType(item?.buyingOptions),
+    contentRetrievedAt
   };
 }
 
@@ -698,10 +699,11 @@ async function searchEbayBrowseListings(chase: Chase, destination?: ShippingDest
   if (!response.ok) {
     throw new Error(`eBay Browse request failed: ${response.status}`);
   }
+  const contentRetrievedAt = new Date().toISOString();
 
   const items = Array.isArray(json?.itemSummaries) ? json.itemSummaries : [];
   const listings = items
-    .map((item: any) => mapBrowseItemToListing(item, contextualDestination))
+    .map((item: any) => mapBrowseItemToListing(item, contextualDestination, contentRetrievedAt))
     .filter((listing: Listing | null): listing is Listing => listing !== null);
   const usableListings = filterExcludedListings(listings);
 
@@ -905,7 +907,7 @@ export async function verifyEbayListingAvailability(
   }
 }
 
-function mapFindingItemToListing(item: any, destination?: ShippingDestination): Listing | null {
+function mapFindingItemToListing(item: any, destination: ShippingDestination | undefined, contentRetrievedAt: string): Listing | null {
   const sellingState = findingSellingState(item?.sellingStatus?.[0]?.sellingState?.[0]);
   if (sellingState && sellingState !== 'ENDEDWITHSALES') return null;
 
@@ -953,7 +955,8 @@ function mapFindingItemToListing(item: any, destination?: ShippingDestination): 
     postedAt,
     region: mapCountryToRegion(countryCode),
     condition,
-    listingType: mapFindingListingType(rawListingType)
+    listingType: mapFindingListingType(rawListingType),
+    contentRetrievedAt
   } satisfies Listing;
 }
 
@@ -994,9 +997,10 @@ export async function searchEbaySoldListings(chase: Chase, destination?: Shippin
     if (!response.ok) {
       throw new Error(`eBay sold request failed: ${response.status}`);
     }
+    const contentRetrievedAt = new Date().toISOString();
 
     const items = json?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item ?? [];
-    const listings = items.map((item: any) => mapFindingItemToListing(item, destination)).filter((listing: Listing | null): listing is Listing => listing !== null);
+    const listings = items.map((item: any) => mapFindingItemToListing(item, destination, contentRetrievedAt)).filter((listing: Listing | null): listing is Listing => listing !== null);
     allListings.push(...listings);
     if (items.length === 0) break;
   }

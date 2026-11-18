@@ -52,6 +52,7 @@ export type Listing = {
   region: 'CA' | 'US' | 'OTHER';
   condition?: string;
   listingType?: 'AUCTION' | 'BUY_IT_NOW' | 'OTHER';
+  contentRetrievedAt?: string;
 };
 
 export type MatchResult = {

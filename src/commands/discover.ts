@@ -3117,7 +3117,8 @@ async function hydratePendingDiscoveryMarketCandidates(
             typicalRawAskingTotal: askCandidate.typicalRawAskingTotal,
             marketSampleSize: askCandidate.marketSampleSize,
             typicalRawSoldTotal: askCandidate.typicalRawSoldTotal,
-            soldSampleSize: askCandidate.soldSampleSize
+            soldSampleSize: askCandidate.soldSampleSize,
+            fetchedAt: askCandidate.marketContentRetrievedAt
           });
         },
         hydrationDeadlineAtMs
@@ -3135,7 +3136,8 @@ async function hydratePendingDiscoveryMarketCandidates(
         marketSampleSize: hydrated.marketSampleSize,
         typicalRawSoldTotal: hydrated.typicalRawSoldTotal,
         soldSampleSize: hydrated.soldSampleSize,
-        sourceStatus: hydrated.sourceStatus === 'PENDING' ? undefined : hydrated.sourceStatus
+        sourceStatus: hydrated.sourceStatus === 'PENDING' ? undefined : hydrated.sourceStatus,
+        fetchedAt: hydrated.marketContentRetrievedAt
       });
       hydratedByIndex.set(index, {
         ...candidate,
@@ -3514,6 +3516,10 @@ async function enrichSuggestion(
   onAskSnapshot?: (candidate: DiscoveryCandidate) => void,
   deadlineAtMs?: number
 ): Promise<DiscoveryCandidate> {
+  const oldestRetrievedAt = (listings: Listing[]): string | undefined => listings
+    .map((listing) => listing.contentRetrievedAt)
+    .filter((value): value is string => !!value && Number.isFinite(Date.parse(value)))
+    .sort()[0];
   const discoveryChase: Chase = {
     id: `discover:${suggestion.name}`,
     userId,
@@ -3575,11 +3581,13 @@ async function enrichSuggestion(
       askingRangeHigh: askingRange?.high,
       marketSampleSize: totals.length,
       soldSampleSize: 0,
-      displayCurrency: targetCurrency
+      displayCurrency: targetCurrency,
+      marketContentRetrievedAt: oldestRetrievedAt([...baselineRawListings, listing])
     };
     if (imageUrl) askSnapshot.image = { name: suggestion.name, url: imageUrl, sourceName: marketplaceImageSourceNameForCandidate(askSnapshot), sourceKind: 'MARKET_LISTING' };
     onAskSnapshot?.(askSnapshot);
     let soldTotals: number[] = [];
+    let soldContentRetrievedAt: string | undefined;
     try {
       let soldListings: Listing[] = [];
       for (const term of searchTerms) {
@@ -3592,6 +3600,7 @@ async function enrichSuggestion(
         if (usableBaselineListings(soldListings).length >= TARGET_RAW_MARKET_SAMPLE_SIZE) break;
       }
       const usableSoldListings = usableBaselineListings(soldListings);
+      soldContentRetrievedAt = oldestRetrievedAt(usableSoldListings);
       soldTotals = usableSoldListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
     } catch {
       soldTotals = [];
@@ -3606,7 +3615,10 @@ async function enrichSuggestion(
       soldRangeLow: soldRange?.low,
       soldRangeHigh: soldRange?.high,
       soldSampleSize: soldTotals.length,
-      displayCurrency: targetCurrency
+      displayCurrency: targetCurrency,
+      marketContentRetrievedAt: [askSnapshot.marketContentRetrievedAt, soldContentRetrievedAt]
+        .filter((value): value is string => !!value)
+        .sort()[0]
     };
   } catch (error) {
     return { suggestion, selectionIndex, sourceStatus: discoverySourceStatus(error) };
@@ -3683,7 +3695,8 @@ function saveDiscoveryMarketRefreshResult(job: DiscoveryMarketRefreshWork, candi
     soldRangeLow: candidate.soldRangeLow,
     soldRangeHigh: candidate.soldRangeHigh,
     soldSampleSize: candidate.soldSampleSize,
-    sourceStatus: candidate.sourceStatus === 'PENDING' ? undefined : candidate.sourceStatus
+    sourceStatus: candidate.sourceStatus === 'PENDING' ? undefined : candidate.sourceStatus,
+    fetchedAt: candidate.marketContentRetrievedAt
   });
 }
 
@@ -10754,7 +10767,7 @@ function scheduledDropItemsFromCandidates(candidates: DiscoveryCandidate[], curr
       soldRangeLow: candidate.soldRangeLow,
       soldRangeHigh: candidate.soldRangeHigh,
       soldSampleSize: candidate.soldSampleSize,
-      updatedAt: candidate.marketContentRetrievedAt,
+      contentRetrievedAt: candidate.marketContentRetrievedAt,
       listing: (candidate.sourceStatus === 'RATE_LIMITED' || candidate.sourceStatus === 'TIMEOUT' || candidate.sourceStatus === 'ERROR') ? undefined : candidate.listing
         ? {
             id: candidate.listing.listingId,

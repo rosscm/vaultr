@@ -95,7 +95,7 @@ describe('scheduled discovery drops', () => {
                 title: 'Mew ex 232/091 Paldean Fates',
                 url: 'https://example.com/listing-1'
               },
-              updatedAt: '2026-06-10T15:30:00.000Z'
+              contentRetrievedAt: '2026-06-10T15:30:00.000Z'
             }
           }
         ]

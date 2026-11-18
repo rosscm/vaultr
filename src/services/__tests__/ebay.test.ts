@@ -87,6 +87,7 @@ describe('searchEbayListings Browse shipping', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     process.env = { ...ORIGINAL_ENV };
   });
@@ -420,6 +421,31 @@ describe('searchEbayListings Browse shipping', () => {
     const second = getCachedEbayListings(baseChase());
 
     expect(second?.[0]?.title).toBe('Umbreon VMAX Alt Art');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves the original Browse retrieval time when serving cached listings', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-18T10:00:00.000Z'));
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token', expires_in: 7200 }))
+      .mockResolvedValueOnce(jsonResponse({
+        itemSummaries: [{
+          itemId: 'v1|retrieval-time|0', title: 'Umbreon VMAX Alt Art',
+          itemWebUrl: 'https://example.com/item/retrieval-time',
+          price: { value: '100.00', currency: 'USD' }, itemLocation: { country: 'US' },
+          buyingOptions: ['FIXED_PRICE']
+        }]
+      }));
+
+    const { searchEbayListings } = await import('../ebay.js');
+    const first = await searchEbayListings(baseChase(), undefined, { enrichMissingShipping: false });
+    expect(first[0]?.contentRetrievedAt).toBe('2026-11-18T10:00:00.000Z');
+
+    vi.setSystemTime(new Date('2026-11-18T10:01:00.000Z'));
+    const cached = await searchEbayListings(baseChase(), undefined, { enrichMissingShipping: false });
+    expect(cached[0]?.contentRetrievedAt).toBe('2026-11-18T10:00:00.000Z');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

@@ -49,7 +49,8 @@ describe('discovery market cache', () => {
         url: 'https://www.ebay.example/item/cache-listing-1',
         imageUrl: 'https://i.ebayimg.example/mew.jpg',
         region: 'OTHER',
-        listingType: 'BUY_IT_NOW'
+        listingType: 'BUY_IT_NOW',
+        contentRetrievedAt: '2026-11-18T10:00:00.000Z'
       },
       typicalRawAskingTotal: 42,
       askingRangeLow: 35,
@@ -72,9 +73,23 @@ describe('discovery market cache', () => {
     expect(entry?.soldRangeHigh).toBe(41);
     expect(entry?.soldSampleSize).toBe(4);
     expect(entry?.imageUrl).toBe('https://i.ebayimg.example/mew.jpg');
+    expect(entry?.fetchedAt).toBe('2026-11-18T10:00:00.000Z');
 
     const listing = listingFromDiscoveryMarketCache(entry!);
     expect(listing?.listingId).toBe('cache-listing-1');
     expect(listing?.url).toBe('https://www.ebay.example/item/cache-listing-1');
+    expect(listing?.contentRetrievedAt).toBe('2026-11-18T10:00:00.000Z');
+  });
+
+  it('does not treat a generic cache write time as market-content retrieval provenance', () => {
+    upsertDiscoveryMarketCache({
+      cacheKey,
+      suggestionName: testKey,
+      displayCurrency: 'CAD',
+      typicalRawAskingTotal: 42,
+      marketSampleSize: 3
+    });
+
+    expect(getDiscoveryMarketCache(cacheKey)?.fetchedAt).toBe('');
   });
 });

@@ -29,6 +29,7 @@ export type ScheduledDiscoveryDropItem = {
       url: string;
     };
     updatedAt?: string;
+    contentRetrievedAt?: string;
     contentSuppressed?: boolean;
   };
 };
@@ -374,7 +375,8 @@ function mapScheduledDiscoveryDropItemRow(row: ScheduledDiscoveryDropItemRow): S
               url: row.listing_url
             }
           : undefined,
-      updatedAt: row.market_updated_at ?? undefined
+      updatedAt: row.market_updated_at ?? undefined,
+      contentRetrievedAt: row.market_updated_at ?? undefined
     }
   };
 }
@@ -466,7 +468,7 @@ export function upsertScheduledDiscoveryDrop(input: UpsertScheduledDiscoveryDrop
         listing_id: item.market.listing?.id ?? null,
         listing_title: item.market.listing?.title ?? null,
         listing_url: item.market.listing?.url ?? null,
-        market_updated_at: item.market.updatedAt ?? null,
+        market_updated_at: item.market.contentRetrievedAt ?? null,
         created_at: now,
         updated_at: now
       });

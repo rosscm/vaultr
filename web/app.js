@@ -2070,10 +2070,10 @@ function alertCardMarkup(alert, selected = false) {
           </div>
         </div>
         <div class="alert-price-column">
-          <span class="alert-price-primary">${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping${historicalPricing ? ' when matched' : ''}</span>` : `<span class="alert-card-shipping">${historicalPricing ? 'Shipping was unknown' : 'Shipping unknown'}</span>`}</span>
+          ${contentSuppressed ? '' : `<span class="alert-price-primary">${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping${historicalPricing ? ' when matched' : ''}</span>` : `<span class="alert-card-shipping">${historicalPricing ? 'Shipping was unknown' : 'Shipping unknown'}</span>`}</span>
           ${price && freshness.historicalPriceLabel ? `<span class="alert-price-history">${freshness.historicalPriceLabel}</span>` : ''}
           ${pricing.compactDelta ? `<span class="price-delta">${escapeHtml(pricing.compactDelta)}${historicalPricing ? ' when matched' : ''}</span>` : ''}
-          ${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}
+          ${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}`}
         </div>
         <div class="alert-actions">${alertActionMarkup(alert, { compact: true, includeCorrection: true })}</div>
       </div>
@@ -2132,8 +2132,8 @@ function alertDetailPanelMarkup(alert) {
         <div>
           <p class="alert-detail-target">For ${escapeHtml(alert.chaseName || 'your Watchlist')}</p>
           <p class="alert-detail-market">${escapeHtml(details?.listing?.sourceLabel || sourceLabel(alert.source))}${details?.listing?.listingType ? ` • ${escapeHtml(listingTypeLabel(details.listing.listingType))}` : ''}</p>
-          <p class="alert-detail-price">${formatMoney(alert.listingPrice, alert.listingCurrency) || 'Price unavailable'}</p>
-          <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping${historicalPricing ? ' when matched' : ''}` : historicalPricing ? 'Shipping was unknown' : 'Shipping unknown'}</p>
+          ${contentSuppressed ? '' : `<p class="alert-detail-price">${formatMoney(alert.listingPrice, alert.listingCurrency) || 'Price unavailable'}</p>
+          <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping${historicalPricing ? ' when matched' : ''}` : historicalPricing ? 'Shipping was unknown' : 'Shipping unknown'}</p>`}
           ${freshness.historicalPriceLabel ? `<p class="alert-detail-history">${escapeHtml(freshness.historicalPriceLabel)}. Saved listing details have not been refreshed.</p>` : ''}
           ${freshness.status ? `<p class="listing-freshness-note">${escapeHtml(freshness.status)}</p>` : ''}
           <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span></div>

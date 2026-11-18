@@ -15,13 +15,13 @@ export function suppressStaleEbayMarket<T extends {
   status: string;
   currency: string;
   fetchedAt?: string;
-  updatedAt?: string;
+  contentRetrievedAt?: string;
 }>(market: T, now = new Date()): T | { status: 'MISSING'; currency: T['currency']; contentSuppressed: true } {
   const values = market as Record<string, unknown>;
   const containsMarketplaceContent = ['askingTotal', 'askingRangeLow', 'askingRangeHigh', 'soldTotal', 'soldRangeLow', 'soldRangeHigh', 'listing']
     .some((key) => values[key] !== undefined);
   if (!containsMarketplaceContent) return market;
-  const retrievedAt = market.fetchedAt ?? market.updatedAt;
+  const retrievedAt = market.fetchedAt ?? market.contentRetrievedAt;
   if (isTrustedEbayContentFresh(retrievedAt, now)) return market;
   return { status: 'MISSING', currency: market.currency, contentSuppressed: true };
 }

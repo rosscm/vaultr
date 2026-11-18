@@ -933,7 +933,7 @@ export async function runPoll(): Promise<void> {
         priceDelta,
         listingUrl: listing.url,
         listingImageUrl: alertImageUrl,
-        listingContentRetrievedAt: listing.source === 'EBAY' ? new Date(sentAtMs).toISOString() : undefined,
+        listingContentRetrievedAt: listing.source === 'EBAY' ? listing.contentRetrievedAt : undefined,
         matchScore: match.score,
         listingPostedAt: listing.postedAt,
         alertLatencySeconds: alertLatencySeconds(listing.postedAt, sentAtMs),

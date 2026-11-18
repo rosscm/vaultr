@@ -173,7 +173,7 @@ function seedWeeklyShelf(
           currency: 'CAD',
           askingTotal: 185,
           askingSampleSize: 4,
-          updatedAt: '2026-08-30T12:00:00.000Z'
+          contentRetrievedAt: '2026-08-30T12:00:00.000Z'
         }
       },
       {
@@ -1021,6 +1021,19 @@ describe('web app static routes', () => {
     expect(itemOnlyCard).toContain('Availability not yet verified');
     expect(itemOnly).toContain('Saved listing details have not been refreshed.');
     expect(itemOnlyCard).toContain('aria-current="true"');
+
+    const suppressed = {
+      ...base,
+      listingFreshness: { availabilityState: 'UNVERIFIED', availabilityFresh: false, contentFresh: false, contentSuppressed: true },
+      details: { chase: { maxPrice: 100, listingType: 'ANY' } }
+    };
+    const suppressedCard = render.card(suppressed);
+    const suppressedPanel = render.panel(suppressed);
+    expect(suppressedCard).not.toContain('Price unavailable');
+    expect(suppressedCard).not.toContain('Shipping was unknown');
+    expect(suppressedPanel).not.toContain('Price unavailable');
+    expect(suppressedPanel).not.toContain('Shipping was unknown');
+    expect(suppressedPanel).toContain('The original listing details are no longer available.');
 
     const verified = render.panel({
       ...base,
@@ -2741,7 +2754,11 @@ describe('authenticated alert API', () => {
     const userId = 'web-alert-freshness-user';
     const listingId = `v1|freshness-${Date.now()}|0`;
     clearUser(userId);
-    const alert = seedAlert(userId, 71, { listingId, listingContentRetrievedAt: undefined });
+    const alert = seedAlert(userId, 71, {
+      listingId,
+      listingContentRetrievedAt: '2026-11-17T05:00:00.000Z',
+      now: '2026-11-17T11:30:00.000Z'
+    });
     const { token } = createWebSession({ userId }, { token: 'alert-freshness-token' });
     const headers = { cookie: sessionCookie(token) };
     db.prepare(`
@@ -2764,6 +2781,8 @@ describe('authenticated alert API', () => {
     expect(list.items[0]).not.toHaveProperty('listingUrl');
     expect(list.items[0]).not.toHaveProperty('matchScore');
     expect(list.items[0].details).toBeUndefined();
+    expect((db.prepare('SELECT listing_content_retrieved_at FROM alert_events WHERE id = ?').get(alert.alertId) as { listing_content_retrieved_at: string }).listing_content_retrieved_at)
+      .toBe('2026-11-17T05:00:00.000Z');
 
     const detail = JSON.parse((await handleWebRequest({ method: 'GET', url: `/api/alerts/${alert.alertId}`, headers }, requestOptions)).body ?? '{}');
     expect(detail.item.listingFreshness).toEqual(list.items[0].listingFreshness);

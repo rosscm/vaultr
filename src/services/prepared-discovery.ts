@@ -31,6 +31,7 @@ export type PreparedDiscoveryShelfItem = {
     };
     fetchedAt?: string;
     updatedAt?: string;
+    contentRetrievedAt?: string;
     contentSuppressed?: boolean;
   };
 };
