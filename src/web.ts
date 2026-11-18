@@ -72,6 +72,7 @@ import { weeklyGeneralDiscoveryForUser, weeklyGeneralDiscoveryPeriodKey } from '
 import { APPROVED_STARTER_DISCOVERY } from './services/starter-discovery.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
 import { ebayListingContentFreshness } from './services/ebay-listing-verification.js';
+import { suppressStaleEbayMarket } from './services/ebay-content-exposure.js';
 import { listTrustedShopifyShopNames } from './services/shopify.js';
 import {
   createWebSession,
@@ -568,12 +569,13 @@ function usefulShelfImageUrl(item: ScheduledDiscoveryDropItem): string | undefin
   return imageUrl;
 }
 
-function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, periodKey: string) {
+function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, periodKey: string, now = new Date()) {
   const reference = item.suggestion.canonicalReference;
   const catalogRecord = reference?.provider && reference.sourceCardId
     ? getCardCatalogRecordBySourceCardId(reference.provider, reference.sourceCardId)
     : null;
-  const marketReady = item.market.status === 'READY';
+  const publicMarket = suppressStaleEbayMarket(item.market, now);
+  const marketReady = publicMarket.status === 'READY';
   const imageUrl = usefulShelfImageUrl(item);
   const selection = imageUrl && reference?.sourceCardId
     ? issueCardSelection(userId, item.suggestion.name, {
@@ -613,19 +615,9 @@ function publicShelfItem(item: ScheduledDiscoveryDropItem, userId: string, perio
     reason: safeShelfReason(item),
     market: marketReady
       ? {
-          status: item.market.status,
-          currency: item.market.currency,
-          askingTotal: item.market.askingTotal,
-          askingRangeLow: item.market.askingRangeLow,
-          askingRangeHigh: item.market.askingRangeHigh,
-          askingSampleSize: item.market.askingSampleSize,
-          soldTotal: item.market.soldTotal,
-          soldRangeLow: item.market.soldRangeLow,
-          soldRangeHigh: item.market.soldRangeHigh,
-          soldSampleSize: item.market.soldSampleSize,
-          updatedAt: item.market.updatedAt
+          ...publicMarket
         }
-      : { status: item.market.status, currency: item.market.currency },
+      : publicMarket,
     ebayUrl: shelfEbayUrl(item, item.market.currency)
   };
 }
@@ -840,6 +832,7 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
   const discovery = webDiscoveryState(userId, config, true);
   const personalized = discovery.state === 'POPULATED' && discovery.tier === 'PRO';
   const generalDiscovery = personalized ? undefined : publicGeneralDiscovery(userId, config, now);
+  const publicItems = personalized ? drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey, now)) : [];
   return jsonResponse(200, {
     status: drop.status,
     shelfKind,
@@ -849,10 +842,10 @@ function shelfResponse(userId: string, config: WebConfig, now = new Date()): Web
     availableAt: drop.availableAt,
     updatedAt: drop.updatedAt,
     itemCount: personalized ? drop.itemCount : 0,
-    marketReadyCount: personalized ? drop.marketReadyCount : 0,
+    marketReadyCount: publicItems.filter((item) => item.market.status === 'READY').length,
     imageReadyCount: personalized ? drop.imageReadyCount : 0,
     currency: drop.currency,
-    items: personalized ? drop.items.map((item) => publicShelfItem(item, userId, drop.periodKey)) : [],
+    items: publicItems,
     discovery,
     isNew: !hasViewedDisplayCasePeriod(userId, drop.periodKey),
     budgetShortage: budgetShortage ? { retainedPreviousShelf: shelfKind === 'PREVIOUS' } : undefined,
@@ -975,16 +968,36 @@ export function decodeAlertCursor(raw: string): AlertHistoryCursor | null {
 
 function publicAlertItem(item: AlertHistoryItem, now = new Date()): AlertHistoryItem {
   if (item.source !== 'EBAY') return { ...item };
-  const freshness = ebayListingContentFreshness(item.listingId, now);
+  const freshness = ebayListingContentFreshness(item.listingId, now, undefined, item.listingContentRetrievedAt);
+  const contentFresh = freshness.contentFresh;
+  const { listingContentRetrievedAt, ...publicItem } = item;
+  const listingFreshness = {
+    availabilityState: freshness.state,
+    availabilityFresh: freshness.availabilityFresh,
+    contentFresh,
+    contentSuppressed: !contentFresh,
+    availabilityVerifiedAt: freshness.availabilityVerifiedAt,
+    contentRefreshedAt: freshness.contentRefreshedAt
+  };
+  if (!contentFresh) {
+    return {
+      id: item.id,
+      chaseId: item.chaseId,
+      chaseName: item.chaseName,
+      chasePriority: item.chasePriority,
+      listingId: item.listingId,
+      source: item.source,
+      details: item.details?.chase ? { chase: item.details.chase } : undefined,
+      listingFreshness,
+      reviewedAt: item.reviewedAt,
+      dismissedAt: item.dismissedAt,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt
+    };
+  }
   return {
-    ...item,
-    listingFreshness: {
-      availabilityState: freshness.state,
-      availabilityFresh: freshness.availabilityFresh,
-      contentFresh: freshness.contentFresh,
-      availabilityVerifiedAt: freshness.availabilityVerifiedAt,
-      contentRefreshedAt: freshness.contentRefreshedAt
-    }
+    ...publicItem,
+    listingFreshness
   };
 }
 

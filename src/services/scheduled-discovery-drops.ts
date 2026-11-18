@@ -29,6 +29,7 @@ export type ScheduledDiscoveryDropItem = {
       url: string;
     };
     updatedAt?: string;
+    contentSuppressed?: boolean;
   };
 };
 

@@ -1652,6 +1652,7 @@ function homeAlertPreviewMarkup(alert) {
   const quality = matchLabel(alert.matchScore);
   const freshness = alertFreshnessPresentation(alert);
   const historicalPricing = alert.source === 'EBAY';
+  const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   return `
     <li class="home-preview-row">
       <div class="home-preview-artwork">
@@ -1663,11 +1664,11 @@ function homeAlertPreviewMarkup(alert) {
               imageClass: 'home-preview-image',
               imageDataAttribute: 'data-home-alert-image'
             })
-          : '<span class="home-preview-image-placeholder" aria-hidden="true">K</span>'}
+          : `<img class="home-preview-image home-preview-image-placeholder display-case-card-back" src="${displayCaseCardBackUrl}" alt="">`}
       </div>
       <div class="home-preview-copy">
         <strong>${escapeHtml(alert.chaseName || 'Watchlist card')}</strong>
-        <span>${escapeHtml(alert.listingTitle || sourceLabel(alert.source))}</span>
+        <span>${escapeHtml(contentSuppressed ? 'The original eBay listing details are no longer available.' : alert.listingTitle || sourceLabel(alert.source))}</span>
         <span class="home-preview-meta">
           <span class="review-state-pill new">New</span>
           ${quality ? `<span>${escapeHtml(quality)}</span>` : ''}
@@ -2015,6 +2016,7 @@ function alertPricingPresentation(alert) {
 function alertFreshnessPresentation(alert) {
   if (alert.source !== 'EBAY') return { status: '', historicalPriceLabel: '' };
   const freshness = alert.listingFreshness;
+  if (freshness?.contentSuppressed) return { status: '', historicalPriceLabel: '' };
   if (!freshness) return { status: 'Availability not yet verified', historicalPriceLabel: 'Price when matched' };
   if (!freshness.availabilityFresh) {
     if (freshness.availabilityState === 'VERIFICATION_FAILED') return { status: 'Availability could not be verified', historicalPriceLabel: 'Price when matched' };
@@ -2046,6 +2048,7 @@ function alertCardMarkup(alert, selected = false) {
   const price = formatMoney(alert.listingPrice, alert.listingCurrency);
   const freshness = alertFreshnessPresentation(alert);
   const historicalPricing = alert.source === 'EBAY';
+  const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   return `
     <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${selected ? 'selected' : ''} ${alert.imageUrl ? 'has-image' : 'no-image'}" data-alert-card data-alert-id="${escapeHtml(alert.id)}" tabindex="0" aria-current="${selected ? 'true' : 'false'}">
       <div class="alert-artwork">${alertArtworkMarkup(alert)}</div>
@@ -2058,7 +2061,7 @@ function alertCardMarkup(alert, selected = false) {
           <button class="alert-select-button" type="button" data-action="select-alert" data-alert-id="${escapeHtml(alert.id)}">
             <span class="chase-name">${escapeHtml(alert.chaseName || 'Watchlist card')}</span>
           </button>
-          ${alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
+          ${contentSuppressed ? '<p class="listing-title">An eBay match was found for this card. The original listing details are no longer available.</p>' : alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
           <div class="alert-context">
             <span>${escapeHtml(sourceLabel(alert.source))}</span>
             <span aria-hidden="true">•</span>
@@ -2090,6 +2093,7 @@ function alertDetailPanelMarkup(alert) {
   const details = pricing.details;
   const freshness = alertFreshnessPresentation(alert);
   const historicalPricing = alert.source === 'EBAY';
+  const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
   const listingRows = details ? [
     ...(details.listing?.seller ? [['Seller', detailValue(details.listing.seller)]] : []),
@@ -2135,8 +2139,9 @@ function alertDetailPanelMarkup(alert) {
           <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span></div>
         </div>
       </div>
+      ${contentSuppressed ? '<section class="alert-detail-section historical"><h3>Historical match</h3><p>An eBay match was found for this card. The original listing details are no longer available.</p></section>' : ''}
       <section class="alert-detail-actions" aria-label="Listing actions"><h3>Actions</h3><div class="alert-actions">${alertDetailActionMarkup(alert)}</div></section>
-      ${details ? `
+      ${contentSuppressed ? (details?.chase ? `<section class="alert-detail-section"><h3>Your Watchlist criteria</h3>${alertDetailRows(criteriaRows)}${details.chase.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>` : '') : details ? `
         <section class="alert-detail-section alert-match-evidence"><div class="alert-detail-section-heading"><h3>Why it matched</h3><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span></div>
           ${showMatchExplanation ? `<p>${escapeHtml(matchExplanation)}</p>` : ''}
           ${positiveSignals.length ? `<ul>${positiveSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}</ul>` : ''}

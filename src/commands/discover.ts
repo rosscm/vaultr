@@ -158,6 +158,7 @@ export type DiscoveryCandidate = {
   soldRangeHigh?: number;
   soldSampleSize?: number;
   displayCurrency?: SupportedCurrency;
+  marketContentRetrievedAt?: string;
   selectionIndex?: number;
   sourceStatus?: 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'EMPTY' | 'NO_ACCEPTED_SAMPLES';
   supplySource?: DiscoverySupplySource;
@@ -2855,6 +2856,7 @@ function candidateFromCachedMarket(
     soldRangeHigh: cacheEntry.soldRangeHigh,
     soldSampleSize: cacheEntry.soldSampleSize,
     displayCurrency: cacheEntry.displayCurrency ?? targetCurrency,
+    marketContentRetrievedAt: cacheEntry.fetchedAt,
     sourceStatus,
     supplySource
   } satisfies DiscoveryCandidate;
@@ -10752,6 +10754,7 @@ function scheduledDropItemsFromCandidates(candidates: DiscoveryCandidate[], curr
       soldRangeLow: candidate.soldRangeLow,
       soldRangeHigh: candidate.soldRangeHigh,
       soldSampleSize: candidate.soldSampleSize,
+      updatedAt: candidate.marketContentRetrievedAt,
       listing: (candidate.sourceStatus === 'RATE_LIMITED' || candidate.sourceStatus === 'TIMEOUT' || candidate.sourceStatus === 'ERROR') ? undefined : candidate.listing
         ? {
             id: candidate.listing.listingId,

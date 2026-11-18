@@ -6,6 +6,7 @@ import { getEntitlementsForTier } from './entitlements.js';
 import { isStructurallyValidTrustedCardImageUrl } from './card-image-url.js';
 import { activePlanChases, activePlanTier } from './plans.js';
 import type { Chase, PlanTier } from '../types.js';
+import { suppressStaleEbayMarket } from './ebay-content-exposure.js';
 
 export type PreparedDiscoveryMarketStatus = 'READY' | 'THIN' | 'PENDING' | 'RATE_LIMITED' | 'TIMEOUT' | 'ERROR' | 'EMPTY' | 'NO_ACCEPTED_SAMPLES' | 'MISSING';
 
@@ -30,6 +31,7 @@ export type PreparedDiscoveryShelfItem = {
     };
     fetchedAt?: string;
     updatedAt?: string;
+    contentSuppressed?: boolean;
   };
 };
 
@@ -90,31 +92,27 @@ function itemFromPreparedCaches(input: {
   const marketCacheKey = discoveryMarketCacheKey(input.name, input.currency, input.destinationCountry, undefined, input.marketRange);
   const market = getDiscoveryMarketCache(marketCacheKey);
   const reference = getDiscoveryReferenceCache(discoveryReferenceCacheKey(input.name));
+  const preparedMarket = {
+    status: marketStatusFromCache(market),
+    currency: market?.displayCurrency ?? input.currency,
+    askingTotal: market?.typicalRawAskingTotal,
+    askingSampleSize: market?.marketSampleSize,
+    soldTotal: market?.typicalRawSoldTotal,
+    soldSampleSize: market?.soldSampleSize,
+    listing:
+      market?.listingId && market.listingTitle && market.listingUrl
+        ? { id: market.listingId, title: market.listingTitle, url: market.listingUrl, imageUrl: market.imageUrl }
+        : undefined,
+    fetchedAt: market?.fetchedAt,
+    updatedAt: market?.updatedAt
+  };
   return {
     position: input.position,
     name: input.name,
     imageUrl: reference?.imageUrl,
     imageSourceName: reference?.sourceName,
     imageSourceKind: isStructurallyValidTrustedCardImageUrl(reference?.imageUrl, reference?.sourceName) ? 'CARD_REFERENCE' : undefined,
-    market: {
-      status: marketStatusFromCache(market),
-      currency: market?.displayCurrency ?? input.currency,
-      askingTotal: market?.typicalRawAskingTotal,
-      askingSampleSize: market?.marketSampleSize,
-      soldTotal: market?.typicalRawSoldTotal,
-      soldSampleSize: market?.soldSampleSize,
-      listing:
-        market?.listingId && market.listingTitle && market.listingUrl
-          ? {
-              id: market.listingId,
-              title: market.listingTitle,
-              url: market.listingUrl,
-              imageUrl: market.imageUrl
-            }
-          : undefined,
-      fetchedAt: market?.fetchedAt,
-      updatedAt: market?.updatedAt
-    }
+    market: suppressStaleEbayMarket(preparedMarket)
   };
 }
 

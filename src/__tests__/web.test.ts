@@ -109,6 +109,7 @@ function seedAlert(userId: string, index: number, overrides: Partial<Parameters<
     alertLatencySeconds: index,
     payload: { internalOnly: true },
     now: `2026-08-20T12:0${index}:00.000Z`,
+    listingContentRetrievedAt: new Date().toISOString(),
     ...overrides
   });
 }
@@ -1055,6 +1056,7 @@ describe('web app static routes', () => {
     expect(homeSource).toContain('alertFreshnessPresentation(alert)');
     expect(homeSource).toContain('when matched');
     expect(homeSource).toContain('listing-freshness-note');
+    expect(source).toContain('The original eBay listing details are no longer available.');
   });
 
   it('keeps supported-shop pricing current across Home, Inbox cards, and listing details', async () => {
@@ -2739,7 +2741,7 @@ describe('authenticated alert API', () => {
     const userId = 'web-alert-freshness-user';
     const listingId = `v1|freshness-${Date.now()}|0`;
     clearUser(userId);
-    const alert = seedAlert(userId, 71, { listingId });
+    const alert = seedAlert(userId, 71, { listingId, listingContentRetrievedAt: undefined });
     const { token } = createWebSession({ userId }, { token: 'alert-freshness-token' });
     const headers = { cookie: sessionCookie(token) };
     db.prepare(`
@@ -2754,8 +2756,14 @@ describe('authenticated alert API', () => {
       availabilityState: 'AVAILABLE',
       availabilityFresh: true,
       contentFresh: false,
+      contentSuppressed: true,
       availabilityVerifiedAt: '2026-11-17T11:00:00.000Z'
     });
+    expect(list.items[0]).not.toHaveProperty('listingTitle');
+    expect(list.items[0]).not.toHaveProperty('listingPrice');
+    expect(list.items[0]).not.toHaveProperty('listingUrl');
+    expect(list.items[0]).not.toHaveProperty('matchScore');
+    expect(list.items[0].details).toBeUndefined();
 
     const detail = JSON.parse((await handleWebRequest({ method: 'GET', url: `/api/alerts/${alert.alertId}`, headers }, requestOptions)).body ?? '{}');
     expect(detail.item.listingFreshness).toEqual(list.items[0].listingFreshness);
@@ -3047,7 +3055,7 @@ describe('authenticated Weekly Shelf API', () => {
     expect(body.items[0].ebayUrl).toMatch(/^https:\/\/www\.ebay\.ca\/sch\/i\.html\?_nkw=/);
     expect(decodeURIComponent(new URL(body.items[0].ebayUrl).searchParams.get('_nkw') ?? '')).toContain('CoroCoro Shining Mew');
     expect(body.items[1].imageUrl).toBeUndefined();
-    expect(body.items[1].market.status).toBe('EMPTY');
+    expect(body.items[1].market).toEqual({ status: 'MISSING', currency: 'CAD', contentSuppressed: true });
     expect(body.items[1].reason).toBeUndefined();
     expect(body.items[1].roleLabel).toBe('Something different');
     expect(body.items[1].signalLabel).toBe('Collector Thread');

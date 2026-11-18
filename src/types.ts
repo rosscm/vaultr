@@ -118,6 +118,7 @@ export type AlertEvent = {
   priceDelta?: number;
   listingUrl?: string;
   imageUrl?: string;
+  listingContentRetrievedAt?: string;
   matchScore?: number;
   listingPostedAt?: string;
   alertLatencySeconds?: number;
@@ -155,7 +156,8 @@ export type AlertHistoryCursor = {
 export type EbayListingFreshness = {
   availabilityState: 'UNVERIFIED' | 'AVAILABLE' | 'ENDED_PUBLIC' | 'UNAVAILABLE' | 'VERIFICATION_FAILED';
   availabilityFresh: boolean;
-  contentFresh: false;
+  contentFresh: boolean;
+  contentSuppressed?: boolean;
   availabilityVerifiedAt?: string;
   contentRefreshedAt?: string;
 };
@@ -178,6 +180,7 @@ export type AlertHistoryItem = {
   alertLatencySeconds?: number;
   details?: AlertMatchDetails;
   listingFreshness?: EbayListingFreshness;
+  listingContentRetrievedAt?: string;
   reviewedAt?: string;
   dismissedAt?: string;
   createdAt: string;

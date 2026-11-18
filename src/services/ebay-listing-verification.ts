@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
+import { isTrustedEbayContentFresh } from './ebay-content-exposure.js';
 import { verifyEbayListingAvailability, type EbayListingVerificationResult } from './ebay.js';
 
 export type EbayListingAvailabilityState = 'UNVERIFIED' | 'AVAILABLE' | 'ENDED_PUBLIC' | 'UNAVAILABLE' | 'VERIFICATION_FAILED';
@@ -145,25 +146,30 @@ export function getEbayListingVerificationState(listingId: string): EbayListingV
 export function ebayListingContentFreshness(
   listingId: string,
   now = new Date(),
-  maxAgeMs = 6 * 60 * 60 * 1000
+  maxAgeMs = 6 * 60 * 60 * 1000,
+  contentRetrievedAt?: string
 ): {
   state: EbayListingAvailabilityState;
   availabilityFresh: boolean;
-  contentFresh: false;
+  contentFresh: boolean;
   availabilityVerifiedAt?: string;
   contentRefreshedAt?: string;
 } {
   const record = getEbayListingVerificationState(listingId);
-  if (!record) return { state: 'UNVERIFIED', availabilityFresh: false, contentFresh: false };
+  const contentFresh = isTrustedEbayContentFresh(contentRetrievedAt, now, maxAgeMs);
+  if (!record) return {
+    state: 'UNVERIFIED', availabilityFresh: false, contentFresh,
+    contentRefreshedAt: contentFresh ? contentRetrievedAt : undefined
+  };
   const verifiedMs = Date.parse(record.lastSuccessfulVerificationAt ?? '');
   return {
     state: record.availabilityState,
     availabilityFresh: (record.availabilityState === 'AVAILABLE' || record.availabilityState === 'ENDED_PUBLIC' || record.availabilityState === 'UNAVAILABLE')
       && Number.isFinite(verifiedMs)
       && now.getTime() - verifiedMs <= maxAgeMs,
-    contentFresh: false,
+    contentFresh,
     availabilityVerifiedAt: record.lastSuccessfulVerificationAt,
-    contentRefreshedAt: undefined
+    contentRefreshedAt: contentFresh ? contentRetrievedAt : undefined
   };
 }
 

@@ -52,7 +52,7 @@ describe('prepared discovery shelf', () => {
       marketSampleSize: 4,
       typicalRawSoldTotal: 88,
       soldSampleSize: 3,
-      fetchedAt: '2026-06-10T00:00:00.000Z'
+      fetchedAt: new Date().toISOString()
     });
 
     const referenceKey = discoveryReferenceCacheKey('Mew ex Paldean Fates 232');
@@ -120,7 +120,7 @@ describe('prepared discovery shelf', () => {
         region: 'CA',
         listingType: 'BUY_IT_NOW'
       },
-      fetchedAt: '2026-06-10T00:00:00.000Z'
+      fetchedAt: new Date().toISOString()
     });
 
     const shelf = getPreparedDiscoveryShelf(userId);

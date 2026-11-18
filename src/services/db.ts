@@ -169,6 +169,7 @@ db.exec(`
     price_delta REAL,
     listing_url TEXT,
     listing_image_url TEXT,
+    listing_content_retrieved_at TEXT,
     match_score INTEGER,
     listing_posted_at TEXT,
     alert_latency_seconds INTEGER,
@@ -1422,6 +1423,9 @@ if (!sqliteColumnExists('trusted_shop_catalog_state', 'last_limited_sweep_at')) 
 }
 if (!sqliteColumnExists('user_notification_settings', 'discord_alert_invite_dismissed_at')) {
   db.exec(`ALTER TABLE user_notification_settings ADD COLUMN discord_alert_invite_dismissed_at TEXT;`);
+}
+if (!sqliteColumnExists('alert_events', 'listing_content_retrieved_at')) {
+  db.exec(`ALTER TABLE alert_events ADD COLUMN listing_content_retrieved_at TEXT;`);
 }
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chases_guild_id ON chases(guild_id);`);
