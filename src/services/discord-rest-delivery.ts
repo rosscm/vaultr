@@ -1,5 +1,3 @@
-import type { AlertEvent } from '../types.js';
-
 type DiscordRestResponse = {
   ok: boolean;
   status: number;
@@ -41,33 +39,6 @@ async function discordFailure(response: DiscordRestResponse, operation: string):
     undefined,
     discordCode
   );
-}
-
-function watchlistPriorityDescription(priority: AlertEvent['chasePriority']): string {
-  if (priority === 'GRAIL') return 'KeepSeek found a new match for one of your Grail Watchlist cards.';
-  if (priority === 'HIGH') return 'KeepSeek found a new match for one of your High-priority Watchlist cards.';
-  if (priority === 'NORMAL') return 'KeepSeek found a new match for one of your Casual Watchlist cards.';
-  return 'KeepSeek found a new match for one of your Watchlist cards.';
-}
-
-export function discordAlertMessage(event: AlertEvent, webBaseUrl: string): Record<string, unknown> {
-  const inboxUrl = new URL('/app', webBaseUrl);
-  inboxUrl.hash = `alerts?chaseId=${encodeURIComponent(event.chaseId)}&alertId=${encodeURIComponent(event.id)}`;
-  return {
-    embeds: [{
-      title: 'A new match for your Watchlist!',
-      description: `${watchlistPriorityDescription(event.chasePriority)}\n\nOpen your Inbox to review the price, seller, and listing details.`,
-      color: 0xff7ac6,
-      timestamp: event.updatedAt,
-      footer: { text: 'KeepSeek • Optional Discord alert' }
-    }],
-    components: [{
-      type: 1,
-      components: [
-        { type: 2, style: 5, label: 'Open KeepSeek Inbox', url: inboxUrl.toString() }
-      ]
-    }]
-  };
 }
 
 async function createDiscordDmChannel(input: {
@@ -119,21 +90,5 @@ export async function sendDiscordTextDirectMessage(input: {
     discordUserId: input.discordUserId,
     payload: { content: input.content.slice(0, 2000) },
     fetchImpl: input.fetchImpl ?? (fetch as unknown as DiscordRestFetch)
-  });
-}
-
-export async function sendDiscordDirectMessage(input: {
-  token: string;
-  discordUserId: string;
-  event: AlertEvent;
-  webBaseUrl: string;
-  fetchImpl?: DiscordRestFetch;
-}): Promise<{ messageId: string }> {
-  const fetchImpl = input.fetchImpl ?? (fetch as unknown as DiscordRestFetch);
-  return sendDiscordDmPayload({
-    token: input.token,
-    discordUserId: input.discordUserId,
-    payload: discordAlertMessage(input.event, input.webBaseUrl),
-    fetchImpl
   });
 }

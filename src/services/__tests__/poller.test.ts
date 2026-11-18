@@ -4,15 +4,12 @@ import {
   alertEbaySearchOptions,
   chaseTuningNoticeLines,
   didFetchRequiredListingSource,
-  discordDeliveryRetryPlan,
   enrichSelectedAlertListing,
   effectiveListingSourceMode,
   isDueForPollInterval,
   listingSourceFailureReason,
   orderAlertCandidatesForSending,
   orderGroupMembersForRun,
-  processPendingDiscordAlertDeliveries,
-  resetDiscordDeliveryConfigurationWarningForTests,
   shouldSendChaseTuningNotice,
   orderGroupsForRun,
   listingSourceDiagnosticSummary,
@@ -23,19 +20,10 @@ import {
 } from '../poller.js';
 import { getEntitlementsForTier } from '../entitlements.js';
 import {
-  enqueueAlertEventDelivery,
-  getAlertDeliveryById,
-  getAlertEventById,
-  getSentAlertByKey,
   getUserAlertSettings,
   resetUserAlertSettings,
-  setUserAlertSettings,
-  upsertAlertEvent
+  setUserAlertSettings
 } from '../chase-store.js';
-import { createUser, linkIdentity } from '../accounts.js';
-import { setDiscordCardAlertsEnabled } from '../notification-settings.js';
-import { DiscordRestDeliveryError } from '../discord-rest-delivery.js';
-import { db } from '../db.js';
 import { matchChaseToListing } from '../matcher.js';
 import { getPollerState, markPollerRunStart, setPollerCoverageSnapshot } from '../poller-state.js';
 import { activePlanChases, activePlanTier, getRuntimePollIntervalSeconds, monitoringPlanChases, pausedPlanChases, PLAN_LIMITS } from '../plans.js';
@@ -64,12 +52,10 @@ function baseChase(overrides: Partial<Chase> = {}): Chase {
 
 beforeEach(() => {
   process.env = { ...ORIGINAL_ENV };
-  resetDiscordDeliveryConfigurationWarningForTests();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
   process.env = { ...ORIGINAL_ENV };
-  resetDiscordDeliveryConfigurationWarningForTests();
 });
 
 describe('orderGroupsForRun', () => {
@@ -424,201 +410,6 @@ describe('alert eBay search options', () => {
     expect(text).toContain('custom exclusions');
     expect(text).toContain('/alerts settings');
     expect(text).not.toContain('/upgrade');
-  });
-});
-
-describe('pending Discord alert deliveries', () => {
-  function clearAlertRows(userId: string): void {
-    db.prepare('DELETE FROM alert_deliveries WHERE user_id = ?').run(userId);
-    db.prepare('DELETE FROM alert_events WHERE user_id = ?').run(userId);
-    db.prepare('DELETE FROM sent_alerts WHERE user_id = ?').run(userId);
-    db.prepare('DELETE FROM user_notification_settings WHERE user_id = ?').run(userId);
-    db.prepare('DELETE FROM user_identities WHERE user_id = ? OR provider_user_id = ?').run(userId, userId);
-    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
-  }
-
-  it('sends pending Discord DM deliveries through the linked Discord identity and records sent alert details', async () => {
-    const discordUserId = `discord-pending-delivery-${Date.now()}`;
-    clearAlertRows(discordUserId);
-    const account = createUser({ displayName: 'Pending Collector' });
-    const userId = account.id;
-    linkIdentity({
-      userId,
-      provider: 'DISCORD',
-      providerUserId: discordUserId,
-      username: 'pending-collector'
-    });
-    setDiscordCardAlertsEnabled(userId, true);
-    process.env.DISCORD_TOKEN = 'test-token';
-    process.env.VAULTR_WEB_BASE_URL = 'https://keepseek.test';
-    const sender = vi.fn(async () => ({ messageId: 'discord-message-1' }));
-
-    const { deliveryId } = enqueueAlertEventDelivery({
-      userId,
-      chaseId: 'chase-1',
-      listingId: 'listing-1',
-      source: 'EBAY',
-      channel: 'DISCORD_DM',
-      chaseName: 'Pikachu 26/83',
-      chasePriority: 'HIGH',
-      listingTitle: 'Pikachu 26/83 Toys R Us Promo NM',
-      listingPrice: 79.99,
-      listingCurrency: 'CAD',
-      listingUrl: 'https://example.test/listing-1',
-      matchScore: 94,
-      now: '2026-08-19T12:00:00.000Z'
-    });
-
-    const result = await processPendingDiscordAlertDeliveries(5, sender);
-
-    expect(result).toEqual({ sent: 1, failed: 0, skipped: 0 });
-    expect(sender).toHaveBeenCalledWith(expect.objectContaining({ discordUserId, token: 'test-token' }));
-    expect(getAlertDeliveryById(deliveryId)).toMatchObject({
-      status: 'SENT',
-      attempts: 1,
-      externalMessageId: 'discord-message-1'
-    });
-    expect(getSentAlertByKey(userId, 'chase-1', 'listing-1', 'EBAY')).toMatchObject({
-      userId,
-      chaseId: 'chase-1',
-      listingId: 'listing-1',
-      listingTitle: 'Pikachu 26/83 Toys R Us Promo NM',
-      listingPrice: 79.99,
-      listingCurrency: 'CAD',
-      matchScore: 94
-    });
-
-    clearAlertRows(userId);
-    clearAlertRows(discordUserId);
-  });
-
-  it('preserves queued Inbox deliveries through missing Discord configuration and resumes once restored', async () => {
-    const account = createUser({ displayName: 'Configuration Recovery Collector' });
-    const userId = account.id;
-    const discordUserId = `discord-config-recovery-${Date.now()}`;
-    linkIdentity({ userId, provider: 'DISCORD', providerUserId: discordUserId });
-    setDiscordCardAlertsEnabled(userId, true);
-    const { alertId, deliveryId } = enqueueAlertEventDelivery({
-      userId, chaseId: 'config-chase', listingId: 'config-listing', source: 'EBAY', channel: 'DISCORD_DM',
-      listingTitle: 'Configuration recovery listing', listingUrl: 'https://example.test/config-recovery'
-    });
-    const sender = vi.fn(async () => ({ messageId: 'configuration-recovery-message' }));
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-    delete process.env.DISCORD_TOKEN;
-    process.env.VAULTR_WEB_BASE_URL = 'https://keepseek.test';
-    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 0, skipped: 0 });
-    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 0, skipped: 0 });
-    expect(warn).toHaveBeenCalledTimes(1);
-
-    process.env.DISCORD_TOKEN = 'test-token';
-    delete process.env.VAULTR_WEB_BASE_URL;
-    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 0, skipped: 0 });
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'PENDING', attempts: 0, nextAttemptAt: undefined });
-    expect(getAlertEventById(alertId)).toMatchObject({ status: 'DELIVERY_PENDING', listingTitle: 'Configuration recovery listing' });
-    expect(sender).not.toHaveBeenCalled();
-
-    process.env.VAULTR_WEB_BASE_URL = 'https://keepseek.test';
-    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 1, failed: 0, skipped: 0 });
-    expect(sender).toHaveBeenCalledTimes(1);
-    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'SENT', attempts: 1 });
-    expect(getAlertEventById(alertId)).toMatchObject({ status: 'DELIVERED' });
-    clearAlertRows(userId);
-    clearAlertRows(discordUserId);
-  });
-
-  it('suppresses pending Discord delivery when card alerts are not opted in while preserving the Inbox event', async () => {
-    const account = createUser({ displayName: 'Inbox Only Collector' });
-    const userId = account.id;
-    const discordUserId = `discord-inbox-only-${Date.now()}`;
-    linkIdentity({ userId, provider: 'DISCORD', providerUserId: discordUserId });
-    const { alertId, deliveryId } = enqueueAlertEventDelivery({
-      userId,
-      chaseId: 'chase-opt-out',
-      listingId: 'listing-opt-out',
-      source: 'EBAY',
-      channel: 'DISCORD_DM',
-      listingTitle: 'Mew RC24 raw',
-      listingUrl: 'https://example.test/opt-out'
-    });
-    const sender = vi.fn();
-
-    expect(await processPendingDiscordAlertDeliveries(5, sender)).toEqual({ sent: 0, failed: 0, skipped: 1 });
-    expect(sender).not.toHaveBeenCalled();
-    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'SUPPRESSED', attempts: 0 });
-    expect(getAlertEventById(alertId)).toMatchObject({ userId, listingTitle: 'Mew RC24 raw' });
-    clearAlertRows(userId);
-    clearAlertRows(discordUserId);
-  });
-
-  it('respects durable Discord rate-limit scheduling without consuming retry attempts', async () => {
-    process.env.DISCORD_TOKEN = 'test-token';
-    process.env.VAULTR_WEB_BASE_URL = 'https://keepseek.test';
-    const account = createUser({ displayName: 'Retry Collector' });
-    const userId = account.id;
-    const discordUserId = `discord-retry-${Date.now()}`;
-    linkIdentity({ userId, provider: 'DISCORD', providerUserId: discordUserId });
-    setDiscordCardAlertsEnabled(userId, true);
-    const { alertId, deliveryId } = enqueueAlertEventDelivery({
-      userId, chaseId: 'retry-chase', listingId: 'retry-listing', source: 'EBAY', channel: 'DISCORD_DM',
-      listingTitle: 'Retry listing', listingUrl: 'https://example.test/retry'
-    });
-    const sender = vi.fn()
-      .mockRejectedValueOnce(new DiscordRestDeliveryError('Discord rate limited', 429, 120_000))
-      .mockResolvedValueOnce({ messageId: 'retry-message' });
-    const startedAt = new Date('2026-11-06T12:00:00.000Z');
-
-    expect(await processPendingDiscordAlertDeliveries(5, sender, startedAt)).toEqual({ sent: 0, failed: 1, skipped: 0 });
-    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'FAILED', attempts: 0, nextAttemptAt: '2026-11-06T12:02:00.000Z' });
-    expect(getAlertEventById(alertId)).toMatchObject({ status: 'DELIVERY_PENDING' });
-    expect(await processPendingDiscordAlertDeliveries(5, sender, new Date('2026-11-06T12:01:59.000Z'))).toEqual({ sent: 0, failed: 0, skipped: 0 });
-    expect(sender).toHaveBeenCalledTimes(1);
-    expect(await processPendingDiscordAlertDeliveries(5, sender, new Date('2026-11-06T12:02:00.000Z'))).toEqual({ sent: 1, failed: 0, skipped: 0 });
-    expect(getAlertDeliveryById(deliveryId)).toMatchObject({ status: 'SENT', attempts: 1, externalMessageId: 'retry-message', nextAttemptAt: undefined });
-    clearAlertRows(userId);
-    clearAlertRows(discordUserId);
-  });
-
-  it('backs off transient DM failures and does not retry permanent Discord failures', () => {
-    expect(discordDeliveryRetryPlan(new Error('network timeout'), 1, Date.parse('2026-11-06T12:00:00.000Z'))).toEqual({
-      incrementAttempt: true,
-      nextAttemptAt: '2026-11-06T12:01:00.000Z'
-    });
-    expect(discordDeliveryRetryPlan(new DiscordRestDeliveryError('Forbidden', 403), 0, Date.parse('2026-11-06T12:00:00.000Z'))).toEqual({
-      incrementAttempt: true
-    });
-    expect(discordDeliveryRetryPlan(new DiscordRestDeliveryError('Rate limited', 429, 90_000), 4, Date.parse('2026-11-06T12:00:00.000Z'))).toEqual({
-      incrementAttempt: false,
-      nextAttemptAt: '2026-11-06T12:01:30.000Z'
-    });
-  });
-
-  it('allows an account without Discord to own an alert event without a delivery row', () => {
-    const account = createUser({ displayName: 'Web Only Collector' });
-    const userId = account.id;
-    clearAlertRows(userId);
-
-    const { alertId } = upsertAlertEvent({
-      userId,
-      chaseId: 'web-only-chase',
-      listingId: 'web-only-listing',
-      source: 'EBAY',
-      chaseName: 'Mew RC24',
-      listingTitle: 'Mew RC24 raw',
-      listingUrl: 'https://example.test/web-only-listing',
-      now: '2026-08-19T12:00:00.000Z'
-    });
-
-    expect(getAlertEventById(alertId)).toMatchObject({
-      userId,
-      status: 'MATCHED',
-      chaseName: 'Mew RC24',
-      listingTitle: 'Mew RC24 raw'
-    });
-    expect(db.prepare('SELECT COUNT(*) AS count FROM alert_deliveries WHERE alert_id = ?').get(alertId)).toMatchObject({ count: 0 });
-
-    clearAlertRows(userId);
   });
 });
 

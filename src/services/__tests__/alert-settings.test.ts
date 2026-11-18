@@ -10,9 +10,8 @@ import {
   setUserPlan,
   upsertAlertEvent
 } from '../chase-store.js';
-import { createUser, linkIdentity } from '../accounts.js';
+import { createUser } from '../accounts.js';
 import { db } from '../db.js';
-import { getUserNotificationSettings } from '../notification-settings.js';
 import { getDiscoveryBudgetPolicy } from '../discovery-budget.js';
 
 const users = new Set<string>();
@@ -38,22 +37,6 @@ afterEach(() => {
 });
 
 describe('shared alert settings', () => {
-  it('defaults Discord card delivery off and requires a linked identity before opt-in', () => {
-    const account = createUser({ displayName: 'Discord Collector' });
-    const userId = account.id;
-    users.add(userId);
-    resetUserAlertSettings(userId);
-    expect(alertSettingsResponse(userId)).toMatchObject({
-      settings: { discordCardAlertsEnabled: false },
-      access: { discordLinked: false }
-    });
-    expect(updateAlertSettings(userId, { discordCardAlertsEnabled: true })).toMatchObject({ ok: false, field: 'discordCardAlertsEnabled' });
-
-    linkIdentity({ userId: account.id, provider: 'DISCORD', providerUserId: `discord-${userId}` });
-    expect(updateAlertSettings(userId, { discordCardAlertsEnabled: true }).ok).toBe(true);
-    expect(getUserNotificationSettings(userId)).toMatchObject({ discordCardAlertsEnabled: true, discordLinked: true });
-  });
-
   it('reports hourly volume from persisted Inbox events rather than Discord deliveries', () => {
     const account = createUser({ displayName: 'Inbox Volume Collector' });
     const userId = account.id;

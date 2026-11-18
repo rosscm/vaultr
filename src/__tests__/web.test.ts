@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as webPush from 'web-push';
 import { describe, expect, it, vi } from 'vitest';
 import { addChase, enqueueAlertEventDelivery, getUserAlertSettings, getUserDiscoveryFeedback, listChases, listCompletedChases, listUserTasteMemoryChases, removeAllChases, setUserAlertSettings, setUserPlan } from '../services/chase-store.js';
 import { createUser, getIdentity, getUserById, linkIdentity } from '../services/accounts.js';
@@ -62,6 +63,8 @@ function clearUser(userId: string): void {
   db.prepare('DELETE FROM discovery_training_examples WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_alert_settings WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_notification_settings WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM web_push_deliveries WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM web_push_subscriptions WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_display_case_views WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM web_sessions WHERE user_id = ?').run(userId);
@@ -368,7 +371,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('class="nav-icon" aria-hidden="true" focusable="false"');
     expect(jsResponse.body).toContain("navButton('settings', 'Settings')");
     expect(jsResponse.body).toContain('data-settings-form');
-    expect(jsResponse.body).toContain('class="settings-toggle-input" name="discordCardAlertsEnabled" type="checkbox"');
+    expect(jsResponse.body).toContain('Browser notifications');
     expect(jsResponse.body).toContain('class="settings-toggle-switch" aria-hidden="true"');
     expect(cssResponse.body).toContain('.settings-toggle-input:focus-visible + .settings-toggle-switch');
     expect(cssResponse.body).toContain('.settings-toggle-input:checked + .settings-toggle-switch');
@@ -437,7 +440,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).not.toContain('This is a rule-based score, not a percentage probability.');
     expect(jsResponse.body).toContain('<header class="settings-category-heading"><h2 id="settings-watchlist-title">Watchlist & matches</h2></header>');
     expect(jsResponse.body).toContain('<h3 id="settings-volume-title">Match volume</h3>');
-    expect(jsResponse.body).toContain('aria-label="Discord notifications"');
+    expect(jsResponse.body).toContain('data-action="enable-push-notifications"');
     expect(jsResponse.body).toContain('class="settings-market-fields"');
     expect(jsResponse.body).toContain("replace(/\\s+\\([A-Z]{3}\\)$/, '')");
     expect(jsResponse.body).not.toContain('<p class="auth-unavailable">Email sign-in isn’t available here yet.</p>');
@@ -586,7 +589,7 @@ describe('web app static routes', () => {
     expect(jsResponse.body).toContain('class="vault-action-link danger alert-dismiss-action"');
     expect(jsResponse.body).toContain("...(details.listing?.seller ? [['Seller', detailValue(details.listing.seller)]] : [])");
     expect(jsResponse.body).not.toContain("['Seller', detailValue(details.listing?.seller, 'Unknown')]");
-    expect(jsResponse.body).toContain('const discordAlertsEnabled = Boolean(state.settings?.discordCardAlertsEnabled);');
+    expect(jsResponse.body).not.toContain('discord-alert-invite');
     expect(jsResponse.body).toContain('function setTransientAlertNotice(message)');
     expect(jsResponse.body).toContain('clearTransientAlertNotice();');
     expect(cssResponse.body).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));');
@@ -2280,6 +2283,89 @@ describe('web auth routes', () => {
   });
 });
 
+describe('authenticated Web Push API', () => {
+  const originalEnv = { ...process.env };
+
+  function configurePush(): void {
+    const keys = webPush.generateVAPIDKeys();
+    process.env.WEB_PUSH_VAPID_PUBLIC_KEY = keys.publicKey;
+    process.env.WEB_PUSH_VAPID_PRIVATE_KEY = keys.privateKey;
+    process.env.WEB_PUSH_VAPID_SUBJECT = 'mailto:web-tests@keepseek.test';
+  }
+
+  function pushSubscription(label: string) {
+    return {
+      endpoint: `https://fcm.googleapis.com/fcm/send/${label}`,
+      keys: {
+        p256dh: Buffer.alloc(65, 4).toString('base64url'),
+        auth: Buffer.alloc(16, 5).toString('base64url')
+      }
+    };
+  }
+
+  it('requires authentication and isolates a device subscription to its account', async () => {
+    configurePush();
+    const ownerId = createUser({ displayName: 'Push owner' }).id;
+    const otherId = createUser({ displayName: 'Push other' }).id;
+    createWebSession({ userId: ownerId }, { token: 'push-owner-token' });
+    createWebSession({ userId: otherId }, { token: 'push-other-token' });
+    const subscription = pushSubscription('shared-device');
+    try {
+      expect((await handleWebRequest({ method: 'GET', url: '/api/push' }, { config })).status).toBe(401);
+      const registered = await handleWebRequest({
+        method: 'POST', url: '/api/push/subscriptions',
+        headers: { cookie: sessionCookie('push-owner-token'), 'content-type': 'application/json' },
+        body: JSON.stringify({ subscription })
+      }, { config });
+      expect(registered.status).toBe(200);
+      expect(JSON.parse(registered.body ?? '{}')).toMatchObject({ status: { available: true, subscribed: true, deviceCount: 1 } });
+      expect(cookieValue(registered.headers, 'keepseek_push_device')).toMatch(/^[a-f0-9]{64}$/);
+
+      const conflict = await handleWebRequest({
+        method: 'POST', url: '/api/push/subscriptions',
+        headers: { cookie: sessionCookie('push-other-token'), 'content-type': 'application/json' },
+        body: JSON.stringify({ subscription })
+      }, { config });
+      expect(conflict.status).toBe(409);
+
+      const removedByOther = await handleWebRequest({
+        method: 'DELETE', url: '/api/push/subscriptions',
+        headers: { cookie: sessionCookie('push-other-token'), 'content-type': 'application/json' },
+        body: JSON.stringify({ endpoint: subscription.endpoint })
+      }, { config });
+      expect(removedByOther.status).toBe(200);
+      expect((db.prepare('SELECT user_id FROM web_push_subscriptions').get() as { user_id: string }).user_id).toBe(ownerId);
+    } finally {
+      clearUser(ownerId);
+      clearUser(otherId);
+      process.env = { ...originalEnv };
+    }
+  });
+
+  it('disables subscription registration cleanly when VAPID is not configured', async () => {
+    process.env = { ...originalEnv };
+    delete process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
+    delete process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
+    delete process.env.WEB_PUSH_VAPID_SUBJECT;
+    const userId = createUser({ displayName: 'Push unavailable' }).id;
+    createWebSession({ userId }, { token: 'push-unavailable-token' });
+    const headers = { cookie: sessionCookie('push-unavailable-token'), 'content-type': 'application/json' };
+    try {
+      const status = await handleWebRequest({ method: 'GET', url: '/api/push', headers }, { config });
+      const register = await handleWebRequest({
+        method: 'POST', url: '/api/push/subscriptions', headers,
+        body: JSON.stringify({ subscription: pushSubscription('unavailable') })
+      }, { config });
+      expect(JSON.parse(status.body ?? '{}')).toMatchObject({ available: false, subscribed: false });
+      expect(register.status).toBe(400);
+      expect(JSON.parse(register.body ?? '{}')).toMatchObject({ error: 'push_unavailable' });
+    } finally {
+      clearUser(userId);
+      process.env = { ...originalEnv };
+    }
+  });
+});
+
 describe('authenticated onboarding API', () => {
   it('requires authentication and uses only the session account', async () => {
     const unauthenticated = await handleWebRequest({ method: 'GET', url: '/api/onboarding' }, { config });
@@ -2410,60 +2496,6 @@ describe('authenticated settings API', () => {
 
     clearUser(userId);
     clearUser(otherUserId);
-  });
-
-  it('exposes and updates explicit Discord card-alert delivery only for a linked account', async () => {
-    const account = createUser({ displayName: 'Web Discord Delivery' });
-    const userId = account.id;
-    const token = 'settings-discord-delivery-token';
-    createWebSession({ userId }, { token });
-    const headers = { cookie: sessionCookie(token), 'content-type': 'application/json' };
-
-    const initial = await handleWebRequest({ method: 'GET', url: '/api/settings', headers }, { config });
-    const unavailable = await handleWebRequest({
-      method: 'PATCH',
-      url: '/api/settings',
-      headers,
-      body: JSON.stringify({ discordCardAlertsEnabled: true })
-    }, { config });
-    linkIdentity({ userId, provider: 'DISCORD', providerUserId: `discord-${userId}` });
-    const enabled = await handleWebRequest({
-      method: 'PATCH',
-      url: '/api/settings',
-      headers,
-      body: JSON.stringify({ discordCardAlertsEnabled: true })
-    }, { config });
-    const invalid = await handleWebRequest({
-      method: 'PATCH',
-      url: '/api/settings',
-      headers,
-      body: JSON.stringify({ discordCardAlertsEnabled: 'yes' })
-    }, { config });
-
-    expect(JSON.parse(initial.body ?? '{}')).toMatchObject({
-      settings: { discordCardAlertsEnabled: false },
-      access: { discordLinked: false }
-    });
-    expect(unavailable.status).toBe(400);
-    expect(enabled.status).toBe(200);
-    expect(JSON.parse(enabled.body ?? '{}')).toMatchObject({
-      settings: { discordCardAlertsEnabled: true },
-      access: { discordLinked: true }
-    });
-    expect(invalid.status).toBe(400);
-    clearUser(userId);
-  });
-
-  it('persists dismissal of the contextual Discord alert invitation', async () => {
-    const userId = 'web-settings-discord-invite';
-    const headers = auth(userId, 'settings-discord-invite-token');
-    const initial = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/settings', headers }, { config })).body ?? '{}');
-    expect(initial.access.discordAlertInviteDismissed).toBe(false);
-    const dismissed = await handleWebRequest({ method: 'POST', url: '/api/settings/discord-alert-invite/dismiss', headers }, { config });
-    expect(dismissed.status).toBe(200);
-    expect(JSON.parse(dismissed.body ?? '{}').access.discordAlertInviteDismissed).toBe(true);
-    expect(JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/settings', headers }, { config })).body ?? '{}').access.discordAlertInviteDismissed).toBe(true);
-    clearUser(userId);
   });
 
   it('applies partial updates without erasing an inactive Pro source preference', async () => {

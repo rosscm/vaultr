@@ -3346,35 +3346,16 @@ a {
   }
 }
 
-.discord-alert-invite {
+.browser-notification-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  margin: 0 0 16px;
-  padding: 14px 16px;
-  border: 1px solid rgba(255, 211, 135, 0.2);
-  border-radius: var(--radius-sm);
-  background: rgba(255, 211, 135, 0.045);
 }
 
-.discord-alert-invite h2,
-.discord-alert-invite p { margin: 0; }
-.discord-alert-invite h2 { font-size: 1rem; }
-.discord-alert-invite p { margin-top: 3px; color: var(--muted); font-size: 0.82rem; }
-.discord-alert-invite > div:last-child { display: flex; gap: 8px; flex: 0 0 auto; }
-.discord-alert-invite .button-primary { margin: 0; }
-.discord-invite-dismiss {
-  min-height: 40px;
-  padding: 0 8px;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-weight: 750;
-}
-.discord-invite-dismiss:hover { color: var(--text); }
-.discord-invite-dismiss:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.browser-notification-row > span:first-child { display: grid; gap: 4px; }
+.browser-notification-row small { color: var(--muted); }
+.browser-notification-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
 .alert-review-all {
   flex: 0 0 auto;
@@ -3407,8 +3388,8 @@ a {
 }
 
 @media (max-width: 760px) {
-  .discord-alert-invite { align-items: flex-start; flex-direction: column; }
-  .discord-alert-invite > div:last-child { width: 100%; flex-wrap: wrap; }
+  .browser-notification-row { align-items: flex-start; flex-direction: column; }
+  .browser-notification-actions { justify-content: flex-start; }
   .inbox-page .alert-control-stack { gap: 8px; margin-block: 8px 10px; padding: 9px 10px; }
   .inbox-page .toolbar { grid-template-columns: minmax(0, 1fr) minmax(145px, 0.68fr); gap: 9px; }
   .inbox-page .toolbar .priority-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }

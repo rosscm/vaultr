@@ -97,7 +97,13 @@ import {
   type GoogleCodeVerifier,
   type GoogleOAuthState
 } from './services/google-auth.js';
-import { dismissDiscordAlertInvite } from './services/notification-settings.js';
+import {
+  enqueueWebPushTest,
+  getWebPushStatus,
+  registerWebPushSubscription,
+  removeWebPushSubscription,
+  removeWebPushSubscriptionByHash
+} from './services/web-push-notifications.js';
 import {
   createPostmarkMagicLinkTransport,
   magicLinkConfirmationState,
@@ -120,6 +126,7 @@ const DISCORD_ME_URL = 'https://discord.com/api/users/@me';
 const OAUTH_STATE_COOKIE = 'vaultr_oauth_state';
 const SESSION_COOKIE = 'vaultr_session';
 const EMAIL_CONFIRM_COOKIE = 'vaultr_email_confirm';
+const PUSH_DEVICE_COOKIE = 'keepseek_push_device';
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const SESSION_TTL_DAYS = 30;
 const WEB_ASSET_ROOT = path.resolve('web');
@@ -133,6 +140,10 @@ const WEB_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/app/': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
   '/app.css': { file: 'app.css', contentType: 'text/css; charset=utf-8' },
   '/app.js': { file: 'app.js', contentType: 'text/javascript; charset=utf-8' },
+  '/service-worker.js': { file: 'service-worker.js', contentType: 'text/javascript; charset=utf-8' },
+  '/manifest.webmanifest': { file: 'manifest.webmanifest', contentType: 'application/manifest+json' },
+  '/keepseek-icon-192.png': { file: 'assets/brand/keepseek-icon-192.png', contentType: 'image/png' },
+  '/keepseek-icon-512.png': { file: 'assets/brand/keepseek-icon-512.png', contentType: 'image/png' },
   '/keepseek-icon.svg': { file: 'assets/brand/keepseek-icon.svg', contentType: 'image/svg+xml' },
   '/keepseek-lockup-dark.svg': { file: 'assets/brand/keepseek-lockup-dark.svg', contentType: 'image/svg+xml' },
   '/keepseek-card-back.svg': { file: 'assets/cards/keepseek-card-back.svg', contentType: 'image/svg+xml' },
@@ -1366,11 +1377,16 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
 
   if (method === 'POST' && url.pathname === '/auth/logout') {
     const cookies = parseCookies(getHeader(request.headers, 'cookie'));
+    const session = resolveWebSession(cookies[cookieNames(options.config).session]);
+    if (session && cookies[PUSH_DEVICE_COOKIE]) removeWebPushSubscriptionByHash(session.userId, cookies[PUSH_DEVICE_COOKIE]);
     revokeWebSession(cookies[cookieNames(options.config).session]);
     return jsonResponse(
       200,
       { ok: true },
-      { 'Set-Cookie': clearCookieHeader(cookieNames(options.config).session, secureCookies) }
+      { 'Set-Cookie': [
+        clearCookieHeader(cookieNames(options.config).session, secureCookies),
+        clearCookieHeader(PUSH_DEVICE_COOKIE, secureCookies)
+      ] }
     );
   }
 
@@ -1446,11 +1462,51 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     return errorResponse(405, 'method_not_allowed', { Allow: 'GET, PATCH' });
   }
 
-  if (method === 'POST' && url.pathname === '/api/settings/discord-alert-invite/dismiss') {
+  if (url.pathname === '/api/push') {
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');
-    dismissDiscordAlertInvite(session.userId);
-    return jsonResponse(200, alertSettingsResponse(session.userId));
+    if (method === 'GET') {
+      const cookies = parseCookies(getHeader(request.headers, 'cookie'));
+      return jsonResponse(200, getWebPushStatus(session.userId, undefined, cookies[PUSH_DEVICE_COOKIE]));
+    }
+    return errorResponse(405, 'method_not_allowed', { Allow: 'GET' });
+  }
+
+  if (url.pathname === '/api/push/subscriptions') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    const parsed = requireJsonBody(request);
+    if ('status' in parsed) return parsed;
+    if (method === 'POST') {
+      try {
+        const registered = registerWebPushSubscription(session.userId, parsed.body.subscription, getHeader(request.headers, 'user-agent'));
+        return jsonResponse(200, { subscriptionId: registered.id, status: getWebPushStatus(session.userId, (parsed.body.subscription as { endpoint?: string })?.endpoint) }, {
+          'Set-Cookie': cookieHeaderParts(PUSH_DEVICE_COOKIE, registered.endpointHash, { maxAgeSeconds: SESSION_TTL_DAYS * 24 * 60 * 60, secure: secureCookies })
+        });
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'INVALID_SUBSCRIPTION';
+        return errorResponse(code === 'SUBSCRIPTION_OWNED_BY_ANOTHER_ACCOUNT' ? 409 : 400, code.toLowerCase());
+      }
+    }
+    if (method === 'DELETE') {
+      if (typeof parsed.body.endpoint !== 'string') return errorResponse(400, 'invalid_subscription');
+      removeWebPushSubscription(session.userId, parsed.body.endpoint);
+      return jsonResponse(200, { removed: true, status: getWebPushStatus(session.userId) }, {
+        'Set-Cookie': clearCookieHeader(PUSH_DEVICE_COOKIE, secureCookies)
+      });
+    }
+    return errorResponse(405, 'method_not_allowed', { Allow: 'POST, DELETE' });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/push/test') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    const parsed = requireJsonBody(request);
+    if ('status' in parsed) return parsed;
+    if (typeof parsed.body.subscriptionId !== 'string' || !enqueueWebPushTest(session.userId, parsed.body.subscriptionId)) {
+      return errorResponse(404, 'subscription_not_found');
+    }
+    return jsonResponse(202, { queued: true });
   }
 
   if (url.pathname === '/api/onboarding') {

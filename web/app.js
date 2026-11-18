@@ -89,6 +89,9 @@ const state = {
   settingsDirty: false,
   settingsCurrencyConfirmation: null,
   settingsSaveContext: null,
+  pushNotifications: null,
+  pushNotificationsBusy: false,
+  pushNotificationsNotice: '',
   onboarding: null,
   onboardingLoaded: false,
   onboardingError: '',
@@ -939,7 +942,6 @@ function settingsComparable(value) {
     shippingCountry: value.shippingCountry ?? null,
     shippingPostalCode: value.shippingPostalCode ?? null,
     listingSourceMode: value.listingSourceMode,
-    discordCardAlertsEnabled: Boolean(value.discordCardAlertsEnabled),
     discoveryBudget: value.discoveryBudget ? {
       mode: value.discoveryBudget.mode,
       amountCurrency: value.discoveryBudget.currency || value.alertCurrency,
@@ -1149,19 +1151,11 @@ function settingsPageMarkup() {
         </section>
         <section class="settings-group" aria-labelledby="settings-delivery-title">
           <div class="settings-group-heading">
-            <h3 id="settings-delivery-title">Discord notifications</h3>
-            <p>Get optional DMs when KeepSeek finds new matches. Your Inbox is always available.</p>
+            <h3 id="settings-delivery-title">Browser notifications</h3>
+            <p>Get an optional heads-up on this device when KeepSeek finds a new Watchlist match. Your Inbox remains the complete history.</p>
           </div>
-          <div class="settings-toggle-field">
-            <label class="settings-toggle-control">
-              <span class="settings-toggle-copy">
-                <strong class="visually-hidden">Discord notifications</strong>
-                ${access.discordLinked ? '' : '<small id="settings-discord-alerts-help">Connect Discord in Login methods to enable notifications.</small>'}
-              </span>
-              <input class="settings-toggle-input" name="discordCardAlertsEnabled" type="checkbox" aria-label="Discord notifications"${draft.discordCardAlertsEnabled ? ' checked' : ''}${controlsDisabled || !access.discordLinked ? ' disabled' : ''}${access.discordLinked ? '' : ` aria-describedby="${describedBy('discordCardAlertsEnabled', 'settings-discord-alerts-help')}"`}>
-              <span class="settings-toggle-switch" aria-hidden="true"><span></span></span>
-            </label>
-            ${settingsFieldError('discordCardAlertsEnabled')}
+          <div class="settings-control-stack browser-notification-setting" aria-live="polite">
+            ${browserNotificationMarkup(controlsDisabled)}
           </div>
         </section>
         </section>
@@ -1436,10 +1430,7 @@ function onboardingPageMarkup() {
 function alertsPageMarkup(inner) {
   const access = state.settings?.access || {};
   const plusFilters = access.tier === 'PRO';
-  const discordAlertsEnabled = Boolean(state.settings?.discordCardAlertsEnabled);
-  const hasWatchlist = state.vault.length > 0;
   const showControls = state.hasInboxHistory;
-  const showDiscordInvite = hasWatchlist && state.settingsLoaded && !discordAlertsEnabled && !access.discordAlertInviteDismissed;
   return `
     <section class="inbox-page" aria-labelledby="alerts-title">
       ${pageHeaderMarkup({
@@ -1455,7 +1446,6 @@ function alertsPageMarkup(inner) {
         </div>
       ` : ''}
       ${alertNoticeMarkup()}
-      ${showDiscordInvite ? `<aside class="discord-alert-invite" aria-labelledby="discord-alert-invite-title"><div><h2 id="discord-alert-invite-title">Want a heads-up when a match appears?</h2><p>${access.discordLinked ? 'Choose whether to receive match alerts in Discord. Your Inbox remains the full match history.' : 'Connect Discord in Settings, then choose whether to receive match alerts there.'}</p></div><div><button class="button-primary" type="button" data-action="open-discord-alert-settings">${access.discordLinked ? 'Choose alert settings' : 'Connect Discord'}</button><button class="discord-invite-dismiss" type="button" data-action="dismiss-discord-alert-invite">Not now</button></div></aside>` : ''}
       ${showControls ? `<div class="alert-control-stack">
         <div class="alert-control-group alert-inbox-control">
           <span class="alert-control-label">Inbox</span>
@@ -3127,18 +3117,6 @@ async function markAllVisibleAlertsReviewed() {
   }
 }
 
-async function dismissDiscordAlertInvite() {
-  if (isPreviewMode) return;
-  try {
-    const body = await fetchJson('/api/settings/discord-alert-invite/dismiss', { method: 'POST' });
-    state.settings = body;
-    state.settingsLoaded = true;
-  } catch (error) {
-    state.alertNotice = 'That preference could not be saved. Please try again.';
-  }
-  renderCurrentPage();
-}
-
 async function loadAlerts({ cursor = state.alertPageCursors[state.alertPage - 1] || null } = {}) {
   const requestId = ++state.requestId;
   state.alerts = [];
@@ -3329,6 +3307,99 @@ async function mutateDiscoveryFeedback(target, action) {
   }
 }
 
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+function base64UrlToUint8Array(value) {
+  const padded = `${value}${'='.repeat((4 - value.length % 4) % 4)}`.replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(padded);
+  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+}
+
+async function currentPushSubscription() {
+  if (!pushSupported()) return null;
+  const registration = await navigator.serviceWorker.getRegistration('/');
+  return registration?.pushManager.getSubscription() ?? null;
+}
+
+async function loadPushNotificationStatus() {
+  const supported = pushSupported();
+  if (isPreviewMode) {
+    state.pushNotifications = { available: false, supported, subscribed: false, permission: supported ? Notification.permission : 'unsupported' };
+    return;
+  }
+  try {
+    const [server, subscription] = await Promise.all([fetchJson('/api/push'), currentPushSubscription()]);
+    state.pushNotifications = { ...server, supported, subscribed: Boolean(subscription), permission: supported ? Notification.permission : 'unsupported' };
+  } catch (error) {
+    if (String(error?.message) !== 'unauthorized') state.pushNotifications = { available: false, supported, subscribed: false, permission: supported ? Notification.permission : 'unsupported' };
+  }
+}
+
+function browserNotificationMarkup(controlsDisabled) {
+  const push = state.pushNotifications;
+  if (!push?.supported) return '<p class="field-hint">Browser notifications aren’t supported in this browser.</p>';
+  if (!push.available) return '<p class="field-hint">Browser notifications are temporarily unavailable. Your Inbox will continue to save every match.</p>';
+  const denied = push.permission === 'denied';
+  const status = denied ? 'Blocked in browser settings' : push.subscribed ? 'Enabled on this device' : 'Off on this device';
+  const iosNeedsInstall = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.matchMedia('(display-mode: standalone)').matches;
+  return `<div class="browser-notification-row"><span><strong>${escapeHtml(status)}</strong><small>${iosNeedsInstall ? 'On iPhone, add KeepSeek to your Home Screen before enabling notifications.' : 'Permission is requested only when you choose Enable.'}</small></span><span class="browser-notification-actions">${push.subscribed ? `<button class="button-ghost" type="button" data-action="test-push-notification"${controlsDisabled || state.pushNotificationsBusy ? ' disabled' : ''}>Send test</button><button class="button-ghost" type="button" data-action="disable-push-notifications"${controlsDisabled || state.pushNotificationsBusy ? ' disabled' : ''}>Disable on this device</button>` : `<button class="button-ghost" type="button" data-action="enable-push-notifications"${controlsDisabled || denied || state.pushNotificationsBusy ? ' disabled' : ''}>Enable on this device</button>`}</span></div>${denied ? '<p class="field-hint">Allow notifications for KeepSeek in your browser settings, then reload this page.</p>' : ''}${state.pushNotificationsNotice ? `<p class="form-notice" role="status">${escapeHtml(state.pushNotificationsNotice)}</p>` : ''}`;
+}
+
+async function enablePushNotifications() {
+  if (isPreviewMode || !pushSupported() || state.pushNotificationsBusy) return;
+  state.pushNotificationsBusy = true;
+  state.pushNotificationsNotice = '';
+  renderCurrentPage();
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error('permission_denied');
+    const registration = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
+    const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToUint8Array(state.pushNotifications.publicKey) });
+    const body = await fetchJson('/api/push/subscriptions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subscription: subscription.toJSON() }) });
+    state.pushNotifications = { ...state.pushNotifications, ...body.status, subscribed: true, subscriptionId: body.subscriptionId, permission };
+    state.pushNotificationsNotice = 'Browser notifications are enabled on this device.';
+  } catch (error) {
+    state.pushNotificationsNotice = String(error?.message) === 'permission_denied' ? 'Notification permission wasn’t granted.' : 'Notifications could not be enabled. Please try again.';
+    await loadPushNotificationStatus();
+  } finally {
+    state.pushNotificationsBusy = false;
+    renderCurrentPage();
+  }
+}
+
+async function disablePushNotifications() {
+  if (isPreviewMode || state.pushNotificationsBusy) return;
+  state.pushNotificationsBusy = true;
+  try {
+    const subscription = await currentPushSubscription();
+    if (subscription) {
+      await fetchJson('/api/push/subscriptions', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: subscription.endpoint }) });
+      await subscription.unsubscribe();
+    }
+    await loadPushNotificationStatus();
+    state.pushNotificationsNotice = 'Browser notifications are off on this device.';
+  } catch { state.pushNotificationsNotice = 'Notifications could not be disabled. Please try again.'; }
+  state.pushNotificationsBusy = false;
+  renderCurrentPage();
+}
+
+async function testPushNotification() {
+  if (!state.pushNotifications?.subscriptionId || state.pushNotificationsBusy) {
+    state.pushNotificationsNotice = 'Disable and enable notifications once to refresh this device before sending a test.';
+    renderCurrentPage();
+    return;
+  }
+  state.pushNotificationsBusy = true;
+  try {
+    await fetchJson('/api/push/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subscriptionId: state.pushNotifications.subscriptionId }) });
+    state.pushNotificationsNotice = 'Test notification queued.';
+  } catch { state.pushNotificationsNotice = 'The test notification could not be queued.'; }
+  state.pushNotificationsBusy = false;
+  renderCurrentPage();
+}
+
 async function loadSettings({ force = false } = {}) {
   if (state.settingsLoaded && !force) {
     renderCurrentPage();
@@ -3338,7 +3409,7 @@ async function loadSettings({ force = false } = {}) {
   state.settingsError = null;
   renderCurrentPage();
   try {
-    const body = await fetchJson('/api/settings');
+    const [body] = await Promise.all([fetchJson('/api/settings'), loadPushNotificationStatus()]);
     applySettingsResponse(body);
     state.isSettingsLoading = false;
     renderCurrentPage();
@@ -4184,15 +4255,9 @@ app.addEventListener('click', async (event) => {
     await markAllVisibleAlertsReviewed();
     return;
   }
-  if (action === 'dismiss-discord-alert-invite') {
-    await dismissDiscordAlertInvite();
-    return;
-  }
-  if (action === 'open-discord-alert-settings') {
-    await navigateToPage('settings');
-    requestAnimationFrame(() => document.querySelector('#settings-delivery-title')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-    return;
-  }
+  if (action === 'enable-push-notifications') { await enablePushNotifications(); return; }
+  if (action === 'disable-push-notifications') { await disablePushNotifications(); return; }
+  if (action === 'test-push-notification') { await testPushNotification(); return; }
   if (action === 'review-discovery-budget') {
     await navigateToPage('settings');
     requestAnimationFrame(() => document.querySelector('#settings-discovery-budget-title')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
@@ -4623,13 +4688,6 @@ app.addEventListener('change', async (event) => {
     state.settingsDraft.alertVolume = target.value;
     state.settingsSaveStatus = '';
     clearSettingsFieldError('alertVolume');
-    syncSettingsFormState();
-    return;
-  }
-  if (target instanceof HTMLInputElement && target.closest('[data-settings-form]') && target.name === 'discordCardAlertsEnabled') {
-    state.settingsDraft.discordCardAlertsEnabled = target.checked;
-    state.settingsSaveStatus = '';
-    clearSettingsFieldError('discordCardAlertsEnabled');
     syncSettingsFormState();
     return;
   }

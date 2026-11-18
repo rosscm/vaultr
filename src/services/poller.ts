@@ -12,13 +12,6 @@ import {
   claimUserAlertFingerprintForSending,
   markChasesPollAttempted,
   markChasesPollChecked,
-  enqueueAlertDelivery,
-  getAlertEventById,
-  listPendingAlertDeliveries,
-  markAlertDeliveryFailed,
-  markAlertDeliverySuppressed,
-  markAlertDeliverySent,
-  markAlertSentWithDetails,
   releaseIncompleteAlertSendClaim,
   upsertAlertEvent,
   pruneSourceObservations,
@@ -51,9 +44,7 @@ import {
   setSourceCallsLastMinute
 } from './poller-state.js';
 import { makeListingFingerprint } from './listing-fingerprint.js';
-import { resolveDiscordUserId } from './accounts.js';
-import { getUserNotificationSettings } from './notification-settings.js';
-import { DiscordRestDeliveryError, sendDiscordDirectMessage } from './discord-rest-delivery.js';
+import { enqueueWebPushForAlert, startWebPushDeliveryWorker } from './web-push-notifications.js';
 import type { Chase, Listing, ListingSourceModePreference } from '../types.js';
 
 function formatReasons(reasons: string[]): string {
@@ -647,140 +638,6 @@ export function chaseTuningNoticeLines(
   ];
 }
 
-function alertEventDeliveryDetails(event: NonNullable<ReturnType<typeof getAlertEventById>>): Parameters<typeof markAlertSentWithDetails>[4] {
-  return {
-    guildId: event.guildId,
-    listingTitle: event.listingTitle,
-    listingPrice: event.listingPrice,
-    listingCurrency: event.listingCurrency,
-    priceDelta: event.priceDelta,
-    listingUrl: event.listingUrl,
-    matchScore: event.matchScore,
-    listingPostedAt: event.listingPostedAt,
-    alertLatencySeconds: event.alertLatencySeconds,
-    sourceFirstSeenAt: event.sourceFirstSeenAt,
-    sourceLastSeenAt: event.sourceLastSeenAt,
-    sourceRank: event.sourceRank
-  };
-}
-
-type DiscordAlertSender = (input: {
-  token: string;
-  discordUserId: string;
-  event: NonNullable<ReturnType<typeof getAlertEventById>>;
-  webBaseUrl: string;
-}) => Promise<{ messageId: string }>;
-
-let lastDiscordDeliveryConfigurationIssue: string | undefined;
-
-function discordDeliveryConfiguration(): { token: string; webBaseUrl: string } | { issue: string } {
-  const token = process.env.DISCORD_TOKEN?.trim();
-  const webBaseUrl = process.env.VAULTR_WEB_BASE_URL?.trim();
-  const missing = [!token ? 'DISCORD_TOKEN' : '', !webBaseUrl ? 'VAULTR_WEB_BASE_URL' : ''].filter(Boolean);
-  return missing.length > 0 ? { issue: `Missing ${missing.join(' and ')}` } : { token: token!, webBaseUrl: webBaseUrl! };
-}
-
-export function resetDiscordDeliveryConfigurationWarningForTests(): void {
-  lastDiscordDeliveryConfigurationIssue = undefined;
-}
-
-export function discordDeliveryRetryPlan(
-  error: unknown,
-  attempts: number,
-  nowMs = Date.now()
-): { nextAttemptAt?: string; incrementAttempt: boolean } {
-  if (error instanceof DiscordRestDeliveryError && !error.retryable) {
-    return { incrementAttempt: true };
-  }
-  const rateLimited = error instanceof DiscordRestDeliveryError && error.statusCode === 429;
-  const incrementAttempt = !rateLimited;
-  if (incrementAttempt && attempts + 1 >= 5) return { incrementAttempt };
-  const exponentialDelayMs = Math.min(15 * 60_000, 30_000 * 2 ** Math.max(0, attempts));
-  const delayMs = rateLimited
-    ? Math.min(24 * 60 * 60_000, Math.max(1_000, error.retryAfterMs ?? 60_000))
-    : exponentialDelayMs;
-  return { incrementAttempt, nextAttemptAt: new Date(nowMs + delayMs).toISOString() };
-}
-
-export async function processPendingDiscordAlertDeliveries(
-  limit = 10,
-  sender: DiscordAlertSender = sendDiscordDirectMessage,
-  now = new Date()
-): Promise<{ sent: number; failed: number; skipped: number }> {
-  const deliveries = listPendingAlertDeliveries('DISCORD_DM', limit, now.toISOString());
-  let sent = 0;
-  let failed = 0;
-  let skipped = 0;
-  if (deliveries.length === 0) return { sent, failed, skipped };
-
-  const deliverable: Array<{
-    delivery: (typeof deliveries)[number];
-    event: NonNullable<ReturnType<typeof getAlertEventById>>;
-    discordUserId: string;
-  }> = [];
-  for (const delivery of deliveries) {
-    const event = getAlertEventById(delivery.alertId);
-    if (!event) {
-      markAlertDeliveryFailed(delivery.id, new Error('Missing alert event for pending delivery'));
-      failed += 1;
-      continue;
-    }
-    if (!event.listingUrl) {
-      markAlertDeliveryFailed(delivery.id, new Error('Missing listing URL for pending delivery'));
-      failed += 1;
-      continue;
-    }
-
-    const notificationSettings = getUserNotificationSettings(event.userId);
-    if (!notificationSettings.discordCardAlertsEnabled || !notificationSettings.discordLinked) {
-      markAlertDeliverySuppressed(delivery.id, notificationSettings.discordCardAlertsEnabled ? 'Discord identity not linked' : 'Discord card alerts disabled');
-      skipped += 1;
-      continue;
-    }
-
-    const discordUserId = resolveDiscordUserId(event.userId);
-    if (!discordUserId) {
-      markAlertDeliveryFailed(delivery.id, new Error('Missing linked Discord identity for pending delivery'));
-      failed += 1;
-      continue;
-    }
-    deliverable.push({ delivery, event, discordUserId });
-  }
-  if (deliverable.length === 0) return { sent, failed, skipped };
-
-  const configuration = discordDeliveryConfiguration();
-  if ('issue' in configuration) {
-    if (lastDiscordDeliveryConfigurationIssue !== configuration.issue) {
-      console.warn(`[discord-delivery] Pausing queued DMs: ${configuration.issue}`);
-      lastDiscordDeliveryConfigurationIssue = configuration.issue;
-    }
-    return { sent, failed, skipped };
-  }
-  if (lastDiscordDeliveryConfigurationIssue) {
-    console.info('[discord-delivery] Discord DM configuration restored; queued delivery resumed');
-    lastDiscordDeliveryConfigurationIssue = undefined;
-  }
-
-  for (const { delivery, event, discordUserId } of deliverable) {
-    try {
-      const message = await withTimeout(
-        sender({ token: configuration.token, discordUserId, event, webBaseUrl: configuration.webBaseUrl }),
-        10000,
-        'Pending DM delivery timeout'
-      );
-      markAlertSentWithDetails(event.chaseId, event.userId, event.listingId, event.source, alertEventDeliveryDetails(event));
-      markAlertDeliverySent(delivery.id, { externalMessageId: message.messageId });
-      sent += 1;
-    } catch (error) {
-      const retry = discordDeliveryRetryPlan(error, delivery.attempts, now.getTime());
-      markAlertDeliveryFailed(delivery.id, error, now.toISOString(), retry);
-      failed += 1;
-    }
-  }
-
-  return { sent, failed, skipped };
-}
-
 export async function runPoll(): Promise<void> {
   const startedAt = Date.now();
   const nowMs = Date.now();
@@ -1083,7 +940,7 @@ export async function runPoll(): Promise<void> {
         sourceLastSeenAt: sourceObservation?.lastSeenAt,
         sourceRank: sourceObservation?.sourceRank
       };
-      const { alertId } = upsertAlertEvent({
+      const { alertId, created } = upsertAlertEvent({
         userId: chase.userId,
         chaseId: chase.id,
         listingId: listing.listingId,
@@ -1131,18 +988,7 @@ export async function runPoll(): Promise<void> {
           }
         }
       });
-      const notificationSettings = getUserNotificationSettings(chase.userId);
-      const discordUserId = notificationSettings.discordCardAlertsEnabled ? resolveDiscordUserId(chase.userId) : null;
-      if (!discordUserId) {
-        sentForChaseThisPoll += 1;
-        markPollerMatchSent();
-        continue;
-      }
-      enqueueAlertDelivery({
-        alertId,
-        userId: chase.userId,
-        channel: 'DISCORD_DM'
-      });
+      if (created) enqueueWebPushForAlert(alertId, chase.userId);
       sentForChaseThisPoll += 1;
       markPollerMatchSent();
     }
@@ -1161,6 +1007,7 @@ export function startPoller(): void {
   setBackoffUntil(null);
   startTrustedShopifyCatalogWorker();
   startHistoricalEbayVerificationWorker();
+  startWebPushDeliveryWorker();
 
   const runWithGuard = async () => {
     if (getPollerState().isRunning) {
@@ -1169,7 +1016,6 @@ export function startPoller(): void {
     }
     try {
       await runPoll();
-      await processPendingDiscordAlertDeliveries();
     } catch (error) {
       console.error('Poller run failed', error);
       markPollerError(error);

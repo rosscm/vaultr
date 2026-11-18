@@ -2500,9 +2500,10 @@ export type AlertEventUpsertInput = {
   now?: string;
 };
 
-export function upsertAlertEvent(input: AlertEventUpsertInput): { alertId: string } {
+export function upsertAlertEvent(input: AlertEventUpsertInput): { alertId: string; created: boolean } {
   const now = input.now ?? new Date().toISOString();
   const alertId = deterministicAlertEventId(input.userId, input.chaseId, input.listingId, input.source);
+  const created = !db.prepare('SELECT 1 FROM alert_events WHERE id = ?').get(alertId);
   const payload = input.payload && input.source === 'EBAY'
     ? sanitizeEbayAlertPayload(input.payload).payload
     : input.payload;
@@ -2532,7 +2533,7 @@ export function upsertAlertEvent(input: AlertEventUpsertInput): { alertId: strin
     created_at: now,
     updated_at: now
   });
-  return { alertId };
+  return { alertId, created };
 }
 
 export function enqueueAlertDelivery(input: {
