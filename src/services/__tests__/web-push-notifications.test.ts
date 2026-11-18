@@ -165,6 +165,34 @@ describe('web push subscriptions and delivery', () => {
       .toEqual({ status: 'SUPPRESSED', attempts: 1 });
   });
 
+  it('claims each delivery only when it is ready to send during a slow batch', async () => {
+    const userId = user('slow-batch');
+    registerWebPushSubscription(userId, subscription('slow-a'));
+    registerWebPushSubscription(userId, subscription('slow-b'));
+    const alertId = alert(userId, 'slow-batch');
+    enqueueWebPushForAlert(alertId, userId, new Date('2026-11-17T16:00:00.000Z'));
+    let currentTime = new Date('2026-11-17T16:00:00.000Z');
+    let releaseFirst: (() => void) | undefined;
+    const sender = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        const leases = db.prepare(`SELECT lease_owner, lease_expires_at FROM web_push_deliveries
+          WHERE alert_id = ? ORDER BY subscription_id`).all(alertId) as Array<{ lease_owner: string | null; lease_expires_at: string | null }>;
+        expect(leases.filter((row) => row.lease_owner)).toHaveLength(1);
+        expect(leases.filter((row) => !row.lease_owner)).toHaveLength(1);
+        currentTime = new Date('2026-11-17T16:02:00.000Z');
+        releaseFirst = () => resolve({ statusCode: 201 });
+      }))
+      .mockResolvedValue({ statusCode: 201 });
+
+    const processing = processPendingWebPushDeliveries({ clock: () => currentTime, limit: 2, sender });
+    await vi.waitFor(() => expect(sender).toHaveBeenCalledTimes(1));
+    releaseFirst?.();
+    expect(await processing).toMatchObject({ sent: 2, failed: 0 });
+    expect(sender).toHaveBeenCalledTimes(2);
+    expect(db.prepare(`SELECT COUNT(*) count FROM web_push_deliveries WHERE alert_id = ? AND status = 'SENT'`).get(alertId))
+      .toEqual({ count: 2 });
+  });
+
   it('leaves Inbox events and queued work intact while VAPID configuration is missing', async () => {
     const userId = user('disabled');
     registerWebPushSubscription(userId, subscription('disabled'));

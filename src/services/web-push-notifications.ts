@@ -158,17 +158,20 @@ function claimDeliveries(owner: string, now: Date, limit: number): DeliveryRow[]
 
 export async function processPendingWebPushDeliveries(options: {
   now?: Date;
+  clock?: () => Date;
   limit?: number;
   sender?: WebPushSender;
 } = {}): Promise<{ disabled: boolean; sent: number; failed: number; removed: number }> {
   const config = webPushConfiguration();
   if (!config.enabled) return { disabled: true, sent: 0, failed: 0, removed: 0 };
   webPush.setVapidDetails(config.subject, config.publicKey, config.privateKey);
-  const now = options.now ?? new Date();
+  const clock = options.clock ?? (options.now ? () => options.now! : () => new Date());
   const owner = randomUUID();
-  const deliveries = claimDeliveries(owner, now, Math.max(1, Math.min(25, options.limit ?? 10)));
+  const limit = Math.max(1, Math.min(25, options.limit ?? 10));
   let sent = 0; let failed = 0; let removed = 0;
-  for (const delivery of deliveries) {
+  for (let processed = 0; processed < limit; processed += 1) {
+    const [delivery] = claimDeliveries(owner, clock(), 1);
+    if (!delivery) break;
     const path = delivery.alert_id ? `/app#alerts?alertId=${encodeURIComponent(delivery.alert_id)}` : '/app#settings';
     const payload = delivery.kind === 'MATCH'
       ? { title: 'New Watchlist match!', body: 'KeepSeek found a new match for one of your Watchlist cards.', path }
@@ -178,31 +181,34 @@ export async function processPendingWebPushDeliveries(options: {
         endpoint: delivery.endpoint,
         keys: { p256dh: delivery.p256dh, auth: delivery.auth }
       } as PushSubscription, JSON.stringify(payload), { TTL: 300, urgency: 'normal', timeout: 10_000 });
-      db.prepare(`UPDATE web_push_deliveries SET status='SENT', attempts=attempts+1, sent_at=?, last_error=NULL,
+      const completedAt = clock();
+      const updated = db.prepare(`UPDATE web_push_deliveries SET status='SENT', attempts=attempts+1, sent_at=?, last_error=NULL,
         lease_owner=NULL, lease_expires_at=NULL, updated_at=? WHERE id=? AND lease_owner=?`)
-        .run(now.toISOString(), now.toISOString(), delivery.id, owner);
-      sent += 1;
+        .run(completedAt.toISOString(), completedAt.toISOString(), delivery.id, owner);
+      if (updated.changes) sent += 1;
     } catch (error) {
+      const completedAt = clock();
       const statusCode = typeof (error as { statusCode?: unknown }).statusCode === 'number' ? (error as { statusCode: number }).statusCode : undefined;
       if (statusCode === 404 || statusCode === 410) {
-        db.transaction(() => {
-          db.prepare(`UPDATE web_push_deliveries SET status='SUPPRESSED', attempts=attempts+1, last_error=?, lease_owner=NULL,
-            lease_expires_at=NULL, updated_at=? WHERE id=? AND lease_owner=?`).run(`Push endpoint expired (${statusCode})`, now.toISOString(), delivery.id, owner);
-          db.prepare('DELETE FROM web_push_subscriptions WHERE id=?').run(delivery.subscription_id);
+        const suppressed = db.transaction(() => {
+          const updated = db.prepare(`UPDATE web_push_deliveries SET status='SUPPRESSED', attempts=attempts+1, last_error=?, lease_owner=NULL,
+            lease_expires_at=NULL, updated_at=? WHERE id=? AND lease_owner=?`).run(`Push endpoint expired (${statusCode})`, completedAt.toISOString(), delivery.id, owner);
+          if (updated.changes) db.prepare('DELETE FROM web_push_subscriptions WHERE id=?').run(delivery.subscription_id);
+          return updated.changes > 0;
         })();
-        removed += 1;
+        if (suppressed) removed += 1;
         continue;
       }
       const retryable = statusCode === 429 || statusCode === 408 || statusCode === undefined || statusCode >= 500;
       const attempts = delivery.attempts + 1;
       const status = retryable && attempts < 5 ? 'FAILED' : 'SUPPRESSED';
       const retryAfter = Number((error as { headers?: Record<string, string> }).headers?.['retry-after']);
-      db.prepare(`UPDATE web_push_deliveries SET status=?, attempts=?, next_attempt_at=?, last_error=?, lease_owner=NULL,
+      const updated = db.prepare(`UPDATE web_push_deliveries SET status=?, attempts=?, next_attempt_at=?, last_error=?, lease_owner=NULL,
         lease_expires_at=NULL, updated_at=? WHERE id=? AND lease_owner=?`).run(
-        status, attempts, retryable ? retryAt(delivery.attempts, now, Number.isFinite(retryAfter) ? retryAfter * 1000 : undefined) : now.toISOString(),
-        (error instanceof Error ? error.message : String(error)).slice(0, 500), now.toISOString(), delivery.id, owner
+        status, attempts, retryable ? retryAt(delivery.attempts, completedAt, Number.isFinite(retryAfter) ? retryAfter * 1000 : undefined) : completedAt.toISOString(),
+        (error instanceof Error ? error.message : String(error)).slice(0, 500), completedAt.toISOString(), delivery.id, owner
       );
-      failed += 1;
+      if (updated.changes) failed += 1;
     }
   }
   return { disabled: false, sent, failed, removed };

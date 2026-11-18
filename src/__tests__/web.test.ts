@@ -2321,6 +2321,19 @@ describe('authenticated Web Push API', () => {
       expect(JSON.parse(registered.body ?? '{}')).toMatchObject({ status: { available: true, subscribed: true, deviceCount: 1 } });
       expect(cookieValue(registered.headers, 'keepseek_push_device')).toMatch(/^[a-f0-9]{64}$/);
 
+      const ownerStatus = await handleWebRequest({
+        method: 'POST', url: '/api/push/status',
+        headers: { cookie: sessionCookie('push-owner-token'), 'content-type': 'application/json' },
+        body: JSON.stringify({ endpoint: subscription.endpoint })
+      }, { config });
+      const switchedAccountStatus = await handleWebRequest({
+        method: 'POST', url: '/api/push/status',
+        headers: { cookie: sessionCookie('push-other-token'), 'content-type': 'application/json' },
+        body: JSON.stringify({ endpoint: subscription.endpoint })
+      }, { config });
+      expect(JSON.parse(ownerStatus.body ?? '{}')).toMatchObject({ subscribed: true, subscriptionId: expect.any(String) });
+      expect(JSON.parse(switchedAccountStatus.body ?? '{}')).toMatchObject({ subscribed: false, deviceCount: 0 });
+
       const conflict = await handleWebRequest({
         method: 'POST', url: '/api/push/subscriptions',
         headers: { cookie: sessionCookie('push-other-token'), 'content-type': 'application/json' },
@@ -2340,6 +2353,18 @@ describe('authenticated Web Push API', () => {
       clearUser(otherId);
       process.env = { ...originalEnv };
     }
+  });
+
+  it('reconciles browser subscriptions with the active account and guides non-installed iPhones', async () => {
+    const app = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    expect(app.body).toContain("fetchJson('/api/push/status'");
+    expect(app.body).toContain('if (subscription && !server.subscribed)');
+    expect(app.body).toContain('await subscription.unsubscribe();');
+    expect(app.body).toContain("String(error?.message) === 'unauthorized'");
+    expect(app.body).toContain('await loadPushNotificationStatus();');
+    expect(app.body).toContain('const subscription = await currentPushSubscription().catch(() => null);');
+    expect(app.body).toContain('Install KeepSeek on your Home Screen to use notifications on iPhone.');
+    expect(app.body).toContain('tap Share, then Add to Home Screen');
   });
 
   it('disables subscription registration cleanly when VAPID is not configured', async () => {

@@ -1472,6 +1472,17 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     return errorResponse(405, 'method_not_allowed', { Allow: 'GET' });
   }
 
+  if (method === 'POST' && url.pathname === '/api/push/status') {
+    const session = authenticatedSession(request, options);
+    if (!session) return errorResponse(401, 'unauthorized');
+    const parsed = requireJsonBody(request);
+    if ('status' in parsed) return parsed;
+    if (typeof parsed.body.endpoint !== 'string' || parsed.body.endpoint.length > 2048) {
+      return errorResponse(400, 'invalid_subscription');
+    }
+    return jsonResponse(200, getWebPushStatus(session.userId, parsed.body.endpoint));
+  }
+
   if (url.pathname === '/api/push/subscriptions') {
     const session = authenticatedSession(request, options);
     if (!session) return errorResponse(401, 'unauthorized');

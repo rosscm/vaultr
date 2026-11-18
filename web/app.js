@@ -3325,26 +3325,42 @@ async function currentPushSubscription() {
 
 async function loadPushNotificationStatus() {
   const supported = pushSupported();
+  const iosNeedsInstall = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.matchMedia('(display-mode: standalone)').matches;
   if (isPreviewMode) {
-    state.pushNotifications = { available: false, supported, subscribed: false, permission: supported ? Notification.permission : 'unsupported' };
+    state.pushNotifications = { available: false, supported, iosNeedsInstall, subscribed: false, permission: supported ? Notification.permission : 'unsupported' };
     return;
   }
+  let subscription = null;
   try {
-    const [server, subscription] = await Promise.all([fetchJson('/api/push'), currentPushSubscription()]);
-    state.pushNotifications = { ...server, supported, subscribed: Boolean(subscription), permission: supported ? Notification.permission : 'unsupported' };
+    subscription = await currentPushSubscription();
+    const server = subscription
+      ? await fetchJson('/api/push/status', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ endpoint: subscription.endpoint })
+        })
+      : await fetchJson('/api/push');
+    if (subscription && !server.subscribed) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+    state.pushNotifications = { ...server, supported, iosNeedsInstall, subscribed: Boolean(subscription && server.subscribed), permission: supported ? Notification.permission : 'unsupported' };
   } catch (error) {
-    if (String(error?.message) !== 'unauthorized') state.pushNotifications = { available: false, supported, subscribed: false, permission: supported ? Notification.permission : 'unsupported' };
+    if (String(error?.message) === 'unauthorized' && subscription) {
+      await subscription.unsubscribe().catch(() => false);
+    }
+    state.pushNotifications = { available: false, supported, iosNeedsInstall, subscribed: false, permission: supported ? Notification.permission : 'unsupported' };
   }
 }
 
 function browserNotificationMarkup(controlsDisabled) {
   const push = state.pushNotifications;
+  if (push?.iosNeedsInstall) return '<p class="field-hint"><strong>Install KeepSeek on your Home Screen to use notifications on iPhone.</strong> In Safari, tap Share, then Add to Home Screen. Open KeepSeek from there to enable notifications.</p>';
   if (!push?.supported) return '<p class="field-hint">Browser notifications aren’t supported in this browser.</p>';
   if (!push.available) return '<p class="field-hint">Browser notifications are temporarily unavailable. Your Inbox will continue to save every match.</p>';
   const denied = push.permission === 'denied';
   const status = denied ? 'Blocked in browser settings' : push.subscribed ? 'Enabled on this device' : 'Off on this device';
-  const iosNeedsInstall = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.matchMedia('(display-mode: standalone)').matches;
-  return `<div class="browser-notification-row"><span><strong>${escapeHtml(status)}</strong><small>${iosNeedsInstall ? 'On iPhone, add KeepSeek to your Home Screen before enabling notifications.' : 'Permission is requested only when you choose Enable.'}</small></span><span class="browser-notification-actions">${push.subscribed ? `<button class="button-ghost" type="button" data-action="test-push-notification"${controlsDisabled || state.pushNotificationsBusy ? ' disabled' : ''}>Send test</button><button class="button-ghost" type="button" data-action="disable-push-notifications"${controlsDisabled || state.pushNotificationsBusy ? ' disabled' : ''}>Disable on this device</button>` : `<button class="button-ghost" type="button" data-action="enable-push-notifications"${controlsDisabled || denied || state.pushNotificationsBusy ? ' disabled' : ''}>Enable on this device</button>`}</span></div>${denied ? '<p class="field-hint">Allow notifications for KeepSeek in your browser settings, then reload this page.</p>' : ''}${state.pushNotificationsNotice ? `<p class="form-notice" role="status">${escapeHtml(state.pushNotificationsNotice)}</p>` : ''}`;
+  return `<div class="browser-notification-row"><span><strong>${escapeHtml(status)}</strong><small>Permission is requested only when you choose Enable.</small></span><span class="browser-notification-actions">${push.subscribed ? `<button class="button-ghost" type="button" data-action="test-push-notification"${controlsDisabled || state.pushNotificationsBusy ? ' disabled' : ''}>Send test</button><button class="button-ghost" type="button" data-action="disable-push-notifications"${controlsDisabled || state.pushNotificationsBusy ? ' disabled' : ''}>Disable on this device</button>` : `<button class="button-ghost" type="button" data-action="enable-push-notifications"${controlsDisabled || denied || state.pushNotificationsBusy ? ' disabled' : ''}>Enable on this device</button>`}</span></div>${denied ? '<p class="field-hint">Allow notifications for KeepSeek in your browser settings, then reload this page.</p>' : ''}${state.pushNotificationsNotice ? `<p class="form-notice" role="status">${escapeHtml(state.pushNotificationsNotice)}</p>` : ''}`;
 }
 
 async function enablePushNotifications() {
@@ -3971,6 +3987,7 @@ async function bootstrap() {
     const body = await fetchJson('/api/me');
     state.user = body.user;
     state.identities = body.identities || state.identities;
+    await loadPushNotificationStatus();
     const onboarding = await loadOnboarding();
     const requestedPage = pageFromHash();
     if (requestedPage === 'alerts') {
@@ -3991,7 +4008,11 @@ async function bootstrap() {
     clearPendingAuthDestination();
     startNewAlertPresenceRefresh();
   } catch (error) {
-    if (String(error?.message) === 'unauthorized') return;
+    if (String(error?.message) === 'unauthorized') {
+      const subscription = await currentPushSubscription().catch(() => null);
+      if (subscription) await subscription.unsubscribe().catch(() => false);
+      return;
+    }
     app.innerHTML = `
       <main id="app-main" class="boot-screen">
         <section class="signed-out-card">
