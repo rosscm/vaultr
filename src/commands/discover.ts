@@ -3505,6 +3505,13 @@ async function settlePendingDiscoveryMarketCandidates(
   return settled.map((candidate) => candidateWithFreshMarketCache(candidate, context));
 }
 
+export function discoveryMarketContentRetrievedAt(askingListings: Listing[], soldListings: Listing[] = []): string | undefined {
+  if (askingListings.length === 0) return undefined;
+  const timestamps = [...askingListings, ...soldListings].map((listing) => listing.contentRetrievedAt);
+  if (timestamps.some((value) => !value || !Number.isFinite(Date.parse(value)))) return undefined;
+  return (timestamps as string[]).sort()[0];
+}
+
 async function enrichSuggestion(
   suggestion: DiscoverySuggestion,
   selectionIndex: number,
@@ -3516,10 +3523,6 @@ async function enrichSuggestion(
   onAskSnapshot?: (candidate: DiscoveryCandidate) => void,
   deadlineAtMs?: number
 ): Promise<DiscoveryCandidate> {
-  const oldestRetrievedAt = (listings: Listing[]): string | undefined => listings
-    .map((listing) => listing.contentRetrievedAt)
-    .filter((value): value is string => !!value && Number.isFinite(Date.parse(value)))
-    .sort()[0];
   const discoveryChase: Chase = {
     id: `discover:${suggestion.name}`,
     userId,
@@ -3568,7 +3571,8 @@ async function enrichSuggestion(
       };
     }
 
-    const totals = baselineRawListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
+    const askingListings = baselineRawListings.slice(0, 12);
+    const totals = askingListings.map((candidate) => convertedListingParts(candidate, targetCurrency).total);
     const typicalRawAskingTotal = typicalMarketTotal(totals);
     const askingRange = centralDiscoveryMarketRange(totals);
     const imageUrl = imageUrlFromListing(listing);
@@ -3582,12 +3586,12 @@ async function enrichSuggestion(
       marketSampleSize: totals.length,
       soldSampleSize: 0,
       displayCurrency: targetCurrency,
-      marketContentRetrievedAt: oldestRetrievedAt([...baselineRawListings, listing])
+      marketContentRetrievedAt: discoveryMarketContentRetrievedAt(askingListings)
     };
     if (imageUrl) askSnapshot.image = { name: suggestion.name, url: imageUrl, sourceName: marketplaceImageSourceNameForCandidate(askSnapshot), sourceKind: 'MARKET_LISTING' };
     onAskSnapshot?.(askSnapshot);
     let soldTotals: number[] = [];
-    let soldContentRetrievedAt: string | undefined;
+    let soldMarketListings: Listing[] = [];
     try {
       let soldListings: Listing[] = [];
       for (const term of searchTerms) {
@@ -3599,9 +3603,8 @@ async function enrichSuggestion(
         soldListings = dedupeDiscoveryListings([...soldListings, ...nextSoldListings]);
         if (usableBaselineListings(soldListings).length >= TARGET_RAW_MARKET_SAMPLE_SIZE) break;
       }
-      const usableSoldListings = usableBaselineListings(soldListings);
-      soldContentRetrievedAt = oldestRetrievedAt(usableSoldListings);
-      soldTotals = usableSoldListings.slice(0, 12).map((candidate) => convertedListingParts(candidate, targetCurrency).total);
+      soldMarketListings = usableBaselineListings(soldListings).slice(0, 12);
+      soldTotals = soldMarketListings.map((candidate) => convertedListingParts(candidate, targetCurrency).total);
     } catch {
       soldTotals = [];
     }
@@ -3616,9 +3619,7 @@ async function enrichSuggestion(
       soldRangeHigh: soldRange?.high,
       soldSampleSize: soldTotals.length,
       displayCurrency: targetCurrency,
-      marketContentRetrievedAt: [askSnapshot.marketContentRetrievedAt, soldContentRetrievedAt]
-        .filter((value): value is string => !!value)
-        .sort()[0]
+      marketContentRetrievedAt: discoveryMarketContentRetrievedAt(askingListings, soldMarketListings)
     };
   } catch (error) {
     return { suggestion, selectionIndex, sourceStatus: discoverySourceStatus(error) };

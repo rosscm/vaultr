@@ -23,6 +23,7 @@ import {
   discoveryMarketRangeFromChases,
   getDiscoveryMarketRefreshThrottleState,
   discoveryMarketCacheKeyForSuggestion,
+  discoveryMarketContentRetrievedAt,
   discoveryNegativeProfile,
   discoveryProfileConfidence,
   discoveryShelfMarketCheckNote,
@@ -113,6 +114,43 @@ afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.DISCOVERY_DEBUG_FINALIZATION_INPUT_OUT;
   delete process.env.CARD_CATALOG_PATH;
+});
+
+const marketListing = (listingId: string, contentRetrievedAt?: string): Listing => ({
+  source: 'EBAY',
+  listingId,
+  title: `Listing ${listingId}`,
+  price: 10,
+  currency: 'CAD',
+  url: `https://example.test/${listingId}`,
+  region: 'CA',
+  contentRetrievedAt
+});
+
+describe('Discovery market content provenance', () => {
+  it('fails closed when a contributing listing has no retrieval timestamp', () => {
+    expect(discoveryMarketContentRetrievedAt([marketListing('missing')])).toBeUndefined();
+  });
+
+  it('fails closed when asking and sold contributors have mixed provenance', () => {
+    expect(discoveryMarketContentRetrievedAt(
+      [marketListing('ask', '2026-11-18T12:00:00.000Z')],
+      [marketListing('sold', undefined)]
+    )).toBeUndefined();
+  });
+
+  it('uses the oldest valid timestamp across asking and sold contributors', () => {
+    expect(discoveryMarketContentRetrievedAt(
+      [marketListing('ask-new', '2026-11-18T12:00:00.000Z'), marketListing('ask-old', '2026-11-18T10:00:00.000Z')],
+      [marketListing('sold', '2026-11-18T11:00:00.000Z')]
+    )).toBe('2026-11-18T10:00:00.000Z');
+  });
+
+  it('allows a valid asking-only snapshot when there are no sold samples', () => {
+    expect(discoveryMarketContentRetrievedAt(
+      [marketListing('ask', '2026-11-18T12:00:00.000Z')]
+    )).toBe('2026-11-18T12:00:00.000Z');
+  });
 });
 
 function trustedReferenceImageUrl(sourceName: string, sourceCardId: string): string {
