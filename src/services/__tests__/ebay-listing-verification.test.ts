@@ -5,6 +5,7 @@ import {
   ebayListingContentFreshness,
   __ebayListingVerificationTestHooks,
   getEbayListingVerificationState,
+  processExplicitEbayListingVerification,
   processEbayListingVerificationQueue,
   scheduleUnverifiedEbayListings,
   startHistoricalEbayVerificationWorker
@@ -56,6 +57,89 @@ afterEach(() => {
 });
 
 describe('eBay listing verification persistence', () => {
+  it('verifies only the explicitly selected registered RESTful listing', async () => {
+    delete process.env.EBAY_HISTORICAL_VERIFICATION_ENABLED;
+    const target = 'v1|267838869947|0';
+    const unrelated = `v1|unrelated-${Date.now()}|0`;
+    listingIds.add(target);
+    listingIds.add(unrelated);
+    seedAlert(target, 'explicit-target-user');
+    seedAlert(unrelated, 'explicit-unrelated-user');
+    const verify = vi.fn().mockResolvedValue({
+      kind: 'AVAILABLE',
+      httpStatus: 200,
+      availabilityStatus: 'IN_STOCK'
+    });
+
+    await expect(processExplicitEbayListingVerification({
+      listingId: target,
+      now: new Date('2026-11-17T12:00:00.000Z'),
+      verify
+    })).resolves.toMatchObject({
+      listingId: target,
+      outcome: 'SUCCEEDED',
+      availabilityState: 'AVAILABLE',
+      attempted: 1
+    });
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(verify).toHaveBeenCalledWith(target, expect.any(Object));
+    expect(getEbayListingVerificationState(unrelated)).toMatchObject({
+      availabilityState: 'UNVERIFIED',
+      attemptCount: 0,
+      nextVerificationAt: undefined
+    });
+  });
+
+  it('rejects unknown, numeric legacy, and malformed explicit listing IDs', async () => {
+    const verify = vi.fn();
+    await expect(processExplicitEbayListingVerification({ listingId: '267838869947', verify }))
+      .rejects.toThrow('Numeric legacy');
+    await expect(processExplicitEbayListingVerification({ listingId: 'not-an-ebay-id', verify }))
+      .rejects.toThrow('valid RESTful');
+    await expect(processExplicitEbayListingVerification({ listingId: 'v1|999999999999|0', verify }))
+      .rejects.toThrow('not registered');
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it('enforces the hourly attempt budget for explicit verification', async () => {
+    process.env.EBAY_HISTORICAL_VERIFICATION_HOURLY_LIMIT = '1';
+    const target = `v1|hourly-${Date.now()}|0`;
+    listingIds.add(target);
+    seedAlert(target, 'explicit-hourly-user');
+    db.prepare('INSERT INTO ebay_listing_verification_attempts (listing_id, attempted_at) VALUES (?, ?)')
+      .run(target, '2026-11-17T11:30:00.000Z');
+    const verify = vi.fn();
+
+    await expect(processExplicitEbayListingVerification({
+      listingId: target,
+      now: new Date('2026-11-17T12:00:00.000Z'),
+      verify
+    })).resolves.toMatchObject({ outcome: 'DEFERRED', reason: 'HOURLY_LIMIT', attempted: 0 });
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it('preserves lease ownership when explicit verification overlaps', async () => {
+    const target = `v1|leased-${Date.now()}|0`;
+    listingIds.add(target);
+    seedAlert(target, 'explicit-lease-user');
+    const now = new Date('2026-11-17T12:00:00.000Z');
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const firstVerify = vi.fn(async () => {
+      await blocked;
+      return { kind: 'AVAILABLE' as const, httpStatus: 200, availabilityStatus: 'IN_STOCK' };
+    });
+    const secondVerify = vi.fn();
+
+    const first = processExplicitEbayListingVerification({ listingId: target, now, workerId: 'explicit-a', verify: firstVerify });
+    await vi.waitFor(() => expect(firstVerify).toHaveBeenCalledTimes(1));
+    await expect(processExplicitEbayListingVerification({ listingId: target, now, workerId: 'explicit-b', verify: secondVerify }))
+      .resolves.toMatchObject({ outcome: 'DEFERRED', reason: 'NOT_DUE_OR_LEASED', attempted: 0 });
+    expect(secondVerify).not.toHaveBeenCalled();
+    release();
+    await expect(first).resolves.toMatchObject({ outcome: 'SUCCEEDED', attempted: 1 });
+  });
+
   it('initializes the schema idempotently and deduplicates one listing shared by multiple users', async () => {
     const id = listingId('schema');
     seedAlert(id, 'user-a');

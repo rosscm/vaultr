@@ -60,6 +60,12 @@ const scheduleCandidateStmt = db.prepare(`
   WHERE listing_id = @listing_id AND availability_state = 'UNVERIFIED'
     AND next_verification_at IS NULL AND redacted_at IS NULL
 `);
+const scheduleSpecificCandidateStmt = db.prepare(`
+  UPDATE ebay_listing_verifications
+  SET next_verification_at = @now, updated_at = @now
+  WHERE listing_id = @listing_id AND availability_state = 'UNVERIFIED'
+    AND next_verification_at IS NULL AND redacted_at IS NULL
+`);
 const claimableStmt = db.prepare(`
   SELECT ${verificationColumns} FROM ebay_listing_verifications
   WHERE next_verification_at IS NOT NULL AND next_verification_at <= @now
@@ -196,6 +202,31 @@ function claimDue(owner: string, now: Date, limit: number, maxAttempts: number, 
   return claim();
 }
 
+function claimSpecificDue(
+  listingId: string,
+  owner: string,
+  now: Date,
+  maxAttempts: number,
+  leaseMs: number
+): EbayListingVerificationState | null {
+  const claim = db.transaction(() => {
+    const nowIso = now.toISOString();
+    scheduleSpecificCandidateStmt.run({ listing_id: listingId, now: nowIso });
+    const row = getStateStmt.get(listingId) as VerificationRow | undefined;
+    if (!row || !row.next_verification_at || row.next_verification_at > nowIso) return null;
+    const result = claimStmt.run({
+      listing_id: listingId,
+      owner,
+      now: nowIso,
+      lease_expires_at: new Date(now.getTime() + leaseMs).toISOString(),
+      max_attempts: maxAttempts
+    });
+    if (result.changes === 0) return null;
+    return mapState(getStateStmt.get(listingId) as VerificationRow);
+  });
+  return claim();
+}
+
 function retryDelayMs(result: EbayListingVerificationResult, attempts: number): number {
   if (result.kind === 'RATE_LIMITED') return Math.max(60_000, Math.min(24 * 60 * 60_000, result.retryAfterMs ?? 15 * 60_000));
   if (result.kind === 'AUTH_FAILURE') return 60 * 60_000;
@@ -243,6 +274,54 @@ function saveResult(
   }).changes > 0;
 }
 
+type ClaimedVerificationOutcome = 'SUCCEEDED' | 'FAILED' | 'LOST_LEASE';
+
+async function verifyClaimedListing(input: {
+  record: EbayListingVerificationState;
+  workerId: string;
+  clock: () => Date;
+  leaseMs: number;
+  verify: typeof verifyEbayListingAvailability;
+}): Promise<ClaimedVerificationOutcome> {
+  const { record, workerId, clock, leaseMs, verify } = input;
+  const attemptedAt = clock();
+  recordAttemptStmt.run(record.listingId, attemptedAt.toISOString());
+  let result: EbayListingVerificationResult;
+  let leaseLost = false;
+  try {
+    result = await verify(record.listingId, {
+      clock,
+      onRequestStart: () => {
+        const requestStartedAt = clock();
+        const renewed = renewLeaseStmt.run({
+          listing_id: record.listingId,
+          owner: workerId,
+          now: requestStartedAt.toISOString(),
+          lease_expires_at: new Date(requestStartedAt.getTime() + leaseMs).toISOString()
+        });
+        if (renewed.changes === 0) {
+          leaseLost = true;
+          throw new Error('Historical eBay verification lease ownership was lost');
+        }
+      }
+    });
+  } catch (error) {
+    if (!leaseLost) {
+      console.error('Historical eBay listing verification failed unexpectedly', {
+        listingId: record.listingId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    result = { kind: 'TEMPORARY_FAILURE', errorCode: 'UNEXPECTED_EXCEPTION' };
+  }
+  if (leaseLost) return 'LOST_LEASE';
+  const completedAt = clock();
+  if (!saveResult(record, workerId, result, attemptedAt, completedAt)) return 'LOST_LEASE';
+  return result.kind === 'AVAILABLE' || result.kind === 'ENDED_PUBLIC' || result.kind === 'UNAVAILABLE'
+    ? 'SUCCEEDED'
+    : 'FAILED';
+}
+
 export async function processEbayListingVerificationQueue(input: {
   now?: Date;
   clock?: () => Date;
@@ -271,45 +350,69 @@ export async function processEbayListingVerificationQueue(input: {
     const [record] = claimDue(workerId, claimAt, 1, maxAttempts, leaseMs);
     if (!record) break;
     attempted += 1;
-    const attemptedAt = clock();
-    recordAttemptStmt.run(record.listingId, attemptedAt.toISOString());
-    let result: EbayListingVerificationResult;
-    let leaseLost = false;
-    try {
-      result = await verify(record.listingId, {
-        clock,
-        onRequestStart: () => {
-          const requestStartedAt = clock();
-          const renewed = renewLeaseStmt.run({
-            listing_id: record.listingId,
-            owner: workerId,
-            now: requestStartedAt.toISOString(),
-            lease_expires_at: new Date(requestStartedAt.getTime() + leaseMs).toISOString()
-          });
-          if (renewed.changes === 0) {
-            leaseLost = true;
-            throw new Error('Historical eBay verification lease ownership was lost');
-          }
-        }
-      });
-    } catch (error) {
-      if (!leaseLost) {
-        console.error('Historical eBay listing verification failed unexpectedly', {
-          listingId: record.listingId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
-      result = { kind: 'TEMPORARY_FAILURE', errorCode: 'UNEXPECTED_EXCEPTION' };
-    }
-    if (leaseLost) break;
-    const completedAt = clock();
-    const persisted = saveResult(record, workerId, result, attemptedAt, completedAt);
-    if (!persisted) break;
-    if (result.kind === 'AVAILABLE' || result.kind === 'ENDED_PUBLIC' || result.kind === 'UNAVAILABLE') succeeded += 1;
+    const outcome = await verifyClaimedListing({ record, workerId, clock, leaseMs, verify });
+    if (outcome === 'LOST_LEASE') break;
+    if (outcome === 'SUCCEEDED') succeeded += 1;
     else failed += 1;
   }
   pruneAttemptsStmt.run(new Date(clock().getTime() - 24 * 60 * 60_000).toISOString());
   return { disabled: false, attempted, succeeded, failed, deferred: Math.max(0, batchLimit - attempted) };
+}
+
+export type ExplicitEbayVerificationResult = {
+  listingId: string;
+  outcome: 'SUCCEEDED' | 'FAILED' | 'DEFERRED';
+  reason?: 'HOURLY_LIMIT' | 'NOT_DUE_OR_LEASED';
+  availabilityState: EbayListingAvailabilityState;
+  attempted: number;
+};
+
+export async function processExplicitEbayListingVerification(input: {
+  listingId: string;
+  now?: Date;
+  clock?: () => Date;
+  workerId?: string;
+  verify?: typeof verifyEbayListingAvailability;
+}): Promise<ExplicitEbayVerificationResult> {
+  const listingId = input.listingId.trim();
+  if (/^\d+$/.test(listingId)) throw new Error('Numeric legacy eBay listing IDs are not supported');
+  if (!/^v1\|[^|]+\|[^|]+$/.test(listingId)) throw new Error('A valid RESTful eBay listing ID is required');
+  const existing = getEbayListingVerificationState(listingId);
+  if (!existing) throw new Error('The eBay listing ID is not registered for historical verification');
+  if (existing.redactedAt) throw new Error('The eBay listing ID is not eligible for verification');
+
+  const clock = input.clock ?? (input.now ? () => new Date(input.now!.getTime()) : () => new Date());
+  const claimAt = clock();
+  const hourlyLimit = boundedEnv('EBAY_HISTORICAL_VERIFICATION_HOURLY_LIMIT', 100, 500);
+  const recent = Number((attemptsSinceStmt.get(new Date(claimAt.getTime() - 60 * 60_000).toISOString()) as { count: number }).count);
+  if (recent >= hourlyLimit) {
+    return { listingId, outcome: 'DEFERRED', reason: 'HOURLY_LIMIT', availabilityState: existing.availabilityState, attempted: 0 };
+  }
+
+  const maxAttempts = boundedEnv('EBAY_HISTORICAL_VERIFICATION_MAX_ATTEMPTS', 8, 20);
+  const leaseMs = boundedEnv('EBAY_HISTORICAL_VERIFICATION_LEASE_SECONDS', 300, 900) * 1000;
+  const workerId = input.workerId ?? randomUUID();
+  const record = claimSpecificDue(listingId, workerId, claimAt, maxAttempts, leaseMs);
+  if (!record) {
+    return { listingId, outcome: 'DEFERRED', reason: 'NOT_DUE_OR_LEASED', availabilityState: existing.availabilityState, attempted: 0 };
+  }
+
+  const outcome = await verifyClaimedListing({
+    record,
+    workerId,
+    clock,
+    leaseMs,
+    verify: input.verify ?? verifyEbayListingAvailability
+  });
+  pruneAttemptsStmt.run(new Date(clock().getTime() - 24 * 60 * 60_000).toISOString());
+  const current = getEbayListingVerificationState(listingId) ?? existing;
+  return {
+    listingId,
+    outcome: outcome === 'LOST_LEASE' ? 'DEFERRED' : outcome,
+    reason: outcome === 'LOST_LEASE' ? 'NOT_DUE_OR_LEASED' : undefined,
+    availabilityState: current.availabilityState,
+    attempted: 1
+  };
 }
 
 type VerificationProcessor = () => Promise<{ attempted: number }>;
