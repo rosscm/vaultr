@@ -1054,6 +1054,57 @@ describe('web app static routes', () => {
     expect(homeSource).toContain('listing-freshness-note');
   });
 
+  it('keeps supported-shop pricing current across Home, Inbox cards, and listing details', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const homeMatch = source.match(/function homeAlertPreviewMarkup\([^]*?\n\}/);
+    const inboxSource = source.slice(source.indexOf('function alertPricingPresentation('), source.indexOf('function vaultPageMarkup('));
+    expect(homeMatch?.[0]).toBeTruthy();
+    const render = new Function(
+      'priorityLabel', 'formatMoney', 'formatPriceDelta', 'escapeHtml', 'listingTypeLabel', 'artworkTriggerMarkup',
+      'sourceLabel', 'matchLabel', 'relativeTime', 'alertActionMarkup', 'alertDetailActionMarkup', 'displayCaseCardBackUrl',
+      `${homeMatch![0]}\n${inboxSource}\nreturn { home: homeAlertPreviewMarkup, card: alertCardMarkup, panel: alertDetailPanelMarkup };`
+    )(
+      () => 'Casual',
+      (amount: number, currency: string) => `${currency} $${amount.toFixed(2)}`,
+      (amount: number, currency: string) => `${currency} $${amount.toFixed(2)} under max`,
+      (value: unknown) => String(value),
+      (value: string) => value === 'BUY_IT_NOW' ? 'Buy Now' : value,
+      () => '',
+      () => 'Trusted shop',
+      () => 'Strong match',
+      () => '2h ago',
+      () => '',
+      () => '',
+      '/keepseek-card-back.svg'
+    );
+    const shopAlert = {
+      id: 'shop-alert', chaseId: 'shop-chase', chasePriority: 'NORMAL', chaseName: 'Mew ex', source: 'SHOPIFY',
+      listingTitle: 'Mew ex from a trusted shop', listingPrice: 80, listingCurrency: 'CAD', priceDelta: 15,
+      matchScore: 90, createdAt: '2026-11-06T10:00:00.000Z',
+      details: {
+        chase: { maxPrice: 100, listingType: 'ANY' },
+        pricing: { itemPrice: 80, shipping: 5, total: 85, currency: 'CAD', comparisonBasis: 'VERIFIED_TOTAL', amountUnderMax: 15 },
+        listing: { listingType: 'BUY_IT_NOW' }, match: {}
+      }
+    };
+
+    const home = render.home(shopAlert);
+    const card = render.card(shopAlert);
+    const panel = render.panel(shopAlert);
+    expect(home).toContain('CAD $15.00 under max');
+    expect(home).not.toContain('when matched');
+    expect(card).toContain('+ CAD $5.00 shipping');
+    expect(card).toContain('CAD $15.00 below max');
+    expect(card).not.toContain('when matched');
+    expect(panel).toContain('<dt>Item price</dt><dd>CAD $80.00</dd>');
+    expect(panel).toContain('<dt>Shipping</dt><dd>CAD $5.00</dd>');
+    expect(panel).toContain('<dt>Verified total</dt><dd>CAD $85.00</dd>');
+    expect(panel).toContain('<dt>Below maximum</dt><dd>CAD $15.00</dd>');
+    expect(panel).not.toContain('when matched');
+    expect(panel).not.toContain('Saved listing details have not been refreshed.');
+  });
+
   it('renders Inbox as a selectable master-detail surface without inline listing disclosures', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';

@@ -1661,6 +1661,7 @@ function homeAlertPreviewMarkup(alert) {
   const delta = formatPriceDelta(alert.priceDelta, alert.listingCurrency);
   const quality = matchLabel(alert.matchScore);
   const freshness = alertFreshnessPresentation(alert);
+  const historicalPricing = alert.source === 'EBAY';
   return `
     <li class="home-preview-row">
       <div class="home-preview-artwork">
@@ -1684,7 +1685,7 @@ function homeAlertPreviewMarkup(alert) {
           <span>${escapeHtml(relativeTime(alert.createdAt))}</span>
         </span>
       </div>
-      <span class="home-preview-price">${price ? `<strong class="home-preview-value">${escapeHtml(price)}</strong><span>${freshness.historicalPriceLabel}</span>` : ''}${delta ? `<span>${escapeHtml(delta)} when matched</span>` : ''}${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}</span>
+      <span class="home-preview-price">${price ? `<strong class="home-preview-value">${escapeHtml(price)}</strong>${historicalPricing ? `<span>${freshness.historicalPriceLabel}</span>` : ''}` : ''}${delta ? `<span>${escapeHtml(delta)}${historicalPricing ? ' when matched' : ''}</span>` : ''}${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}</span>
       <div class="home-preview-actions">${alertActionMarkup(alert, { compact: true })}</div>
     </li>
   `;
@@ -2054,6 +2055,7 @@ function alertCardMarkup(alert, selected = false) {
   const pricing = alertPricingPresentation(alert);
   const price = formatMoney(alert.listingPrice, alert.listingCurrency);
   const freshness = alertFreshnessPresentation(alert);
+  const historicalPricing = alert.source === 'EBAY';
   return `
     <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${selected ? 'selected' : ''} ${alert.imageUrl ? 'has-image' : 'no-image'}" data-alert-card data-alert-id="${escapeHtml(alert.id)}" tabindex="0" aria-current="${selected ? 'true' : 'false'}">
       <div class="alert-artwork">${alertArtworkMarkup(alert)}</div>
@@ -2075,9 +2077,9 @@ function alertCardMarkup(alert, selected = false) {
           </div>
         </div>
         <div class="alert-price-column">
-          <span class="alert-price-primary">${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping when matched</span>` : '<span class="alert-card-shipping">Shipping was unknown</span>'}</span>
+          <span class="alert-price-primary">${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping${historicalPricing ? ' when matched' : ''}</span>` : `<span class="alert-card-shipping">${historicalPricing ? 'Shipping was unknown' : 'Shipping unknown'}</span>`}</span>
           ${price && freshness.historicalPriceLabel ? `<span class="alert-price-history">${freshness.historicalPriceLabel}</span>` : ''}
-          ${pricing.compactDelta ? `<span class="price-delta">${escapeHtml(pricing.compactDelta)} when matched</span>` : ''}
+          ${pricing.compactDelta ? `<span class="price-delta">${escapeHtml(pricing.compactDelta)}${historicalPricing ? ' when matched' : ''}</span>` : ''}
           ${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}
         </div>
         <div class="alert-actions">${alertActionMarkup(alert, { compact: true, includeCorrection: true })}</div>
@@ -2097,6 +2099,7 @@ function alertDetailPanelMarkup(alert) {
   const pricing = alertPricingPresentation(alert);
   const details = pricing.details;
   const freshness = alertFreshnessPresentation(alert);
+  const historicalPricing = alert.source === 'EBAY';
   const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
   const listingRows = details ? [
     ...(details.listing?.seller ? [['Seller', detailValue(details.listing.seller)]] : []),
@@ -2108,11 +2111,11 @@ function alertDetailPanelMarkup(alert) {
     ['Listed', alert.listingPostedAt ? escapeHtml(relativeTime(alert.listingPostedAt)) : 'Unknown']
   ] : [];
   const pricingRows = details ? [
-    ['Item price when matched', pricing.money(details.pricing?.itemPrice)],
-    ['Shipping when matched', pricing.shippingKnown ? pricing.money(details.pricing.shipping) : 'Unknown'],
-    ['Total when matched', pricing.verifiedTotal ? pricing.money(details.pricing.total) : 'Unknown'],
+    [historicalPricing ? 'Item price when matched' : 'Item price', pricing.money(details.pricing?.itemPrice)],
+    [historicalPricing ? 'Shipping when matched' : 'Shipping', pricing.shippingKnown ? pricing.money(details.pricing.shipping) : 'Unknown'],
+    [historicalPricing ? 'Total when matched' : 'Verified total', pricing.verifiedTotal ? pricing.money(details.pricing.total) : 'Unknown'],
     ['Your maximum', pricing.money(details.chase?.maxPrice)],
-    ['Below maximum when matched', pricing.comparisonAmount === undefined ? 'Not available' : pricing.money(pricing.comparisonAmount)],
+    [historicalPricing ? 'Below maximum when matched' : 'Below maximum', pricing.comparisonAmount === undefined ? 'Not available' : pricing.money(pricing.comparisonAmount)],
     ['Comparison basis', escapeHtml(pricing.comparison)]
   ] : [];
   const criteriaRows = details ? [
@@ -2136,7 +2139,7 @@ function alertDetailPanelMarkup(alert) {
           <p class="alert-detail-target">For ${escapeHtml(alert.chaseName || 'your Watchlist')}</p>
           <p class="alert-detail-market">${escapeHtml(details?.listing?.sourceLabel || sourceLabel(alert.source))}${details?.listing?.listingType ? ` • ${escapeHtml(listingTypeLabel(details.listing.listingType))}` : ''}</p>
           <p class="alert-detail-price">${formatMoney(alert.listingPrice, alert.listingCurrency) || 'Price unavailable'}</p>
-          <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping when matched` : 'Shipping was unknown'}</p>
+          <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping${historicalPricing ? ' when matched' : ''}` : historicalPricing ? 'Shipping was unknown' : 'Shipping unknown'}</p>
           ${freshness.historicalPriceLabel ? `<p class="alert-detail-history">${escapeHtml(freshness.historicalPriceLabel)}. Saved listing details have not been refreshed.</p>` : ''}
           ${freshness.status ? `<p class="listing-freshness-note">${escapeHtml(freshness.status)}</p>` : ''}
           <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span></div>
