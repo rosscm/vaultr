@@ -248,6 +248,25 @@ describe('eBay listing verification persistence', () => {
       .get(alertId)).toEqual(before);
   });
 
+  it('reports a recently confirmed unavailable listing as fresh availability evidence only', () => {
+    const id = listingId('unavailable-freshness');
+    seedAlert(id);
+    const now = new Date('2026-11-16T12:00:00.000Z');
+    db.prepare(`
+      UPDATE ebay_listing_verifications
+      SET availability_state = 'UNAVAILABLE', last_successful_verification_at = ?, updated_at = ?
+      WHERE listing_id = ?
+    `).run(now.toISOString(), now.toISOString(), id);
+
+    expect(ebayListingContentFreshness(id, now)).toEqual({
+      state: 'UNAVAILABLE',
+      availabilityFresh: true,
+      contentFresh: false,
+      availabilityVerifiedAt: now.toISOString(),
+      contentRefreshedAt: undefined
+    });
+  });
+
   it('prevents concurrent workers from verifying the same listing', async () => {
     const id = listingId('concurrent');
     seedAlert(id);

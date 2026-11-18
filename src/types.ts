@@ -152,6 +152,14 @@ export type AlertHistoryCursor = {
   id: string;
 };
 
+export type EbayListingFreshness = {
+  availabilityState: 'UNVERIFIED' | 'AVAILABLE' | 'ENDED_PUBLIC' | 'UNAVAILABLE' | 'VERIFICATION_FAILED';
+  availabilityFresh: boolean;
+  contentFresh: false;
+  availabilityVerifiedAt?: string;
+  contentRefreshedAt?: string;
+};
+
 export type AlertHistoryItem = {
   id: string;
   chaseId: string;
@@ -169,6 +177,7 @@ export type AlertHistoryItem = {
   listingPostedAt?: string;
   alertLatencySeconds?: number;
   details?: AlertMatchDetails;
+  listingFreshness?: EbayListingFreshness;
   reviewedAt?: string;
   dismissedAt?: string;
   createdAt: string;

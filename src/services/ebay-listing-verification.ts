@@ -158,7 +158,7 @@ export function ebayListingContentFreshness(
   const verifiedMs = Date.parse(record.lastSuccessfulVerificationAt ?? '');
   return {
     state: record.availabilityState,
-    availabilityFresh: (record.availabilityState === 'AVAILABLE' || record.availabilityState === 'ENDED_PUBLIC')
+    availabilityFresh: (record.availabilityState === 'AVAILABLE' || record.availabilityState === 'ENDED_PUBLIC' || record.availabilityState === 'UNAVAILABLE')
       && Number.isFinite(verifiedMs)
       && now.getTime() - verifiedMs <= maxAgeMs,
     contentFresh: false,

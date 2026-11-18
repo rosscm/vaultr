@@ -1009,10 +1009,13 @@ describe('web app static routes', () => {
     expect(itemOnly).toContain('detail actions for alert');
     expect(itemOnly).toContain('<h3>Pricing</h3>');
     expect(itemOnly).toContain('<h3>Your Watchlist criteria</h3>');
-    expect(itemOnly).toContain('<dt>Shipping</dt><dd>Unknown</dd>');
-    expect(itemOnly).toContain('<dt>Verified total</dt><dd>Unknown</dd>');
+    expect(itemOnly).toContain('<dt>Shipping when matched</dt><dd>Unknown</dd>');
+    expect(itemOnly).toContain('<dt>Total when matched</dt><dd>Unknown</dd>');
     expect(itemOnly).toContain('below your maximum using item price only; shipping unknown');
     expect(itemOnlyCard).toContain('below max on item price; shipping unknown');
+    expect(itemOnlyCard).toContain('Price when matched');
+    expect(itemOnlyCard).toContain('Availability not yet verified');
+    expect(itemOnly).toContain('Saved listing details have not been refreshed.');
     expect(itemOnlyCard).toContain('aria-current="true"');
 
     const verified = render.panel({
@@ -1023,8 +1026,32 @@ describe('web app static routes', () => {
         listing: { listingType: 'BUY_IT_NOW' }, match: {}
       }
     });
-    expect(verified).toContain('<dt>Verified total</dt><dd>CAD $85.00</dd>');
+    expect(verified).toContain('<dt>Total when matched</dt><dd>CAD $85.00</dd>');
     expect(verified).toContain('CAD $15.00 below your maximum using verified total');
+  });
+
+  it('uses quiet collector-facing eBay freshness wording across Inbox and Home', async () => {
+    const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
+    const source = response.body ?? '';
+    const helperMatch = source.match(/function alertFreshnessPresentation\([^]*?\n\}/);
+    expect(helperMatch?.[0]).toBeTruthy();
+    const present = new Function(`${helperMatch![0]}\nreturn alertFreshnessPresentation;`)();
+    const ebay = (availabilityState: string, availabilityFresh: boolean) => ({
+      source: 'EBAY', listingFreshness: { availabilityState, availabilityFresh, contentFresh: false }
+    });
+
+    expect(present(ebay('AVAILABLE', true))).toEqual({ status: 'Availability checked recently', historicalPriceLabel: 'Price when matched' });
+    expect(present(ebay('ENDED_PUBLIC', true)).status).toBe('Listing had ended when last checked');
+    expect(present(ebay('UNAVAILABLE', true)).status).toBe('Listing was unavailable when last checked');
+    expect(present(ebay('VERIFICATION_FAILED', false)).status).toBe('Availability could not be verified');
+    expect(present(ebay('AVAILABLE', false)).status).toBe('Availability check is out of date');
+    expect(present({ source: 'EBAY' }).status).toBe('Availability not yet verified');
+    expect(present({ source: 'SHOPIFY' })).toEqual({ status: '', historicalPriceLabel: '' });
+
+    const homeSource = source.slice(source.indexOf('function homeAlertPreviewMarkup('), source.indexOf('function boundedHomeShelfIndex('));
+    expect(homeSource).toContain('alertFreshnessPresentation(alert)');
+    expect(homeSource).toContain('when matched');
+    expect(homeSource).toContain('listing-freshness-note');
   });
 
   it('renders Inbox as a selectable master-detail surface without inline listing disclosures', async () => {
@@ -2598,6 +2625,61 @@ describe('authenticated alert API', () => {
 
     clearUser(userId);
     clearUser(otherUserId);
+  });
+
+  it('projects eBay availability separately from historical listing content across list, detail, and actions', async () => {
+    const userId = 'web-alert-freshness-user';
+    const listingId = `v1|freshness-${Date.now()}|0`;
+    clearUser(userId);
+    const alert = seedAlert(userId, 71, { listingId });
+    const { token } = createWebSession({ userId }, { token: 'alert-freshness-token' });
+    const headers = { cookie: sessionCookie(token) };
+    db.prepare(`
+      UPDATE ebay_listing_verifications
+      SET availability_state = 'AVAILABLE', last_successful_verification_at = ?, updated_at = ?
+      WHERE listing_id = ?
+    `).run('2026-11-17T11:00:00.000Z', '2026-11-17T11:00:00.000Z', listingId);
+
+    const requestOptions = { config, now: () => new Date('2026-11-17T12:00:00.000Z') };
+    const list = JSON.parse((await handleWebRequest({ method: 'GET', url: '/api/alerts', headers }, requestOptions)).body ?? '{}');
+    expect(list.items[0].listingFreshness).toEqual({
+      availabilityState: 'AVAILABLE',
+      availabilityFresh: true,
+      contentFresh: false,
+      availabilityVerifiedAt: '2026-11-17T11:00:00.000Z'
+    });
+
+    const detail = JSON.parse((await handleWebRequest({ method: 'GET', url: `/api/alerts/${alert.alertId}`, headers }, requestOptions)).body ?? '{}');
+    expect(detail.item.listingFreshness).toEqual(list.items[0].listingFreshness);
+    const action = JSON.parse((await handleWebRequest({ method: 'POST', url: `/api/alerts/${alert.alertId}/review`, headers }, requestOptions)).body ?? '{}');
+    expect(action.item.listingFreshness).toEqual(list.items[0].listingFreshness);
+
+    db.prepare(`
+      UPDATE ebay_listing_verifications
+      SET availability_state = 'ENDED_PUBLIC', last_successful_verification_at = ?, updated_at = ?
+      WHERE listing_id = ?
+    `).run('2026-11-16T00:00:00.000Z', '2026-11-16T00:00:00.000Z', listingId);
+    const stale = JSON.parse((await handleWebRequest({ method: 'GET', url: `/api/alerts/${alert.alertId}`, headers }, requestOptions)).body ?? '{}');
+    expect(stale.item.listingFreshness).toMatchObject({
+      availabilityState: 'ENDED_PUBLIC',
+      availabilityFresh: false,
+      contentFresh: false
+    });
+
+    clearUser(userId);
+    db.prepare('DELETE FROM ebay_listing_verifications WHERE listing_id = ?').run(listingId);
+  });
+
+  it('does not attach eBay freshness metadata to supported-shop alerts', async () => {
+    const userId = 'web-alert-shop-freshness-user';
+    clearUser(userId);
+    seedAlert(userId, 72, { source: 'SHOPIFY', listingId: `shop-freshness-${Date.now()}` });
+    const { token } = createWebSession({ userId }, { token: 'alert-shop-freshness-token' });
+    const body = JSON.parse((await handleWebRequest({
+      method: 'GET', url: '/api/alerts', headers: { cookie: sessionCookie(token) }
+    }, { config })).body ?? '{}');
+    expect(body.items[0]).not.toHaveProperty('listingFreshness');
+    clearUser(userId);
   });
 
   it('maps priority, source, chaseId, limit, and cursor query parameters', async () => {

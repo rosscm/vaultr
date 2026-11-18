@@ -71,6 +71,7 @@ import { tasteOnboardingEnabled } from './services/features.js';
 import { weeklyGeneralDiscoveryForUser, weeklyGeneralDiscoveryPeriodKey } from './services/weekly-general-discovery.js';
 import { APPROVED_STARTER_DISCOVERY } from './services/starter-discovery.js';
 import { buildEbaySearchKeywords } from './services/ebay.js';
+import { ebayListingContentFreshness } from './services/ebay-listing-verification.js';
 import { listTrustedShopifyShopNames } from './services/shopify.js';
 import {
   createWebSession,
@@ -961,8 +962,19 @@ export function decodeAlertCursor(raw: string): AlertHistoryCursor | null {
   }
 }
 
-function publicAlertItem(item: AlertHistoryItem): AlertHistoryItem {
-  return { ...item };
+function publicAlertItem(item: AlertHistoryItem, now = new Date()): AlertHistoryItem {
+  if (item.source !== 'EBAY') return { ...item };
+  const freshness = ebayListingContentFreshness(item.listingId, now);
+  return {
+    ...item,
+    listingFreshness: {
+      availabilityState: freshness.state,
+      availabilityFresh: freshness.availabilityFresh,
+      contentFresh: freshness.contentFresh,
+      availabilityVerifiedAt: freshness.availabilityVerifiedAt,
+      contentRefreshedAt: freshness.contentRefreshedAt
+    }
+  };
 }
 
 function parseAlertListOptions(url: URL): { options: ListAlertEventsForUserOptions } | { error: string } {
@@ -1489,8 +1501,9 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     const page = listAlertEventsForUser(session.userId, parsedOptions.options);
     const matchingNewCount = countNewAlertEventsForUser(session.userId, parsedOptions.options);
     const hasInboxHistory = listAlertEventsForUser(session.userId, { limit: 1 }).items.length > 0;
+    const responseNow = options.now?.() ?? new Date();
     return jsonResponse(200, {
-      items: page.items.map(publicAlertItem),
+      items: page.items.map((item) => publicAlertItem(item, responseNow)),
       nextCursor: encodeCursor(page.nextCursor),
       matchingNewCount,
       hasInboxHistory
@@ -1543,7 +1556,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
             : action === 'not-the-card'
               ? reportAlertIncorrectMatch(session.userId, alertId, now)
               : undoAlertIncorrectMatch(session.userId, alertId);
-    return item ? jsonResponse(200, { item: publicAlertItem(item) }) : errorResponse(404, 'not_found');
+    return item ? jsonResponse(200, { item: publicAlertItem(item, options.now?.() ?? new Date()) }) : errorResponse(404, 'not_found');
   }
 
   if (method === 'POST' && url.pathname === '/api/shelf/feedback') {
@@ -1606,7 +1619,7 @@ export async function handleWebRequest(request: WebRequest, options: WebHandlerO
     }
     const alert = getAlertEventForUser(session.userId, alertId);
     if (!alert) return errorResponse(404, 'not_found');
-    return jsonResponse(200, { item: publicAlertItem(alert) });
+    return jsonResponse(200, { item: publicAlertItem(alert, options.now?.() ?? new Date()) });
   }
 
   if (url.pathname === '/api/chases' || url.pathname.startsWith('/api/chases/')) {
