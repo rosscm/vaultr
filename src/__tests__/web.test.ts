@@ -1013,13 +1013,14 @@ describe('web app static routes', () => {
     expect(itemOnly).toContain('detail actions for alert');
     expect(itemOnly).toContain('<h3>Pricing</h3>');
     expect(itemOnly).toContain('<h3>Your Watchlist criteria</h3>');
-    expect(itemOnly).toContain('<dt>Shipping when matched</dt><dd>Unknown</dd>');
-    expect(itemOnly).toContain('<dt>Total when matched</dt><dd>Unknown</dd>');
+    expect(itemOnly).toContain('<dt>Shipping</dt><dd>Unknown</dd>');
+    expect(itemOnly).toContain('<dt>Verified total</dt><dd>Unknown</dd>');
     expect(itemOnly).toContain('below your maximum using item price only; shipping unknown');
     expect(itemOnlyCard).toContain('below max on item price; shipping unknown');
-    expect(itemOnlyCard).toContain('Price when matched');
+    expect(itemOnlyCard).toContain('Found at CAD $80.00');
+    expect(itemOnlyCard).not.toContain('when matched');
     expect(itemOnlyCard).toContain('Availability not yet verified');
-    expect(itemOnly).toContain('Saved listing details have not been refreshed.');
+    expect(itemOnly).toContain('Price and availability may have changed since this listing was found.');
     expect(itemOnlyCard).toContain('aria-current="true"');
 
     const suppressed = {
@@ -1046,7 +1047,7 @@ describe('web app static routes', () => {
         listing: { listingType: 'BUY_IT_NOW' }, match: {}
       }
     });
-    expect(verified).toContain('<dt>Total when matched</dt><dd>CAD $85.00</dd>');
+    expect(verified).toContain('<dt>Verified total</dt><dd>CAD $85.00</dd>');
     expect(verified).toContain('CAD $15.00 below your maximum using verified total');
   });
 
@@ -1060,7 +1061,7 @@ describe('web app static routes', () => {
       source: 'EBAY', listingFreshness: { availabilityState, availabilityFresh, contentFresh: false }
     });
 
-    expect(present(ebay('AVAILABLE', true))).toEqual({ status: 'Availability checked recently', historicalPriceLabel: 'Price when matched' });
+    expect(present(ebay('AVAILABLE', true))).toEqual({ status: 'Availability checked recently', historicalPriceLabel: 'Found price' });
     expect(present(ebay('ENDED_PUBLIC', true)).status).toBe('Listing had ended when last checked');
     expect(present(ebay('UNAVAILABLE', true)).status).toBe('Listing was unavailable when last checked');
     expect(present(ebay('VERIFICATION_FAILED', false)).status).toBe('Availability could not be verified');
@@ -1070,9 +1071,9 @@ describe('web app static routes', () => {
 
     const homeSource = source.slice(source.indexOf('function homeAlertPreviewMarkup('), source.indexOf('function boundedHomeShelfIndex('));
     expect(homeSource).toContain('alertFreshnessPresentation(alert)');
-    expect(homeSource).toContain('when matched');
+    expect(homeSource).toContain('Found at');
     expect(homeSource).toContain('listing-freshness-note');
-    expect(source).toContain('The original eBay listing details are no longer available.');
+    expect(source).toContain('The original listing details are no longer available.');
   });
 
   it('labels supported-shop snapshots when matched across Home, Inbox cards, and listing details', async () => {
@@ -1114,16 +1115,18 @@ describe('web app static routes', () => {
     const card = render.card(shopAlert);
     const panel = render.panel(shopAlert);
     expect(home).toContain('CAD $15.00 under max');
-    expect(home).toContain('Price when matched');
+    expect(home).toContain('Found at CAD $80.00');
     expect(home).toContain('Check current availability at the store');
-    expect(card).toContain('+ CAD $5.00 shipping when matched');
-    expect(card).toContain('CAD $15.00 below max when matched');
+    expect(card).toContain('+ CAD $5.00 shipping');
+    expect(card).toContain('CAD $15.00 below max');
+    expect(card).not.toContain('when matched');
     expect(card).toContain('Check current availability at the store');
-    expect(panel).toContain('<dt>Item price when matched</dt><dd>CAD $80.00</dd>');
-    expect(panel).toContain('<dt>Shipping when matched</dt><dd>CAD $5.00</dd>');
-    expect(panel).toContain('<dt>Total when matched</dt><dd>CAD $85.00</dd>');
-    expect(panel).toContain('<dt>Below maximum when matched</dt><dd>CAD $15.00</dd>');
-    expect(panel).toContain('Check current price and availability at the store.');
+    expect(panel).toContain('Found at CAD $80.00');
+    expect(panel).toContain('<dt>Item price</dt><dd>CAD $80.00</dd>');
+    expect(panel).toContain('<dt>Shipping</dt><dd>CAD $5.00</dd>');
+    expect(panel).toContain('<dt>Verified total</dt><dd>CAD $85.00</dd>');
+    expect(panel).toContain('<dt>Below maximum</dt><dd>CAD $15.00</dd>');
+    expect(panel).toContain('Price and availability may have changed since this listing was found.');
     expect(panel).not.toContain('Saved listing details have not been refreshed.');
 
     const shopWithoutDetails = render.panel({ ...shopAlert, details: undefined });
@@ -1154,18 +1157,36 @@ describe('web app static routes', () => {
     expect(resolveSelection([], 'removed')).toBeNull();
   });
 
-  it('keeps corrective Inbox actions on cards and limits the detail panel to contextual actions', async () => {
+  it('keeps inspectable actions while limiting suppressed historical matches to review and remove', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const cardActions = source.slice(source.indexOf('function alertActionMarkup('), source.indexOf('function alertDetailActionMarkup('));
     const detailActions = source.slice(source.indexOf('function alertDetailActionMarkup('), source.indexOf('function homeAlertPreviewMarkup('));
-    expect(cardActions).toContain('Not the card');
+    expect(cardActions).toContain('Not my card');
     expect(cardActions).toContain('Remove');
     expect(detailActions).toContain('View listing');
-    expect(detailActions).toContain('View Watchlist item');
     expect(detailActions).toContain('Mark reviewed');
-    expect(detailActions).not.toContain('Not the card');
-    expect(detailActions).not.toContain('Remove');
+    expect(detailActions).toContain('Not my card');
+    expect(detailActions).toContain('Remove');
+
+    const renderActions = new Function(
+      'escapeHtml',
+      `${cardActions}\n${detailActions}\nreturn { card: alertActionMarkup, detail: alertDetailActionMarkup };`
+    )((value: unknown) => String(value));
+    const inspectable = { id: 'fresh', chaseId: 'chase', listingUrl: 'https://shop.example/item' };
+    const suppressed = {
+      id: 'historical', chaseId: 'chase', listingUrl: 'https://ebay.example/item',
+      listingFreshness: { contentSuppressed: true }
+    };
+    expect(renderActions.card(inspectable, { includeCorrection: true })).toContain('Not my card');
+    expect(renderActions.detail(inspectable)).toContain('View listing');
+    expect(renderActions.detail(inspectable)).toContain('Not my card');
+    expect(renderActions.card(suppressed, { includeCorrection: true })).not.toContain('Not my card');
+    expect(renderActions.card(suppressed, { includeCorrection: true })).not.toContain('View listing');
+    expect(renderActions.detail(suppressed)).not.toContain('Not my card');
+    expect(renderActions.detail(suppressed)).not.toContain('View listing');
+    expect(renderActions.detail(suppressed)).toContain('Mark reviewed');
+    expect(renderActions.detail(suppressed)).toContain('Remove');
   });
 
   it('refreshes the Home attention preview when the Inbox new-state changes', async () => {

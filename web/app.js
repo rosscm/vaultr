@@ -1622,14 +1622,14 @@ function paginationMarkup({ page, hasPrevious, hasNext, scope, showing }) {
   </nav>`;
 }
 
-function alertActionMarkup(alert, { compact = false, includeCorrection = false } = {}) {
+function alertActionMarkup(alert, { includeCorrection = false } = {}) {
   const reviewed = Boolean(alert.reviewedAt);
+  const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   return `
-    ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
+    ${!contentSuppressed && alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
     <span class="alert-secondary-actions">
-      ${compact ? '' : `<button class="vault-action-link alert-watchlist-action" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button>`}
       <button class="vault-action-link alert-review-action" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
-      ${includeCorrection ? `<button class="vault-action-link alert-wrong-card-action" type="button" data-action="not-the-card" data-alert-id="${escapeHtml(alert.id)}">Not the card</button>` : ''}
+      ${includeCorrection && !contentSuppressed ? `<button class="vault-action-link alert-wrong-card-action" type="button" data-action="not-the-card" data-alert-id="${escapeHtml(alert.id)}">Not my card</button>` : ''}
       <button class="vault-action-link danger alert-dismiss-action" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Remove</button>
     </span>
   `;
@@ -1637,11 +1637,13 @@ function alertActionMarkup(alert, { compact = false, includeCorrection = false }
 
 function alertDetailActionMarkup(alert) {
   const reviewed = Boolean(alert.reviewedAt);
+  const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   return `
-    ${alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
+    ${!contentSuppressed && alert.listingUrl ? `<a class="listing-link" href="${escapeHtml(alert.listingUrl)}" target="_blank" rel="noopener noreferrer" data-action="review-listing" data-alert-id="${escapeHtml(alert.id)}" data-reviewed="${reviewed ? 'true' : 'false'}">View listing</a>` : ''}
     <span class="alert-secondary-actions">
-      <button class="vault-action-link alert-watchlist-action" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item</button>
       <button class="vault-action-link alert-review-action" type="button" data-action="${reviewed ? 'mark-alert-new' : 'mark-alert-reviewed'}" data-alert-id="${escapeHtml(alert.id)}">${reviewed ? 'Mark new' : 'Mark reviewed'}</button>
+      ${contentSuppressed ? '' : `<button class="vault-action-link alert-wrong-card-action" type="button" data-action="not-the-card" data-alert-id="${escapeHtml(alert.id)}">Not my card</button>`}
+      <button class="vault-action-link danger alert-dismiss-action" type="button" data-action="dismiss-alert" data-alert-id="${escapeHtml(alert.id)}">Remove</button>
     </span>
   `;
 }
@@ -1651,7 +1653,6 @@ function homeAlertPreviewMarkup(alert) {
   const delta = formatPriceDelta(alert.priceDelta, alert.listingCurrency);
   const quality = matchLabel(alert.matchScore);
   const freshness = alertFreshnessPresentation(alert);
-  const historicalPricing = alert.source === 'EBAY';
   const savedShopPricing = alert.source === 'SHOPIFY';
   const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   return `
@@ -1677,7 +1678,7 @@ function homeAlertPreviewMarkup(alert) {
           <span>${escapeHtml(relativeTime(alert.createdAt))}</span>
         </span>
       </div>
-      <span class="home-preview-price">${price ? `<strong class="home-preview-value">${escapeHtml(price)}</strong>${historicalPricing || savedShopPricing ? '<span>Price when matched</span>' : ''}` : ''}${delta ? `<span>${escapeHtml(delta)}${historicalPricing || savedShopPricing ? ' when matched' : ''}</span>` : ''}${savedShopPricing ? '<span>Check current availability at the store</span>' : ''}${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}</span>
+      <span class="home-preview-price">${price ? `<strong class="home-preview-value">Found at ${escapeHtml(price)}</strong>` : ''}${delta ? `<span>${escapeHtml(delta)}</span>` : ''}${savedShopPricing ? '<span>Check current availability at the store</span>' : ''}${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}</span>
       <div class="home-preview-actions">${alertActionMarkup(alert, { compact: true })}</div>
     </li>
   `;
@@ -2018,16 +2019,16 @@ function alertFreshnessPresentation(alert) {
   if (alert.source !== 'EBAY') return { status: '', historicalPriceLabel: '' };
   const freshness = alert.listingFreshness;
   if (freshness?.contentSuppressed) return { status: '', historicalPriceLabel: '' };
-  if (!freshness) return { status: 'Availability not yet verified', historicalPriceLabel: 'Price when matched' };
+  if (!freshness) return { status: 'Availability not yet verified', historicalPriceLabel: 'Found price' };
   if (!freshness.availabilityFresh) {
-    if (freshness.availabilityState === 'VERIFICATION_FAILED') return { status: 'Availability could not be verified', historicalPriceLabel: 'Price when matched' };
-    if (freshness.availabilityState === 'UNVERIFIED') return { status: 'Availability not yet verified', historicalPriceLabel: 'Price when matched' };
-    return { status: 'Availability check is out of date', historicalPriceLabel: 'Price when matched' };
+    if (freshness.availabilityState === 'VERIFICATION_FAILED') return { status: 'Availability could not be verified', historicalPriceLabel: 'Found price' };
+    if (freshness.availabilityState === 'UNVERIFIED') return { status: 'Availability not yet verified', historicalPriceLabel: 'Found price' };
+    return { status: 'Availability check is out of date', historicalPriceLabel: 'Found price' };
   }
-  if (freshness.availabilityState === 'AVAILABLE') return { status: 'Availability checked recently', historicalPriceLabel: 'Price when matched' };
-  if (freshness.availabilityState === 'ENDED_PUBLIC') return { status: 'Listing had ended when last checked', historicalPriceLabel: 'Price when matched' };
-  if (freshness.availabilityState === 'UNAVAILABLE') return { status: 'Listing was unavailable when last checked', historicalPriceLabel: 'Price when matched' };
-  return { status: 'Availability not yet verified', historicalPriceLabel: 'Price when matched' };
+  if (freshness.availabilityState === 'AVAILABLE') return { status: 'Availability checked recently', historicalPriceLabel: 'Found price' };
+  if (freshness.availabilityState === 'ENDED_PUBLIC') return { status: 'Listing had ended when last checked', historicalPriceLabel: 'Found price' };
+  if (freshness.availabilityState === 'UNAVAILABLE') return { status: 'Listing was unavailable when last checked', historicalPriceLabel: 'Found price' };
+  return { status: 'Availability not yet verified', historicalPriceLabel: 'Found price' };
 }
 
 function alertArtworkMarkup(alert, className = 'alert-image') {
@@ -2048,7 +2049,6 @@ function alertCardMarkup(alert, selected = false) {
   const pricing = alertPricingPresentation(alert);
   const price = formatMoney(alert.listingPrice, alert.listingCurrency);
   const freshness = alertFreshnessPresentation(alert);
-  const historicalPricing = alert.source === 'EBAY';
   const savedShopPricing = alert.source === 'SHOPIFY';
   const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   return `
@@ -2072,9 +2072,8 @@ function alertCardMarkup(alert, selected = false) {
           </div>
         </div>
         <div class="alert-price-column">
-          ${contentSuppressed ? '' : `<span class="alert-price-primary">${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping${historicalPricing || savedShopPricing ? ' when matched' : ''}</span>` : `<span class="alert-card-shipping">${historicalPricing ? 'Shipping was unknown' : savedShopPricing ? 'Shipping unknown when matched' : 'Shipping unknown'}</span>`}</span>
-          ${price && (freshness.historicalPriceLabel || savedShopPricing) ? '<span class="alert-price-history">Price when matched</span>' : ''}
-          ${pricing.compactDelta ? `<span class="price-delta">${escapeHtml(pricing.compactDelta)}${historicalPricing || savedShopPricing ? ' when matched' : ''}</span>` : ''}
+          ${contentSuppressed ? '' : `<span class="alert-price-primary">${price ? `<span class="price">Found at ${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping</span>` : '<span class="alert-card-shipping">Shipping unknown at time found</span>'}</span>
+          ${pricing.compactDelta ? `<span class="price-delta">${escapeHtml(pricing.compactDelta)}</span>` : ''}
           ${savedShopPricing ? '<span class="listing-freshness-note">Check current availability at the store</span>' : ''}
           ${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}`}
         </div>
@@ -2095,9 +2094,8 @@ function alertDetailPanelMarkup(alert) {
   const pricing = alertPricingPresentation(alert);
   const details = pricing.details;
   const freshness = alertFreshnessPresentation(alert);
-  const historicalPricing = alert.source === 'EBAY';
-  const savedShopPricing = alert.source === 'SHOPIFY';
   const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
+  const price = contentSuppressed ? '' : formatMoney(alert.listingPrice, alert.listingCurrency);
   const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
   const listingRows = details ? [
     ...(details.listing?.seller ? [['Seller', detailValue(details.listing.seller)]] : []),
@@ -2109,11 +2107,11 @@ function alertDetailPanelMarkup(alert) {
     ['Listed', alert.listingPostedAt ? escapeHtml(relativeTime(alert.listingPostedAt)) : 'Unknown']
   ] : [];
   const pricingRows = details ? [
-    [historicalPricing || savedShopPricing ? 'Item price when matched' : 'Item price', pricing.money(details.pricing?.itemPrice)],
-    [historicalPricing || savedShopPricing ? 'Shipping when matched' : 'Shipping', pricing.shippingKnown ? pricing.money(details.pricing.shipping) : 'Unknown'],
-    [historicalPricing || savedShopPricing ? 'Total when matched' : 'Verified total', pricing.verifiedTotal ? pricing.money(details.pricing.total) : 'Unknown'],
+    ['Item price', pricing.money(details.pricing?.itemPrice)],
+    ['Shipping', pricing.shippingKnown ? pricing.money(details.pricing.shipping) : 'Unknown'],
+    ['Verified total', pricing.verifiedTotal ? pricing.money(details.pricing.total) : 'Unknown'],
     ['Your maximum', pricing.money(details.chase?.maxPrice)],
-    [historicalPricing || savedShopPricing ? 'Below maximum when matched' : 'Below maximum', pricing.comparisonAmount === undefined ? 'Not available' : pricing.money(pricing.comparisonAmount)],
+    ['Below maximum', pricing.comparisonAmount === undefined ? 'Not available' : pricing.money(pricing.comparisonAmount)],
     ['Comparison basis', escapeHtml(pricing.comparison)]
   ] : [];
   const criteriaRows = details ? [
@@ -2126,7 +2124,7 @@ function alertDetailPanelMarkup(alert) {
   const positiveSignals = details?.match?.positiveSignals || [];
   const showMatchExplanation = positiveSignals.length === 0 || !/^Matched because of\b/i.test(matchExplanation);
   return `
-    <aside class="alert-detail-panel" data-alert-detail-panel role="region" aria-labelledby="alert-detail-title">
+    <aside class="alert-detail-panel${contentSuppressed ? ' content-suppressed' : ''}" data-alert-detail-panel role="region" aria-labelledby="alert-detail-title">
       <header class="alert-detail-header">
         <div><p class="eyebrow">LISTING DETAILS</p><h2 id="alert-detail-title">${escapeHtml(alert.listingTitle || alert.chaseName || 'Marketplace listing')}</h2></div>
         <button class="alert-detail-close button-ghost" type="button" data-action="close-alert-detail" aria-label="Close listing details">Close</button>
@@ -2136,10 +2134,9 @@ function alertDetailPanelMarkup(alert) {
         <div>
           <p class="alert-detail-target">For ${escapeHtml(alert.chaseName || 'your Watchlist')}</p>
           <p class="alert-detail-market">${escapeHtml(details?.listing?.sourceLabel || sourceLabel(alert.source))}${details?.listing?.listingType ? ` • ${escapeHtml(listingTypeLabel(details.listing.listingType))}` : ''}</p>
-          ${contentSuppressed ? '' : `<p class="alert-detail-price">${formatMoney(alert.listingPrice, alert.listingCurrency) || 'Price unavailable'}</p>
-          <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping${historicalPricing || savedShopPricing ? ' when matched' : ''}` : historicalPricing ? 'Shipping was unknown' : savedShopPricing ? 'Shipping unknown when matched' : 'Shipping unknown'}</p>`}
-          ${freshness.historicalPriceLabel ? `<p class="alert-detail-history">${escapeHtml(freshness.historicalPriceLabel)}. Saved listing details have not been refreshed.</p>` : ''}
-          ${savedShopPricing ? '<p class="alert-detail-history">Price when matched. Check current price and availability at the store.</p>' : ''}
+          ${contentSuppressed ? '' : `<p class="alert-detail-price">${price ? `Found at ${escapeHtml(price)}` : 'Price unavailable'}</p>
+          <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping` : 'Shipping unknown at time found'}</p>`}
+          ${price ? '<p class="alert-detail-history">Price and availability may have changed since this listing was found.</p>' : ''}
           ${freshness.status ? `<p class="listing-freshness-note">${escapeHtml(freshness.status)}</p>` : ''}
           <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span></div>
         </div>
