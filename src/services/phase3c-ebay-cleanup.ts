@@ -142,6 +142,13 @@ type DiscoveryJsonCounts = {
 };
 
 function collectManifest(database: Database.Database, jsonCounts: DiscoveryJsonCounts): CleanupManifestEntry[] {
+  const scheduledEbayListing = `(json_extract(suggestion_json, '$.listing.source') = 'EBAY' OR listing_id LIKE 'v1|%|%')`;
+  const scheduledEbayMarket = `(json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source') = 'EBAY')`;
+  const universeEbayMarket = `(${scheduledEbayMarket} AND (
+    json_extract(suggestion_json, '$.listing.source') = 'EBAY' OR
+    json_type(suggestion_json, '$.typicalRawAskingTotal') IS NOT NULL OR
+    json_type(suggestion_json, '$.typicalRawSoldTotal') IS NOT NULL OR
+    json_type(suggestion_json, '$.marketContentRetrievedAt') IS NOT NULL))`;
   return [
     alertManifest(database),
     sentAlertManifest(database),
@@ -153,22 +160,26 @@ function collectManifest(database: Database.Database, jsonCounts: DiscoveryJsonC
       sample_counts: 'market_sample_size IS NOT NULL OR sold_sample_size IS NOT NULL', retrieval_times: "fetched_at <> ''"
     }),
     simpleManifest(database, 'discovery_scheduled_drop_items', '', {
-      listing_title: 'listing_title IS NOT NULL', listing_url: 'listing_url IS NOT NULL',
-      market_images: "image_source_kind='MARKET_LISTING'",
-      asking_aggregates: 'asking_total IS NOT NULL OR asking_range_low IS NOT NULL OR asking_range_high IS NOT NULL',
-      sold_aggregates: 'sold_total IS NOT NULL OR sold_range_low IS NOT NULL OR sold_range_high IS NOT NULL',
-      sample_counts: 'asking_sample_size IS NOT NULL OR sold_sample_size IS NOT NULL', market_times: 'market_updated_at IS NOT NULL'
+      listing_title: `listing_title IS NOT NULL AND ${scheduledEbayListing}`,
+      listing_url: `listing_url IS NOT NULL AND ${scheduledEbayListing}`,
+      market_images: "image_source_kind='MARKET_LISTING' AND lower(COALESCE(image_source_name, '')) LIKE '%ebay%'",
+      asking_aggregates: `${scheduledEbayMarket} AND (asking_total IS NOT NULL OR asking_range_low IS NOT NULL OR asking_range_high IS NOT NULL)`,
+      sold_aggregates: `${scheduledEbayMarket} AND (sold_total IS NOT NULL OR sold_range_low IS NOT NULL OR sold_range_high IS NOT NULL)`,
+      sample_counts: `${scheduledEbayMarket} AND (asking_sample_size IS NOT NULL OR sold_sample_size IS NOT NULL)`,
+      market_times: `${scheduledEbayMarket} AND market_updated_at IS NOT NULL`
     }),
     {
       location: 'weekly_discovery_prepared_reserve', records: tableCount(database, 'weekly_discovery_prepared_reserve'),
       fields: { marketplace_json_items: jsonCounts.prepared }, ambiguousRetained: { recommendation_evidence: jsonCounts.preparedEvidence }
     },
     simpleManifest(database, 'discovery_card_universe', '', {
-      market_totals: 'market_total IS NOT NULL', ebay_images: "image_source_name LIKE '%eBay%'",
+      market_totals: `market_total IS NOT NULL AND ${universeEbayMarket}`,
+      ebay_images: "lower(COALESCE(image_source_name, '')) LIKE '%ebay%'",
       marketplace_json_items: `${jsonCounts.cardUniverse}`
     }),
     simpleManifest(database, 'discovery_user_universe', '', {
-      market_totals: 'market_total IS NOT NULL', ebay_images: "image_source_name LIKE '%eBay%'",
+      market_totals: `market_total IS NOT NULL AND ${universeEbayMarket}`,
+      ebay_images: "lower(COALESCE(image_source_name, '')) LIKE '%ebay%'",
       marketplace_json_items: `${jsonCounts.userUniverse}`
     }),
     {
@@ -198,6 +209,23 @@ const candidateMarketKeys = [
   'marketSampleSize', 'soldSampleSize', 'marketContentRetrievedAt'
 ];
 
+function explicitListingSource(value: JsonObject): string | undefined {
+  if (!isObject(value.listing) || typeof value.listing.source !== 'string') return undefined;
+  return value.listing.source.trim().toUpperCase();
+}
+
+function hasRestfulEbayListingId(value: JsonObject): boolean {
+  if (!isObject(value.listing)) return false;
+  const listingId = value.listing.listingId;
+  return typeof listingId === 'string' && /^v1\|[^|]+\|[^|]+$/.test(listingId);
+}
+
+function hasConfirmedEbayCandidateMarket(value: JsonObject): boolean {
+  const source = explicitListingSource(value);
+  if (source && source !== 'EBAY') return false;
+  return source === 'EBAY' || hasRestfulEbayListingId(value) || candidateMarketKeys.some((key) => key in value);
+}
+
 function sanitizeDiscoveryValue(value: unknown): { value: unknown; changed: boolean } {
   if (Array.isArray(value)) {
     let changed = false;
@@ -211,18 +239,22 @@ function sanitizeDiscoveryValue(value: unknown): { value: unknown; changed: bool
   if (!isObject(value)) return { value, changed: false };
   const next: JsonObject = { ...value };
   let changed = false;
-  for (const key of candidateMarketKeys) {
-    if (key in next) {
-      delete next[key];
-      changed = true;
+  const confirmedEbayMarket = hasConfirmedEbayCandidateMarket(next);
+  if (confirmedEbayMarket) {
+    for (const key of candidateMarketKeys) {
+      if (key in next) {
+        delete next[key];
+        changed = true;
+      }
     }
   }
-  if (isObject(next.listing)) {
+  if (isObject(next.listing) && (explicitListingSource(next) === 'EBAY' || hasRestfulEbayListingId(next))) {
     const preservedListing = Object.fromEntries(Object.entries(next.listing).filter(([key]) => key === 'listingId' || key === 'source'));
     if (Object.keys(next.listing).some((key) => key !== 'listingId' && key !== 'source')) changed = true;
     next.listing = preservedListing;
   }
-  if (isObject(next.image) && next.image.sourceKind === 'MARKET_LISTING') {
+  if (isObject(next.image) && next.image.sourceKind === 'MARKET_LISTING'
+    && (confirmedEbayMarket || (typeof next.image.sourceName === 'string' && /ebay/i.test(next.image.sourceName)))) {
     delete next.image;
     changed = true;
   }
@@ -376,23 +408,44 @@ function applySqlCleanup(database: Database.Database): void {
       asking_range_low=NULL, asking_range_high=NULL, sold_range_low=NULL, sold_range_high=NULL,
       fetched_at='';
     UPDATE discovery_scheduled_drop_items SET
-      listing_title=NULL, listing_url=NULL,
-      image_url=CASE WHEN image_source_kind='MARKET_LISTING' THEN NULL ELSE image_url END,
-      image_source_name=CASE WHEN image_source_kind='MARKET_LISTING' THEN NULL ELSE image_source_name END,
-      image_source_kind=CASE WHEN image_source_kind='MARKET_LISTING' THEN NULL ELSE image_source_kind END,
-      asking_total=NULL, asking_sample_size=NULL, sold_total=NULL, sold_sample_size=NULL,
-      asking_range_low=NULL, asking_range_high=NULL, sold_range_low=NULL, sold_range_high=NULL,
-      market_updated_at=NULL;
+      listing_title=CASE WHEN json_extract(suggestion_json, '$.listing.source')='EBAY' OR listing_id LIKE 'v1|%|%' THEN NULL ELSE listing_title END,
+      listing_url=CASE WHEN json_extract(suggestion_json, '$.listing.source')='EBAY' OR listing_id LIKE 'v1|%|%' THEN NULL ELSE listing_url END,
+      image_url=CASE WHEN image_source_kind='MARKET_LISTING' AND lower(COALESCE(image_source_name, '')) LIKE '%ebay%' THEN NULL ELSE image_url END,
+      image_source_name=CASE WHEN image_source_kind='MARKET_LISTING' AND lower(COALESCE(image_source_name, '')) LIKE '%ebay%' THEN NULL ELSE image_source_name END,
+      image_source_kind=CASE WHEN image_source_kind='MARKET_LISTING' AND lower(COALESCE(image_source_name, '')) LIKE '%ebay%' THEN NULL ELSE image_source_kind END,
+      asking_total=CASE WHEN json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY' THEN NULL ELSE asking_total END,
+      asking_sample_size=CASE WHEN json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY' THEN NULL ELSE asking_sample_size END,
+      sold_total=CASE WHEN json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY' THEN NULL ELSE sold_total END,
+      sold_sample_size=CASE WHEN json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY' THEN NULL ELSE sold_sample_size END,
+      asking_range_low=CASE WHEN json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY' THEN NULL ELSE asking_range_low END,
+      asking_range_high=CASE WHEN json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY' THEN NULL ELSE asking_range_high END,
+      sold_range_low=CASE WHEN json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY' THEN NULL ELSE sold_range_low END,
+      sold_range_high=CASE WHEN json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY' THEN NULL ELSE sold_range_high END,
+      market_updated_at=CASE WHEN json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY' THEN NULL ELSE market_updated_at END;
     UPDATE discovery_card_universe SET
-      market_total=NULL, market_currency=NULL,
-      image_url=CASE WHEN image_source_name LIKE '%eBay%' THEN NULL ELSE image_url END,
-      source_card_id=CASE WHEN image_source_name LIKE '%eBay%' THEN NULL ELSE source_card_id END,
-      image_source_name=CASE WHEN image_source_name LIKE '%eBay%' THEN NULL ELSE image_source_name END;
+      market_total=CASE WHEN (json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY') AND (json_extract(suggestion_json, '$.listing.source')='EBAY'
+        OR json_type(suggestion_json, '$.typicalRawAskingTotal') IS NOT NULL
+        OR json_type(suggestion_json, '$.typicalRawSoldTotal') IS NOT NULL
+        OR json_type(suggestion_json, '$.marketContentRetrievedAt') IS NOT NULL) THEN NULL ELSE market_total END,
+      market_currency=CASE WHEN (json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY') AND (json_extract(suggestion_json, '$.listing.source')='EBAY'
+        OR json_type(suggestion_json, '$.typicalRawAskingTotal') IS NOT NULL
+        OR json_type(suggestion_json, '$.typicalRawSoldTotal') IS NOT NULL
+        OR json_type(suggestion_json, '$.marketContentRetrievedAt') IS NOT NULL) THEN NULL ELSE market_currency END,
+      image_url=CASE WHEN lower(COALESCE(image_source_name, '')) LIKE '%ebay%' THEN NULL ELSE image_url END,
+      source_card_id=CASE WHEN lower(COALESCE(image_source_name, '')) LIKE '%ebay%' THEN NULL ELSE source_card_id END,
+      image_source_name=CASE WHEN lower(COALESCE(image_source_name, '')) LIKE '%ebay%' THEN NULL ELSE image_source_name END;
     UPDATE discovery_user_universe SET
-      market_total=NULL, market_currency=NULL,
-      image_url=CASE WHEN image_source_name LIKE '%eBay%' THEN NULL ELSE image_url END,
-      source_card_id=CASE WHEN image_source_name LIKE '%eBay%' THEN NULL ELSE source_card_id END,
-      image_source_name=CASE WHEN image_source_name LIKE '%eBay%' THEN NULL ELSE image_source_name END;
+      market_total=CASE WHEN (json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY') AND (json_extract(suggestion_json, '$.listing.source')='EBAY'
+        OR json_type(suggestion_json, '$.typicalRawAskingTotal') IS NOT NULL
+        OR json_type(suggestion_json, '$.typicalRawSoldTotal') IS NOT NULL
+        OR json_type(suggestion_json, '$.marketContentRetrievedAt') IS NOT NULL) THEN NULL ELSE market_total END,
+      market_currency=CASE WHEN (json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source')='EBAY') AND (json_extract(suggestion_json, '$.listing.source')='EBAY'
+        OR json_type(suggestion_json, '$.typicalRawAskingTotal') IS NOT NULL
+        OR json_type(suggestion_json, '$.typicalRawSoldTotal') IS NOT NULL
+        OR json_type(suggestion_json, '$.marketContentRetrievedAt') IS NOT NULL) THEN NULL ELSE market_currency END,
+      image_url=CASE WHEN lower(COALESCE(image_source_name, '')) LIKE '%ebay%' THEN NULL ELSE image_url END,
+      source_card_id=CASE WHEN lower(COALESCE(image_source_name, '')) LIKE '%ebay%' THEN NULL ELSE source_card_id END,
+      image_source_name=CASE WHEN lower(COALESCE(image_source_name, '')) LIKE '%ebay%' THEN NULL ELSE image_source_name END;
   `);
 }
 

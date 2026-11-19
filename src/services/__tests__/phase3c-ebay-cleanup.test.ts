@@ -85,10 +85,20 @@ function fixtureDatabase(): Database.Database {
     'user-1', 'WEEKLY', '2026-W01', 0, suggestion, 'https://example.test/image.jpg', 'eBay', 'MARKET_LISTING',
     'v1|123|0', 'Market title', 'https://example.test/item', 12, 10, 14, 3, 11, 9, 13, 2, '2026-01-01'
   );
+  const shopSuggestion = JSON.stringify({
+    name: 'Shop card', listing: { listingId: 'variant-1', source: 'SHOPIFY', title: 'Shop listing', price: 25 },
+    image: { sourceKind: 'MARKET_LISTING', sourceName: 'Trusted Shop', url: 'https://shop.test/image.jpg' },
+    typicalRawAskingTotal: 25
+  });
+  database.prepare(`INSERT INTO discovery_scheduled_drop_items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    'user-1', 'WEEKLY', '2026-W01', 1, shopSuggestion, 'https://shop.test/image.jpg', 'Trusted Shop', 'MARKET_LISTING',
+    'variant-1', 'Shop listing', 'https://shop.test/item', 25, 24, 26, 2, 23, 22, 24, 2, '2026-01-01'
+  );
   database.prepare('INSERT INTO weekly_discovery_prepared_reserve VALUES (?, ?, ?)').run(
-    'user-1', '2026-W01', JSON.stringify({ candidates: [JSON.parse(suggestion), {
-      name: 'Catalog card', image: { sourceKind: 'CARD_REFERENCE', url: 'https://catalog.test/card.jpg' }
-    }] })
+    'user-1', '2026-W01', JSON.stringify({ candidates: [JSON.parse(suggestion), JSON.parse(shopSuggestion), {
+      name: 'Ambiguous legacy card', listing: { listingId: '123', title: 'Unproven listing' },
+      image: { sourceKind: 'MARKET_LISTING', url: 'https://unknown.test/image.jpg' }
+    }, { name: 'Catalog card', image: { sourceKind: 'CARD_REFERENCE', url: 'https://catalog.test/card.jpg' } }] })
   );
   database.prepare('INSERT INTO discovery_card_universe VALUES (?, ?, ?, ?, ?, ?, ?)').run(
     'ebay-card', suggestion, 12, 'CAD', 'https://example.test/image.jpg', 'eBay', 'v1|123|0'
@@ -96,8 +106,14 @@ function fixtureDatabase(): Database.Database {
   database.prepare('INSERT INTO discovery_card_universe VALUES (?, ?, ?, ?, ?, ?, ?)').run(
     'catalog-card', JSON.stringify({ name: 'Catalog card', image: { sourceKind: 'CARD_REFERENCE', url: 'https://catalog.test/card.jpg' } }), null, null, 'https://catalog.test/card.jpg', 'TCGdex', 'catalog-1'
   );
+  database.prepare('INSERT INTO discovery_card_universe VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    'shop-card', shopSuggestion, 25, 'CAD', 'https://shop.test/image.jpg', 'Trusted Shop', 'variant-1'
+  );
   database.prepare('INSERT INTO discovery_user_universe VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
     'user-1', 'ebay-card', suggestion, 12, 'CAD', 'https://example.test/image.jpg', 'eBay', 'v1|123|0'
+  );
+  database.prepare('INSERT INTO discovery_user_universe VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    'user-1', 'shop-card', shopSuggestion, 25, 'CAD', 'https://shop.test/image.jpg', 'Trusted Shop', 'variant-1'
   );
   return database;
 }
@@ -126,10 +142,18 @@ describe('Phase 3C eBay cleanup', () => {
     expect(database.prepare("SELECT listing_title, listing_price FROM alert_events WHERE id='alert-shop'").get()).toEqual({ listing_title: 'Shop title', listing_price: 20 });
     expect(database.prepare("SELECT listing_id FROM discovery_market_cache").get()).toEqual({ listing_id: 'v1|123|0' });
     expect(database.prepare("SELECT image_url, image_source_name FROM discovery_card_universe WHERE card_key='catalog-card'").get()).toEqual({ image_url: 'https://catalog.test/card.jpg', image_source_name: 'TCGdex' });
+    expect(database.prepare("SELECT market_total, market_currency, image_url FROM discovery_card_universe WHERE card_key='shop-card'").get()).toEqual({ market_total: 25, market_currency: 'CAD', image_url: 'https://shop.test/image.jpg' });
+    expect(database.prepare("SELECT listing_title, asking_total, image_url FROM discovery_scheduled_drop_items WHERE position=1").get()).toEqual({ listing_title: 'Shop listing', asking_total: 25, image_url: 'https://shop.test/image.jpg' });
     const reserve = JSON.parse((database.prepare('SELECT reserve_json FROM weekly_discovery_prepared_reserve').get() as { reserve_json: string }).reserve_json);
     expect(reserve.candidates[0]).toMatchObject({ listing: { listingId: 'v1|123|0', source: 'EBAY' }, recommendationEvidence: { explanation: 'First-party explanation' } });
     expect(reserve.candidates[0].image).toBeUndefined();
-    expect(reserve.candidates[1].image.url).toBe('https://catalog.test/card.jpg');
+    expect(reserve.candidates[1]).toMatchObject({
+      listing: { listingId: 'variant-1', source: 'SHOPIFY', title: 'Shop listing', price: 25 },
+      image: { sourceKind: 'MARKET_LISTING', sourceName: 'Trusted Shop', url: 'https://shop.test/image.jpg' },
+      typicalRawAskingTotal: 25
+    });
+    expect(reserve.candidates[2]).toMatchObject({ listing: { listingId: '123', title: 'Unproven listing' }, image: { url: 'https://unknown.test/image.jpg' } });
+    expect(reserve.candidates[3].image.url).toBe('https://catalog.test/card.jpg');
     database.close();
   });
 
