@@ -2051,6 +2051,9 @@ function alertCardMarkup(alert, selected = false) {
   const freshness = alertFreshnessPresentation(alert);
   const savedShopPricing = alert.source === 'SHOPIFY';
   const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
+  const matchQuality = typeof alert.matchScore === 'number' && Number.isFinite(alert.matchScore)
+    ? matchLabel(alert.matchScore)
+    : '';
   return `
     <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${selected ? 'selected' : ''} ${alert.imageUrl ? 'has-image' : 'no-image'}${contentSuppressed ? ' content-suppressed' : ''}" data-alert-card data-alert-id="${escapeHtml(alert.id)}" tabindex="0" aria-current="${selected ? 'true' : 'false'}">
       <div class="alert-artwork">${alertArtworkMarkup(alert)}</div>
@@ -2059,6 +2062,7 @@ function alertCardMarkup(alert, selected = false) {
           <div class="alert-meta">
             <span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span>
             <span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span>
+            ${!contentSuppressed && matchQuality ? `<span class="match-pill">${escapeHtml(matchQuality)}</span>` : ''}
           </div>
           <button class="alert-select-button" type="button" data-action="select-alert" data-alert-id="${escapeHtml(alert.id)}">
             <span class="chase-name">${escapeHtml(alert.chaseName || 'Watchlist card')}</span>
@@ -2068,7 +2072,6 @@ function alertCardMarkup(alert, selected = false) {
             <span>${escapeHtml(sourceLabel(alert.source))}</span>
             <span aria-hidden="true">•</span>
             <span>${escapeHtml(relativeTime(alert.createdAt))}</span>
-            <span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span>
           </div>
         </div>
         <div class="alert-price-column">
@@ -2095,6 +2098,9 @@ function alertDetailPanelMarkup(alert) {
   const details = pricing.details;
   const freshness = alertFreshnessPresentation(alert);
   const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
+  const matchQuality = typeof alert.matchScore === 'number' && Number.isFinite(alert.matchScore)
+    ? matchLabel(alert.matchScore)
+    : '';
   const price = contentSuppressed ? '' : formatMoney(alert.listingPrice, alert.listingCurrency);
   const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
   const listingRows = details ? [
@@ -2138,7 +2144,7 @@ function alertDetailPanelMarkup(alert) {
           <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping` : 'Shipping unknown at time found'}</p>`}
           ${price ? '<p class="alert-detail-history">Price and availability may have changed since this listing was found.</p>' : ''}
           ${freshness.status ? `<p class="listing-freshness-note">${escapeHtml(freshness.status)}</p>` : ''}
-          <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span></div>
+          <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span>${!contentSuppressed && matchQuality ? `<span class="match-pill">${escapeHtml(matchQuality)}</span>` : ''}</div>
         </div>
       </div>
       ${contentSuppressed ? '<section class="alert-detail-section historical"><h3>Historical match</h3><p>An eBay match was found for this card. The original listing details are no longer available.</p></section>' : ''}

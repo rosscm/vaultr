@@ -1022,6 +1022,8 @@ describe('web app static routes', () => {
     expect(itemOnlyCard).toContain('Availability not yet verified');
     expect(itemOnly).toContain('Price and availability may have changed since this listing was found.');
     expect(itemOnlyCard).toContain('aria-current="true"');
+    expect(itemOnlyCard.match(/<div class="alert-meta">[\s\S]*?<\/div>/)?.[0]).toContain('Strong match');
+    expect(itemOnlyCard.match(/<div class="alert-context">[\s\S]*?<\/div>/)?.[0]).not.toContain('Strong match');
 
     const suppressed = {
       ...base,
@@ -1034,6 +1036,8 @@ describe('web app static routes', () => {
     expect(suppressedCard).not.toContain('Shipping was unknown');
     expect(suppressedCard).toContain('content-suppressed');
     expect(suppressedCard).toContain('Historical eBay match');
+    expect(suppressedCard).not.toContain('Strong match');
+    expect(suppressedCard).not.toContain('Match found');
     expect(suppressedCard).not.toContain('An eBay match was found for this card');
     expect(suppressedPanel).not.toContain('Price unavailable');
     expect(suppressedPanel).not.toContain('Shipping was unknown');
