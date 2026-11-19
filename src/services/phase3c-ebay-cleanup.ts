@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 
 type JsonObject = Record<string, unknown>;
@@ -459,15 +462,22 @@ export function runPhase3cEbayCleanup(database: Database.Database, apply = false
   const before = collectManifest(database, jsonBefore);
   const preserved = preservationSnapshot(database);
   if (!apply) {
-    const projection = new Database(database.serialize());
+    const snapshotDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'keepseek-phase3c-'));
+    fs.chmodSync(snapshotDirectory, 0o700);
+    const snapshotPath = path.join(snapshotDirectory, 'projection.db');
+    let projection: Database.Database | undefined;
     try {
+      database.prepare('VACUUM INTO ?').run(snapshotPath);
+      fs.chmodSync(snapshotPath, 0o600);
+      projection = new Database(snapshotPath, { fileMustExist: true });
       projection.pragma('foreign_keys = ON');
       applySqlCleanup(projection);
       applyJsonCleanup(projection);
       const after = collectManifest(projection, countJsonChanges(projection));
       return { mode: 'DRY_RUN', before, after, preserved };
     } finally {
-      projection.close();
+      projection?.close();
+      fs.rmSync(snapshotDirectory, { recursive: true, force: true });
     }
   }
 

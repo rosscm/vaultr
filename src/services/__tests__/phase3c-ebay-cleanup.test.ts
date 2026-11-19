@@ -1,9 +1,13 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { runPhase3cEbayCleanup } from '../phase3c-ebay-cleanup.js';
 
-function fixtureDatabase(): Database.Database {
-  const database = new Database(':memory:');
+function fixtureDatabase(filename: string | Buffer = ':memory:', wal = false): Database.Database {
+  const database = new Database(filename);
+  if (wal) database.pragma('journal_mode = WAL');
   database.exec(`
     CREATE TABLE alert_events (
       id TEXT PRIMARY KEY, source TEXT, listing_id TEXT, listing_title TEXT, listing_price REAL,
@@ -187,6 +191,40 @@ describe('Phase 3C eBay cleanup', () => {
     const applied = runPhase3cEbayCleanup(database, true);
     expect(projected.after).toEqual(applied.after);
     database.close();
+  });
+
+  it('projects a read-only file-backed WAL database and matches apply on a copy', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'keepseek-phase3c-test-'));
+    const sourcePath = path.join(directory, 'source.db');
+    const applyPath = path.join(directory, 'apply.db');
+    let source: Database.Database | undefined;
+    let applyDatabase: Database.Database | undefined;
+    try {
+      const setup = fixtureDatabase(sourcePath, true);
+      expect(setup.pragma('journal_mode', { simple: true })).toBe('wal');
+      setup.close();
+      fs.copyFileSync(sourcePath, applyPath);
+
+      source = new Database(sourcePath, { readonly: true, fileMustExist: true });
+      const projected = runPhase3cEbayCleanup(source);
+      expect(source.prepare("SELECT listing_title FROM alert_events WHERE id='alert-ebay'").get()).toEqual({ listing_title: 'Market title' });
+      source.close();
+      source = undefined;
+
+      applyDatabase = new Database(applyPath, { fileMustExist: true });
+      const applied = runPhase3cEbayCleanup(applyDatabase, true);
+      expect(projected.after).toEqual(applied.after);
+      const verification = new Database(sourcePath, { readonly: true });
+      try {
+        expect(verification.prepare("SELECT listing_title FROM alert_events WHERE id='alert-ebay'").pluck().get()).toBe('Market title');
+      } finally {
+        verification.close();
+      }
+    } finally {
+      source?.close();
+      applyDatabase?.close();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('rolls back every change when validation or persistence fails', () => {
