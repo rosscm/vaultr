@@ -1771,6 +1771,34 @@ a {
   .settings-market-fields {
     grid-template-columns: 1fr;
   }
+
+  .settings-overview-row,
+  .account-method-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .account-method-row {
+    grid-template-columns: 1fr;
+  }
+
+  .account-method-row .account-method-status,
+  .account-method-row .account-method-action {
+    justify-self: start;
+    margin-top: 2px;
+  }
+
+  .settings-overview-row .button-ghost,
+  .account-method-row .account-method-action {
+    width: fit-content;
+    min-height: 40px;
+    border-radius: 8px;
+  }
+
+  .settings-overview-row .button-ghost {
+    align-self: flex-start;
+  }
 }
 
 .home-page {
@@ -3153,6 +3181,7 @@ a {
 .alert-actions .vault-action-link,
 .alert-actions .listing-link {
   font-size: 0.78rem;
+  border-radius: 8px;
 }
 
 .inbox-master-detail {
@@ -3281,7 +3310,7 @@ a {
   justify-content: center;
   padding-inline: 8px;
   border: 1px solid rgba(191, 165, 255, 0.24);
-  border-radius: 5px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
 }
 
@@ -3312,7 +3341,7 @@ a {
   justify-content: center;
   padding-inline: 8px;
   border: 1px solid rgba(191, 165, 255, 0.2);
-  border-radius: 5px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
   white-space: normal;
   text-align: center;
@@ -3322,16 +3351,16 @@ a {
   min-height: 34px;
   padding: 0 10px;
   border: 1px solid rgba(191, 165, 255, 0.24);
-  border-radius: 5px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.035);
 }
 
 .alert-watchlist-action,
 .alert-wrong-card-action,
 .alert-dismiss-action {
-  padding-inline: 6px;
-  border-color: transparent !important;
-  background: transparent !important;
+  padding-inline: 10px;
+  border-color: rgba(191, 165, 255, 0.2) !important;
+  background: rgba(255, 255, 255, 0.025) !important;
   color: #ff91aa !important;
 }
 
@@ -3339,6 +3368,31 @@ a {
 .alert-dismiss-action:focus-visible {
   background: rgba(255, 122, 155, 0.1) !important;
   color: #ffb0c2 !important;
+}
+
+.alert-watchlist-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.alert-watchlist-link:hover,
+.alert-watchlist-link:focus-visible {
+  color: var(--accent);
+}
+
+.alert-watchlist-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .alert-card.content-suppressed .alert-actions {

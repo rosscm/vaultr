@@ -2129,6 +2129,7 @@ function alertDetailPanelMarkup(alert) {
   const matchExplanation = details?.match?.explanation || 'This listing cleared your saved Watchlist filters.';
   const positiveSignals = details?.match?.positiveSignals || [];
   const showMatchExplanation = positiveSignals.length === 0 || !/^Matched because of\b/i.test(matchExplanation);
+  const watchlistLink = `<button class="alert-watchlist-link" type="button" data-action="view-alert-chase" data-chase-id="${escapeHtml(alert.chaseId)}">View Watchlist item <span aria-hidden="true">→</span></button>`;
   return `
     <aside class="alert-detail-panel${contentSuppressed ? ' content-suppressed' : ''}" data-alert-detail-panel role="region" aria-labelledby="alert-detail-title">
       <header class="alert-detail-header">
@@ -2149,7 +2150,7 @@ function alertDetailPanelMarkup(alert) {
       </div>
       ${contentSuppressed ? '<section class="alert-detail-section historical"><h3>Historical match</h3><p>An eBay match was found for this card. The original listing details are no longer available.</p></section>' : ''}
       <section class="alert-detail-actions" aria-label="Listing actions"><h3>Actions</h3><div class="alert-actions">${alertDetailActionMarkup(alert)}</div></section>
-      ${contentSuppressed ? (details?.chase ? `<section class="alert-detail-section"><h3>Your Watchlist criteria</h3>${alertDetailRows(criteriaRows)}${details.chase.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>` : '') : details ? `
+      ${contentSuppressed ? (details?.chase ? `<section class="alert-detail-section"><h3>Your Watchlist criteria</h3>${alertDetailRows(criteriaRows)}${details.chase.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}${watchlistLink}</section>` : '') : details ? `
         <section class="alert-detail-section alert-match-evidence"><div class="alert-detail-section-heading"><h3>Why it matched</h3><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span></div>
           ${showMatchExplanation ? `<p>${escapeHtml(matchExplanation)}</p>` : ''}
           ${positiveSignals.length ? `<ul>${positiveSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join('')}</ul>` : ''}
@@ -2157,7 +2158,7 @@ function alertDetailPanelMarkup(alert) {
         </section>
         <section class="alert-detail-section"><h3>Pricing</h3>${alertDetailRows(pricingRows)}</section>
         <section class="alert-detail-section"><h3>Listing highlights</h3>${alertDetailRows(listingRows)}</section>
-        <section class="alert-detail-section"><h3>Your Watchlist criteria</h3>${alertDetailRows(criteriaRows)}${details.chase?.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>
+        <section class="alert-detail-section"><h3>Your Watchlist criteria</h3>${alertDetailRows(criteriaRows)}${details.chase?.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}${watchlistLink}</section>
       ` : alert.source === 'EBAY'
         ? '<section class="alert-detail-section historical"><h3>Historical match</h3><p>Additional match evidence was not stored for this alert.</p></section>'
         : '<section class="alert-detail-section"><h3>Saved shop match</h3><p>Detailed match evidence was not stored. Check the store for current price and availability.</p></section>'}

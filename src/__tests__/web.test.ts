@@ -1013,6 +1013,8 @@ describe('web app static routes', () => {
     expect(itemOnly).toContain('detail actions for alert');
     expect(itemOnly).toContain('<h3>Pricing</h3>');
     expect(itemOnly).toContain('<h3>Your Watchlist criteria</h3>');
+    expect(itemOnly).toContain('data-action="view-alert-chase"');
+    expect(itemOnly).toContain('View Watchlist item');
     expect(itemOnly).toContain('<dt>Shipping</dt><dd>Unknown</dd>');
     expect(itemOnly).toContain('<dt>Verified total</dt><dd>Unknown</dd>');
     expect(itemOnly).toContain('below your maximum using item price only; shipping unknown');
