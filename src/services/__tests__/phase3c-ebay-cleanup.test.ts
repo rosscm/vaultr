@@ -109,11 +109,17 @@ function fixtureDatabase(): Database.Database {
   database.prepare('INSERT INTO discovery_card_universe VALUES (?, ?, ?, ?, ?, ?, ?)').run(
     'shop-card', shopSuggestion, 25, 'CAD', 'https://shop.test/image.jpg', 'Trusted Shop', 'variant-1'
   );
+  database.prepare('INSERT INTO discovery_card_universe VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    'legacy-card', JSON.stringify({ name: 'Legacy card' }), 99, 'CAD', 'https://catalog.test/legacy.jpg', 'TCGdex', 'catalog-legacy'
+  );
   database.prepare('INSERT INTO discovery_user_universe VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
     'user-1', 'ebay-card', suggestion, 12, 'CAD', 'https://example.test/image.jpg', 'eBay', 'v1|123|0'
   );
   database.prepare('INSERT INTO discovery_user_universe VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
     'user-1', 'shop-card', shopSuggestion, 25, 'CAD', 'https://shop.test/image.jpg', 'Trusted Shop', 'variant-1'
+  );
+  database.prepare('INSERT INTO discovery_user_universe VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    'user-1', 'legacy-card', JSON.stringify({ name: 'Legacy card' }), 99, 'CAD', 'https://catalog.test/legacy.jpg', 'TCGdex', 'catalog-legacy'
   );
   return database;
 }
@@ -125,6 +131,14 @@ describe('Phase 3C eBay cleanup', () => {
     expect(report.mode).toBe('DRY_RUN');
     expect(report.before.find((entry) => entry.location === 'alert_events')).toMatchObject({
       records: 1, distinctListingIds: 1, fields: { listing_title: 1, marketplace_payload_json: 1 }
+    });
+    expect(report.before.find((entry) => entry.location === 'discovery_card_universe')).toMatchObject({
+      fields: { market_totals_confirmed_ebay: 1 },
+      ambiguousRetained: { market_totals_confirmed_non_ebay: 1, market_totals_ambiguous: 1 }
+    });
+    expect(report.before.find((entry) => entry.location === 'discovery_user_universe')).toMatchObject({
+      fields: { market_totals_confirmed_ebay: 1 },
+      ambiguousRetained: { market_totals_confirmed_non_ebay: 1, market_totals_ambiguous: 1 }
     });
     expect(database.prepare("SELECT listing_title FROM alert_events WHERE source='EBAY'").get()).toEqual({ listing_title: 'Market title' });
     database.close();
@@ -143,6 +157,7 @@ describe('Phase 3C eBay cleanup', () => {
     expect(database.prepare("SELECT listing_id FROM discovery_market_cache").get()).toEqual({ listing_id: 'v1|123|0' });
     expect(database.prepare("SELECT image_url, image_source_name FROM discovery_card_universe WHERE card_key='catalog-card'").get()).toEqual({ image_url: 'https://catalog.test/card.jpg', image_source_name: 'TCGdex' });
     expect(database.prepare("SELECT market_total, market_currency, image_url FROM discovery_card_universe WHERE card_key='shop-card'").get()).toEqual({ market_total: 25, market_currency: 'CAD', image_url: 'https://shop.test/image.jpg' });
+    expect(database.prepare("SELECT market_total, market_currency FROM discovery_card_universe WHERE card_key='legacy-card'").get()).toEqual({ market_total: 99, market_currency: 'CAD' });
     expect(database.prepare("SELECT listing_title, asking_total, image_url FROM discovery_scheduled_drop_items WHERE position=1").get()).toEqual({ listing_title: 'Shop listing', asking_total: 25, image_url: 'https://shop.test/image.jpg' });
     const reserve = JSON.parse((database.prepare('SELECT reserve_json FROM weekly_discovery_prepared_reserve').get() as { reserve_json: string }).reserve_json);
     expect(reserve.candidates[0]).toMatchObject({ listing: { listingId: 'v1|123|0', source: 'EBAY' }, recommendationEvidence: { explanation: 'First-party explanation' } });
@@ -162,6 +177,15 @@ describe('Phase 3C eBay cleanup', () => {
     runPhase3cEbayCleanup(database, true);
     const second = runPhase3cEbayCleanup(database, true);
     expect(second.before.every((entry) => Object.values(entry.fields).every((count) => count === 0))).toBe(true);
+    database.close();
+  });
+
+  it('projects the same manifest that apply produces without changing the source database', () => {
+    const database = fixtureDatabase();
+    const projected = runPhase3cEbayCleanup(database);
+    expect(database.prepare("SELECT listing_title FROM alert_events WHERE id='alert-ebay'").get()).toEqual({ listing_title: 'Market title' });
+    const applied = runPhase3cEbayCleanup(database, true);
+    expect(projected.after).toEqual(applied.after);
     database.close();
   });
 

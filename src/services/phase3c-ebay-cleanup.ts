@@ -144,11 +144,11 @@ type DiscoveryJsonCounts = {
 function collectManifest(database: Database.Database, jsonCounts: DiscoveryJsonCounts): CleanupManifestEntry[] {
   const scheduledEbayListing = `(json_extract(suggestion_json, '$.listing.source') = 'EBAY' OR listing_id LIKE 'v1|%|%')`;
   const scheduledEbayMarket = `(json_extract(suggestion_json, '$.listing.source') IS NULL OR json_extract(suggestion_json, '$.listing.source') = 'EBAY')`;
-  const universeEbayMarket = `(${scheduledEbayMarket} AND (
-    json_extract(suggestion_json, '$.listing.source') = 'EBAY' OR
-    json_type(suggestion_json, '$.typicalRawAskingTotal') IS NOT NULL OR
-    json_type(suggestion_json, '$.typicalRawSoldTotal') IS NOT NULL OR
-    json_type(suggestion_json, '$.marketContentRetrievedAt') IS NOT NULL))`;
+  const universeEbayMarket = `(COALESCE(json_extract(suggestion_json, '$.listing.source') = 'EBAY', 0) OR
+    (json_extract(suggestion_json, '$.listing.source') IS NULL AND (
+      json_type(suggestion_json, '$.typicalRawAskingTotal') IS NOT NULL OR
+      json_type(suggestion_json, '$.typicalRawSoldTotal') IS NOT NULL OR
+      json_type(suggestion_json, '$.marketContentRetrievedAt') IS NOT NULL)))`;
   return [
     alertManifest(database),
     sentAlertManifest(database),
@@ -173,12 +173,12 @@ function collectManifest(database: Database.Database, jsonCounts: DiscoveryJsonC
       fields: { marketplace_json_items: jsonCounts.prepared }, ambiguousRetained: { recommendation_evidence: jsonCounts.preparedEvidence }
     },
     simpleManifest(database, 'discovery_card_universe', '', {
-      market_totals: `market_total IS NOT NULL AND ${universeEbayMarket}`,
+      market_totals_confirmed_ebay: `market_total IS NOT NULL AND ${universeEbayMarket}`,
       ebay_images: "lower(COALESCE(image_source_name, '')) LIKE '%ebay%'",
       marketplace_json_items: `${jsonCounts.cardUniverse}`
     }),
     simpleManifest(database, 'discovery_user_universe', '', {
-      market_totals: `market_total IS NOT NULL AND ${universeEbayMarket}`,
+      market_totals_confirmed_ebay: `market_total IS NOT NULL AND ${universeEbayMarket}`,
       ebay_images: "lower(COALESCE(image_source_name, '')) LIKE '%ebay%'",
       marketplace_json_items: `${jsonCounts.userUniverse}`
     }),
@@ -190,10 +190,14 @@ function collectManifest(database: Database.Database, jsonCounts: DiscoveryJsonC
     if (entry.location === 'discovery_card_universe') {
       entry.fields.marketplace_json_items = jsonCounts.cardUniverse;
       entry.ambiguousRetained.recommendation_evidence = jsonCounts.cardUniverseEvidence;
+      entry.ambiguousRetained.market_totals_confirmed_non_ebay = scalar(database, `SELECT COUNT(*) AS value FROM discovery_card_universe WHERE market_total IS NOT NULL AND json_extract(suggestion_json, '$.listing.source') IS NOT NULL AND json_extract(suggestion_json, '$.listing.source') <> 'EBAY'`);
+      entry.ambiguousRetained.market_totals_ambiguous = scalar(database, `SELECT COUNT(*) AS value FROM discovery_card_universe WHERE market_total IS NOT NULL AND NOT ${universeEbayMarket} AND json_extract(suggestion_json, '$.listing.source') IS NULL`);
     }
     if (entry.location === 'discovery_user_universe') {
       entry.fields.marketplace_json_items = jsonCounts.userUniverse;
       entry.ambiguousRetained.recommendation_evidence = jsonCounts.userUniverseEvidence;
+      entry.ambiguousRetained.market_totals_confirmed_non_ebay = scalar(database, `SELECT COUNT(*) AS value FROM discovery_user_universe WHERE market_total IS NOT NULL AND json_extract(suggestion_json, '$.listing.source') IS NOT NULL AND json_extract(suggestion_json, '$.listing.source') <> 'EBAY'`);
+      entry.ambiguousRetained.market_totals_ambiguous = scalar(database, `SELECT COUNT(*) AS value FROM discovery_user_universe WHERE market_total IS NOT NULL AND NOT ${universeEbayMarket} AND json_extract(suggestion_json, '$.listing.source') IS NULL`);
     }
     return entry;
   });
@@ -455,18 +459,23 @@ export function runPhase3cEbayCleanup(database: Database.Database, apply = false
   const before = collectManifest(database, jsonBefore);
   const preserved = preservationSnapshot(database);
   if (!apply) {
-    return {
-      mode: 'DRY_RUN', before,
-      after: before.map((entry) => ({ ...entry, fields: Object.fromEntries(Object.keys(entry.fields).map((key) => [key, 0])) })),
-      preserved
-    };
+    const projection = new Database(database.serialize());
+    try {
+      projection.pragma('foreign_keys = ON');
+      applySqlCleanup(projection);
+      applyJsonCleanup(projection);
+      const after = collectManifest(projection, countJsonChanges(projection));
+      return { mode: 'DRY_RUN', before, after, preserved };
+    } finally {
+      projection.close();
+    }
   }
 
   database.pragma('busy_timeout = 5000');
   database.exec('BEGIN IMMEDIATE');
   try {
-    applyJsonCleanup(database);
     applySqlCleanup(database);
+    applyJsonCleanup(database);
     const afterPreserved = preservationSnapshot(database);
     if (JSON.stringify(afterPreserved) !== JSON.stringify(preserved)) throw new Error('Collector-data preservation check failed');
     const foreignKeys = database.pragma('foreign_key_check') as unknown[];
