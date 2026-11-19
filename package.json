@@ -25,6 +25,8 @@
     "backup:dry-run:dist": "node dist/backup.js --dry-run",
     "ebay:verify-once": "tsx src/ebay-listing-verification-once.ts",
     "ebay:verify-once:dist": "node dist/ebay-listing-verification-once.js",
+    "cleanup:ebay:phase3c": "tsx src/phase3c-ebay-cleanup.ts",
+    "cleanup:ebay:phase3c:dist": "node dist/phase3c-ebay-cleanup.js",
     "backfill:chase-images": "tsx src/backfill-chase-images.ts",
     "backfill:chase-images:dist": "node dist/backfill-chase-images.js",
     "catalog:init": "tsx src/catalog-init.ts",
