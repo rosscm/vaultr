@@ -1031,6 +1031,9 @@ describe('web app static routes', () => {
     const suppressedPanel = render.panel(suppressed);
     expect(suppressedCard).not.toContain('Price unavailable');
     expect(suppressedCard).not.toContain('Shipping was unknown');
+    expect(suppressedCard).toContain('content-suppressed');
+    expect(suppressedCard).toContain('Historical eBay match');
+    expect(suppressedCard).not.toContain('An eBay match was found for this card');
     expect(suppressedPanel).not.toContain('Price unavailable');
     expect(suppressedPanel).not.toContain('Shipping was unknown');
     expect(suppressedPanel).toContain('The original listing details are no longer available.');
@@ -1072,7 +1075,7 @@ describe('web app static routes', () => {
     expect(source).toContain('The original eBay listing details are no longer available.');
   });
 
-  it('keeps supported-shop pricing current across Home, Inbox cards, and listing details', async () => {
+  it('labels supported-shop snapshots when matched across Home, Inbox cards, and listing details', async () => {
     const response = await handleWebRequest({ method: 'GET', url: '/app.js' }, { config });
     const source = response.body ?? '';
     const homeMatch = source.match(/function homeAlertPreviewMarkup\([^]*?\n\}/);
@@ -1111,16 +1114,21 @@ describe('web app static routes', () => {
     const card = render.card(shopAlert);
     const panel = render.panel(shopAlert);
     expect(home).toContain('CAD $15.00 under max');
-    expect(home).not.toContain('when matched');
-    expect(card).toContain('+ CAD $5.00 shipping');
-    expect(card).toContain('CAD $15.00 below max');
-    expect(card).not.toContain('when matched');
-    expect(panel).toContain('<dt>Item price</dt><dd>CAD $80.00</dd>');
-    expect(panel).toContain('<dt>Shipping</dt><dd>CAD $5.00</dd>');
-    expect(panel).toContain('<dt>Verified total</dt><dd>CAD $85.00</dd>');
-    expect(panel).toContain('<dt>Below maximum</dt><dd>CAD $15.00</dd>');
-    expect(panel).not.toContain('when matched');
+    expect(home).toContain('Price when matched');
+    expect(home).toContain('Check current availability at the store');
+    expect(card).toContain('+ CAD $5.00 shipping when matched');
+    expect(card).toContain('CAD $15.00 below max when matched');
+    expect(card).toContain('Check current availability at the store');
+    expect(panel).toContain('<dt>Item price when matched</dt><dd>CAD $80.00</dd>');
+    expect(panel).toContain('<dt>Shipping when matched</dt><dd>CAD $5.00</dd>');
+    expect(panel).toContain('<dt>Total when matched</dt><dd>CAD $85.00</dd>');
+    expect(panel).toContain('<dt>Below maximum when matched</dt><dd>CAD $15.00</dd>');
+    expect(panel).toContain('Check current price and availability at the store.');
     expect(panel).not.toContain('Saved listing details have not been refreshed.');
+
+    const shopWithoutDetails = render.panel({ ...shopAlert, details: undefined });
+    expect(shopWithoutDetails).toContain('<h3>Saved shop match</h3>');
+    expect(shopWithoutDetails).not.toContain('<h3>Historical match</h3>');
   });
 
   it('renders Inbox as a selectable master-detail surface without inline listing disclosures', async () => {

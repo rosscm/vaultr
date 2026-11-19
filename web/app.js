@@ -1652,9 +1652,10 @@ function homeAlertPreviewMarkup(alert) {
   const quality = matchLabel(alert.matchScore);
   const freshness = alertFreshnessPresentation(alert);
   const historicalPricing = alert.source === 'EBAY';
+  const savedShopPricing = alert.source === 'SHOPIFY';
   const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   return `
-    <li class="home-preview-row">
+    <li class="home-preview-row${contentSuppressed ? ' content-suppressed' : ''}">
       <div class="home-preview-artwork">
         ${alert.imageUrl
           ? artworkTriggerMarkup({
@@ -1668,7 +1669,7 @@ function homeAlertPreviewMarkup(alert) {
       </div>
       <div class="home-preview-copy">
         <strong>${escapeHtml(alert.chaseName || 'Watchlist card')}</strong>
-        <span>${escapeHtml(contentSuppressed ? 'The original eBay listing details are no longer available.' : alert.listingTitle || sourceLabel(alert.source))}</span>
+        <span>${escapeHtml(contentSuppressed ? 'Historical eBay match' : alert.listingTitle || sourceLabel(alert.source))}</span>
         <span class="home-preview-meta">
           <span class="review-state-pill new">New</span>
           ${quality ? `<span>${escapeHtml(quality)}</span>` : ''}
@@ -1676,7 +1677,7 @@ function homeAlertPreviewMarkup(alert) {
           <span>${escapeHtml(relativeTime(alert.createdAt))}</span>
         </span>
       </div>
-      <span class="home-preview-price">${price ? `<strong class="home-preview-value">${escapeHtml(price)}</strong>${historicalPricing ? `<span>${freshness.historicalPriceLabel}</span>` : ''}` : ''}${delta ? `<span>${escapeHtml(delta)}${historicalPricing ? ' when matched' : ''}</span>` : ''}${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}</span>
+      <span class="home-preview-price">${price ? `<strong class="home-preview-value">${escapeHtml(price)}</strong>${historicalPricing || savedShopPricing ? '<span>Price when matched</span>' : ''}` : ''}${delta ? `<span>${escapeHtml(delta)}${historicalPricing || savedShopPricing ? ' when matched' : ''}</span>` : ''}${savedShopPricing ? '<span>Check current availability at the store</span>' : ''}${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}</span>
       <div class="home-preview-actions">${alertActionMarkup(alert, { compact: true })}</div>
     </li>
   `;
@@ -2048,9 +2049,10 @@ function alertCardMarkup(alert, selected = false) {
   const price = formatMoney(alert.listingPrice, alert.listingCurrency);
   const freshness = alertFreshnessPresentation(alert);
   const historicalPricing = alert.source === 'EBAY';
+  const savedShopPricing = alert.source === 'SHOPIFY';
   const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   return `
-    <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${selected ? 'selected' : ''} ${alert.imageUrl ? 'has-image' : 'no-image'}" data-alert-card data-alert-id="${escapeHtml(alert.id)}" tabindex="0" aria-current="${selected ? 'true' : 'false'}">
+    <article class="alert-card ${reviewed ? 'reviewed' : 'new'} ${selected ? 'selected' : ''} ${alert.imageUrl ? 'has-image' : 'no-image'}${contentSuppressed ? ' content-suppressed' : ''}" data-alert-card data-alert-id="${escapeHtml(alert.id)}" tabindex="0" aria-current="${selected ? 'true' : 'false'}">
       <div class="alert-artwork">${alertArtworkMarkup(alert)}</div>
       <div class="alert-content">
         <div class="alert-main">
@@ -2061,7 +2063,7 @@ function alertCardMarkup(alert, selected = false) {
           <button class="alert-select-button" type="button" data-action="select-alert" data-alert-id="${escapeHtml(alert.id)}">
             <span class="chase-name">${escapeHtml(alert.chaseName || 'Watchlist card')}</span>
           </button>
-          ${contentSuppressed ? '<p class="listing-title">An eBay match was found for this card. The original listing details are no longer available.</p>' : alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
+          ${contentSuppressed ? '<p class="listing-title historical-status">Historical eBay match</p>' : alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
           <div class="alert-context">
             <span>${escapeHtml(sourceLabel(alert.source))}</span>
             <span aria-hidden="true">•</span>
@@ -2070,9 +2072,10 @@ function alertCardMarkup(alert, selected = false) {
           </div>
         </div>
         <div class="alert-price-column">
-          ${contentSuppressed ? '' : `<span class="alert-price-primary">${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping${historicalPricing ? ' when matched' : ''}</span>` : `<span class="alert-card-shipping">${historicalPricing ? 'Shipping was unknown' : 'Shipping unknown'}</span>`}</span>
-          ${price && freshness.historicalPriceLabel ? `<span class="alert-price-history">${freshness.historicalPriceLabel}</span>` : ''}
-          ${pricing.compactDelta ? `<span class="price-delta">${escapeHtml(pricing.compactDelta)}${historicalPricing ? ' when matched' : ''}</span>` : ''}
+          ${contentSuppressed ? '' : `<span class="alert-price-primary">${price ? `<span class="price">${escapeHtml(price)}</span>` : '<span class="price-unavailable">Price unavailable</span>'}${pricing.shippingKnown ? `<span class="alert-card-shipping">+ ${pricing.money(pricing.details.pricing.shipping)} shipping${historicalPricing || savedShopPricing ? ' when matched' : ''}</span>` : `<span class="alert-card-shipping">${historicalPricing ? 'Shipping was unknown' : savedShopPricing ? 'Shipping unknown when matched' : 'Shipping unknown'}</span>`}</span>
+          ${price && (freshness.historicalPriceLabel || savedShopPricing) ? '<span class="alert-price-history">Price when matched</span>' : ''}
+          ${pricing.compactDelta ? `<span class="price-delta">${escapeHtml(pricing.compactDelta)}${historicalPricing || savedShopPricing ? ' when matched' : ''}</span>` : ''}
+          ${savedShopPricing ? '<span class="listing-freshness-note">Check current availability at the store</span>' : ''}
           ${freshness.status ? `<span class="listing-freshness-note">${escapeHtml(freshness.status)}</span>` : ''}`}
         </div>
         <div class="alert-actions">${alertActionMarkup(alert, { compact: true, includeCorrection: true })}</div>
@@ -2093,6 +2096,7 @@ function alertDetailPanelMarkup(alert) {
   const details = pricing.details;
   const freshness = alertFreshnessPresentation(alert);
   const historicalPricing = alert.source === 'EBAY';
+  const savedShopPricing = alert.source === 'SHOPIFY';
   const contentSuppressed = Boolean(alert.listingFreshness?.contentSuppressed);
   const detailValue = (value, fallback = 'Not specified') => value === undefined || value === null || value === '' ? fallback : escapeHtml(String(value));
   const listingRows = details ? [
@@ -2105,11 +2109,11 @@ function alertDetailPanelMarkup(alert) {
     ['Listed', alert.listingPostedAt ? escapeHtml(relativeTime(alert.listingPostedAt)) : 'Unknown']
   ] : [];
   const pricingRows = details ? [
-    [historicalPricing ? 'Item price when matched' : 'Item price', pricing.money(details.pricing?.itemPrice)],
-    [historicalPricing ? 'Shipping when matched' : 'Shipping', pricing.shippingKnown ? pricing.money(details.pricing.shipping) : 'Unknown'],
-    [historicalPricing ? 'Total when matched' : 'Verified total', pricing.verifiedTotal ? pricing.money(details.pricing.total) : 'Unknown'],
+    [historicalPricing || savedShopPricing ? 'Item price when matched' : 'Item price', pricing.money(details.pricing?.itemPrice)],
+    [historicalPricing || savedShopPricing ? 'Shipping when matched' : 'Shipping', pricing.shippingKnown ? pricing.money(details.pricing.shipping) : 'Unknown'],
+    [historicalPricing || savedShopPricing ? 'Total when matched' : 'Verified total', pricing.verifiedTotal ? pricing.money(details.pricing.total) : 'Unknown'],
     ['Your maximum', pricing.money(details.chase?.maxPrice)],
-    [historicalPricing ? 'Below maximum when matched' : 'Below maximum', pricing.comparisonAmount === undefined ? 'Not available' : pricing.money(pricing.comparisonAmount)],
+    [historicalPricing || savedShopPricing ? 'Below maximum when matched' : 'Below maximum', pricing.comparisonAmount === undefined ? 'Not available' : pricing.money(pricing.comparisonAmount)],
     ['Comparison basis', escapeHtml(pricing.comparison)]
   ] : [];
   const criteriaRows = details ? [
@@ -2133,8 +2137,9 @@ function alertDetailPanelMarkup(alert) {
           <p class="alert-detail-target">For ${escapeHtml(alert.chaseName || 'your Watchlist')}</p>
           <p class="alert-detail-market">${escapeHtml(details?.listing?.sourceLabel || sourceLabel(alert.source))}${details?.listing?.listingType ? ` • ${escapeHtml(listingTypeLabel(details.listing.listingType))}` : ''}</p>
           ${contentSuppressed ? '' : `<p class="alert-detail-price">${formatMoney(alert.listingPrice, alert.listingCurrency) || 'Price unavailable'}</p>
-          <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping${historicalPricing ? ' when matched' : ''}` : historicalPricing ? 'Shipping was unknown' : 'Shipping unknown'}</p>`}
+          <p class="alert-detail-shipping">${pricing.shippingKnown ? `+ ${pricing.money(details.pricing.shipping)} shipping${historicalPricing || savedShopPricing ? ' when matched' : ''}` : historicalPricing ? 'Shipping was unknown' : savedShopPricing ? 'Shipping unknown when matched' : 'Shipping unknown'}</p>`}
           ${freshness.historicalPriceLabel ? `<p class="alert-detail-history">${escapeHtml(freshness.historicalPriceLabel)}. Saved listing details have not been refreshed.</p>` : ''}
+          ${savedShopPricing ? '<p class="alert-detail-history">Price when matched. Check current price and availability at the store.</p>' : ''}
           ${freshness.status ? `<p class="listing-freshness-note">${escapeHtml(freshness.status)}</p>` : ''}
           <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span></div>
         </div>
@@ -2150,7 +2155,9 @@ function alertDetailPanelMarkup(alert) {
         <section class="alert-detail-section"><h3>Pricing</h3>${alertDetailRows(pricingRows)}</section>
         <section class="alert-detail-section"><h3>Listing highlights</h3>${alertDetailRows(listingRows)}</section>
         <section class="alert-detail-section"><h3>Your Watchlist criteria</h3>${alertDetailRows(criteriaRows)}${details.chase?.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}</section>
-      ` : '<section class="alert-detail-section historical"><h3>Historical match</h3><p>Additional match evidence was not stored for this alert.</p></section>'}
+      ` : alert.source === 'EBAY'
+        ? '<section class="alert-detail-section historical"><h3>Historical match</h3><p>Additional match evidence was not stored for this alert.</p></section>'
+        : '<section class="alert-detail-section"><h3>Saved shop match</h3><p>Detailed match evidence was not stored. Check the store for current price and availability.</p></section>'}
     </aside>
   `;
 }

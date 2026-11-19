@@ -3085,6 +3085,25 @@ a {
   background: rgba(10, 8, 22, 0.16);
 }
 
+.alert-card.content-suppressed {
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+  opacity: 0.82;
+}
+
+.alert-card.content-suppressed .alert-artwork,
+.alert-card.content-suppressed .alert-image,
+.alert-card.content-suppressed .alert-image-placeholder {
+  width: 68px;
+  height: 92px;
+  min-height: 92px;
+}
+
+.historical-status {
+  font-size: 0.78rem;
+}
+
 .alert-card:hover {
   border-color: rgba(184, 148, 255, 0.34);
   background-color: rgba(255, 255, 255, 0.035);
@@ -3126,7 +3145,7 @@ a {
   display: grid;
   grid-column: 1 / -1;
   grid-row: 2;
-  grid-template-columns: minmax(170px, 0.72fr) minmax(360px, 1.28fr);
+  grid-template-columns: minmax(130px, 0.72fr) minmax(0, 1.28fr);
   align-content: center;
   gap: 8px;
 }
@@ -3288,13 +3307,15 @@ a {
 }
 
 .alert-card .alert-secondary-actions .vault-action-link {
+  min-width: 0;
   min-height: 34px;
   justify-content: center;
   padding-inline: 8px;
   border: 1px solid rgba(191, 165, 255, 0.2);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.025);
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
 }
 
 .alert-review-action {
