@@ -1670,7 +1670,7 @@ function homeAlertPreviewMarkup(alert) {
       </div>
       <div class="home-preview-copy">
         <strong>${escapeHtml(alert.chaseName || 'Watchlist card')}</strong>
-        <span>${escapeHtml(contentSuppressed ? 'Historical eBay match' : alert.listingTitle || sourceLabel(alert.source))}</span>
+        <span>${escapeHtml(contentSuppressed ? 'eBay match — details unavailable' : alert.listingTitle || sourceLabel(alert.source))}</span>
         <span class="home-preview-meta">
           <span class="review-state-pill new">New</span>
           ${quality ? `<span>${escapeHtml(quality)}</span>` : ''}
@@ -2018,15 +2018,20 @@ function alertPricingPresentation(alert) {
 function alertFreshnessPresentation(alert) {
   if (alert.source !== 'EBAY') return { status: '', historicalPriceLabel: '' };
   const freshness = alert.listingFreshness;
-  if (freshness?.contentSuppressed) return { status: '', historicalPriceLabel: '' };
+  if (freshness?.contentSuppressed) {
+    if (freshness.availabilityFresh && freshness.availabilityState === 'AVAILABLE') return { status: 'Availability recently verified', historicalPriceLabel: '' };
+    if (freshness.availabilityFresh && freshness.availabilityState === 'ENDED_PUBLIC') return { status: 'Listing ended when last checked', historicalPriceLabel: '' };
+    if (freshness.availabilityFresh && freshness.availabilityState === 'UNAVAILABLE') return { status: 'Listing unavailable when last checked', historicalPriceLabel: '' };
+    return { status: '', historicalPriceLabel: '' };
+  }
   if (!freshness) return { status: 'Availability not yet verified', historicalPriceLabel: 'Found price' };
   if (!freshness.availabilityFresh) {
     if (freshness.availabilityState === 'VERIFICATION_FAILED') return { status: 'Availability could not be verified', historicalPriceLabel: 'Found price' };
     if (freshness.availabilityState === 'UNVERIFIED') return { status: 'Availability not yet verified', historicalPriceLabel: 'Found price' };
     return { status: 'Availability check is out of date', historicalPriceLabel: 'Found price' };
   }
-  if (freshness.availabilityState === 'AVAILABLE') return { status: 'Availability checked recently', historicalPriceLabel: 'Found price' };
-  if (freshness.availabilityState === 'ENDED_PUBLIC') return { status: 'Listing had ended when last checked', historicalPriceLabel: 'Found price' };
+  if (freshness.availabilityState === 'AVAILABLE') return { status: 'Availability recently verified', historicalPriceLabel: 'Found price' };
+  if (freshness.availabilityState === 'ENDED_PUBLIC') return { status: 'Listing ended when last checked', historicalPriceLabel: 'Found price' };
   if (freshness.availabilityState === 'UNAVAILABLE') return { status: 'Listing was unavailable when last checked', historicalPriceLabel: 'Found price' };
   return { status: 'Availability not yet verified', historicalPriceLabel: 'Found price' };
 }
@@ -2067,7 +2072,7 @@ function alertCardMarkup(alert, selected = false) {
           <button class="alert-select-button" type="button" data-action="select-alert" data-alert-id="${escapeHtml(alert.id)}">
             <span class="chase-name">${escapeHtml(alert.chaseName || 'Watchlist card')}</span>
           </button>
-          ${contentSuppressed ? '<p class="listing-title historical-status">Historical eBay match</p>' : alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
+          ${contentSuppressed ? '<p class="listing-title historical-status">eBay match — details unavailable</p>' : alert.listingTitle ? `<p class="listing-title">${escapeHtml(alert.listingTitle)}</p>` : ''}
           <div class="alert-context">
             <span>${escapeHtml(sourceLabel(alert.source))}</span>
             <span aria-hidden="true">•</span>
@@ -2148,7 +2153,7 @@ function alertDetailPanelMarkup(alert) {
           <div class="alert-meta"><span class="priority-pill ${priority.toLowerCase()}">${escapeHtml(priorityLabel(priority))}</span><span class="review-state-pill ${reviewed ? 'reviewed' : 'new'}">${reviewed ? 'Reviewed' : 'New'}</span>${!contentSuppressed && matchQuality ? `<span class="match-pill">${escapeHtml(matchQuality)}</span>` : ''}</div>
         </div>
       </div>
-      ${contentSuppressed ? '<section class="alert-detail-section historical"><h3>Historical match</h3><p>An eBay match was found for this card. The original listing details are no longer available.</p></section>' : ''}
+      ${contentSuppressed ? '<section class="alert-detail-section historical"><h3>eBay match — details unavailable</h3><p>An eBay match was found for this card. The original listing details are no longer available.</p></section>' : ''}
       <section class="alert-detail-actions" aria-label="Listing actions"><h3>Actions</h3><div class="alert-actions">${alertDetailActionMarkup(alert)}</div></section>
       ${contentSuppressed ? (details?.chase ? `<section class="alert-detail-section"><h3>Your Watchlist criteria</h3>${alertDetailRows(criteriaRows)}${details.chase.targetNote ? `<p class="alert-detail-note">${escapeHtml(details.chase.targetNote)}</p>` : ''}${watchlistLink}</section>` : '') : details ? `
         <section class="alert-detail-section alert-match-evidence"><div class="alert-detail-section-heading"><h3>Why it matched</h3><span class="match-pill">${escapeHtml(matchLabel(alert.matchScore))}</span></div>

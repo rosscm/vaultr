@@ -1037,7 +1037,7 @@ describe('web app static routes', () => {
     expect(suppressedCard).not.toContain('Price unavailable');
     expect(suppressedCard).not.toContain('Shipping was unknown');
     expect(suppressedCard).toContain('content-suppressed');
-    expect(suppressedCard).toContain('Historical eBay match');
+    expect(suppressedCard).toContain('eBay match — details unavailable');
     expect(suppressedCard).not.toContain('Strong match');
     expect(suppressedCard).not.toContain('Match found');
     expect(suppressedCard).not.toContain('An eBay match was found for this card');
@@ -1067,12 +1067,15 @@ describe('web app static routes', () => {
       source: 'EBAY', listingFreshness: { availabilityState, availabilityFresh, contentFresh: false }
     });
 
-    expect(present(ebay('AVAILABLE', true))).toEqual({ status: 'Availability checked recently', historicalPriceLabel: 'Found price' });
-    expect(present(ebay('ENDED_PUBLIC', true)).status).toBe('Listing had ended when last checked');
+    expect(present(ebay('AVAILABLE', true))).toEqual({ status: 'Availability recently verified', historicalPriceLabel: 'Found price' });
+    expect(present(ebay('ENDED_PUBLIC', true)).status).toBe('Listing ended when last checked');
     expect(present(ebay('UNAVAILABLE', true)).status).toBe('Listing was unavailable when last checked');
     expect(present(ebay('VERIFICATION_FAILED', false)).status).toBe('Availability could not be verified');
     expect(present(ebay('AVAILABLE', false)).status).toBe('Availability check is out of date');
     expect(present({ source: 'EBAY' }).status).toBe('Availability not yet verified');
+    expect(present({ source: 'EBAY', listingFreshness: { availabilityState: 'AVAILABLE', availabilityFresh: true, contentSuppressed: true } }).status).toBe('Availability recently verified');
+    expect(present({ source: 'EBAY', listingFreshness: { availabilityState: 'ENDED_PUBLIC', availabilityFresh: true, contentSuppressed: true } }).status).toBe('Listing ended when last checked');
+    expect(present({ source: 'EBAY', listingFreshness: { availabilityState: 'ENDED_PUBLIC', availabilityFresh: false, contentSuppressed: true } }).status).toBe('');
     expect(present({ source: 'SHOPIFY' })).toEqual({ status: '', historicalPriceLabel: '' });
 
     const homeSource = source.slice(source.indexOf('function homeAlertPreviewMarkup('), source.indexOf('function boundedHomeShelfIndex('));
@@ -1080,6 +1083,7 @@ describe('web app static routes', () => {
     expect(homeSource).toContain('Found at');
     expect(homeSource).toContain('listing-freshness-note');
     expect(source).toContain('The original listing details are no longer available.');
+    expect(source).toContain('eBay match — details unavailable');
   });
 
   it('labels supported-shop snapshots when matched across Home, Inbox cards, and listing details', async () => {
@@ -2785,13 +2789,14 @@ describe('authenticated alert API', () => {
     clearUser(otherUserId);
   });
 
-  it('projects eBay availability separately from historical listing content across list, detail, and actions', async () => {
+  it('projects newly retrieved eBay content until it expires while keeping availability separate', async () => {
     const userId = 'web-alert-freshness-user';
     const listingId = `v1|freshness-${Date.now()}|0`;
     clearUser(userId);
     const alert = seedAlert(userId, 71, {
       listingId,
-      listingContentRetrievedAt: '2026-11-17T05:00:00.000Z',
+      listingContentRetrievedAt: '2026-11-17T11:30:00.000Z',
+      listingImageUrl: 'https://example.test/alert-image.jpg',
       now: '2026-11-17T11:30:00.000Z'
     });
     const { token } = createWebSession({ userId }, { token: 'alert-freshness-token' });
@@ -2807,17 +2812,19 @@ describe('authenticated alert API', () => {
     expect(list.items[0].listingFreshness).toEqual({
       availabilityState: 'AVAILABLE',
       availabilityFresh: true,
-      contentFresh: false,
-      contentSuppressed: true,
-      availabilityVerifiedAt: '2026-11-17T11:00:00.000Z'
+      contentFresh: true,
+      contentSuppressed: false,
+      availabilityVerifiedAt: '2026-11-17T11:00:00.000Z',
+      contentRefreshedAt: '2026-11-17T11:30:00.000Z'
     });
-    expect(list.items[0]).not.toHaveProperty('listingTitle');
-    expect(list.items[0]).not.toHaveProperty('listingPrice');
-    expect(list.items[0]).not.toHaveProperty('listingUrl');
-    expect(list.items[0]).not.toHaveProperty('matchScore');
-    expect(list.items[0].details).toBeUndefined();
+    expect(list.items[0]).toMatchObject({
+      listingTitle: 'Mew listing 71',
+      listingPrice: 111,
+      listingUrl: 'https://example.test/listing-71',
+      imageUrl: 'https://example.test/alert-image.jpg'
+    });
     expect((db.prepare('SELECT listing_content_retrieved_at FROM alert_events WHERE id = ?').get(alert.alertId) as { listing_content_retrieved_at: string }).listing_content_retrieved_at)
-      .toBe('2026-11-17T05:00:00.000Z');
+      .toBe('2026-11-17T11:30:00.000Z');
 
     const detail = JSON.parse((await handleWebRequest({ method: 'GET', url: `/api/alerts/${alert.alertId}`, headers }, requestOptions)).body ?? '{}');
     expect(detail.item.listingFreshness).toEqual(list.items[0].listingFreshness);
@@ -2826,15 +2833,23 @@ describe('authenticated alert API', () => {
 
     db.prepare(`
       UPDATE ebay_listing_verifications
-      SET availability_state = 'ENDED_PUBLIC', last_successful_verification_at = ?, updated_at = ?
+      SET availability_state = 'AVAILABLE', last_successful_verification_at = ?, updated_at = ?
       WHERE listing_id = ?
-    `).run('2026-11-16T00:00:00.000Z', '2026-11-16T00:00:00.000Z', listingId);
-    const stale = JSON.parse((await handleWebRequest({ method: 'GET', url: `/api/alerts/${alert.alertId}`, headers }, requestOptions)).body ?? '{}');
+    `).run('2026-11-17T17:30:00.000Z', '2026-11-17T17:30:00.000Z', listingId);
+    const stale = JSON.parse((await handleWebRequest(
+      { method: 'GET', url: `/api/alerts/${alert.alertId}`, headers },
+      { config, now: () => new Date('2026-11-17T18:00:00.000Z') }
+    )).body ?? '{}');
     expect(stale.item.listingFreshness).toMatchObject({
-      availabilityState: 'ENDED_PUBLIC',
-      availabilityFresh: false,
-      contentFresh: false
+      availabilityState: 'AVAILABLE',
+      availabilityFresh: true,
+      contentFresh: false,
+      contentSuppressed: true
     });
+    expect(stale.item).not.toHaveProperty('listingTitle');
+    expect(stale.item).not.toHaveProperty('listingPrice');
+    expect(stale.item).not.toHaveProperty('listingUrl');
+    expect(stale.item).not.toHaveProperty('imageUrl');
 
     clearUser(userId);
     db.prepare('DELETE FROM ebay_listing_verifications WHERE listing_id = ?').run(listingId);
